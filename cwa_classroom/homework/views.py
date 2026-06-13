@@ -1047,6 +1047,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                 ('fill_blank', 'Fill in the Blank'),
                 ('calculation', 'Calculation'),
                 ('extended_answer', 'Extended Answer (written)'),
+                ('long_division', 'Long Division'),
             ],
             'validation_types': [
                 ('auto', 'Auto (system checks)'),
@@ -1100,6 +1101,16 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
 
             img_ref = request.POST.get(f'{prefix}image_ref', '')
             q['image_ref'] = img_ref if img_ref and img_ref != 'none' else None
+
+            # Long-division fields (only relevant for long_division)
+            if q['question_type'] == 'long_division':
+                for fld in ('dividend', 'divisor'):
+                    raw = request.POST.get(f'{prefix}{fld}', '').strip()
+                    if raw:
+                        try:
+                            q[fld] = int(raw)
+                        except ValueError:
+                            pass
 
             # Handle image replacement / removal
             if request.POST.get(f'{prefix}remove_image') == 'on':
@@ -1425,8 +1436,23 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             'fill_blank': MQ.FILL_BLANK,
             'calculation': MQ.CALCULATION if hasattr(MQ, 'CALCULATION') else MQ.SHORT_ANSWER,
             'extended_answer': MQ.EXTENDED_ANSWER,
+            'long_division': MQ.LONG_DIVISION,
         }
         mapped_type = type_map.get(q_type, MQ.SHORT_ANSWER)
+
+        # Long-division: parse dividend/divisor; the answer is computed (not AI-supplied)
+        # and the layout is drawn by the app, so any attached image would be noise.
+        dividend = divisor = None
+        if mapped_type == MQ.LONG_DIVISION:
+            try:
+                dividend = int(q.get('dividend'))
+                divisor = int(q.get('divisor'))
+            except (TypeError, ValueError):
+                dividend = divisor = None
+            if not dividend or not divisor or divisor <= 0:
+                # Can't build a valid long-division question — skip it rather than
+                # import a broken one with no usable answer.
+                continue
 
         # Create or get question (avoid exact duplicates within same topic/level)
         mq, created = MQ.objects.get_or_create(
@@ -1442,6 +1468,8 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 'points': q.get('points', 1),
                 'explanation': q.get('explanation', ''),
                 'department_id': dept_id,
+                'dividend': dividend,
+                'divisor': divisor,
             },
         )
 
@@ -1454,7 +1482,8 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         # Save image to storage (DO Spaces / S3) via Django's ImageField.save()
         # Run when newly created OR when question exists but has no image yet
         # (covers re-uploads after previously broken confirm attempts).
-        if (created or not mq.image):
+        # Long division draws its own bracket from dividend/divisor — never attach an image.
+        if mapped_type != MQ.LONG_DIVISION and (created or not mq.image):
             import logging as _img_log
             _img_logger = _img_log.getLogger('homework')
             image_ref = q.get('image_ref')
@@ -1475,7 +1504,15 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                     )
 
         # Save answers (skip for extended_answer)
-        if mapped_type != MQ.EXTENDED_ANSWER:
+        if mapped_type == MQ.LONG_DIVISION:
+            # Answer is computed from dividend/divisor — ignore any AI-supplied answers.
+            if created:
+                MA.objects.create(
+                    question=mq,
+                    answer_text=mq.long_division_answer or '',
+                    is_correct=True,
+                )
+        elif mapped_type != MQ.EXTENDED_ANSWER:
             answers_data = q.get('answers', [])
             if answers_data and created:
                 MA.objects.bulk_create([

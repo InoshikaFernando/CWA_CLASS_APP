@@ -224,6 +224,15 @@ class Question(models.Model):
         return count
 
     @property
+    def long_division_answer(self):
+        """Canonical answer for a long-division question: "Q" when it divides evenly,
+        otherwise "Q r R" (e.g. "56 r 4"). None if dividend/divisor aren't set."""
+        if not (self.dividend and self.divisor):
+            return None
+        quotient, remainder = divmod(self.dividend, self.divisor)
+        return str(quotient) if remainder == 0 else f"{quotient} r {remainder}"
+
+    @property
     def prime_factorization_rows(self):
         """Rows for the ladder rendering. First row shows target_number, last row shows 1.
         Intermediate rows are blank inputs the student fills in.

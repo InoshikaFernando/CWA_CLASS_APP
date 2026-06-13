@@ -2092,3 +2092,63 @@ class PDFConfirmMultiClassTests(TestCase):
         self.assertEqual(hws.count(), 1)
         self.assertEqual(hws.first().classroom_id, self.c1.id)
         self.assertFalse(Homework.objects.filter(classroom=foreign).exists())
+
+
+class HomeworkPDFLongDivisionSaveTest(HomeworkTestBase):
+    """The homework PDF importer turns a long_division payload into a proper
+    long-division Question with dividend/divisor, a computed answer, and no image."""
+
+    def _save(self, q, images=None):
+        from homework.views import _save_homework_pdf_questions
+        session = HomeworkUploadSession.objects.create(
+            user=self.teacher, school=self.school, pdf_filename='g5.pdf',
+            extracted_images=images or {},
+        )
+        global_data = {
+            'year_level': 501, 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+        }
+        return _save_homework_pdf_questions([q], global_data, self.teacher, self.school, session)
+
+    def test_long_division_saved_with_computed_answer(self):
+        saved = self._save({
+            'question_text': 'Solve using long division: 611 ÷ 47',
+            'question_type': 'long_division',
+            'dividend': 611, 'divisor': 47,
+            'difficulty': 2, 'points': 1, 'has_image': False,
+        })
+        self.assertEqual(len(saved), 1)
+        q = saved[0]
+        self.assertEqual(q.question_type, Question.LONG_DIVISION)
+        self.assertEqual((q.dividend, q.divisor), (611, 47))
+        self.assertEqual([(a.answer_text, a.is_correct) for a in q.answers.all()], [('13', True)])
+
+    def test_remainder_answer_format(self):
+        saved = self._save({
+            'question_text': 'Solve using long division: 508 ÷ 9',
+            'question_type': 'long_division', 'dividend': 508, 'divisor': 9,
+            'difficulty': 2, 'has_image': False,
+            'answers': [{'text': '999', 'is_correct': True}],  # AI answer must be ignored
+        })
+        self.assertEqual([a.answer_text for a in saved[0].answers.all()], ['56 r 4'])
+
+    def test_invalid_long_division_is_skipped(self):
+        saved = self._save({
+            'question_text': 'Solve using long division: 100 ÷ 0',
+            'question_type': 'long_division', 'dividend': 100, 'divisor': 0,
+            'difficulty': 2, 'has_image': False,
+        })
+        self.assertEqual(saved, [])
+
+    def test_layout_image_is_never_attached(self):
+        import base64
+        png = base64.b64encode(b'\x89PNG\r\n\x1a\n').decode()
+        saved = self._save(
+            {
+                'question_text': 'Solve using long division: 520 ÷ 10',
+                'question_type': 'long_division', 'dividend': 520, 'divisor': 10,
+                'difficulty': 2, 'has_image': True, 'image_ref': 'img.png',
+            },
+            images={'img.png': png},
+        )
+        self.assertEqual(len(saved), 1)
+        self.assertFalse(saved[0].image)

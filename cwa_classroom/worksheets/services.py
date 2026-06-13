@@ -141,7 +141,16 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                         "question_type": {
                             "type": "string",
                             "enum": ["multiple_choice", "true_false", "short_answer",
-                                     "fill_blank", "calculation", "extended_answer"],
+                                     "fill_blank", "calculation", "extended_answer",
+                                     "long_division"],
+                        },
+                        "dividend": {
+                            "type": "integer",
+                            "description": "For long_division only: the number being divided (under the bar), e.g. 611.",
+                        },
+                        "divisor": {
+                            "type": "integer",
+                            "description": "For long_division only: the number dividing (outside/left of the bar), e.g. 47.",
                         },
                         "validation_type": {
                             "type": "string",
@@ -238,7 +247,13 @@ WORKSHEET_SYSTEM_PROMPT = """You are an expert at reading school homework worksh
 Rules:
 1. Extract EVERY question in order. Do not skip any.
 2. question_text = the question only. Never include answer options inside question_text.
-3. For questions with a VISUAL (shape, diagram, ruler, number line, graph, table, grid,
+   question_text MUST be SELF-CONTAINED: include the full stem/context a student needs to
+   answer, even if it spans several lines above the prompt. Example: a sheet reading
+   "Cars and motorbikes are parked in a street. Stefan counts 3 motorbikes and 5 cars. He
+   counts 28 wheels altogether. Explain why Stefan cannot be correct." must keep ALL of that
+   in question_text — not just "Explain why Stefan cannot be correct." Carry numbers, names
+   and given facts into the text; do not assume the image will supply them.
+3. For questions with a VISUAL (shape, diagram, ruler, number line, graph, table,
    geometric figure, coordinate plane): set has_image=true and give image_bbox as the
    pixel bounding box of ONLY the visual in the page screenshot.
    - Do NOT include the question text in the bbox.
@@ -247,11 +262,51 @@ Rules:
    - Do NOT include question numbers (e.g. "1.", "Q2").
    - The TOP edge of the bbox must sit at or below the first pixel of the actual visual.
    - The bbox should tightly surround just the visual element with a small margin.
+   - MATCH THE IMAGE TO THIS QUESTION'S TEXT. The bbox must be the visual that THIS
+     question's text refers to. If the text says "the pictogram shows…", "from the graph…",
+     "the table below", "this diagram", "name this shape" — the bbox MUST be exactly that
+     pictogram/graph/table/diagram/shape, sitting next to this question.
+   - NEVER attach a visual that belongs to a DIFFERENT question — a neighbouring diagram,
+     another question's working grid, squared paper, or answer box. When questions sit close
+     together, double-check the region you cropped is the one this text describes.
+   - SELF-CHECK: if the text references a pictogram/graph/table but the region you would crop
+     is squared paper, a calculation, or a blank box, you have the WRONG region — find the
+     actual visual, or set has_image=false if it genuinely isn't present.
 4. For numeric/calculation questions ("What is 24 ÷ 6?"), use short_answer with only
    the correct answer — do NOT invent wrong options.
 5. For multiple choice, list ALL provided answer options including the correct one.
 6. Write explanations that help students understand why they got it wrong.
 7. Do NOT skip questions even if they look simple.
+8. MATCHING / "name each" questions: when ONE question asks the student to match or name
+   SEVERAL items (e.g. "Match each diagram to the name of the dashed line" with 3 circle
+   diagrams, or "Name each shape"), SPLIT it into ONE multiple_choice question PER item:
+   - Emit one question per individual diagram/shape/item (3 diagrams → 3 questions).
+   - Each question's image_bbox is a TIGHT crop of THAT ONE item only.
+   - question_text states what to identify, e.g. "What is the name of the dashed line shown
+     in this diagram?" or "Name the shape shown in this diagram."
+   - answers = ALL the candidate names offered by the question (the full match list), with
+     is_correct=true on the one that fits this item and the others as distractors. Example:
+     the circle question offers circumference / diameter / radius → every split question uses
+     those three as the options, with the correct one marked per diagram.
+   - validation_type = "auto". Never merge several items into one combined answer string.
+9. LONG DIVISION: if a division is drawn in the "bus stop" layout — the divisor written
+   to the LEFT of a vertical bar and the dividend UNDER a horizontal bar (e.g. "47" outside,
+   "611" under the bar) — set question_type="long_division", "dividend" to the number under
+   the bar and "divisor" to the number outside it, and question_text to
+   "Solve using long division: {dividend} ÷ {divisor}". Do NOT concatenate the digits into
+   one number (never "47611") and set has_image=false — the app draws the bracket itself.
+   The answer is computed automatically; leave answers=[].
+
+IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
+- has_image=true ONLY when the question genuinely depends on a visual that cannot be written
+  as text: a shape to identify, a diagram/figure, a graph/chart, a data table, a number line,
+  a ruler/protractor reading, a clock face, a coordinate plane, a picture to interpret.
+- has_image=false for decorative or scaffolding graphics that carry NO information — blank
+  answer boxes, working space, grid/squared paper, ruled lines, long-division brackets,
+  column/stacked-arithmetic grids, page borders. Transcribe the maths into text/fields instead.
+  Example: an "Explain why…" question followed by a big empty box or squared grid for the
+  student's working has has_image=false — the box holds no information.
+- When unsure, prefer has_image=false. A wrongly-attached image is worse than none.
 
 Choosing validation_type per question:
 - auto        → MCQ, T/F, short numeric answers, fill-in-the-blank. The system can check

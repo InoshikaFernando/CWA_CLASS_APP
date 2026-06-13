@@ -192,6 +192,25 @@
               </div>
             </div>
 
+            <!-- Long division (bus-stop layout) — shown only for long_division -->
+            {% if q.question_type == 'long_division' %}
+            <div class="bg-indigo-50 rounded-lg p-3 grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-indigo-500 mb-1">Dividend (number being divided)</label>
+                <input type="text" name="q_{{ q_idx }}_dividend" value="{{ q.dividend|default:'' }}"
+                       placeholder="e.g. 611"
+                       class="w-full border border-indigo-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-indigo-500 mb-1">Divisor (number dividing)</label>
+                <input type="text" name="q_{{ q_idx }}_divisor" value="{{ q.divisor|default:'' }}"
+                       placeholder="e.g. 47"
+                       class="w-full border border-indigo-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              </div>
+              <p class="col-span-2 text-[11px] text-indigo-400">The answer is calculated automatically from the dividend and divisor.</p>
+            </div>
+            {% endif %}
+
             <!-- Grading rubric (shown only for ai_graded / human_graded) -->
             <div id="rubric-row-{{ q_idx }}" {% if q.validation_type == 'auto' %}class="hidden"{% endif %}>
               <label class="block text-xs font-medium text-gray-500 mb-1">
@@ -202,8 +221,8 @@
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y">{{ q.grading_rubric }}</textarea>
             </div>
 
-            <!-- Answers (hidden for extended_answer) -->
-            {% if q.question_type != 'extended_answer' %}
+            <!-- Answers (hidden for extended_answer and long_division — both compute/skip fixed answers) -->
+            {% if q.question_type != 'extended_answer' and q.question_type != 'long_division' %}
             <div id="answers-row-{{ q_idx }}">
               <label class="block text-xs font-medium text-gray-500 mb-2">Answers</label>
               <div class="space-y-2">
