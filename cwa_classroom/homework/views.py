@@ -1258,6 +1258,18 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
                 messages.error(request, 'Failed to save questions. Please try again.')
                 return redirect('homework:pdf_preview', session_id=session.pk)
 
+            # Two extracted questions can resolve to the same maths.Question via
+            # get_or_create (identical text/topic/level). Drop duplicates so we
+            # don't insert two HomeworkQuestion rows with the same content_id,
+            # which violates the (homework, subject_slug, content_id) unique key.
+            seen_ids = set()
+            unique_questions = []
+            for q in saved_questions:
+                if q.pk not in seen_ids:
+                    seen_ids.add(q.pk)
+                    unique_questions.append(q)
+            saved_questions = unique_questions
+
             # 2. One Homework per selected class, each linking the same questions.
             for classroom in classrooms:
                 homework = Homework.objects.create(

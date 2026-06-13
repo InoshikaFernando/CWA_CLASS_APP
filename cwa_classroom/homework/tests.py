@@ -1999,6 +1999,29 @@ class PDFConfirmMultiClassTests(TestCase):
         session.refresh_from_db()
         self.assertFalse(session.is_confirmed)
 
+    def test_duplicate_questions_are_deduped(self):
+        # Two extracted questions with identical text resolve to the same
+        # maths.Question via get_or_create; the confirm step must dedupe them
+        # instead of raising IntegrityError on the (homework, content_id) key.
+        session = self._make_session()
+        session.extracted_data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': '1+1?', 'include': True, 'question_type': 'short_answer'},
+                {'question_text': '1+1?', 'include': True, 'question_type': 'short_answer'},
+            ],
+        }
+        session.save(update_fields=['extracted_data'])
+
+        resp = self._post(session, classroom_ids=[str(self.c1.id), str(self.c2.id)])
+        self.assertEqual(resp.status_code, 302)
+
+        hws = Homework.objects.filter(title='Multi HW')
+        self.assertEqual(hws.count(), 2)
+        for hw in hws:
+            self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 1)
+            self.assertEqual(hw.num_questions, 1)
+
     def test_session_classroom_fallback_when_no_ids_posted(self):
         # Legacy/no-JS path: no classroom_ids submitted falls back to the
         # session's pre-selected class (still re-checked against scope).
