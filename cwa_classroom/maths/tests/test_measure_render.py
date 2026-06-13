@@ -44,6 +44,15 @@ class MeasureFigureSvgPropertyTests(TestCase):
         q = self._measure(question_type=Question.MULTIPLE_CHOICE)
         self.assertEqual(q.measure_figure_svg, '')
 
+    def test_property_empty_for_non_angle_unit(self):
+        # A length/mass measure question must NOT show a (misleading) angle.
+        self.assertEqual(self._measure(answer_unit='cm').measure_figure_svg, '')
+
+    def test_property_renders_for_degree_word_unit(self):
+        self.assertTrue(
+            self._measure(answer_unit='degrees').measure_figure_svg.startswith('<svg')
+        )
+
 
 class MeasureTakeItemPartialTests(TestCase):
     @classmethod

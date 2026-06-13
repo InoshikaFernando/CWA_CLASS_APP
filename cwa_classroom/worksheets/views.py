@@ -814,7 +814,7 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                 if is_correct:
                     points_earned = float(question.points)
 
-            elif question.question_type == 'measure':
+            elif question.question_type == 'measure' and question.numeric_answer is not None:
                 from maths.geometry_grading import grade_measure
                 text_answer = request.POST.get('text_answer', '').strip()
                 is_correct = grade_measure(question, text_answer)

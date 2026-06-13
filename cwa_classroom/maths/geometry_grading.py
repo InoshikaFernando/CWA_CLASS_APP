@@ -18,8 +18,10 @@ def _to_decimal(raw):
     """
     if raw is None:
         return None
-    # Keep digits, sign, and a single decimal point; drop unit letters/symbols.
-    cleaned = ''.join(c for c in str(raw).strip() if c.isdigit() or c in '.-+')
+    # Keep ASCII digits, sign, and a decimal point; drop unit letters/symbols.
+    # ASCII-only on purpose: str.isdigit() is True for unicode superscripts
+    # ('²') and full-width digits, which would corrupt the parsed value.
+    cleaned = ''.join(c for c in str(raw).strip() if c in '0123456789.-+')
     if cleaned in ('', '+', '-', '.', '-.', '+.'):
         return None
     try:

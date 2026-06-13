@@ -271,12 +271,19 @@ class Question(models.Model):
     def measure_figure_svg(self):
         """Inline SVG of the angle to measure, generated from ``numeric_answer``.
 
-        Returns '' when there's no value (so templates can render it
-        unconditionally). Bridges the pure ``maths.svg_geometry`` helper into
-        templates without per-view context plumbing — the same way the
-        long-division / prime-factorisation render helpers live on the model.
+        Only angle questions (degree unit) get a generated figure — drawing an
+        angle for a length/mass "measure" question (unit cm, g, …) would be
+        misleading, so those render no figure (the author supplies an image or
+        describes the scale in the question text). Returns '' when there's
+        nothing to draw, so templates can render it unconditionally. Bridges the
+        pure ``maths.svg_geometry`` helper into templates without per-view
+        context plumbing — the same way the long-division / prime-factorisation
+        render helpers live on the model.
         """
         if self.question_type != self.MEASURE or self.numeric_answer is None:
+            return ''
+        unit = (self.answer_unit or '').strip().lower()
+        if '°' not in unit and unit not in ('deg', 'degree', 'degrees'):
             return ''
         from maths.svg_geometry import angle_svg
         return angle_svg(self.numeric_answer)

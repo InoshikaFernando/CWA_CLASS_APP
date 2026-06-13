@@ -70,6 +70,13 @@ def test_missing_target_returns_false():
     assert grade_measure(_q(None, Decimal('2')), '135') is False
 
 
+@pytest.mark.parametrize('weird', ['１３５', '13⁵', '²'])
+def test_unicode_digits_not_misparsed(weird):
+    # str.isdigit() is True for full-width / superscript digits; the ASCII-only
+    # filter must drop them so they don't corrupt the parsed value.
+    assert grade_measure(_q(Decimal('135'), Decimal('2')), weird) is False
+
+
 # ── dispatch wiring through the plugin (DB-backed) ───────────────────────
 
 @pytest.mark.django_db
