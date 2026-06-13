@@ -78,6 +78,9 @@
       </div>
 
       <!-- Questions -->
+      <!-- Display order of question indices; "Add question below" appends new indices here. -->
+      <input type="hidden" name="question_order" id="question-order"
+             value="{% for q in questions %}{{ forloop.counter0 }}{% if not forloop.last %},{% endif %}{% endfor %}">
       <div class="space-y-4" id="questions-container">
         {% for q in questions %}
         {% with q_idx=forloop.counter0 %}
@@ -249,6 +252,12 @@
 
           </div>
         </div>
+        <div class="add-after-row flex justify-center" data-after="{{ q_idx }}">
+          <button type="button" onclick="addQuestionAfter({{ q_idx }})"
+                  class="text-xs font-medium text-blue-600 hover:text-blue-800 border border-dashed border-blue-300 hover:border-blue-500 rounded-lg px-3 py-1.5 my-1 transition">
+            + Add question below
+          </button>
+        </div>
         {% endwith %}
         {% endfor %}
       </div>
@@ -308,6 +317,81 @@
       wrapper.classList.remove('hidden');
     };
     reader.readAsDataURL(file);
+  }
+
+  // --- Add question below ---
+  // Question type options for newly-added cards (mirrors the server list).
+  const QUESTION_TYPES = [{% for val, label in question_types %}["{{ val }}", "{{ label|escapejs }}"]{% if not forloop.last %}, {% endif %}{% endfor %}];
+  // Next free index for added questions; existing ones occupy 0..N-1.
+  let nextQIdx = {{ questions|length }};
+  // Display order of indices, kept in sync with the hidden #question-order field.
+  const orderField = document.getElementById('question-order');
+  let qOrder = (orderField.value || '').split(',').filter(s => s !== '').map(Number);
+
+  function answerRowHtml(idx, a) {
+    return '<div class="flex items-center gap-2">' +
+      '<input type="checkbox" name="q_' + idx + '_answer_' + a + '_correct" class="w-4 h-4 rounded text-green-600">' +
+      '<input type="text" name="q_' + idx + '_answer_' + a + '_text" placeholder="Answer option" ' +
+        'class="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">' +
+      '</div>';
+  }
+
+  function addAnswerRowNew(idx) {
+    const box = document.getElementById('answers-box-' + idx);
+    box.insertAdjacentHTML('beforeend', answerRowHtml(idx, box.children.length));
+  }
+
+  function newQuestionCardHtml(idx) {
+    const typeOptions = QUESTION_TYPES
+      .map(t => '<option value="' + t[0] + '">' + t[1] + '</option>').join('');
+    return '' +
+      '<div class="q-card bg-white rounded-2xl border border-blue-200 shadow-sm" id="card-' + idx + '">' +
+        '<div class="flex items-center gap-3 px-5 py-3 border-b border-gray-50">' +
+          '<input type="checkbox" name="q_' + idx + '_include" checked ' +
+            'onchange="this.closest(\'.q-card\').classList.toggle(\'excluded\', !this.checked)" ' +
+            'class="w-4 h-4 rounded text-blue-600 cursor-pointer">' +
+          '<span class="text-sm font-semibold text-gray-700 flex-1">New question</span>' +
+          '<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">added</span>' +
+        '</div>' +
+        '<div class="p-5 space-y-4">' +
+          '<div><label class="block text-xs font-medium text-gray-500 mb-1">Question Text</label>' +
+            '<textarea name="q_' + idx + '_text" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea></div>' +
+          '<div class="grid grid-cols-2 md:grid-cols-4 gap-3">' +
+            '<div><label class="block text-xs font-medium text-gray-500 mb-1">Question Type</label>' +
+              '<select name="q_' + idx + '_type" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">' + typeOptions + '</select></div>' +
+            '<div><label class="block text-xs font-medium text-gray-500 mb-1">Grading</label>' +
+              '<select name="q_' + idx + '_validation_type" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">' +
+                '<option value="auto">Auto (system checks)</option>' +
+                '<option value="ai_graded">AI Graded (Claude evaluates)</option>' +
+                '<option value="human_graded">Human Graded (teacher reviews)</option></select></div>' +
+            '<div><label class="block text-xs font-medium text-gray-500 mb-1">Difficulty</label>' +
+              '<select name="q_' + idx + '_difficulty" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">' +
+                '<option value="1">Easy</option><option value="2" selected>Medium</option><option value="3">Hard</option></select></div>' +
+            '<div><label class="block text-xs font-medium text-gray-500 mb-1">Points</label>' +
+              '<input type="number" name="q_' + idx + '_points" value="1" min="1" max="20" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm"></div>' +
+          '</div>' +
+          '<div><label class="block text-xs font-medium text-gray-500 mb-2">Answers <span class="text-gray-400 font-normal">(tick the correct one)</span></label>' +
+            '<div class="space-y-2" id="answers-box-' + idx + '">' + answerRowHtml(idx, 0) + answerRowHtml(idx, 1) + '</div>' +
+            '<button type="button" onclick="addAnswerRowNew(' + idx + ')" class="mt-2 text-xs text-blue-600 hover:text-blue-800">+ Add answer</button></div>' +
+          '<div><label class="block text-xs font-medium text-gray-500 mb-1">Explanation (shown to students)</label>' +
+            '<textarea name="q_' + idx + '_explanation" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea></div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function addQuestionAfter(afterIdx) {
+    const idx = nextQIdx++;
+    const anchor = document.querySelector('.add-after-row[data-after="' + afterIdx + '"]');
+    if (!anchor) return;
+    const html = newQuestionCardHtml(idx) +
+      '<div class="add-after-row flex justify-center" data-after="' + idx + '">' +
+        '<button type="button" onclick="addQuestionAfter(' + idx + ')" ' +
+          'class="text-xs font-medium text-blue-600 hover:text-blue-800 border border-dashed border-blue-300 hover:border-blue-500 rounded-lg px-3 py-1.5 my-1 transition">' +
+          '+ Add question below</button></div>';
+    anchor.insertAdjacentHTML('afterend', html);
+    const pos = qOrder.indexOf(afterIdx);
+    qOrder.splice(pos < 0 ? qOrder.length : pos + 1, 0, idx);
+    orderField.value = qOrder.join(',');
   }
 
   // Show/hide rubric based on validation type
