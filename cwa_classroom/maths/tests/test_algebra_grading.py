@@ -14,6 +14,7 @@ from maths.algebra_grading import (
     _collect,
     _parse_term,
     _split_terms,
+    fold_exponents,
     is_algebraic_answer_correct,
     normalize_notation,
 )
@@ -194,3 +195,23 @@ class TestDefensive:
         # A student typing a zero-denominator fraction must be marked wrong,
         # never surface a ZeroDivisionError as an HTTP 500.
         assert is_algebraic_answer_correct(answer, "2x^2 - 7x - 15") is False
+
+
+# --------------------------------------------------------------------------- #
+# fold_exponents — exponent-insensitive matching for ordinary (non-algebra)
+# maths answers, e.g. areas in cm². Powers the x² button on all typed answers.
+# --------------------------------------------------------------------------- #
+class TestFoldExponents:
+    def test_all_power_notations_collapse_equal(self):
+        forms = ["2cm^2", "2cm²", "2cm**2", "2cm2", "2 cm^2", "  2 CM 2 "]
+        folded = {fold_exponents(f) for f in forms}
+        assert folded == {"2cm2"}
+
+    def test_plain_values_unaffected(self):
+        assert fold_exponents("8") == "8"
+        assert fold_exponents("1/2") == "1/2"
+        assert fold_exponents("3.5") == "3.5"
+
+    def test_cubed_and_higher(self):
+        assert fold_exponents("cm³") == fold_exponents("cm^3") == "cm3"
+        assert fold_exponents("x¹⁰") == fold_exponents("x^10") == "x10"

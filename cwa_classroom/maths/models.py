@@ -175,8 +175,11 @@ class Question(models.Model):
             from maths.algebra_grading import is_algebraic_answer_correct
             return any(is_algebraic_answer_correct(text_answer, c) for c in correct)
 
-        user = text_answer.strip().lower()
-        return any(user == c.strip().lower() for c in correct)
+        # Exact match, but exponent-insensitive so the x² button is usable on
+        # ordinary maths answers (cm^2 == cm² == cm2). See fold_exponents.
+        from maths.algebra_grading import fold_exponents
+        user = fold_exponents(text_answer)
+        return any(user == fold_exponents(c) for c in correct)
 
     class Meta:
         ordering = ['level', 'difficulty', 'created_at']

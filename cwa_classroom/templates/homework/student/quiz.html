@@ -51,15 +51,13 @@
     <!-- Short answer / Calculation / Fill blank -->
     {% else %}
     <div>
-      {% if question.answer_format == 'algebra' %}
       <div class="flex flex-wrap items-center gap-2 mb-2">
         <button type="button"
                 @click="(() => { const f = $refs.textAns; const s = f.selectionStart, e = f.selectionEnd; textAnswer = (textAnswer || '').slice(0, s) + '^' + (textAnswer || '').slice(e); $nextTick(() => { f.focus(); f.selectionStart = f.selectionEnd = s + 1; }); })()"
                 :disabled="answered"
                 class="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50 disabled:opacity-50">x<sup>2</sup></button>
-        <span class="text-xs text-gray-500">Type powers with <kbd class="px-1 border border-gray-300 rounded">^</kbd> — e.g. 2x^2 - 7x - 15</span>
+        <span class="text-xs text-gray-500">Type powers with <kbd class="px-1 border border-gray-300 rounded">^</kbd> — e.g. cm^2 or x^2</span>
       </div>
-      {% endif %}
       <input type="text" x-ref="textAns" x-model="textAnswer" @keyup.enter="submitTextAnswer()"
              :disabled="answered"
              placeholder="Type your answer..."
