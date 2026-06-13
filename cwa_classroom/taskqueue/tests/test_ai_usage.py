@@ -98,11 +98,17 @@ def test_usage_report_markdown_includes_cost_per_page():
     call_command('ai_usage_report', '--format', 'markdown', stdout=out)
     md = out.getvalue()
 
-    # Markdown table with a $/page column and a totals row.
-    assert '| Source | Pages | Input tok | Output tok | Cost (USD) | $/page |' in md
+    # Markdown table with a $/page column, page-cost projections and a totals row.
+    assert (
+        '| Source | Pages | Input tok | Output tok | Cost (USD) | $/page | '
+        '100 pages | 500 pages | 1000 pages |'
+    ) in md
     assert '| Worksheet |' in md
     assert '**Total**' in md
     assert '$0.0210' in md          # $/page for the single source
+    assert '$2.10' in md            # 100-page projection ($0.021 * 100)
+    assert '$10.50' in md           # 500-page projection ($0.021 * 500)
+    assert '$21.00' in md           # 1000-page projection ($0.021 * 1000)
     assert 'AI Generation Usage' in md
 
 
