@@ -219,12 +219,17 @@
 
   {% else %}
     <!-- Short answer / calculation -->
+    <div class="flex flex-wrap items-center gap-2 mb-2">
+      <button type="button" id="exp-btn"
+              class="px-3 py-1.5 rounded-lg border-2 border-gray-200 bg-white font-semibold text-gray-700 hover:border-primary transition">x<sup>2</sup></button>
+      <span class="text-xs text-gray-500">Type powers with <kbd class="px-1 border border-gray-300 rounded">^</kbd> — e.g. cm^2 or x^2</span>
+    </div>
     <div class="flex gap-3">
       <input type="text" id="text-answer-input"
              placeholder="Your answer..."
              autocomplete="off"
              autofocus
-             class="flex-1 rounded-xl border-2 border-gray-200 px-4 py-3 text-lg font-bold
+             class="cwa-exp-input flex-1 rounded-xl border-2 border-gray-200 px-4 py-3 text-lg font-bold
                     focus:outline-none focus:border-primary transition" />
       <button type="button"
               class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
@@ -235,6 +240,13 @@
     <script>
       document.getElementById('text-answer-input').addEventListener('keydown', e => {
         if (e.key === 'Enter') submitTextAnswer('{{ session_id }}', {{ question.id }});
+      });
+      document.getElementById('exp-btn').addEventListener('click', function () {
+        const f = document.getElementById('text-answer-input');
+        const s = f.selectionStart, e = f.selectionEnd;
+        f.value = f.value.slice(0, s) + '^' + f.value.slice(e);
+        f.focus();
+        f.selectionStart = f.selectionEnd = s + 1;
       });
     </script>
   {% endif %}

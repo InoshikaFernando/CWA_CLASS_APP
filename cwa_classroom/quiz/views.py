@@ -703,13 +703,17 @@ class MixedQuizView(LoginRequiredMixin, View):
                 if answer_id:
                     answer = Answer.objects.filter(id=answer_id, question=q).first()
                     is_correct = bool(answer and answer.is_correct)
+            elif q.answer_format == 'algebra':
+                raw = request.POST.get(f'text_{q.id}', '').strip()
+                is_correct = q.grade_text_answer(raw)
             else:
                 from quiz.basic_facts import check_answer as _ca
+                from maths.algebra_grading import fold_exponents
                 raw = request.POST.get(f'text_{q.id}', '').strip()
                 correct_ans = q.answers.filter(is_correct=True).first()
                 if correct_ans:
-                    alts = [a.strip() for a in correct_ans.answer_text.split(',')]
-                    is_correct = raw.lower() in [a.lower() for a in alts]
+                    alts = [fold_exponents(a) for a in correct_ans.answer_text.split(',')]
+                    is_correct = fold_exponents(raw) in alts
 
             if is_correct:
                 correct_count += 1
@@ -853,20 +857,27 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                 is_correct = False
             correct_ans = q.answers.filter(is_correct=True).first()
             correct_answer_text = correct_ans.answer_text if correct_ans else ''
+        elif q.answer_format == 'algebra':
+            raw = data.get('text_answer', '').strip()
+            is_correct = q.grade_text_answer(raw)
+            correct_ans = q.answers.filter(is_correct=True).first()
+            correct_answer_text = correct_ans.answer_text if correct_ans else ''
         else:
+            from maths.algebra_grading import fold_exponents
             raw = data.get('text_answer', '').strip()
             correct_ans = q.answers.filter(is_correct=True).first()
             if correct_ans:
-                alts = [a.strip().lower() for a in correct_ans.answer_text.split(',')]
+                alts_raw = [a.strip() for a in correct_ans.answer_text.split(',')]
+                alts = [fold_exponents(a) for a in alts_raw]
                 from django.conf import settings
                 tolerance = getattr(settings, 'ANSWER_NUMERIC_TOLERANCE', 0.05)
-                is_correct = raw.lower() in alts
+                is_correct = fold_exponents(raw) in alts
                 if not is_correct:
                     try:
-                        is_correct = abs(float(raw) - float(alts[0])) <= tolerance
+                        is_correct = abs(float(raw) - float(alts_raw[0])) <= tolerance
                     except ValueError:
                         pass
-                correct_answer_text = correct_ans.answer_text.split(',')[0]
+                correct_answer_text = alts_raw[0]
 
         # Update session
         if is_correct:
