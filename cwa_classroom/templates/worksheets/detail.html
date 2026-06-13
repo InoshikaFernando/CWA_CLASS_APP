@@ -109,6 +109,10 @@
               </div>
               {% endfor %}
             </div>
+            {% elif q.question_type == 'column_operation' and q.column_inline %}
+            <div class="p-3 rounded-xl border border-gray-200 bg-gray-50">
+              <p class="font-mono text-lg font-bold text-gray-800">{{ q.column_inline }} = {{ q.column_result }}</p>
+            </div>
             {% elif q.question_type == 'short_answer' or q.question_type == 'fill_blank' or q.question_type == 'calculation' %}
             <div class="p-3 rounded-xl border border-gray-200 bg-gray-50">
               <p class="text-xs text-gray-400 italic">Student types their answer</p>

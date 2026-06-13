@@ -308,6 +308,19 @@ class Question(models.Model):
             'cols': range(width),
         }
 
+    @property
+    def column_inline(self):
+        """Single-line form of the problem, e.g. "90 − 82".
+
+        Renderers that don't draw the stacked grid (mixed quiz, homework,
+        worksheet preview) show this so the numbers are still visible — the
+        grid renderer presents the operands visually instead.
+        """
+        ca = self.column_arithmetic
+        if not ca:
+            return ''
+        return f" {ca['operator']} ".join(str(int(o)) for o in self.operands)
+
 
 class Answer(models.Model):
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="answers")

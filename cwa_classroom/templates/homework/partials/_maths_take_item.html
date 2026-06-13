@@ -150,6 +150,9 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
 </script>
 
 {% else %}
+{% if q.question_type == 'column_operation' and q.column_inline %}
+<p class="font-mono text-2xl font-bold text-gray-800 mb-2">{{ q.column_inline }} =</p>
+{% endif %}
 <div class="flex flex-wrap items-center gap-2 mb-2">
   <button type="button" onclick="window.cwaInsertCaret('answer_{{ q.id }}')"
           class="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50">x<sup>2</sup></button>

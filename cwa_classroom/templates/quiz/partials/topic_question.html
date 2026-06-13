@@ -200,7 +200,7 @@
       })();
     </script>
 
-  {% elif question.question_type == 'column_operation' %}
+  {% elif question.question_type == 'column_operation' and question.column_arithmetic %}
     {% with ca=question.column_arithmetic %}
     <p class="text-sm text-gray-500 mb-4">Use the small amber boxes to carry or borrow as you work, then write your answer in the blue boxes below the line.</p>
 
@@ -250,8 +250,10 @@
     <script>
       function submitColumnOperation(sessionId, questionId) {
         const cells = [...document.querySelectorAll('[data-ca="answer"]')];
-        // Join answer digits left→right, drop leading blanks/zeros (e.g. " 8" → "8").
-        const answer = cells.map(c => c.value.trim() || '').join('').replace(/^0+(?=\d)/, '') || '0';
+        // Join answer digits left→right, drop leading zeros (e.g. "08" → "8").
+        // An all-blank submission stays empty (graded wrong) — it must NOT become
+        // "0", or it would falsely match a zero-result question.
+        const answer = cells.map(c => c.value.trim()).join('').replace(/^0+(?=\d)/, '');
         document.getElementById('text-answer-input').value = answer;
         _submitAndAdvance(sessionId, {
           session_id: sessionId, question_id: questionId, text_answer: answer,

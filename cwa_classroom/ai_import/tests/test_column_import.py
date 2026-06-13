@@ -85,6 +85,30 @@ class SaveColumnOperationTests(TestCase):
         self.assertEqual(result['failed'], 1)
         self.assertFalse(Question.objects.filter(question_text='Find the difference.').exists())
 
+    def test_negative_subtraction_is_rejected(self):
+        # Reversed operands (smaller on top) → negative result the widget can't
+        # represent. Must be skipped, not imported as an unanswerable question.
+        session = AIImportSession.objects.create(
+            user=self.user, pdf_filename='g3.pdf',
+            extracted_data=_column_payload([82, 90], '-'),
+        )
+        result = save_questions_from_session(session, self.user, session.extracted_data)
+        self.assertEqual(result['inserted'], 0)
+        self.assertEqual(result['failed'], 1)
+        self.assertFalse(Question.objects.filter(question_text='Find the difference.').exists())
+
+    def test_multiply_glyph_is_canonicalised(self):
+        # The AI may emit '×' or 'x'; we store the canonical '*' so the preview
+        # operator <select> (which only offers +,-,*) round-trips faithfully.
+        session = AIImportSession.objects.create(
+            user=self.user, pdf_filename='g3.pdf',
+            extracted_data=_column_payload([12, 12], '×', question_text='Find the product.'),
+        )
+        save_questions_from_session(session, self.user, session.extracted_data)
+        q = Question.objects.get(question_text='Find the product.')
+        self.assertEqual(q.operator, '*')
+        self.assertEqual([a.answer_text for a in q.answers.all()], ['144'])
+
 
 class GradeColumnOperationTests(TestCase):
     """The typed column answer is graded by the standard numeric text-answer path."""

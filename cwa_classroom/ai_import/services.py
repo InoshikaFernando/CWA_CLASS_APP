@@ -408,6 +408,32 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
 # Save Questions to DB
 # ---------------------------------------------------------------------------
 
+def _compute_column_result(operands, operator):
+    """Compute a column-arithmetic result before the Question row exists.
+
+    Mirrors Question.column_result (which operates on a saved instance) so the
+    importer can validate the answer up-front. Returns None on bad input.
+    """
+    try:
+        nums = [int(o) for o in (operands or [])]
+    except (TypeError, ValueError):
+        return None
+    if not nums:
+        return None
+    if operator == '+':
+        return sum(nums)
+    if operator == '-':
+        result = nums[0]
+        for n in nums[1:]:
+            result -= n
+        return result
+    if operator in ('*', '×', 'x'):
+        result = 1
+        for n in nums:
+            result *= n
+        return result
+    return None
+
 def _resolve_topic_for_question(q, default_data):
     """Resolve subject, strand, topic, level for a single question (per-question overrides)."""
     from classroom.models import Subject, Topic, Level
@@ -528,8 +554,19 @@ def save_questions_from_session(session, user, overrides=None):
             except (TypeError, ValueError):
                 operands = []
             operator = (q.get('operator') or '').strip()
-            if len(operands) < 2 or operator not in ('+', '-', '*', '×', 'x'):
+            # Canonicalise the multiply glyphs the AI may emit to a single stored form.
+            if operator in ('×', 'x'):
+                operator = '*'
+            if len(operands) < 2 or operator not in ('+', '-', '*'):
                 errors.append(f'Q{idx}: Invalid column_operation (operands={raw_operands}, operator={operator!r})')
+                failed += 1
+                continue
+            # A column widget has no minus-sign input, so a negative result is
+            # unanswerable. Reject reversed-order subtractions rather than import
+            # a question no student can ever get right.
+            _col_result = _compute_column_result(operands, operator)
+            if _col_result is None or _col_result < 0:
+                errors.append(f'Q{idx}: column_operation result is invalid/negative (operands={operands}, operator={operator!r})')
                 failed += 1
                 continue
 

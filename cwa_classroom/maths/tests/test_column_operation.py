@@ -66,3 +66,13 @@ class ColumnArithmeticPropertyTests(TestCase):
     def test_structure_none_when_invalid(self):
         self.assertIsNone(self._q([], '+').column_arithmetic)       # no operands
         self.assertIsNone(self._q([5, 5], 'bad').column_arithmetic)  # unknown operator
+
+    # ── column_inline (fallback for non-grid renderers) ────────────────────────
+    def test_inline_uses_display_operator(self):
+        self.assertEqual(self._q([90, 82], '-').column_inline, '90 − 82')
+        self.assertEqual(self._q([90, 82], '+').column_inline, '90 + 82')
+        self.assertEqual(self._q([12, 12], '*').column_inline, '12 × 12')
+        self.assertEqual(self._q([100, 30, 20], '-').column_inline, '100 − 30 − 20')
+
+    def test_inline_empty_when_invalid(self):
+        self.assertEqual(self._q([5, 5], 'bad').column_inline, '')
