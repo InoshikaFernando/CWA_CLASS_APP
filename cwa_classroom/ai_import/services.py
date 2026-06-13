@@ -150,6 +150,15 @@ SPLIT MULTI-PART QUESTIONS (important):
   explicitly depends on the result of part a); in that rare case, note the dependency in the text.
 
 QUESTION TYPE RULES (important):
+- If a problem is presented VERTICALLY / STACKED — numbers written one above another with an
+  operator and a horizontal rule, i.e. traditional column addition, subtraction, or multiplication
+  (long-hand "carry"/"borrow" layout) — use question_type "column_operation". Put the numbers
+  top-to-bottom in "operands" (e.g. [90, 82]) and set "operator" to "+", "-", or "*". Set
+  question_text to the instruction ONLY (e.g. "Find the difference.") — do NOT repeat the numbers in
+  the text. Do NOT generate answers; the result is computed automatically.
+  IMPORTANT: only use "column_operation" when the problem is actually drawn stacked/vertical. If the
+  SAME arithmetic is written inline on one horizontal line (e.g. "90 - 82 =" or "90 take away 82"),
+  use "short_answer" instead. Division stays "long_division", never "column_operation".
 - If the correct answer is a NUMBER ONLY (digits, decimals, fractions like "14" or "3.5" or "2/3"),
   use question_type "short_answer" with just the correct answer. Do NOT generate wrong answers.
 - If the correct answer contains TEXT or WORDS (e.g. "Day 3 had the most sales", "True", "Red"),
@@ -205,7 +214,17 @@ CLASSIFICATION_TOOL = {
                         "question_text": {"type": "string"},
                         "question_type": {
                             "type": "string",
-                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation"],
+                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation"],
+                        },
+                        "operands": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "For column_operation only: the stacked numbers top-to-bottom, e.g. [90, 82].",
+                        },
+                        "operator": {
+                            "type": "string",
+                            "enum": ["+", "-", "*"],
+                            "description": "For column_operation only: the arithmetic operator.",
                         },
                         "difficulty": {"type": "integer", "enum": [1, 2, 3]},
                         "points": {"type": "integer", "default": 1},
@@ -499,6 +518,21 @@ def save_questions_from_session(session, user, overrides=None):
         if image_ref == 'none' or image_ref == '':
             image_ref = None
 
+        # Column-arithmetic fields (vertical/stacked operations)
+        operands = None
+        operator = ''
+        if q_type == 'column_operation':
+            raw_operands = q.get('operands') or []
+            try:
+                operands = [int(o) for o in raw_operands]
+            except (TypeError, ValueError):
+                operands = []
+            operator = (q.get('operator') or '').strip()
+            if len(operands) < 2 or operator not in ('+', '-', '*', '×', 'x'):
+                errors.append(f'Q{idx}: Invalid column_operation (operands={raw_operands}, operator={operator!r})')
+                failed += 1
+                continue
+
         try:
             with transaction.atomic():
                 # Check for existing question (same text + topic + level + scope)
@@ -515,6 +549,8 @@ def save_questions_from_session(session, user, overrides=None):
                     existing.difficulty = difficulty
                     existing.points = points
                     existing.explanation = explanation
+                    existing.operands = operands
+                    existing.operator = operator
                     existing.save()
                     existing.answers.all().delete()
                     question = existing
@@ -528,6 +564,7 @@ def save_questions_from_session(session, user, overrides=None):
                         question_text=q_text, question_type=q_type,
                         difficulty=difficulty, points=points,
                         explanation=explanation,
+                        operands=operands, operator=operator,
                     )
                     inserted += 1
 
@@ -553,13 +590,23 @@ def save_questions_from_session(session, user, overrides=None):
                     images_saved += 1
 
                 # Create answers
-                for a_idx, ans in enumerate(answers_data):
+                if q_type == 'column_operation':
+                    # Answer is computed from the operands — ignore any AI-supplied answers.
+                    result = question.column_result
                     MathsAnswer.objects.create(
                         question=question,
-                        answer_text=ans.get('text', ''),
-                        is_correct=ans.get('is_correct', False),
-                        order=a_idx + 1,
+                        answer_text=str(result) if result is not None else '',
+                        is_correct=True,
+                        order=1,
                     )
+                else:
+                    for a_idx, ans in enumerate(answers_data):
+                        MathsAnswer.objects.create(
+                            question=question,
+                            answer_text=ans.get('text', ''),
+                            is_correct=ans.get('is_correct', False),
+                            order=a_idx + 1,
+                        )
 
         except Exception as e:
             errors.append(f'Q{idx}: {str(e)}')
