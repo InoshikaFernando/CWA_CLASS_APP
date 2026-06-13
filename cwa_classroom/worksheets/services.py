@@ -454,8 +454,11 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
     })
 
     # Stream so a long generation doesn't trip the SDK read timeout.
+    # claude-sonnet-4-20250514 is deprecated; default to Opus (env-overridable via
+    # WORKSHEET_MODEL). No adaptive thinking here — it is incompatible with the
+    # forced tool_choice below.
     with client.messages.stream(
-        model="claude-sonnet-4-20250514",
+        model=os.environ.get('WORKSHEET_MODEL', 'claude-opus-4-8'),
         max_tokens=WORKSHEET_MAX_TOKENS,
         system=system,
         tools=[WORKSHEET_CLASSIFICATION_TOOL],
