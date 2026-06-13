@@ -911,6 +911,8 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             level_number__lte=12,
         ).values('level_number', 'display_name'))
 
+        shape_naming = request.POST.get('shape_naming') == 'on'
+
         # Create session immediately so we can redirect to the polling page
         session = HomeworkUploadSession.objects.create(
             user=request.user,
@@ -918,6 +920,7 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             classroom=classroom,
             pdf_filename=pdf_file.name,
             homework_title=hw_title,
+            shape_naming=shape_naming,
             status=HomeworkUploadSession.STATUS_PROCESSING,
         )
         session.pdf_file.save(pdf_file.name, ContentFile(pdf_bytes), save=True)
