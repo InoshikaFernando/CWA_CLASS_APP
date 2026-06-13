@@ -1818,3 +1818,74 @@ class LateJoinerOverdueTest(HomeworkTestBase):
         row = next(r for r in resp.context['student_rows']
                    if r['student'].id == self.student.id)
         self.assertEqual(row['status'], HomeworkSubmission.STATUS_NOT_SUBMITTED)
+
+
+# ---------------------------------------------------------------------------
+# Classroom scope for the PDF homework upload flow
+# ---------------------------------------------------------------------------
+
+class TeacherClassroomScopeTests(TestCase):
+    """``_teacher_classrooms`` must populate the homework classroom dropdown for
+    school owners/admins and heads of department, not only direct class teachers.
+    Regression: an institute owner with no ClassTeacher row saw an empty dropdown.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.models import Department
+
+        teacher_role, _ = Role.objects.get_or_create(
+            name='teacher', defaults={'display_name': 'Teacher'})
+
+        # School owner: holds a teacher role (so the upload page is reachable)
+        # but is NOT listed as a ClassTeacher anywhere.
+        cls.owner = CustomUser.objects.create_user('owner', 'owner@test.com', 'pass1234')
+        cls.owner.roles.add(teacher_role)
+        cls.school = School.objects.create(name='Mathshub Melbourne', slug='mathshub-melb', admin=cls.owner)
+
+        # Plain teacher assigned to exactly one class.
+        cls.teacher = CustomUser.objects.create_user('teacher1', 'teacher1@test.com', 'pass1234')
+        cls.teacher.roles.add(teacher_role)
+
+        # Head of department.
+        cls.hod = CustomUser.objects.create_user('hod', 'hod@test.com', 'pass1234')
+        cls.hod.roles.add(teacher_role)
+        cls.dept = Department.objects.create(school=cls.school, name='Maths', head=cls.hod)
+
+        cls.class_a = ClassRoom.objects.create(
+            name='Year 5 Maths', code='SCOPEA01', school=cls.school, department=cls.dept,
+        )
+        cls.class_b = ClassRoom.objects.create(
+            name='Year 6 Maths', code='SCOPEB01', school=cls.school,
+        )
+        ClassTeacher.objects.create(classroom=cls.class_a, teacher=cls.teacher)
+
+        # A class in a different school the owner must not see.
+        other_admin = CustomUser.objects.create_user('other', 'other@test.com', 'pass1234')
+        cls.other_school = School.objects.create(name='Other', slug='other', admin=other_admin)
+        cls.class_other = ClassRoom.objects.create(
+            name='Other Class', code='SCOPEC01', school=cls.other_school,
+        )
+
+    def _scope(self, user):
+        from homework.views import _teacher_classrooms
+        return set(_teacher_classrooms(user).values_list('id', flat=True))
+
+    def test_owner_sees_all_classes_in_their_school(self):
+        scope = self._scope(self.owner)
+        self.assertEqual(scope, {self.class_a.id, self.class_b.id})
+
+    def test_plain_teacher_sees_only_their_class(self):
+        self.assertEqual(self._scope(self.teacher), {self.class_a.id})
+
+    def test_hod_sees_only_their_department(self):
+        # class_a is in the Maths dept; class_b is not.
+        self.assertEqual(self._scope(self.hod), {self.class_a.id})
+
+    def test_owner_does_not_see_other_schools_classes(self):
+        self.assertNotIn(self.class_other.id, self._scope(self.owner))
+
+    def test_inactive_class_excluded(self):
+        self.class_b.is_active = False
+        self.class_b.save(update_fields=['is_active'])
+        self.assertEqual(self._scope(self.owner), {self.class_a.id})

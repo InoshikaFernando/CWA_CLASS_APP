@@ -4,7 +4,7 @@ import time as time_module
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import Max, Prefetch
+from django.db.models import Max, Prefetch, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -32,9 +32,47 @@ from .models import Homework, HomeworkQuestion, HomeworkStudentAnswer, HomeworkS
 # ---------------------------------------------------------------------------
 
 def _teacher_classrooms(user):
-    """Return classrooms where the user is a teacher."""
-    class_ids = ClassTeacher.objects.filter(teacher=user).values_list('classroom_id', flat=True)
-    return ClassRoom.objects.filter(id__in=class_ids, is_active=True)
+    """Classrooms a user may assign homework to.
+
+    A class teacher sees the classes they personally teach. School admins
+    (institute owner / head of institute / school admin) additionally see every
+    class in their school, and a head of department sees every class in the
+    department(s) they head. This mirrors the school-scoping used elsewhere
+    (see ``classroom.views_reports._get_all_school_ids``) so an owner who isn't
+    listed as a ClassTeacher still gets a populated dropdown.
+    """
+    from classroom.models import School, SchoolTeacher, Department
+
+    if user.is_superuser:
+        return ClassRoom.objects.filter(is_active=True)
+
+    # Classes the user personally teaches.
+    taught_ids = set(
+        ClassTeacher.objects.filter(teacher=user).values_list('classroom_id', flat=True)
+    )
+
+    # Schools the user administers (owner / school admin via School.admin,
+    # head of institute via SchoolTeacher.role).
+    admin_school_ids = set(
+        School.objects.filter(admin=user, is_active=True).values_list('id', flat=True)
+    ) | set(
+        SchoolTeacher.objects.filter(
+            teacher=user, role='head_of_institute', is_active=True,
+        ).values_list('school_id', flat=True)
+    )
+
+    # Departments the user heads.
+    headed_dept_ids = set(
+        Department.objects.filter(head=user, is_active=True).values_list('id', flat=True)
+    )
+
+    scope = Q(id__in=taught_ids)
+    if admin_school_ids:
+        scope |= Q(school_id__in=admin_school_ids)
+    if headed_dept_ids:
+        scope |= Q(department_id__in=headed_dept_ids)
+
+    return ClassRoom.objects.filter(scope, is_active=True).distinct()
 
 
 # NOTE: _topics_with_questions() and _build_topic_groups() used to live here.
@@ -681,7 +719,9 @@ class StudentHomeworkResultView(LoginRequiredMixin, View):
 def _check_teacher_owns_class(request, classroom):
     if request.user.is_superuser:
         return
-    if not ClassTeacher.objects.filter(teacher=request.user, classroom=classroom).exists():
+    # Accept the same scope the classroom dropdown offers: classes the user
+    # teaches, plus classes in any school/department they administer.
+    if not _teacher_classrooms(request.user).filter(pk=classroom.pk).exists():
         from django.http import Http404
         raise Http404
 
