@@ -38,7 +38,9 @@
 
         <div class="flex flex-col items-end gap-2 flex-shrink-0">
           <!-- Status badge -->
-          {% if row.status == 'on_time' %}
+          {% if row.has_draft %}
+            <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">In progress</span>
+          {% elif row.status == 'on_time' %}
             <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">Submitted</span>
           {% elif row.status == 'late' %}
             <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-medium">Overdue Submission</span>
@@ -58,7 +60,12 @@
 
           <!-- Action button. Overdue homework stays attemptable; only the
                attempt cap removes the button. -->
-          {% if row.can_attempt %}
+          {% if row.has_draft %}
+          <a href="{% url 'homework:student_take' homework_id=hw.id %}"
+             class="px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-lg hover:bg-amber-600 transition">
+            Resume
+          </a>
+          {% elif row.can_attempt %}
           <a href="{% url 'homework:student_take' homework_id=hw.id %}"
              class="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition">
             {% if row.attempt_count > 0 %}Retry{% elif row.is_overdue %}Do it anyway{% else %}Start{% endif %}

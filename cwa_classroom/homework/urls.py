@@ -27,5 +27,6 @@ urlpatterns = [
     # Student
     path('homework/', views.StudentHomeworkListView.as_view(), name='student_list'),
     path('homework/<int:homework_id>/take/', views.StudentHomeworkTakeView.as_view(), name='student_take'),
+    path('homework/<int:homework_id>/save-progress/', views.SaveHomeworkProgressView.as_view(), name='save_progress'),
     path('homework/result/<int:submission_id>/', views.StudentHomeworkResultView.as_view(), name='student_result'),
 ]

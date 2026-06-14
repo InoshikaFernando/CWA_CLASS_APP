@@ -1,3 +1,4 @@
+import json
 import random
 import time as time_module
 
@@ -24,7 +25,13 @@ from maths.models import Answer, Question, calculate_points
 from maths.views import select_questions_stratified
 
 from .forms import HomeworkCreateForm, HomeworkEditForm
-from .models import Homework, HomeworkQuestion, HomeworkStudentAnswer, HomeworkSubmission
+from .models import (
+    Homework,
+    HomeworkDraft,
+    HomeworkQuestion,
+    HomeworkStudentAnswer,
+    HomeworkSubmission,
+)
 from .services import notify_students_homework_published
 
 
@@ -584,6 +591,14 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
             .order_by('due_date')
         )
 
+        # Homework this student has an in-progress (saved-but-not-submitted)
+        # draft for, so the list can show a "Resume" affordance.
+        draft_hw_ids = set(
+            HomeworkDraft.objects
+            .filter(student=request.user, homework_id__in=[hw.id for hw in homework_qs])
+            .values_list('homework_id', flat=True)
+        )
+
         rows = []
         for hw in homework_qs:
             joined_at = joined_at_by_class.get(hw.classroom_id)
@@ -609,6 +624,7 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
                 'can_attempt': can_attempt,
                 'is_overdue': is_overdue,
                 'status': status,
+                'has_draft': hw.id in draft_hw_ids,
             })
 
         return render(request, self.template_name, {'rows': rows})
@@ -654,11 +670,21 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
 
         has_coding_item = any(item.get('subject_slug') == 'coding' for item in items)
 
+        # If the student saved progress earlier, hand the take page their saved
+        # answers + elapsed time so it can restore them client-side. A draft is
+        # ungraded and does not consume an attempt — it's purely resume state.
+        draft = HomeworkDraft.objects.filter(
+            homework=homework, student=request.user,
+        ).first()
+
         return render(request, self.template_name, {
             'homework': homework,
             'items': items,
             'attempt_number': attempt_count + 1,
             'has_coding_item': has_coding_item,
+            'draft_answers': draft.answers_data if draft else {},
+            'draft_time_taken': draft.time_taken_seconds if draft else 0,
+            'draft_saved_at': draft.updated_at.isoformat() if draft else '',
         })
 
     def post(self, request, homework_id):
@@ -780,6 +806,12 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             submission.points = pts
             submission.save(update_fields=['score', 'points'])
 
+            # The work is now a real submission — drop any saved draft so the
+            # student isn't offered a stale "resume" for finished homework.
+            HomeworkDraft.objects.filter(
+                homework=homework, student=request.user,
+            ).delete()
+
         log_event(
             user=request.user,
             school=homework.classroom.school,
@@ -805,6 +837,58 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
         if request.POST.get('action') == 'save_exit':
             return redirect('homework:student_list')
         return redirect('homework:student_result', submission_id=submission.id)
+
+
+class SaveHomeworkProgressView(LoginRequiredMixin, View):
+    """AJAX endpoint: checkpoint a student's in-progress answers as a draft.
+
+    Saving progress is deliberately cheap and side-effect-free: it does NOT
+    grade anything and does NOT consume an attempt. It upserts the single
+    :class:`HomeworkDraft` for (homework, student) so the student can close the
+    page and resume later from exactly where they stopped.
+
+    The client posts the answer form fields (the ``answer_<id>`` and
+    ``code_<content_id>`` inputs) plus ``time_taken_seconds``; we persist them
+    verbatim as a flat JSON map and the take page restores them on next load.
+    """
+
+    def post(self, request, homework_id):
+        homework = get_object_or_404(Homework, id=homework_id)
+        _check_student_enrolled(request, homework.classroom)
+
+        if not homework.is_published:
+            return JsonResponse({'ok': False, 'error': 'not_available'}, status=400)
+
+        # Saving a draft is allowed even when the attempt cap is reached — a
+        # draft never becomes a submission on its own, so it can't exceed the
+        # cap. (The final submit re-checks the cap before grading.)
+        try:
+            payload = json.loads(request.body or '{}')
+        except (ValueError, TypeError):
+            return JsonResponse({'ok': False, 'error': 'bad_json'}, status=400)
+
+        answers = payload.get('answers') or {}
+        if not isinstance(answers, dict):
+            return JsonResponse({'ok': False, 'error': 'bad_answers'}, status=400)
+
+        try:
+            time_taken = int(payload.get('time_taken_seconds', 0) or 0)
+        except (ValueError, TypeError):
+            time_taken = 0
+
+        draft, _ = HomeworkDraft.objects.update_or_create(
+            homework=homework,
+            student=request.user,
+            defaults={
+                'answers_data': answers,
+                'time_taken_seconds': max(0, time_taken),
+            },
+        )
+
+        return JsonResponse({
+            'ok': True,
+            'saved_at': draft.updated_at.isoformat(),
+        })
 
 
 class StudentHomeworkResultView(LoginRequiredMixin, View):
