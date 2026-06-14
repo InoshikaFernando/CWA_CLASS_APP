@@ -107,11 +107,26 @@ class AdminDashboardView(RoleRequiredMixin, View):
         } for s in schools]
         total_teachers = sum(s.teacher_count for s in schools)
         total_students = sum(s.student_count for s in schools)
+
+        # Superuser-only: platform-wide subscription counts (active or trialing)
+        subscribed_students = subscribed_institutes = None
+        if request.user.is_superuser:
+            from billing.models import Subscription, SchoolSubscription
+            active_states = ['active', 'trialing']
+            subscribed_students = Subscription.objects.filter(
+                status__in=active_states,
+            ).count()
+            subscribed_institutes = SchoolSubscription.objects.filter(
+                status__in=active_states,
+            ).count()
+
         return render(request, 'admin_dashboard/dashboard.html', {
             'school_data': school_data,
             'total_schools': len(school_data),
             'total_teachers': total_teachers,
             'total_students': total_students,
+            'subscribed_students': subscribed_students,
+            'subscribed_institutes': subscribed_institutes,
         })
 
 

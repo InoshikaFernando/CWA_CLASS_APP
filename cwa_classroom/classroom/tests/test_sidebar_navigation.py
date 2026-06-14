@@ -137,6 +137,47 @@ class SidebarAdminNavigationTests(TestCase):
         resp = self.client.get(reverse('admin_dashboard'))
         self.assertContains(resp, '>Settings</span>')
 
+    def test_non_superuser_admin_has_no_subscriptions_link(self):
+        """Subscriptions Overview is superuser-only and hidden from plain admins."""
+        resp = self.client.get(reverse('admin_dashboard'))
+        self.assertNotContains(resp, reverse('billing_admin_subscription_overview'))
+
+
+class SidebarSuperuserSubscriptionsTests(TestCase):
+    """Superuser sees the Subscriptions Overview in both the sidebar and the
+    main admin dashboard landing page."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = CustomUser.objects.create_superuser(
+            username='super_sidebar', password='password1!',
+            email='wlhtestmails+super_sb@gmail.com',
+        )
+        _assign_role(cls.user, Role.ADMIN)
+        cls.school, cls.sub = _setup_school(cls.user, slug='super-sb-school')
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='super_sidebar', password='password1!')
+
+    def test_sidebar_contains_subscriptions_link(self):
+        resp = self.client.get(reverse('admin_dashboard'))
+        self.assertContains(resp, reverse('billing_admin_subscription_overview'))
+
+    def test_sidebar_contains_subscriptions_label(self):
+        resp = self.client.get(reverse('admin_dashboard'))
+        self.assertContains(resp, '>Subscriptions</span>')
+
+    def test_dashboard_card_present(self):
+        resp = self.client.get(reverse('admin_dashboard'))
+        self.assertContains(resp, 'Subscriptions Overview')
+
+    def test_dashboard_context_has_counts(self):
+        resp = self.client.get(reverse('admin_dashboard'))
+        # 1 active school subscription from _setup_school, 0 student subs
+        self.assertEqual(resp.context['subscribed_institutes'], 1)
+        self.assertEqual(resp.context['subscribed_students'], 0)
+
 
 # ===========================================================================
 # sidebar_hod.html — HoI / Institute Owner sidebar
