@@ -136,11 +136,17 @@ python manage.py backfill_department_levels --dry-run  # preview
 ## Homework
 
 ### `publish_scheduled_homework`
-Auto-publish homework assignments that have reached their scheduled publish time.
+Auto-publish homework whose scheduled `publish_at` time has been reached. For each
+due homework it sets `published_at` (making it visible to students/parents) and
+notifies every active student in the class (in-app notification + email). Idempotent —
+safe to re-run.
 ```bash
 python manage.py publish_scheduled_homework
 ```
-Intended to run as a cron job (e.g. every 5 minutes).
+Intended to run as a cron job every ~5 minutes. On the DigitalOcean server (`cwa` user):
+```cron
+*/5 * * * * cd /home/cwa/CWA_CLASS_APP && /home/cwa/CWA_CLASS_APP/venv/bin/python manage.py publish_scheduled_homework >> /var/log/cwa/publish_scheduled_homework.log 2>&1
+```
 
 ---
 

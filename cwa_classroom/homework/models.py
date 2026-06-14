@@ -58,6 +58,11 @@ class Homework(models.Model):
         ('pdf_upload', 'PDF Upload'),
     ]
 
+    # Lifecycle status (derived from publish_at / published_at / due_date).
+    STATUS_CREATED = 'created'      # saved but not yet live — hidden from students
+    STATUS_PUBLISHED = 'published'  # live and visible to students
+    STATUS_EXPIRED = 'expired'      # due date has passed
+
     classroom = models.ForeignKey(
         'classroom.ClassRoom', on_delete=models.CASCADE, related_name='homework_assignments'
     )
@@ -86,6 +91,21 @@ class Homework(models.Model):
         null=True, blank=True,
         help_text='Leave blank for unlimited attempts.',
     )
+    publish_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text=(
+            'When this homework should automatically go live. Leave blank to '
+            'publish immediately on creation. A future value schedules it — '
+            'students see nothing and get no email until then.'
+        ),
+    )
+    published_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text=(
+            'Set when the homework actually went live. This is the single gate '
+            'for student visibility and the publish notification email.'
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -94,6 +114,16 @@ class Homework(models.Model):
 
     def __str__(self):
         return f'{self.title} ({self.classroom})'
+
+    def save(self, *args, **kwargs):
+        # Default to "published immediately on creation" unless a publish time
+        # was scheduled. This preserves the pre-scheduling behaviour (homework
+        # was always live the moment it was created) so existing callers and
+        # the published_at visibility gate keep working; scheduling for later
+        # is opt-in by setting ``publish_at``.
+        if self.pk is None and self.published_at is None and self.publish_at is None:
+            self.published_at = timezone.now()
+        super().save(*args, **kwargs)
 
     @property
     def is_past_due(self):
@@ -115,6 +145,45 @@ class Homework(models.Model):
     @property
     def attempts_unlimited(self):
         return self.max_attempts is None
+
+    @property
+    def is_published(self):
+        return self.published_at is not None
+
+    @property
+    def status(self):
+        """Lifecycle status for display.
+
+        The due date is the hard end of life, so an expired homework reports
+        ``expired`` regardless of whether it was ever published. Otherwise it
+        is ``published`` once it has gone live, else ``created`` (saved but not
+        yet visible to students — covers both drafts and scheduled-for-later).
+        """
+        if self.due_date and timezone.now() >= self.due_date:
+            return self.STATUS_EXPIRED
+        return self.STATUS_PUBLISHED if self.is_published else self.STATUS_CREATED
+
+    @property
+    def status_label(self):
+        return {
+            self.STATUS_CREATED: 'Created',
+            self.STATUS_PUBLISHED: 'Published',
+            self.STATUS_EXPIRED: 'Expired',
+        }[self.status]
+
+    def publish(self):
+        """Mark the homework live now and notify students.
+
+        Idempotent: a homework that is already published is left untouched so
+        the scheduled-publish cron and a manual "Publish now" click can never
+        double-send the notification email.
+        """
+        if self.published_at:
+            return
+        self.published_at = timezone.now()
+        self.save(update_fields=['published_at', 'updated_at'])
+        from .services import notify_students_homework_published
+        notify_students_homework_published(self)
 
 
 class HomeworkQuestion(models.Model):

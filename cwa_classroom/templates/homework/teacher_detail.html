@@ -22,14 +22,29 @@
       </p>
     </div>
     <div class="flex items-center gap-2">
+      <a href="{% url 'homework:teacher_edit' homework_id=homework.id %}"
+         class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg hover:bg-gray-200 transition">
+        Edit
+      </a>
       <a href="{% url 'homework:assign_to_class' homework.id %}"
          class="px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-semibold rounded-lg hover:bg-blue-100 transition">
         Assign to another class
       </a>
-      {% if not homework.is_past_due %}
-      <span class="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">Open</span>
+      {% if homework.status == 'created' %}
+      <form method="post" action="{% url 'homework:publish' homework_id=homework.id %}">
+        {% csrf_token %}
+        <button type="submit"
+                class="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition">
+          Publish now
+        </button>
+      </form>
+      {% endif %}
+      {% if homework.status == 'published' %}
+      <span class="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">Published</span>
+      {% elif homework.status == 'expired' %}
+      <span class="px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-semibold">Expired</span>
       {% else %}
-      <span class="px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">Past Due</span>
+      <span class="px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold">Created{% if homework.publish_at %} · publishes {{ homework.publish_at|date:"d M, H:i" }}{% endif %}</span>
       {% endif %}
     </div>
   </div>
