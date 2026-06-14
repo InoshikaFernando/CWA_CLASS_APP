@@ -449,3 +449,39 @@ class AIGradingCache(models.Model):
 
     def __str__(self):
         return f'Cache Q{self.question_id} — score={self.score_fraction:.2f} hits={self.hit_count}'
+
+
+class HomeworkDraft(models.Model):
+    """In-progress, ungraded answers a student has saved to resume later.
+
+    A draft is deliberately separate from :class:`HomeworkSubmission`: saving
+    progress neither grades the work nor consumes an attempt. There is at most
+    one draft per (homework, student) — each save overwrites the previous one,
+    and the draft is deleted once the student actually submits.
+
+    ``answers_data`` stores the raw answer form fields (the ``answer_<id>`` and
+    ``code_<content_id>`` inputs) as a flat JSON map of field-name -> value, so
+    the take page can restore them client-side without any per-subject Python.
+    """
+    homework = models.ForeignKey(
+        Homework, on_delete=models.CASCADE, related_name='drafts',
+    )
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='homework_drafts',
+    )
+    answers_data = models.JSONField(
+        default=dict,
+        help_text='Flat map of answer form field name -> saved value.',
+    )
+    time_taken_seconds = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # One live draft per student per homework — saves upsert this row.
+        unique_together = ('homework', 'student')
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return f'Draft — {self.homework.title} — {self.student.username}'
