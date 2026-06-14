@@ -15,6 +15,7 @@ from maths.algebra_grading import (
     _parse_term,
     _split_terms,
     fold_exponents,
+    fold_inequalities,
     is_algebraic_answer_correct,
     normalize_notation,
 )
@@ -215,3 +216,28 @@ class TestFoldExponents:
     def test_cubed_and_higher(self):
         assert fold_exponents("cm³") == fold_exponents("cm^3") == "cm3"
         assert fold_exponents("x¹⁰") == fold_exponents("x^10") == "x10"
+
+
+# --------------------------------------------------------------------------- #
+# fold_inequalities — operator-spelling-insensitive matching so a stored
+# inequality answer (x ≥ 2) matches however the student types the operator.
+# --------------------------------------------------------------------------- #
+class TestFoldInequalities:
+    def test_all_ge_spellings_collapse_equal(self):
+        forms = ["x ≥ 2", "x>=2", "x=>2"]
+        folded = {fold_exponents(fold_inequalities(f)) for f in forms}
+        assert folded == {"x>=2"}
+
+    def test_all_le_spellings_collapse_equal(self):
+        forms = ["x ≤ 5", "x<=5", "x=<5"]
+        folded = {fold_exponents(fold_inequalities(f)) for f in forms}
+        assert folded == {"x<=5"}
+
+    def test_strict_and_nonstrict_stay_distinct(self):
+        # x > 2 must NOT be accepted for a stored x ≥ 2.
+        assert fold_inequalities("x>2") != fold_inequalities("x ≥ 2")
+        assert fold_inequalities("x<2") != fold_inequalities("x ≤ 2")
+
+    def test_plain_values_unaffected(self):
+        assert fold_inequalities("8") == "8"
+        assert fold_inequalities("2x + 3") == "2x + 3"
