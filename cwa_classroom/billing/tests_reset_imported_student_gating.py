@@ -12,6 +12,7 @@ and must be idempotent + dry-run safe.
 from io import StringIO
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase
 
 from accounts.models import CustomUser, Role, UserRole
@@ -32,11 +33,13 @@ def _make_user(username, role_name, profile_completed=True):
     return user
 
 
-def _run(dry_run=False):
+def _run(dry_run=False, school=None):
     out = StringIO()
     args = ['reset_imported_student_gating']
     if dry_run:
         args.append('--dry-run')
+    if school is not None:
+        args.extend(['--school', str(school)])
     call_command(*args, stdout=out)
     return out.getvalue()
 
@@ -115,3 +118,51 @@ class ResetImportedStudentGatingTests(TestCase):
         self.assertIn('No students need re-gating', output)
         student.refresh_from_db()
         self.assertFalse(student.profile_completed)
+
+
+class ResetImportedStudentGatingSchoolScopeTests(TestCase):
+    """--school restricts re-gating to students enrolled in that school."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.models import School, SchoolStudent
+
+        cls.school_a = School.objects.create(name='School A')
+        cls.school_b = School.objects.create(name='School B')
+
+        cls.stu_a = _make_user('stu_in_a', Role.STUDENT, profile_completed=True)
+        cls.stu_b = _make_user('stu_in_b', Role.STUDENT, profile_completed=True)
+        cls.stu_orphan = _make_user('stu_orphan', Role.STUDENT, profile_completed=True)
+
+        SchoolStudent.objects.create(school=cls.school_a, student=cls.stu_a, is_active=True)
+        SchoolStudent.objects.create(school=cls.school_b, student=cls.stu_b, is_active=True)
+        # stu_orphan has no SchoolStudent row (school deleted scenario).
+
+    def test_only_targets_students_in_given_school(self):
+        _run(school=self.school_a.id)
+        self.stu_a.refresh_from_db()
+        self.stu_b.refresh_from_db()
+        self.stu_orphan.refresh_from_db()
+        self.assertFalse(self.stu_a.profile_completed)  # re-gated
+        self.assertTrue(self.stu_b.profile_completed)   # other school — untouched
+        self.assertTrue(self.stu_orphan.profile_completed)  # orphan — untouched
+
+    def test_inactive_enrolment_is_not_targeted(self):
+        from classroom.models import School, SchoolStudent
+        school_c = School.objects.create(name='School C')
+        stu_left = _make_user('stu_left', Role.STUDENT, profile_completed=True)
+        SchoolStudent.objects.create(school=school_c, student=stu_left, is_active=False)
+        _run(school=school_c.id)
+        stu_left.refresh_from_db()
+        self.assertTrue(stu_left.profile_completed)  # inactive enrolment — skipped
+
+    def test_unknown_school_id_raises(self):
+        with self.assertRaises(CommandError):
+            _run(school=999999)
+
+    def test_unscoped_run_still_targets_all_schools(self):
+        _run()
+        self.stu_a.refresh_from_db()
+        self.stu_b.refresh_from_db()
+        self.assertFalse(self.stu_a.profile_completed)
+        self.assertFalse(self.stu_b.profile_completed)
