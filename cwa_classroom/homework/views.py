@@ -23,8 +23,9 @@ from classroom.views import RoleRequiredMixin
 from maths.models import Answer, Question, calculate_points
 from maths.views import select_questions_stratified
 
-from .forms import HomeworkCreateForm
+from .forms import HomeworkCreateForm, HomeworkEditForm
 from .models import Homework, HomeworkQuestion, HomeworkStudentAnswer, HomeworkSubmission
+from .services import notify_students_homework_published
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +212,26 @@ class HomeworkCreateView(RoleRequiredMixin, View):
             homework.delete()
             return render(request, self.template_name, self._base_context(request, classroom, plugin, form))
 
-        messages.success(request, f'Homework "{homework.title}" created with {count} questions.')
+        # Publish now (blank or past publish_at) vs schedule for later. A
+        # scheduled homework stays hidden from students and sends no email
+        # until the publish_scheduled_homework command (or a manual "Publish
+        # now" click) flips published_at.
+        publish_at = form.cleaned_data.get('publish_at')
+        publish_now = publish_at is None or publish_at <= timezone.now()
+        if publish_now:
+            homework.published_at = timezone.now()
+            homework.save(update_fields=['published_at', 'updated_at'])
+            notify_students_homework_published(homework)
+            messages.success(
+                request,
+                f'Homework "{homework.title}" published with {count} questions.',
+            )
+        else:
+            messages.success(
+                request,
+                f'Homework "{homework.title}" created with {count} questions — '
+                f'scheduled to publish on {publish_at.strftime("%d %b %Y %H:%M")}.',
+            )
 
         log_event(
             user=request.user,
@@ -226,29 +246,12 @@ class HomeworkCreateView(RoleRequiredMixin, View):
                 'subject_slug': homework.subject_slug,
                 'num_questions': count,
                 'due_date': str(homework.due_date) if homework.due_date else None,
+                'publish_at': str(publish_at) if publish_at else None,
+                'status': homework.status,
                 'max_attempts': homework.max_attempts,
             },
             request=request,
         )
-
-        # Notify all active students in the classroom
-        homework_url = reverse('homework:student_take', kwargs={'homework_id': homework.id})
-        due_str = homework.due_date.strftime('%d %b %Y') if homework.due_date else 'no deadline'
-        active_students = (
-            ClassStudent.objects
-            .filter(classroom=classroom, is_active=True)
-            .select_related('student')
-        )
-        for cs in active_students:
-            create_notification(
-                user=cs.student,
-                message=(
-                    f'New homework "{homework.title}" has been assigned in '
-                    f'{classroom.name}. Due: {due_str}.'
-                ),
-                notification_type='homework_assigned',
-                link=homework_url,
-            )
 
         return redirect('homework:teacher_detail', homework_id=homework.id)
 
@@ -334,6 +337,123 @@ class HomeworkDetailView(RoleRequiredMixin, View):
         })
 
 
+class HomeworkPublishView(RoleRequiredMixin, View):
+    """Teacher action to publish a Created/scheduled homework immediately.
+
+    Flips ``published_at`` to now and notifies students via
+    ``Homework.publish()``. Idempotent — an already-published homework is left
+    alone with a friendly message.
+    """
+    required_roles = ['teacher', 'senior_teacher', 'junior_teacher']
+
+    def post(self, request, homework_id):
+        homework = get_object_or_404(Homework, id=homework_id)
+        _check_teacher_owns_class(request, homework.classroom)
+
+        if homework.is_published:
+            messages.info(request, f'"{homework.title}" is already published.')
+            return redirect('homework:teacher_detail', homework_id=homework.id)
+
+        homework.publish()
+
+        log_event(
+            user=request.user,
+            school=homework.classroom.school,
+            category='data_change',
+            action='homework_published',
+            detail={
+                'homework_id': homework.id,
+                'title': homework.title,
+                'classroom_id': homework.classroom_id,
+                'classroom_name': homework.classroom.name,
+                'manual': True,
+            },
+            request=request,
+        )
+
+        messages.success(request, f'Homework "{homework.title}" published.')
+        return redirect('homework:teacher_detail', homework_id=homework.id)
+
+
+class HomeworkEditView(RoleRequiredMixin, View):
+    """Edit a homework's schedule (publish date, due date) and metadata.
+
+    Question selection is left untouched. While a homework is still unpublished
+    the teacher can reschedule ``publish_at`` (or blank it to publish now); once
+    published the publish field is hidden and only the due date / title / notes
+    / attempt cap can change.
+    """
+    required_roles = ['teacher', 'senior_teacher', 'junior_teacher']
+    template_name = 'homework/teacher_edit.html'
+
+    def get(self, request, homework_id):
+        homework = get_object_or_404(Homework, id=homework_id)
+        _check_teacher_owns_class(request, homework.classroom)
+        form = HomeworkEditForm(instance=homework)
+        return render(request, self.template_name, {'form': form, 'homework': homework})
+
+    def post(self, request, homework_id):
+        homework = get_object_or_404(Homework, id=homework_id)
+        _check_teacher_owns_class(request, homework.classroom)
+
+        was_published = homework.is_published
+        before = {
+            'title': homework.title,
+            'due_date': str(homework.due_date) if homework.due_date else None,
+            'publish_at': str(homework.publish_at) if homework.publish_at else None,
+            'max_attempts': homework.max_attempts,
+        }
+
+        form = HomeworkEditForm(request.POST, instance=homework)
+        if not form.is_valid():
+            return render(request, self.template_name, {'form': form, 'homework': homework})
+
+        hw = form.save(commit=False)
+
+        # Decide whether this edit publishes a still-unpublished homework. A
+        # blank or past publish_at on an unpublished homework means "publish now";
+        # a future publish_at reschedules it. Already-published homework keeps
+        # published_at untouched (the publish_at field was dropped from the form).
+        publish_now = False
+        if not was_published:
+            publish_at = form.cleaned_data.get('publish_at')
+            publish_now = publish_at is None or publish_at <= timezone.now()
+            if publish_now:
+                hw.published_at = timezone.now()
+                hw.publish_at = None
+
+        hw.save()
+
+        if publish_now:
+            notify_students_homework_published(hw)
+
+        log_event(
+            user=request.user,
+            school=hw.classroom.school,
+            category='data_change',
+            action='homework_edited',
+            detail={
+                'homework_id': hw.id,
+                'before': before,
+                'after': {
+                    'title': hw.title,
+                    'due_date': str(hw.due_date) if hw.due_date else None,
+                    'publish_at': str(hw.publish_at) if hw.publish_at else None,
+                    'max_attempts': hw.max_attempts,
+                },
+                'published_by_edit': publish_now,
+                'status': hw.status,
+            },
+            request=request,
+        )
+
+        if publish_now:
+            messages.success(request, f'Homework "{hw.title}" updated and published.')
+        else:
+            messages.success(request, f'Homework "{hw.title}" updated.')
+        return redirect('homework:teacher_detail', homework_id=hw.id)
+
+
 # ---------------------------------------------------------------------------
 # Assign existing homework to another class
 # ---------------------------------------------------------------------------
@@ -395,7 +515,10 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
             if Homework.objects.filter(title=homework.title, classroom=classroom).exists():
                 continue
 
-            # Create new Homework for this classroom, copying all settings
+            # Create new Homework for this classroom, copying all settings.
+            # Carry over the publish lifecycle (publish_at / published_at) so a
+            # scheduled homework stays scheduled in the new class instead of
+            # being auto-published by Homework.save()'s publish-on-create default.
             new_hw = Homework.objects.create(
                 classroom=classroom,
                 created_by=request.user,
@@ -406,6 +529,8 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
                 num_questions=homework.num_questions,
                 due_date=homework.due_date,
                 max_attempts=homework.max_attempts,
+                publish_at=homework.publish_at,
+                published_at=homework.published_at,
             )
             new_hw.topics.set(homework.topics.all())
 
@@ -452,7 +577,7 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
 
         homework_qs = (
             Homework.objects
-            .filter(classroom_id__in=class_ids)
+            .filter(classroom_id__in=class_ids, published_at__isnull=False)
             .prefetch_related(
                 Prefetch('topics', queryset=Topic.objects.select_related('subject', 'parent'))
             )
@@ -496,6 +621,10 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
         homework = get_object_or_404(Homework, id=homework_id)
         _check_student_enrolled(request, homework.classroom)
 
+        if not homework.is_published:
+            messages.error(request, 'This homework is not available yet.')
+            return redirect('homework:student_list')
+
         attempt_count = HomeworkSubmission.get_attempt_count(homework, request.user)
         if not homework.attempts_unlimited and attempt_count >= homework.max_attempts:
             messages.error(request, 'You have used all your attempts for this homework.')
@@ -535,6 +664,10 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
     def post(self, request, homework_id):
         homework = get_object_or_404(Homework, id=homework_id)
         _check_student_enrolled(request, homework.classroom)
+
+        if not homework.is_published:
+            messages.error(request, 'This homework is not available yet.')
+            return redirect('homework:student_list')
 
         attempt_count = HomeworkSubmission.get_attempt_count(homework, request.user)
         if not homework.attempts_unlimited and attempt_count >= homework.max_attempts:

@@ -37,7 +37,7 @@ Usage
 """
 import logging
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q
 
 from accounts.models import CustomUser, Role
@@ -61,9 +61,21 @@ class Command(BaseCommand):
             action='store_true',
             help='Preview affected students without writing any changes.',
         )
+        parser.add_argument(
+            '--school',
+            type=int,
+            default=None,
+            metavar='SCHOOL_ID',
+            help=(
+                'Restrict re-gating to students with an active enrolment in this '
+                'school (classroom.School id). Omit to consider all schools. '
+                'Use this to avoid sweeping in orphaned/no-school accounts.'
+            ),
+        )
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
+        school_id = options['school']
 
         # Users who have their own active/trialing subscription already have
         # paid (or free-code) access — exclude them.
@@ -75,23 +87,39 @@ class Command(BaseCommand):
 
         # School students only. Exclude individual students explicitly even if a
         # user somehow holds both roles.
-        candidate_ids = list(
+        candidates_qs = (
             CustomUser.objects.filter(
                 roles__name=Role.STUDENT,
                 profile_completed=True,
             )
             .exclude(roles__name=Role.INDIVIDUAL_STUDENT)
             .exclude(id__in=subscribed_user_ids)
-            .distinct()
-            .values_list('id', flat=True)
+        )
+
+        # Optional school scope: only students actively enrolled in the given
+        # school. This deliberately excludes orphaned students whose school was
+        # deleted (no active SchoolStudent row), so they are never re-gated.
+        if school_id is not None:
+            from classroom.models import School, SchoolStudent
+            if not School.objects.filter(id=school_id).exists():
+                raise CommandError(f'No School with id={school_id} exists.')
+            enrolled_ids = SchoolStudent.objects.filter(
+                school_id=school_id, is_active=True,
+            ).values_list('student_id', flat=True)
+            candidates_qs = candidates_qs.filter(id__in=enrolled_ids)
+
+        candidate_ids = list(
+            candidates_qs.distinct().values_list('id', flat=True)
         )
         candidates = CustomUser.objects.filter(id__in=candidate_ids)
+
+        scope_note = f' in school id={school_id}' if school_id is not None else ''
 
         total = len(candidate_ids)
         if total == 0:
             self.stdout.write(self.style.SUCCESS(
-                'No students need re-gating — all school students either have '
-                'an active subscription or are already gated.'
+                f'No students need re-gating{scope_note} — all school students '
+                'either have an active subscription or are already gated.'
             ))
             return
 
@@ -100,8 +128,8 @@ class Command(BaseCommand):
         )
 
         self.stdout.write(
-            f'{total} school student(s) with no active subscription will be '
-            f're-gated (profile_completed -> False).'
+            f'{total} school student(s){scope_note} with no active subscription '
+            f'will be re-gated (profile_completed -> False).'
         )
         self.stdout.write('Sample:')
         for username, email in sample:
