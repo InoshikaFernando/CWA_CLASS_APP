@@ -62,6 +62,12 @@ def add_missing_columns(apps, schema_editor):
 
 class Migration(migrations.Migration):
 
+    # DDL must run outside a transaction: MySQL can't roll back DDL, so calling
+    # schema_editor.add_field() inside the default atomic migration transaction
+    # raises TransactionManagementError. The per-column existence check keeps
+    # this safely re-runnable even without atomic wrapping.
+    atomic = False
+
     dependencies = [
         ('homework', '0019_merge_20260614_1229'),
     ]
