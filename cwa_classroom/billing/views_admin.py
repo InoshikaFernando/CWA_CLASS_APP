@@ -129,7 +129,10 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
                        .values_list('user__country', flat=True))
             ) if c
         })
-        institutions = list(School.objects.order_by('name').values('id', 'name'))
+        institutions = list(
+            School.objects.filter(is_active=True)
+            .order_by('name').values('id', 'name'),
+        )
 
         return render(request, 'admin_dashboard/billing/subscription_overview.html', {
             'hide_sidebar': True,
@@ -209,7 +212,8 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
 
     # -- institutes ----------------------------------------------------------
     def _institute_stats(self, country, institution, this_month_start, today):
-        qs = SchoolSubscription.objects.all()
+        # Deactivated schools are excluded everywhere on this dashboard.
+        qs = SchoolSubscription.objects.filter(school__is_active=True)
         if country:
             qs = qs.filter(school__country__iexact=country)
         if institution.isdigit():
@@ -303,7 +307,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         prices = {m.module: m.price for m in ModuleProduct.objects.all()}
         labels = dict(ModuleSubscription.MODULE_CHOICES)
         rows = (ModuleSubscription.objects
-                .filter(is_active=True)
+                .filter(is_active=True, school_subscription__school__is_active=True)
                 .values('module').annotate(count=Count('id')).order_by('-count'))
         out, total = [], self.ZERO
         for r in rows:

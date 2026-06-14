@@ -1002,6 +1002,24 @@ class SubscriptionOverviewTests(TestCase):
         Subscription.objects.create(user=user, package=self.package, status='active')
         self.assertEqual(self._get().context['students']['total'], 5)
 
+    # -- deactivated schools must not appear anywhere on the dashboard --
+    def test_deactivated_schools_excluded(self):
+        # Baseline: 3 institute subs from setUp (all active schools)
+        self.assertEqual(self._get().context['institutes']['total'], 3)
+
+        # Deactivate "School 0" (which has an active subscription)
+        school = School.objects.filter(name='School 0').first()
+        school.is_active = False
+        school.save(update_fields=['is_active'])
+
+        ctx = self._get().context
+        inst = ctx['institutes']
+        self.assertEqual(inst['total'], 2)   # School 0 dropped
+        self.assertEqual(inst['active'], 0)  # School 0 was the only active one
+        # and it's gone from the institution filter dropdown
+        names = [i['name'] for i in ctx['filters']['institutions']]
+        self.assertNotIn('School 0', names)
+
     # -- status donut --
     def test_student_donut_segments(self):
         donut = self._get().context['students']['donut']
