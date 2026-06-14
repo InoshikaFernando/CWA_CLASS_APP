@@ -14,7 +14,7 @@ from django.utils import timezone
 from accounts.models import CustomUser, Role, UserRole
 from billing.models import (
     InstitutePlan, InstituteDiscountCode, ModuleProduct,
-    SchoolSubscription, PromoCode, DiscountCode, Package,
+    SchoolSubscription, PromoCode, DiscountCode, Package, Subscription,
 )
 from classroom.models import School
 
@@ -824,3 +824,84 @@ class CPP301_UnlimitedDisplayTest(TestCase):
         resp = self.client.get(reverse('institute_plan_upgrade'))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Unlimited')
+
+
+# ===========================================================================
+# Subscription Overview (students + institutes)
+# ===========================================================================
+
+class SubscriptionOverviewTests(TestCase):
+    """Super-admin overview of how many students and institutes are subscribed."""
+
+    def setUp(self):
+        self.superuser = _create_superuser()
+        self.normaluser = _create_normal_user()
+        self.client.login(username='super', password='testpass123')
+
+        # Individual student package + subscriptions
+        self.package = Package.objects.create(name='Student Monthly', price=Decimal('9.00'))
+
+        # 2 active + 1 trialing students = 3 subscribed; 1 cancelled excluded
+        for i, status in enumerate(['active', 'active', 'trialing', 'cancelled']):
+            user = _create_normal_user(username=f'student{i}')
+            Subscription.objects.create(user=user, package=self.package, status=status)
+
+        # Institutes: 1 active + 1 trialing = 2 subscribed; 1 expired excluded
+        self.plan = _create_plan()
+        for i, status in enumerate(['active', 'trialing', 'expired']):
+            admin = _create_normal_user(username=f'schooladmin{i}')
+            school = _create_school(admin, name=f'School {i}', slug=f'school-{i}')
+            SchoolSubscription.objects.create(school=school, plan=self.plan, status=status)
+
+    def test_normal_user_redirected(self):
+        self.client.logout()
+        self.client.login(username='normal', password='testpass123')
+        resp = self.client.get(reverse('billing_admin_subscription_overview'))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_anonymous_redirected(self):
+        self.client.logout()
+        resp = self.client.get(reverse('billing_admin_subscription_overview'))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_superuser_can_access(self):
+        resp = self.client.get(reverse('billing_admin_subscription_overview'))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_student_counts(self):
+        resp = self.client.get(reverse('billing_admin_subscription_overview'))
+        self.assertEqual(resp.context['students_subscribed'], 3)
+        self.assertEqual(resp.context['students_active'], 2)
+        self.assertEqual(resp.context['students_trialing'], 1)
+
+    def test_institute_counts(self):
+        resp = self.client.get(reverse('billing_admin_subscription_overview'))
+        self.assertEqual(resp.context['institutes_subscribed'], 2)
+        self.assertEqual(resp.context['institutes_active'], 1)
+        self.assertEqual(resp.context['institutes_trialing'], 1)
+
+    def test_cancelled_and_expired_excluded(self):
+        """Only active/trialing count as subscribed."""
+        resp = self.client.get(reverse('billing_admin_subscription_overview'))
+        # 4 student subs total but 1 cancelled -> 3; 3 school subs but 1 expired -> 2
+        self.assertEqual(resp.context['students_subscribed'], 3)
+        self.assertEqual(resp.context['institutes_subscribed'], 2)
+
+    def test_mrr_totals(self):
+        resp = self.client.get(reverse('billing_admin_subscription_overview'))
+        # students: 3 active/trialing x $9 = $27; institutes: 2 x $49 = $98
+        self.assertEqual(resp.context['student_mrr'], Decimal('27.00'))
+        self.assertEqual(resp.context['institute_mrr'], Decimal('98.00'))
+        self.assertEqual(resp.context['total_mrr'], Decimal('125.00'))
+
+    def test_breakdowns_present(self):
+        resp = self.client.get(reverse('billing_admin_subscription_overview'))
+        packages = {r['package__name']: r['count'] for r in resp.context['students_by_package']}
+        plans = {r['plan__name']: r['count'] for r in resp.context['institutes_by_plan']}
+        self.assertEqual(packages.get('Student Monthly'), 3)
+        self.assertEqual(plans.get('Starter'), 2)
+
+    def test_page_renders_cards(self):
+        resp = self.client.get(reverse('billing_admin_subscription_overview'))
+        self.assertContains(resp, 'Subscribed Students')
+        self.assertContains(resp, 'Subscribed Institutes')
