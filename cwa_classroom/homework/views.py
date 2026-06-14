@@ -1405,6 +1405,10 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         if due_date is None:
             messages.error(request, 'Invalid due date format.')
             return redirect('homework:pdf_confirm', session_id=session.pk)
+        # datetime-local has no tz; the parse_date fallback already made its
+        # value aware, but a successful parse_datetime can still be naive.
+        if tz.is_naive(due_date):
+            due_date = tz.make_aware(due_date)
 
         max_attempts = None
         if max_attempts_str.strip():
@@ -1412,6 +1416,25 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
                 max_attempts = int(max_attempts_str)
             except ValueError:
                 pass
+
+        # Publish scheduling — blank means publish immediately; a future value
+        # schedules it (hidden + no email until the publish_scheduled_homework
+        # cron, or a manual "Publish now", flips it live).
+        publish_at_str = request.POST.get('publish_at', '').strip()
+        publish_at = None
+        if publish_at_str:
+            publish_at = parse_datetime(publish_at_str)
+            if publish_at and tz.is_naive(publish_at):
+                publish_at = tz.make_aware(publish_at)
+            if publish_at is None:
+                messages.error(request, 'Invalid publish date format.')
+                return redirect('homework:pdf_confirm', session_id=session.pk)
+            if publish_at <= tz.now():
+                messages.error(request, 'Publish date must be in the future. Leave it blank to publish now.')
+                return redirect('homework:pdf_confirm', session_id=session.pk)
+            if publish_at >= due_date:
+                messages.error(request, 'Publish date must be before the due date.')
+                return redirect('homework:pdf_confirm', session_id=session.pk)
 
         data = session.extracted_data
         questions_data = [q for q in data.get('questions', []) if q.get('include', True)]
@@ -1453,6 +1476,7 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
                     num_questions=len(saved_questions),
                     due_date=due_date,
                     max_attempts=max_attempts,
+                    publish_at=publish_at,  # None → auto-published by save(); future → scheduled
                 )
                 # bulk_create bypasses save(), so set content_id and subject_slug
                 # explicitly — otherwise the back-compat logic never fires and every
@@ -1474,25 +1498,11 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
             session.homework = created[0][0]
             session.save(update_fields=['is_confirmed', 'homework'])
 
-        # Notify students and log an audit entry, per class.
+        # Notify students and log an audit entry, per class. Scheduled (not yet
+        # published) homework is silent until it goes live — the cron notifies then.
         for homework, classroom in created:
-            homework_url = reverse('homework:student_take', kwargs={'homework_id': homework.id})
-            due_str = homework.due_date.strftime('%d %b %Y')
-            active_students = (
-                ClassStudent.objects
-                .filter(classroom=classroom, is_active=True)
-                .select_related('student')
-            )
-            for cs in active_students:
-                create_notification(
-                    user=cs.student,
-                    message=(
-                        f'New homework "{homework.title}" has been assigned in '
-                        f'{classroom.name}. Due: {due_str}.'
-                    ),
-                    notification_type='homework_assigned',
-                    link=homework_url,
-                )
+            if homework.is_published:
+                notify_students_homework_published(homework)
 
             log_event(
                 user=request.user,
@@ -1507,17 +1517,24 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
                     'classroom_name': classroom.name,
                     'question_count': len(saved_questions),
                     'due_date': str(due_date),
+                    'publish_at': str(publish_at) if publish_at else None,
+                    'status': homework.status,
                     'max_attempts': max_attempts,
                 },
                 request=request,
             )
+
+        schedule_note = (
+            '' if publish_at is None
+            else f' Scheduled to publish on {publish_at.strftime("%d %b %Y %H:%M")}.'
+        )
 
         if len(created) == 1:
             homework, classroom = created[0]
             messages.success(
                 request,
                 f'Homework "{homework.title}" created with {len(saved_questions)} questions '
-                f'and assigned to {classroom.name}.',
+                f'and assigned to {classroom.name}.{schedule_note}',
             )
             return redirect('homework:teacher_detail', homework_id=homework.id)
 
@@ -1525,7 +1542,7 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         messages.success(
             request,
             f'Homework "{hw_title}" created with {len(saved_questions)} questions and '
-            f'assigned to {len(created)} classes: {class_names}.',
+            f'assigned to {len(created)} classes: {class_names}.{schedule_note}',
         )
         return redirect('homework:teacher_monitor')
 
