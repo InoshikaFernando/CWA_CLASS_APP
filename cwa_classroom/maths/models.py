@@ -50,6 +50,7 @@ class Question(models.Model):
     PRIME_FACTORIZATION = 'prime_factorization'
     COLUMN_OPERATION = 'column_operation'
     MEASURE = 'measure'
+    DRAW_ON_GRID = 'draw_on_grid'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -62,6 +63,7 @@ class Question(models.Model):
         ('prime_factorization', 'Prime Factorization'),
         ('column_operation', 'Column Arithmetic'),
         ('measure', 'Measure (angle/scale, tolerance-graded)'),
+        ('draw_on_grid', 'Draw on Grid (symmetry / reflection / plot)'),
     ]
 
     # Validation mode — how student answers are graded
@@ -161,6 +163,20 @@ class Question(models.Model):
         help_text="Measure: unit shown in the answer box, e.g. '°', 'cm', 'g'.",
     )
 
+    # Draw-on-grid question data: a single JSON document describing the dot grid,
+    # the shape, the interaction mode, and the correct target set. Coordinates are
+    # integer grid indices (not pixels) so the figure is scale-independent. See
+    # docs/specs/CPP-330_interactive_geometry_questions.md §3.4 for the schema:
+    #   {"grid": {"cols", "rows"}, "shape": {...},
+    #    "mode": "segments"|"points"|"shape_complete",
+    #    "target": {"segments"|"points"|"expected_extra_segments": [...]},
+    #    "allow_extra": bool}
+    # Schema validation lives in Question.clean() (CPP-338).
+    grid_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="draw_on_grid only. Dot grid + shape + correct target set (grid-index coords).",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -244,6 +260,25 @@ class Question(models.Model):
                     )
                 })
 
+        # Draw-on-grid questions are graded by set comparison of grid marks.
+        if self.question_type == self.DRAW_ON_GRID:
+            if not self.grid_spec:
+                raise ValidationError({
+                    'grid_spec': 'Draw-on-grid questions require a grid_spec.'
+                })
+            from maths.geometry_grading import validate_grid_spec
+            try:
+                validate_grid_spec(self.grid_spec)
+            except ValueError as exc:
+                raise ValidationError({'grid_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Draw-on-grid questions are graded by the drawn marks '
+                        'and must not have answer options.'
+                    )
+                })
+
     @property
     def long_division_step_count(self):
         """Number of subtraction blocks needed to long-divide dividend by divisor."""
@@ -287,6 +322,49 @@ class Question(models.Model):
             return ''
         from maths.svg_geometry import angle_svg
         return angle_svg(self.numeric_answer)
+
+    @property
+    def draw_on_grid_data(self):
+        """SVG-ready render data for a draw_on_grid question, or None.
+
+        Maps the ``grid_spec`` (grid-index coords) to pixel coordinates the
+        take-item template draws: the dot lattice (each dot carries its grid
+        index for the click-to-draw JS), the shape polygon, and the canvas
+        size. Returns None when there's nothing renderable, so templates guard
+        with a single check. Kept on the model — like the long-division /
+        prime-factorisation render helpers — so no per-view plumbing is needed.
+        """
+        if self.question_type != self.DRAW_ON_GRID or not self.grid_spec:
+            return None
+        grid = self.grid_spec.get('grid') or {}
+        cols, rows = grid.get('cols'), grid.get('rows')
+        if not (isinstance(cols, int) and isinstance(rows, int) and cols > 0 and rows > 0):
+            return None
+        pad, step = 20, 36
+
+        def px(x):
+            return pad + x * step
+
+        dots = [
+            {'gx': x, 'gy': y, 'px': px(x), 'py': px(y)}
+            for y in range(rows) for x in range(cols)
+        ]
+        shape = self.grid_spec.get('shape')
+        shape_points = shape.get('points', []) if isinstance(shape, dict) else []
+        # Defensive: only well-formed integer [x, y] points reach the SVG, so a
+        # spec that bypassed validate_grid_spec can't 500 the take-item render.
+        polygon = ' '.join(
+            f'{px(p[0])},{px(p[1])}'
+            for p in shape_points
+            if isinstance(p, (list, tuple)) and len(p) == 2
+            and all(isinstance(c, int) for c in p)
+        )
+        return {
+            'cols': cols, 'rows': rows, 'pad': pad, 'step': step,
+            'width': pad * 2 + (cols - 1) * step,
+            'height': pad * 2 + (rows - 1) * step,
+            'dots': dots, 'polygon': polygon,
+        }
 
     @property
     def prime_factorization_rows(self):

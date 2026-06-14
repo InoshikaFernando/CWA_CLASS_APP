@@ -165,6 +165,89 @@ so the student types just the number.
   {% if q.answer_unit %}<span class="text-gray-700 font-medium" aria-hidden="true">{{ q.answer_unit }}</span>{% endif %}
 </div>
 
+{% elif q.question_type == 'draw_on_grid' and q.draw_on_grid_data %}
+{% comment %}
+Draw-on-grid: click two dots to lay a line (e.g. a line of symmetry); click a
+drawn line to remove it. Marks serialise to JSON in the hidden answer_{id}
+input as {"segments":[{x1,y1,x2,y2}]} in grid-index coords. Mirrors the
+hidden-field-sync pattern of the long-division / prime-factorisation partials.
+{% endcomment %}
+{% with d=q.draw_on_grid_data %}
+<input type="hidden" name="answer_{{ q.id }}" data-dog-hidden="{{ q.id }}" value='{"segments":[]}' />
+<p class="text-xs text-gray-500 mb-2">Click two dots to draw a line. Click a line to remove it.</p>
+<svg data-dog-wrap="{{ q.id }}" viewBox="0 0 {{ d.width }} {{ d.height }}"
+     width="{{ d.width }}" height="{{ d.height }}"
+     class="border border-gray-200 rounded-lg bg-white touch-none select-none max-w-full">
+  {% if d.polygon %}<polygon points="{{ d.polygon }}" fill="none" stroke="#9ca3af" stroke-width="2"/>{% endif %}
+  <g data-dog-lines="{{ q.id }}"></g>
+  {% for dot in d.dots %}
+  <circle data-dog-dot="{{ q.id }}" data-gx="{{ dot.gx }}" data-gy="{{ dot.gy }}"
+          cx="{{ dot.px }}" cy="{{ dot.py }}" r="6" fill="#cbd5e1"
+          class="cursor-pointer" tabindex="0" role="button"
+          aria-label="grid dot {{ dot.gx }},{{ dot.gy }}"></circle>
+  {% endfor %}
+</svg>
+<button type="button" data-dog-clear="{{ q.id }}"
+        class="mt-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50">Clear</button>
+<script>
+(function(){
+  var id = "{{ q.id }}", pad = {{ d.pad }}, step = {{ d.step }};
+  var svg = document.querySelector('[data-dog-wrap="' + id + '"]');
+  var hidden = document.querySelector('[data-dog-hidden="' + id + '"]');
+  var lines = document.querySelector('[data-dog-lines="' + id + '"]');
+  var clearBtn = document.querySelector('[data-dog-clear="' + id + '"]');
+  if (!svg || !hidden || !lines) return;
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var segs = [];            // {x1,y1,x2,y2} in grid coords
+  var sel = null;           // first selected dot element
+
+  function px(g){ return pad + g * step; }
+  function sync(){ hidden.value = JSON.stringify({segments: segs}); }
+  function key(s){ var a=[[s.x1,s.y1],[s.x2,s.y2]].sort(); return JSON.stringify(a); }
+
+  function drawLine(s){
+    var ln = document.createElementNS(SVGNS, "line");
+    ln.setAttribute("x1", px(s.x1)); ln.setAttribute("y1", px(s.y1));
+    ln.setAttribute("x2", px(s.x2)); ln.setAttribute("y2", px(s.y2));
+    ln.setAttribute("stroke", "#2563eb"); ln.setAttribute("stroke-width", "3");
+    ln.setAttribute("stroke-linecap", "round");
+    ln.setAttribute("class", "cursor-pointer");
+    ln.dataset.k = key(s);
+    ln.addEventListener("click", function(e){ e.stopPropagation(); removeLine(s, ln); });
+    lines.appendChild(ln);
+  }
+  function removeLine(s, ln){
+    var k = key(s);
+    segs = segs.filter(function(t){ return key(t) !== k; });
+    if (ln && ln.parentNode) ln.parentNode.removeChild(ln);
+    sync();
+  }
+  function clearSel(){
+    if (sel){ sel.setAttribute("fill", "#cbd5e1"); sel.setAttribute("r", "6"); sel = null; }
+  }
+  function onDot(dot){
+    var gx = parseInt(dot.dataset.gx, 10), gy = parseInt(dot.dataset.gy, 10);
+    if (!sel){ sel = dot; dot.setAttribute("fill", "#2563eb"); dot.setAttribute("r", "8"); return; }
+    var sx = parseInt(sel.dataset.gx, 10), sy = parseInt(sel.dataset.gy, 10);
+    if (sx === gx && sy === gy){ clearSel(); return; }       // same dot → deselect
+    var s = {x1: sx, y1: sy, x2: gx, y2: gy};
+    if (!segs.some(function(t){ return key(t) === key(s); })){ segs.push(s); drawLine(s); sync(); }
+    clearSel();
+  }
+  svg.querySelectorAll('[data-dog-dot="' + id + '"]').forEach(function(dot){
+    dot.addEventListener("click", function(){ onDot(dot); });
+    dot.addEventListener("keydown", function(e){ if (e.key === "Enter" || e.key === " "){ e.preventDefault(); onDot(dot); } });
+  });
+  if (clearBtn) clearBtn.addEventListener("click", function(){
+    segs = []; while (lines.firstChild) lines.removeChild(lines.firstChild); clearSel(); sync();
+  });
+  var form = svg.closest('form');
+  if (form) form.addEventListener('submit', sync, true);
+  sync();
+})();
+</script>
+{% endwith %}
+
 {% else %}
 {% if q.question_type == 'column_operation' and q.column_inline %}
 <p class="font-mono text-2xl font-bold text-gray-800 mb-2">{{ q.column_inline }} =</p>
