@@ -8,6 +8,8 @@ urlpatterns = [
     path('homework/monitor/', views.HomeworkMonitorView.as_view(), name='teacher_monitor'),
     path('homework/class/<int:classroom_id>/create/', views.HomeworkCreateView.as_view(), name='teacher_create'),
     path('homework/<int:homework_id>/', views.HomeworkDetailView.as_view(), name='teacher_detail'),
+    path('homework/<int:homework_id>/edit/', views.HomeworkEditView.as_view(), name='teacher_edit'),
+    path('homework/<int:homework_id>/publish/', views.HomeworkPublishView.as_view(), name='publish'),
     path('homework/<int:homework_id>/assign/', views.HomeworkAssignToClassView.as_view(), name='assign_to_class'),
 
     # Teacher: PDF upload flow

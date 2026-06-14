@@ -757,13 +757,15 @@ class HomeworkMonitorUITest(HomeworkTestBase):
         resp = self.client.get(
             reverse('homework:teacher_monitor') + f'?classroom={self.classroom.id}'
         )
-        self.assertContains(resp, 'Open')
+        # Live, not-yet-due homework now shows the "Published" lifecycle badge.
+        self.assertContains(resp, 'Published')
 
     def test_past_due_badge_shown_for_past_homework(self):
         resp = self.client.get(
             reverse('homework:teacher_monitor') + f'?classroom={self.classroom.id}'
         )
-        self.assertContains(resp, 'Past Due')
+        # Past-due homework now shows the "Expired" lifecycle badge.
+        self.assertContains(resp, 'Expired')
 
     def test_due_date_displayed_on_card(self):
         resp = self.client.get(
