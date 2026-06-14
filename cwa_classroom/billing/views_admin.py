@@ -125,7 +125,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             c for c in (
                 list(School.objects.exclude(country='')
                      .values_list('country', flat=True))
-                + list(Subscription.objects.exclude(user__country='')
+                + list(self._b2c_subscriptions().exclude(user__country='')
                        .values_list('user__country', flat=True))
             ) if c
         })
@@ -151,8 +151,22 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         })
 
     # -- students (B2C) ------------------------------------------------------
+    @staticmethod
+    def _b2c_subscriptions():
+        """Individual / B2C subscriptions only.
+
+        Institute students also get a billing.Subscription row (created via
+        webhook / grant-access), but they are covered by their institute's
+        subscription and do not pay as individuals — so anyone who is a
+        current student of an institute is excluded here. Counting them as
+        paying B2C students overstates both the student count and earnings.
+        """
+        return Subscription.objects.exclude(
+            user__school_student_entries__is_active=True,
+        )
+
     def _student_stats(self, country, this_month_start, today):
-        qs = Subscription.objects.all()
+        qs = self._b2c_subscriptions()
         if country:
             qs = qs.filter(user__country__iexact=country)
 

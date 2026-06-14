@@ -17,7 +17,7 @@ from billing.models import (
     SchoolSubscription, PromoCode, DiscountCode, Package, Subscription,
     ModuleSubscription,
 )
-from classroom.models import School
+from classroom.models import School, SchoolStudent
 
 
 # ---------------------------------------------------------------------------
@@ -973,6 +973,34 @@ class SubscriptionOverviewTests(TestCase):
         self.assertContains(resp, 'Student Subscriptions')
         self.assertContains(resp, 'Institute Subscriptions')
         self.assertContains(resp, 'Institution Add-ons')
+
+    # -- B2C exclusion: institute students must NOT count as student subs --
+    def test_institute_students_excluded_from_student_panel(self):
+        # Baseline: 4 B2C student subs from setUp
+        self.assertEqual(self._get().context['students']['total'], 4)
+
+        # An institute student: has a Subscription AND an active SchoolStudent row
+        school = School.objects.filter(name='School 0').first()
+        inst_user = _create_normal_user(username='inst_student')
+        SchoolStudent.objects.create(
+            school=school, student=inst_user, is_active=True,
+        )
+        Subscription.objects.create(
+            user=inst_user, package=self.package, status='active',
+        )
+
+        # Still 4 — the institute student is excluded from the B2C panel
+        s = self._get().context['students']
+        self.assertEqual(s['total'], 4)
+        self.assertEqual(s['active'], 2)  # unchanged, not 3
+
+    def test_former_institute_student_counts_as_b2c(self):
+        # If the school membership is inactive, they're B2C again
+        school = School.objects.filter(name='School 0').first()
+        user = _create_normal_user(username='left_school')
+        SchoolStudent.objects.create(school=school, student=user, is_active=False)
+        Subscription.objects.create(user=user, package=self.package, status='active')
+        self.assertEqual(self._get().context['students']['total'], 5)
 
     # -- status donut --
     def test_student_donut_segments(self):
