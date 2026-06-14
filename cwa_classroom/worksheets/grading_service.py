@@ -19,6 +19,7 @@ For 30 students, ~5-8 unique answer patterns per question means only
 5-8 full evaluations + ~22-25 free cache hits → ~80% token saving.
 """
 import logging
+import os
 import re
 from decimal import Decimal
 
@@ -474,18 +475,34 @@ Respond with JSON only:
         else:
             user_content = user_prompt
 
+        # claude-sonnet-4-20250514 is deprecated; default to Opus for grading
+        # accuracy (it auto-marks student answers), env-overridable via
+        # AI_GRADING_MODEL.
         response = client.messages.create(
-            model='claude-sonnet-4-20250514',
+            model=os.environ.get('AI_GRADING_MODEL', 'claude-opus-4-8'),
             max_tokens=500,
             system=system,
             messages=[{'role': 'user', 'content': user_content}],
         )
         import json
-        text = response.content[0].text.strip()
+        # Take the first text block rather than content[0]: a future model /
+        # thinking setting could put a non-text block first.
+        text = next(
+            (b.text for b in response.content if getattr(b, 'type', None) == 'text'),
+            '',
+        ).strip()
         # Strip markdown code fences if present
         text = re.sub(r'^```(?:json)?\s*', '', text)
         text = re.sub(r'\s*```$', '', text)
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            # Opus can prepend reasoning prose to the answer when thinking is
+            # off; fall back to the outermost JSON object in the text.
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if not match:
+                raise
+            data = json.loads(match.group(0))
         score_fraction = float(data.get('score_fraction', 0.0))
         score_fraction = max(0.0, min(1.0, score_fraction))
         feedback = str(data.get('feedback', ''))

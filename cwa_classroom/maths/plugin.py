@@ -195,6 +195,17 @@ class MathsPlugin(SubjectPlugin):
                 got_q = int(m.group(1))
                 got_r = int(m.group(2)) if m.group(2) is not None else 0
                 is_correct = (got_q == quot and got_r == rem)
+        elif q.question_type == Question.MEASURE and q.numeric_answer is not None:
+            # Tolerance-graded numeric answer (e.g. "measure angle a").
+            from maths.geometry_grading import grade_measure
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            is_correct = grade_measure(q, text_answer)
+        elif q.question_type == Question.DRAW_ON_GRID and q.grid_spec:
+            # Set-comparison of grid segments/points (e.g. lines of symmetry).
+            # The client serialises the drawn marks to JSON in answer_{id}.
+            from maths.geometry_grading import grade_draw_on_grid
+            text_answer = post_data.get(f'answer_{q.id}', '')
+            is_correct = grade_draw_on_grid(q.grid_spec, text_answer)
         else:
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
             # Routes to algebra grading when q.answer_format == 'algebra',

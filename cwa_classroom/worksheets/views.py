@@ -42,6 +42,7 @@ ANSWER_PARTIAL_MAP = {
     'extended_answer':    _PARTIAL + '_answer_extended.html',
     'long_division':      _PARTIAL + '_answer_long_division.html',
     'prime_factorization': _PARTIAL + '_answer_prime_factorization.html',
+    'measure':            _PARTIAL + '_answer_measure.html',
 }
 _ANSWER_PARTIAL_DEFAULT = _PARTIAL + '_answer_text.html'
 
@@ -109,6 +110,7 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             pdf_filename=pdf_file.name,
             pdf_file=pdf_file,
             worksheet_name=worksheet_name,
+            shape_naming=request.POST.get('shape_naming') == 'on',
             status=WorksheetUploadSession.STATUS_PROCESSING,
         )
 
@@ -809,6 +811,13 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
             elif question.question_type == 'prime_factorization':
                 text_answer = request.POST.get('text_answer', '').strip()
                 is_correct = _grade_prime_factorization(question, text_answer)
+                if is_correct:
+                    points_earned = float(question.points)
+
+            elif question.question_type == 'measure' and question.numeric_answer is not None:
+                from maths.geometry_grading import grade_measure
+                text_answer = request.POST.get('text_answer', '').strip()
+                is_correct = grade_measure(question, text_answer)
                 if is_correct:
                     points_earned = float(question.points)
 

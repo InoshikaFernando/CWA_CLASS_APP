@@ -112,6 +112,10 @@ class WorksheetUploadSession(models.Model):
     # Persisted upload so the background worker (separate process) can read it.
     pdf_file = models.FileField(upload_to='worksheets/upload_pdfs/', null=True, blank=True)
     worksheet_name = models.CharField(max_length=255, blank=True)
+    shape_naming = models.BooleanField(
+        default=False,
+        help_text='Name-the-shape mode: AI generates one "name this shape" question per shape.',
+    )
     extracted_data = models.JSONField(default=dict)
     extracted_images = models.JSONField(default=dict)
     page_count = models.PositiveIntegerField(default=0)

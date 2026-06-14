@@ -48,7 +48,7 @@ class ParallelClassifyTests(SimpleTestCase):
     @patch('worksheets.services._classify_page_chunk')
     def test_multi_chunk_runs_parallel_and_merges(self, mock_chunk, _client):
         # 9 pages, chunk size 4 → chunks of [4, 4, 1] = 3 chunks.
-        mock_chunk.side_effect = lambda client, system, pages, total: _chunk_result(pages, n_questions=2)
+        mock_chunk.side_effect = lambda client, system, pages, total, shape_naming=False: _chunk_result(pages, n_questions=2)
         res = services.classify_worksheet_questions(_pages(9), [], [])
 
         self.assertEqual(mock_chunk.call_count, 3)
@@ -60,7 +60,7 @@ class ParallelClassifyTests(SimpleTestCase):
     @patch('worksheets.services._get_anthropic_client', return_value=MagicMock())
     @patch('worksheets.services._classify_page_chunk')
     def test_chunk_failure_propagates(self, mock_chunk, _client):
-        def boom(client, system, pages, total):
+        def boom(client, system, pages, total, shape_naming=False):
             if pages[0]['page_num'] == 5:        # fail the second chunk
                 raise ValueError('chunk timed out')
             return _chunk_result(pages)
