@@ -1,27 +1,22 @@
 name: Deploy to Production
 
-# Weekly production release — every Sunday ~03:00 NZ time. This job:
-#   1. Promotes the week's work by merging `test` → `main` and pushing main.
-#   2. Deploys the freshly-merged `main` to prod over SSH (scripts/deploy.sh).
-#   3. Runs the public smoke test and alerts to DEPLOY_ALERT_WEBHOOK on failure.
+# Deploys `main` to prod whenever it changes. Promotion (test → main) happens
+# through a normal reviewed PR; merging that PR pushes `main`, which triggers
+# this workflow. This deliberately does NOT push to `main` itself — the old
+# in-workflow "promote test → main" step could not push a protected branch
+# (GH006) and blocked every release. Separating promote (PR) from deploy (this)
+# means a protected `main` is a feature, not a blocker.
 #
-# There is NO human review gate before prod — the deep health gate, the public
-# smoke test, and the Sunday-morning timing (low traffic, time to react before
-# Monday) are the safety net. If the test→main merge hits a conflict the job
-# fails and nothing deploys.
+# Triggers:
+#   - push to `main`      → deploy the merged code.
+#   - workflow_dispatch   → re-deploy current `main` on demand.
 #
-# NOTE: `schedule` only fires from the repository's DEFAULT branch (main), so
-# this file must be present on main for the weekly release to run. Trigger an
-# off-schedule release (e.g. hotfix) via "Run workflow".
+# What the deploy step does (over SSH, via scripts/deploy.sh on the droplet):
+#   reset to origin/main → install deps → migrate → collectstatic →
+#   check --deploy → restart cwa-gunicorn → deep health gate → restart RQ worker.
+# Then a public smoke test runs, and failures alert DEPLOY_ALERT_WEBHOOK.
 #
-# Branch protection: the promote step pushes to `main` with GITHUB_TOKEN. If
-# `main` is a protected branch that forbids direct pushes, set a `RELEASE_TOKEN`
-# secret (a PAT / fine-grained token allowed to bypass the rule) — it is used in
-# preference to GITHUB_TOKEN when present.
-#
-# Cron is UTC, no DST awareness. `0 15 * * 6` = Saturday 15:00 UTC =
-# Sunday 03:00 NZST (winter) / 04:00 NZDT (summer); use `0 14 * * 6` for 03:00
-# in summer.
+# Until DEPLOY_HOST is set the deploy no-ops (nothing is touched).
 #
 # Required repository secrets:
 #   DEPLOY_HOST          — prod server IP / hostname
@@ -29,26 +24,21 @@ name: Deploy to Production
 #   DEPLOY_USER          — (optional) SSH user, default: cwa
 #   DEPLOY_PATH          — (optional) repo path,  default: /home/cwa/CWA_CLASS_APP
 #   SMOKE_URL            — (optional) URL to smoke, default: https://www.wizardslearninghub.co.nz
-#   RELEASE_TOKEN        — (optional) token to push main if branch-protected
 #   DEPLOY_ALERT_WEBHOOK — (optional) Slack/Discord incoming webhook for failure alerts
-#
-# Until DEPLOY_HOST is set the whole job no-ops (and `main` is left untouched).
 
 on:
-  schedule:
-    - cron: "0 15 * * 6"     # Sat 15:00 UTC → Sun 03:00 NZST
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
   group: deploy-prod
-  cancel-in-progress: false      # never interrupt an in-flight release
+  cancel-in-progress: false      # never interrupt an in-flight deploy
 
 jobs:
-  release:
-    name: Promote test → main, then deploy
+  deploy:
+    name: Deploy main to production
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
       configured: ${{ steps.gate.outputs.configured }}
     steps:
@@ -59,30 +49,10 @@ jobs:
         run: |
           if [ -z "$DEPLOY_HOST" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::DEPLOY_HOST not set — skipping promotion + prod deploy (main left untouched)."
+            echo "::notice::DEPLOY_HOST not set — skipping prod deploy (nothing touched)."
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Checkout main
-        if: steps.gate.outputs.configured == 'true'
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-          token: ${{ secrets.RELEASE_TOKEN || github.token }}
-
-      - name: Promote test → main
-        if: steps.gate.outputs.configured == 'true'
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin test
-          # Merge the week's work. A conflict aborts the release (fails the job)
-          # rather than guessing a resolution and shipping it to prod.
-          git merge --no-ff origin/test -m "Weekly release: merge test → main"
-          git push origin HEAD:main
 
       - name: Deploy to production
         if: steps.gate.outputs.configured == 'true'
@@ -100,14 +70,14 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
             "${DEPLOY_USER:-cwa}@${DEPLOY_HOST}" \
             "cd ${DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP} && DEPLOY_BRANCH=main SERVICE=cwa-gunicorn WORKER=cwa-rqworker-prod ENV_FILE=/etc/cwa/cwa.env HEALTH_SOCKET=/run/cwa/gunicorn.sock bash scripts/deploy.sh"
-          # Runs in the PROD checkout: resets to origin/main (now including the
-          # merge), migrates, collects static, restarts cwa-gunicorn, and runs the
-          # deep health gate against /run/cwa/gunicorn.sock — non-zero if unhealthy.
+          # Runs in the PROD checkout: resets to origin/main, migrates, collects
+          # static, restarts cwa-gunicorn, runs the deep health gate against
+          # /run/cwa/gunicorn.sock (non-zero if unhealthy), restarts the RQ worker.
 
   smoke:
     name: Post-deploy smoke (public)
-    needs: release
-    if: needs.release.outputs.configured == 'true'
+    needs: deploy
+    if: needs.deploy.outputs.configured == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -131,8 +101,8 @@ jobs:
           python smoke_test.py "$URL" --public-only
 
   notify-failure:
-    name: Alert on failed release
-    needs: [release, smoke]
+    name: Alert on failed deploy
+    needs: [deploy, smoke]
     if: failure()
     runs-on: ubuntu-latest
     steps:
@@ -145,6 +115,6 @@ jobs:
             exit 0
           fi
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          MSG="🚨 CWA PROD release FAILED (test→main merge or deploy) — ${RUN_URL}"
+          MSG="🚨 CWA PROD deploy FAILED — ${RUN_URL}"
           printf '{"text": %s, "content": %s}' "$(jq -Rn --arg m "$MSG" '$m')" "$(jq -Rn --arg m "$MSG" '$m')" \
             | curl -sS -X POST -H 'Content-Type: application/json' -d @- "$WEBHOOK_URL"
