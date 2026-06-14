@@ -26,15 +26,19 @@ Usage
         --discount-percent 75               # send
 """
 import logging
+import time
 
 from django.core.management.base import BaseCommand, CommandError
 
 from accounts.models import CustomUser, Role
 from billing.models import Subscription
+from notifications.services import NOTIF_PAYMENT_REQUIRED
 
 logger = logging.getLogger(__name__)
 
 _ACTIVE_SUB_STATUSES = (Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIALING)
+# Resend allows 2 req/sec; pace below that so a batch never trips the limit.
+_DEFAULT_SLEEP = 0.6
 
 
 class Command(BaseCommand):
@@ -54,6 +58,12 @@ class Command(BaseCommand):
         parser.add_argument('--plan-name', default='Wizard', help='Plan label shown in the email.')
         parser.add_argument('--currency', default='$', help='Currency symbol.')
         parser.add_argument('--support-email', default='', help='Support email shown in the footer.')
+        parser.add_argument('--sleep', type=float, default=_DEFAULT_SLEEP,
+                            help=f'Seconds to pause between sends (default {_DEFAULT_SLEEP}; '
+                                 'keeps under Resend\'s 2/sec limit).')
+        parser.add_argument('--resend', action='store_true',
+                            help='Also email recipients who already received this notice '
+                                 '(by default they are skipped, so re-runs are safe).')
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
@@ -91,16 +101,34 @@ class Command(BaseCommand):
         recipients = list(recipients.distinct())
         scope_note = f' in school id={school_id}' if school_id is not None else ''
 
+        # Idempotency: skip anyone who already got a successful payment-required
+        # email, so a re-run (e.g. after a partial rate-limit failure) never
+        # double-sends to real families. --resend overrides this.
+        skipped_already = 0
+        if not options['resend']:
+            from classroom.models import EmailLog
+            already_sent_ids = set(
+                EmailLog.objects.filter(
+                    notification_type=NOTIF_PAYMENT_REQUIRED, status='sent',
+                    recipient__isnull=False,
+                ).values_list('recipient_id', flat=True)
+            )
+            before = len(recipients)
+            recipients = [u for u in recipients if u.id not in already_sent_ids]
+            skipped_already = before - len(recipients)
+
         if not recipients:
-            self.stdout.write(self.style.SUCCESS(
-                f'No re-gated, logged-in students{scope_note} to notify.'
-            ))
+            msg = f'No re-gated, logged-in students{scope_note} to notify.'
+            if skipped_already:
+                msg += f' ({skipped_already} already emailed — use --resend to include them.)'
+            self.stdout.write(self.style.SUCCESS(msg))
             return
 
         self.stdout.write(
             f'{len(recipients)} student(s){scope_note} will be emailed '
             f'(code={options["discount_code"] or "none"}, '
-            f'{options["discount_percent"]}% off).'
+            f'{options["discount_percent"]}% off)'
+            + (f'; {skipped_already} already emailed (skipped).' if skipped_already else '.')
         )
         for u in recipients:
             self.stdout.write(f'  - {u.get_full_name() or u.username} <{u.email or "no email"}>')
@@ -110,8 +138,12 @@ class Command(BaseCommand):
             return
 
         from notifications.services import send_payment_required_notification
+        sleep_s = options['sleep']
         sent = 0
-        for u in recipients:
+        failed = []
+        for i, u in enumerate(recipients):
+            if i and sleep_s > 0:
+                time.sleep(sleep_s)   # pace under Resend's 2/sec limit
             ok = send_payment_required_notification(
                 u, school=school,
                 plan_name=options['plan_name'],
@@ -123,7 +155,18 @@ class Command(BaseCommand):
             )
             if ok:
                 sent += 1
-        self.stdout.write(self.style.SUCCESS(
+            else:
+                failed.append(u.email or u.username)
+        style = self.style.SUCCESS if not failed else self.style.WARNING
+        self.stdout.write(style(
             f'Sent {sent}/{len(recipients)} payment-required email(s).'
         ))
-        logger.info('notify_payment_required: sent %d/%d emails%s.', sent, len(recipients), scope_note)
+        if failed:
+            self.stdout.write(self.style.ERROR(
+                f'{len(failed)} failed (re-run to retry — already-sent are skipped): '
+                + ', '.join(failed[:10]) + ('…' if len(failed) > 10 else '')
+            ))
+        logger.info(
+            'notify_payment_required: sent %d/%d, %d failed, %d skipped%s.',
+            sent, len(recipients), len(failed), skipped_already, scope_note,
+        )
