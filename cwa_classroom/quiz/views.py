@@ -708,12 +708,14 @@ class MixedQuizView(LoginRequiredMixin, View):
                 is_correct = q.grade_text_answer(raw)
             else:
                 from quiz.basic_facts import check_answer as _ca
-                from maths.algebra_grading import fold_exponents
+                from maths.algebra_grading import fold_exponents, fold_inequalities
                 raw = request.POST.get(f'text_{q.id}', '').strip()
                 correct_ans = q.answers.filter(is_correct=True).first()
                 if correct_ans:
-                    alts = [fold_exponents(a) for a in correct_ans.answer_text.split(',')]
-                    is_correct = fold_exponents(raw) in alts
+                    # Match grade_text_answer: exponent- and inequality-insensitive.
+                    _fold = lambda v: fold_exponents(fold_inequalities(v))
+                    alts = [_fold(a) for a in correct_ans.answer_text.split(',')]
+                    is_correct = _fold(raw) in alts
 
             if is_correct:
                 correct_count += 1
@@ -863,15 +865,17 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             correct_ans = q.answers.filter(is_correct=True).first()
             correct_answer_text = correct_ans.answer_text if correct_ans else ''
         else:
-            from maths.algebra_grading import fold_exponents
+            from maths.algebra_grading import fold_exponents, fold_inequalities
             raw = data.get('text_answer', '').strip()
             correct_ans = q.answers.filter(is_correct=True).first()
             if correct_ans:
+                # Match grade_text_answer: exponent- and inequality-insensitive.
+                _fold = lambda v: fold_exponents(fold_inequalities(v))
                 alts_raw = [a.strip() for a in correct_ans.answer_text.split(',')]
-                alts = [fold_exponents(a) for a in alts_raw]
+                alts = [_fold(a) for a in alts_raw]
                 from django.conf import settings
                 tolerance = getattr(settings, 'ANSWER_NUMERIC_TOLERANCE', 0.05)
-                is_correct = fold_exponents(raw) in alts
+                is_correct = _fold(raw) in alts
                 if not is_correct:
                     try:
                         is_correct = abs(float(raw) - float(alts_raw[0])) <= tolerance
