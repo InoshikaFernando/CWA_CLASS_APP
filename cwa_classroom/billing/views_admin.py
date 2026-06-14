@@ -125,11 +125,14 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             c for c in (
                 list(School.objects.exclude(country='')
                      .values_list('country', flat=True))
-                + list(Subscription.objects.exclude(user__country='')
+                + list(self._b2c_subscriptions().exclude(user__country='')
                        .values_list('user__country', flat=True))
             ) if c
         })
-        institutions = list(School.objects.order_by('name').values('id', 'name'))
+        institutions = list(
+            School.objects.filter(is_active=True)
+            .order_by('name').values('id', 'name'),
+        )
 
         return render(request, 'admin_dashboard/billing/subscription_overview.html', {
             'hide_sidebar': True,
@@ -151,8 +154,22 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         })
 
     # -- students (B2C) ------------------------------------------------------
+    @staticmethod
+    def _b2c_subscriptions():
+        """Individual / B2C subscriptions only.
+
+        Institute students also get a billing.Subscription row (created via
+        webhook / grant-access), but they are covered by their institute's
+        subscription and do not pay as individuals — so anyone who is a
+        current student of an institute is excluded here. Counting them as
+        paying B2C students overstates both the student count and earnings.
+        """
+        return Subscription.objects.exclude(
+            user__school_student_entries__is_active=True,
+        )
+
     def _student_stats(self, country, this_month_start, today):
-        qs = Subscription.objects.all()
+        qs = self._b2c_subscriptions()
         if country:
             qs = qs.filter(user__country__iexact=country)
 
@@ -195,7 +212,8 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
 
     # -- institutes ----------------------------------------------------------
     def _institute_stats(self, country, institution, this_month_start, today):
-        qs = SchoolSubscription.objects.all()
+        # Deactivated schools are excluded everywhere on this dashboard.
+        qs = SchoolSubscription.objects.filter(school__is_active=True)
         if country:
             qs = qs.filter(school__country__iexact=country)
         if institution.isdigit():
@@ -289,7 +307,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         prices = {m.module: m.price for m in ModuleProduct.objects.all()}
         labels = dict(ModuleSubscription.MODULE_CHOICES)
         rows = (ModuleSubscription.objects
-                .filter(is_active=True)
+                .filter(is_active=True, school_subscription__school__is_active=True)
                 .values('module').annotate(count=Count('id')).order_by('-count'))
         out, total = [], self.ZERO
         for r in rows:
