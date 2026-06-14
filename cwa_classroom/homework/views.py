@@ -327,13 +327,27 @@ class HomeworkDetailView(RoleRequiredMixin, View):
                 'status': status,
             })
 
-        # Sort: on-time first, then late, then not-submitted/pending
-        order = {'on_time': 0, 'late': 1, 'not_submitted': 2, 'pending': 3}
-        student_rows.sort(key=lambda r: order.get(r['status'], 9))
+        # Order students alphabetically by display name.
+        student_rows.sort(
+            key=lambda r: (
+                r['student'].get_full_name() or r['student'].username
+            ).lower()
+        )
+
+        # Summary counts (computed here — Django templates can't tally a loop).
+        # "Submitted" = anyone with a best submission (on-time or late);
+        # "Overdue"   = overdue with nothing submitted.
+        submitted_count = sum(1 for r in student_rows if r['best_submission'])
+        overdue_count = sum(
+            1 for r in student_rows
+            if r['status'] == HomeworkSubmission.STATUS_NOT_SUBMITTED
+        )
 
         return render(request, self.template_name, {
             'homework': homework,
             'student_rows': student_rows,
+            'submitted_count': submitted_count,
+            'overdue_count': overdue_count,
         })
 
 
