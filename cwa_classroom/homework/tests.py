@@ -2094,3 +2094,138 @@ class PDFConfirmMultiClassTests(TestCase):
         self.assertEqual(hws.count(), 1)
         self.assertEqual(hws.first().classroom_id, self.c1.id)
         self.assertFalse(Homework.objects.filter(classroom=foreign).exists())
+
+
+class HomeworkPDFLongDivisionSaveTest(HomeworkTestBase):
+    """The homework PDF importer turns a long_division payload into a proper
+    long-division Question with dividend/divisor, a computed answer, and no image."""
+
+    def _save(self, q, images=None):
+        from homework.views import _save_homework_pdf_questions
+        session = HomeworkUploadSession.objects.create(
+            user=self.teacher, school=self.school, pdf_filename='g5.pdf',
+            extracted_images=images or {},
+        )
+        global_data = {
+            'year_level': 501, 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+        }
+        return _save_homework_pdf_questions([q], global_data, self.teacher, self.school, session)
+
+    def test_long_division_saved_with_computed_answer(self):
+        saved = self._save({
+            'question_text': 'Solve using long division: 611 ÷ 47',
+            'question_type': 'long_division',
+            'dividend': 611, 'divisor': 47,
+            'difficulty': 2, 'points': 1, 'has_image': False,
+        })
+        self.assertEqual(len(saved), 1)
+        q = saved[0]
+        self.assertEqual(q.question_type, Question.LONG_DIVISION)
+        self.assertEqual((q.dividend, q.divisor), (611, 47))
+        self.assertEqual([(a.answer_text, a.is_correct) for a in q.answers.all()], [('13', True)])
+
+    def test_remainder_answer_format(self):
+        saved = self._save({
+            'question_text': 'Solve using long division: 508 ÷ 9',
+            'question_type': 'long_division', 'dividend': 508, 'divisor': 9,
+            'difficulty': 2, 'has_image': False,
+            'answers': [{'text': '999', 'is_correct': True}],  # AI answer must be ignored
+        })
+        self.assertEqual([a.answer_text for a in saved[0].answers.all()], ['56 r 4'])
+
+    def test_invalid_long_division_is_skipped(self):
+        saved = self._save({
+            'question_text': 'Solve using long division: 100 ÷ 0',
+            'question_type': 'long_division', 'dividend': 100, 'divisor': 0,
+            'difficulty': 2, 'has_image': False,
+        })
+        self.assertEqual(saved, [])
+
+    def test_layout_image_is_never_attached(self):
+        import base64
+        png = base64.b64encode(b'\x89PNG\r\n\x1a\n').decode()
+        saved = self._save(
+            {
+                'question_text': 'Solve using long division: 520 ÷ 10',
+                'question_type': 'long_division', 'dividend': 520, 'divisor': 10,
+                'difficulty': 2, 'has_image': True, 'image_ref': 'img.png',
+            },
+            images={'img.png': png},
+        )
+        self.assertEqual(len(saved), 1)
+        self.assertFalse(saved[0].image)
+
+
+class HomeworkPreviewAddQuestionTest(HomeworkTestBase):
+    """The preview POST honours `question_order`, letting teachers insert questions."""
+
+    def _make_session(self):
+        return HomeworkUploadSession.objects.create(
+            user=self.teacher, school=self.school, pdf_filename='hw.pdf',
+            status=HomeworkUploadSession.STATUS_DONE,
+            extracted_data={
+                'year_level': 501, 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+                'questions': [
+                    {'question_text': '1+1?', 'include': True, 'question_type': 'short_answer'},
+                    {'question_text': '2+2?', 'include': True, 'question_type': 'short_answer'},
+                ],
+            },
+            extracted_images={},
+        )
+
+    def test_preview_renders_add_question_controls(self):
+        session = self._make_session()
+        self.client.force_login(self.teacher)
+        url = reverse('homework:pdf_preview', kwargs={'session_id': session.pk})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, '+ Add question below')
+        self.assertContains(resp, 'name="question_order"')
+        self.assertContains(resp, 'function addQuestionAfter')
+
+    def test_inserts_new_question_in_order(self):
+        session = self._make_session()
+        self.client.force_login(self.teacher)
+        url = reverse('homework:pdf_preview', kwargs={'session_id': session.pk})
+        # Insert a new question (index 2) between the two existing ones.
+        resp = self.client.post(url, {
+            'year_level': '501', 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+            'question_order': '0,2,1',
+            'q_0_include': 'on', 'q_0_text': '1+1?', 'q_0_type': 'short_answer',
+            'q_2_include': 'on', 'q_2_text': 'Inserted Q', 'q_2_type': 'short_answer',
+            'q_2_answer_0_text': '5', 'q_2_answer_0_correct': 'on',
+            'q_1_include': 'on', 'q_1_text': '2+2?', 'q_1_type': 'short_answer',
+        })
+        self.assertEqual(resp.status_code, 302)
+        session.refresh_from_db()
+        texts = [q['question_text'] for q in session.extracted_data['questions']]
+        self.assertEqual(texts, ['1+1?', 'Inserted Q', '2+2?'])
+
+    def test_blank_added_question_is_dropped(self):
+        session = self._make_session()
+        self.client.force_login(self.teacher)
+        url = reverse('homework:pdf_preview', kwargs={'session_id': session.pk})
+        resp = self.client.post(url, {
+            'year_level': '501', 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+            'question_order': '0,1,2',
+            'q_0_include': 'on', 'q_0_text': '1+1?', 'q_0_type': 'short_answer',
+            'q_1_include': 'on', 'q_1_text': '2+2?', 'q_1_type': 'short_answer',
+            'q_2_include': 'on', 'q_2_text': '   ', 'q_2_type': 'short_answer',  # blank → dropped
+        })
+        self.assertEqual(resp.status_code, 302)
+        session.refresh_from_db()
+        self.assertEqual(len(session.extracted_data['questions']), 2)
+
+    def test_legacy_post_without_order_still_works(self):
+        session = self._make_session()
+        self.client.force_login(self.teacher)
+        url = reverse('homework:pdf_preview', kwargs={'session_id': session.pk})
+        resp = self.client.post(url, {
+            'year_level': '501', 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+            'q_0_include': 'on', 'q_0_text': 'edited', 'q_0_type': 'short_answer',
+            'q_1_include': 'on', 'q_1_text': '2+2?', 'q_1_type': 'short_answer',
+        })
+        self.assertEqual(resp.status_code, 302)
+        session.refresh_from_db()
+        texts = [q['question_text'] for q in session.extracted_data['questions']]
+        self.assertEqual(texts, ['edited', '2+2?'])

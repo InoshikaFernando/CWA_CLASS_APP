@@ -108,6 +108,7 @@
                          {% if q.question_type == 'multiple_choice' %}bg-blue-100 text-blue-700
                          {% elif q.question_type == 'true_false' %}bg-purple-100 text-purple-700
                          {% elif q.question_type == 'calculation' %}bg-amber-100 text-amber-700
+                         {% elif q.question_type == 'column_operation' %}bg-indigo-100 text-indigo-700
                          {% else %}bg-gray-100 text-gray-600{% endif %}">
               {{ q.question_type }}
             </span>
@@ -197,8 +198,50 @@
               </div>
             </div>
 
+            <!-- Column arithmetic (vertical/stacked operations) -->
+            <div id="column-section-{{ forloop.counter0 }}"
+                 class="bg-indigo-50 rounded-lg p-3 grid grid-cols-1 md:grid-cols-3 gap-3 {% if q.question_type != 'column_operation' %}hidden{% endif %}">
+              <div class="md:col-span-2">
+                <label class="block text-[10px] font-semibold text-indigo-500 mb-1">Operands (top-to-bottom, comma-separated)</label>
+                <input type="text" name="q_{{ forloop.counter0 }}_operands"
+                       value="{% if q.operands %}{{ q.operands|join:', ' }}{% endif %}"
+                       placeholder="e.g. 90, 82"
+                       class="w-full rounded border border-indigo-200 px-2 py-1.5 text-sm font-mono" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-indigo-500 mb-1">Operator</label>
+                <select name="q_{{ forloop.counter0 }}_operator"
+                        class="w-full rounded border border-indigo-200 px-2 py-1.5 text-sm">
+                  <option value="+" {% if q.operator == '+' %}selected{% endif %}>+ (add)</option>
+                  <option value="-" {% if q.operator == '-' %}selected{% endif %}>− (subtract)</option>
+                  <option value="*" {% if q.operator == '*' %}selected{% endif %}>× (multiply)</option>
+                </select>
+              </div>
+              <p class="md:col-span-3 text-[10px] text-indigo-400">The answer is calculated automatically from the operands — no need to enter it below.</p>
+            </div>
+
+            <!-- Long division (bus-stop layout) -->
+            <div id="longdiv-section-{{ forloop.counter0 }}"
+                 class="bg-indigo-50 rounded-lg p-3 grid grid-cols-1 md:grid-cols-2 gap-3 {% if q.question_type != 'long_division' %}hidden{% endif %}">
+              <div>
+                <label class="block text-[10px] font-semibold text-indigo-500 mb-1">Dividend (number being divided)</label>
+                <input type="text" name="q_{{ forloop.counter0 }}_dividend"
+                       value="{% if q.dividend %}{{ q.dividend }}{% endif %}"
+                       placeholder="e.g. 611"
+                       class="w-full rounded border border-indigo-200 px-2 py-1.5 text-sm font-mono" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-indigo-500 mb-1">Divisor (number dividing)</label>
+                <input type="text" name="q_{{ forloop.counter0 }}_divisor"
+                       value="{% if q.divisor %}{{ q.divisor }}{% endif %}"
+                       placeholder="e.g. 47"
+                       class="w-full rounded border border-indigo-200 px-2 py-1.5 text-sm font-mono" />
+              </div>
+              <p class="md:col-span-2 text-[10px] text-indigo-400">The answer is calculated automatically from the dividend and divisor — no need to enter it below.</p>
+            </div>
+
             <!-- Answers -->
-            <div id="answers-section-{{ forloop.counter0 }}">
+            <div id="answers-section-{{ forloop.counter0 }}" {% if q.question_type == 'column_operation' or q.question_type == 'long_division' %}class="hidden"{% endif %}>
               <label class="block text-xs font-semibold text-gray-500 mb-1">Answers</label>
               <div class="space-y-2 answers-container" data-idx="{{ forloop.counter0 }}">
                 {% for ans in q.answers %}
@@ -345,6 +388,18 @@ function handleTypeChange(qIdx, newType) {
   var container = document.querySelector('.answers-container[data-idx="' + qIdx + '"]');
   var section = document.getElementById('answers-section-' + qIdx);
   var addBtn = section.querySelector('button[onclick*="addAnswerRow"]');
+  var columnSection = document.getElementById('column-section-' + qIdx);
+  var longdivSection = document.getElementById('longdiv-section-' + qIdx);
+
+  // Column arithmetic and long division compute their own answers — show the
+  // structured-field editor for the active one, hide the answers list.
+  if (columnSection) columnSection.classList.toggle('hidden', newType !== 'column_operation');
+  if (longdivSection) longdivSection.classList.toggle('hidden', newType !== 'long_division');
+  if (newType === 'column_operation' || newType === 'long_division') {
+    section.classList.add('hidden');
+    return;
+  }
+  section.classList.remove('hidden');
 
   if (newType === 'true_false') {
     // Replace with True/False options
