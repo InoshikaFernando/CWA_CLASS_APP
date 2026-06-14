@@ -74,6 +74,16 @@ class GradeTextAnswerRoutingTests(TestCase):
         self.assertFalse(q.grade_text_answer('12 cm'))   # missing the power
         self.assertFalse(q.grade_text_answer('13 cm^2'))  # wrong value
 
+    def test_text_format_is_inequality_insensitive(self):
+        # A stored inequality must match however the student spells the operator
+        # (unicode ≥, ASCII >=, or the reversed-typo =>).
+        q = self._question('text', ['x ≥ 2'], question_type=Question.CALCULATION)
+        for ans in ['x ≥ 2', 'x>=2', 'x => 2', 'X >= 2']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+        # Strict inequality is a different statement — not accepted for ≥.
+        self.assertFalse(q.grade_text_answer('x > 2'))
+        self.assertFalse(q.grade_text_answer('x ≤ 2'))  # wrong direction
+
     # ── Defensive ───────────────────────────────────────────────────────────
     def test_empty_and_missing(self):
         q = self._question('algebra', ['2x^2 - 7x - 15'])
