@@ -17,7 +17,7 @@ from django.db.models import Sum, Count, Q
 from .models import (
     InstitutePlan, InstituteDiscountCode, ModuleProduct,
     SchoolSubscription, ModuleSubscription, PromoCode,
-    DiscountCode, Package, DURATION_CHOICES,
+    DiscountCode, Package, Subscription, DURATION_CHOICES,
 )
 from audit.services import log_event
 
@@ -65,6 +65,68 @@ class BillingAdminDashboardView(SuperuserRequiredMixin, View):
             'active_subs': active_subs,
             'active_discounts': active_discounts,
             'mrr': mrr,
+        })
+
+
+# ---------------------------------------------------------------------------
+# Subscriptions Overview (students + institutes)
+# ---------------------------------------------------------------------------
+
+class SubscriptionOverviewView(SuperuserRequiredMixin, View):
+    """Super-admin overview of how many students and institutes are subscribed.
+
+    "Subscribed" means a subscription in an active or trialing state. Each
+    headline figure is broken down into paid (active) vs trialing, plus a
+    per-plan/per-package breakdown so the totals can be traced.
+    """
+
+    ACTIVE_STATES = ['active', 'trialing']
+
+    def get(self, request):
+        # --- Individual students --------------------------------------------
+        student_qs = Subscription.objects.filter(status__in=self.ACTIVE_STATES)
+        students_subscribed = student_qs.count()
+        students_active = student_qs.filter(status='active').count()
+        students_trialing = student_qs.filter(status='trialing').count()
+
+        students_by_package = list(
+            student_qs.values('package__name')
+            .annotate(count=Count('id'))
+            .order_by('-count')
+        )
+
+        # --- Institutes / schools -------------------------------------------
+        school_qs = SchoolSubscription.objects.filter(status__in=self.ACTIVE_STATES)
+        institutes_subscribed = school_qs.count()
+        institutes_active = school_qs.filter(status='active').count()
+        institutes_trialing = school_qs.filter(status='trialing').count()
+
+        institutes_by_plan = list(
+            school_qs.values('plan__name')
+            .annotate(count=Count('id'))
+            .order_by('-count')
+        )
+
+        # Estimated combined MRR from active/trialing subscriptions
+        student_mrr = student_qs.filter(package__isnull=False).aggregate(
+            total=Sum('package__price'),
+        )['total'] or Decimal('0.00')
+        institute_mrr = school_qs.filter(plan__isnull=False).aggregate(
+            total=Sum('plan__price'),
+        )['total'] or Decimal('0.00')
+
+        return render(request, 'admin_dashboard/billing/subscription_overview.html', {
+            'students_subscribed': students_subscribed,
+            'students_active': students_active,
+            'students_trialing': students_trialing,
+            'students_by_package': students_by_package,
+            'institutes_subscribed': institutes_subscribed,
+            'institutes_active': institutes_active,
+            'institutes_trialing': institutes_trialing,
+            'institutes_by_plan': institutes_by_plan,
+            'student_mrr': student_mrr,
+            'institute_mrr': institute_mrr,
+            'total_mrr': student_mrr + institute_mrr,
         })
 
 
