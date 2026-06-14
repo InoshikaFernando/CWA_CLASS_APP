@@ -358,6 +358,45 @@ class TeacherHomeworkDetailTest(HomeworkTestBase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 404)
 
+    def test_submitted_count_reflects_actual_submissions(self):
+        url = reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        # No submissions yet → 0, even though the class has students.
+        resp = self.client.get(url)
+        self.assertEqual(resp.context['submitted_count'], 0)
+        self.assertEqual(resp.context['overdue_count'], 0)
+
+        # One real submission → count is 1, not the student total.
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            attempt_number=1, score=4, total_questions=5, points=80.0,
+        )
+        resp = self.client.get(url)
+        self.assertEqual(resp.context['submitted_count'], 1)
+
+    def test_overdue_count_reflects_unsubmitted_past_due(self):
+        url = reverse('homework:teacher_detail', kwargs={'homework_id': self.past_homework.id})
+        resp = self.client.get(url)
+        # Both enrolled students missed the past-due homework.
+        self.assertEqual(resp.context['overdue_count'], 2)
+        self.assertEqual(resp.context['submitted_count'], 0)
+
+    def test_students_ordered_by_name(self):
+        self.student.first_name = 'Zoe'
+        self.student.save(update_fields=['first_name'])
+        self.student2.first_name = 'Aaron'
+        self.student2.save(update_fields=['first_name'])
+        url = reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        resp = self.client.get(url)
+        names = [r['student'].get_full_name() for r in resp.context['student_rows']]
+        self.assertEqual(names, sorted(names, key=str.lower))
+        self.assertLess(names.index('Aaron'), names.index('Zoe'))
+
+    def test_search_and_filter_controls_present(self):
+        url = reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        resp = self.client.get(url)
+        self.assertContains(resp, 'id="student-search"')
+        self.assertContains(resp, 'id="status-filter"')
+
 
 # ---------------------------------------------------------------------------
 # Student view tests
