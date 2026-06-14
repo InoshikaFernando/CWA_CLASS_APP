@@ -17,7 +17,7 @@ from billing.models import (
     SchoolSubscription, PromoCode, DiscountCode, Package, Subscription,
     ModuleSubscription,
 )
-from classroom.models import School
+from classroom.models import School, SchoolStudent
 
 
 # ---------------------------------------------------------------------------
@@ -973,6 +973,52 @@ class SubscriptionOverviewTests(TestCase):
         self.assertContains(resp, 'Student Subscriptions')
         self.assertContains(resp, 'Institute Subscriptions')
         self.assertContains(resp, 'Institution Add-ons')
+
+    # -- B2C exclusion: institute students must NOT count as student subs --
+    def test_institute_students_excluded_from_student_panel(self):
+        # Baseline: 4 B2C student subs from setUp
+        self.assertEqual(self._get().context['students']['total'], 4)
+
+        # An institute student: has a Subscription AND an active SchoolStudent row
+        school = School.objects.filter(name='School 0').first()
+        inst_user = _create_normal_user(username='inst_student')
+        SchoolStudent.objects.create(
+            school=school, student=inst_user, is_active=True,
+        )
+        Subscription.objects.create(
+            user=inst_user, package=self.package, status='active',
+        )
+
+        # Still 4 — the institute student is excluded from the B2C panel
+        s = self._get().context['students']
+        self.assertEqual(s['total'], 4)
+        self.assertEqual(s['active'], 2)  # unchanged, not 3
+
+    def test_former_institute_student_counts_as_b2c(self):
+        # If the school membership is inactive, they're B2C again
+        school = School.objects.filter(name='School 0').first()
+        user = _create_normal_user(username='left_school')
+        SchoolStudent.objects.create(school=school, student=user, is_active=False)
+        Subscription.objects.create(user=user, package=self.package, status='active')
+        self.assertEqual(self._get().context['students']['total'], 5)
+
+    # -- deactivated schools must not appear anywhere on the dashboard --
+    def test_deactivated_schools_excluded(self):
+        # Baseline: 3 institute subs from setUp (all active schools)
+        self.assertEqual(self._get().context['institutes']['total'], 3)
+
+        # Deactivate "School 0" (which has an active subscription)
+        school = School.objects.filter(name='School 0').first()
+        school.is_active = False
+        school.save(update_fields=['is_active'])
+
+        ctx = self._get().context
+        inst = ctx['institutes']
+        self.assertEqual(inst['total'], 2)   # School 0 dropped
+        self.assertEqual(inst['active'], 0)  # School 0 was the only active one
+        # and it's gone from the institution filter dropdown
+        names = [i['name'] for i in ctx['filters']['institutions']]
+        self.assertNotIn('School 0', names)
 
     # -- status donut --
     def test_student_donut_segments(self):
