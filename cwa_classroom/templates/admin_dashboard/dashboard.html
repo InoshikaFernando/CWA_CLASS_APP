@@ -66,8 +66,8 @@
   </div>
 
   {% if request.user.is_superuser %}
-  <!-- Subscriptions overview (superuser only) -->
-  <a href="{% url 'billing_admin_subscription_overview' %}"
+  <!-- Subscriptions overview (superuser only) — opens in a new tab for monitoring -->
+  <a href="{% url 'billing_admin_subscription_overview' %}" target="_blank" rel="noopener"
      class="block bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition group mb-8">
     <div class="flex items-center justify-between gap-4">
       <div class="flex items-center gap-4">
@@ -77,7 +77,9 @@
           </svg>
         </div>
         <div>
-          <h3 class="text-lg font-semibold text-gray-900 group-hover:text-accent transition">Subscriptions Overview</h3>
+          <h3 class="text-lg font-semibold text-gray-900 group-hover:text-accent transition">Subscriptions Overview
+            <span class="text-xs font-normal text-gray-400">(opens in new tab)</span>
+          </h3>
           <p class="text-sm text-gray-500">
             <span class="font-semibold text-gray-700">{{ subscribed_students }}</span> students &middot;
             <span class="font-semibold text-gray-700">{{ subscribed_institutes }}</span> institutes subscribed

@@ -15,6 +15,7 @@ from accounts.models import CustomUser, Role, UserRole
 from billing.models import (
     InstitutePlan, InstituteDiscountCode, ModuleProduct,
     SchoolSubscription, PromoCode, DiscountCode, Package, Subscription,
+    ModuleSubscription,
 )
 from classroom.models import School
 
@@ -838,70 +839,137 @@ class SubscriptionOverviewTests(TestCase):
         self.normaluser = _create_normal_user()
         self.client.login(username='super', password='testpass123')
 
-        # Individual student package + subscriptions
+        # Individual student package + subscriptions:
+        # 2 active + 1 trialing + 1 cancelled = total 4
         self.package = Package.objects.create(name='Student Monthly', price=Decimal('9.00'))
-
-        # 2 active + 1 trialing students = 3 subscribed; 1 cancelled excluded
         for i, status in enumerate(['active', 'active', 'trialing', 'cancelled']):
             user = _create_normal_user(username=f'student{i}')
+            user.country = 'New Zealand' if i == 0 else 'Australia'
+            user.save(update_fields=['country'])
             Subscription.objects.create(user=user, package=self.package, status=status)
 
-        # Institutes: 1 active + 1 trialing = 2 subscribed; 1 expired excluded
-        self.plan = _create_plan()
+        # Institutes: 1 active + 1 trialing + 1 expired = total 3
+        self.plan = _create_plan()  # 'Starter' @ $49
         for i, status in enumerate(['active', 'trialing', 'expired']):
             admin = _create_normal_user(username=f'schooladmin{i}')
             school = _create_school(admin, name=f'School {i}', slug=f'school-{i}')
+            school.country = 'New Zealand' if i == 0 else 'Australia'
+            school.save(update_fields=['country'])
             SchoolSubscription.objects.create(school=school, plan=self.plan, status=status)
 
+    def _get(self, **params):
+        return self.client.get(reverse('billing_admin_subscription_overview'), params)
+
+    # -- access control --
     def test_normal_user_redirected(self):
         self.client.logout()
         self.client.login(username='normal', password='testpass123')
-        resp = self.client.get(reverse('billing_admin_subscription_overview'))
-        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(self._get().status_code, 302)
 
     def test_anonymous_redirected(self):
         self.client.logout()
-        resp = self.client.get(reverse('billing_admin_subscription_overview'))
-        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(self._get().status_code, 302)
 
     def test_superuser_can_access(self):
-        resp = self.client.get(reverse('billing_admin_subscription_overview'))
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._get().status_code, 200)
 
+    # -- layout: standalone, no sidebar --
+    def test_renders_without_sidebar(self):
+        resp = self._get()
+        self.assertTrue(resp.context['hide_sidebar'])
+        # sidebar partial is skipped, so its nav links are absent
+        self.assertNotContains(resp, 'id="sidebar"')
+
+    # -- student counts --
     def test_student_counts(self):
-        resp = self.client.get(reverse('billing_admin_subscription_overview'))
-        self.assertEqual(resp.context['students_subscribed'], 3)
-        self.assertEqual(resp.context['students_active'], 2)
-        self.assertEqual(resp.context['students_trialing'], 1)
+        s = self._get().context['students']
+        self.assertEqual(s['total'], 4)
+        self.assertEqual(s['active'], 2)
+        self.assertEqual(s['trial'], 1)
+        self.assertEqual(s['inactive'], 1)
 
+    def test_student_new_today(self):
+        # all created in setUp -> today
+        self.assertEqual(self._get().context['students']['new_today'], 4)
+
+    def test_student_lost_today(self):
+        # cancelled status alone doesn't count; needs cancelled_at = today
+        self.assertEqual(self._get().context['students']['lost_today'], 0)
+        sub = Subscription.objects.filter(status='cancelled').first()
+        sub.cancelled_at = timezone.now()
+        sub.save(update_fields=['cancelled_at'])
+        self.assertEqual(self._get().context['students']['lost_today'], 1)
+
+    # -- institute counts --
     def test_institute_counts(self):
-        resp = self.client.get(reverse('billing_admin_subscription_overview'))
-        self.assertEqual(resp.context['institutes_subscribed'], 2)
-        self.assertEqual(resp.context['institutes_active'], 1)
-        self.assertEqual(resp.context['institutes_trialing'], 1)
+        inst = self._get().context['institutes']
+        self.assertEqual(inst['total'], 3)
+        self.assertEqual(inst['active'], 1)
+        self.assertEqual(inst['trial'], 1)
+        self.assertEqual(inst['inactive'], 1)
 
-    def test_cancelled_and_expired_excluded(self):
-        """Only active/trialing count as subscribed."""
-        resp = self.client.get(reverse('billing_admin_subscription_overview'))
-        # 4 student subs total but 1 cancelled -> 3; 3 school subs but 1 expired -> 2
-        self.assertEqual(resp.context['students_subscribed'], 3)
-        self.assertEqual(resp.context['institutes_subscribed'], 2)
+    # -- earnings (estimated) --
+    def test_student_earnings(self):
+        s = self._get().context['students']
+        self.assertEqual(s['this_month_earnings'], Decimal('18.00'))   # 2 active x $9
+        self.assertEqual(s['next_month_forecast'], Decimal('18.00'))
+        self.assertEqual(s['last_month_earnings'], Decimal('0.00'))    # none pre-date this month
 
-    def test_mrr_totals(self):
-        resp = self.client.get(reverse('billing_admin_subscription_overview'))
-        # students: 3 active/trialing x $9 = $27; institutes: 2 x $49 = $98
-        self.assertEqual(resp.context['student_mrr'], Decimal('27.00'))
-        self.assertEqual(resp.context['institute_mrr'], Decimal('98.00'))
-        self.assertEqual(resp.context['total_mrr'], Decimal('125.00'))
+    def test_institute_earnings(self):
+        inst = self._get().context['institutes']
+        self.assertEqual(inst['this_month_earnings'], Decimal('49.00'))  # 1 active x $49
+        self.assertEqual(inst['next_month_forecast'], Decimal('49.00'))
 
-    def test_breakdowns_present(self):
-        resp = self.client.get(reverse('billing_admin_subscription_overview'))
-        packages = {r['package__name']: r['count'] for r in resp.context['students_by_package']}
-        plans = {r['plan__name']: r['count'] for r in resp.context['institutes_by_plan']}
-        self.assertEqual(packages.get('Student Monthly'), 3)
-        self.assertEqual(plans.get('Starter'), 2)
+    def test_combined_run_rate(self):
+        self.assertEqual(self._get().context['total_estimated_mrr'], Decimal('67.00'))
 
-    def test_page_renders_cards(self):
-        resp = self.client.get(reverse('billing_admin_subscription_overview'))
-        self.assertContains(resp, 'Subscribed Students')
-        self.assertContains(resp, 'Subscribed Institutes')
+    # -- breakdowns --
+    def test_breakdowns(self):
+        ctx = self._get().context
+        packages = {r['package__name']: r['count'] for r in ctx['students']['by_package']}
+        types = {r['plan__name']: r['count'] for r in ctx['institutes']['by_type']}
+        self.assertEqual(packages.get('Student Monthly'), 2)  # active only
+        self.assertEqual(types.get('Starter'), 1)             # active only
+
+    # -- addons --
+    def test_addons(self):
+        from billing.models import ModuleProduct
+        ModuleProduct.objects.create(
+            module='teachers_attendance', name='Teachers Attendance',
+            price=Decimal('10.00'),
+        )
+        active_sub = SchoolSubscription.objects.filter(status='active').first()
+        ModuleSubscription.objects.create(
+            school_subscription=active_sub, module='teachers_attendance', is_active=True,
+        )
+        ctx = self._get().context
+        self.assertEqual(len(ctx['addons']), 1)
+        self.assertEqual(ctx['addons'][0]['count'], 1)
+        self.assertEqual(ctx['addons'][0]['revenue'], Decimal('10.00'))
+        self.assertEqual(ctx['addons_total_revenue'], Decimal('10.00'))
+        # addon revenue rolls into institute this-month earnings
+        self.assertEqual(ctx['institutes']['this_month_earnings'], Decimal('59.00'))
+
+    # -- filters --
+    def test_country_filter(self):
+        ctx = self._get(country='New Zealand').context
+        # only 1 NZ student sub (active) and 1 NZ institute (active)
+        self.assertEqual(ctx['students']['total'], 1)
+        self.assertEqual(ctx['institutes']['total'], 1)
+        self.assertIn('New Zealand', ctx['filters']['countries'])
+
+    def test_institution_filter(self):
+        school = _create_school(
+            _create_normal_user(username='solo_admin'),
+            name='Solo School', slug='solo-school',
+        )
+        SchoolSubscription.objects.create(school=school, plan=self.plan, status='active')
+        ctx = self._get(institution=str(school.id)).context
+        self.assertEqual(ctx['institutes']['total'], 1)
+        self.assertEqual(ctx['institutes']['active'], 1)
+
+    def test_page_renders_sections(self):
+        resp = self._get()
+        self.assertContains(resp, 'Student Subscriptions')
+        self.assertContains(resp, 'Institute Subscriptions')
+        self.assertContains(resp, 'Institution Add-ons')

@@ -4,6 +4,7 @@ Super Admin Billing Management views.
 All views require superuser access via SuperuserRequiredMixin.
 """
 import logging
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.shortcuts import render, redirect, get_object_or_404
@@ -73,61 +74,192 @@ class BillingAdminDashboardView(SuperuserRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 class SubscriptionOverviewView(SuperuserRequiredMixin, View):
-    """Super-admin overview of how many students and institutes are subscribed.
+    """Super-admin monitoring view for student (B2C) and institute subscriptions.
 
-    "Subscribed" means a subscription in an active or trialing state. Each
-    headline figure is broken down into paid (active) vs trialing, plus a
-    per-plan/per-package breakdown so the totals can be traced.
+    Renders standalone (no sidebar, via hide_sidebar) so it can be popped into
+    its own tab and watched while working elsewhere.
+
+    Definitions
+    -----------
+    * Active   = status 'active'        (paying)
+    * Trial    = status 'trialing'      (in free trial, not yet paying)
+    * Inactive = anything else          (past_due / cancelled / expired / suspended)
+    * Earnings figures are ESTIMATES derived from active subscription prices
+      (plan/package + active addons), NOT actual cash collected. There is no
+      local ledger of Stripe subscription charges, so these are run-rate
+      approximations and are labelled "Estimated" in the UI.
+
+    Filters (GET params): ?country=<name>  and  ?institution=<school_id>
+    (institution applies to the institute panel only — B2C students have no
+    institution).
     """
 
     ACTIVE_STATES = ['active', 'trialing']
+    INACTIVE_STATES = ['past_due', 'cancelled', 'expired', 'suspended']
+    ZERO = Decimal('0.00')
 
     def get(self, request):
-        # --- Individual students --------------------------------------------
-        student_qs = Subscription.objects.filter(status__in=self.ACTIVE_STATES)
-        students_subscribed = student_qs.count()
-        students_active = student_qs.filter(status='active').count()
-        students_trialing = student_qs.filter(status='trialing').count()
+        from classroom.models import School
 
-        students_by_package = list(
-            student_qs.values('package__name')
-            .annotate(count=Count('id'))
-            .order_by('-count')
-        )
+        country = (request.GET.get('country') or '').strip()
+        institution = (request.GET.get('institution') or '').strip()
 
-        # --- Institutes / schools -------------------------------------------
-        school_qs = SchoolSubscription.objects.filter(status__in=self.ACTIVE_STATES)
-        institutes_subscribed = school_qs.count()
-        institutes_active = school_qs.filter(status='active').count()
-        institutes_trialing = school_qs.filter(status='trialing').count()
+        # --- period bounds (local dates) ------------------------------------
+        today = timezone.localdate()
+        this_month_start = today.replace(day=1)
+        last_month_start = (this_month_start - timedelta(days=1)).replace(day=1)
+        if this_month_start.month == 12:
+            next_month_start = this_month_start.replace(
+                year=this_month_start.year + 1, month=1,
+            )
+        else:
+            next_month_start = this_month_start.replace(month=this_month_start.month + 1)
 
-        institutes_by_plan = list(
-            school_qs.values('plan__name')
-            .annotate(count=Count('id'))
-            .order_by('-count')
-        )
+        students = self._student_stats(country, this_month_start, today)
+        institutes = self._institute_stats(country, institution, this_month_start, today)
+        addons = self._addon_stats()
 
-        # Estimated combined MRR from active/trialing subscriptions
-        student_mrr = student_qs.filter(package__isnull=False).aggregate(
-            total=Sum('package__price'),
-        )['total'] or Decimal('0.00')
-        institute_mrr = school_qs.filter(plan__isnull=False).aggregate(
-            total=Sum('plan__price'),
-        )['total'] or Decimal('0.00')
+        # Filter option lists
+        countries = sorted({
+            c for c in (
+                list(School.objects.exclude(country='')
+                     .values_list('country', flat=True))
+                + list(Subscription.objects.exclude(user__country='')
+                       .values_list('user__country', flat=True))
+            ) if c
+        })
+        institutions = list(School.objects.order_by('name').values('id', 'name'))
 
         return render(request, 'admin_dashboard/billing/subscription_overview.html', {
-            'students_subscribed': students_subscribed,
-            'students_active': students_active,
-            'students_trialing': students_trialing,
-            'students_by_package': students_by_package,
-            'institutes_subscribed': institutes_subscribed,
-            'institutes_active': institutes_active,
-            'institutes_trialing': institutes_trialing,
-            'institutes_by_plan': institutes_by_plan,
-            'student_mrr': student_mrr,
-            'institute_mrr': institute_mrr,
-            'total_mrr': student_mrr + institute_mrr,
+            'hide_sidebar': True,
+            'students': students,
+            'institutes': institutes,
+            'addons': addons['rows'],
+            'addons_total_revenue': addons['total_revenue'],
+            'total_estimated_mrr': (
+                students['this_month_earnings']
+                + institutes['this_month_earnings']
+            ),
+            'filters': {
+                'country': country,
+                'institution': institution,
+                'countries': countries,
+                'institutions': institutions,
+            },
+            'today': today,
         })
+
+    # -- students (B2C) ------------------------------------------------------
+    def _student_stats(self, country, this_month_start, today):
+        qs = Subscription.objects.all()
+        if country:
+            qs = qs.filter(user__country__iexact=country)
+
+        active = qs.filter(status='active')
+        # Run-rate of currently paying subscriptions
+        this_month = active.filter(package__isnull=False).aggregate(
+            t=Sum('package__price'))['t'] or self.ZERO
+        forecast = active.filter(
+            package__isnull=False,
+        ).exclude(cancel_at_period_end=True).aggregate(
+            t=Sum('package__price'))['t'] or self.ZERO
+        # Subscriptions that were live during last month (created before this
+        # month and not cancelled before it began), excluding trials.
+        last_month_qs = qs.filter(created_at__date__lt=this_month_start).filter(
+            Q(cancelled_at__isnull=True) | Q(cancelled_at__date__gte=this_month_start),
+        ).exclude(status='trialing')
+        last_month = last_month_qs.filter(package__isnull=False).aggregate(
+            t=Sum('package__price'))['t'] or self.ZERO
+
+        return {
+            'total': qs.count(),
+            'trial': qs.filter(status='trialing').count(),
+            'active': active.count(),
+            'inactive': qs.filter(status__in=self.INACTIVE_STATES).count(),
+            'new_today': qs.filter(created_at__date=today).count(),
+            'lost_today': qs.filter(cancelled_at__date=today).count(),
+            'last_month_earnings': last_month,
+            'this_month_earnings': this_month,
+            'next_month_forecast': forecast,
+            'by_package': list(
+                active.values('package__name').annotate(
+                    count=Count('id')).order_by('-count'),
+            ),
+        }
+
+    # -- institutes ----------------------------------------------------------
+    def _institute_stats(self, country, institution, this_month_start, today):
+        qs = SchoolSubscription.objects.all()
+        if country:
+            qs = qs.filter(school__country__iexact=country)
+        if institution.isdigit():
+            qs = qs.filter(school_id=int(institution))
+
+        active = qs.filter(status='active')
+        active_plan_price = active.filter(plan__isnull=False).aggregate(
+            t=Sum('plan__price'))['t'] or self.ZERO
+        # Addon revenue from addons attached to currently active institutes
+        addon_revenue = self._addon_revenue_for(active)
+
+        this_month = active_plan_price + addon_revenue
+        forecast = (active.filter(plan__isnull=False)
+                    .exclude(cancel_at_period_end=True)
+                    .aggregate(t=Sum('plan__price'))['t'] or self.ZERO) + addon_revenue
+        # SchoolSubscription has no cancelled_at; approximate "live last month"
+        # as created before this month and still paying/past_due.
+        last_month = qs.filter(
+            created_at__date__lt=this_month_start,
+            status__in=['active', 'past_due'],
+            plan__isnull=False,
+        ).aggregate(t=Sum('plan__price'))['t'] or self.ZERO
+
+        return {
+            'total': qs.count(),
+            'trial': qs.filter(status='trialing').count(),
+            'active': active.count(),
+            'inactive': qs.filter(status__in=self.INACTIVE_STATES).count(),
+            'new_today': qs.filter(created_at__date=today).count(),
+            # No cancelled_at on SchoolSubscription — use status + updated_at.
+            'lost_today': qs.filter(
+                status='cancelled', updated_at__date=today).count(),
+            'last_month_earnings': last_month,
+            'this_month_earnings': this_month,
+            'next_month_forecast': forecast,
+            'by_type': list(
+                active.values('plan__name').annotate(
+                    count=Count('id')).order_by('-count'),
+            ),
+        }
+
+    def _addon_revenue_for(self, school_sub_qs):
+        prices = {m.module: m.price for m in ModuleProduct.objects.all()}
+        rows = (ModuleSubscription.objects
+                .filter(is_active=True, school_subscription__in=school_sub_qs)
+                .values('module').annotate(count=Count('id')))
+        return sum(
+            (prices.get(r['module'], self.ZERO) * r['count'] for r in rows),
+            self.ZERO,
+        )
+
+    def _addon_stats(self):
+        prices = {m.module: m.price for m in ModuleProduct.objects.all()}
+        labels = dict(ModuleSubscription.MODULE_CHOICES)
+        rows = (ModuleSubscription.objects
+                .filter(is_active=True)
+                .values('module').annotate(count=Count('id')).order_by('-count'))
+        out, total = [], self.ZERO
+        for r in rows:
+            price = prices.get(r['module'], self.ZERO)
+            revenue = price * r['count']
+            total += revenue
+            out.append({
+                'module': r['module'],
+                'name': labels.get(r['module'], r['module']),
+                'count': r['count'],
+                'price': price,
+                'revenue': revenue,
+            })
+        return {'rows': out, 'total_revenue': total}
 
 
 # ---------------------------------------------------------------------------
