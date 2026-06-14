@@ -84,12 +84,15 @@ class NotifyPaymentRequiredCommandTests(TestCase):
         cls.indiv = _student('indiv', None, logged_in=True, profile_completed=False,
                             role=Role.INDIVIDUAL_STUDENT)
 
-    def _run(self, dry_run=False):
+    def _run(self, dry_run=False, resend=False):
         out = StringIO()
         args = ['notify_payment_required', '--school', str(self.mhb.id),
-                '--discount-code', 'MHMEBC75', '--discount-percent', '75']
+                '--discount-code', 'MHMEBC75', '--discount-percent', '75',
+                '--sleep', '0']
         if dry_run:
             args.append('--dry-run')
+        if resend:
+            args.append('--resend')
         call_command(*args, stdout=out)
         return out.getvalue()
 
@@ -108,3 +111,53 @@ class NotifyPaymentRequiredCommandTests(TestCase):
         from django.core.management.base import CommandError
         with self.assertRaises(CommandError):
             call_command('notify_payment_required', '--school', '999999')
+
+    def test_already_emailed_recipient_is_skipped(self):
+        """A prior successful send means a re-run does NOT email again."""
+        from classroom.models import EmailLog
+        from notifications.services import NOTIF_PAYMENT_REQUIRED
+        EmailLog.objects.create(
+            recipient=self.target, recipient_email=self.target.email,
+            subject='x', notification_type=NOTIF_PAYMENT_REQUIRED, status='sent',
+        )
+        out = self._run()
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertIn('already emailed', out)
+
+    def test_resend_flag_includes_already_emailed(self):
+        from classroom.models import EmailLog
+        from notifications.services import NOTIF_PAYMENT_REQUIRED
+        EmailLog.objects.create(
+            recipient=self.target, recipient_email=self.target.email,
+            subject='x', notification_type=NOTIF_PAYMENT_REQUIRED, status='sent',
+        )
+        self._run(resend=True)
+        self.assertEqual(len(mail.outbox), 1)
+
+
+class ResendBackendRateLimitTests(TestCase):
+    """The backend retries on Resend's 2/sec rate limit instead of dropping mail."""
+
+    def test_retries_on_rate_limit_then_succeeds(self):
+        from cwa_classroom.email_backends import ResendEmailBackend
+        from django.core.mail import EmailMultiAlternatives
+        from unittest.mock import patch
+
+        with self.settings(RESEND_API_KEY='re_test'):
+            backend = ResendEmailBackend()
+        msg = EmailMultiAlternatives('s', 'b', 'from@x.com', ['to@x.com'])
+
+        calls = {'n': 0}
+
+        def flaky(_msg):
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise Exception('Too many requests. 2 requests per second.')
+            return None  # succeeds on retry
+
+        with patch.object(ResendEmailBackend, '_send', side_effect=flaky), \
+                patch('cwa_classroom.email_backends.time.sleep'):
+            sent = backend.send_messages([msg])
+
+        self.assertEqual(sent, 1)
+        self.assertEqual(calls['n'], 2)  # first failed, retry succeeded
