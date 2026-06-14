@@ -278,6 +278,59 @@ class EditViewTest(HomeworkTestBase):
         self.assertEqual(resp.status_code, 404)
 
 
+class AssignToClassPreservesScheduleTest(HomeworkTestBase):
+    """Assigning a scheduled homework to another class must keep it scheduled,
+    not auto-publish the copy via the save() publish-on-create default."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='teacher1', password='pass1234')
+        # A second classroom owned by the same teacher.
+        from classroom.models import ClassRoom, ClassTeacher
+        self.classroom2 = ClassRoom.objects.create(
+            name='Year 6 Maths', code='HWTEST02', school=self.school,
+        )
+        ClassTeacher.objects.create(classroom=self.classroom2, teacher=self.teacher)
+
+    def _assign(self, hw):
+        return self.client.post(
+            reverse('homework:assign_to_class', kwargs={'homework_id': hw.id}),
+            {'classroom_ids': [str(self.classroom2.id)]},
+        )
+
+    def test_scheduled_homework_copy_stays_scheduled(self):
+        publish_at = timezone.now() + timedelta(days=2)
+        scheduled = Homework.objects.create(
+            classroom=self.classroom, created_by=self.teacher,
+            title='Sched Assign HW', homework_type='topic', num_questions=3,
+            due_date=timezone.now() + timedelta(days=7), publish_at=publish_at,
+        )
+        for i, q in enumerate(self.questions[:3]):
+            HomeworkQuestion.objects.create(homework=scheduled, question=q, order=i)
+        self.assertIsNone(scheduled.published_at)
+
+        self._assign(scheduled)
+        copy = Homework.objects.get(title='Sched Assign HW', classroom=self.classroom2)
+        self.assertIsNone(copy.published_at)  # not auto-published
+        self.assertIsNotNone(copy.publish_at)
+        self.assertEqual(copy.status, Homework.STATUS_CREATED)
+
+    def test_published_homework_copy_stays_published(self):
+        published = Homework.objects.create(
+            classroom=self.classroom, created_by=self.teacher,
+            title='Pub Assign HW', homework_type='topic', num_questions=3,
+            due_date=timezone.now() + timedelta(days=7),
+        )
+        for i, q in enumerate(self.questions[:3]):
+            HomeworkQuestion.objects.create(homework=published, question=q, order=i)
+        self.assertIsNotNone(published.published_at)
+
+        self._assign(published)
+        copy = Homework.objects.get(title='Pub Assign HW', classroom=self.classroom2)
+        self.assertIsNotNone(copy.published_at)
+        self.assertEqual(copy.status, Homework.STATUS_PUBLISHED)
+
+
 class StatusPropertyTest(HomeworkTestBase):
     def _hw(self, **kwargs):
         defaults = dict(

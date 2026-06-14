@@ -515,7 +515,10 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
             if Homework.objects.filter(title=homework.title, classroom=classroom).exists():
                 continue
 
-            # Create new Homework for this classroom, copying all settings
+            # Create new Homework for this classroom, copying all settings.
+            # Carry over the publish lifecycle (publish_at / published_at) so a
+            # scheduled homework stays scheduled in the new class instead of
+            # being auto-published by Homework.save()'s publish-on-create default.
             new_hw = Homework.objects.create(
                 classroom=classroom,
                 created_by=request.user,
@@ -526,6 +529,8 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
                 num_questions=homework.num_questions,
                 due_date=homework.due_date,
                 max_attempts=homework.max_attempts,
+                publish_at=homework.publish_at,
+                published_at=homework.published_at,
             )
             new_hw.topics.set(homework.topics.all())
 
