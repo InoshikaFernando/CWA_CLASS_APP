@@ -4,6 +4,7 @@ Super Admin Billing Management views.
 All views require superuser access via SuperuserRequiredMixin.
 """
 import logging
+import math
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -171,11 +172,15 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         last_month = last_month_qs.filter(package__isnull=False).aggregate(
             t=Sum('package__price'))['t'] or self.ZERO
 
+        active_n = active.count()
+        trial_n = qs.filter(status='trialing').count()
+        inactive_n = qs.filter(status__in=self.INACTIVE_STATES).count()
+
         return {
             'total': qs.count(),
-            'trial': qs.filter(status='trialing').count(),
-            'active': active.count(),
-            'inactive': qs.filter(status__in=self.INACTIVE_STATES).count(),
+            'trial': trial_n,
+            'active': active_n,
+            'inactive': inactive_n,
             'new_today': qs.filter(created_at__date=today).count(),
             'lost_today': qs.filter(cancelled_at__date=today).count(),
             'last_month_earnings': last_month,
@@ -185,6 +190,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
                 active.values('package__name').annotate(
                     count=Count('id')).order_by('-count'),
             ),
+            'donut': self._donut(active_n, trial_n, inactive_n),
         }
 
     # -- institutes ----------------------------------------------------------
@@ -213,11 +219,15 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             plan__isnull=False,
         ).aggregate(t=Sum('plan__price'))['t'] or self.ZERO
 
+        active_n = active.count()
+        trial_n = qs.filter(status='trialing').count()
+        inactive_n = qs.filter(status__in=self.INACTIVE_STATES).count()
+
         return {
             'total': qs.count(),
-            'trial': qs.filter(status='trialing').count(),
-            'active': active.count(),
-            'inactive': qs.filter(status__in=self.INACTIVE_STATES).count(),
+            'trial': trial_n,
+            'active': active_n,
+            'inactive': inactive_n,
             'new_today': qs.filter(created_at__date=today).count(),
             # No cancelled_at on SchoolSubscription — use status + updated_at.
             'lost_today': qs.filter(
@@ -229,6 +239,40 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
                 active.values('plan__name').annotate(
                     count=Count('id')).order_by('-count'),
             ),
+            'donut': self._donut(active_n, trial_n, inactive_n),
+        }
+
+    # Donut ring geometry (inline SVG, no JS). Returns segments with
+    # stroke-dasharray/offset so the template just renders <circle>s.
+    DONUT_RADIUS = 54
+
+    def _donut(self, active, trial, inactive):
+        circumference = 2 * math.pi * self.DONUT_RADIUS
+        parts = [
+            ('Active', active, '#10b981'),    # emerald
+            ('Trial', trial, '#f59e0b'),      # amber
+            ('Inactive', inactive, '#94a3b8'),  # slate
+        ]
+        total = active + trial + inactive
+        segments = []
+        cumulative = 0.0
+        for label, value, color in parts:
+            frac = (value / total) if total else 0.0
+            seg_len = frac * circumference
+            segments.append({
+                'label': label,
+                'value': value,
+                'color': color,
+                'pct': round(frac * 100, 1),
+                'dasharray': f'{seg_len:.2f} {circumference - seg_len:.2f}',
+                'dashoffset': f'{-cumulative:.2f}',
+            })
+            cumulative += seg_len
+        return {
+            'segments': segments,
+            'total': total,
+            'radius': self.DONUT_RADIUS,
+            'active_pct': round((active / total * 100) if total else 0.0, 1),
         }
 
     def _addon_revenue_for(self, school_sub_qs):

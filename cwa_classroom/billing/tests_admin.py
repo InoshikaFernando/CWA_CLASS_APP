@@ -973,3 +973,24 @@ class SubscriptionOverviewTests(TestCase):
         self.assertContains(resp, 'Student Subscriptions')
         self.assertContains(resp, 'Institute Subscriptions')
         self.assertContains(resp, 'Institution Add-ons')
+
+    # -- status donut --
+    def test_student_donut_segments(self):
+        donut = self._get().context['students']['donut']
+        labels = {s['label']: s['value'] for s in donut['segments']}
+        self.assertEqual(labels, {'Active': 2, 'Trial': 1, 'Inactive': 1})
+        self.assertEqual(donut['total'], 4)
+        self.assertEqual(donut['active_pct'], 50.0)  # 2 of 4
+
+    def test_donut_renders_svg(self):
+        resp = self._get()
+        self.assertContains(resp, 'Status breakdown')
+        self.assertContains(resp, 'stroke-dasharray')
+
+    def test_donut_handles_zero_total(self):
+        Subscription.objects.all().delete()
+        donut = self._get().context['students']['donut']
+        self.assertEqual(donut['total'], 0)
+        self.assertEqual(donut['active_pct'], 0.0)
+        # all segments present but zero-valued (template skips rendering them)
+        self.assertEqual(len(donut['segments']), 3)

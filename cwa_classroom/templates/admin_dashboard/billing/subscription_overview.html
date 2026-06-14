@@ -68,7 +68,10 @@
       </div>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <!-- Status donut -->
+      {% include 'admin_dashboard/billing/_donut.html' with donut=students.donut title="Status breakdown" %}
+
       <!-- Today + earnings -->
       <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
         <div class="flex gap-6 mb-5 pb-5 border-b border-slate-100">
@@ -133,7 +136,10 @@
       </div>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- Status donut -->
+      {% include 'admin_dashboard/billing/_donut.html' with donut=institutes.donut title="Status breakdown" %}
+
       <!-- Today + earnings -->
       <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
         <div class="flex gap-6 mb-5 pb-5 border-b border-slate-100">
