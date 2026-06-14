@@ -214,11 +214,17 @@ class Question(models.Model):
             from maths.algebra_grading import is_algebraic_answer_correct
             return any(is_algebraic_answer_correct(text_answer, c) for c in correct)
 
-        # Exact match, but exponent-insensitive so the x² button is usable on
-        # ordinary maths answers (cm^2 == cm² == cm2). See fold_exponents.
-        from maths.algebra_grading import fold_exponents
-        user = fold_exponents(text_answer)
-        return any(user == fold_exponents(c) for c in correct)
+        # Exact match, but exponent- and inequality-insensitive so the x² button
+        # is usable on ordinary maths answers (cm^2 == cm² == cm2) and a typed
+        # inequality matches however the student spells the operator
+        # (x ≥ 2 == x>=2 == x=>2). See fold_exponents / fold_inequalities.
+        from maths.algebra_grading import fold_exponents, fold_inequalities
+
+        def _fold(value):
+            return fold_exponents(fold_inequalities(value))
+
+        user = _fold(text_answer)
+        return any(user == _fold(c) for c in correct)
 
     class Meta:
         ordering = ['level', 'difficulty', 'created_at']

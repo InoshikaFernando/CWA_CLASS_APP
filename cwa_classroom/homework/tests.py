@@ -2003,6 +2003,29 @@ class PDFConfirmMultiClassTests(TestCase):
         session.refresh_from_db()
         self.assertFalse(session.is_confirmed)
 
+    def test_pdf_homework_published_by_default(self):
+        session = self._make_session()
+        self._post(session, classroom_ids=[str(self.c1.id)])
+        hw = Homework.objects.get(title='Multi HW', classroom=self.c1)
+        self.assertIsNotNone(hw.published_at)
+        self.assertEqual(hw.status, Homework.STATUS_PUBLISHED)
+
+    def test_pdf_homework_can_be_scheduled(self):
+        session = self._make_session()
+        # Future publish_at, before the 2099 due date.
+        self._post(session, classroom_ids=[str(self.c1.id)], publish_at='2030-01-01T10:00')
+        hw = Homework.objects.get(title='Multi HW', classroom=self.c1)
+        self.assertIsNone(hw.published_at)
+        self.assertIsNotNone(hw.publish_at)
+        self.assertEqual(hw.status, Homework.STATUS_CREATED)
+
+    def test_pdf_publish_at_after_due_date_rejected(self):
+        session = self._make_session()
+        # publish_at after the 2099 due date is invalid → no homework created.
+        resp = self._post(session, classroom_ids=[str(self.c1.id)], publish_at='2100-01-01T10:00')
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Homework.objects.filter(title='Multi HW').exists())
+
     def test_duplicate_questions_are_deduped(self):
         # Two extracted questions with identical text resolve to the same
         # maths.Question via get_or_create; the confirm step must dedupe them

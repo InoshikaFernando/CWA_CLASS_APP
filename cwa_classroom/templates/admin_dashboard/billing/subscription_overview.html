@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Subscriptions Overview{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8 flex items-start justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-display font-bold text-gray-900">Subscriptions Overview</h1>
+      <p class="text-gray-500 mt-1">How many students and institutes are currently subscribed</p>
+    </div>
+    <a href="{% url 'billing_admin_dashboard' %}"
+       class="text-sm text-accent hover:underline whitespace-nowrap mt-1">&larr; Billing admin</a>
+  </div>
+
+  <!-- Headline stats -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+
+    <!-- Subscribed students -->
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-accent/10 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-3xl font-bold text-gray-900">{{ students_subscribed }}</p>
+          <p class="text-sm text-gray-500">Subscribed Students</p>
+        </div>
+      </div>
+      <div class="mt-4 flex gap-2 text-xs">
+        <span class="px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 font-medium">{{ students_active }} paid</span>
+        <span class="px-2 py-1 rounded-full bg-amber-50 text-amber-700 font-medium">{{ students_trialing }} trialing</span>
+      </div>
+    </div>
+
+    <!-- Subscribed institutes -->
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-3xl font-bold text-gray-900">{{ institutes_subscribed }}</p>
+          <p class="text-sm text-gray-500">Subscribed Institutes</p>
+        </div>
+      </div>
+      <div class="mt-4 flex gap-2 text-xs">
+        <span class="px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 font-medium">{{ institutes_active }} paid</span>
+        <span class="px-2 py-1 rounded-full bg-amber-50 text-amber-700 font-medium">{{ institutes_trialing }} trialing</span>
+      </div>
+    </div>
+
+    <!-- Estimated MRR -->
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center">
+          <svg class="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="text-3xl font-bold text-gray-900">${{ total_mrr }}</p>
+          <p class="text-sm text-gray-500">Estimated MRR</p>
+        </div>
+      </div>
+      <div class="mt-4 flex gap-2 text-xs">
+        <span class="px-2 py-1 rounded-full bg-slate-100 text-slate-600 font-medium">${{ student_mrr }} students</span>
+        <span class="px-2 py-1 rounded-full bg-slate-100 text-slate-600 font-medium">${{ institute_mrr }} institutes</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Breakdowns -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+    <!-- Students by package -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-200">
+        <h2 class="text-lg font-semibold text-gray-900">Students by Package</h2>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-gray-500">
+            <th class="px-6 py-3 font-medium">Package</th>
+            <th class="px-6 py-3 font-medium text-right">Subscribed</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for row in students_by_package %}
+          <tr>
+            <td class="px-6 py-3 text-gray-900">{{ row.package__name|default:"— No package" }}</td>
+            <td class="px-6 py-3 text-right font-semibold text-gray-900">{{ row.count }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="2" class="px-6 py-6 text-center text-gray-400">No subscribed students yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Institutes by plan -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-200">
+        <h2 class="text-lg font-semibold text-gray-900">Institutes by Plan</h2>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-gray-500">
+            <th class="px-6 py-3 font-medium">Plan</th>
+            <th class="px-6 py-3 font-medium text-right">Subscribed</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for row in institutes_by_plan %}
+          <tr>
+            <td class="px-6 py-3 text-gray-900">{{ row.plan__name|default:"— No plan" }}</td>
+            <td class="px-6 py-3 text-right font-semibold text-gray-900">{{ row.count }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="2" class="px-6 py-6 text-center text-gray-400">No subscribed institutes yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
