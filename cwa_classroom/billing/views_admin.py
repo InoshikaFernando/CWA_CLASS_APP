@@ -129,6 +129,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
 
         # --- earnings: actual paid revenue from Stripe (fallback: estimate) --
         earnings_source = 'stripe'
+        earnings_currency = ''
         try:
             this_rev = get_paid_revenue(
                 self._month_dt(this_month_start), self._month_dt(next_month_start))
@@ -136,8 +137,11 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
                 self._month_dt(last_month_start), self._month_dt(this_month_start))
             students['this_month'] = this_rev['student']
             students['last_month'] = last_rev['student']
+            students['this_month_count'] = this_rev['student_count']
             institutes['this_month'] = this_rev['institute']
             institutes['last_month'] = last_rev['institute']
+            institutes['this_month_count'] = this_rev['institute_count']
+            earnings_currency = this_rev['currency'] or last_rev['currency']
         except StripeUnavailable:
             earnings_source = 'estimate'
 
@@ -160,6 +164,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             'students': students,
             'institutes': institutes,
             'earnings_source': earnings_source,
+            'earnings_currency': earnings_currency,
             'combined_this_month': (
                 students.get('this_month', self.ZERO)
                 + institutes.get('this_month', self.ZERO)
