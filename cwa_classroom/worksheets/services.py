@@ -736,13 +736,25 @@ def _trim_whitespace(pix):
     try:
         from PIL import Image
         import io
-        img = Image.frombytes('RGB', (w, h), bytes(samples))
-        img = img.crop((left, top, right + 1, bottom + 1))
+        # pix.n may include an alpha channel (RGBA, n==4) — e.g. when the
+        # diagram was rendered with header redaction. Build the image with the
+        # real channel count, then normalise to RGB. Hardcoding 'RGB' on a
+        # 4-channel pixmap mis-aligns the buffer and makes img.save() raise
+        # "tile cannot extend outside image", dropping the whole diagram.
+        mode = 'RGBA' if n == 4 else 'RGB'
+        img = Image.frombytes(mode, (w, h), bytes(samples))
+        img = img.crop((left, top, right + 1, bottom + 1)).convert('RGB')
         buf = io.BytesIO()
         img.save(buf, format='PNG')
         return buf.getvalue()  # return raw bytes when Pillow is available
     except ImportError:
         return pix  # Pillow not installed — return original
+    except Exception:
+        # Any other Pillow failure (degenerate crop, odd colorspace) must never
+        # cost us the image — fall back to the untrimmed pixmap.
+        logger.warning('Q image: whitespace trim failed; using untrimmed image',
+                       exc_info=True)
+        return pix
 
 
 def render_question_images(doc, extracted_pages, classified_result):
