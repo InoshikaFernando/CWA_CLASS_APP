@@ -48,11 +48,22 @@ def _customer_id_sets():
 
 
 def get_paid_revenue(period_start, period_end):
-    """Sum paid Stripe invoices in [period_start, period_end) per panel.
+    """Sum paid SUBSCRIPTION Stripe invoices in [period_start, period_end).
 
-    period_start / period_end are timezone-aware datetimes. Returns
-    {'student': Decimal, 'institute': Decimal}. Raises StripeUnavailable
-    if Stripe is not configured or the API call fails.
+    period_start / period_end are timezone-aware datetimes.
+
+    Only invoices with a subscription billing_reason are counted (recurring
+    revenue), so one-off / manual invoices don't inflate the figure. Amounts
+    are tracked per currency; mixed currencies are flagged rather than summed
+    blindly.
+
+    Returns:
+        {
+          'student': Decimal, 'institute': Decimal,   # summed amount_paid
+          'student_count': int, 'institute_count': int,
+          'currency': 'NZD' | 'MIXED' | '',           # currency seen
+        }
+    Raises StripeUnavailable if Stripe is not configured or the API fails.
     """
     if not getattr(settings, 'STRIPE_SECRET_KEY', ''):
         raise StripeUnavailable('STRIPE_SECRET_KEY not set')
@@ -70,6 +81,8 @@ def get_paid_revenue(period_start, period_end):
 
     students, institutes = _customer_id_sets()
     totals = {'student': Decimal('0.00'), 'institute': Decimal('0.00')}
+    counts = {'student': 0, 'institute': 0}
+    currencies = set()
 
     try:
         invoices = stripe.Invoice.list(
@@ -81,15 +94,22 @@ def get_paid_revenue(period_start, period_end):
             limit=100,
         )
         for inv in invoices.auto_paging_iter():
+            # Only recurring subscription invoices count as MRR revenue.
+            if not (inv.get('billing_reason') or '').startswith('subscription'):
+                continue
             amount = (Decimal(inv.get('amount_paid', 0)) / _CENTS)
             if amount <= 0:
                 continue
             customer = inv.get('customer')
             if customer in students:
-                totals['student'] += amount
+                panel = 'student'
             elif customer in institutes:
-                totals['institute'] += amount
-            # invoices for unknown customers are ignored (not our subs)
+                panel = 'institute'
+            else:
+                continue  # not one of our subscriptions
+            totals[panel] += amount
+            counts[panel] += 1
+            currencies.add((inv.get('currency') or '').upper())
     except stripe.error.StripeError as exc:  # noqa: F841
         logger.warning('Stripe earnings fetch failed: %s', exc)
         raise StripeUnavailable(str(exc))
@@ -97,5 +117,18 @@ def get_paid_revenue(period_start, period_end):
         logger.warning('Stripe earnings fetch error: %s', exc)
         raise StripeUnavailable(str(exc))
 
-    cache.set(cache_key, totals, CACHE_TTL)
-    return totals
+    if len(currencies) > 1:
+        logger.warning('Mixed currencies in paid invoices: %s', currencies)
+
+    result = {
+        'student': totals['student'],
+        'institute': totals['institute'],
+        'student_count': counts['student'],
+        'institute_count': counts['institute'],
+        'currency': (
+            next(iter(currencies)) if len(currencies) == 1
+            else ('MIXED' if currencies else '')
+        ),
+    }
+    cache.set(cache_key, result, CACHE_TTL)
+    return result
