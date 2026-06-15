@@ -120,3 +120,91 @@ def test_usage_report_markdown_handles_no_data():
     md = out.getvalue()
     assert 'no usage recorded' in md
     assert '**Total**' in md
+
+
+# --- live GitHub dashboard refresh ------------------------------------------
+
+class _FakeResp:
+    def __init__(self, payload=None, status=200):
+        self._payload = payload
+        self.status_code = status
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f'HTTP {self.status_code}')
+
+
+def test_dashboard_update_noop_when_unconfigured(settings, monkeypatch):
+    from taskqueue import dashboard
+
+    # No token/repo → must not touch the network.
+    settings.AI_DASHBOARD_GITHUB_TOKEN = ''
+    settings.AI_DASHBOARD_GITHUB_REPO = ''
+    called = []
+    monkeypatch.setattr(dashboard.requests, 'get', lambda *a, **k: called.append('get'))
+    monkeypatch.setattr(dashboard.requests, 'patch', lambda *a, **k: called.append('patch'))
+
+    assert dashboard.update_dashboard_issue() is False
+    assert called == []
+
+
+def test_dashboard_update_patches_issue_when_configured(settings, monkeypatch):
+    from taskqueue import dashboard
+
+    settings.AI_DASHBOARD_GITHUB_TOKEN = 'tok'
+    settings.AI_DASHBOARD_GITHUB_REPO = 'owner/repo'
+    settings.AI_DASHBOARD_ISSUE_NUMBER = ''        # force label lookup
+    settings.AI_DASHBOARD_ISSUE_LABEL = 'ai-usage-dashboard'
+
+    # Mock the network up front — record_ai_usage now triggers a refresh itself.
+    seen = {}
+    monkeypatch.setattr(
+        dashboard.requests, 'get',
+        lambda url, **k: _FakeResp(payload=[{'number': 378}]),
+    )
+
+    def fake_patch(url, **kwargs):
+        seen['url'] = url
+        seen['body'] = kwargs['json']['body']
+        return _FakeResp(payload={})
+    monkeypatch.setattr(dashboard.requests, 'patch', fake_patch)
+
+    record_ai_usage(
+        school=None, source='homework', session_id=1, pages=4,
+        usage={'input_tokens': 8_000, 'output_tokens': 4_000},
+    )
+
+    assert dashboard.update_dashboard_issue() is True
+    assert seen['url'].endswith('/repos/owner/repo/issues/378')
+    assert 'AI Generation Usage' in seen['body']
+    assert '| Homework PDF |' in seen['body']
+
+
+def test_dashboard_update_never_raises_on_http_error(settings, monkeypatch):
+    from taskqueue import dashboard
+
+    settings.AI_DASHBOARD_GITHUB_TOKEN = 'tok'
+    settings.AI_DASHBOARD_GITHUB_REPO = 'owner/repo'
+
+    def boom(*a, **k):
+        raise RuntimeError('github down')
+    monkeypatch.setattr(dashboard.requests, 'get', boom)
+
+    # Must swallow the error and report failure, not propagate.
+    assert dashboard.update_dashboard_issue() is False
+
+
+def test_record_ai_usage_triggers_dashboard_refresh(monkeypatch):
+    import taskqueue.dashboard as dashboard
+
+    calls = []
+    monkeypatch.setattr(dashboard, 'update_dashboard_issue', lambda *a, **k: calls.append(1))
+
+    record_ai_usage(
+        school=None, source='worksheet', session_id=7, pages=3,
+        usage={'input_tokens': 1_000, 'output_tokens': 500},
+    )
+    assert calls == [1]
