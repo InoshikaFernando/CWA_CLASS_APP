@@ -206,8 +206,8 @@
   // Runs once on initial load and again at the end of _loadNext() after the
   // innerHTML swap, so interactive types work no matter where they appear.
 
-  function _wireFocusAdvance(selector) {
-    const arr = [...document.querySelectorAll(selector)];
+  function _wireFocusAdvance(root, selector) {
+    const arr = [...root.querySelectorAll(selector)];
     arr.forEach((el, i) => {
       el.addEventListener('input', () => {
         if (el.value && i < arr.length - 1) arr[i + 1].focus();
@@ -225,8 +225,8 @@
     const questionId = card.dataset.questionId;
 
     // Long-division & column-operation: auto-advance focus across digit cells.
-    _wireFocusAdvance('[data-ld="quotient"]');
-    _wireFocusAdvance('[data-ca="answer"]');
+    _wireFocusAdvance(card, '[data-ld="quotient"]');
+    _wireFocusAdvance(card, '[data-ca="answer"]');
 
     // Prime-factorisation: live "p×q×…" preview + tab order prime→quotient→…
     const primes = [...card.querySelectorAll('[data-pf="prime"]')];
