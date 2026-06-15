@@ -9,10 +9,14 @@ from taskqueue.models import AIUsageLog, BackgroundTask
 
 logger = logging.getLogger(__name__)
 
-# Claude Sonnet 4 list pricing, USD per 1M tokens. Overridable via env so we can
-# track cost accurately if the model or pricing changes without a code deploy.
-_DEFAULT_INPUT_COST_PER_MTOK = 3.0
-_DEFAULT_OUTPUT_COST_PER_MTOK = 15.0
+# Claude Opus 4.8 list pricing, USD per 1M tokens — matches the model both AI
+# pipelines actually run (AI_IMPORT_MODEL / WORKSHEET_MODEL default to
+# claude-opus-4-8). Overridable via CLAUDE_INPUT_COST_PER_MTOK /
+# CLAUDE_OUTPUT_COST_PER_MTOK so the ledger stays accurate if the model or
+# pricing changes without a code deploy. (Was $3/$15 Sonnet 4 — understated true
+# cost ~1.67x while the pipelines ran on Opus.)
+_DEFAULT_INPUT_COST_PER_MTOK = 5.0
+_DEFAULT_OUTPUT_COST_PER_MTOK = 25.0
 _MILLION = Decimal(1_000_000)
 
 
