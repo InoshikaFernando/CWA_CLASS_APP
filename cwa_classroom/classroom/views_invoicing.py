@@ -61,6 +61,69 @@ def _parse_date(date_str):
         return None
 
 
+# ---------------------------------------------------------------------------
+# Invoice email send-status (CPP-343)
+#
+# Each invoice email produces one EmailLog row per recipient (student / parents
+# / guardians) with status sent|failed. The list view summarises these into a
+# single per-invoice "did the email go out?" state, distinct from the
+# issued/draft/cancelled invoice status. A successful Resend writes newer 'sent'
+# logs, so comparing the newest sent vs newest failed timestamp flips a failed
+# invoice back to sent automatically.
+# ---------------------------------------------------------------------------
+
+def _annotate_invoice_email_state(invoices):
+    """Annotate each invoice with the timestamp of its latest sent/failed email
+    log and the latest failure reason (NULL when no logs exist)."""
+    logs = EmailLog.objects.filter(invoice=models.OuterRef('pk'))
+    return invoices.annotate(
+        last_email_sent=models.Subquery(
+            logs.filter(status='sent').order_by('-sent_at').values('sent_at')[:1],
+            output_field=models.DateTimeField(),
+        ),
+        last_email_failed=models.Subquery(
+            logs.filter(status='failed').order_by('-sent_at').values('sent_at')[:1],
+            output_field=models.DateTimeField(),
+        ),
+        last_email_error=models.Subquery(
+            logs.filter(status='failed').order_by('-sent_at').values('error_message')[:1],
+        ),
+    )
+
+
+# Queryset predicates for the ?email= filter, applied on the annotations above.
+# A failure that is not strictly older than the latest success counts as failed,
+# so a partial-batch failure (sent + failed at the same instant) surfaces. Only a
+# strictly-later success — e.g. a Resend — flips the invoice back to sent.
+_INVOICE_EMAIL_FILTER_Q = {
+    'failed': (
+        models.Q(last_email_failed__isnull=False) & (
+            models.Q(last_email_sent__isnull=True)
+            | models.Q(last_email_failed__gte=models.F('last_email_sent'))
+        )
+    ),
+    'sent': (
+        models.Q(last_email_sent__isnull=False) & (
+            models.Q(last_email_failed__isnull=True)
+            | models.Q(last_email_failed__lt=models.F('last_email_sent'))
+        )
+    ),
+    'none': models.Q(last_email_sent__isnull=True) & models.Q(last_email_failed__isnull=True),
+}
+
+
+def _invoice_email_state(invoice):
+    """Derive the display state ('sent' | 'failed' | 'none') for an invoice that
+    has been run through _annotate_invoice_email_state."""
+    last_sent = invoice.last_email_sent
+    last_failed = invoice.last_email_failed
+    if last_failed is not None and (last_sent is None or last_failed >= last_sent):
+        return 'failed'
+    if last_sent is not None:
+        return 'sent'
+    return 'none'
+
+
 # ===========================================================================
 # Fee Configuration
 # ===========================================================================
@@ -842,8 +905,18 @@ class InvoiceListView(RoleRequiredMixin, View):
                 line_items__classroom_id=classroom_filter,
             ).distinct()
 
+        # Annotate email send-status, then optionally filter by it (CPP-343).
+        invoices = _annotate_invoice_email_state(invoices)
+        email_filter = request.GET.get('email')
+        if email_filter in _INVOICE_EMAIL_FILTER_Q:
+            invoices = invoices.filter(_INVOICE_EMAIL_FILTER_Q[email_filter])
+
         paginator = Paginator(invoices, 25)
         page = paginator.get_page(request.GET.get('page'))
+
+        # Derive the per-invoice display state for the 25 rows on this page.
+        for inv in page:
+            inv.email_state = _invoice_email_state(inv)
 
         departments = Department.objects.filter(school=school, is_active=True)
 
@@ -865,6 +938,7 @@ class InvoiceListView(RoleRequiredMixin, View):
             'search': search,
             'dept_filter': dept_filter or '',
             'classroom_filter': classroom_filter or '',
+            'email_filter': email_filter if email_filter in _INVOICE_EMAIL_FILTER_Q else '',
             'draft_count': draft_count,
             'draft_ids': draft_ids,
         })
