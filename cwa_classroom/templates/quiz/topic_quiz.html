@@ -132,6 +132,7 @@
     const nextResp = await fetch('/api/topic-next/' + sessionId + '/');
     const html = await nextResp.text();
     document.getElementById('question-container').innerHTML = html;
+    _initQuestion();  // re-bind listeners — inline <script> in the partial won't run after innerHTML
     currentQ++;
     _updateProgress();
   }
@@ -161,5 +162,117 @@
       session_id: sessionId, question_id: questionId, ordered_answer_ids: ids,
     });
   }
+
+  // ── Interactive grid question types ───────────────────────────────────────
+  // These live here (not in the partial) because <script> tags inserted via
+  // innerHTML during a swap do NOT execute. Their Submit buttons call these
+  // by name via inline onclick (which survives the swap); the per-cell focus
+  // wiring is (re)bound by _initQuestion() after every swap.
+
+  function submitLongDivision(sessionId, questionId) {
+    const cells = [...document.querySelectorAll('[data-ld="quotient"]')];
+    const quotient = cells.map(c => c.value.trim() || '0').join('').replace(/^0+(?=\d)/, '') || '0';
+    const remainder = (document.querySelector('[data-ld="remainder"]').value.trim() || '0');
+    const answer = remainder === '0' ? quotient : quotient + ' r ' + remainder;
+    document.getElementById('text-answer-input').value = answer;
+    _submitAndAdvance(sessionId, {
+      session_id: sessionId, question_id: questionId, text_answer: answer,
+    });
+  }
+
+  function submitPrimeFactorization(sessionId, questionId) {
+    const primes = [...document.querySelectorAll('[data-pf="prime"]')];
+    const answer = primes.map(el => el.value.trim()).filter(Boolean).join('x');
+    document.getElementById('text-answer-input').value = answer;
+    _submitAndAdvance(sessionId, {
+      session_id: sessionId, question_id: questionId, text_answer: answer,
+    });
+  }
+
+  function submitColumnOperation(sessionId, questionId) {
+    const cells = [...document.querySelectorAll('[data-ca="answer"]')];
+    // Join answer digits left→right, drop leading zeros (e.g. "08" → "8").
+    // An all-blank submission stays empty (graded wrong) — it must NOT become
+    // "0", or it would falsely match a zero-result question.
+    const answer = cells.map(c => c.value.trim()).join('').replace(/^0+(?=\d)/, '');
+    document.getElementById('text-answer-input').value = answer;
+    _submitAndAdvance(sessionId, {
+      session_id: sessionId, question_id: questionId, text_answer: answer,
+    });
+  }
+
+  // ── Post-swap init hook ───────────────────────────────────────────────────
+  // Re-binds every per-question listener that an inline <script> used to wire.
+  // Runs once on initial load and again at the end of _loadNext() after the
+  // innerHTML swap, so interactive types work no matter where they appear.
+
+  function _wireFocusAdvance(selector) {
+    const arr = [...document.querySelectorAll(selector)];
+    arr.forEach((el, i) => {
+      el.addEventListener('input', () => {
+        if (el.value && i < arr.length - 1) arr[i + 1].focus();
+      });
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Backspace' && !el.value && i > 0) arr[i - 1].focus();
+      });
+    });
+  }
+
+  function _initQuestion() {
+    const card = document.getElementById('question-card');
+    if (!card) return;  // error partial — nothing to wire
+    const sessionId = card.dataset.sessionId;
+    const questionId = card.dataset.questionId;
+
+    // Long-division & column-operation: auto-advance focus across digit cells.
+    _wireFocusAdvance('[data-ld="quotient"]');
+    _wireFocusAdvance('[data-ca="answer"]');
+
+    // Prime-factorisation: live "p×q×…" preview + tab order prime→quotient→…
+    const primes = [...card.querySelectorAll('[data-pf="prime"]')];
+    if (primes.length) {
+      const quotients = [...card.querySelectorAll('[data-pf="quotient"]')];
+      const preview = document.getElementById('pf-preview');
+      if (preview) {
+        const refresh = () =>
+          preview.value = primes.map(el => el.value.trim()).filter(Boolean).join('×');
+        primes.forEach(el => el.addEventListener('input', refresh));
+      }
+      let t = 1;
+      primes.forEach((p, i) => {
+        p.tabIndex = t++;
+        if (i < quotients.length) quotients[i].tabIndex = t++;
+      });
+    }
+
+    // Short answer: Enter submits, x² button inserts a caret. The hidden input
+    // the grid types reuse shares this id, so guard on the visible text input.
+    const textInput = document.getElementById('text-answer-input');
+    if (textInput && textInput.type !== 'hidden') {
+      textInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') submitTextAnswer(sessionId, questionId);
+      });
+      textInput.focus();  // autofocus attribute is inert on a swapped-in node
+    }
+    const expBtn = document.getElementById('exp-btn');
+    if (expBtn && textInput) {
+      expBtn.addEventListener('click', function () {
+        const s = textInput.selectionStart, e = textInput.selectionEnd;
+        textInput.value = textInput.value.slice(0, s) + '^' + textInput.value.slice(e);
+        textInput.focus();
+        textInput.selectionStart = textInput.selectionEnd = s + 1;
+      });
+    }
+
+    // Multiple choice: disable the whole set on click to block double-submit.
+    card.querySelectorAll('.answer-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        card.querySelectorAll('.answer-btn').forEach(b => b.disabled = true);
+      });
+    });
+  }
+
+  // Wire the server-rendered first question.
+  _initQuestion();
 </script>
 {% endblock %}

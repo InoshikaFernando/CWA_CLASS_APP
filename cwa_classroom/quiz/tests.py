@@ -6,6 +6,7 @@ import time
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.template.loader import render_to_string
 from django.test import Client, TestCase
 from django.urls import reverse
 
@@ -225,6 +226,129 @@ class TestAuditLogResilience(QuizAuditLoggingTestBase):
         self.assertTrue(
             BasicFactsResult.objects.filter(student=self.student).exists(),
             'BasicFactsResult not created when log_event failed',
+        )
+
+
+class TestInteractiveQuestionSwapWiring(TestCase):
+    """Interactive question types must keep working as question #2+.
+
+    ``_loadNext()`` advances the topic quiz by setting
+    ``#question-container.innerHTML``. Per the HTML spec, <script> tags inserted
+    via innerHTML do NOT execute — so the per-question partial must carry no
+    inline submit scripts. Every submit/focus helper lives in the persistent
+    ``topic_quiz.html`` base script and is (re)bound by ``_initQuestion()`` after
+    each swap. These tests lock that contract in so the inline scripts can't
+    silently creep back into the partial.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = School.objects.create(name='Swap Test School')
+        cls.student = User.objects.create_user(
+            username='swapstudent', password='pass1234', email='swap@test.com',
+        )
+        SchoolStudent.objects.create(
+            school=cls.school, student=cls.student, is_active=True,
+        )
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        cls.level = Level.objects.create(level_number=4, display_name='Year 4')
+        cls.topic = Topic.objects.create(
+            subject=cls.subject, name='Division', slug='division-swap', is_active=True,
+        )
+        cls.topic.levels.add(cls.level)
+
+        cls.long_div = Question.objects.create(
+            question_text='Divide 84 by 4.',
+            question_type=Question.LONG_DIVISION,
+            topic=cls.topic, level=cls.level,
+            dividend=84, divisor=4,
+        )
+        Answer.objects.create(question=cls.long_div, answer_text='21', is_correct=True)
+
+        cls.col_op = Question.objects.create(
+            question_text='Add 45 and 27.',
+            question_type=Question.COLUMN_OPERATION,
+            topic=cls.topic, level=cls.level,
+            operands=[45, 27], operator='+',
+        )
+        Answer.objects.create(question=cls.col_op, answer_text='72', is_correct=True)
+
+        cls.prime = Question.objects.create(
+            question_text='Find the prime factors of 12.',
+            question_type=Question.PRIME_FACTORIZATION,
+            topic=cls.topic, level=cls.level,
+            target_number=12,
+        )
+        Answer.objects.create(question=cls.prime, answer_text='2x2x3', is_correct=True)
+
+    def _render_partial(self, question):
+        return render_to_string('quiz/partials/topic_question.html', {
+            'question': question,
+            'answers': list(question.answers.all()),
+            'question_number': 2,
+            'total_questions': 3,
+            'session_id': 'swap-session',
+        })
+
+    def test_partial_carries_no_inline_script(self):
+        """The swapped-in partial must contain no <script> tags (they'd be dead)."""
+        for q in (self.long_div, self.col_op, self.prime):
+            html = self._render_partial(q)
+            self.assertNotIn(
+                '<script', html,
+                f'{q.question_type} partial must not contain an inline <script> — '
+                'it would never execute after an innerHTML swap.',
+            )
+
+    def test_partial_keeps_inline_onclick_submit(self):
+        """Submit buttons keep their inline onclick — attributes DO survive a swap."""
+        self.assertIn("submitLongDivision('swap-session'", self._render_partial(self.long_div))
+        self.assertIn("submitColumnOperation('swap-session'", self._render_partial(self.col_op))
+        self.assertIn("submitPrimeFactorization('swap-session'", self._render_partial(self.prime))
+
+    def test_partial_carries_swap_data_attributes(self):
+        """The question card exposes session/question ids for _initQuestion()."""
+        html = self._render_partial(self.long_div)
+        self.assertIn('data-session-id="swap-session"', html)
+        self.assertIn(f'data-question-id="{self.long_div.id}"', html)
+
+    def test_base_script_defines_submit_and_init_helpers(self):
+        """The persistent base script defines every helper the partial relies on."""
+        self.client.login(username='swapstudent', password='pass1234')
+        url = reverse('topic_quiz', kwargs={
+            'subject': 'mathematics',
+            'level_number': 4,
+            'topic_id': self.topic.id,
+        })
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        content = resp.content.decode()
+        for fn in (
+            'function submitLongDivision',
+            'function submitColumnOperation',
+            'function submitPrimeFactorization',
+            'function _initQuestion',
+        ):
+            self.assertIn(fn, content, f'{fn} must live in the persistent base script.')
+
+    def test_loadnext_rebinds_after_swap(self):
+        """_loadNext() must call _initQuestion() after writing the new innerHTML."""
+        self.client.login(username='swapstudent', password='pass1234')
+        url = reverse('topic_quiz', kwargs={
+            'subject': 'mathematics',
+            'level_number': 4,
+            'topic_id': self.topic.id,
+        })
+        content = self.client.get(url).content.decode()
+        swap_idx = content.index("getElementById('question-container').innerHTML")
+        after_swap = content[swap_idx:swap_idx + 400]
+        self.assertIn(
+            '_initQuestion()', after_swap,
+            '_loadNext() must re-bind question listeners with _initQuestion() '
+            'immediately after the innerHTML swap.',
         )
 
 
