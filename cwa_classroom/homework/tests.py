@@ -2291,3 +2291,105 @@ class HomeworkPreviewAddQuestionTest(HomeworkTestBase):
         session.refresh_from_db()
         texts = [q['question_text'] for q in session.extracted_data['questions']]
         self.assertEqual(texts, ['edited', '2+2?'])
+
+
+# ---------------------------------------------------------------------------
+# CPP-344 — Homework monitor "All" filter + back-to-All button
+# ---------------------------------------------------------------------------
+
+class TeacherHomeworkMonitorAllFilterTest(HomeworkTestBase):
+    """The monitor filter must offer an 'All' option (the default) that shows
+    homework across every class the teacher is assigned to, and the detail page
+    back button must land on the monitor with All selected."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        # A second class taught by the same teacher, with its own homework.
+        cls.classroom2 = ClassRoom.objects.create(
+            name='Year 6 Science', code='HWTEST02', school=cls.school,
+        )
+        ClassTeacher.objects.create(classroom=cls.classroom2, teacher=cls.teacher)
+        cls.homework2 = Homework.objects.create(
+            classroom=cls.classroom2,
+            created_by=cls.teacher,
+            title='Science Homework',
+            homework_type='topic',
+            num_questions=5,
+            due_date=timezone.now() + timedelta(days=7),
+            max_attempts=2,
+        )
+        cls.homework2.topics.add(cls.topic)
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='teacher1', password='pass1234')
+
+    def _monitor(self, query=''):
+        return self.client.get(reverse('homework:teacher_monitor') + query)
+
+    def test_all_option_present(self):
+        resp = self._monitor()
+        self.assertContains(resp, 'value="all"')
+        self.assertContains(resp, 'All classes')
+
+    def test_default_is_not_all(self):
+        # No param keeps the first-class default so the New Homework shortcut
+        # stays available; All is opt-in via the dropdown / back button.
+        resp = self._monitor()
+        self.assertFalse(resp.context['show_all'])
+        self.assertIsNotNone(resp.context['selected_classroom'])
+
+    def test_all_shows_homework_across_classes(self):
+        resp = self._monitor('?classroom=all')
+        self.assertContains(resp, 'Test Homework')      # class 1
+        self.assertContains(resp, 'Science Homework')    # class 2
+
+    def test_all_explicit_param(self):
+        resp = self._monitor('?classroom=all')
+        self.assertTrue(resp.context['show_all'])
+        self.assertContains(resp, 'Science Homework')
+
+    def test_class_badge_shown_in_all_view(self):
+        resp = self._monitor('?classroom=all')
+        # Each card is tagged with its class name in the All view.
+        self.assertContains(resp, 'Year 6 Science')
+
+    def test_specific_class_filters_out_others(self):
+        resp = self._monitor(f'?classroom={self.classroom2.id}')
+        self.assertFalse(resp.context['show_all'])
+        self.assertEqual(resp.context['selected_classroom'], self.classroom2)
+        self.assertContains(resp, 'Science Homework')
+        self.assertNotContains(resp, 'Test Homework')
+
+    def test_invalid_classroom_falls_back_gracefully(self):
+        # Unknown id falls back to the first class (original behaviour), not a 500.
+        resp = self._monitor('?classroom=999999')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context['show_all'])
+        self.assertIsNotNone(resp.context['selected_classroom'])
+
+    def test_non_numeric_classroom_does_not_500(self):
+        resp = self._monitor('?classroom=abc')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_detail_back_link_lands_on_all(self):
+        resp = self.client.get(
+            reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, reverse('homework:teacher_monitor') + '?classroom=all')
+
+    def test_other_teacher_classes_excluded_from_all(self):
+        # A class taught by a different teacher must not appear in teacher1's All view.
+        other_class = ClassRoom.objects.create(
+            name='Other Teacher Class', code='HWTEST03', school=self.school,
+        )
+        ClassTeacher.objects.create(classroom=other_class, teacher=self.other_teacher)
+        Homework.objects.create(
+            classroom=other_class, created_by=self.other_teacher,
+            title='Other Teacher Homework', homework_type='topic',
+            num_questions=5, due_date=timezone.now() + timedelta(days=7), max_attempts=1,
+        )
+        resp = self._monitor('?classroom=all')
+        self.assertNotContains(resp, 'Other Teacher Homework')

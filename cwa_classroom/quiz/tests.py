@@ -3,6 +3,8 @@ quiz/tests.py — Audit logging tests for quiz views (CPP-270).
 """
 import json
 import time
+import uuid
+from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -226,6 +228,128 @@ class TestAuditLogResilience(QuizAuditLoggingTestBase):
             BasicFactsResult.objects.filter(student=self.student).exists(),
             'BasicFactsResult not created when log_event failed',
         )
+
+
+class TestTopicQuizMeasureGrading(TestCase):
+    """SubmitTopicAnswerView grades a `measure` question by tolerance.
+
+    Regression guard: `measure` stores its target in numeric_answer (not an
+    Answer row), so without a dedicated grading branch it falls through to the
+    Answer-row path, finds nothing, and is marked wrong every time.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = School.objects.create(name='Measure School')
+        cls.student = User.objects.create_user(
+            username='measurestudent', password='pass1234', email='ms@test.com',
+        )
+        SchoolStudent.objects.create(
+            school=cls.school, student=cls.student, is_active=True,
+        )
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        cls.level = Level.objects.create(level_number=4, display_name='Year 4')
+        cls.topic = Topic.objects.create(
+            subject=cls.subject, name='Angles', slug='angles', is_active=True,
+        )
+        cls.topic.levels.add(cls.level)
+        # 135° angle, accept ± 2°.
+        cls.q = Question.objects.create(
+            question_text='Measure angle a.',
+            question_type='measure',
+            numeric_answer=Decimal('135'),
+            answer_tolerance=Decimal('2'),
+            answer_unit='°',
+            topic=cls.topic,
+            level=cls.level,
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='measurestudent', password='pass1234')
+
+    def _submit(self, text_answer):
+        """Inject a topic-quiz session and POST one measure answer.
+
+        Two questions in the list so this submission is never 'last' — keeps the
+        quiz-completion machinery (StudentFinalAnswer, stats) out of the way.
+        """
+        session_id = str(uuid.uuid4())
+        session = self.client.session
+        session[f'tq_{session_id}'] = {
+            'current': 0,
+            'questions': [{'id': self.q.id}, {'id': self.q.id}],
+            'correct': 0,
+            'start_time': time.time(),
+            'level_number': 4,
+            'subject': 'mathematics',
+        }
+        session.save()
+        resp = self.client.post(
+            reverse('api_submit_topic_answer'),
+            data=json.dumps({
+                'session_id': session_id,
+                'question_id': self.q.id,
+                'text_answer': text_answer,
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()
+
+    def test_within_tolerance_is_correct(self):
+        # 134 is within 135 ± 2.
+        self.assertTrue(self._submit('134')['is_correct'])
+
+    def test_on_tolerance_edge_is_correct(self):
+        # 133 is exactly on the lower edge (135 - 2).
+        self.assertTrue(self._submit('133')['is_correct'])
+
+    def test_outside_tolerance_is_incorrect(self):
+        # 120 is well outside the band.
+        self.assertFalse(self._submit('120')['is_correct'])
+
+    def test_unit_suffix_stripped_from_typed_value(self):
+        # The grader strips the unit, so "135°" reads as 135.
+        self.assertTrue(self._submit('135°')['is_correct'])
+
+    def test_correct_answer_text_reports_value_and_unit(self):
+        data = self._submit('120')
+        self.assertEqual(data['correct_answer_text'], '135°')
+
+    def test_topic_question_partial_renders_protractor_stage(self):
+        """The quiz render branch mounts the shared measure tool (protractor for
+        degrees) with the figure + numeric input."""
+        from django.template.loader import render_to_string
+
+        html = render_to_string('quiz/partials/topic_question.html', {
+            'question': self.q,
+            'answers': [],
+            'session_id': 'abc',
+            'question_number': 1,
+            'total_questions': 2,
+        })
+        self.assertIn('data-measure-tool="protractor"', html)
+        self.assertIn('measure-figure', html)          # generated angle figure
+        self.assertIn('id="text-answer-input"', html)  # numeric box for the reading
+
+    def test_topic_question_partial_renders_ruler_for_length(self):
+        """A length-unit measure question gets a ruler instead of a protractor."""
+        from django.template.loader import render_to_string
+
+        self.q.answer_unit = 'cm'
+        self.q.save(update_fields=['answer_unit'])
+        html = render_to_string('quiz/partials/topic_question.html', {
+            'question': self.q,
+            'answers': [],
+            'session_id': 'abc',
+            'question_number': 1,
+            'total_questions': 2,
+        })
+        self.assertIn('data-measure-tool="ruler"', html)
 
 
 class TimesTablesSelectViewTest(TestCase):

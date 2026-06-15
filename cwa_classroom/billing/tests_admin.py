@@ -989,6 +989,22 @@ class SubscriptionOverviewTests(TestCase):
         self.assertEqual(ctx['institutes']['this_month'], Decimal('7.00'))
         self.assertEqual(ctx['combined_this_month'], Decimal('12.00'))
 
+    # -- counts: live from Stripe (mocked) --
+    @patch('billing.views_admin.get_subscription_counts')
+    def test_counts_from_stripe(self, mock_counts):
+        mock_counts.return_value = {
+            'student': {'paid': 20, 'trial': 1, 'other': 2, 'total': 23},
+            'institute': {'paid': 1, 'trial': 0, 'other': 0, 'total': 1},
+        }
+        ctx = self._get().context
+        self.assertEqual(ctx['counts_source'], 'stripe')
+        self.assertEqual(ctx['students']['stripe']['paid'], 20)
+        self.assertEqual(ctx['institutes']['stripe']['paid'], 1)
+
+    def test_counts_source_local_without_stripe(self):
+        # No Stripe key in tests -> counts fall back to local DB
+        self.assertEqual(self._get().context['counts_source'], 'local')
+
     # -- breakdowns --
     def test_breakdowns(self):
         ctx = self._get().context
@@ -1166,3 +1182,30 @@ class StripeEarningsReportingTests(TestCase):
         self.assertEqual(res['student_count'], 1)
         self.assertEqual(res['institute_count'], 1)
         self.assertEqual(res['currency'], 'NZD')
+
+    @override_settings(STRIPE_SECRET_KEY='sk_test_dummy')
+    @patch('billing.reporting.stripe.Subscription.list')
+    def test_subscription_counts(self, mock_list):
+        from billing.reporting import get_subscription_counts
+        from django.core.cache import cache
+        cache.clear()
+        subs = [
+            {'metadata': {'type': 'individual'}, 'status': 'active'},
+            {'metadata': {'type': 'school_student'}, 'status': 'active'},
+            {'metadata': {'type': 'individual'}, 'status': 'trialing'},
+            {'metadata': {'type': 'institute'}, 'status': 'active'},
+            {'metadata': {'type': 'institute'}, 'status': 'canceled'},
+            {'metadata': {'type': 'module'}, 'status': 'active'},   # ignored
+            {'metadata': {}, 'status': 'active'},                    # untyped, ignored
+        ]
+        obj = MagicMock()
+        obj.auto_paging_iter.return_value = iter(subs)
+        mock_list.return_value = obj
+        c = get_subscription_counts()
+        # students = individual + school_student
+        self.assertEqual(c['student']['paid'], 2)
+        self.assertEqual(c['student']['trial'], 1)
+        self.assertEqual(c['student']['total'], 3)
+        self.assertEqual(c['institute']['paid'], 1)
+        self.assertEqual(c['institute']['other'], 1)
+        self.assertEqual(c['institute']['total'], 2)

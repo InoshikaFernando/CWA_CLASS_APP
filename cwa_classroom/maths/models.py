@@ -318,6 +318,25 @@ class Question(models.Model):
         return str(quotient) if remainder == 0 else f"{quotient} r {remainder}"
 
     @property
+    def is_degree_measure(self):
+        """True for a ``measure`` question whose unit is degrees (vs a length).
+
+        Centralises the unit sniff used by both the generated figure and the
+        interactive tool, so "what counts as an angle" is defined once.
+        """
+        if self.question_type != self.MEASURE:
+            return False
+        unit = (self.answer_unit or '').strip().lower()
+        return '°' in unit or unit in ('deg', 'degree', 'degrees')
+
+    @property
+    def measure_tool(self):
+        """Which on-screen instrument the digital surfaces overlay on a
+        ``measure`` figure: a ``protractor`` for angles, else a ``ruler``.
+        Drives ``data-measure-tool`` in the shared partial (measure_tool.js)."""
+        return 'protractor' if self.is_degree_measure else 'ruler'
+
+    @property
     def measure_figure_svg(self):
         """Inline SVG of the angle to measure, generated from ``numeric_answer``.
 
@@ -330,10 +349,7 @@ class Question(models.Model):
         context plumbing — the same way the long-division / prime-factorisation
         render helpers live on the model.
         """
-        if self.question_type != self.MEASURE or self.numeric_answer is None:
-            return ''
-        unit = (self.answer_unit or '').strip().lower()
-        if '°' not in unit and unit not in ('deg', 'degree', 'degrees'):
+        if not self.is_degree_measure or self.numeric_answer is None:
             return ''
         from maths.svg_geometry import angle_svg
         return angle_svg(self.numeric_answer)
