@@ -1,7 +1,10 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}{{ homework.title }}{% endblock %}
 
 {% block extra_head %}
+<!-- Draggable/rotatable protractor & ruler for `measure` questions -->
+<script defer src="{% static 'js/measure_tool.js' %}"></script>
 <style>
   .answer-option input[type="radio"]:checked + label {
     background-color: #dbeafe;

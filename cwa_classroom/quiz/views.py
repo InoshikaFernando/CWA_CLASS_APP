@@ -859,6 +859,17 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                 is_correct = False
             correct_ans = q.answers.filter(is_correct=True).first()
             correct_answer_text = correct_ans.answer_text if correct_ans else ''
+        elif q.question_type == 'measure' and q.numeric_answer is not None:
+            # Tolerance-graded numeric answer (measure the angle / read the
+            # scale). The correct value lives in numeric_answer, not an Answer
+            # row, so this MUST be graded here — the text/Answer-row fallback
+            # below would find no correct row and mark every answer wrong.
+            # Mirrors maths.plugin.grade_answer so quiz/homework grade alike.
+            from maths.geometry_grading import grade_measure
+            raw = data.get('text_answer', '').strip()
+            is_correct = grade_measure(q, raw)
+            num = q.numeric_answer.normalize()
+            correct_answer_text = f'{num:f}{q.answer_unit or ""}'
         elif q.answer_format == 'algebra':
             raw = data.get('text_answer', '').strip()
             is_correct = q.grade_text_answer(raw)
