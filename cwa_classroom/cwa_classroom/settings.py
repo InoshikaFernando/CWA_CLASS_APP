@@ -115,11 +115,14 @@ FEEDBACK_OWNER_EMAIL = os.environ.get('FEEDBACK_OWNER_EMAIL', '')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
 # Claude pricing (USD per 1M tokens) used to estimate per-upload AI cost in the
-# usage ledger. Override via env when the model or list price changes.
+# usage ledger. Defaults match Claude Opus 4.8 list price — the model both AI
+# pipelines actually run (AI_IMPORT_MODEL / WORKSHEET_MODEL). Override via env
+# when the model or list price changes. (Was $3/$15 Sonnet 4, which understated
+# true cost ~1.67x while the pipelines ran on Opus.)
 CLAUDE_INPUT_COST_PER_MTOK = float(
-    os.environ.get('CLAUDE_INPUT_COST_PER_MTOK', '3.0'))
+    os.environ.get('CLAUDE_INPUT_COST_PER_MTOK', '5.0'))
 CLAUDE_OUTPUT_COST_PER_MTOK = float(
-    os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '15.0'))
+    os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '25.0'))
 
 # ---------------------------------------------------------------------------
 # Redis / RQ  (background task processing)
@@ -315,6 +318,18 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
+
+# ---------------------------------------------------------------------------
+# Login rate limiting
+# ---------------------------------------------------------------------------
+# Keyed primarily by *username* so a shared-IP site (e.g. a school behind one
+# NAT) can't be locked out collectively by a few students' typos — one
+# student's failures only lock that student. A generous per-IP cap is a
+# secondary safety net against a single host enumerating many accounts; raise
+# LOGIN_RATELIMIT_IP_MAX if a very large school ever trips it.
+LOGIN_RATELIMIT_USER_MAX = int(os.environ.get('LOGIN_RATELIMIT_USER_MAX', '10'))
+LOGIN_RATELIMIT_IP_MAX = int(os.environ.get('LOGIN_RATELIMIT_IP_MAX', '100'))
+LOGIN_RATELIMIT_WINDOW = int(os.environ.get('LOGIN_RATELIMIT_WINDOW', '900'))  # 15 min
 
 
 # ---------------------------------------------------------------------------
@@ -591,5 +606,8 @@ LOGGING = {
         'homework':   {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
         'billing':    {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
         'classroom':  {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+        # INFO so successful logins (which clear the rate-limit counter) are
+        # visible alongside the WARNING-level failures and lockouts.
+        'accounts':   {'handlers': _app_handlers, 'level': 'INFO', 'propagate': False},
     },
 }

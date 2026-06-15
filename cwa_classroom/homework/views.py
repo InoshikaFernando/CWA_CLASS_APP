@@ -1279,6 +1279,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                 ('calculation', 'Calculation'),
                 ('extended_answer', 'Extended Answer (written)'),
                 ('long_division', 'Long Division'),
+                ('column_operation', 'Column Arithmetic'),
             ],
             'validation_types': [
                 ('auto', 'Auto (system checks)'),
@@ -1344,6 +1345,20 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                             q[fld] = int(raw)
                         except ValueError:
                             pass
+
+            # Column-arithmetic fields (only relevant for column_operation)
+            if q['question_type'] == 'column_operation':
+                raw_operands = request.POST.get(f'{prefix}operands', '').strip()
+                if raw_operands:
+                    try:
+                        q['operands'] = [
+                            int(tok) for tok in raw_operands.replace(',', ' ').split()
+                        ]
+                    except ValueError:
+                        pass
+                op = request.POST.get(f'{prefix}operator', '').strip()
+                if op in ('+', '-', '*'):
+                    q['operator'] = op
 
             # Handle image replacement / removal
             if request.POST.get(f'{prefix}remove_image') == 'on':
@@ -1708,6 +1723,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             'calculation': MQ.CALCULATION if hasattr(MQ, 'CALCULATION') else MQ.SHORT_ANSWER,
             'extended_answer': MQ.EXTENDED_ANSWER,
             'long_division': MQ.LONG_DIVISION,
+            'column_operation': MQ.COLUMN_OPERATION,
         }
         mapped_type = type_map.get(q_type, MQ.SHORT_ANSWER)
 
@@ -1723,6 +1739,23 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             if not dividend or not divisor or divisor <= 0:
                 # Can't build a valid long-division question — skip it rather than
                 # import a broken one with no usable answer.
+                continue
+
+        # Column arithmetic: parse operands/operator; the answer is computed (not
+        # AI-supplied) and the stacked grid is drawn by the app, so any attached
+        # image would be noise.
+        operands = None
+        operator = ''
+        if mapped_type == MQ.COLUMN_OPERATION:
+            raw_operands = q.get('operands') or []
+            try:
+                operands = [int(o) for o in raw_operands]
+            except (TypeError, ValueError):
+                operands = None
+            operator = q.get('operator', '')
+            if not operands or len(operands) < 2 or operator not in ('+', '-', '*'):
+                # Can't build a valid column-arithmetic question — skip it rather
+                # than import a broken one with no usable answer.
                 continue
 
         # Create or get question (avoid exact duplicates within same topic/level)
@@ -1741,6 +1774,8 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 'department_id': dept_id,
                 'dividend': dividend,
                 'divisor': divisor,
+                'operands': operands,
+                'operator': operator,
             },
         )
 
@@ -1753,8 +1788,9 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         # Save image to storage (DO Spaces / S3) via Django's ImageField.save()
         # Run when newly created OR when question exists but has no image yet
         # (covers re-uploads after previously broken confirm attempts).
-        # Long division draws its own bracket from dividend/divisor — never attach an image.
-        if mapped_type != MQ.LONG_DIVISION and (created or not mq.image):
+        # Long division / column arithmetic draw their own layout from the stored
+        # numbers — never attach an image.
+        if mapped_type not in (MQ.LONG_DIVISION, MQ.COLUMN_OPERATION) and (created or not mq.image):
             import logging as _img_log
             _img_logger = _img_log.getLogger('homework')
             image_ref = q.get('image_ref')
@@ -1781,6 +1817,14 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 MA.objects.create(
                     question=mq,
                     answer_text=mq.long_division_answer or '',
+                    is_correct=True,
+                )
+        elif mapped_type == MQ.COLUMN_OPERATION:
+            # Answer is computed from operands/operator — ignore any AI-supplied answers.
+            if created and mq.column_result is not None:
+                MA.objects.create(
+                    question=mq,
+                    answer_text=str(mq.column_result),
                     is_correct=True,
                 )
         elif mapped_type != MQ.EXTENDED_ANSWER:
