@@ -82,7 +82,7 @@
       {% include 'admin_dashboard/billing/_donut.html' with donut=students.donut title="Status breakdown" %}
 
       <!-- Today + earnings -->
-      {% include 'admin_dashboard/billing/_earnings.html' with panel=students source=earnings_source %}
+      {% include 'admin_dashboard/billing/_earnings.html' with panel=students source=earnings_source currency=earnings_currency %}
 
       <!-- By package -->
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -134,7 +134,7 @@
       {% include 'admin_dashboard/billing/_donut.html' with donut=institutes.donut title="Status breakdown" %}
 
       <!-- Today + earnings -->
-      {% include 'admin_dashboard/billing/_earnings.html' with panel=institutes source=earnings_source %}
+      {% include 'admin_dashboard/billing/_earnings.html' with panel=institutes source=earnings_source currency=earnings_currency %}
 
       <!-- By type -->
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">

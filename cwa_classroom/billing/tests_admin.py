@@ -970,11 +970,14 @@ class SubscriptionOverviewTests(TestCase):
     @patch('billing.views_admin.get_paid_revenue')
     def test_earnings_from_stripe(self, mock_rev):
         mock_rev.side_effect = [
-            {'student': Decimal('5.00'), 'institute': Decimal('7.00')},   # this month
-            {'student': Decimal('3.00'), 'institute': Decimal('4.00')},   # last month
+            {'student': Decimal('5.00'), 'institute': Decimal('7.00'),
+             'student_count': 1, 'institute_count': 1, 'currency': 'NZD'},   # this month
+            {'student': Decimal('3.00'), 'institute': Decimal('4.00'),
+             'student_count': 1, 'institute_count': 1, 'currency': 'NZD'},   # last month
         ]
         ctx = self._get().context
         self.assertEqual(ctx['earnings_source'], 'stripe')
+        self.assertEqual(ctx['earnings_currency'], 'NZD')
         self.assertEqual(ctx['students']['this_month'], Decimal('5.00'))
         self.assertEqual(ctx['students']['last_month'], Decimal('3.00'))
         self.assertEqual(ctx['institutes']['this_month'], Decimal('7.00'))
@@ -1137,11 +1140,13 @@ class StripeEarningsReportingTests(TestCase):
     def test_attribution_by_customer(self, mock_list):
         from billing.reporting import get_paid_revenue
         import datetime
+        sub = 'subscription_cycle'
         invoices = [
-            {'amount_paid': 1990, 'customer': 'cus_student'},
-            {'amount_paid': 9450, 'customer': 'cus_inst'},
-            {'amount_paid': 500, 'customer': 'cus_unknown'},  # ignored
-            {'amount_paid': 0, 'customer': 'cus_student'},     # zero ignored
+            {'amount_paid': 1990, 'customer': 'cus_student', 'billing_reason': sub, 'currency': 'nzd'},
+            {'amount_paid': 9450, 'customer': 'cus_inst', 'billing_reason': sub, 'currency': 'nzd'},
+            {'amount_paid': 500, 'customer': 'cus_unknown', 'billing_reason': sub, 'currency': 'nzd'},  # not ours
+            {'amount_paid': 0, 'customer': 'cus_student', 'billing_reason': sub, 'currency': 'nzd'},     # zero
+            {'amount_paid': 5000, 'customer': 'cus_inst', 'billing_reason': 'manual', 'currency': 'nzd'},  # not a sub
         ]
         obj = MagicMock()
         obj.auto_paging_iter.return_value = iter(invoices)
@@ -1150,4 +1155,7 @@ class StripeEarningsReportingTests(TestCase):
         end = timezone.make_aware(datetime.datetime(2026, 6, 1))
         res = get_paid_revenue(start, end)
         self.assertEqual(res['student'], Decimal('19.90'))
-        self.assertEqual(res['institute'], Decimal('94.50'))
+        self.assertEqual(res['institute'], Decimal('94.50'))  # manual $50 excluded
+        self.assertEqual(res['student_count'], 1)
+        self.assertEqual(res['institute_count'], 1)
+        self.assertEqual(res['currency'], 'NZD')
