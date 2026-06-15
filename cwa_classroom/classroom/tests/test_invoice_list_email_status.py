@@ -155,3 +155,13 @@ class TestInvoiceListEmailStatus(TestCase):
         resp, by_num = self._page_invoices(email='bogus')
         self.assertEqual(resp.context['email_filter'], '')
         self.assertIn(self.invoice.invoice_number, by_num)
+
+    def test_failure_reason_deterministic_on_timestamp_tie(self):
+        # Two failures at the exact same instant → the highest-pk one wins,
+        # so the surfaced error is deterministic (not arbitrary).
+        _log(self.invoice, self.school, 'failed', self.now, error='first error')
+        _log(self.invoice, self.school, 'failed', self.now, error='second error')
+        _, by_num = self._page_invoices()
+        inv = by_num[self.invoice.invoice_number]
+        self.assertEqual(inv.email_state, 'failed')
+        self.assertEqual(inv.last_email_error, 'second error')

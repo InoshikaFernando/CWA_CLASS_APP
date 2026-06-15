@@ -76,17 +76,20 @@ def _annotate_invoice_email_state(invoices):
     """Annotate each invoice with the timestamp of its latest sent/failed email
     log and the latest failure reason (NULL when no logs exist)."""
     logs = EmailLog.objects.filter(invoice=models.OuterRef('pk'))
+    # '-pk' tiebreaks logs that share an exact sent_at (e.g. a batch where two
+    # recipients fail in the same instant) so the surfaced timestamp/error is
+    # deterministic across requests.
     return invoices.annotate(
         last_email_sent=models.Subquery(
-            logs.filter(status='sent').order_by('-sent_at').values('sent_at')[:1],
+            logs.filter(status='sent').order_by('-sent_at', '-pk').values('sent_at')[:1],
             output_field=models.DateTimeField(),
         ),
         last_email_failed=models.Subquery(
-            logs.filter(status='failed').order_by('-sent_at').values('sent_at')[:1],
+            logs.filter(status='failed').order_by('-sent_at', '-pk').values('sent_at')[:1],
             output_field=models.DateTimeField(),
         ),
         last_email_error=models.Subquery(
-            logs.filter(status='failed').order_by('-sent_at').values('error_message')[:1],
+            logs.filter(status='failed').order_by('-sent_at', '-pk').values('error_message')[:1],
         ),
     )
 
