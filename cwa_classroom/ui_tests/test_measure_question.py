@@ -12,6 +12,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.urls import reverse
 from django.utils import timezone
 from playwright.sync_api import Page, expect
 
@@ -132,3 +133,34 @@ class TestMeasureQuestionTake:
         expect(stage.locator("[data-role='rotate']")).to_have_count(1)
         # The figure to measure is still rendered, inside the same stage.
         expect(stage.locator(".measure-figure svg")).to_be_visible()
+
+
+class TestMeasureAuthoringForm:
+    """The teacher question form reveals the measure settings (and hides the
+    Answer rows) when 'Measure' is picked — the JS toggle in question_form.html."""
+
+    @pytest.mark.django_db(transaction=True)
+    def test_measure_toggle_shows_fields_hides_answers(
+        self, page: Page, live_server, hoi_user, level
+    ):
+        do_login(page, live_server.url, hoi_user)
+        page.goto(live_server.url + reverse("add_question", args=[level.level_number]))
+        page.wait_for_load_state("networkidle")
+
+        measure = page.locator("#measure-fields")
+        answers = page.locator("#answers-section")
+        # Default type is multiple_choice → answers shown, measure hidden.
+        expect(measure).to_be_hidden()
+        expect(answers).to_be_visible()
+
+        # Switch to Measure → measure settings appear, answers disappear.
+        page.select_option("#q-type-select", "measure")
+        expect(measure).to_be_visible()
+        expect(answers).to_be_hidden()
+        expect(page.locator("input[name='numeric_answer']")).to_be_visible()
+        expect(page.locator("input[name='answer_unit']")).to_be_visible()
+
+        # Switch back → answers return, measure hidden again.
+        page.select_option("#q-type-select", "multiple_choice")
+        expect(measure).to_be_hidden()
+        expect(answers).to_be_visible()
