@@ -248,10 +248,64 @@ hidden-field-sync pattern of the long-division / prime-factorisation partials.
 </script>
 {% endwith %}
 
+{% elif q.question_type == 'column_operation' and q.column_arithmetic %}
+{% with ca=q.column_arithmetic %}
+<input type="hidden" name="answer_{{ q.id }}" data-ca-hidden="{{ q.id }}" />
+<p class="text-xs text-gray-500 mb-2">Use the small amber boxes to carry or borrow as you work, then write your answer in the blue boxes below the line.</p>
+<div class="font-mono text-2xl leading-none mb-2 inline-block" data-ca-wrap="{{ q.id }}">
+  <!-- Carry / borrow working row (scratch space, not marked) -->
+  <div class="flex">
+    <span class="w-10 inline-block"></span>
+    {% for c in ca.cols %}
+      <input type="text" maxlength="2" inputmode="numeric"
+             aria-label="carry or borrow column {{ c }}"
+             class="w-10 h-7 text-center bg-amber-50 border-2 border-amber-200 rounded text-amber-600 font-bold text-sm focus:border-primary focus:bg-white focus:outline-none" />
+    {% endfor %}
+  </div>
+  <!-- Operand rows (operator sign sits in the gutter on the last row) -->
+  {% for row in ca.rows %}
+  <div class="flex items-center mt-1">
+    <span class="w-10 inline-flex items-center justify-center font-bold text-gray-800">{% if forloop.last %}{{ ca.operator }}{% endif %}</span>
+    {% for d in row %}
+      <span class="w-10 h-10 inline-flex items-center justify-center font-bold text-gray-800">{{ d }}</span>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  <!-- Rule + answer row -->
+  <div class="flex border-t-2 border-gray-800 pt-1 mt-1">
+    <span class="w-10 inline-block"></span>
+    {% for c in ca.cols %}
+      <input type="text" maxlength="1" inputmode="numeric"
+             data-ca-answer="{{ q.id }}" aria-label="answer digit column {{ c }}"
+             class="w-10 h-10 text-center bg-blue-50 border-2 border-blue-200 rounded font-bold text-blue-700 focus:border-primary focus:bg-white focus:outline-none" />
+    {% endfor %}
+  </div>
+</div>
+<script>
+(function(){
+  const id = "{{ q.id }}";
+  const wrap = document.querySelector('[data-ca-wrap="' + id + '"]');
+  const h    = document.querySelector('[data-ca-hidden="' + id + '"]');
+  if (!wrap || !h) return;
+  const cells = wrap.querySelectorAll('[data-ca-answer="' + id + '"]');
+  function refresh(){
+    // Join answer digits left→right, drop leading zeros (e.g. "08" → "8").
+    // An all-blank submission stays empty (graded wrong) — it must NOT become "0".
+    h.value = [...cells].map(c => (c.value || '').trim()).join('').replace(/^0+(?=\d)/, '');
+  }
+  cells.forEach((el,i) => {
+    el.addEventListener('input', () => { refresh(); if (el.value && i < cells.length-1) cells[i+1].focus(); });
+    el.addEventListener('change', refresh);
+    el.addEventListener('blur', refresh);
+    el.addEventListener('keydown', e => { if (e.key === 'Backspace' && !el.value && i > 0) cells[i-1].focus(); });
+  });
+  const form = wrap.closest('form');
+  if (form) form.addEventListener('submit', refresh, true);
+})();
+</script>
+{% endwith %}
+
 {% else %}
-{% if q.question_type == 'column_operation' and q.column_inline %}
-<p class="font-mono text-2xl font-bold text-gray-800 mb-2">{{ q.column_inline }} =</p>
-{% endif %}
 <div class="flex flex-wrap items-center gap-2 mb-2">
   <button type="button" onclick="window.cwaInsertCaret('answer_{{ q.id }}')"
           class="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50">x<sup>2</sup></button>
