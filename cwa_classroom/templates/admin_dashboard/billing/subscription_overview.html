@@ -10,8 +10,17 @@
     <div>
       <h1 class="text-2xl font-display font-bold text-gray-900">Subscriptions Overview</h1>
       <p class="text-gray-500 mt-1">Live monitoring of student and institute subscriptions &middot; {{ today|date:"D, j M Y" }}</p>
+      <p class="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        Updated {{ now|date:"H:i:s" }} &middot; auto-refreshes every {{ refresh_seconds }}s
+        <span id="refresh-countdown" class="text-gray-300"></span>
+      </p>
     </div>
-    <span class="text-xs text-gray-400 bg-slate-100 rounded-full px-3 py-1">Earnings are <strong>estimates</strong> from active subscription prices</span>
+    {% if earnings_source == 'stripe' %}
+    <span class="text-xs text-emerald-700 bg-emerald-50 rounded-full px-3 py-1">Earnings = <strong>actual paid revenue</strong> from Stripe</span>
+    {% else %}
+    <span class="text-xs text-amber-700 bg-amber-50 rounded-full px-3 py-1">Earnings = <strong>estimate</strong> (Stripe unavailable)</span>
+    {% endif %}
   </div>
 
   <!-- Filter bar -->
@@ -60,7 +69,7 @@
       </div>
       <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
         <p class="text-3xl font-bold text-emerald-600">{{ students.active }}</p>
-        <p class="text-sm text-gray-500">Active</p>
+        <p class="text-sm text-gray-500">Active &middot; <span class="text-gray-700 font-medium">{{ students.paying }}</span> paying</p>
       </div>
       <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
         <p class="text-3xl font-bold text-gray-400">{{ students.inactive }}</p>
@@ -73,23 +82,7 @@
       {% include 'admin_dashboard/billing/_donut.html' with donut=students.donut title="Status breakdown" %}
 
       <!-- Today + earnings -->
-      <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-        <div class="flex gap-6 mb-5 pb-5 border-b border-slate-100">
-          <div>
-            <p class="text-2xl font-bold text-emerald-600">+{{ students.new_today }}</p>
-            <p class="text-xs text-gray-500">New today</p>
-          </div>
-          <div>
-            <p class="text-2xl font-bold text-rose-600">&minus;{{ students.lost_today }}</p>
-            <p class="text-xs text-gray-500">Lost today</p>
-          </div>
-        </div>
-        <dl class="space-y-2 text-sm">
-          <div class="flex justify-between"><dt class="text-gray-500">Last month (est.)</dt><dd class="font-semibold text-gray-900">${{ students.last_month_earnings }}</dd></div>
-          <div class="flex justify-between"><dt class="text-gray-500">This month (est.)</dt><dd class="font-semibold text-gray-900">${{ students.this_month_earnings }}</dd></div>
-          <div class="flex justify-between"><dt class="text-gray-500">Next month forecast</dt><dd class="font-semibold text-accent">${{ students.next_month_forecast }}</dd></div>
-        </dl>
-      </div>
+      {% include 'admin_dashboard/billing/_earnings.html' with panel=students source=earnings_source currency=earnings_currency %}
 
       <!-- By package -->
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -128,7 +121,7 @@
       </div>
       <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
         <p class="text-3xl font-bold text-emerald-600">{{ institutes.active }}</p>
-        <p class="text-sm text-gray-500">Active</p>
+        <p class="text-sm text-gray-500">Active &middot; <span class="text-gray-700 font-medium">{{ institutes.paying }}</span> paying</p>
       </div>
       <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
         <p class="text-3xl font-bold text-gray-400">{{ institutes.inactive }}</p>
@@ -141,23 +134,7 @@
       {% include 'admin_dashboard/billing/_donut.html' with donut=institutes.donut title="Status breakdown" %}
 
       <!-- Today + earnings -->
-      <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-        <div class="flex gap-6 mb-5 pb-5 border-b border-slate-100">
-          <div>
-            <p class="text-2xl font-bold text-emerald-600">+{{ institutes.new_today }}</p>
-            <p class="text-xs text-gray-500">New today</p>
-          </div>
-          <div>
-            <p class="text-2xl font-bold text-rose-600">&minus;{{ institutes.lost_today }}</p>
-            <p class="text-xs text-gray-500">Lost today</p>
-          </div>
-        </div>
-        <dl class="space-y-2 text-sm">
-          <div class="flex justify-between"><dt class="text-gray-500">Last month (est.)</dt><dd class="font-semibold text-gray-900">${{ institutes.last_month_earnings }}</dd></div>
-          <div class="flex justify-between"><dt class="text-gray-500">This month (est.)</dt><dd class="font-semibold text-gray-900">${{ institutes.this_month_earnings }}</dd></div>
-          <div class="flex justify-between"><dt class="text-gray-500">Next month forecast</dt><dd class="font-semibold text-accent">${{ institutes.next_month_forecast }}</dd></div>
-        </dl>
-      </div>
+      {% include 'admin_dashboard/billing/_earnings.html' with panel=institutes source=earnings_source currency=earnings_currency %}
 
       <!-- By type -->
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -201,12 +178,33 @@
 
   <!-- Combined -->
   <div class="bg-gradient-to-r from-accent/10 to-indigo-50 rounded-2xl p-6 border border-slate-200 flex items-center justify-between">
+    {% if earnings_source == 'stripe' %}
+    <div>
+      <p class="text-sm text-gray-600">Combined paid revenue this month (students + institutes)</p>
+      <p class="text-xs text-gray-400">Actual paid Stripe invoices for the current month</p>
+    </div>
+    <p class="text-3xl font-bold text-gray-900">${{ combined_this_month }}</p>
+    {% else %}
     <div>
       <p class="text-sm text-gray-600">Combined estimated monthly run-rate (students + institutes + add-ons)</p>
-      <p class="text-xs text-gray-400">Run-rate of currently active subscriptions, not actual cash collected</p>
+      <p class="text-xs text-gray-400">Stripe unavailable — discount-aware estimate, not actual cash collected</p>
     </div>
-    <p class="text-3xl font-bold text-gray-900">${{ total_estimated_mrr }}</p>
+    <p class="text-3xl font-bold text-gray-900">${{ combined_estimate }}</p>
+    {% endif %}
   </div>
 
 </div>
+
+<script>
+  (function () {
+    var seconds = {{ refresh_seconds }};
+    var el = document.getElementById('refresh-countdown');
+    var remaining = seconds;
+    setInterval(function () {
+      remaining -= 1;
+      if (el) { el.textContent = remaining > 0 ? '(' + remaining + 's)' : '(refreshing…)'; }
+      if (remaining <= 0) { window.location.reload(); }
+    }, 1000);
+  })();
+</script>
 {% endblock %}

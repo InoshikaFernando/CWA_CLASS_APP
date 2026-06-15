@@ -11,10 +11,10 @@ pytestmark = pytest.mark.django_db
 
 
 def test_estimate_cost_uses_default_rates():
-    # 1M input @ $3 + 1M output @ $15 = $18.
-    assert estimate_cost_usd(1_000_000, 1_000_000) == Decimal('18.00000')
-    # Half a million output only @ $15 = $7.50.
-    assert estimate_cost_usd(0, 500_000) == Decimal('7.50000')
+    # Opus 4.8 list pricing: 1M input @ $5 + 1M output @ $25 = $30.
+    assert estimate_cost_usd(1_000_000, 1_000_000) == Decimal('30.00000')
+    # Half a million output only @ $25 = $12.50.
+    assert estimate_cost_usd(0, 500_000) == Decimal('12.50000')
     assert estimate_cost_usd(0, 0) == Decimal('0.00000')
 
 
@@ -38,10 +38,10 @@ def test_record_ai_usage_creates_row_with_cost():
     assert log.input_tokens == 30_000
     assert log.output_tokens == 15_000
     assert log.total_tokens == 45_000
-    # 30k in @ $3/M + 15k out @ $15/M = 0.09 + 0.225 = 0.315
-    assert log.est_cost_usd == Decimal('0.31500')
-    # $0.315 / 13 pages.
-    assert log.cost_per_page_usd == Decimal('0.31500') / 13
+    # 30k in @ $5/M + 15k out @ $25/M = 0.15 + 0.375 = 0.525
+    assert log.est_cost_usd == Decimal('0.52500')
+    # $0.525 / 13 pages.
+    assert log.cost_per_page_usd == Decimal('0.52500') / 13
 
 
 def test_record_ai_usage_handles_missing_tokens():
@@ -89,7 +89,8 @@ def test_usage_report_command_runs():
 def test_usage_report_markdown_includes_cost_per_page():
     from io import StringIO
 
-    # worksheet: 20k in + 10k out = $0.06 + $0.15 = $0.21 over 10 pages -> $0.021/page
+    # worksheet: 20k in @ $5/M + 10k out @ $25/M = $0.10 + $0.25 = $0.35 over
+    # 10 pages -> $0.035/page (Opus 4.8 rates).
     record_ai_usage(
         school=None, source='worksheet', session_id=1, pages=10,
         usage={'input_tokens': 20_000, 'output_tokens': 10_000},
@@ -105,10 +106,10 @@ def test_usage_report_markdown_includes_cost_per_page():
     ) in md
     assert '| Worksheet |' in md
     assert '**Total**' in md
-    assert '$0.0210' in md          # $/page for the single source
-    assert '$2.10' in md            # 100-page projection ($0.021 * 100)
-    assert '$10.50' in md           # 500-page projection ($0.021 * 500)
-    assert '$21.00' in md           # 1000-page projection ($0.021 * 1000)
+    assert '$0.0350' in md          # $/page for the single source
+    assert '$3.50' in md            # 100-page projection ($0.035 * 100)
+    assert '$17.50' in md           # 500-page projection ($0.035 * 500)
+    assert '$35.00' in md           # 1000-page projection ($0.035 * 1000)
     assert 'AI Generation Usage' in md
 
 
