@@ -221,6 +221,15 @@ class Question(models.Model):
         from maths.algebra_grading import fold_exponents, fold_inequalities
 
         def _fold(value):
+            # Make word-form answers tolerant of hyphenation and the filler
+            # word "and" so a single stored answer matches every natural
+            # phrasing, e.g. "nine dollars fifty-three cents" ==
+            # "nine dollars and fifty three cents". Run before fold_exponents
+            # collapses whitespace so "and" is still a separable word.
+            # Only hyphens *between letters* fold to a space — a leading "-"
+            # on a negative number stays significant ("-5" must not match "5").
+            value = re.sub(r'(?<=[A-Za-z])-(?=[A-Za-z])', ' ', value)
+            value = re.sub(r'\band\b', ' ', value, flags=re.IGNORECASE)
             return fold_exponents(fold_inequalities(value))
 
         user = _fold(text_answer)
