@@ -991,3 +991,71 @@ class CPP300_ModelValidationTest(TestCase):
             invoice_limit_yearly=500, extra_invoice_rate=0.30,
         )
         plan.clean()  # Should not raise
+
+
+class AuditLoginLoggingTest(TestCase):
+    """
+    AuditLoginView must record enough detail (IP, username, remaining
+    attempts) to diagnose a shared-IP login lockout from the logs.
+
+    Background: login is rate-limited at 5 attempts / 15 min keyed on IP,
+    so a whole school behind one NAT can trip it collectively. These tests
+    lock in the observability added after that incident; they assert the
+    logging/audit detail, not the (unchanged) rate-limit behaviour.
+    """
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()  # isolate the per-IP rate-limit counter between tests
+        self.client = Client()
+        self.url = reverse('login')
+        self.user = CustomUser.objects.create_user(
+            'loguser', 'log@test.com', 'CorrectHorse9',
+        )
+
+    def test_failed_login_records_ip_and_remaining_attempts(self):
+        from audit.models import AuditLog
+        with self.assertLogs('accounts.views', level='WARNING') as cm:
+            resp = self.client.post(
+                self.url, {'username': 'loguser', 'password': 'wrong'},
+            )
+        self.assertEqual(resp.status_code, 200)  # form re-rendered, not a redirect
+        entry = AuditLog.objects.filter(action='login_failed').latest('created_at')
+        self.assertEqual(entry.detail.get('username'), 'loguser')
+        self.assertEqual(entry.detail.get('ip'), '127.0.0.1')
+        self.assertEqual(entry.detail.get('remaining_attempts'), 4)
+        self.assertTrue(
+            any('Login failed' in line and 'loguser' in line for line in cm.output),
+            cm.output,
+        )
+
+    def test_lockout_logs_warning_with_username(self):
+        from audit.models import AuditLog
+        for _ in range(5):  # exhaust the 5-attempt allowance
+            self.client.post(self.url, {'username': 'loguser', 'password': 'wrong'})
+        with self.assertLogs('accounts.views', level='WARNING') as cm:
+            resp = self.client.post(
+                self.url, {'username': 'loguser', 'password': 'wrong'},
+            )
+        self.assertEqual(resp.status_code, 200)
+        entry = AuditLog.objects.filter(action='login_rate_limited').latest('created_at')
+        self.assertEqual(entry.detail.get('username'), 'loguser')
+        self.assertEqual(entry.detail.get('ip'), '127.0.0.1')
+        self.assertTrue(
+            any('rate-limited' in line for line in cm.output), cm.output,
+        )
+
+    def test_successful_login_logs_info_and_clears_counter(self):
+        from billing.rate_limiting import get_remaining_attempts
+        self.client.post(self.url, {'username': 'loguser', 'password': 'wrong'})
+        self.assertEqual(get_remaining_attempts('login:127.0.0.1', 5), 4)
+        with self.assertLogs('accounts.views', level='INFO') as cm:
+            resp = self.client.post(
+                self.url, {'username': 'loguser', 'password': 'CorrectHorse9'},
+            )
+        self.assertEqual(resp.status_code, 302)  # success redirect
+        # Successful login resets the IP's counter.
+        self.assertEqual(get_remaining_attempts('login:127.0.0.1', 5), 5)
+        self.assertTrue(
+            any('Login success' in line for line in cm.output), cm.output,
+        )

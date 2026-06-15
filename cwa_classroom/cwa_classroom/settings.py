@@ -594,5 +594,8 @@ LOGGING = {
         'homework':   {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
         'billing':    {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
         'classroom':  {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+        # INFO so successful logins (which clear the rate-limit counter) are
+        # visible alongside the WARNING-level failures and lockouts.
+        'accounts':   {'handlers': _app_handlers, 'level': 'INFO', 'propagate': False},
     },
 }
