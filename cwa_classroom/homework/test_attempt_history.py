@@ -91,6 +91,36 @@ class HomeworkRetentionTest(AttemptHistoryBase):
         self.assertEqual(HomeworkStudentAnswer.objects.count(), ATTEMPT_HISTORY_LIMIT)
 
 
+class HomeworkAttemptCountVsPruneTest(AttemptHistoryBase):
+    def test_attempt_count_survives_pruning(self):
+        # 12 attempts taken; retention keeps 10 rows, but the *count of attempts
+        # taken* must still report 12 so the max_attempts cap keeps working.
+        for n in range(1, 13):
+            self._make_submission(n)
+        HomeworkSubmission.prune_old_attempts(self.homework, self.student)
+        self.assertEqual(
+            HomeworkSubmission.objects.filter(
+                homework=self.homework, student=self.student).count(),
+            ATTEMPT_HISTORY_LIMIT,
+        )
+        self.assertEqual(
+            HomeworkSubmission.get_attempt_count(self.homework, self.student), 12,
+        )
+
+    def test_max_attempts_above_retention_limit_still_caps(self):
+        # A teacher sets max_attempts higher than the 10-row retention limit.
+        self.homework.max_attempts = 12
+        self.homework.save(update_fields=['max_attempts'])
+        for n in range(1, 13):
+            self._make_submission(n)
+        HomeworkSubmission.prune_old_attempts(self.homework, self.student)
+        count = HomeworkSubmission.get_attempt_count(self.homework, self.student)
+        # Cap reached → no further attempt allowed (mirrors the view's gate).
+        self.assertFalse(
+            self.homework.attempts_unlimited or count < self.homework.max_attempts
+        )
+
+
 class HomeworkHistoryViewAccessTest(AttemptHistoryBase):
     def setUp(self):
         self.client = Client()
@@ -215,3 +245,35 @@ class QuizReviewViewTest(AttemptHistoryBase):
         self.client.force_login(self.student)
         r = self.client.get(reverse('quiz_attempt_history'))
         self.assertEqual(r.status_code, 200)
+        self.assertContains(r, self.topic.name)
+
+    def test_teacher_sees_student_quiz_history(self):
+        self.client.force_login(self.teacher)
+        r = self.client.get(reverse('quiz_student_attempt_history', args=[self.student.id]))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, self.topic.name)
+
+    def test_parent_sees_child_quiz_history(self):
+        self.client.force_login(self.parent)
+        r = self.client.get(reverse('quiz_student_attempt_history', args=[self.student.id]))
+        self.assertEqual(r.status_code, 200)
+
+    def test_outsider_blocked_from_quiz_history(self):
+        self.client.force_login(self.outsider)
+        r = self.client.get(reverse('quiz_student_attempt_history', args=[self.student.id]))
+        self.assertEqual(r.status_code, 404)
+
+    def test_history_hides_review_link_when_no_questions_data(self):
+        # setUp already created one attempt WITH questions_data (reviewable).
+        # An extra attempt with empty questions_data must not be clickable, so
+        # the page should hold exactly one review link.
+        StudentFinalAnswer.objects.create(
+            student=self.student, topic=self.topic, level=self.level,
+            quiz_type=StudentFinalAnswer.QUIZ_TYPE_TOPIC,
+            score=0, total_questions=2, attempt_number=2, questions_data=[],
+        )
+        self.client.force_login(self.student)
+        r = self.client.get(reverse('quiz_attempt_history'))
+        self.assertEqual(r.status_code, 200)
+        review_url = reverse('quiz_attempt_review', args=['sfa', self.sfa.id])
+        self.assertContains(r, review_url, count=1)

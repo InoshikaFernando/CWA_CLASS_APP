@@ -934,13 +934,18 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         if is_correct:
             session_data['correct'] += 1
         session_data['current'] = current + 1
-        session_data.setdefault('review', []).append({
-            'id': q.id,
-            'question': q.question_text,
-            'student_answer': student_answer_text,
-            'correct_answer': correct_answer_text,
-            'is_correct': is_correct,
-        })
+        # Record this question for later review, but guard against a replayed or
+        # double-clicked POST re-recording a question already answered — that
+        # would duplicate rows in the saved questions_data.
+        review = session_data.setdefault('review', [])
+        if not any(r.get('id') == q.id for r in review):
+            review.append({
+                'id': q.id,
+                'question': q.question_text,
+                'student_answer': student_answer_text,
+                'correct_answer': correct_answer_text,
+                'is_correct': is_correct,
+            })
         request.session[session_key] = session_data
 
         # Save individual answer

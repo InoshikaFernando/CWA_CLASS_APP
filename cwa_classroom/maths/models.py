@@ -867,6 +867,9 @@ class StudentFinalAnswer(models.Model):
             'quiz_type': instance.quiz_type,
             'table_number': instance.table_number,
             'operation': instance.operation,
+            # Shuffled vs ordered times-tables are tracked as distinct series
+            # for best/record purposes, so keep their histories separate too.
+            'shuffled': instance.shuffled,
         }
 
     @classmethod
