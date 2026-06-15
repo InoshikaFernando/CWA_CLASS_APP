@@ -4390,6 +4390,56 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
         return redirect('class_detail', class_id=class_id)
 
 
+class UpdateStudentBillingStartView(RoleRequiredMixin, View):
+    """Inline update of a student's per-class billing start date (CPP-342).
+
+    Records the date from which the student is billable for this class so
+    invoicing skips sessions before it. Editable by HoI / Accountant only.
+    Empty value clears it (NULL = bill the full requested period).
+    """
+    required_roles = [
+        Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
+        Role.ADMIN,
+        Role.ACCOUNTANT,
+    ]
+
+    def post(self, request, class_id, student_id):
+        user = request.user
+        # Permission: HoI / Owner / Admin / Accountant only.
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ACCOUNTANT):
+            classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
+        else:
+            raise Http404
+
+        cs = get_object_or_404(ClassStudent, classroom=classroom, student_id=student_id)
+        old_value = cs.billing_start_date  # captured for action-history
+        date_str = request.POST.get('billing_start_date', '').strip()
+        if date_str:
+            try:
+                cs.billing_start_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                messages.error(request, 'Invalid date. Use the date picker (YYYY-MM-DD).')
+                return redirect('class_detail', class_id=class_id)
+        else:
+            cs.billing_start_date = None  # NULL = bill the full requested period
+        cs.save(update_fields=['billing_start_date'])
+        log_event(
+            user=request.user, school=classroom.school, category='data_change',
+            action='student_billing_start_updated',
+            detail={'class_id': classroom.id, 'student_id': student_id,
+                    'class_student_id': cs.id,
+                    'old_billing_start_date': None if old_value is None else old_value.isoformat(),
+                    'billing_start_date': None if cs.billing_start_date is None else cs.billing_start_date.isoformat()},
+            request=request,
+        )
+        if cs.billing_start_date is None:
+            messages.success(request, 'Billing start date cleared — the full period will be billed.')
+        else:
+            messages.success(request, f'Billing start date set to {cs.billing_start_date.isoformat()}.')
+        return redirect('class_detail', class_id=class_id)
+
+
 class ClassStudentRemoveView(RoleRequiredMixin, View):
     """Soft-remove a student from a class (deactivate, preserve attendance and invoice history)."""
     required_roles = [
