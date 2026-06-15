@@ -187,19 +187,24 @@ def test_dashboard_update_noop_when_unconfigured(settings, monkeypatch):
     assert called == []
 
 
-def test_dashboard_update_patches_issue_when_configured(settings, monkeypatch):
+def test_dashboard_update_patches_own_section_only(settings, monkeypatch):
+    """The env writes its own section and preserves the others."""
     from taskqueue import dashboard
 
     settings.AI_DASHBOARD_GITHUB_TOKEN = 'tok'
     settings.AI_DASHBOARD_GITHUB_REPO = 'owner/repo'
-    settings.AI_DASHBOARD_ISSUE_NUMBER = ''        # force label lookup
-    settings.AI_DASHBOARD_ISSUE_LABEL = 'ai-usage-dashboard'
+    settings.AI_DASHBOARD_ISSUE_NUMBER = '378'      # skip label lookup
+    settings.AI_DASHBOARD_ENV = 'Production'
 
-    # Mock the network up front — record_ai_usage now triggers a refresh itself.
+    # The issue already has a Test section that must survive the prod update.
+    existing = (
+        '# 🤖 AI Generation Usage\n\n'
+        '<!-- AIDASH:Test:START -->\n## 🧪 Test\n(test data)\n<!-- AIDASH:Test:END -->\n'
+    )
     seen = {}
     monkeypatch.setattr(
         dashboard.requests, 'get',
-        lambda url, **k: _FakeResp(payload=[{'number': 378}]),
+        lambda url, **k: _FakeResp(payload={'body': existing}),
     )
 
     def fake_patch(url, **kwargs):
@@ -215,8 +220,14 @@ def test_dashboard_update_patches_issue_when_configured(settings, monkeypatch):
 
     assert dashboard.update_dashboard_issue() is True
     assert seen['url'].endswith('/repos/owner/repo/issues/378')
-    assert 'AI Generation Usage' in seen['body']
-    assert '| Homework PDF |' in seen['body']
+    body = seen['body']
+    # Production section added (heading + markers + data)…
+    assert '<!-- AIDASH:Production:START -->' in body
+    assert '## 🏭 Production' in body
+    assert '| Homework PDF |' in body
+    # …and the pre-existing Test section preserved.
+    assert '<!-- AIDASH:Test:START -->' in body
+    assert '## 🧪 Test' in body
 
 
 def test_dashboard_update_never_raises_on_http_error(settings, monkeypatch):
@@ -244,3 +255,53 @@ def test_record_ai_usage_triggers_dashboard_refresh(monkeypatch):
         usage={'input_tokens': 1_000, 'output_tokens': 500},
     )
     assert calls == [1]
+
+
+# --- per-environment section merge ------------------------------------------
+
+def test_merge_section_replaces_only_its_block():
+    from taskqueue.dashboard import _merge_section
+
+    body = (
+        '# 🤖 AI Generation Usage\n\n'
+        '<!-- AIDASH:Production:START -->\n## 🏭 Production\nOLD PROD\n<!-- AIDASH:Production:END -->\n\n'
+        '<!-- AIDASH:Test:START -->\n## 🧪 Test\nTEST\n<!-- AIDASH:Test:END -->\n'
+    )
+    out = _merge_section(body, 'Production', '## 🏭 Production\nNEW PROD')
+
+    assert 'NEW PROD' in out
+    assert 'OLD PROD' not in out
+    assert 'TEST' in out                                             # other env untouched
+    assert out.count('<!-- AIDASH:Production:START -->') == 1        # no duplication
+
+
+def test_merge_section_appends_new_env():
+    from taskqueue.dashboard import _merge_section
+
+    body = (
+        '# 🤖 AI Generation Usage\n\n'
+        '<!-- AIDASH:Production:START -->\n## 🏭 Production\nPROD\n<!-- AIDASH:Production:END -->\n'
+    )
+    out = _merge_section(body, 'Test', '## 🧪 Test\nTEST')
+
+    assert '<!-- AIDASH:Production:START -->' in out                 # preserved
+    assert '<!-- AIDASH:Test:START -->' in out                       # added
+    assert 'TEST' in out
+
+
+def test_merge_section_fresh_issue_gets_title():
+    from taskqueue.dashboard import _merge_section
+
+    out = _merge_section('', 'Production', '## 🏭 Production\nPROD')
+
+    assert out.startswith('# 🤖 AI Generation Usage')
+    assert '<!-- AIDASH:Production:START -->' in out
+
+
+def test_section_heading_adds_env_emoji():
+    from taskqueue.dashboard import _section_heading
+
+    assert _section_heading('Production') == '🏭 Production'
+    assert _section_heading('Test') == '🧪 Test'
+    assert _section_heading('Others') == '🗂️ Others'
+    assert _section_heading('Staging').endswith('Staging')           # unknown → generic icon

@@ -21,7 +21,9 @@ from .models import (
     SchoolSubscription, ModuleSubscription, PromoCode,
     DiscountCode, Package, Subscription, DURATION_CHOICES,
 )
-from .reporting import get_paid_revenue, StripeUnavailable
+from .reporting import (
+    get_paid_revenue, get_subscription_counts, StripeUnavailable,
+)
 from audit.services import log_event
 
 logger = logging.getLogger(__name__)
@@ -145,6 +147,18 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         except StripeUnavailable:
             earnings_source = 'estimate'
 
+        # --- counts: live subscription counts from Stripe (source of truth) --
+        # Stripe knows every paying subscription (incl. school students) and
+        # applies the real status; the local DB can drift, so when Stripe is
+        # reachable its counts drive the headline tiles.
+        counts_source = 'stripe'
+        try:
+            sc = get_subscription_counts()
+            students['stripe'] = sc['student']
+            institutes['stripe'] = sc['institute']
+        except StripeUnavailable:
+            counts_source = 'local'
+
         # Filter option lists
         countries = sorted({
             c for c in (
@@ -165,6 +179,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             'institutes': institutes,
             'earnings_source': earnings_source,
             'earnings_currency': earnings_currency,
+            'counts_source': counts_source,
             'combined_this_month': (
                 students.get('this_month', self.ZERO)
                 + institutes.get('this_month', self.ZERO)

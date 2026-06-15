@@ -88,14 +88,19 @@ def aggregate_grading(days=None):
     }
 
 
-def render_markdown(rows, tot, window, *, generated_at=None, grading=None):
-    """Render the GitHub-flavoured dashboard (page-based generation + grading)."""
+def render_markdown(rows, tot, window, *, generated_at=None, grading=None, env_label=None):
+    """Render the GitHub-flavoured dashboard (page-based generation + grading).
+
+    ``env_label`` sets the heading — when given (e.g. "🏭 Production") this block
+    is one environment's section of a shared issue; otherwise it's a standalone
+    dashboard.
+    """
     in_rate = getattr(settings, 'CLAUDE_INPUT_COST_PER_MTOK', 3.0)
     out_rate = getattr(settings, 'CLAUDE_OUTPUT_COST_PER_MTOK', 15.0)
     now = (generated_at or timezone.now()).strftime('%Y-%m-%dT%H:%M:%SZ')
 
     lines = [
-        '## 🤖 AI Generation Usage',
+        f'## {env_label}' if env_label else '## 🤖 AI Generation Usage',
         '',
         f'_Auto-updated after each AI call • last update `{now}`_',
         f'_Window: **{window}** • cost estimated at ${in_rate}/Mtok in, ${out_rate}/Mtok out_',
@@ -156,7 +161,7 @@ def render_markdown(rows, tot, window, *, generated_at=None, grading=None):
     return '\n'.join(lines)
 
 
-def build_usage_markdown(days=None, generated_at=None):
+def build_usage_markdown(days=None, generated_at=None, env_label=None):
     """Aggregate both ledgers over the last ``days`` and render the dashboard."""
     qs = AIUsageLog.objects.all()
     if days:
@@ -165,7 +170,43 @@ def build_usage_markdown(days=None, generated_at=None):
     rows, tot = aggregate_usage(qs)
     window = f'last {days} days' if days else 'all time'
     grading = aggregate_grading(days)
-    return render_markdown(rows, tot, window, generated_at=generated_at, grading=grading)
+    return render_markdown(rows, tot, window, generated_at=generated_at,
+                           grading=grading, env_label=env_label)
+
+
+# --- per-environment sections -------------------------------------------------
+# Prod / test / dev all publish to ONE issue; each owns a named section so they
+# never clobber each other. The section key (the env name) drives both the
+# HTML-comment markers and the heading.
+
+_ENV_EMOJI = {'production': '🏭', 'prod': '🏭', 'test': '🧪',
+              'others': '🗂️', 'other': '🗂️', 'dev': '🛠️', 'development': '🛠️'}
+
+
+def _section_heading(env):
+    """'Production' → '🏭 Production' (falls back to a generic icon)."""
+    return f'{_ENV_EMOJI.get(env.lower(), "📊")} {env}'
+
+
+def _merge_section(existing_body, env, section_md):
+    """Replace this env's marked block in ``existing_body`` (append if absent)."""
+    import re
+    start = f'<!-- AIDASH:{env}:START -->'
+    end = f'<!-- AIDASH:{env}:END -->'
+    block = f'{start}\n{section_md}\n{end}'
+    existing_body = existing_body or ''
+    if start in existing_body and end in existing_body:
+        pattern = re.escape(start) + r'.*?' + re.escape(end)
+        return re.sub(pattern, lambda _m: block, existing_body, flags=re.DOTALL)
+
+    title = '# 🤖 AI Generation Usage'
+    if title in existing_body:
+        return existing_body.rstrip() + '\n\n' + block + '\n'
+    intro = (
+        f'{title}\n\n_Per-environment AI usage & cost — each section is rewritten '
+        "automatically by its own environment. Don't edit by hand._\n\n"
+    )
+    return intro + block + '\n'
 
 
 def _resolve_issue_number(repo, headers):
@@ -205,6 +246,11 @@ def update_dashboard_issue(days=None):
         'Accept': 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
     }
+    # This environment owns one named section (default "Others"). It reads the
+    # current issue, swaps in only its block, and writes back — so prod / test /
+    # dev share one issue without overwriting each other.
+    env = (getattr(settings, 'AI_DASHBOARD_ENV', '') or '').strip() or 'Others'
+
     try:
         number = _resolve_issue_number(repo, headers)
         if not number:
@@ -213,14 +259,22 @@ def update_dashboard_issue(days=None):
                 getattr(settings, 'AI_DASHBOARD_ISSUE_LABEL', 'ai-usage-dashboard'), repo,
             )
             return False
-        body = build_usage_markdown(days=days)
+
+        issue_url = f'{_GITHUB_API}/repos/{repo}/issues/{number}'
+        cur = requests.get(issue_url, headers=headers, timeout=_HTTP_TIMEOUT)
+        cur.raise_for_status()
+        existing_body = cur.json().get('body') or ''
+
+        section = build_usage_markdown(days=days, env_label=_section_heading(env))
+        body = _merge_section(existing_body, env, section)
+
         resp = requests.patch(
-            f'{_GITHUB_API}/repos/{repo}/issues/{number}',
-            json={'body': body},
+            issue_url, json={'body': body},
             headers=headers, timeout=_HTTP_TIMEOUT,
         )
         resp.raise_for_status()
-        logger.info('AI dashboard: refreshed issue #%s in %s', number, repo)
+        logger.info('AI dashboard: refreshed %r section of issue #%s in %s',
+                    env, number, repo)
         return True
     except Exception:
         logger.exception('AI dashboard: live refresh failed (non-fatal)')
