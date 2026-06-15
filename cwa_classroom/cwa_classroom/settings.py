@@ -25,7 +25,7 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.7.1'          # MAJOR.MINOR.PATCH
+APP_VERSION       = '1.7.2'          # MAJOR.MINOR.PATCH
 APP_VERSION_DATE  = '2026-06-15'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
@@ -123,6 +123,15 @@ CLAUDE_INPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_INPUT_COST_PER_MTOK', '5.0'))
 CLAUDE_OUTPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '25.0'))
+
+# Live AI usage dashboard — after each AI call the worker rewrites a pinned
+# GitHub issue with the latest usage/cost. Best-effort: stays disabled (no-op)
+# until a token + repo are configured, so dev/test/local never call out.
+AI_DASHBOARD_GITHUB_TOKEN = os.environ.get('AI_DASHBOARD_GITHUB_TOKEN', '')
+AI_DASHBOARD_GITHUB_REPO = os.environ.get('AI_DASHBOARD_GITHUB_REPO', '')
+AI_DASHBOARD_ISSUE_LABEL = os.environ.get('AI_DASHBOARD_ISSUE_LABEL', 'ai-usage-dashboard')
+AI_DASHBOARD_ISSUE_NUMBER = os.environ.get('AI_DASHBOARD_ISSUE_NUMBER', '')
+AI_USAGE_WINDOW_DAYS = int(os.environ.get('AI_USAGE_WINDOW_DAYS', '30'))
 
 # ---------------------------------------------------------------------------
 # Redis / RQ  (background task processing)

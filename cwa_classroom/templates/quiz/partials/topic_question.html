@@ -288,6 +288,30 @@
       Submit Order
     </button>
 
+  {% elif question.question_type == 'measure' %}
+    {% comment %}
+    Measure: figure with a draggable/rotatable protractor (degrees) or ruler
+    (length) overlaid — a visual aid. The student reads it and types the value;
+    submitTextAnswer posts text_answer, graded by grade_measure server-side.
+    {% endcomment %}
+    {% include "maths/partials/_measure_tool.html" with q=question %}
+    <div class="flex items-center gap-2">
+      {% comment %} Enter-to-submit is wired by a delegated listener in
+      base_quiz/topic_quiz (data-* below), so it survives the innerHTML question
+      swap — an inline <script> here would not re-run on questions 2+. {% endcomment %}
+      <input type="text" id="text-answer-input" inputmode="decimal" autocomplete="off" autofocus
+             data-session-id="{{ session_id }}" data-question-id="{{ question.id }}"
+             placeholder="Measure…" aria-label="Measured value"
+             class="w-32 rounded-xl border-2 border-gray-200 px-4 py-3 text-lg font-bold
+                    focus:outline-none focus:border-primary transition" />
+      {% if question.answer_unit %}<span class="text-gray-700 font-semibold" aria-hidden="true">{{ question.answer_unit }}</span>{% endif %}
+      <button type="button"
+              class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+              onclick="submitTextAnswer('{{ session_id }}', {{ question.id }})">
+        Submit
+      </button>
+    </div>
+
   {% else %}
     <!-- Short answer / calculation -->
     <div class="flex flex-wrap items-center gap-2 mb-2">
