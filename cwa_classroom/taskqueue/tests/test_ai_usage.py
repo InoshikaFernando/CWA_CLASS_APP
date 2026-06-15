@@ -119,7 +119,42 @@ def test_usage_report_markdown_handles_no_data():
     call_command('ai_usage_report', '--days', '1', '--format', 'markdown', stdout=out)
     md = out.getvalue()
     assert 'no usage recorded' in md
-    assert '**Total**' in md
+    assert 'Total AI cost' in md
+
+
+def test_aggregate_grading_zero_when_empty():
+    from taskqueue.dashboard import aggregate_grading
+
+    g = aggregate_grading(days=30)
+    assert g is not None
+    assert g['answers'] == 0
+    assert g['cost'] == Decimal('0')
+
+
+def test_markdown_has_grading_section_and_grand_total():
+    """Generation + grading render as separate tables with a combined total."""
+    from taskqueue.dashboard import render_markdown
+
+    rows = [{
+        'source': 'homework', 'label': 'Homework PDF', 'pages': 10,
+        'input_tokens': 1_000, 'output_tokens': 500,
+        'cost': Decimal('0.21'), 'per_page': Decimal('0.021'),
+    }]
+    tot = {
+        'pages': 10, 'input_tokens': 1_000, 'output_tokens': 500,
+        'cost': Decimal('0.21'), 'per_page': Decimal('0.021'),
+    }
+    grading = {
+        'answers': 50, 'tokens': 20_000,
+        'cost': Decimal('1.50'), 'per_answer': Decimal('0.03'),
+    }
+    md = render_markdown(rows, tot, 'last 30 days', grading=grading)
+
+    assert '### Generation & classification (per page)' in md
+    assert '### AI grading (per answer)' in md
+    assert '| 50 | 20,000 | $1.5000 | $0.0300 |' in md
+    # Grand total sums both ledgers: 0.21 + 1.50 = 1.71.
+    assert 'Total AI cost — **$1.7100**' in md
 
 
 # --- live GitHub dashboard refresh ------------------------------------------

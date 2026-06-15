@@ -10,7 +10,7 @@ sanity-check real cost against what we charge.
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from taskqueue.dashboard import aggregate_usage, render_markdown
+from taskqueue.dashboard import aggregate_usage, build_usage_markdown
 from taskqueue.models import AIUsageLog
 
 
@@ -28,19 +28,21 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        qs = AIUsageLog.objects.all()
         days = options['days']
+
+        if options['format'] == 'markdown':
+            # Delegate to the shared builder so the CLI and the published
+            # dashboard render identically (generation table + grading + total).
+            self.stdout.write(build_usage_markdown(days=days))
+            return
+
+        qs = AIUsageLog.objects.all()
         if days:
             since = timezone.now() - timezone.timedelta(days=days)
             qs = qs.filter(created_at__gte=since)
-
         rows, tot = aggregate_usage(qs)
         window = f'last {days} days' if days else 'all time'
-
-        if options['format'] == 'markdown':
-            self.stdout.write(render_markdown(rows, tot, window))
-        else:
-            self._render_table(rows, tot, window)
+        self._render_table(rows, tot, window)
 
     def _render_table(self, rows, tot, window):
         self.stdout.write(f'AI usage — {window}')
