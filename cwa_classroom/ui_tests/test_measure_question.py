@@ -113,3 +113,22 @@ class TestMeasureQuestionTake:
         ).first()
         ans = HomeworkStudentAnswer.objects.get(submission=sub, question=measure_question)
         assert ans.is_correct is False
+
+    @pytest.mark.django_db(transaction=True)
+    def test_interactive_protractor_overlay_mounts(
+        self, page: Page, live_server, enrolled_student, measure_homework_ready, measure_question
+    ):
+        """measure_tool.js overlays a draggable/rotatable protractor on a
+        degree-unit measure figure (the on-screen measuring instrument)."""
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/homework/{measure_homework_ready.pk}/take/")
+        page.wait_for_load_state("networkidle")
+
+        # Degree unit → protractor stage; the script mounts the instrument SVG.
+        stage = page.locator(".measure-stage[data-measure-tool='protractor']")
+        expect(stage).to_be_visible()
+        expect(stage.locator(".measure-instrument svg")).to_be_visible()
+        # The rotate knob (for swinging the protractor) is present exactly once.
+        expect(stage.locator("[data-role='rotate']")).to_have_count(1)
+        # The figure to measure is still rendered, inside the same stage.
+        expect(stage.locator(".measure-figure svg")).to_be_visible()
