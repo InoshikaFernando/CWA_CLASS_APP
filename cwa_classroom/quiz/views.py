@@ -183,6 +183,9 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
                 questions_data=results,
             )
 
+        # Keep only the most recent attempts for this subtopic/level.
+        BasicFactsResult.prune_old_attempts(result)
+
         log_event(
             user=request.user,
             school=_get_student_school(request.user),
@@ -483,7 +486,11 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
             points=points,
             time_taken_seconds=time_taken,
             shuffled=shuffled,
+            questions_data=questions,
         )
+
+        # Keep only the most recent attempts for this table/operation.
+        StudentFinalAnswer.prune_old_attempts(sfa)
 
         log_event(
             user=request.user,
@@ -690,6 +697,7 @@ class MixedQuizView(LoginRequiredMixin, View):
         correct_count = 0
         topic_results = {}  # {topic_name: {'correct': 0, 'total': 0}}
         answer_records = []
+        review_data = []  # per-question review payload for later viewing
 
         for q in questions:
             topic_name = q.topic.name
@@ -698,18 +706,22 @@ class MixedQuizView(LoginRequiredMixin, View):
             topic_results[topic_name]['total'] += 1
 
             is_correct = False
+            student_answer = ''
             if q.question_type in ('multiple_choice', 'true_false'):
                 answer_id = request.POST.get(f'answer_{q.id}')
                 if answer_id:
                     answer = Answer.objects.filter(id=answer_id, question=q).first()
                     is_correct = bool(answer and answer.is_correct)
+                    student_answer = answer.answer_text if answer else ''
             elif q.answer_format == 'algebra':
                 raw = request.POST.get(f'text_{q.id}', '').strip()
                 is_correct = q.grade_text_answer(raw)
+                student_answer = raw
             else:
                 from quiz.basic_facts import check_answer as _ca
                 from maths.algebra_grading import fold_exponents, fold_inequalities
                 raw = request.POST.get(f'text_{q.id}', '').strip()
+                student_answer = raw
                 correct_ans = q.answers.filter(is_correct=True).first()
                 if correct_ans:
                     # Match grade_text_answer: exponent- and inequality-insensitive.
@@ -720,6 +732,16 @@ class MixedQuizView(LoginRequiredMixin, View):
             if is_correct:
                 correct_count += 1
                 topic_results[topic_name]['correct'] += 1
+
+            correct_ans = q.answers.filter(is_correct=True).first()
+            review_data.append({
+                'id': q.id,
+                'question': q.question_text,
+                'topic': topic_name,
+                'student_answer': student_answer,
+                'correct_answer': correct_ans.answer_text if correct_ans else '',
+                'is_correct': is_correct,
+            })
 
             answer_records.append(StudentAnswer(
                 student=request.user,
@@ -744,7 +766,9 @@ class MixedQuizView(LoginRequiredMixin, View):
                 points=points,
                 time_taken_seconds=time_taken,
                 attempt_number=attempt_num,
+                questions_data=review_data,
             )
+            StudentFinalAnswer.prune_old_attempts(result)
 
         log_event(
             user=request.user,
@@ -894,10 +918,29 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                         pass
                 correct_answer_text = alts_raw[0]
 
+        # Capture the student's submitted answer (as text) for later review.
+        if q.question_type in ('multiple_choice', 'true_false'):
+            _sel = Answer.objects.filter(id=data.get('answer_id'), question=q).first()
+            student_answer_text = _sel.answer_text if _sel else ''
+        elif q.question_type == 'drag_drop':
+            _texts = dict(q.answers.values_list('id', 'answer_text'))
+            student_answer_text = ' -> '.join(
+                str(_texts.get(int(i), i)) for i in data.get('ordered_answer_ids', [])
+            )
+        else:
+            student_answer_text = data.get('text_answer', '').strip()
+
         # Update session
         if is_correct:
             session_data['correct'] += 1
         session_data['current'] = current + 1
+        session_data.setdefault('review', []).append({
+            'id': q.id,
+            'question': q.question_text,
+            'student_answer': student_answer_text,
+            'correct_answer': correct_answer_text,
+            'is_correct': is_correct,
+        })
         request.session[session_key] = session_data
 
         # Save individual answer
@@ -935,7 +978,9 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                 points=points,
                 time_taken_seconds=time_taken,
                 attempt_number=attempt_num,
+                questions_data=session_data.get('review', []),
             )
+            StudentFinalAnswer.prune_old_attempts(result)
             log_event(
                 user=request.user,
                 school=_get_student_school(request.user),
@@ -1007,6 +1052,180 @@ class TopicNextQuestionView(LoginRequiredMixin, View):
             'question_number': current + 1,
             'total_questions': len(questions),
             'session_id': session_id,
+        })
+
+
+# ── Attempt history (student / teacher / parent) ─────────────────────────────
+
+def _can_view_student_quiz(user, student):
+    """Whether *user* may view *student*'s saved quiz attempts.
+
+    Allowed for the student themselves, a teacher who has the student in one of
+    their classes, and a parent with an active link to the student.
+    """
+    if user.is_superuser or user.pk == student.pk:
+        return True
+    from classroom.models import ClassStudent, ParentStudent
+    from homework.views import _teacher_classrooms
+    if ClassStudent.objects.filter(
+        classroom__in=_teacher_classrooms(user), student=student, is_active=True,
+    ).exists():
+        return True
+    return ParentStudent.objects.filter(
+        parent=user, student=student, is_active=True,
+    ).exists()
+
+
+def _normalize_quiz_review(items):
+    """Flatten any of the saved ``questions_data`` shapes into a common form.
+
+    Topic/mixed quizzes already store ``correct_answer``; times-tables store the
+    answer under ``answer``; basic-facts under ``display_answer``/``answer``.
+    """
+    out = []
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        correct = it.get('correct_answer')
+        if correct in (None, ''):
+            correct = it.get('display_answer', it.get('answer', ''))
+        out.append({
+            'question': it.get('question', ''),
+            'student_answer': it.get('student_answer', ''),
+            'correct_answer': correct,
+            'is_correct': bool(it.get('is_correct')),
+        })
+    return out
+
+
+def _sfa_label(sfa):
+    if sfa.quiz_type == sfa.QUIZ_TYPE_TIMES_TABLE:
+        op = (sfa.operation or 'multiplication').title()
+        return f'{op} — {sfa.table_number} times table'
+    if sfa.quiz_type == sfa.QUIZ_TYPE_MIXED:
+        return f'Mixed quiz — {sfa.level}' if sfa.level else 'Mixed quiz'
+    if sfa.topic:
+        return f'{sfa.topic.name} — {sfa.level}' if sfa.level else sfa.topic.name
+    return 'Quiz'
+
+
+def _collect_quiz_attempts(student):
+    """Recent quiz attempts for ``student`` across all quiz types, newest first.
+
+    Returns a list of light dicts the history template can render directly, each
+    carrying a ``review`` route (kind + pk) into :class:`QuizAttemptReviewView`.
+    """
+    from maths.models import StudentFinalAnswer, BasicFactsResult
+    from quiz.basic_facts import SUBTOPIC_LABELS
+
+    rows = []
+    sfas = (
+        StudentFinalAnswer.objects
+        .filter(student=student)
+        .select_related('topic', 'level')
+        .order_by('-completed_at')[:40]
+    )
+    for s in sfas:
+        rows.append({
+            'kind': 'sfa',
+            'pk': s.id,
+            'label': _sfa_label(s),
+            'quiz_type': s.get_quiz_type_display(),
+            'score': s.score,
+            'total': s.total_questions,
+            'percentage': s.percentage,
+            'points': float(s.points or 0),
+            'completed_at': s.completed_at,
+            'has_review': bool(s.questions_data),
+        })
+
+    bfs = (
+        BasicFactsResult.objects
+        .filter(student=student)
+        .order_by('-completed_at')[:40]
+    )
+    for b in bfs:
+        label = SUBTOPIC_LABELS.get(b.subtopic, b.subtopic or 'Basic Facts')
+        rows.append({
+            'kind': 'bf',
+            'pk': b.id,
+            'label': f'{label} — Level {b.level_number}',
+            'quiz_type': 'Basic Facts',
+            'score': b.score,
+            'total': b.total_questions,
+            'percentage': b.percentage,
+            'points': float(b.points or 0),
+            'completed_at': b.completed_at,
+            'has_review': bool(b.questions_data),
+        })
+
+    rows.sort(key=lambda r: r['completed_at'] or timezone.now(), reverse=True)
+    return rows
+
+
+class QuizAttemptHistoryView(LoginRequiredMixin, View):
+    """List a student's recent quiz attempts (kept to the last 10 per series)."""
+    template_name = 'quiz/attempt_history.html'
+
+    def get(self, request, student_id=None):
+        from django.http import Http404
+        from django.contrib.auth import get_user_model
+        if student_id is None:
+            student = request.user
+        else:
+            student = get_object_or_404(get_user_model(), pk=student_id)
+        if not _can_view_student_quiz(request.user, student):
+            raise Http404
+        return render(request, self.template_name, {
+            'student': student,
+            'attempts': _collect_quiz_attempts(student),
+            'viewing_other': student.pk != request.user.pk,
+        })
+
+
+class QuizAttemptReviewView(LoginRequiredMixin, View):
+    """Show the questions + answers for a single saved quiz attempt."""
+    template_name = 'quiz/attempt_review.html'
+
+    def get(self, request, kind, pk):
+        from django.http import Http404
+        from maths.models import StudentFinalAnswer, BasicFactsResult
+
+        if kind == 'sfa':
+            attempt = get_object_or_404(
+                StudentFinalAnswer.objects.select_related('topic', 'level', 'student'),
+                pk=pk,
+            )
+            label = _sfa_label(attempt)
+            quiz_type = attempt.get_quiz_type_display()
+        elif kind == 'bf':
+            attempt = get_object_or_404(
+                BasicFactsResult.objects.select_related('student'), pk=pk,
+            )
+            from quiz.basic_facts import SUBTOPIC_LABELS
+            label = (
+                f'{SUBTOPIC_LABELS.get(attempt.subtopic, attempt.subtopic)} '
+                f'— Level {attempt.level_number}'
+            )
+            quiz_type = 'Basic Facts'
+        else:
+            raise Http404
+
+        if not _can_view_student_quiz(request.user, attempt.student):
+            raise Http404
+
+        return render(request, self.template_name, {
+            'student': attempt.student,
+            'label': label,
+            'quiz_type': quiz_type,
+            'score': attempt.score,
+            'total': getattr(attempt, 'total_questions', None),
+            'percentage': attempt.percentage,
+            'points': float(attempt.points or 0),
+            'completed_at': attempt.completed_at,
+            'time_display': _fmt_time(attempt.time_taken_seconds),
+            'review': _normalize_quiz_review(attempt.questions_data),
+            'viewing_other': attempt.student_id != request.user.pk,
         })
 
 

@@ -298,6 +298,17 @@ class HomeworkSubmission(models.Model):
         result = cls.objects.filter(homework=homework, student=student).aggregate(max_att=Max('attempt_number'))
         return (result['max_att'] or 0) + 1
 
+    @classmethod
+    def prune_old_attempts(cls, homework, student):
+        """Keep only the most recent attempts for this student/homework.
+
+        Called after a new submission is saved so the stored history (and the
+        per-question answers that cascade from it) never grows past the shared
+        attempt limit.
+        """
+        from classroom.attempt_retention import prune_to_last_n
+        return prune_to_last_n(cls, {'homework': homework, 'student': student})
+
 
 class HomeworkStudentAnswer(models.Model):
     """A student's answer to one item in a homework submission.
