@@ -88,8 +88,8 @@ class ProcessWorksheetPdfTaskTests(WorksheetAsyncTestBase):
         self.assertEqual(log.pages, 13)
         self.assertEqual(log.input_tokens, 30_000)
         self.assertEqual(log.output_tokens, 15_000)
-        # 30k in @ $3/M + 15k out @ $15/M = 0.315
-        self.assertEqual(log.est_cost_usd, Decimal('0.31500'))
+        # 30k in @ $5/M + 15k out @ $25/M = 0.525 (Opus 4.8 rates)
+        self.assertEqual(log.est_cost_usd, Decimal('0.52500'))
 
     @patch('worksheets.tasks.extract_and_classify_worksheet', side_effect=RuntimeError('ocr boom'))
     def test_failure_marks_failed_and_reraises(self, _mock):
