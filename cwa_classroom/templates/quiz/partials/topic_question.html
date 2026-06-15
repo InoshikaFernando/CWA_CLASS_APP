@@ -1,7 +1,8 @@
 {% if error %}
   <div class="bg-red-50 rounded-2xl p-6 text-center text-red-600">{{ error }}</div>
 {% else %}
-<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" id="question-card">
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" id="question-card"
+     data-session-id="{{ session_id }}" data-question-id="{{ question.id }}">
 
   <!-- Question number badge -->
   <div class="flex items-center gap-2 mb-4">
@@ -105,28 +106,6 @@
       Submit
     </button>
 
-    <script>
-      function submitLongDivision(sessionId, questionId) {
-        const cells = [...document.querySelectorAll('[data-ld="quotient"]')];
-        const quotient = cells.map(c => c.value.trim() || '0').join('').replace(/^0+(?=\d)/, '') || '0';
-        const remainder = (document.querySelector('[data-ld="remainder"]').value.trim() || '0');
-        const answer = remainder === '0' ? quotient : quotient + ' r ' + remainder;
-        document.getElementById('text-answer-input').value = answer;
-        _submitAndAdvance(sessionId, {
-          session_id: sessionId, question_id: questionId, text_answer: answer,
-        });
-      }
-      // Auto-advance focus across quotient cells
-      document.querySelectorAll('[data-ld="quotient"]').forEach((el, i, arr) => {
-        el.addEventListener('input', e => {
-          if (el.value && i < arr.length - 1) arr[i+1].focus();
-        });
-        el.addEventListener('keydown', e => {
-          if (e.key === 'Backspace' && !el.value && i > 0) arr[i-1].focus();
-        });
-      });
-    </script>
-
   {% elif question.question_type == 'prime_factorization' %}
     <p class="text-sm text-gray-500 mb-4">Fill in each prime factor on the left and the resulting quotient on the right. Continue until you reach 1.</p>
 
@@ -169,36 +148,6 @@
             onclick="submitPrimeFactorization('{{ session_id }}', {{ question.id }})">
       Submit
     </button>
-
-    <script>
-      (function () {
-        const primes = [...document.querySelectorAll('[data-pf="prime"]')];
-        const quotients = [...document.querySelectorAll('[data-pf="quotient"]')];
-        const preview = document.getElementById('pf-preview');
-
-        function _refreshPreview() {
-          const vals = primes.map(el => el.value.trim()).filter(Boolean);
-          preview.value = vals.join('×');
-        }
-        primes.forEach(el => el.addEventListener('input', _refreshPreview));
-
-        // Tab navigation order: prime[0] → quotient[0] → prime[1] → quotient[1] → ...
-        let t = 1;
-        primes.forEach((p, i) => {
-          p.tabIndex = t++;
-          if (i < quotients.length) quotients[i].tabIndex = t++;
-        });
-
-        window.submitPrimeFactorization = function (sessionId, questionId) {
-          const vals = primes.map(el => el.value.trim()).filter(Boolean);
-          const answer = vals.join('x');
-          document.getElementById('text-answer-input').value = answer;
-          _submitAndAdvance(sessionId, {
-            session_id: sessionId, question_id: questionId, text_answer: answer,
-          });
-        };
-      })();
-    </script>
 
   {% elif question.question_type == 'column_operation' and question.column_arithmetic %}
     {% with ca=question.column_arithmetic %}
@@ -246,29 +195,6 @@
             onclick="submitColumnOperation('{{ session_id }}', {{ question.id }})">
       Submit
     </button>
-
-    <script>
-      function submitColumnOperation(sessionId, questionId) {
-        const cells = [...document.querySelectorAll('[data-ca="answer"]')];
-        // Join answer digits left→right, drop leading zeros (e.g. "08" → "8").
-        // An all-blank submission stays empty (graded wrong) — it must NOT become
-        // "0", or it would falsely match a zero-result question.
-        const answer = cells.map(c => c.value.trim()).join('').replace(/^0+(?=\d)/, '');
-        document.getElementById('text-answer-input').value = answer;
-        _submitAndAdvance(sessionId, {
-          session_id: sessionId, question_id: questionId, text_answer: answer,
-        });
-      }
-      // Auto-advance focus across answer cells
-      document.querySelectorAll('[data-ca="answer"]').forEach((el, i, arr) => {
-        el.addEventListener('input', e => {
-          if (el.value && i < arr.length - 1) arr[i+1].focus();
-        });
-        el.addEventListener('keydown', e => {
-          if (e.key === 'Backspace' && !el.value && i > 0) arr[i-1].focus();
-        });
-      });
-    </script>
     {% endwith %}
 
   {% elif question.question_type == 'drag_drop' %}
@@ -298,7 +224,7 @@
     <div class="flex items-center gap-2">
       {% comment %} Enter-to-submit is wired by a delegated listener in
       base_quiz/topic_quiz (data-* below), so it survives the innerHTML question
-      swap — an inline <script> here would not re-run on questions 2+. {% endcomment %}
+      swap — an inline script here would not re-run on questions 2+. {% endcomment %}
       <input type="text" id="text-answer-input" inputmode="decimal" autocomplete="off" autofocus
              data-session-id="{{ session_id }}" data-question-id="{{ question.id }}"
              placeholder="Measure…" aria-label="Measured value"
@@ -332,28 +258,18 @@
         Submit
       </button>
     </div>
-    <script>
-      document.getElementById('text-answer-input').addEventListener('keydown', e => {
-        if (e.key === 'Enter') submitTextAnswer('{{ session_id }}', {{ question.id }});
-      });
-      document.getElementById('exp-btn').addEventListener('click', function () {
-        const f = document.getElementById('text-answer-input');
-        const s = f.selectionStart, e = f.selectionEnd;
-        f.value = f.value.slice(0, s) + '^' + f.value.slice(e);
-        f.focus();
-        f.selectionStart = f.selectionEnd = s + 1;
-      });
-    </script>
   {% endif %}
 
 </div>
 {% endif %}
 
-<script>
-  // Disable answer buttons after click to prevent double-submit
-  document.querySelectorAll('.answer-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-      document.querySelectorAll('.answer-btn').forEach(b => b.disabled = true);
-    });
-  });
-</script>
+{% comment %}
+  No inline script blocks here on purpose (the word is spelled out, with no
+  angle brackets, so the "partial carries no inline script" test cannot be
+  fooled by this prose). Scripts injected via innerHTML — how _loadNext()
+  swaps in the next question — do NOT execute per the HTML spec, so any
+  per-partial wiring would be dead on every question after a swap. All submit
+  functions and post-swap wiring live in topic_quiz.html's persistent
+  extra_js block and are (re)bound by _initQuestion(), which runs once on
+  initial load and again at the end of every _loadNext().
+{% endcomment %}
