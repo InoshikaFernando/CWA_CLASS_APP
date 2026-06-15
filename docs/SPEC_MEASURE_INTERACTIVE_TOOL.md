@@ -31,6 +31,14 @@ grader (`maths.geometry_grading.grade_measure`, tolerance-based) is **unchanged*
 | Topic quiz grading | `quiz/views.py` `SubmitTopicAnswerView` | **new** `measure` grading branch → `grade_measure` |
 | Shared widget | `static/js/measure_tool.js`, `templates/maths/partials/_measure_tool.html` | new reusable, dependency-free SVG instrument |
 
+**Authoring:** the teacher question form (`teacher/question_form.html` +
+`classroom.views.AddQuestionView` / `EditQuestionView`) exposes the measure
+fields (`numeric_answer`, `answer_tolerance`, `answer_unit`) when the type is
+"Measure"; a JS toggle reveals the Measure settings and hides the (unused)
+Answer rows. The view validates that a measure question has a numeric value
+(Model.create() bypasses `clean()`), so a measure question can't be saved
+without one. Previously measure was authorable only via the Django admin.
+
 **Out of scope (intentionally):**
 
 - **Worksheet** (`templates/worksheets/detail.html`) — a print artifact whose
