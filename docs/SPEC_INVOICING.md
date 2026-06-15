@@ -912,12 +912,34 @@ Step 2: Preview & Confirm (saved as draft)
 
 ### 12.5 Invoice List Page
 
-- Table: Invoice #, Student, Period, Amount, Paid, Credit Applied, Due, Status
-- Filters: status, date range, department, student search
+- Table: Invoice #, Student, Period, Amount, Status, **Email**, Created, Actions
+- Filters: status, department, class, student search, **email send status**
 - Pagination: 25 per page
 - Click row → Invoice detail view
 - **Invoice Detail View:** line items, payment history, credit applications, "Record Payment" button, "Cancel Invoice" button (with reason dialog)
 - **Empty state:** "No invoices generated yet."
+
+#### 12.5.1 Email Send Status (CPP-343)
+
+The invoice list surfaces, per invoice, the outcome of the most recent attempt to
+email the invoice to its recipients (student / parents / guardians). This is
+**distinct** from the issued/draft/cancelled invoice status — it answers "did the
+email actually go out?".
+
+- **Source of truth:** `EmailLog` rows linked to the invoice (`EmailLog.invoice` FK),
+  written by `_send_invoice_email` and the `resend_invoice` action. Each send produces
+  one log per recipient with `status` ∈ {`sent`, `failed`} and an `error_message`.
+- **Derived per-invoice state** (aggregate over the latest activity):
+  - `failed` — the most recent failed log is newer than the most recent successful log
+    (or there are only failed logs). Needs attention; the failure reason is shown on hover.
+  - `sent` — at least one successful log and no later failure.
+  - `none` — no email logs yet. Rendered as "Not sent" for issued/paid invoices and
+    "—" for drafts/cancelled (no email expected).
+  - A successful **Resend** flips a `failed` invoice back to `sent` (newer success logs).
+- **Filter:** an "Email" dropdown (`?email=sent|failed|none`) lets the HoI isolate
+  invoices whose delivery failed so they can resend or escalate.
+- **Resend / escalate:** the existing per-row Resend button (and the failure reason
+  visible on the badge / invoice detail) cover resending and informing support.
 
 ### 12.6 Import Payments Page
 

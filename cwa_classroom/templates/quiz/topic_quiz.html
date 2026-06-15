@@ -161,5 +161,17 @@
       session_id: sessionId, question_id: questionId, ordered_answer_ids: ids,
     });
   }
+
+  // Enter-to-submit for the measure question's numeric box. Delegated (bound
+  // once on document) so it keeps working after a question is swapped in via
+  // innerHTML — an inline <script> in the swapped partial would never re-run.
+  // Reads session/question from data-* on the input so no per-question wiring.
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    const t = e.target;
+    if (!t || t.id !== 'text-answer-input' || !t.dataset.sessionId) return;
+    e.preventDefault();
+    submitTextAnswer(t.dataset.sessionId, t.dataset.questionId);
+  });
 </script>
 {% endblock %}

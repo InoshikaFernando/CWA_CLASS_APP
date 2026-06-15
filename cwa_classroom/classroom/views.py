@@ -2812,6 +2812,41 @@ def htmx_topics_for_level(request):
     return HttpResponse(html)
 
 
+def _parse_measure_post(request):
+    """Pull the measure fields from POST for a measure question.
+
+    Returns ``(numeric_answer, answer_tolerance, answer_unit, error)``. For a
+    non-measure question everything is None/'' and ``error`` is None (so callers
+    can clear the fields when a question is switched away from measure). For a
+    measure question ``numeric_answer`` is required and ``answer_tolerance`` is
+    optional (blank -> None = exact match). ``error`` is a user-facing string
+    when the input is missing/unparseable.
+    """
+    from decimal import Decimal, InvalidOperation
+
+    if request.POST.get('question_type') != 'measure':
+        return None, None, '', None
+
+    unit = (request.POST.get('answer_unit') or '').strip()
+
+    def _dec(name, required):
+        raw = (request.POST.get(name) or '').strip()
+        if not raw:
+            return None, ('Measure questions need a correct value.' if required else None)
+        try:
+            return Decimal(raw), None
+        except InvalidOperation:
+            return None, f'"{raw}" is not a valid number.'
+
+    numeric_answer, err = _dec('numeric_answer', required=True)
+    if err:
+        return None, None, unit, err
+    tolerance, err = _dec('answer_tolerance', required=False)
+    if err:
+        return None, None, unit, err
+    return numeric_answer, tolerance, unit, None
+
+
 class AddQuestionView(RoleRequiredMixin, View):
     """Create a question. Works both standalone (/create-question/) and with pre-selected level (/level/<int>/add-question/)."""
     required_roles = [
@@ -2907,6 +2942,14 @@ class AddQuestionView(RoleRequiredMixin, View):
                               self._build_context(request, level))
             selected_classroom_id = int(selected_classroom_id)
 
+        # Measure fields (numeric_answer ± tolerance, unit) — validated here
+        # because Model.create() bypasses clean(), so a measure question with no
+        # numeric_answer would otherwise save and then grade every answer wrong.
+        numeric_answer, answer_tolerance, answer_unit, measure_err = _parse_measure_post(request)
+        if measure_err:
+            messages.error(request, measure_err)
+            return render(request, 'teacher/question_form.html', self._build_context(request, level))
+
         # Auto-link topic to level
         if not classroom_topic.levels.filter(pk=level.pk).exists():
             classroom_topic.levels.add(level)
@@ -2926,6 +2969,9 @@ class AddQuestionView(RoleRequiredMixin, View):
                 explanation=request.POST.get('explanation', ''),
                 image=request.FILES.get('image'),
                 video=request.FILES.get('video'),
+                numeric_answer=numeric_answer,
+                answer_tolerance=answer_tolerance,
+                answer_unit=answer_unit,
             )
             # Dynamic answers — support up to 20
             for i in range(1, 21):
@@ -2989,6 +3035,10 @@ class EditQuestionView(RoleRequiredMixin, View):
         if not _can_edit_question(request.user, question):
             messages.error(request, 'You do not have permission to edit this question.')
             return redirect('question_list', level_number=question.level.level_number)
+        numeric_answer, answer_tolerance, answer_unit, measure_err = _parse_measure_post(request)
+        if measure_err:
+            messages.error(request, measure_err)
+            return redirect('edit_question', question_id=question.id)
         classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
         question.topic = classroom_topic
         question.question_text = request.POST.get('question_text', '').strip()
@@ -2997,6 +3047,11 @@ class EditQuestionView(RoleRequiredMixin, View):
         question.points = int(request.POST.get('points', 1))
         question.explanation = request.POST.get('explanation', '')
         if request.FILES.get('image'): question.image = request.FILES['image']
+        # Measure fields — set to the parsed values (None/'' when not a measure
+        # question, so switching a question away from measure clears them).
+        question.numeric_answer = numeric_answer
+        question.answer_tolerance = answer_tolerance
+        question.answer_unit = answer_unit
         with transaction.atomic():
             question.save()
             question.answers.all().delete()

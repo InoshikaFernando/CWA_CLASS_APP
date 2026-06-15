@@ -21,7 +21,9 @@ from .models import (
     SchoolSubscription, ModuleSubscription, PromoCode,
     DiscountCode, Package, Subscription, DURATION_CHOICES,
 )
-from .reporting import get_paid_revenue, StripeUnavailable
+from .reporting import (
+    get_paid_revenue, get_subscription_counts, StripeUnavailable,
+)
 from audit.services import log_event
 
 logger = logging.getLogger(__name__)
@@ -145,6 +147,18 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         except StripeUnavailable:
             earnings_source = 'estimate'
 
+        # --- counts: live subscription counts from Stripe (source of truth) --
+        # Stripe knows every paying subscription (incl. school students) and
+        # applies the real status; the local DB can drift, so when Stripe is
+        # reachable its counts drive the headline tiles.
+        counts_source = 'stripe'
+        try:
+            sc = get_subscription_counts()
+            students['stripe'] = sc['student']
+            institutes['stripe'] = sc['institute']
+        except StripeUnavailable:
+            counts_source = 'local'
+
         # Filter option lists
         countries = sorted({
             c for c in (
@@ -165,6 +179,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             'institutes': institutes,
             'earnings_source': earnings_source,
             'earnings_currency': earnings_currency,
+            'counts_source': counts_source,
             'combined_this_month': (
                 students.get('this_month', self.ZERO)
                 + institutes.get('this_month', self.ZERO)
@@ -205,10 +220,14 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
 
         active = qs.filter(status='active')
         # "Paying" = active with a real priced package (excludes no-package/comp).
+        # "Free" = the rest of the actives (no package / $0) — real accounts,
+        # but $0 revenue, shown as their own category.
         paying = active.filter(package__isnull=False, package__price__gt=0)
         estimate = paying.aggregate(t=Sum('package__price'))['t'] or self.ZERO
 
         active_n = active.count()
+        paying_n = paying.count()
+        free_n = active_n - paying_n
         trial_n = qs.filter(status='trialing').count()
         inactive_n = qs.filter(status__in=self.INACTIVE_STATES).count()
 
@@ -216,7 +235,8 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             'total': qs.count(),
             'trial': trial_n,
             'active': active_n,
-            'paying': paying.count(),
+            'paying': paying_n,
+            'free': free_n,
             'inactive': inactive_n,
             'new_today': qs.filter(created_at__date=today).count(),
             'lost_today': qs.filter(cancelled_at__date=today).count(),
@@ -225,7 +245,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
                 active.values('package__name').annotate(
                     count=Count('id')).order_by('-count'),
             ),
-            'donut': self._donut(active_n, trial_n, inactive_n),
+            'donut': self._donut(paying_n, free_n, trial_n, inactive_n),
         }
 
     # -- institutes ----------------------------------------------------------
@@ -253,6 +273,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         estimate += self._addon_revenue_for(active)
 
         active_n = active.count()
+        free_n = active_n - paying_n  # active but $0 (no plan / 100%-off)
         trial_n = qs.filter(status='trialing').count()
         inactive_n = qs.filter(status__in=self.INACTIVE_STATES).count()
 
@@ -261,6 +282,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             'trial': trial_n,
             'active': active_n,
             'paying': paying_n,
+            'free': free_n,
             'inactive': inactive_n,
             'new_today': qs.filter(created_at__date=today).count(),
             # No cancelled_at on SchoolSubscription — use status + updated_at.
@@ -271,21 +293,22 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
                 active.values('plan__name').annotate(
                     count=Count('id')).order_by('-count'),
             ),
-            'donut': self._donut(active_n, trial_n, inactive_n),
+            'donut': self._donut(paying_n, free_n, trial_n, inactive_n),
         }
 
     # Donut ring geometry (inline SVG, no JS). Returns segments with
     # stroke-dasharray/offset so the template just renders <circle>s.
     DONUT_RADIUS = 54
 
-    def _donut(self, active, trial, inactive):
+    def _donut(self, active, free, trial, inactive):
         circumference = 2 * math.pi * self.DONUT_RADIUS
         parts = [
-            ('Active', active, '#10b981'),    # emerald
+            ('Active', active, '#10b981'),    # emerald (paying / real)
+            ('Free', free, '#0ea5e9'),        # sky (active but no package / 100%-off)
             ('Trial', trial, '#f59e0b'),      # amber
             ('Inactive', inactive, '#94a3b8'),  # slate
         ]
-        total = active + trial + inactive
+        total = active + free + trial + inactive
         segments = []
         cumulative = 0.0
         for label, value, color in parts:

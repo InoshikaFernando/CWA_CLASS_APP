@@ -29,6 +29,71 @@ class StripeUnavailable(Exception):
     """Raised when Stripe cannot be reached / is not configured."""
 
 
+# Subscriptions are tagged with metadata.type at creation (see stripe_service).
+STUDENT_TYPES = {'individual', 'school_student'}
+INSTITUTE_TYPES = {'institute'}
+
+
+def get_subscription_counts():
+    """Count live Stripe subscriptions per panel, by status — Stripe is the
+    source of truth for "how many paying students / institutes".
+
+    "Students" = individual + school_student (every paying student, however
+    enrolled). "Institutes" = institute-type subscriptions. Module/overage
+    items live inside an institute subscription and are not counted separately.
+
+    Returns {
+      'student':   {'paid': int, 'trial': int, 'other': int, 'total': int},
+      'institute': {'paid': int, 'trial': int, 'other': int, 'total': int},
+    }  where paid = status 'active', trial = 'trialing', other = the rest
+    (past_due / canceled / unpaid / paused …).
+
+    Raises StripeUnavailable if Stripe is not configured or the API fails.
+    """
+    if not getattr(settings, 'STRIPE_SECRET_KEY', ''):
+        raise StripeUnavailable('STRIPE_SECRET_KEY not set')
+
+    cached = cache.get('subs:counts')
+    if cached is not None:
+        return cached
+
+    if not stripe.api_key:
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+
+    counts = {
+        'student': {'paid': 0, 'trial': 0, 'other': 0, 'total': 0},
+        'institute': {'paid': 0, 'trial': 0, 'other': 0, 'total': 0},
+    }
+    try:
+        subs = stripe.Subscription.list(status='all', limit=100)
+        for s in subs.auto_paging_iter():
+            md = s.get('metadata') or {}
+            sub_type = md.get('type')
+            if sub_type in STUDENT_TYPES:
+                panel = 'student'
+            elif sub_type in INSTITUTE_TYPES:
+                panel = 'institute'
+            else:
+                continue
+            status = s.get('status')
+            if status == 'active':
+                counts[panel]['paid'] += 1
+            elif status == 'trialing':
+                counts[panel]['trial'] += 1
+            else:
+                counts[panel]['other'] += 1
+            counts[panel]['total'] += 1
+    except stripe.error.StripeError as exc:  # noqa: F841
+        logger.warning('Stripe subscription count failed: %s', exc)
+        raise StripeUnavailable(str(exc))
+    except Exception as exc:
+        logger.warning('Stripe subscription count error: %s', exc)
+        raise StripeUnavailable(str(exc))
+
+    cache.set('subs:counts', counts, CACHE_TTL)
+    return counts
+
+
 def _customer_id_sets():
     """Return (student_customer_ids, institute_customer_ids) from local data.
 
