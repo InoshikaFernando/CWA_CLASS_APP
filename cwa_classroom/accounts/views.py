@@ -37,11 +37,20 @@ class AuditLoginView(LoginView):
         from billing.rate_limiting import check_rate_limit
         from audit.services import get_client_ip
         ip = get_client_ip(request) or 'unknown'
+        username = request.POST.get('username', '')
         if not check_rate_limit(f'login:{ip}', max_attempts=5, window_seconds=900):
             from audit.services import log_event
+            # The limit is keyed on IP, so a shared-IP site (e.g. a whole school
+            # behind one NAT) can trip this collectively. Log to the app log file
+            # — not just the audit DB — with the username so a lockout is
+            # diagnosable straight from /var/log/cwa/django-app.log.
+            logger.warning(
+                'Login rate-limited (5 attempts / 15 min exceeded): ip=%s username=%r',
+                ip, username,
+            )
             log_event(
                 category='auth', action='login_rate_limited',
-                result='blocked', detail={'ip': ip}, request=request,
+                result='blocked', detail={'ip': ip, 'username': username}, request=request,
             )
             messages.error(request, 'Too many login attempts. Please try again in 15 minutes.')
             return render(request, self.template_name, self.get_context_data())
@@ -66,16 +75,30 @@ class AuditLoginView(LoginView):
         # Clear rate limit on successful login
         ip = get_client_ip(self.request) or 'unknown'
         reset_rate_limit(f'login:{ip}')
+        logger.info(
+            'Login success: username=%r ip=%s — login rate-limit counter cleared for this IP',
+            self.request.user.get_username(), ip,
+        )
         return response
 
     def form_invalid(self, form):
-        from audit.services import log_event
-        username = form.cleaned_data.get('username', '')
+        from audit.services import log_event, get_client_ip
+        from billing.rate_limiting import get_remaining_attempts
+        username = form.cleaned_data.get('username') or form.data.get('username', '')
+        ip = get_client_ip(self.request) or 'unknown'
+        # This failed attempt has already been counted in post(); surface how
+        # many remain so an impending shared-IP lockout is visible in the log
+        # file *before* it trips.
+        remaining = get_remaining_attempts(f'login:{ip}', max_attempts=5)
+        logger.warning(
+            'Login failed: ip=%s username=%r — %s attempt(s) left before 15-min lockout',
+            ip, username, remaining,
+        )
         log_event(
             category='auth',
             action='login_failed',
             result='blocked',
-            detail={'username': username},
+            detail={'username': username, 'ip': ip, 'remaining_attempts': remaining},
             request=self.request,
         )
         return super().form_invalid(form)
