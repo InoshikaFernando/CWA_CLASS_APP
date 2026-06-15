@@ -157,7 +157,23 @@ Line Amount = Daily Rate × Days Attended (in billing period)
 
 ### 4.4 Mid-Period Enrollment
 
-In **both modes**, only sessions on or after the student's `ClassStudent.joined_at` date are counted. A student who enrolled on the 15th of a month is only charged for sessions from the 15th onward.
+In **both modes**, only sessions on or after the student's `ClassStudent.billing_start_date` are counted. A student who started on the 15th of a month is only charged for sessions from the 15th onward.
+
+#### 4.4.1 Editable Billing Start Date (CPP-342)
+
+`ClassStudent.billing_start_date` records the first date a student is billable for
+a given class, so invoicing skips sessions before it.
+
+- **Set at enrollment:** the Add Students flow has an optional "first billable
+  session date" for genuine late starters (left empty for backdated entry).
+- **Editable afterwards:** the HoI / Accountant can change or clear it inline on the
+  class detail page (per student), next to the fee override
+  (`update_student_billing_start`, POST `billing_start_date`). HoD / teacher cannot.
+- **NULL semantics:** empty = bill the **full** requested period (e.g. backdated data
+  entry for a student who was already attending). A set date = sessions before it are
+  not billed.
+- An invalid date is rejected and the existing value is left unchanged. Every change
+  is recorded via `log_event` (`student_billing_start_updated`, with old/new values).
 
 ---
 
