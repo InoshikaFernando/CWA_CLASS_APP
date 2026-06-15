@@ -908,20 +908,77 @@ class SubscriptionOverviewTests(TestCase):
         self.assertEqual(inst['trial'], 1)
         self.assertEqual(inst['inactive'], 1)
 
-    # -- earnings (estimated) --
-    def test_student_earnings(self):
+    # -- paying counts --
+    def test_paying_counts(self):
+        ctx = self._get().context
+        # 2 active students have a priced package ($9) -> 2 paying
+        self.assertEqual(ctx['students']['paying'], 2)
+        # 1 active institute on Starter ($49), no discount -> 1 paying
+        self.assertEqual(ctx['institutes']['paying'], 1)
+
+    def test_no_package_student_active_but_not_paying(self):
+        user = _create_normal_user(username='free_student')
+        Subscription.objects.create(user=user, package=None, status='active')
+        ctx = self._get().context
+        self.assertEqual(ctx['students']['active'], 3)  # counted active
+        self.assertEqual(ctx['students']['paying'], 2)  # but not paying
+
+    def test_full_discount_institute_not_paying(self):
+        from billing.models import InstituteDiscountCode
+        code = InstituteDiscountCode.objects.create(
+            code='FREE100', discount_percent=100,
+        )
+        school = School.objects.filter(name='School 0').first()  # the active one
+        sub = SchoolSubscription.objects.get(school=school)
+        sub.discount_code = code
+        sub.save(update_fields=['discount_code'])
+        ctx = self._get().context
+        self.assertEqual(ctx['institutes']['active'], 1)   # still active
+        self.assertEqual(ctx['institutes']['paying'], 0)   # but fully discounted
+        self.assertEqual(ctx['institutes']['estimate'], Decimal('0.00'))
+
+    # -- earnings: estimate fallback (no Stripe key in tests) --
+    def test_earnings_source_is_estimate_without_stripe(self):
+        ctx = self._get().context
+        self.assertEqual(ctx['earnings_source'], 'estimate')
+
+    def test_student_estimate(self):
         s = self._get().context['students']
-        self.assertEqual(s['this_month_earnings'], Decimal('18.00'))   # 2 active x $9
-        self.assertEqual(s['next_month_forecast'], Decimal('18.00'))
-        self.assertEqual(s['last_month_earnings'], Decimal('0.00'))    # none pre-date this month
+        self.assertEqual(s['estimate'], Decimal('18.00'))  # 2 active x $9
 
-    def test_institute_earnings(self):
+    def test_institute_estimate(self):
         inst = self._get().context['institutes']
-        self.assertEqual(inst['this_month_earnings'], Decimal('49.00'))  # 1 active x $49
-        self.assertEqual(inst['next_month_forecast'], Decimal('49.00'))
+        self.assertEqual(inst['estimate'], Decimal('49.00'))  # 1 active x $49
 
-    def test_combined_run_rate(self):
-        self.assertEqual(self._get().context['total_estimated_mrr'], Decimal('67.00'))
+    def test_combined_estimate(self):
+        self.assertEqual(self._get().context['combined_estimate'], Decimal('67.00'))
+
+    def test_half_discount_institute_estimate(self):
+        from billing.models import InstituteDiscountCode
+        code = InstituteDiscountCode.objects.create(
+            code='HALF50', discount_percent=50,
+        )
+        school = School.objects.filter(name='School 0').first()
+        sub = SchoolSubscription.objects.get(school=school)
+        sub.discount_code = code
+        sub.save(update_fields=['discount_code'])
+        inst = self._get().context['institutes']
+        self.assertEqual(inst['estimate'], Decimal('24.50'))  # $49 * 50%
+        self.assertEqual(inst['paying'], 1)                    # still paying (partial)
+
+    # -- earnings: actual from Stripe (mocked) --
+    @patch('billing.views_admin.get_paid_revenue')
+    def test_earnings_from_stripe(self, mock_rev):
+        mock_rev.side_effect = [
+            {'student': Decimal('5.00'), 'institute': Decimal('7.00')},   # this month
+            {'student': Decimal('3.00'), 'institute': Decimal('4.00')},   # last month
+        ]
+        ctx = self._get().context
+        self.assertEqual(ctx['earnings_source'], 'stripe')
+        self.assertEqual(ctx['students']['this_month'], Decimal('5.00'))
+        self.assertEqual(ctx['students']['last_month'], Decimal('3.00'))
+        self.assertEqual(ctx['institutes']['this_month'], Decimal('7.00'))
+        self.assertEqual(ctx['combined_this_month'], Decimal('12.00'))
 
     # -- breakdowns --
     def test_breakdowns(self):
@@ -947,8 +1004,8 @@ class SubscriptionOverviewTests(TestCase):
         self.assertEqual(ctx['addons'][0]['count'], 1)
         self.assertEqual(ctx['addons'][0]['revenue'], Decimal('10.00'))
         self.assertEqual(ctx['addons_total_revenue'], Decimal('10.00'))
-        # addon revenue rolls into institute this-month earnings
-        self.assertEqual(ctx['institutes']['this_month_earnings'], Decimal('59.00'))
+        # addon revenue rolls into the institute estimate
+        self.assertEqual(ctx['institutes']['estimate'], Decimal('59.00'))
 
     # -- filters --
     def test_country_filter(self):
@@ -1040,3 +1097,51 @@ class SubscriptionOverviewTests(TestCase):
         self.assertEqual(donut['active_pct'], 0.0)
         # all segments present but zero-valued (template skips rendering them)
         self.assertEqual(len(donut['segments']), 3)
+
+
+class StripeEarningsReportingTests(TestCase):
+    """billing.reporting.get_paid_revenue — attribution + fallback."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        pkg = Package.objects.create(name='Wizard', price=Decimal('19.90'))
+        u = _create_normal_user(username='paycust')
+        Subscription.objects.create(
+            user=u, package=pkg, status='active', stripe_customer_id='cus_student',
+        )
+        admin = _create_normal_user(username='payadmin')
+        school = _create_school(admin, name='Pay School', slug='pay-school')
+        SchoolSubscription.objects.create(
+            school=school, plan=_create_plan(), status='active',
+            stripe_customer_id='cus_inst',
+        )
+
+    def test_no_stripe_key_raises_unavailable(self):
+        from billing.reporting import get_paid_revenue, StripeUnavailable
+        import datetime
+        start = timezone.make_aware(datetime.datetime(2026, 5, 1))
+        end = timezone.make_aware(datetime.datetime(2026, 6, 1))
+        with override_settings(STRIPE_SECRET_KEY=''):
+            with self.assertRaises(StripeUnavailable):
+                get_paid_revenue(start, end)
+
+    @override_settings(STRIPE_SECRET_KEY='sk_test_dummy')
+    @patch('billing.reporting.stripe.Invoice.list')
+    def test_attribution_by_customer(self, mock_list):
+        from billing.reporting import get_paid_revenue
+        import datetime
+        invoices = [
+            {'amount_paid': 1990, 'customer': 'cus_student'},
+            {'amount_paid': 9450, 'customer': 'cus_inst'},
+            {'amount_paid': 500, 'customer': 'cus_unknown'},  # ignored
+            {'amount_paid': 0, 'customer': 'cus_student'},     # zero ignored
+        ]
+        obj = MagicMock()
+        obj.auto_paging_iter.return_value = iter(invoices)
+        mock_list.return_value = obj
+        start = timezone.make_aware(datetime.datetime(2026, 5, 1))
+        end = timezone.make_aware(datetime.datetime(2026, 6, 1))
+        res = get_paid_revenue(start, end)
+        self.assertEqual(res['student'], Decimal('19.90'))
+        self.assertEqual(res['institute'], Decimal('94.50'))

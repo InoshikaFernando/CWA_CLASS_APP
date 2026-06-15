@@ -5,7 +5,7 @@ All views require superuser access via SuperuserRequiredMixin.
 """
 import logging
 import math
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.shortcuts import render, redirect, get_object_or_404
@@ -21,6 +21,7 @@ from .models import (
     SchoolSubscription, ModuleSubscription, PromoCode,
     DiscountCode, Package, Subscription, DURATION_CHOICES,
 )
+from .reporting import get_paid_revenue, StripeUnavailable
 from audit.services import log_event
 
 logger = logging.getLogger(__name__)
@@ -82,13 +83,14 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
 
     Definitions
     -----------
-    * Active   = status 'active'        (paying)
+    * Active   = status 'active'
     * Trial    = status 'trialing'      (in free trial, not yet paying)
     * Inactive = anything else          (past_due / cancelled / expired / suspended)
-    * Earnings figures are ESTIMATES derived from active subscription prices
-      (plan/package + active addons), NOT actual cash collected. There is no
-      local ledger of Stripe subscription charges, so these are run-rate
-      approximations and are labelled "Estimated" in the UI.
+    * Paying   = active subs that actually bill (real package/plan with price>0,
+      not 100%-discounted). Shown alongside Active.
+    * Earnings = ACTUAL paid Stripe invoices for this/last month (real cash,
+      post-discount/refund). If Stripe is unavailable, falls back to a local
+      discount-aware estimate, flagged in the UI.
 
     Filters (GET params): ?country=<name>  and  ?institution=<school_id>
     (institution applies to the institute panel only — B2C students have no
@@ -99,13 +101,18 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
     INACTIVE_STATES = ['past_due', 'cancelled', 'expired', 'suspended']
     ZERO = Decimal('0.00')
 
+    @staticmethod
+    def _month_dt(d):
+        """Local date -> timezone-aware datetime at 00:00 (for Stripe ranges)."""
+        return timezone.make_aware(datetime.combine(d, time.min))
+
     def get(self, request):
         from classroom.models import School
 
         country = (request.GET.get('country') or '').strip()
         institution = (request.GET.get('institution') or '').strip()
 
-        # --- period bounds (local dates) ------------------------------------
+        # --- period bounds --------------------------------------------------
         today = timezone.localdate()
         this_month_start = today.replace(day=1)
         last_month_start = (this_month_start - timedelta(days=1)).replace(day=1)
@@ -116,9 +123,23 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         else:
             next_month_start = this_month_start.replace(month=this_month_start.month + 1)
 
-        students = self._student_stats(country, this_month_start, today)
-        institutes = self._institute_stats(country, institution, this_month_start, today)
+        students = self._student_stats(country, today)
+        institutes = self._institute_stats(country, institution, today)
         addons = self._addon_stats()
+
+        # --- earnings: actual paid revenue from Stripe (fallback: estimate) --
+        earnings_source = 'stripe'
+        try:
+            this_rev = get_paid_revenue(
+                self._month_dt(this_month_start), self._month_dt(next_month_start))
+            last_rev = get_paid_revenue(
+                self._month_dt(last_month_start), self._month_dt(this_month_start))
+            students['this_month'] = this_rev['student']
+            students['last_month'] = last_rev['student']
+            institutes['this_month'] = this_rev['institute']
+            institutes['last_month'] = last_rev['institute']
+        except StripeUnavailable:
+            earnings_source = 'estimate'
 
         # Filter option lists
         countries = sorted({
@@ -138,12 +159,14 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             'hide_sidebar': True,
             'students': students,
             'institutes': institutes,
+            'earnings_source': earnings_source,
+            'combined_this_month': (
+                students.get('this_month', self.ZERO)
+                + institutes.get('this_month', self.ZERO)
+            ),
+            'combined_estimate': students['estimate'] + institutes['estimate'],
             'addons': addons['rows'],
             'addons_total_revenue': addons['total_revenue'],
-            'total_estimated_mrr': (
-                students['this_month_earnings']
-                + institutes['this_month_earnings']
-            ),
             'filters': {
                 'country': country,
                 'institution': institution,
@@ -168,26 +191,15 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             user__school_student_entries__is_active=True,
         )
 
-    def _student_stats(self, country, this_month_start, today):
+    def _student_stats(self, country, today):
         qs = self._b2c_subscriptions()
         if country:
             qs = qs.filter(user__country__iexact=country)
 
         active = qs.filter(status='active')
-        # Run-rate of currently paying subscriptions
-        this_month = active.filter(package__isnull=False).aggregate(
-            t=Sum('package__price'))['t'] or self.ZERO
-        forecast = active.filter(
-            package__isnull=False,
-        ).exclude(cancel_at_period_end=True).aggregate(
-            t=Sum('package__price'))['t'] or self.ZERO
-        # Subscriptions that were live during last month (created before this
-        # month and not cancelled before it began), excluding trials.
-        last_month_qs = qs.filter(created_at__date__lt=this_month_start).filter(
-            Q(cancelled_at__isnull=True) | Q(cancelled_at__date__gte=this_month_start),
-        ).exclude(status='trialing')
-        last_month = last_month_qs.filter(package__isnull=False).aggregate(
-            t=Sum('package__price'))['t'] or self.ZERO
+        # "Paying" = active with a real priced package (excludes no-package/comp).
+        paying = active.filter(package__isnull=False, package__price__gt=0)
+        estimate = paying.aggregate(t=Sum('package__price'))['t'] or self.ZERO
 
         active_n = active.count()
         trial_n = qs.filter(status='trialing').count()
@@ -197,12 +209,11 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             'total': qs.count(),
             'trial': trial_n,
             'active': active_n,
+            'paying': paying.count(),
             'inactive': inactive_n,
             'new_today': qs.filter(created_at__date=today).count(),
             'lost_today': qs.filter(cancelled_at__date=today).count(),
-            'last_month_earnings': last_month,
-            'this_month_earnings': this_month,
-            'next_month_forecast': forecast,
+            'estimate': estimate,
             'by_package': list(
                 active.values('package__name').annotate(
                     count=Count('id')).order_by('-count'),
@@ -211,7 +222,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         }
 
     # -- institutes ----------------------------------------------------------
-    def _institute_stats(self, country, institution, this_month_start, today):
+    def _institute_stats(self, country, institution, today):
         # Deactivated schools are excluded everywhere on this dashboard.
         qs = SchoolSubscription.objects.filter(school__is_active=True)
         if country:
@@ -220,22 +231,19 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             qs = qs.filter(school_id=int(institution))
 
         active = qs.filter(status='active')
-        active_plan_price = active.filter(plan__isnull=False).aggregate(
-            t=Sum('plan__price'))['t'] or self.ZERO
-        # Addon revenue from addons attached to currently active institutes
-        addon_revenue = self._addon_revenue_for(active)
-
-        this_month = active_plan_price + addon_revenue
-        forecast = (active.filter(plan__isnull=False)
-                    .exclude(cancel_at_period_end=True)
-                    .aggregate(t=Sum('plan__price'))['t'] or self.ZERO) + addon_revenue
-        # SchoolSubscription has no cancelled_at; approximate "live last month"
-        # as created before this month and still paying/past_due.
-        last_month = qs.filter(
-            created_at__date__lt=this_month_start,
-            status__in=['active', 'past_due'],
-            plan__isnull=False,
-        ).aggregate(t=Sum('plan__price'))['t'] or self.ZERO
+        # Discount-aware estimate + "paying" count. 100%-off subs (e.g. CWA)
+        # bill nothing, so they don't count as paying and add $0.
+        estimate = self.ZERO
+        paying_n = 0
+        for sub in active.select_related('plan', 'discount_code'):
+            if not sub.plan or sub.plan.price <= 0:
+                continue
+            pct = sub.discount_code.discount_percent if sub.discount_code else 0
+            if pct >= 100:
+                continue
+            paying_n += 1
+            estimate += sub.plan.price * (Decimal(100 - pct) / Decimal(100))
+        estimate += self._addon_revenue_for(active)
 
         active_n = active.count()
         trial_n = qs.filter(status='trialing').count()
@@ -245,14 +253,13 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             'total': qs.count(),
             'trial': trial_n,
             'active': active_n,
+            'paying': paying_n,
             'inactive': inactive_n,
             'new_today': qs.filter(created_at__date=today).count(),
             # No cancelled_at on SchoolSubscription — use status + updated_at.
             'lost_today': qs.filter(
                 status='cancelled', updated_at__date=today).count(),
-            'last_month_earnings': last_month,
-            'this_month_earnings': this_month,
-            'next_month_forecast': forecast,
+            'estimate': estimate,
             'by_type': list(
                 active.values('plan__name').annotate(
                     count=Count('id')).order_by('-count'),
