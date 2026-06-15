@@ -76,3 +76,51 @@ class ColumnArithmeticPropertyTests(TestCase):
 
     def test_inline_empty_when_invalid(self):
         self.assertEqual(self._q([5, 5], 'bad').column_inline, '')
+
+
+class ColumnArithmeticGradingTests(TestCase):
+    """The plugin grades column_operation against the computed result, so a
+    question grades itself even without a stored answer row."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=994, defaults={'display_name': 'column grading fixture'},
+        )
+
+    def _save(self, operands, operator):
+        return Question.objects.create(
+            level=self.level,
+            question_text='Find the sum.',
+            question_type=Question.COLUMN_OPERATION,
+            operands=operands,
+            operator=operator,
+            difficulty=1,
+            points=1,
+        )
+
+    def _grade(self, q, answer):
+        from maths.plugin import MathsPlugin
+        return MathsPlugin().grade_answer(q.pk, {f'answer_{q.id}': answer})
+
+    def test_correct_answer_grades_true_without_answer_row(self):
+        q = self._save([23, 25], '+')
+        result = self._grade(q, '48')
+        self.assertTrue(result['is_correct'])
+        self.assertEqual(result['points_earned'], q.points)
+
+    def test_leading_zeros_and_spaces_tolerated(self):
+        q = self._save([23, 25], '+')
+        self.assertTrue(self._grade(q, ' 048 ')['is_correct'])
+
+    def test_wrong_answer_grades_false(self):
+        q = self._save([23, 25], '+')
+        self.assertFalse(self._grade(q, '47')['is_correct'])
+
+    def test_subtraction_and_multiplication(self):
+        self.assertTrue(self._grade(self._save([68, 20], '-'), '48')['is_correct'])
+        self.assertTrue(self._grade(self._save([12, 12], '*'), '144')['is_correct'])
+
+    def test_non_numeric_answer_grades_false(self):
+        q = self._save([23, 25], '+')
+        self.assertFalse(self._grade(q, 'forty-eight')['is_correct'])

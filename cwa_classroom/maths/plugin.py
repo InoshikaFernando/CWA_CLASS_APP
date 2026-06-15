@@ -195,6 +195,15 @@ class MathsPlugin(SubjectPlugin):
                 got_q = int(m.group(1))
                 got_r = int(m.group(2)) if m.group(2) is not None else 0
                 is_correct = (got_q == quot and got_r == rem)
+        elif q.question_type == Question.COLUMN_OPERATION and q.column_result is not None:
+            # Answer is computed from operands/operator — compare the student's
+            # number to the computed result (tolerant of spaces / leading zeros)
+            # so manually-created questions grade without a stored answer row.
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            import re as _re
+            m = _re.match(r'^\s*(-?\d+)\s*$', text_answer.replace(' ', ''))
+            if m:
+                is_correct = (int(m.group(1)) == q.column_result)
         elif q.question_type == Question.MEASURE and q.numeric_answer is not None:
             # Tolerance-graded numeric answer (e.g. "measure angle a").
             from maths.geometry_grading import grade_measure
