@@ -132,6 +132,11 @@ AI_DASHBOARD_GITHUB_REPO = os.environ.get('AI_DASHBOARD_GITHUB_REPO', '')
 AI_DASHBOARD_ISSUE_LABEL = os.environ.get('AI_DASHBOARD_ISSUE_LABEL', 'ai-usage-dashboard')
 AI_DASHBOARD_ISSUE_NUMBER = os.environ.get('AI_DASHBOARD_ISSUE_NUMBER', '')
 AI_USAGE_WINDOW_DAYS = int(os.environ.get('AI_USAGE_WINDOW_DAYS', '30'))
+# When set (e.g. "Production" / "Test"), this environment owns one named section
+# of a shared dashboard issue and only rewrites its own block — so prod and test
+# can publish to the same issue without clobbering each other. Empty = legacy
+# whole-issue mode (the env owns the entire issue body).
+AI_DASHBOARD_ENV = os.environ.get('AI_DASHBOARD_ENV', '')
 
 # ---------------------------------------------------------------------------
 # Redis / RQ  (background task processing)
