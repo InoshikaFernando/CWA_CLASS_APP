@@ -63,7 +63,7 @@
     parts.push('<line x1="' + cx + '" y1="' + cy + '" x2="' + cx + '" y2="' +
       (cy - R) + '" stroke="#2563eb" stroke-width="0.8" stroke-dasharray="3 3"/>');
     parts.push(knob(cx + R, cy));
-    return { html: svg(w, h, parts), refX: cx, refY: cy, w: w, h: h };
+    return { html: svg(w, h, parts), refX: cx, refY: cy };
   }
 
   function rulerSvg() {
@@ -86,7 +86,7 @@
       if (m % 10 === 0) parts.push(label(x, yTop + 26, m / 10, 10, '#7c2d12'));
     }
     parts.push(knob(x0 + L, yTop));           // rotate knob at the far end
-    return { html: svg(w, h, parts), refX: x0, refY: yTop, w: w, h: h };
+    return { html: svg(w, h, parts), refX: x0, refY: yTop };
   }
 
   function svg(w, h, parts) {
@@ -145,11 +145,21 @@
     }
 
     var mode = null, sx = 0, sy = 0, ox = 0, oy = 0;
+    var rot0 = 0, ang0 = 0, pivotX = 0, pivotY = 0;
     function onDown(e) {
       var rotating = e.target.closest('[data-role="rotate"]');
       mode = rotating ? 'rotate' : 'drag';
       sx = e.clientX; sy = e.clientY; ox = state.x; oy = state.y;
-      anchor.setPointerCapture(e.pointerId);
+      if (mode === 'rotate') {
+        // Pivot is fixed for the whole gesture — read it once (avoids a
+        // forced layout on every pointermove). Capture the start angle and
+        // rotation so we rotate by the DELTA, not snap to the raw bearing.
+        var r = stage.getBoundingClientRect();
+        pivotX = r.left + state.x; pivotY = r.top + state.y;
+        rot0 = state.rot;
+        ang0 = Math.atan2(e.clientY - pivotY, e.clientX - pivotX) * DEG;
+      }
+      try { anchor.setPointerCapture(e.pointerId); } catch (_) { /* stale id */ }
       e.preventDefault();
     }
     function onMove(e) {
@@ -158,9 +168,8 @@
         state.x = ox + (e.clientX - sx);
         state.y = oy + (e.clientY - sy);
       } else {
-        var r = stage.getBoundingClientRect();
-        var px = r.left + state.x, py = r.top + state.y;   // pivot in screen px
-        state.rot = Math.atan2(e.clientY - py, e.clientX - px) * DEG;
+        var ang = Math.atan2(e.clientY - pivotY, e.clientX - pivotX) * DEG;
+        state.rot = rot0 + (ang - ang0);
       }
       apply();
     }
@@ -185,7 +194,13 @@
   // Mount existing stages now, and any inserted later (quiz innerHTML swaps).
   function boot() {
     init(document);
-    var obs = new MutationObserver(function (muts) {
+    // Only the topic quiz swaps questions in via innerHTML; it does so inside
+    // #question-container. Homework renders every question up-front, so it
+    // needs no observer. Scoping to that node (when present) keeps us off the
+    // page-wide mutation firehose (timer ticks, feedback panels, …).
+    var root = document.getElementById('question-container');
+    if (!root) return;
+    new MutationObserver(function (muts) {
       for (var i = 0; i < muts.length; i++) {
         var added = muts[i].addedNodes;
         for (var j = 0; j < added.length; j++) {
@@ -195,8 +210,7 @@
           else if (n.querySelectorAll) init(n);
         }
       }
-    });
-    obs.observe(document.body, { childList: true, subtree: true });
+    }).observe(root, { childList: true, subtree: true });
   }
 
   window.CwaMeasureTool = { init: init };

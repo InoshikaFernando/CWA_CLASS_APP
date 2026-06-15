@@ -296,7 +296,11 @@
     {% endcomment %}
     {% include "maths/partials/_measure_tool.html" with q=question %}
     <div class="flex items-center gap-2">
+      {% comment %} Enter-to-submit is wired by a delegated listener in
+      base_quiz/topic_quiz (data-* below), so it survives the innerHTML question
+      swap — an inline <script> here would not re-run on questions 2+. {% endcomment %}
       <input type="text" id="text-answer-input" inputmode="decimal" autocomplete="off" autofocus
+             data-session-id="{{ session_id }}" data-question-id="{{ question.id }}"
              placeholder="Measure…" aria-label="Measured value"
              class="w-32 rounded-xl border-2 border-gray-200 px-4 py-3 text-lg font-bold
                     focus:outline-none focus:border-primary transition" />
@@ -307,14 +311,6 @@
         Submit
       </button>
     </div>
-    <script>
-      (function () {
-        var inp = document.getElementById('text-answer-input');
-        if (inp) inp.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter') submitTextAnswer('{{ session_id }}', {{ question.id }});
-        });
-      })();
-    </script>
 
   {% else %}
     <!-- Short answer / calculation -->

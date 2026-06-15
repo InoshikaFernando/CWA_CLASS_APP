@@ -16,11 +16,14 @@ stage, the figure, and a reset control. measure_tool.js mounts itself.
      data-measure-tool="{{ q.measure_tool }}">
   {% comment %} Figure sits below the instrument; explicit width so the viewBox
   SVG keeps its size (a flex item would collapse it). pointer-events-none so the
-  instrument on top stays grabbable. {% endcomment %}
+  instrument on top stays grabbable. Image AND generated figure are both shown
+  when both exist (an author may supply context art alongside the angle figure),
+  so neither is silently dropped. {% endcomment %}
+  {% if q.image %}
+  <img src="{{ q.image.url }}" alt="Figure to measure" class="max-h-60 mx-auto object-contain pointer-events-none">
+  {% endif %}
   {% if q.measure_figure_svg %}
   <div class="measure-figure w-64 max-w-full mx-auto text-gray-900 pointer-events-none">{{ q.measure_figure_svg|safe }}</div>
-  {% elif q.image %}
-  <img src="{{ q.image.url }}" alt="Figure to measure" class="max-h-60 mx-auto object-contain pointer-events-none">
   {% endif %}
   <button type="button" data-measure-reset
           class="absolute top-0 right-0 z-10 px-2.5 py-1 rounded-lg border border-gray-300 bg-white/90 text-xs font-medium text-gray-600 hover:bg-gray-50">
