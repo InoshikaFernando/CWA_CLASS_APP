@@ -31,7 +31,7 @@
                     <div class="question-content">
                         <div class="question-text-container">
                             <p class="question-text">{{ question.question_text }}</p>
-                            <button class="speaker-btn" onclick="speakText('{{ question.question_text|escapejs }}')" title="Listen to question">
+                            <button type="button" class="speaker-btn tts-btn" onclick="speakText('{{ question.question_text|escapejs }}', this)" title="Listen to question">
                                 🔊
                             </button>
                         </div>
@@ -42,8 +42,12 @@
                                 <ul>
                                     {% for answer in question.answers.all %}
                                         <li class="answer-option {% if answer.is_correct %}correct{% endif %}">
-                                            {{ answer.answer_text }}
-                                            {% if answer.is_correct %}<span class="correct-indicator">✓</span>{% endif %}
+                                            <span class="answer-text">{{ answer.answer_text }}{% if answer.is_correct %} <span class="correct-indicator">✓</span>{% endif %}</span>
+                                            {% if answer.answer_text %}
+                                            <button type="button" class="speaker-btn tts-btn answer-speaker"
+                                                    data-speak="{{ answer.answer_text }}"
+                                                    aria-label="Listen to this answer" title="Listen to this answer">🔊</button>
+                                            {% endif %}
                                         </li>
                                     {% endfor %}
                                 </ul>
@@ -54,8 +58,12 @@
                                 <ul>
                                     {% for answer in question.answers.all %}
                                         <li class="answer-option {% if answer.is_correct %}correct{% endif %}">
-                                            {{ answer.answer_text }}
-                                            {% if answer.is_correct %}<span class="correct-indicator">✓</span>{% endif %}
+                                            <span class="answer-text">{{ answer.answer_text }}{% if answer.is_correct %} <span class="correct-indicator">✓</span>{% endif %}</span>
+                                            {% if answer.answer_text %}
+                                            <button type="button" class="speaker-btn tts-btn answer-speaker"
+                                                    data-speak="{{ answer.answer_text }}"
+                                                    aria-label="Listen to this answer" title="Listen to this answer">🔊</button>
+                                            {% endif %}
                                         </li>
                                     {% endfor %}
                                 </ul>
@@ -220,18 +228,14 @@
         background: #0056b3;
         transform: scale(1.1);
     }
-    
-    .speaker-btn.playing {
-        background: #28a745;
-        animation: pulse 1s infinite;
+
+    /* Smaller speaker for individual answer options */
+    .answer-speaker {
+        width: 30px;
+        height: 30px;
+        font-size: 13px;
     }
-    
-    @keyframes pulse {
-        0% { transform: scale(1); }
-        50% { transform: scale(1.1); }
-        100% { transform: scale(1); }
-    }
-    
+
     .answers {
         margin: 15px 0;
     }
@@ -253,8 +257,13 @@
         border: 1px solid #e9ecef;
         border-radius: 4px;
         display: flex;
+        gap: 8px;
         justify-content: space-between;
         align-items: center;
+    }
+
+    .answer-text {
+        flex: 1;
     }
     
     .answer-option.correct {
@@ -332,86 +341,4 @@
         }
     }
 </style>
-
-<script>
-let currentSpeech = null;
-
-function speakText(text) {
-    // Stop any current speech
-    if (currentSpeech) {
-        speechSynthesis.cancel();
-        currentSpeech = null;
-        updateSpeakerButtons();
-        return;
-    }
-    
-    // Check if speech synthesis is supported
-    if (!('speechSynthesis' in window)) {
-        alert('Text-to-speech is not supported in this browser.');
-        return;
-    }
-    
-    // Create speech utterance
-    const utterance = new SpeechSynthesisUtterance(text);
-    
-    // Configure speech settings
-    utterance.rate = 0.8; // Slightly slower for better comprehension
-    utterance.pitch = 1;
-    utterance.volume = 1;
-    
-    // Try to use a child-friendly voice
-    const voices = speechSynthesis.getVoices();
-    const childVoice = voices.find(voice => 
-        voice.name.includes('Child') || 
-        voice.name.includes('Kid') ||
-        voice.lang.startsWith('en') && voice.name.includes('Female')
-    );
-    
-    if (childVoice) {
-        utterance.voice = childVoice;
-    }
-    
-    // Event handlers
-    utterance.onstart = function() {
-        currentSpeech = utterance;
-        updateSpeakerButtons();
-    };
-    
-    utterance.onend = function() {
-        currentSpeech = null;
-        updateSpeakerButtons();
-    };
-    
-    utterance.onerror = function() {
-        currentSpeech = null;
-        updateSpeakerButtons();
-        alert('Error playing audio. Please try again.');
-    };
-    
-    // Start speaking
-    speechSynthesis.speak(utterance);
-}
-
-function updateSpeakerButtons() {
-    const buttons = document.querySelectorAll('.speaker-btn');
-    buttons.forEach(btn => {
-        if (currentSpeech) {
-            btn.classList.add('playing');
-            btn.innerHTML = '⏹️';
-            btn.title = 'Stop audio';
-        } else {
-            btn.classList.remove('playing');
-            btn.innerHTML = '🔊';
-            btn.title = 'Listen to question';
-        }
-    });
-}
-
-// Load voices when page loads
-window.addEventListener('load', function() {
-    if ('speechSynthesis' in window) {
-        speechSynthesis.getVoices();
-    }
-});
-</script>
 {% endblock %}

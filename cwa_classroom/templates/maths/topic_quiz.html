@@ -177,6 +177,24 @@
         cursor: default;
         pointer-events: none;
     }
+
+    /* Answer row: option + its read-aloud speaker side by side */
+    .answer-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .answer-row .answer-option {
+        flex: 1;
+    }
+
+    .answer-speaker {
+        width: 34px;
+        height: 34px;
+        font-size: 15px;
+        flex-shrink: 0;
+    }
     
     .action-buttons {
         display: flex;
@@ -271,7 +289,7 @@
     <div class="question-box" id="question-box">
         <div class="question-header">
             <div class="question-number" id="question-number-label">Question 1</div>
-            <button class="speaker-btn" onclick="speakText()" title="Read Question">🔊</button>
+            <button type="button" class="speaker-btn tts-btn" onclick="speakText(document.getElementById('question-text').innerText, this)" title="Read Question">🔊</button>
         </div>
 
         <img id="question-image" class="question-image" style="display:none;" alt="Question diagram">
@@ -333,6 +351,11 @@
         return div.innerHTML;
     }
 
+    // Like escapeHtml but also safe inside a double-quoted attribute value.
+    function escapeAttr(text) {
+        return escapeHtml(text).replace(/"/g, '&quot;');
+    }
+
     // Render the current question
     function renderQuestion() {
         var q = allQuestions[currentIndex];
@@ -376,10 +399,19 @@
         } else {
             for (var i = 0; i < q.answers.length; i++) {
                 var a = q.answers[i];
-                optionsHtml += '<label class="answer-option" data-answer-id="' + a.id + '">' +
+                // Speaker sits OUTSIDE the label so tapping it reads the option
+                // aloud without also selecting that answer.
+                var speaker = a.answer_text
+                    ? '<button type="button" class="speaker-btn tts-btn answer-speaker" ' +
+                      'data-speak="' + escapeAttr(a.answer_text) + '" ' +
+                      'aria-label="Listen to this answer" title="Listen">🔊</button>'
+                    : '';
+                optionsHtml += '<div class="answer-row">' +
+                    '<label class="answer-option" data-answer-id="' + a.id + '">' +
                     '<input type="radio" name="answer_choice" value="' + a.id + '"> ' +
                     escapeHtml(a.answer_text) +
-                    '</label>';
+                    '</label>' + speaker +
+                    '</div>';
             }
         }
         document.getElementById('answer-options').innerHTML = optionsHtml;
@@ -516,14 +548,8 @@
         }
     }
 
-    // Text-to-speech function
-    window.speakText = function() {
-        var questionText = document.getElementById('question-text').innerText;
-        if ('speechSynthesis' in window) {
-            var utterance = new SpeechSynthesisUtterance(questionText);
-            speechSynthesis.speak(utterance);
-        }
-    };
+    // Read-aloud is provided by the shared window.speakText (tts_speaker.js);
+    // the speaker button passes the current question text on click.
 
     // Initial render
     renderQuestion();
@@ -546,7 +572,7 @@
     <div class="question-box">
         <div class="question-header">
             <div class="question-number">Question {{ question_number }}</div>
-            <button class="speaker-btn" onclick="speakText()" title="Read Question">🔊</button>
+            <button type="button" class="speaker-btn tts-btn" onclick="speakText(document.getElementById('question-text').innerText, this)" title="Read Question">🔊</button>
         </div>
         
         {% if current_question.image %}
@@ -585,21 +611,19 @@
                 <input type="hidden" name="question_id" value="{{ current_question.id }}">
                 
                 <div class="answer-options">
-                    {% if shuffled_answers %}
-                        {% for answer in shuffled_answers %}
+                    {% for answer in shuffled_answers|default:current_question.answers.all %}
+                        <div class="answer-row">
                             <label class="answer-option">
                                 <input type="radio" name="answer_id" value="{{ answer.id }}" required>
                                 {{ answer.answer_text }}
                             </label>
-                        {% endfor %}
-                    {% else %}
-                        {% for answer in current_question.answers.all %}
-                            <label class="answer-option">
-                                <input type="radio" name="answer_id" value="{{ answer.id }}" required>
-                                {{ answer.answer_text }}
-                            </label>
-                        {% endfor %}
-                    {% endif %}
+                            {% if answer.answer_text %}
+                            <button type="button" class="speaker-btn tts-btn answer-speaker"
+                                    data-speak="{{ answer.answer_text }}"
+                                    aria-label="Listen to this answer" title="Listen">🔊</button>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
                 </div>
                 
                 <div class="action-buttons">
@@ -609,21 +633,19 @@
         {% else %}
             <!-- Show checked answers -->
             <div class="answer-options">
-                {% if shuffled_answers %}
-                    {% for answer in shuffled_answers %}
+                {% for answer in shuffled_answers|default:current_question.answers.all %}
+                    <div class="answer-row">
                         <label class="answer-option {% if answer == selected_answer %}{% if answer.is_correct %}correct{% else %}incorrect{% endif %}{% elif answer.is_correct and not selected_answer.is_correct %}correct{% endif %}">
                             <input type="radio" {% if answer == selected_answer %}checked{% endif %} disabled>
                             {{ answer.answer_text }}
                         </label>
-                    {% endfor %}
-                {% else %}
-                    {% for answer in current_question.answers.all %}
-                        <label class="answer-option {% if answer == selected_answer %}{% if answer.is_correct %}correct{% else %}incorrect{% endif %}{% elif answer.is_correct and not selected_answer.is_correct %}correct{% endif %}">
-                            <input type="radio" {% if answer == selected_answer %}checked{% endif %} disabled>
-                            {{ answer.answer_text }}
-                        </label>
-                    {% endfor %}
-                {% endif %}
+                        {% if answer.answer_text %}
+                        <button type="button" class="speaker-btn tts-btn answer-speaker"
+                                data-speak="{{ answer.answer_text }}"
+                                aria-label="Listen to this answer" title="Listen">🔊</button>
+                        {% endif %}
+                    </div>
+                {% endfor %}
             </div>
             
             <div class="action-buttons">
@@ -705,15 +727,8 @@
             stopTimer();
         });
     })();
-    
-    // Text-to-speech function
-    function speakText() {
-        var questionText = document.getElementById('question-text').innerText;
-        if ('speechSynthesis' in window) {
-            var utterance = new SpeechSynthesisUtterance(questionText);
-            speechSynthesis.speak(utterance);
-        }
-    }
+
+    // Read-aloud is provided by the shared window.speakText (tts_speaker.js).
 </script>
     {% endif %}
 </div>

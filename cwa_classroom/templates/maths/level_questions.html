@@ -18,7 +18,7 @@
                 <label for="{{ question_form.question_text.id_for_label }}">Question Text:</label>
                 <div class="question-input-container">
                     {{ question_form.question_text }}
-                    <button type="button" class="speaker-btn" onclick="speakText(document.getElementById('{{ question_form.question_text.id_for_label }}').value)" title="Listen to question">
+                    <button type="button" class="speaker-btn tts-btn" onclick="speakText(document.getElementById('{{ question_form.question_text.id_for_label }}').value, this)" title="Listen to question">
                         🔊
                     </button>
                 </div>
@@ -161,18 +161,7 @@
     .speaker-btn:active {
         transform: scale(0.95);
     }
-    
-    .speaker-btn.playing {
-        background: #28a745;
-        animation: pulse 1s infinite;
-    }
-    
-    @keyframes pulse {
-        0% { transform: scale(1); }
-        50% { transform: scale(1.1); }
-        100% { transform: scale(1); }
-    }
-    
+
     .form-row {
         display: grid;
         grid-template-columns: 1fr 1fr 1fr;
@@ -282,91 +271,4 @@
         }
     }
 </style>
-
-<script>
-let currentSpeech = null;
-
-function speakText(text) {
-    if (!text.trim()) {
-        alert('Please enter some text to listen to.');
-        return;
-    }
-    
-    // Stop any current speech
-    if (currentSpeech) {
-        speechSynthesis.cancel();
-        currentSpeech = null;
-        updateSpeakerButtons();
-        return;
-    }
-    
-    // Check if speech synthesis is supported
-    if (!('speechSynthesis' in window)) {
-        alert('Text-to-speech is not supported in this browser.');
-        return;
-    }
-    
-    // Create speech utterance
-    const utterance = new SpeechSynthesisUtterance(text);
-    
-    // Configure speech settings
-    utterance.rate = 0.8; // Slightly slower for better comprehension
-    utterance.pitch = 1;
-    utterance.volume = 1;
-    
-    // Try to use a child-friendly voice
-    const voices = speechSynthesis.getVoices();
-    const childVoice = voices.find(voice => 
-        voice.name.includes('Child') || 
-        voice.name.includes('Kid') ||
-        voice.lang.startsWith('en') && voice.name.includes('Female')
-    );
-    
-    if (childVoice) {
-        utterance.voice = childVoice;
-    }
-    
-    // Event handlers
-    utterance.onstart = function() {
-        currentSpeech = utterance;
-        updateSpeakerButtons();
-    };
-    
-    utterance.onend = function() {
-        currentSpeech = null;
-        updateSpeakerButtons();
-    };
-    
-    utterance.onerror = function() {
-        currentSpeech = null;
-        updateSpeakerButtons();
-        alert('Error playing audio. Please try again.');
-    };
-    
-    // Start speaking
-    speechSynthesis.speak(utterance);
-}
-
-function updateSpeakerButtons() {
-    const buttons = document.querySelectorAll('.speaker-btn');
-    buttons.forEach(btn => {
-        if (currentSpeech) {
-            btn.classList.add('playing');
-            btn.innerHTML = '⏹️';
-            btn.title = 'Stop audio';
-        } else {
-            btn.classList.remove('playing');
-            btn.innerHTML = '🔊';
-            btn.title = 'Listen to question';
-        }
-    });
-}
-
-// Load voices when page loads
-window.addEventListener('load', function() {
-    if ('speechSynthesis' in window) {
-        speechSynthesis.getVoices();
-    }
-});
-</script>
 {% endblock %}
