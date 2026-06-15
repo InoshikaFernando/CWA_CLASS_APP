@@ -1,6 +1,7 @@
 import logging
 import re
 
+from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
@@ -38,19 +39,44 @@ class AuditLoginView(LoginView):
         from audit.services import get_client_ip
         ip = get_client_ip(request) or 'unknown'
         username = request.POST.get('username', '')
-        if not check_rate_limit(f'login:{ip}', max_attempts=5, window_seconds=900):
+        user_key = (username or '').strip().lower()
+        window = settings.LOGIN_RATELIMIT_WINDOW
+
+        # Primary gate: per *username*. A school sits behind one NAT IP, so a
+        # purely IP-keyed limit lets a few students' typos lock out the whole
+        # site. Keying on the submitted username means one student's failures
+        # only ever lock that student — never their classmates.
+        #
+        # Secondary gate: a generous per-IP cap. It won't trip a normal class
+        # (and resets on any successful login from that IP), but still stops a
+        # single host from enumerating many accounts. Checked second so a single
+        # locked username doesn't inflate the shared IP counter.
+        blocked_scope = None
+        if not check_rate_limit(
+            f'login:user:{user_key}',
+            max_attempts=settings.LOGIN_RATELIMIT_USER_MAX,
+            window_seconds=window,
+        ):
+            blocked_scope = 'username'
+        elif not check_rate_limit(
+            f'login:ip:{ip}',
+            max_attempts=settings.LOGIN_RATELIMIT_IP_MAX,
+            window_seconds=window,
+        ):
+            blocked_scope = 'ip'
+
+        if blocked_scope:
             from audit.services import log_event
-            # The limit is keyed on IP, so a shared-IP site (e.g. a whole school
-            # behind one NAT) can trip this collectively. Log to the app log file
-            # — not just the audit DB — with the username so a lockout is
+            # Logged to the app log file (not just the audit DB) so a lockout is
             # diagnosable straight from /var/log/cwa/django-app.log.
             logger.warning(
-                'Login rate-limited (5 attempts / 15 min exceeded): ip=%s username=%r',
-                ip, username,
+                'Login rate-limited (scope=%s): ip=%s username=%r',
+                blocked_scope, ip, username,
             )
             log_event(
-                category='auth', action='login_rate_limited',
-                result='blocked', detail={'ip': ip, 'username': username}, request=request,
+                category='auth', action='login_rate_limited', result='blocked',
+                detail={'ip': ip, 'username': username, 'scope': blocked_scope},
+                request=request,
             )
             messages.error(request, 'Too many login attempts. Please try again in 15 minutes.')
             return render(request, self.template_name, self.get_context_data())
@@ -72,11 +98,13 @@ class AuditLoginView(LoginView):
         self.request.session['login_at'] = time.time()
         # Clear stale active_role from previous session
         self.request.session.pop('active_role', None)
-        # Clear rate limit on successful login
+        # Clear both rate-limit counters on success.
         ip = get_client_ip(self.request) or 'unknown'
-        reset_rate_limit(f'login:{ip}')
+        user_key = (self.request.POST.get('username', '') or '').strip().lower()
+        reset_rate_limit(f'login:user:{user_key}')
+        reset_rate_limit(f'login:ip:{ip}')
         logger.info(
-            'Login success: username=%r ip=%s — login rate-limit counter cleared for this IP',
+            'Login success: username=%r ip=%s — login rate-limit counters cleared',
             self.request.user.get_username(), ip,
         )
         return response
@@ -85,13 +113,16 @@ class AuditLoginView(LoginView):
         from audit.services import log_event, get_client_ip
         from billing.rate_limiting import get_remaining_attempts
         username = form.cleaned_data.get('username') or form.data.get('username', '')
+        user_key = (username or '').strip().lower()
         ip = get_client_ip(self.request) or 'unknown'
         # This failed attempt has already been counted in post(); surface how
-        # many remain so an impending shared-IP lockout is visible in the log
-        # file *before* it trips.
-        remaining = get_remaining_attempts(f'login:{ip}', max_attempts=5)
+        # many remain on the per-username gate so an impending account lockout
+        # is visible in the log file *before* it trips.
+        remaining = get_remaining_attempts(
+            f'login:user:{user_key}', max_attempts=settings.LOGIN_RATELIMIT_USER_MAX,
+        )
         logger.warning(
-            'Login failed: ip=%s username=%r — %s attempt(s) left before 15-min lockout',
+            'Login failed: ip=%s username=%r — %s attempt(s) left before this account locks for 15 min',
             ip, username, remaining,
         )
         log_event(
