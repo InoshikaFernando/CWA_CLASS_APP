@@ -28,6 +28,26 @@ def _get_user_school_ids(user):
         teacher=user, role='head_of_institute', is_active=True,
     ).values_list('school_id', flat=True))
     return list(admin_ids | hoi_ids)
+
+
+def _get_billing_classroom_or_404(request, class_id):
+    """Fetch an active classroom for a per-student billing edit (fee / billing
+    start date), scoped to a school the requesting user actually belongs to.
+
+    The role is already enforced by RoleRequiredMixin; this adds the missing
+    tenant check so a privileged user of one school cannot POST changes to
+    another school's class. Membership = school admin, or any active
+    SchoolTeacher row (HoI / accountant / owner). Superusers bypass.
+    """
+    from django.db.models import Q
+    qs = ClassRoom.objects.filter(id=class_id, is_active=True)
+    if not request.user.is_superuser:
+        qs = qs.filter(
+            Q(school__admin=request.user)
+            | Q(school__school_teachers__teacher=request.user,
+                school__school_teachers__is_active=True)
+        ).distinct()
+    return get_object_or_404(qs)
 from billing.models import ModuleSubscription
 from .models import (
     ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent,
@@ -4353,12 +4373,9 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
     ]
 
     def post(self, request, class_id, student_id):
-        user = request.user
-        # Permission: find the classroom and ensure access (HoI/Accountant+ only)
-        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ACCOUNTANT):
-            classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
-        else:
-            raise Http404
+        # Tenant-scoped: only a class in a school the user belongs to (the role
+        # itself is enforced by RoleRequiredMixin).
+        classroom = _get_billing_classroom_or_404(request, class_id)
 
         cs = get_object_or_404(ClassStudent, classroom=classroom, student_id=student_id)
         old_fee = cs.fee_override  # captured for action-history revert
@@ -4405,12 +4422,9 @@ class UpdateStudentBillingStartView(RoleRequiredMixin, View):
     ]
 
     def post(self, request, class_id, student_id):
-        user = request.user
-        # Permission: HoI / Owner / Admin / Accountant only.
-        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ACCOUNTANT):
-            classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
-        else:
-            raise Http404
+        # Tenant-scoped: only a class in a school the user belongs to (the role
+        # itself is enforced by RoleRequiredMixin).
+        classroom = _get_billing_classroom_or_404(request, class_id)
 
         cs = get_object_or_404(ClassStudent, classroom=classroom, student_id=student_id)
         old_value = cs.billing_start_date  # captured for action-history

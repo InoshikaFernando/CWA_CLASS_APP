@@ -169,6 +169,9 @@ a given class, so invoicing skips sessions before it.
 - **Editable afterwards:** the HoI / Accountant can change or clear it inline on the
   class detail page (per student), next to the fee override
   (`update_student_billing_start`, POST `billing_start_date`). HoD / teacher cannot.
+  The write is school-scoped (`_get_billing_classroom_or_404`): a privileged user of
+  one school cannot edit another school's class (404). The same guard also protects
+  the sibling fee-override endpoint.
 - **NULL semantics:** empty = bill the **full** requested period (e.g. backdated data
   entry for a student who was already attending). A set date = sessions before it are
   not billed.

@@ -124,3 +124,28 @@ class TestUpdateBillingStart(_Base):
         self.assertIn('Start date', body)
         self.assertIn('billing_start_date', body)
         self.assertIn('bills from', body)
+
+    def test_cross_tenant_write_blocked(self):
+        # An HoI/Admin of school A must not edit a class in school B (the role is
+        # held globally, but the user does not belong to school B).
+        admin_b = CustomUser.objects.create_user(
+            username='admin_b_bsd', password='pass', email='admin_b_bsd@test.com',
+        )
+        UserRole.objects.create(user=admin_b, role=_ensure_role(Role.HEAD_OF_INSTITUTE))
+        school_b = School.objects.create(name='BSD School B', admin=admin_b)
+        classroom_b = ClassRoom.objects.create(
+            name='Class B', school=school_b, code='BSD999',
+        )
+        student_b = CustomUser.objects.create_user(
+            username='student_b_bsd', password='pass', email='student_b_bsd@test.com',
+        )
+        UserRole.objects.create(user=student_b, role=_ensure_role(Role.STUDENT))
+        cs_b = ClassStudent.objects.create(
+            classroom=classroom_b, student=student_b, is_active=True,
+        )
+        # admin_bsd (school A HoI/admin) attempts to write school B's data.
+        resp = self._post('admin_bsd', '2026-05-15',
+                          class_id=classroom_b.id, student_id=student_b.id)
+        self.assertEqual(resp.status_code, 404)
+        cs_b.refresh_from_db()
+        self.assertIsNone(cs_b.billing_start_date)
