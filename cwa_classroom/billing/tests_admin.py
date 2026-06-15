@@ -885,6 +885,8 @@ class SubscriptionOverviewTests(TestCase):
         s = self._get().context['students']
         self.assertEqual(s['total'], 4)
         self.assertEqual(s['active'], 2)
+        self.assertEqual(s['paying'], 2)
+        self.assertEqual(s['free'], 0)  # all setUp actives have a package
         self.assertEqual(s['trial'], 1)
         self.assertEqual(s['inactive'], 1)
 
@@ -905,6 +907,8 @@ class SubscriptionOverviewTests(TestCase):
         inst = self._get().context['institutes']
         self.assertEqual(inst['total'], 3)
         self.assertEqual(inst['active'], 1)
+        self.assertEqual(inst['paying'], 1)
+        self.assertEqual(inst['free'], 0)
         self.assertEqual(inst['trial'], 1)
         self.assertEqual(inst['inactive'], 1)
 
@@ -920,8 +924,9 @@ class SubscriptionOverviewTests(TestCase):
         user = _create_normal_user(username='free_student')
         Subscription.objects.create(user=user, package=None, status='active')
         ctx = self._get().context
-        self.assertEqual(ctx['students']['active'], 3)  # counted active
-        self.assertEqual(ctx['students']['paying'], 2)  # but not paying
+        self.assertEqual(ctx['students']['active'], 3)  # active status total
+        self.assertEqual(ctx['students']['paying'], 2)  # paying (priced package)
+        self.assertEqual(ctx['students']['free'], 1)    # active but no package
 
     def test_full_discount_institute_not_paying(self):
         from billing.models import InstituteDiscountCode
@@ -935,6 +940,7 @@ class SubscriptionOverviewTests(TestCase):
         ctx = self._get().context
         self.assertEqual(ctx['institutes']['active'], 1)   # still active
         self.assertEqual(ctx['institutes']['paying'], 0)   # but fully discounted
+        self.assertEqual(ctx['institutes']['free'], 1)     # shows as Free
         self.assertEqual(ctx['institutes']['estimate'], Decimal('0.00'))
 
     # -- earnings: estimate fallback (no Stripe key in tests) --
@@ -1090,9 +1096,10 @@ class SubscriptionOverviewTests(TestCase):
     def test_student_donut_segments(self):
         donut = self._get().context['students']['donut']
         labels = {s['label']: s['value'] for s in donut['segments']}
-        self.assertEqual(labels, {'Active': 2, 'Trial': 1, 'Inactive': 1})
+        # 2 paying (Active), 0 free, 1 trial, 1 inactive
+        self.assertEqual(labels, {'Active': 2, 'Free': 0, 'Trial': 1, 'Inactive': 1})
         self.assertEqual(donut['total'], 4)
-        self.assertEqual(donut['active_pct'], 50.0)  # 2 of 4
+        self.assertEqual(donut['active_pct'], 50.0)  # 2 paying of 4
 
     def test_donut_renders_svg(self):
         resp = self._get()
@@ -1105,7 +1112,7 @@ class SubscriptionOverviewTests(TestCase):
         self.assertEqual(donut['total'], 0)
         self.assertEqual(donut['active_pct'], 0.0)
         # all segments present but zero-valued (template skips rendering them)
-        self.assertEqual(len(donut['segments']), 3)
+        self.assertEqual(len(donut['segments']), 4)
 
 
 class StripeEarningsReportingTests(TestCase):
