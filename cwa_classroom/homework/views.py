@@ -271,28 +271,42 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
         classrooms = _teacher_classrooms(request.user)
         selected_classroom_id = request.GET.get('classroom')
 
-        if selected_classroom_id:
+        # "All" is an explicit filter option that shows homework across every
+        # class the teacher teaches, and is where the detail page's back button
+        # lands (CPP-344). With no param we keep auto-selecting the first class
+        # so the "New Homework" shortcut stays available on first visit.
+        selected_classroom = None
+        show_all = False
+        if selected_classroom_id == 'all':
+            show_all = True
+        elif selected_classroom_id:
             try:
                 selected_classroom = classrooms.get(id=selected_classroom_id)
-            except ClassRoom.DoesNotExist:
+            except (ClassRoom.DoesNotExist, ValueError, TypeError):
                 selected_classroom = classrooms.first()
         else:
             selected_classroom = classrooms.first()
 
-        homework_list = []
-        if selected_classroom:
-            homework_list = (
-                Homework.objects
-                .filter(classroom=selected_classroom)
-                .prefetch_related(
-                    Prefetch('topics', queryset=Topic.objects.select_related('subject', 'parent'))
-                )
-                .order_by('-created_at')
+        if show_all:
+            hw_qs = Homework.objects.filter(classroom__in=classrooms)
+        elif selected_classroom:
+            hw_qs = Homework.objects.filter(classroom=selected_classroom)
+        else:
+            hw_qs = Homework.objects.none()
+
+        homework_list = (
+            hw_qs
+            .select_related('classroom')
+            .prefetch_related(
+                Prefetch('topics', queryset=Topic.objects.select_related('subject', 'parent'))
             )
+            .order_by('-created_at')
+        )
 
         return render(request, self.template_name, {
             'classrooms': classrooms,
             'selected_classroom': selected_classroom,
+            'show_all': show_all,
             'homework_list': homework_list,
         })
 

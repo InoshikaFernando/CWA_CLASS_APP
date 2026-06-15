@@ -5,8 +5,11 @@
 <div class="p-6">
 
   <!-- Header -->
-  <nav class="text-sm text-gray-500 mb-4">
-    <a href="{% url 'homework:teacher_monitor' %}" class="hover:text-gray-700">Homework</a>
+  <nav class="text-sm text-gray-500 mb-4 flex items-center">
+    <a href="{% url 'homework:teacher_monitor' %}?classroom=all" class="inline-flex items-center gap-1 hover:text-gray-700">
+      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
+      Homework
+    </a>
     <span class="mx-2">/</span>
     <span class="text-gray-700">{{ homework.title }}</span>
   </nav>
