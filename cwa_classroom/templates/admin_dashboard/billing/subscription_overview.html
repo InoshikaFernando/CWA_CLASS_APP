@@ -10,6 +10,11 @@
     <div>
       <h1 class="text-2xl font-display font-bold text-gray-900">Subscriptions Overview</h1>
       <p class="text-gray-500 mt-1">Live monitoring of student and institute subscriptions &middot; {{ today|date:"D, j M Y" }}</p>
+      <p class="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        Updated {{ now|date:"H:i:s" }} &middot; auto-refreshes every {{ refresh_seconds }}s
+        <span id="refresh-countdown" class="text-gray-300"></span>
+      </p>
     </div>
     {% if earnings_source == 'stripe' %}
     <span class="text-xs text-emerald-700 bg-emerald-50 rounded-full px-3 py-1">Earnings = <strong>actual paid revenue</strong> from Stripe</span>
@@ -189,4 +194,17 @@
   </div>
 
 </div>
+
+<script>
+  (function () {
+    var seconds = {{ refresh_seconds }};
+    var el = document.getElementById('refresh-countdown');
+    var remaining = seconds;
+    setInterval(function () {
+      remaining -= 1;
+      if (el) { el.textContent = remaining > 0 ? '(' + remaining + 's)' : '(refreshing…)'; }
+      if (remaining <= 0) { window.location.reload(); }
+    }, 1000);
+  })();
+</script>
 {% endblock %}

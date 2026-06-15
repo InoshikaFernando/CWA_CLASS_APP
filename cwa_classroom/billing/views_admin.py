@@ -174,6 +174,8 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
                 'institutions': institutions,
             },
             'today': today,
+            'now': timezone.localtime(),
+            'refresh_seconds': 60,  # auto-refresh interval for the standalone tab
         })
 
     # -- students (B2C) ------------------------------------------------------

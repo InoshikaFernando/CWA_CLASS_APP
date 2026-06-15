@@ -1031,6 +1031,12 @@ class SubscriptionOverviewTests(TestCase):
         self.assertContains(resp, 'Institute Subscriptions')
         self.assertContains(resp, 'Institution Add-ons')
 
+    def test_auto_refresh_present(self):
+        resp = self._get()
+        self.assertEqual(resp.context['refresh_seconds'], 60)
+        self.assertContains(resp, 'auto-refreshes every')
+        self.assertContains(resp, 'window.location.reload()')
+
     # -- B2C exclusion: institute students must NOT count as student subs --
     def test_institute_students_excluded_from_student_panel(self):
         # Baseline: 4 B2C student subs from setUp
