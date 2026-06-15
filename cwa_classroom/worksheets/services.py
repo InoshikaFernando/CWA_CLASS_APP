@@ -740,8 +740,12 @@ def _trim_whitespace(pix):
         # diagram was rendered with header redaction. Build the image with the
         # real channel count, then normalise to RGB. Hardcoding 'RGB' on a
         # 4-channel pixmap mis-aligns the buffer and makes img.save() raise
-        # "tile cannot extend outside image", dropping the whole diagram.
-        mode = 'RGBA' if n == 4 else 'RGB'
+        # "tile cannot extend outside image", dropping the whole diagram. For
+        # anything other than RGB/RGBA (e.g. CMYK n==5) skip the trim rather
+        # than mis-read the buffer.
+        mode = {3: 'RGB', 4: 'RGBA'}.get(n)
+        if mode is None:
+            return pix
         img = Image.frombytes(mode, (w, h), bytes(samples))
         img = img.crop((left, top, right + 1, bottom + 1)).convert('RGB')
         buf = io.BytesIO()

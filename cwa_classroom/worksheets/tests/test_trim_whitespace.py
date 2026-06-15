@@ -36,3 +36,18 @@ def test_trim_whitespace_rgba_returns_png_bytes():
     out = _trim_whitespace(_rgba_with_border())
     assert isinstance(out, (bytes, bytearray))
     assert bytes(out[:8]) == b'\x89PNG\r\n\x1a\n'   # valid PNG signature
+
+
+def test_trim_whitespace_skips_unknown_colorspace():
+    """CMYK (n==5) etc. is returned untrimmed rather than mis-read into RGB."""
+    w = h = 4
+    white = bytes((255, 255, 255, 255, 255))
+    ink = bytes((0, 0, 0, 0, 0))
+    buf = bytearray()
+    for y in range(h):
+        for x in range(w):
+            buf += ink if (1 <= x <= 2 and 1 <= y <= 2) else white
+    pix = _FakePix(w, h, 5, bytes(buf))
+    # Trimming is attempted (non-blank centre) but the unsupported channel count
+    # falls back to the original pixmap, never a corrupted image.
+    assert _trim_whitespace(pix) is pix

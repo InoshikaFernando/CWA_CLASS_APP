@@ -72,6 +72,8 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
           WINDOW_DAYS="${WINDOW_DAYS:-30}"
+          # Coerce to digits only — it's interpolated into a remote shell command.
+          case "$WINDOW_DAYS" in ''|*[!0-9]*) WINDOW_DAYS=30 ;; esac
 
           # Each environment refreshes only its OWN section of the shared issue via
           # the app's update_dashboard_issue() (which section-merges, preserving the
