@@ -316,6 +316,18 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
+# ---------------------------------------------------------------------------
+# Login rate limiting
+# ---------------------------------------------------------------------------
+# Keyed primarily by *username* so a shared-IP site (e.g. a school behind one
+# NAT) can't be locked out collectively by a few students' typos — one
+# student's failures only lock that student. A generous per-IP cap is a
+# secondary safety net against a single host enumerating many accounts; raise
+# LOGIN_RATELIMIT_IP_MAX if a very large school ever trips it.
+LOGIN_RATELIMIT_USER_MAX = int(os.environ.get('LOGIN_RATELIMIT_USER_MAX', '10'))
+LOGIN_RATELIMIT_IP_MAX = int(os.environ.get('LOGIN_RATELIMIT_IP_MAX', '100'))
+LOGIN_RATELIMIT_WINDOW = int(os.environ.get('LOGIN_RATELIMIT_WINDOW', '900'))  # 15 min
+
 
 # ---------------------------------------------------------------------------
 # Internationalisation
