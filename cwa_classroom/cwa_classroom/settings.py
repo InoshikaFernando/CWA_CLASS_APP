@@ -124,6 +124,15 @@ CLAUDE_INPUT_COST_PER_MTOK = float(
 CLAUDE_OUTPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '25.0'))
 
+# Live AI usage dashboard — after each AI call the worker rewrites a pinned
+# GitHub issue with the latest usage/cost. Best-effort: stays disabled (no-op)
+# until a token + repo are configured, so dev/test/local never call out.
+AI_DASHBOARD_GITHUB_TOKEN = os.environ.get('AI_DASHBOARD_GITHUB_TOKEN', '')
+AI_DASHBOARD_GITHUB_REPO = os.environ.get('AI_DASHBOARD_GITHUB_REPO', '')
+AI_DASHBOARD_ISSUE_LABEL = os.environ.get('AI_DASHBOARD_ISSUE_LABEL', 'ai-usage-dashboard')
+AI_DASHBOARD_ISSUE_NUMBER = os.environ.get('AI_DASHBOARD_ISSUE_NUMBER', '')
+AI_USAGE_WINDOW_DAYS = int(os.environ.get('AI_USAGE_WINDOW_DAYS', '30'))
+
 # ---------------------------------------------------------------------------
 # Redis / RQ  (background task processing)
 # ---------------------------------------------------------------------------
@@ -228,8 +237,27 @@ if _DB_ENGINE == 'sqlite':
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            # Live-server tests (Playwright UI suite) run the dev server in a
+            # thread that writes to the same SQLite file as the test, so writers
+            # contend. Wait up to 30s for the lock instead of erroring at
+            # SQLite's 5s default — fixes intermittent "database is locked".
+            'OPTIONS': {'timeout': 30},
         },
     }
+
+    # Put SQLite in WAL mode on every new connection so readers don't block the
+    # writer (the other half of the "database is locked" fix). Scoped to the
+    # sqlite vendor, so this is a no-op for MySQL/Postgres (prod is untouched).
+    from django.db.backends.signals import connection_created
+
+    def _enable_sqlite_wal(sender, connection, **kwargs):
+        if connection.vendor == 'sqlite':
+            cursor = connection.cursor()
+            cursor.execute('PRAGMA journal_mode=WAL;')
+            cursor.execute('PRAGMA synchronous=NORMAL;')
+            cursor.execute('PRAGMA busy_timeout=30000;')
+
+    connection_created.connect(_enable_sqlite_wal, dispatch_uid='sqlite_wal_pragmas')
 elif _DB_ENGINE == 'postgres':
     DATABASES = {
         'default': {

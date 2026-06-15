@@ -18,12 +18,13 @@ name: AI Usage Dashboard
 #   PROD_ENV_FILE         — default /etc/cwa/cwa.env
 #   AI_USAGE_WINDOW_DAYS  — default 30
 #
-# Cost note: scheduled daily (~1 run/day). On a private repo that bills Actions
-# minutes this is cheap; bump the cron if you want it fresher.
+# Cost note: scheduled hourly (~24 runs/day, ~11s each). This is the backstop —
+# the app also refreshes the issue live after each AI call (record_ai_usage), so
+# the hourly run mainly corrects drift / covers windows with no AI activity.
 
 on:
   schedule:
-    - cron: "23 6 * * *"     # daily, ~06:23 UTC
+    - cron: "23 * * * *"     # hourly, at :23 past (off the top-of-hour rush)
   workflow_dispatch:
 
 concurrency:
