@@ -58,10 +58,33 @@
       Student Subscriptions <span class="text-sm font-normal text-gray-400">(individual / B2C)</span>
     </h2>
 
+    {% if counts_source == 'stripe' %}
+    <p class="text-xs text-emerald-600 font-medium mb-2 flex items-center gap-1.5">
+      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>Counts live from Stripe (all paying students, incl. school students)
+    </p>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+        <p class="text-3xl font-bold text-gray-900">{{ students.stripe.total }}</p>
+        <p class="text-sm text-gray-500">Total</p>
+      </div>
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+        <p class="text-3xl font-bold text-emerald-600">{{ students.stripe.paid }}</p>
+        <p class="text-sm text-gray-500">Paid <span class="text-gray-400">(active)</span></p>
+      </div>
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+        <p class="text-3xl font-bold text-amber-600">{{ students.stripe.trial }}</p>
+        <p class="text-sm text-gray-500">Trial</p>
+      </div>
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+        <p class="text-3xl font-bold text-gray-400">{{ students.stripe.other }}</p>
+        <p class="text-sm text-gray-500">Past due / canceled</p>
+      </div>
+    </div>
+    {% else %}
     <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
       <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
         <p class="text-3xl font-bold text-gray-900">{{ students.total }}</p>
-        <p class="text-sm text-gray-500">Total</p>
+        <p class="text-sm text-gray-500">Total <span class="text-gray-400">(app DB)</span></p>
       </div>
       <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
         <p class="text-3xl font-bold text-emerald-600">{{ students.paying }}</p>
@@ -80,6 +103,7 @@
         <p class="text-sm text-gray-500">Inactive</p>
       </div>
     </div>
+    {% endif %}
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <!-- Status donut -->
@@ -114,10 +138,33 @@
       Institute Subscriptions
     </h2>
 
+    {% if counts_source == 'stripe' %}
+    <p class="text-xs text-emerald-600 font-medium mb-2 flex items-center gap-1.5">
+      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>Counts live from Stripe
+    </p>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+        <p class="text-3xl font-bold text-gray-900">{{ institutes.stripe.total }}</p>
+        <p class="text-sm text-gray-500">Total</p>
+      </div>
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+        <p class="text-3xl font-bold text-emerald-600">{{ institutes.stripe.paid }}</p>
+        <p class="text-sm text-gray-500">Paid <span class="text-gray-400">(active)</span></p>
+      </div>
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+        <p class="text-3xl font-bold text-amber-600">{{ institutes.stripe.trial }}</p>
+        <p class="text-sm text-gray-500">Trial</p>
+      </div>
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+        <p class="text-3xl font-bold text-gray-400">{{ institutes.stripe.other }}</p>
+        <p class="text-sm text-gray-500">Past due / canceled</p>
+      </div>
+    </div>
+    {% else %}
     <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
       <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
         <p class="text-3xl font-bold text-gray-900">{{ institutes.total }}</p>
-        <p class="text-sm text-gray-500">Total</p>
+        <p class="text-sm text-gray-500">Total <span class="text-gray-400">(app DB)</span></p>
       </div>
       <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
         <p class="text-3xl font-bold text-emerald-600">{{ institutes.paying }}</p>
@@ -136,6 +183,7 @@
         <p class="text-sm text-gray-500">Inactive</p>
       </div>
     </div>
+    {% endif %}
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <!-- Status donut -->
