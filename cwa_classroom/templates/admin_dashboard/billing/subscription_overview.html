@@ -23,6 +23,45 @@
     {% endif %}
   </div>
 
+  <!-- ====================== AT-A-GLANCE (no scroll) ====================== -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+    <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+      <p class="text-2xl font-bold text-emerald-600">{% if counts_source == 'stripe' %}{{ students.stripe.paid }}{% else %}{{ students.paying }}{% endif %}</p>
+      <p class="text-xs text-gray-500">Paying students</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+      <p class="text-2xl font-bold text-indigo-600">{% if counts_source == 'stripe' %}{{ institutes.stripe.paid }}{% else %}{{ institutes.paying }}{% endif %}</p>
+      <p class="text-xs text-gray-500">Paying institutes</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+      <p class="text-2xl font-bold text-gray-900">{% if earnings_source == 'stripe' %}${{ combined_this_month }}{% else %}~${{ combined_estimate }}{% endif %}</p>
+      <p class="text-xs text-gray-500">This month{% if earnings_source != 'stripe' %} (est.){% endif %}</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+      <p class="text-2xl font-bold text-gray-900">{% if earnings_source == 'stripe' %}${{ combined_last_month }}{% else %}&mdash;{% endif %}</p>
+      <p class="text-xs text-gray-500">Last month</p>
+    </div>
+  </div>
+
+  <!-- Daily active subscriptions graph -->
+  <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm mb-8">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+      <h2 class="text-base font-semibold text-gray-900">Daily active subscriptions</h2>
+      <div class="flex gap-1">
+        {% for opt in daily_window_options %}
+        <button type="button" onclick="setDays({{ opt.days }})"
+          class="px-2.5 py-1 text-xs font-medium rounded-lg transition {% if opt.days == daily_window %}bg-accent text-white{% else %}bg-slate-100 text-gray-600 hover:bg-slate-200{% endif %}">{{ opt.label }}</button>
+        {% endfor %}
+      </div>
+    </div>
+    <div style="position:relative;height:240px">
+      <canvas id="dailyChart" role="img" aria-label="Line chart of daily active student and institute subscriptions"></canvas>
+    </div>
+  </div>
+  {{ daily.labels|json_script:"daily-labels" }}
+  {{ daily.student|json_script:"daily-student" }}
+  {{ daily.institute|json_script:"daily-institute" }}
+
   <!-- Filter bar -->
   <form method="get" class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm mb-8 flex flex-wrap items-end gap-4">
     <div>
@@ -252,6 +291,13 @@
 </div>
 
 <script>
+  // Window selector: set ?days= preserving other query params (filters).
+  function setDays(d) {
+    var u = new URL(window.location);
+    u.searchParams.set('days', d);
+    window.location = u.toString();
+  }
+
   (function () {
     var seconds = {{ refresh_seconds }};
     var el = document.getElementById('refresh-countdown');
@@ -261,6 +307,41 @@
       if (el) { el.textContent = remaining > 0 ? '(' + remaining + 's)' : '(refreshing…)'; }
       if (remaining <= 0) { window.location.reload(); }
     }, 1000);
+  })();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script>
+  (function () {
+    var ctx = document.getElementById('dailyChart');
+    if (!ctx || typeof Chart === 'undefined') { return; }
+    var labels = JSON.parse(document.getElementById('daily-labels').textContent);
+    var students = JSON.parse(document.getElementById('daily-student').textContent);
+    var institutes = JSON.parse(document.getElementById('daily-institute').textContent);
+    var dense = labels.length > 60;
+    new Chart(ctx.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: 'Students', data: students, borderColor: '#10b981',
+            backgroundColor: 'rgba(16,185,129,0.08)', borderWidth: 2,
+            pointRadius: dense ? 0 : 2, tension: 0.25, fill: true },
+          { label: 'Institutes', data: institutes, borderColor: '#6366f1',
+            backgroundColor: 'rgba(99,102,241,0.08)', borderWidth: 2,
+            pointRadius: dense ? 0 : 2, tension: 0.25, fill: true }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: { ticks: { maxTicksLimit: 12, autoSkip: true, maxRotation: 0 },
+               grid: { display: false } },
+          y: { beginAtZero: true, ticks: { precision: 0 } }
+        },
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, usePointStyle: true } } }
+      }
+    });
   })();
 </script>
 {% endblock %}
