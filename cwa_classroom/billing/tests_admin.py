@@ -1154,7 +1154,8 @@ class SubscriptionOverviewTests(TestCase):
 
     def test_donut_renders_svg(self):
         resp = self._get()
-        self.assertContains(resp, 'Status breakdown')
+        self.assertContains(resp, 'Student status')
+        self.assertContains(resp, 'Institute status')
         self.assertContains(resp, 'stroke-dasharray')
 
     def test_donut_handles_zero_total(self):

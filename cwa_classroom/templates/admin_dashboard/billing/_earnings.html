@@ -1,40 +1,40 @@
 {% comment %}
-Earnings card for a panel. Shows actual paid Stripe revenue (this/last month)
-when source == 'stripe', otherwise a local discount-aware estimate with a
-warning. Usage:
-  {% include 'admin_dashboard/billing/_earnings.html' with panel=students source=earnings_source %}
+Earnings card for a panel (dark theme). Shows actual paid Stripe revenue
+(this/last month) when source == 'stripe', otherwise a local discount-aware
+estimate with a warning. Usage:
+  {% include 'admin_dashboard/billing/_earnings.html' with panel=students source=earnings_source currency=earnings_currency %}
 {% endcomment %}
-<div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-  <div class="flex gap-6 mb-5 pb-5 border-b border-slate-100">
+<div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+  <div class="flex gap-6 mb-5 pb-5 border-b border-slate-700">
     <div>
-      <p class="text-2xl font-bold text-emerald-600">+{{ panel.new_today }}</p>
-      <p class="text-xs text-gray-500">New today</p>
+      <p class="text-2xl font-bold text-emerald-400">+{{ panel.new_today }}</p>
+      <p class="text-xs text-slate-400">New today</p>
     </div>
     <div>
-      <p class="text-2xl font-bold text-rose-600">&minus;{{ panel.lost_today }}</p>
-      <p class="text-xs text-gray-500">Lost today</p>
+      <p class="text-2xl font-bold text-rose-400">&minus;{{ panel.lost_today }}</p>
+      <p class="text-xs text-slate-400">Lost today</p>
     </div>
   </div>
   {% if source == 'stripe' %}
-    <p class="text-xs text-emerald-600 font-medium mb-3 flex items-center gap-1.5">
-      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>Actual paid revenue (Stripe){% if currency and currency != 'MIXED' %} &middot; {{ currency }}{% endif %}
+    <p class="text-xs text-emerald-400 font-medium mb-3 flex items-center gap-1.5">
+      <span class="w-2 h-2 rounded-full bg-emerald-400"></span>Actual paid revenue (Stripe){% if currency and currency != 'MIXED' %} &middot; {{ currency }}{% endif %}
     </p>
     <dl class="space-y-2 text-sm">
-      <div class="flex justify-between"><dt class="text-gray-500">Last month</dt><dd class="font-semibold text-gray-900">${{ panel.last_month }}</dd></div>
+      <div class="flex justify-between"><dt class="text-slate-400">Last month</dt><dd class="font-semibold text-white">${{ panel.last_month }}</dd></div>
       <div class="flex justify-between">
-        <dt class="text-gray-500">This month {% if panel.this_month_count %}<span class="text-gray-400">({{ panel.this_month_count }} inv)</span>{% endif %}</dt>
-        <dd class="font-semibold text-gray-900">${{ panel.this_month }}</dd>
+        <dt class="text-slate-400">This month {% if panel.this_month_count %}<span class="text-slate-500">({{ panel.this_month_count }} inv)</span>{% endif %}</dt>
+        <dd class="font-semibold text-white">${{ panel.this_month }}</dd>
       </div>
     </dl>
     {% if currency == 'MIXED' %}
-    <p class="text-xs text-amber-600 mt-2">&#9888; Mixed currencies — total not directly comparable</p>
+    <p class="text-xs text-amber-400 mt-2">&#9888; Mixed currencies — total not directly comparable</p>
     {% endif %}
   {% else %}
-    <p class="text-xs text-amber-600 font-medium mb-3 flex items-center gap-1.5">
-      <span class="w-2 h-2 rounded-full bg-amber-500"></span>Stripe unavailable — estimate
+    <p class="text-xs text-amber-400 font-medium mb-3 flex items-center gap-1.5">
+      <span class="w-2 h-2 rounded-full bg-amber-400"></span>Stripe unavailable — estimate
     </p>
     <dl class="space-y-2 text-sm">
-      <div class="flex justify-between"><dt class="text-gray-500">Est. monthly run-rate</dt><dd class="font-semibold text-gray-900">${{ panel.estimate }}</dd></div>
+      <div class="flex justify-between"><dt class="text-slate-400">Est. monthly run-rate</dt><dd class="font-semibold text-white">${{ panel.estimate }}</dd></div>
     </dl>
   {% endif %}
 </div>
