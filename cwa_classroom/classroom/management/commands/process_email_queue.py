@@ -1,10 +1,19 @@
 """
 Management command: process_email_queue
 
-Drains the EmailQueue table up to the remaining daily sending quota.
-Run via cron every 2 minutes to deliver queued emails promptly:
+Drains the EmailQueue table. The live email path no longer queues emails
+(invoices and lifecycle emails send synchronously), so this command is kept
+primarily as a one-time tool to flush any backlog left behind by the old
+queue, e.g. invoices/welcome emails that were enqueued but never delivered:
 
-    */2 * * * * /home/cwa/CWA_CLASS_APP/venv/bin/python manage.py process_email_queue
+    # Send every pending email, ignoring the historical daily cap:
+    python manage.py process_email_queue --ignore-daily-limit
+
+    # Preview first:
+    python manage.py process_email_queue --ignore-daily-limit --dry-run
+
+Without --ignore-daily-limit it still honours DAILY_EMAIL_LIMIT, matching the
+old cron behaviour.
 """
 import logging
 
@@ -26,9 +35,15 @@ class Command(BaseCommand):
             '--dry-run', action='store_true',
             help='Print what would be sent without actually sending.',
         )
+        parser.add_argument(
+            '--ignore-daily-limit', action='store_true',
+            help='Send every pending email regardless of DAILY_EMAIL_LIMIT '
+                 '(use for a one-time backlog flush).',
+        )
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
+        ignore_limit = options['ignore_daily_limit']
         today = timezone.now().date()
 
         # Reset previously failed emails back to pending for one retry attempt
@@ -39,20 +54,28 @@ class Command(BaseCommand):
         if retried:
             self.stdout.write(f'Reset {retried} previously failed email(s) to pending for retry.')
 
-        sent_today = EmailLog.objects.filter(status='sent', sent_at__date=today).count()
-        remaining = DAILY_EMAIL_LIMIT - sent_today
+        pending_qs = EmailQueue.objects.filter(status=EmailQueue.STATUS_PENDING).order_by('created_at')
 
-        if remaining <= 0:
-            self.stdout.write(f'Daily limit already reached ({sent_today}/{DAILY_EMAIL_LIMIT}). Nothing sent.')
-            return
+        if ignore_limit:
+            pending = list(pending_qs)
+        else:
+            sent_today = EmailLog.objects.filter(status='sent', sent_at__date=today).count()
+            remaining = DAILY_EMAIL_LIMIT - sent_today
 
-        pending = EmailQueue.objects.filter(status=EmailQueue.STATUS_PENDING).order_by('created_at')[:remaining]
+            if remaining <= 0:
+                self.stdout.write(f'Daily limit already reached ({sent_today}/{DAILY_EMAIL_LIMIT}). Nothing sent.')
+                return
+
+            pending = list(pending_qs[:remaining])
 
         if not pending:
             self.stdout.write('No queued emails to send.')
             return
 
-        self.stdout.write(f'Sending {len(pending)} queued email(s) ({sent_today} already sent today, limit {DAILY_EMAIL_LIMIT}).')
+        if ignore_limit:
+            self.stdout.write(f'Sending {len(pending)} queued email(s) (daily limit ignored).')
+        else:
+            self.stdout.write(f'Sending {len(pending)} queued email(s) ({sent_today} already sent today, limit {DAILY_EMAIL_LIMIT}).')
 
         sent = 0
         failed = 0

@@ -787,9 +787,9 @@ def issue_invoices(invoice_ids, user):
 
             issued.append(invoice)
 
-    # Queue email notifications for background delivery (outside transaction)
+    # Send email notifications (outside transaction)
     for invoice in issued:
-        _send_invoice_email(invoice, force_queue=True)
+        _send_invoice_email(invoice)
 
     return issued
 
@@ -813,16 +813,15 @@ def _resolve_invoice_recipients(policy, parent_links, guardian_links):
     return (not has_parents), True
 
 
-def _send_invoice_email(invoice, force_queue=False):
+def _send_invoice_email(invoice):
     """
     Send the invoice issued email to the student + linked parents/guardians.
 
-    When ``force_queue`` is True, emails are written to the EmailQueue table
-    for background delivery instead of being sent synchronously.
+    Emails are sent synchronously via the configured email backend.
 
     Returns a dict:
         {
-            'sent': [<email str>, ...],   # successfully delivered (queued) recipients
+            'sent': [<email str>, ...],   # successfully delivered recipients
             'failed': [<email str>, ...], # recipients we attempted but errored
             'skipped_no_email': bool,     # True if the student has no email at all
         }
@@ -960,7 +959,6 @@ def _send_invoice_email(invoice, force_queue=False):
                 school=school,
                 department=primary_dept,
                 invoice=invoice,
-                force_queue=force_queue,
             )
         except Exception:
             logger.warning('Invoice %s: unexpected error sending to student %s', invoice.invoice_number, student.email, exc_info=True)
@@ -986,7 +984,6 @@ def _send_invoice_email(invoice, force_queue=False):
                         school=school,
                         department=primary_dept,
                         invoice=invoice,
-                        force_queue=force_queue,
                     )
                 except Exception:
                     logger.warning('Invoice %s: unexpected error sending to parent %s', invoice.invoice_number, link.parent.email, exc_info=True)
@@ -1010,7 +1007,6 @@ def _send_invoice_email(invoice, force_queue=False):
                         school=school,
                         department=primary_dept,
                         invoice=invoice,
-                        force_queue=force_queue,
                     )
                 except Exception:
                     logger.warning('Invoice %s: unexpected error sending to guardian %s', invoice.invoice_number, sg.guardian.email, exc_info=True)

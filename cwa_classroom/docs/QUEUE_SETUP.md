@@ -164,8 +164,17 @@ task, job = enqueue_task(
 # task.status — pending → running → done/failed
 ```
 
-## EmailQueue
+## EmailQueue (decommissioned)
 
-The email queue (`classroom.EmailQueue`) remains on its own cron-based system
-(`process_email_queue` management command, every 2 minutes). It is **not**
-migrated to RQ because its daily rate limiting logic is simpler as a cron job.
+The email queue (`classroom.EmailQueue`) is **no longer used** for live
+delivery. Invoices and lifecycle emails (welcome, etc.) now send
+**synchronously** via the configured email backend (Resend) — there is no
+longer a daily-cap overflow into the queue, so no cron is required.
+
+The `process_email_queue` management command is retained only as a one-time
+tool to flush any backlog left in the table by the old system:
+
+```bash
+python manage.py process_email_queue --ignore-daily-limit --dry-run  # preview
+python manage.py process_email_queue --ignore-daily-limit            # send all
+```

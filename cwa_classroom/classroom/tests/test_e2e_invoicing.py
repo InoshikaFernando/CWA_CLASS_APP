@@ -833,15 +833,10 @@ class InvoiceNotificationTest(TestCase):
         self.assertIsNotNone(invoice)
         self.assertEqual(invoice.status, 'issued')
 
-        # Emails are now queued for background delivery instead of sent inline
-        from classroom.models import EmailQueue
-        queued = EmailQueue.objects.filter(
-            status=EmailQueue.STATUS_PENDING,
-            notification_type='invoice',
-        )
-        self.assertGreaterEqual(queued.count(), 1)
-        queued_to = list(queued.values_list('recipient_email', flat=True))
-        self.assertIn('wlhtestmails+frank@gmail.com', queued_to)
+        # Emails are sent synchronously via the configured backend (outbox in tests)
+        self.assertGreaterEqual(len(mail.outbox), 1)
+        recipients = [addr for m in mail.outbox for addr in m.to]
+        self.assertIn('wlhtestmails+frank@gmail.com', recipients)
 
     def test_issued_invoice_has_due_date(self):
         """Issued invoice has a due_date calculated from school.invoice_due_days."""
