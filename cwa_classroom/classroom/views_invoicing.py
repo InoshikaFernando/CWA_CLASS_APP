@@ -65,38 +65,54 @@ def _parse_date(date_str):
 # Invoice email send-status (CPP-343)
 #
 # Each invoice email produces one EmailLog row per recipient (student / parents
-# / guardians) with status sent|failed. The list view summarises these into a
-# single per-invoice "did the email go out?" state, distinct from the
-# issued/draft/cancelled invoice status. A successful Resend writes newer 'sent'
-# logs, so comparing the newest sent vs newest failed timestamp flips a failed
-# invoice back to sent automatically.
+# / guardians). A row starts at 'sent' (accepted by Resend) or 'failed' (never
+# accepted), then advances in place as Resend delivery webhooks arrive:
+# delivered / opened / clicked / delayed (the email left us OK) or
+# bounced / complained (a delivery failure). The list view collapses an
+# invoice's rows into one "did it actually get there?" state, distinct from the
+# issued/draft/cancelled invoice status.
+#
+# Rows are grouped into GOOD (handed off / delivered) and BAD (send or delivery
+# failure). The newest BAD vs newest GOOD timestamp decides the headline state,
+# so a later Resend flips a bad invoice back to good automatically, while a
+# partial-batch failure (good + bad at the same instant) still surfaces.
 # ---------------------------------------------------------------------------
 
+# Statuses meaning "the email left us successfully" vs "send/delivery failed".
+_EMAIL_GOOD_STATUSES = ('sent', 'delivered', 'opened', 'clicked', 'delayed')
+_EMAIL_BAD_STATUSES = ('failed', 'bounced', 'complained')
+# Within GOOD, these mean the recipient's server actually accepted it.
+_EMAIL_DELIVERED_STATUSES = ('delivered', 'opened', 'clicked')
+# Within BAD, these are delivery (not send) failures.
+_EMAIL_BOUNCED_STATUSES = ('bounced', 'complained')
+
+
 def _annotate_invoice_email_state(invoices):
-    """Annotate each invoice with the timestamp of its latest sent/failed email
-    log and the latest failure reason (NULL when no logs exist)."""
+    """Annotate each invoice with its latest good/bad email log timestamps,
+    the latest good and bad row statuses, and the latest failure reason
+    (all NULL when no matching logs exist)."""
     logs = EmailLog.objects.filter(invoice=models.OuterRef('pk'))
+    good = logs.filter(status__in=_EMAIL_GOOD_STATUSES).order_by('-sent_at', '-pk')
+    bad = logs.filter(status__in=_EMAIL_BAD_STATUSES).order_by('-sent_at', '-pk')
     # '-pk' tiebreaks logs that share an exact sent_at (e.g. a batch where two
-    # recipients fail in the same instant) so the surfaced timestamp/error is
-    # deterministic across requests.
+    # recipients fail in the same instant) so the surfaced row is deterministic.
     return invoices.annotate(
         last_email_sent=models.Subquery(
-            logs.filter(status='sent').order_by('-sent_at', '-pk').values('sent_at')[:1],
-            output_field=models.DateTimeField(),
+            good.values('sent_at')[:1], output_field=models.DateTimeField(),
         ),
         last_email_failed=models.Subquery(
-            logs.filter(status='failed').order_by('-sent_at', '-pk').values('sent_at')[:1],
-            output_field=models.DateTimeField(),
+            bad.values('sent_at')[:1], output_field=models.DateTimeField(),
         ),
-        last_email_error=models.Subquery(
-            logs.filter(status='failed').order_by('-sent_at', '-pk').values('error_message')[:1],
-        ),
+        last_email_good_status=models.Subquery(good.values('status')[:1]),
+        last_email_bad_status=models.Subquery(bad.values('status')[:1]),
+        last_email_error=models.Subquery(bad.values('error_message')[:1]),
+        last_email_bounce_reason=models.Subquery(bad.values('bounce_reason')[:1]),
     )
 
 
 # Queryset predicates for the ?email= filter, applied on the annotations above.
 # A failure that is not strictly older than the latest success counts as failed,
-# so a partial-batch failure (sent + failed at the same instant) surfaces. Only a
+# so a partial-batch failure (good + bad at the same instant) surfaces. Only a
 # strictly-later success — e.g. a Resend — flips the invoice back to sent.
 _INVOICE_EMAIL_FILTER_Q = {
     'failed': (
@@ -116,13 +132,23 @@ _INVOICE_EMAIL_FILTER_Q = {
 
 
 def _invoice_email_state(invoice):
-    """Derive the display state ('sent' | 'failed' | 'none') for an invoice that
-    has been run through _annotate_invoice_email_state."""
+    """Derive the display state for an invoice that has been run through
+    _annotate_invoice_email_state.
+
+    Returns one of: 'delivered' | 'sent' | 'bounced' | 'failed' | 'none'.
+    'sent' means accepted by Resend but not yet confirmed delivered; 'delivered'
+    means the recipient's server accepted it (or it was opened/clicked).
+    'bounced' is a hard delivery failure; 'failed' is a send failure.
+    """
     last_sent = invoice.last_email_sent
     last_failed = invoice.last_email_failed
     if last_failed is not None and (last_sent is None or last_failed >= last_sent):
+        if invoice.last_email_bad_status in _EMAIL_BOUNCED_STATUSES:
+            return 'bounced'
         return 'failed'
     if last_sent is not None:
+        if invoice.last_email_good_status in _EMAIL_DELIVERED_STATUSES:
+            return 'delivered'
         return 'sent'
     return 'none'
 

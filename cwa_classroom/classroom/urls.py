@@ -8,6 +8,7 @@ from . import views_student
 from . import views_progress
 from . import views_hierarchy
 from . import views_invoicing
+from . import views_webhooks
 from . import views_salaries
 from . import views_parent
 from . import views_parent_admin
@@ -342,6 +343,9 @@ urlpatterns = [
     path('invoicing/<int:invoice_id>/cancel/', views_invoicing.CancelInvoiceView.as_view(), name='cancel_invoice'),
     path('invoicing/<int:invoice_id>/resend/', views_invoicing.ResendInvoiceView.as_view(), name='resend_invoice'),
     path('invoicing/<int:invoice_id>/pay/', views_invoicing.RecordManualPaymentView.as_view(), name='record_manual_payment'),
+
+    # Inbound webhooks (unauthenticated, signature-verified)
+    path('webhooks/resend/', views_webhooks.ResendWebhookView.as_view(), name='resend_webhook'),
     path('invoicing/csv/upload/', views_invoicing.CSVUploadView.as_view(), name='csv_upload'),
     path('invoicing/csv/mapping/', views_invoicing.CSVColumnMappingView.as_view(), name='csv_column_mapping'),
     path('invoicing/csv/<int:import_id>/review/', views_invoicing.CSVReviewMatchesView.as_view(), name='csv_review_matches'),

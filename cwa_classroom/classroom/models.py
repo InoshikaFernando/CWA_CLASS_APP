@@ -1802,11 +1802,37 @@ class EmailCampaign(models.Model):
 
 
 class EmailLog(models.Model):
-    """Tracks every individual email sent through the system."""
+    """Tracks every individual email sent through the system.
+
+    ``status`` starts at ``sent`` (accepted by Resend) or ``failed`` (never
+    accepted), then advances as Resend webhooks report what the recipient's
+    mail server did with it (delivered/bounced/etc.) — see
+    ``apply_delivery_event``.
+    """
     STATUS_CHOICES = [
-        ('sent', 'Sent'),
-        ('failed', 'Failed'),
+        ('sent', 'Sent'),            # accepted by Resend, awaiting delivery
+        ('delivered', 'Delivered'),  # recipient server accepted it
+        ('opened', 'Opened'),
+        ('clicked', 'Clicked'),
+        ('delayed', 'Delayed'),      # transient issue, Resend retrying
+        ('bounced', 'Bounced'),
+        ('complained', 'Complained'),  # recipient marked as spam
+        ('failed', 'Failed'),        # never accepted by Resend
     ]
+
+    # Status precedence for webhook updates. A later, lower-ranked event (e.g. a
+    # delayed "opened") must not clobber a terminal outcome (e.g. "bounced").
+    STATUS_RANK = {
+        'sent': 0,
+        'delayed': 1,
+        'opened': 2,
+        'clicked': 3,
+        'delivered': 4,
+        'complained': 5,
+        'bounced': 5,
+        'failed': 5,
+    }
+
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='email_logs',
@@ -1832,11 +1858,61 @@ class EmailLog(models.Model):
     error_message = models.TextField(blank=True)
     sent_at = models.DateTimeField(auto_now_add=True)
 
+    # Delivery tracking (populated by the Resend webhook). provider_message_id
+    # is the Resend email id and the correlation key for incoming events.
+    provider_message_id = models.CharField(max_length=255, blank=True, db_index=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    opened_at = models.DateTimeField(null=True, blank=True)
+    clicked_at = models.DateTimeField(null=True, blank=True)
+    bounced_at = models.DateTimeField(null=True, blank=True)
+    complained_at = models.DateTimeField(null=True, blank=True)
+    bounce_reason = models.TextField(blank=True)
+    status_updated_at = models.DateTimeField(null=True, blank=True)
+
+    # Maps a webhook status to the timestamp field it stamps (None = no stamp).
+    _STATUS_TIMESTAMP_FIELD = {
+        'delivered': 'delivered_at',
+        'opened': 'opened_at',
+        'clicked': 'clicked_at',
+        'bounced': 'bounced_at',
+        'complained': 'complained_at',
+        'delayed': None,
+    }
+
     class Meta:
         ordering = ['-sent_at']
 
     def __str__(self):
         return f'{self.recipient_email} — {self.subject} ({self.status})'
+
+    def apply_delivery_event(self, new_status, when, reason=''):
+        """Apply a webhook delivery event, respecting status precedence.
+
+        Always stamps the event's own timestamp field (so we keep an accurate
+        record of every event), but only advances ``status`` when the new
+        event ranks at least as high as the current one — preventing a late
+        "opened" from overwriting a terminal "bounced". Returns True if the row
+        was changed. The caller is responsible for saving.
+        """
+        changed = False
+        ts_field = self._STATUS_TIMESTAMP_FIELD.get(new_status)
+        if ts_field and getattr(self, ts_field) is None:
+            setattr(self, ts_field, when)
+            changed = True
+
+        if new_status == 'bounced' and reason and not self.bounce_reason:
+            self.bounce_reason = reason
+            changed = True
+
+        current_rank = self.STATUS_RANK.get(self.status, 0)
+        new_rank = self.STATUS_RANK.get(new_status, 0)
+        if new_rank >= current_rank and new_status != self.status:
+            self.status = new_status
+            changed = True
+
+        if changed:
+            self.status_updated_at = when
+        return changed
 
 
 class EmailQueue(models.Model):

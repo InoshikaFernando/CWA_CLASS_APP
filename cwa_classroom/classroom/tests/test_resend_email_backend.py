@@ -259,6 +259,34 @@ class TestResendBackendMultipleRecipients:
         assert call_params['to'] == ['a@example.com', 'b@example.com', 'c@example.com']
 
 
+class TestResendBackendMessageId:
+    """Tests that the Resend message id is captured back onto the message."""
+
+    @patch('cwa_classroom.email_backends.resend.Emails.send')
+    def test_message_id_captured_from_dict_response(self, mock_send, resend_backend):
+        """The Resend id is stashed on the message for EmailLog correlation."""
+        mock_send.return_value = {'id': 'msg_12345'}
+        msg = EmailMessage(
+            subject='Test', body='Body',
+            from_email='noreply@wizardslearninghub.co.nz',
+            to=['user@example.com'],
+        )
+        resend_backend.send_messages([msg])
+        assert msg.resend_message_id == 'msg_12345'
+
+    @patch('cwa_classroom.email_backends.resend.Emails.send')
+    def test_message_id_empty_when_absent(self, mock_send, resend_backend):
+        """A response without an id yields an empty string, not an error."""
+        mock_send.return_value = {}
+        msg = EmailMessage(
+            subject='Test', body='Body',
+            from_email='noreply@wizardslearninghub.co.nz',
+            to=['user@example.com'],
+        )
+        resend_backend.send_messages([msg])
+        assert msg.resend_message_id == ''
+
+
 class TestSettingsFallback:
     """Tests for settings fallback chain."""
 

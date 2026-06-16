@@ -441,6 +441,11 @@ DAILY_EMAIL_LIMIT = int(os.environ.get('DAILY_EMAIL_LIMIT', '90'))
 # Priority: Resend API (recommended) > SMTP (legacy) > Console (dev)
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
 
+# Signing secret for the Resend delivery webhook (/webhooks/resend/). Copy it
+# from the webhook's page in the Resend dashboard. Without it, the endpoint
+# rejects all events.
+RESEND_WEBHOOK_SECRET = os.environ.get('RESEND_WEBHOOK_SECRET', '')
+
 if RESEND_API_KEY:
     EMAIL_BACKEND = 'cwa_classroom.email_backends.ResendEmailBackend'
 else:
