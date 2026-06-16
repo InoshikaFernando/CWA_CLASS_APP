@@ -131,6 +131,13 @@ class StudentCSVExportTests(TestCase):
         self.assertEqual(row['Parent 2 Name'], 'John Brown')
         self.assertEqual(row['Parent 2 Email'], 'dad@home.test')
 
+    def test_csv_formula_injection_neutralised(self):
+        """A name starting with = is prefixed so spreadsheets don't run it."""
+        _make_student('eve', self.school, first_name='=cmd|calc', last_name='Evil')
+        rows = self._download()
+        row = dict(zip(rows[0], rows[1]))
+        self.assertEqual(row['First Name'], "'=cmd|calc")
+
     def test_access_control_other_school(self):
         other_owner = _make_owner('intruder')
         other_school = School.objects.create(name='Other', admin=other_owner, is_active=True)

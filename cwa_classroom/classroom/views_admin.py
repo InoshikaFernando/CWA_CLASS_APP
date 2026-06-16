@@ -2043,6 +2043,18 @@ class SchoolStudentExportCSVView(RoleRequiredMixin, View):
     # Reuse the same access rules as the student management page.
     _get_school = SchoolStudentManageView._get_school
 
+    @staticmethod
+    def _csv_safe(value):
+        """Neutralise CSV formula injection.
+
+        Spreadsheet apps treat a leading =, +, -, @ (or tab/CR) as a formula.
+        Prefix such values with a single quote so they render as plain text.
+        """
+        text = '' if value is None else str(value)
+        if text and text[0] in ('=', '+', '-', '@', '\t', '\r'):
+            return "'" + text
+        return text
+
     def _collect_parents(self, student, school):
         """Return a list of parent dicts (name/email/phone/relationship).
 
@@ -2134,7 +2146,7 @@ class SchoolStudentExportCSVView(RoleRequiredMixin, View):
             p1 = parents[0] if len(parents) > 0 else {}
             p2 = parents[1] if len(parents) > 1 else {}
 
-            writer.writerow([
+            writer.writerow([self._csv_safe(v) for v in [
                 ss.student_id_code,
                 student.first_name,
                 student.last_name,
@@ -2147,7 +2159,7 @@ class SchoolStudentExportCSVView(RoleRequiredMixin, View):
                 ' | '.join(classes),
                 len(classes),
                 ss.joined_at.strftime('%Y-%m-%d') if ss.joined_at else '',
-            ])
+            ]])
 
         return response
 
