@@ -51,6 +51,7 @@ class Question(models.Model):
     COLUMN_OPERATION = 'column_operation'
     MEASURE = 'measure'
     DRAW_ON_GRID = 'draw_on_grid'
+    SHAPE_SELECT = 'shape_select'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -64,6 +65,7 @@ class Question(models.Model):
         ('column_operation', 'Column Arithmetic'),
         ('measure', 'Measure (angle/scale, tolerance-graded)'),
         ('draw_on_grid', 'Draw on Grid (symmetry / reflection / plot)'),
+        ('shape_select', 'Shape Select (find & colour shapes)'),
     ]
 
     # Validation mode — how student answers are graded
@@ -175,6 +177,18 @@ class Question(models.Model):
     grid_spec = models.JSONField(
         null=True, blank=True,
         help_text="draw_on_grid only. Dot grid + shape + correct target set (grid-index coords).",
+    )
+
+    # Shape-select question data: a self-contained scene of 2D shapes plus the
+    # target type the student must find and colour ("colour all the triangles").
+    # The correct-answer set is DERIVED (shapes whose type == target_type), so it
+    # can never drift from the figure. Schema validation lives in
+    # Question.clean(); scenes are produced by maths.shape_select_gen. Shape:
+    #   {"target_type": "triangle", "viewbox": [w, h],
+    #    "shapes": [{"id", "type", "cx", "cy", "size", "rot"}, ...]}
+    shape_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="shape_select only. Scene of shapes + the target type to find (set-comparison graded).",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -294,6 +308,25 @@ class Question(models.Model):
                     )
                 })
 
+        # Shape-select questions are graded by set comparison of coloured shapes.
+        if self.question_type == self.SHAPE_SELECT:
+            if not self.shape_spec:
+                raise ValidationError({
+                    'shape_spec': 'Shape-select questions require a shape_spec.'
+                })
+            from maths.geometry_grading import validate_shape_spec
+            try:
+                validate_shape_spec(self.shape_spec)
+            except ValueError as exc:
+                raise ValidationError({'shape_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Shape-select questions are graded by the coloured shapes '
+                        'and must not have answer options.'
+                    )
+                })
+
     @property
     def long_division_step_count(self):
         """Number of subtraction blocks needed to long-divide dividend by divisor."""
@@ -395,6 +428,31 @@ class Question(models.Model):
             'width': pad * 2 + (cols - 1) * step,
             'height': pad * 2 + (rows - 1) * step,
             'dots': dots, 'polygon': polygon,
+        }
+
+    @property
+    def shape_select_data(self):
+        """SVG-ready render data for a shape_select question, or None.
+
+        Bridges the pure ``maths.svg_geometry.shape_select_svg`` builder into the
+        take-item template (no per-view context plumbing — same pattern as
+        ``draw_on_grid_data`` / ``measure_figure_svg``). Returns None when
+        there's nothing renderable, so templates guard with a single check.
+        """
+        if self.question_type != self.SHAPE_SELECT or not self.shape_spec:
+            return None
+        from maths.svg_geometry import shape_select_svg
+        svg = shape_select_svg(self.shape_spec)
+        if not svg:
+            return None
+        vb = self.shape_spec.get('viewbox') or [680, 400]
+        try:
+            width, height = int(vb[0]), int(vb[1])
+        except (TypeError, ValueError, IndexError):
+            width, height = 680, 400
+        return {
+            'width': width, 'height': height, 'svg': svg,
+            'target_type': self.shape_spec.get('target_type', ''),
         }
 
     @property
