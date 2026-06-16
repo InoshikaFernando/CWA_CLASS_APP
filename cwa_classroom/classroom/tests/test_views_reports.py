@@ -342,8 +342,9 @@ class TestStudentReportCSVExport(TestCase):
     def test_export_has_header_and_all_rows(self):
         rows = self._rows(self.client.get(URL, {'export': 'csv'}))
         self.assertEqual(rows[0][0], 'Student Name')
-        self.assertIn('Parent Name', rows[0])
-        self.assertIn('Parent Email', rows[0])
+        for col in ('Parent 1 Name', 'Parent 1 Email', 'Parent 1 Phone',
+                    'Parent 1 Relationship', 'Parent 2 Name'):
+            self.assertIn(col, rows[0])
         # header + 2 students
         self.assertEqual(len(rows), 3)
 
@@ -364,27 +365,52 @@ class TestStudentReportCSVExport(TestCase):
     def test_export_includes_parent_user_contact(self):
         from classroom.models import ParentStudent
         parent = _user('csv_parent1', Role.PARENT,
-                       first_name='Pat', last_name='Parent')
+                       first_name='Pat', last_name='Parent', phone='021555111')
         ParentStudent.objects.create(
             parent=parent, student=self.stu1, school=self.school,
-            is_primary_contact=True, is_active=True,
+            relationship='mother', is_primary_contact=True, is_active=True,
         )
         rows = self._rows(self.client.get(URL, {'export': 'csv'}))
         alice = next(r for r in rows[1:] if r[0] == 'Alice Anderson')
+        # Parent 1: Name=7, Email=8, Phone=9, Relationship=10
         self.assertIn('Pat Parent', alice[7])
         self.assertIn(parent.email, alice[8])
+        self.assertEqual(alice[9], '021555111')
+        self.assertEqual(alice[10], 'Mother')
 
     def test_export_includes_guardian_contact(self):
         from classroom.models import Guardian, StudentGuardian
         guardian = Guardian.objects.create(
             school=self.school, first_name='Gina', last_name='Guardian',
-            email='gina.guardian@example.com',
+            email='gina.guardian@example.com', phone='021555222',
+            relationship='guardian',
         )
         StudentGuardian.objects.create(student=self.stu2, guardian=guardian, is_primary=True)
         rows = self._rows(self.client.get(URL, {'export': 'csv'}))
         bob = next(r for r in rows[1:] if r[0] == 'Bob Brown')
         self.assertIn('Gina Guardian', bob[7])
         self.assertIn('gina.guardian@example.com', bob[8])
+        self.assertEqual(bob[9], '021555222')
+        self.assertEqual(bob[10], 'Guardian')
+
+    def test_export_lists_two_parents_with_primary_first(self):
+        from classroom.models import Guardian, ParentStudent, StudentGuardian
+        # Non-primary parent-user link + primary guardian → guardian must be Parent 1.
+        parent = _user('csv_two_parent', Role.PARENT,
+                       first_name='Sam', last_name='Secondary')
+        ParentStudent.objects.create(
+            parent=parent, student=self.stu1, school=self.school,
+            is_primary_contact=False, is_active=True,
+        )
+        guardian = Guardian.objects.create(
+            school=self.school, first_name='Prim', last_name='Primary',
+            email='prim.primary@example.com',
+        )
+        StudentGuardian.objects.create(student=self.stu1, guardian=guardian, is_primary=True)
+        rows = self._rows(self.client.get(URL, {'export': 'csv'}))
+        alice = next(r for r in rows[1:] if r[0] == 'Alice Anderson')
+        self.assertEqual(alice[7], 'Prim Primary')   # Parent 1 = primary
+        self.assertEqual(alice[11], 'Sam Secondary')  # Parent 2 = non-primary
 
     def test_export_tenant_isolation(self):
         other_hoi = _user('csv_other_hoi', Role.HEAD_OF_INSTITUTE)
