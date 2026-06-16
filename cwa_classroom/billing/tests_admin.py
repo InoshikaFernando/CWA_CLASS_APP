@@ -1005,6 +1005,41 @@ class SubscriptionOverviewTests(TestCase):
         # No Stripe key in tests -> counts fall back to local DB
         self.assertEqual(self._get().context['counts_source'], 'local')
 
+    # -- daily active graph (selectable window) --
+    def test_daily_graph_default_window(self):
+        ctx = self._get().context
+        self.assertEqual(ctx['daily_window'], 30)
+        self.assertEqual(len(ctx['daily']['labels']), 30)
+        self.assertEqual(len(ctx['daily']['student']), 30)
+        # setUp subs were created today -> last point reflects them (local fallback)
+        self.assertEqual(ctx['daily']['student'][-1], 4)
+        self.assertEqual(ctx['daily']['institute'][-1], 3)
+        self.assertEqual(ctx['daily']['student'][0], 0)  # none existed 30 days ago
+
+    def test_daily_graph_window_param(self):
+        ctx = self._get(days='7').context
+        self.assertEqual(ctx['daily_window'], 7)
+        self.assertEqual(len(ctx['daily']['labels']), 7)
+
+    def test_daily_graph_invalid_window_defaults_to_30(self):
+        self.assertEqual(self._get(days='999').context['daily_window'], 30)
+
+    def test_active_series_from_intervals(self):
+        from billing.reporting import _active_series_from_intervals
+        from datetime import timedelta
+        today = timezone.localdate()
+        intervals = [
+            ('student', today - timedelta(days=10), None),   # active all window
+            ('student', today - timedelta(days=2), None),    # active last 3 days
+            ('institute', today - timedelta(days=5),
+             today - timedelta(days=3)),                     # ended 3 days ago
+        ]
+        s = _active_series_from_intervals(intervals, 7)
+        self.assertEqual(len(s['labels']), 7)
+        self.assertEqual(s['student'][-1], 2)   # both live today
+        self.assertEqual(s['student'][0], 1)    # only the older one 6 days ago
+        self.assertEqual(s['institute'][-1], 0)  # ended before today
+
     # -- breakdowns --
     def test_breakdowns(self):
         ctx = self._get().context
