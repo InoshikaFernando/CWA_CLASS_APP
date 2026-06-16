@@ -28,6 +28,23 @@ Key difference: hidden input name is "text_answer" (not "answer_<id>").
     {% endfor %}
   </div>
   {% endfor %}
+  {% if ca.partials %}
+  {# First rule: under the operands, above the long-multiplication working rows #}
+  <div class="flex border-t-2 border-gray-800 mt-1"><span class="w-10 inline-block"></span>{% for c in ca.cols %}<span class="w-10 inline-block"></span>{% endfor %}</div>
+  {# Partial-product working rows (long multiplication) — scratch space, not marked #}
+  {% for p in ca.partials %}
+  <div class="flex mt-1">
+    <span class="w-10 inline-block"></span>
+    {% for b in p.boxes %}
+      <input type="text" maxlength="1" inputmode="numeric"
+             data-ca-partial="{{ question.pk }}" aria-label="partial product working digit"
+             class="w-10 h-10 text-center bg-amber-50 border-2 border-amber-200 rounded
+                    text-amber-600 font-bold focus:border-primary focus:bg-white focus:outline-none" />
+    {% endfor %}
+    {% for s in p.spacers %}<span class="w-10 h-10 inline-block"></span>{% endfor %}
+  </div>
+  {% endfor %}
+  {% endif %}
   {# Rule + answer row #}
   <div class="flex border-t-2 border-gray-800 pt-1 mt-1">
     <span class="w-10 inline-block"></span>
