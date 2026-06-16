@@ -93,8 +93,9 @@
     const card = document.getElementById('question-card');
     if (!card) return;
 
-    // Disable all interactive inputs
-    card.querySelectorAll('.answer-btn, button, input').forEach(el => el.disabled = true);
+    // Disable all interactive inputs — but keep the read-aloud speakers
+    // (.tts-btn) live so a student can still hear the answers after submitting.
+    card.querySelectorAll('.answer-btn, button:not(.tts-btn), input:not([data-speak])').forEach(el => el.disabled = true);
 
     const fb = document.createElement('div');
     fb.className = 'mt-5 space-y-3';
@@ -105,10 +106,19 @@
           ✅ Correct!
         </div>`;
     } else {
+      const correctText = data.correct_answer_text || '';
+      // Escape for safe use inside the data-speak="" attribute.
+      const speakAttr = correctText.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                                   .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const speaker = correctText
+        ? ` <button type="button"
+              class="tts-btn shrink-0 w-8 h-8 rounded-full bg-accent-light text-accent hover:bg-accent hover:text-white transition inline-flex items-center justify-center align-middle"
+              data-speak="${speakAttr}" aria-label="Listen to the correct answer" title="Listen to the correct answer">🔊</button>`
+        : '';
       fb.innerHTML = `
         <div class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-800">
           <p class="font-semibold">❌ Incorrect</p>
-          ${data.correct_answer_text ? `<p class="text-sm mt-1">Correct answer: <strong>${data.correct_answer_text}</strong></p>` : ''}
+          ${correctText ? `<p class="text-sm mt-1">Correct answer: <strong>${correctText}</strong>${speaker}</p>` : ''}
         </div>
         ${data.explanation ? `<div class="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-blue-800 text-sm">${data.explanation}</div>` : ''}`;
     }

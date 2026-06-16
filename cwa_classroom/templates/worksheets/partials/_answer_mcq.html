@@ -4,16 +4,20 @@ Context: question, answers (queryset of Answer objects)
 {% endcomment %}
 <div class="space-y-2">
   {% for ans in answers %}
-  <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-200 cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition group">
-    <input type="radio" name="answer_id" value="{{ ans.pk }}" required
-           class="text-primary focus:ring-primary w-4 h-4" />
-    <span class="text-sm text-gray-700 group-hover:text-gray-900 flex-1">
-      {{ ans.answer_text }}
-      {% if ans.answer_image %}
-      <img src="{{ ans.answer_image.url }}" alt="Answer option"
-           class="mt-1 max-h-20 rounded object-contain" />
-      {% endif %}
-    </span>
+  {# Speaker sits OUTSIDE the label so tapping it reads the option aloud
+     without ever selecting that radio option. #}
+  <div class="flex items-center gap-2">
+    <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-200 cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition group flex-1">
+      <input type="radio" name="answer_id" value="{{ ans.pk }}" required
+             class="text-primary focus:ring-primary w-4 h-4" />
+      <span class="text-sm text-gray-700 group-hover:text-gray-900 flex-1">
+        {{ ans.answer_text }}
+        {% if ans.answer_image %}
+        <img src="{{ ans.answer_image.url }}" alt="Answer option"
+             class="mt-1 max-h-20 rounded object-contain" />
+        {% endif %}
+      </span>
+    </label>
     {% if ans.answer_text %}
     <button type="button"
             class="tts-btn shrink-0 w-9 h-9 rounded-full bg-accent-light text-accent
@@ -21,6 +25,6 @@ Context: question, answers (queryset of Answer objects)
             data-speak="{{ ans.answer_text }}"
             aria-label="Listen to this answer" title="Listen to this answer">🔊</button>
     {% endif %}
-  </label>
+  </div>
   {% endfor %}
 </div>
