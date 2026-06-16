@@ -27,10 +27,12 @@
     </div>
   </div>
 
-  <!-- Class selector -->
-  <div class="mb-6">
+  <!-- Filters: class + week -->
+  <div class="mb-6 flex flex-wrap items-end gap-4">
+    <!-- Class selector -->
     <form method="get">
-      <label class="text-sm font-medium text-gray-700 mr-2">Class:</label>
+      {% if week_start %}<input type="hidden" name="week" value="{{ week_start|date:'Y-m-d' }}">{% endif %}
+      <label class="block text-sm font-medium text-gray-700 mb-1">Class:</label>
       <select name="classroom" onchange="this.form.submit()"
               class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
         <option value="all" {% if show_all %}selected{% endif %}>All classes</option>
@@ -41,6 +43,35 @@
         {% endfor %}
       </select>
     </form>
+
+    <!-- Week filter -->
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Week:</label>
+      <div class="flex items-center gap-2">
+        {% if week_start %}
+        <a href="?{% if show_all %}classroom=all&{% elif selected_classroom %}classroom={{ selected_classroom.id }}&{% endif %}week={{ prev_week }}"
+           title="Previous week"
+           class="px-2.5 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition">‹</a>
+        <span class="text-sm font-medium text-gray-900 whitespace-nowrap px-2">
+          {{ week_start|date:"d M" }} – {{ week_end|date:"d M Y" }}
+        </span>
+        <a href="?{% if show_all %}classroom=all&{% elif selected_classroom %}classroom={{ selected_classroom.id }}&{% endif %}week={{ next_week }}"
+           title="Next week"
+           class="px-2.5 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition">›</a>
+        {% endif %}
+        <form method="get" class="flex items-center gap-2">
+          {% if show_all %}<input type="hidden" name="classroom" value="all">
+          {% elif selected_classroom %}<input type="hidden" name="classroom" value="{{ selected_classroom.id }}">{% endif %}
+          <input type="date" name="week" onchange="this.form.submit()"
+                 value="{{ week_start|date:'Y-m-d'|default:current_week_start }}"
+                 class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </form>
+        {% if week_start %}
+        <a href="?{% if show_all %}classroom=all{% elif selected_classroom %}classroom={{ selected_classroom.id }}{% endif %}"
+           class="text-sm text-blue-600 hover:underline">All weeks</a>
+        {% endif %}
+      </div>
+    </div>
   </div>
 
   {% if not classrooms %}
@@ -49,7 +80,9 @@
   </div>
   {% elif not homework_list %}
   <div class="bg-white rounded-2xl border border-gray-100 p-10 text-center text-gray-400 text-sm">
-    {% if show_all %}
+    {% if week_start %}
+    No homework published between {{ week_start|date:"d M" }} and {{ week_end|date:"d M Y" }}.
+    {% elif show_all %}
     No homework assigned in any of your classes yet.
     {% else %}
     No homework assigned to this class yet.
