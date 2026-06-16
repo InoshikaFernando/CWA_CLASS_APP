@@ -14,6 +14,10 @@ urlpatterns = [
     path("level/<int:level_number>/questions/", views.level_questions, name="level_questions"),
     path("level/<int:level_number>/add-question/", views.add_question, name="add_question"),
 
+    # ── Shape-select image import (upload → detect → review → save) ──
+    path("shape-import/", views.shape_import_upload, name="shape_import"),
+    path("shape-import/save/", views.shape_import_save, name="shape_import_save"),
+
     # ── Profile & time tracking ──
     path("profile/", views.user_profile, name="user_profile"),
     path("api/update-time-log/", views.update_time_log, name="update_time_log"),
