@@ -19,11 +19,19 @@ from decimal import Decimal
 from django.utils.text import slugify
 
 from maths.geometry_grading import validate_grid_spec
+from maths.shape_select_gen import generate_shape_scene
 
 YEAR_LEVEL = 6
 
 SYMMETRY_TEXT = 'Draw all lines of symmetry on this shape.'
 MEASURE_TEXT = 'Measure angle a.'
+SHAPE_SELECT_TEXT = 'Colour all the triangles.'
+
+# A fixed-seed scene so the starter question is deterministic and idempotent:
+# 14 shapes, exactly 3 triangles to find. generate_shape_scene validates it.
+SHAPE_SELECT_SPEC = generate_shape_scene(
+    target_type='triangle', target_count=3, total_shapes=14, seed=20260616,
+)
 
 # 11x9 dot grid; rectangle with corners (2,2)-(8,6). Lines of symmetry: the
 # vertical mid-line (5,2)-(5,6) and the horizontal mid-line (2,4)-(8,4).
@@ -86,7 +94,16 @@ def seed(Subject, Level, Topic, Question, Answer):
         },
     )
 
+    shapes_topic = _get_topic(Topic, maths, '2D Shapes')
+    shapes_topic.levels.add(level)
+    Question.objects.get_or_create(
+        question_text=SHAPE_SELECT_TEXT, question_type='shape_select',
+        level=level, topic=shapes_topic,
+        defaults={'difficulty': 1, 'points': 1, 'shape_spec': SHAPE_SELECT_SPEC},
+    )
+
 
 def unseed(Subject, Level, Topic, Question, Answer):
     Question.objects.filter(question_type='draw_on_grid', question_text=SYMMETRY_TEXT).delete()
     Question.objects.filter(question_type='measure', question_text=MEASURE_TEXT).delete()
+    Question.objects.filter(question_type='shape_select', question_text=SHAPE_SELECT_TEXT).delete()
