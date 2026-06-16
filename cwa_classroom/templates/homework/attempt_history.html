@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Attempt History — {{ homework.title }}{% endblock %}
+
+{% block content %}
+<div class="p-6">
+  <div class="max-w-3xl mx-auto">
+
+    <!-- Header -->
+    <header class="mb-6">
+      <h1 class="text-2xl font-display font-bold text-gray-900">{{ homework.title }}</h1>
+      <p class="text-sm text-gray-500 mt-1">
+        {% if viewing_other %}
+          Attempt history for
+          <span class="font-semibold text-gray-700">{{ student.get_full_name|default:student.username }}</span>
+        {% else %}
+          Your attempt history
+        {% endif %}
+        &nbsp;·&nbsp; {{ homework.classroom }}
+        {% if homework.num_questions %}&nbsp;·&nbsp; {{ homework.num_questions }} questions{% endif %}
+        {% if homework.due_date %}&nbsp;·&nbsp; Due {{ homework.due_date|date:"d M Y, H:i" }}{% endif %}
+      </p>
+      <p class="text-xs text-gray-400 mt-1">Showing the most recent attempts (up to 10 are kept).</p>
+    </header>
+
+    {% if submissions %}
+    <ol class="space-y-3" aria-label="Homework attempts, newest first">
+      {% for sub in submissions %}
+      <li>
+        <a href="{% url 'homework:student_result' submission_id=sub.id %}"
+           class="block bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:border-blue-300 hover:shadow-md transition focus:outline-none focus:ring-2 focus:ring-blue-200">
+          <div class="flex items-center justify-between gap-4">
+
+            <!-- Left: attempt meta -->
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <p class="text-sm font-semibold text-gray-800">Attempt {{ sub.attempt_number }}</p>
+                {% if sub.status_for_student == 'on_time' %}
+                  <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">On time</span>
+                {% else %}
+                  <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-medium">Late</span>
+                {% endif %}
+              </div>
+              <p class="text-xs text-gray-400 mt-1">
+                {{ sub.submitted_at|date:"j M Y, H:i" }}
+                &nbsp;·&nbsp; {{ sub.time_taken_seconds }}s taken
+              </p>
+            </div>
+
+            <!-- Right: score + percentage pill -->
+            <div class="flex items-center gap-4 shrink-0">
+              <div class="text-right">
+                <p class="text-sm font-semibold text-gray-700">{{ sub.score }} / {{ sub.total_questions }}</p>
+                <p class="text-xs text-gray-400">{{ sub.points|floatformat:1 }} pts</p>
+              </div>
+              <span class="inline-flex items-center justify-center w-14 h-14 rounded-full text-sm font-bold
+                {% if sub.percentage >= 80 %}bg-green-100 text-green-700
+                {% elif sub.percentage >= 50 %}bg-yellow-100 text-yellow-700
+                {% else %}bg-red-100 text-red-600{% endif %}">
+                {{ sub.percentage }}%
+              </span>
+            </div>
+
+          </div>
+        </a>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
+      <p class="text-gray-400 text-sm">No attempts saved yet.</p>
+    </div>
+    {% endif %}
+
+    <!-- Back -->
+    <div class="mt-6">
+      {% if viewing_other %}
+        <a href="javascript:history.back()"
+           class="text-sm text-blue-600 hover:underline">&larr; Back</a>
+      {% else %}
+        <a href="{% url 'homework:student_list' %}"
+           class="text-sm text-blue-600 hover:underline">&larr; Back to homework</a>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+{% endblock %}

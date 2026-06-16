@@ -354,6 +354,212 @@ class TestInteractiveQuestionSwapWiring(TestCase):
         )
 
 
+class QuizAttemptPersistenceTest(QuizAuditLoggingTestBase):
+    """The real submit flows persist per-question review (questions_data) so an
+    attempt can be reviewed later, and cap each series at the last 10."""
+
+    def _bf_complete(self, level_number=100):
+        url = reverse('basic_facts_quiz', kwargs={
+            'subtopic': 'Addition', 'level_number': level_number,
+        })
+        self.client.get(url)
+        session = self.client.session
+        key = next(k for k in session.keys()
+                   if k.startswith('bf_') and not k.startswith('bf_result_'))
+        sid = key[3:]
+        data = {'session_id': sid}
+        for q in session[key]['questions']:
+            data[f'answer_{q["id"]}'] = str(q['answer'])
+        return self.client.post(url, data)
+
+    def test_basic_facts_persists_questions_data(self):
+        self.client.login(username='quizstudent', password='pass1234')
+        self._bf_complete()
+        result = BasicFactsResult.objects.filter(student=self.student).latest('completed_at')
+        self.assertTrue(result.questions_data, 'questions_data not saved')
+        first = result.questions_data[0]
+        self.assertIn('question', first)
+        self.assertIn('student_answer', first)
+        self.assertIn('is_correct', first)
+
+    def test_topic_quiz_persists_questions_data(self):
+        self.client.login(username='quizstudent', password='pass1234')
+        url = reverse('topic_quiz', kwargs={
+            'subject': 'mathematics', 'level_number': 4, 'topic_id': self.topic.id,
+        })
+        self.client.get(url)
+        session = self.client.session
+        key = next(k for k in session.keys()
+                   if k.startswith('tq_') and not k.startswith('tq_result_'))
+        sid = key[3:]
+        questions = session[key]['questions']
+        submit_url = reverse('api_submit_topic_answer')
+        for q_data in questions:
+            q = Question.objects.get(pk=q_data['id'])
+            correct = q.answers.filter(is_correct=True).first()
+            self.client.post(submit_url, data=json.dumps({
+                'session_id': sid, 'question_id': q.id, 'answer_id': correct.id,
+            }), content_type='application/json')
+
+        sfa = StudentFinalAnswer.objects.filter(
+            student=self.student, quiz_type=StudentFinalAnswer.QUIZ_TYPE_TOPIC,
+        ).latest('completed_at')
+        self.assertEqual(len(sfa.questions_data), len(questions))
+        item = sfa.questions_data[0]
+        for field in ('question', 'student_answer', 'correct_answer', 'is_correct'):
+            self.assertIn(field, item)
+        # Answering all-correct → every review row is correct.
+        self.assertTrue(all(row['is_correct'] for row in sfa.questions_data))
+
+    def test_mixed_quiz_persists_questions_data(self):
+        self.client.login(username='quizstudent', password='pass1234')
+        url = reverse('mixed_quiz', kwargs={'subject': 'mathematics', 'level_number': 4})
+        self.client.get(url)
+        session = self.client.session
+        key = next(k for k in session.keys()
+                   if k.startswith('mq_') and not k.startswith('mq_result_'))
+        sid = key[3:]
+        data = {'session_id': sid}
+        for qid in session[key]['question_ids']:
+            q = Question.objects.get(pk=qid)
+            correct = q.answers.filter(is_correct=True).first()
+            data[f'answer_{q.id}'] = str(correct.id)
+        self.client.post(url, data)
+
+        sfa = StudentFinalAnswer.objects.filter(
+            student=self.student, quiz_type=StudentFinalAnswer.QUIZ_TYPE_MIXED,
+        ).latest('completed_at')
+        self.assertTrue(sfa.questions_data)
+        self.assertIn('correct_answer', sfa.questions_data[0])
+
+    def _tt_session(self):
+        """Build a finished times-tables session dict the submit view can read."""
+        return {
+            'table': 7, 'operation': 'multiplication', 'level_number': 4,
+            'shuffled': False, 'thinking_time': 5, 'start_time': time.time(),
+            'questions': [
+                {'question': '7 × 1 = ?', 'answer': 7, 'student_answer': 7, 'is_correct': True},
+                {'question': '7 × 2 = ?', 'answer': 14, 'student_answer': 10, 'is_correct': False},
+            ],
+        }
+
+    def test_times_tables_persists_questions_data(self):
+        self.client.login(username='quizstudent', password='pass1234')
+        sid = str(uuid.uuid4())
+        session = self.client.session
+        session[f'tt_{sid}'] = self._tt_session()
+        session.save()
+        self.client.get(reverse('times_tables_submit', kwargs={'session_id': sid}))
+        sfa = StudentFinalAnswer.objects.filter(
+            student=self.student, quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+        ).latest('completed_at')
+        self.assertEqual(len(sfa.questions_data), 2)
+        self.assertEqual(sfa.questions_data[1]['answer'], 14)
+
+    def test_times_tables_flow_prunes_to_last_ten(self):
+        self.client.login(username='quizstudent', password='pass1234')
+        for _ in range(12):
+            sid = str(uuid.uuid4())
+            session = self.client.session
+            session[f'tt_{sid}'] = self._tt_session()
+            session.save()
+            self.client.get(reverse('times_tables_submit', kwargs={'session_id': sid}))
+        self.assertEqual(
+            StudentFinalAnswer.objects.filter(
+                student=self.student,
+                quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+                table_number=7, operation='multiplication',
+            ).count(),
+            10,
+        )
+
+    def test_shuffled_and_ordered_times_tables_prune_independently(self):
+        # Shuffled vs ordered runs of the same table are distinct series, so
+        # pruning one must not eat into the other's last 10.
+        base = dict(
+            student=self.student, quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+            table_number=7, operation='multiplication', score=5, total_questions=5,
+        )
+        for _ in range(11):
+            StudentFinalAnswer.objects.create(shuffled=False, **base)
+        ordered_last = StudentFinalAnswer.objects.filter(
+            student=self.student, shuffled=False).order_by('-id').first()
+        StudentFinalAnswer.prune_old_attempts(ordered_last)
+        # Now add a shuffled run and prune its series.
+        shuffled = StudentFinalAnswer.objects.create(shuffled=True, **base)
+        StudentFinalAnswer.prune_old_attempts(shuffled)
+        self.assertEqual(
+            StudentFinalAnswer.objects.filter(student=self.student, shuffled=False).count(), 10,
+        )
+        self.assertTrue(
+            StudentFinalAnswer.objects.filter(pk=shuffled.pk).exists(),
+        )
+
+    def test_topic_quiz_review_dedupes_replayed_answer(self):
+        # A double-submitted question must not duplicate the saved review row.
+        self.client.login(username='quizstudent', password='pass1234')
+        url = reverse('topic_quiz', kwargs={
+            'subject': 'mathematics', 'level_number': 4, 'topic_id': self.topic.id,
+        })
+        self.client.get(url)
+        session = self.client.session
+        key = next(k for k in session.keys()
+                   if k.startswith('tq_') and not k.startswith('tq_result_'))
+        sid = key[3:]
+        questions = session[key]['questions']
+        submit_url = reverse('api_submit_topic_answer')
+
+        def _answer(q_data):
+            q = Question.objects.get(pk=q_data['id'])
+            correct = q.answers.filter(is_correct=True).first()
+            return self.client.post(submit_url, data=json.dumps({
+                'session_id': sid, 'question_id': q.id, 'answer_id': correct.id,
+            }), content_type='application/json')
+
+        # Replay the first question, then answer the rest normally.
+        _answer(questions[0])
+        _answer(questions[0])
+        for q_data in questions[1:]:
+            _answer(q_data)
+
+        sfa = StudentFinalAnswer.objects.filter(
+            student=self.student, quiz_type=StudentFinalAnswer.QUIZ_TYPE_TOPIC,
+        ).latest('completed_at')
+        ids = [row['id'] for row in sfa.questions_data]
+        self.assertEqual(len(ids), len(set(ids)), 'duplicate review rows saved')
+
+
+class QuizReviewHelperTest(TestCase):
+    """Unit tests for the review normaliser + attempt-series label."""
+
+    def test_normalize_handles_all_three_shapes(self):
+        from quiz.views import _normalize_quiz_review
+        out = _normalize_quiz_review([
+            # topic/mixed shape
+            {'question': 'a', 'student_answer': '4', 'correct_answer': '4', 'is_correct': True},
+            # times-tables shape (correct answer under 'answer')
+            {'question': 'b', 'student_answer': 10, 'answer': 14, 'is_correct': False},
+            # basic-facts shape (correct answer under 'display_answer')
+            {'question': 'c', 'student_answer': '', 'display_answer': '5', 'answer': 5, 'is_correct': False},
+        ])
+        self.assertEqual(out[0]['correct_answer'], '4')
+        self.assertEqual(out[1]['correct_answer'], 14)
+        self.assertEqual(out[2]['correct_answer'], '5')
+        self.assertFalse(out[2]['is_correct'])
+
+    def test_normalize_skips_non_dicts(self):
+        from quiz.views import _normalize_quiz_review
+        self.assertEqual(_normalize_quiz_review([None, 'x', 42]), [])
+        self.assertEqual(_normalize_quiz_review(None), [])
+
+    def test_sfa_label_variants(self):
+        from quiz.views import _sfa_label
+        from maths.models import StudentFinalAnswer as SFA
+        tt = SFA(quiz_type=SFA.QUIZ_TYPE_TIMES_TABLE, table_number=7, operation='division')
+        self.assertIn('7 times table', _sfa_label(tt))
+        self.assertIn('Division', _sfa_label(tt))
+
+
 class TestTopicQuizMeasureGrading(TestCase):
     """SubmitTopicAnswerView grades a `measure` question by tolerance.
 

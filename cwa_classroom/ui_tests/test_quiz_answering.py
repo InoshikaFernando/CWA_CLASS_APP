@@ -52,7 +52,7 @@ class TestTopicQuiz:
         """Clicking an MC answer should trigger fetch and show feedback."""
         # Click the first answer-like button
         answer_btn = self.page.locator(
-            "button[onclick*='submit'], button[data-answer], #question-container button"
+            "button[onclick*='submit'], button[data-answer], #question-container button:not(.tts-btn)"
         ).first
         if answer_btn.is_visible():
             answer_btn.click()

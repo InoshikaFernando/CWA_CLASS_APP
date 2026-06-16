@@ -92,6 +92,22 @@ def _assignable_classrooms(user):
     return _teacher_classrooms(user)
 
 
+def _can_view_student_homework(user, student, homework):
+    """Whether *user* may view *student*'s saved results for *homework*.
+
+    Allowed for the student themselves, a teacher who manages the homework's
+    class, and a parent with an active link to the student.
+    """
+    if user.is_superuser or user.pk == student.pk:
+        return True
+    if _teacher_classrooms(user).filter(pk=homework.classroom_id).exists():
+        return True
+    from classroom.models import ParentStudent
+    return ParentStudent.objects.filter(
+        parent=user, student=student, is_active=True,
+    ).exists()
+
+
 # NOTE: _topics_with_questions() and _build_topic_groups() used to live here.
 # Phase 2 moved them to MathsPlugin so the same contract works for any subject.
 # Call plugin.homework_topic_tree(classroom) instead.
@@ -840,6 +856,10 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
                 homework=homework, student=request.user,
             ).delete()
 
+            # Keep only the most recent attempts (with their answers) per the
+            # shared attempt-history limit.
+            HomeworkSubmission.prune_old_attempts(homework, request.user)
+
         log_event(
             user=request.user,
             school=homework.classroom.school,
@@ -919,11 +939,63 @@ class SaveHomeworkProgressView(LoginRequiredMixin, View):
         })
 
 
+class HomeworkAttemptHistoryView(LoginRequiredMixin, View):
+    """List the saved attempts (kept to the last 10) for one homework.
+
+    A student sees their own history; a teacher who manages the class or a
+    parent with an active link to the student can view it by passing the
+    student id in the URL.
+    """
+    template_name = 'homework/attempt_history.html'
+
+    def get(self, request, homework_id, student_id=None):
+        from django.http import Http404
+        homework = get_object_or_404(
+            Homework.objects.select_related('classroom'), pk=homework_id,
+        )
+        if student_id is None:
+            student = request.user
+        else:
+            from django.contrib.auth import get_user_model
+            student = get_object_or_404(get_user_model(), pk=student_id)
+
+        if not _can_view_student_homework(request.user, student, homework):
+            raise Http404
+
+        submissions = list(
+            HomeworkSubmission.objects
+            .filter(homework=homework, student=student)
+            .order_by('-attempt_number')
+        )
+        joined_at = (
+            ClassStudent.objects
+            .filter(student=student, classroom=homework.classroom)
+            .values_list('joined_at', flat=True)
+            .first()
+        )
+        for sub in submissions:
+            sub.status_for_student = sub.submission_status_for(joined_at)
+
+        return render(request, self.template_name, {
+            'homework': homework,
+            'student': student,
+            'submissions': submissions,
+            'viewing_other': student.pk != request.user.pk,
+        })
+
+
 class StudentHomeworkResultView(LoginRequiredMixin, View):
     template_name = 'homework/student_result.html'
 
     def get(self, request, submission_id):
-        submission = get_object_or_404(HomeworkSubmission, id=submission_id, student=request.user)
+        from django.http import Http404
+        submission = get_object_or_404(
+            HomeworkSubmission.objects.select_related('homework__classroom', 'student'),
+            id=submission_id,
+        )
+        if not _can_view_student_homework(request.user, submission.student, submission.homework):
+            raise Http404
+        viewing_other = submission.student_id != request.user.pk
         answers = list(
             submission.answers
             .select_related('question', 'selected_answer')
@@ -948,18 +1020,24 @@ class StudentHomeworkResultView(LoginRequiredMixin, View):
         hw = submission.homework
         joined_at = (
             ClassStudent.objects
-            .filter(student=request.user, classroom=hw.classroom)
+            .filter(student=submission.student, classroom=hw.classroom)
             .values_list('joined_at', flat=True)
             .first()
         )
-        attempt_count = HomeworkSubmission.get_attempt_count(hw, request.user)
-        can_retry = hw.attempts_unlimited or attempt_count < hw.max_attempts
+        attempt_count = HomeworkSubmission.get_attempt_count(hw, submission.student)
+        # Only the student who owns the attempt can retry from here.
+        can_retry = (not viewing_other) and (
+            hw.attempts_unlimited or attempt_count < hw.max_attempts
+        )
 
         return render(request, self.template_name, {
             'submission': submission,
             'submission_status': submission.submission_status_for(joined_at),
             'can_retry': can_retry,
             'review_items': review_items,
+            'viewing_other': viewing_other,
+            'student': submission.student,
+            'attempt_count': attempt_count,
             # Legacy context var kept so any consumer that still iterates
             # `answers` keeps working.
             'answers': answers,

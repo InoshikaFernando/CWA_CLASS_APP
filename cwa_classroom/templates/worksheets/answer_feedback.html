@@ -115,8 +115,12 @@
       {% endif %}
       {% else %}
         {% if correct_answers %}
-        <p class="text-sm text-red-600 mt-1">
-          Correct answer: <strong>{% for ca in correct_answers %}{{ ca.answer_text }}{% if not forloop.last %}, {% endif %}{% endfor %}</strong>
+        <p class="text-sm text-red-600 mt-1 flex items-center gap-2">
+          <span>Correct answer: <strong>{% for ca in correct_answers %}{{ ca.answer_text }}{% if not forloop.last %}, {% endif %}{% endfor %}</strong></span>
+          <button type="button"
+                  class="tts-btn shrink-0 w-8 h-8 rounded-full bg-accent-light text-accent hover:bg-accent hover:text-white transition inline-flex items-center justify-center"
+                  data-speak="{% for ca in correct_answers %}{{ ca.answer_text }}{% if not forloop.last %}, {% endif %}{% endfor %}"
+                  aria-label="Listen to the correct answer" title="Listen to the correct answer">🔊</button>
         </p>
         {% endif %}
         {% if question.explanation %}

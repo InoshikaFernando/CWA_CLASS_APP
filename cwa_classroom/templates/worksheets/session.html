@@ -113,7 +113,16 @@
 
             {% else %}
             {# ── Maths question ───────────────────────────────────────── #}
-            <p class="text-gray-800 text-lg leading-relaxed">{{ question.question_text }}</p>
+            <div class="flex items-start gap-2">
+              <p class="text-gray-800 text-lg leading-relaxed flex-1">{{ question.question_text }}</p>
+              {% if question.question_text %}
+              <button type="button"
+                      class="tts-btn shrink-0 w-10 h-10 rounded-full bg-accent-light text-accent
+                             hover:bg-accent hover:text-white transition text-xl flex items-center justify-center"
+                      data-speak="{{ question.question_text }}"
+                      aria-label="Listen to the question" title="Listen to the question">🔊</button>
+              {% endif %}
+            </div>
             {% if question.image %}
             <img src="{{ question.image.url }}" alt="Question image"
                  class="max-h-56 rounded-xl border border-gray-200 object-contain" />
