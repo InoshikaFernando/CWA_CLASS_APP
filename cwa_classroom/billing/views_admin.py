@@ -159,6 +159,14 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             sc = get_subscription_counts()
             students['stripe'] = sc['student']
             institutes['stripe'] = sc['institute']
+            # New/lost-today tiles sit under the Stripe-sourced count tiles, so
+            # source them from Stripe too — otherwise the local-DB figures
+            # (B2C-only, excluding school students) drift from the tiles and a
+            # student who started today shows as "+0 New today".
+            for panel, key in ((students, 'student'), (institutes, 'institute')):
+                panel['new_today'] = sc[key].get('new_today', panel['new_today'])
+                panel['lost_today'] = sc[key].get(
+                    'lost_today', panel['lost_today'])
         except StripeUnavailable:
             counts_source = 'local'
 
