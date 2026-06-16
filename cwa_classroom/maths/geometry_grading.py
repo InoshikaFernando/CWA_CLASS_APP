@@ -220,16 +220,67 @@ def shape_target_ids(shape_spec):
     return out
 
 
+def _is_number(v):
+    """True for a real numeric coordinate. ``bool`` is an ``int`` subclass, so
+    reject it explicitly — True/False must not pose as coordinates."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def shape_geometry_form(shape):
+    """Which geometry form a shape uses: ``polygon``, ``ellipse`` or ``parametric``.
+
+    Generated scenes use the parametric centre+size form; detected/traced shapes
+    carry explicit geometry — a ``points`` list (polygon) or ``rx``/``ry`` (an
+    ellipse). Both validation and the SVG builder dispatch on this, so the two
+    authoring paths (generator vs image import) share one spec + one grader.
+    """
+    if 'points' in shape:
+        return 'polygon'
+    if 'rx' in shape or 'ry' in shape:
+        return 'ellipse'
+    return 'parametric'
+
+
+def _validate_shape_geometry(sid, s):
+    """Validate one shape's geometry by its form; raise ``ValueError`` if invalid."""
+    form = shape_geometry_form(s)
+    if form == 'polygon':
+        pts = s.get('points')
+        if not isinstance(pts, list) or len(pts) < 3:
+            raise ValueError(f'Shape {sid!r} points must be a list of >= 3 [x, y].')
+        for p in pts:
+            if not (isinstance(p, (list, tuple)) and len(p) == 2
+                    and all(_is_number(c) for c in p)):
+                raise ValueError(f'Shape {sid!r} has a malformed point {p!r}.')
+    elif form == 'ellipse':
+        for k in ('cx', 'cy', 'rx', 'ry'):
+            if not _is_number(s.get(k)):
+                raise ValueError(f'Shape {sid!r} {k} must be a number; got {s.get(k)!r}.')
+        if s['rx'] <= 0 or s['ry'] <= 0:
+            raise ValueError(f'Shape {sid!r} rx/ry must be positive.')
+        if not _is_number(s.get('rot', 0)):
+            raise ValueError(f"Shape {sid!r} rot must be a number; got {s.get('rot')!r}.")
+    else:  # parametric
+        for k in ('cx', 'cy', 'size'):
+            if not _is_number(s.get(k)):
+                raise ValueError(f'Shape {sid!r} {k} must be a number; got {s.get(k)!r}.')
+        if s['size'] <= 0:
+            raise ValueError(f'Shape {sid!r} size must be positive.')
+        if not _is_number(s.get('rot', 0)):
+            raise ValueError(f"Shape {sid!r} rot must be a number; got {s.get('rot')!r}.")
+
+
 def validate_shape_spec(shape_spec):
     """Validate a ``shape_select`` ``shape_spec``; raise ``ValueError`` if invalid.
 
     Pure and framework-agnostic (no Django import) so it is reused by the model's
-    ``clean()`` AND by the procedural generator before a scene is stored — a
-    malformed spec can't slip in through either path. Mirrors
-    ``validate_grid_spec``. Checks structure, a ``target_type`` in
-    ``SHAPE_TYPES``, a non-empty ``shapes`` list of known-type shapes with unique
-    string ids and numeric coordinates, and that at least one shape actually has
-    the target type (else the question is unanswerable).
+    ``clean()`` AND by both authoring paths before a scene is stored — the
+    procedural generator and the image importer — so a malformed spec can't slip
+    in through any path. Mirrors ``validate_grid_spec``. Checks structure, a
+    ``target_type`` in ``SHAPE_TYPES``, a non-empty ``shapes`` list of known-type
+    shapes with unique string ids and valid geometry (parametric, polygon, or
+    ellipse form — see ``shape_geometry_form``), and that at least one shape
+    actually has the target type (else the question is unanswerable).
     """
     if not isinstance(shape_spec, dict):
         raise ValueError('shape_spec must be a JSON object.')
@@ -241,10 +292,6 @@ def validate_shape_spec(shape_spec):
     shapes = shape_spec.get('shapes')
     if not isinstance(shapes, list) or not shapes:
         raise ValueError('shape_spec.shapes must be a non-empty list.')
-
-    def _is_number(v):
-        # bool is an int subclass — reject it so True/False can't pose as coords.
-        return isinstance(v, (int, float)) and not isinstance(v, bool)
 
     seen = set()
     for s in shapes:
@@ -258,13 +305,7 @@ def validate_shape_spec(shape_spec):
         seen.add(sid)
         if s.get('type') not in SHAPE_TYPES:
             raise ValueError(f"Shape {sid!r} has unknown type {s.get('type')!r}.")
-        for k in ('cx', 'cy', 'size'):
-            if not _is_number(s.get(k)):
-                raise ValueError(f'Shape {sid!r} {k} must be a number; got {s.get(k)!r}.')
-        if s['size'] <= 0:
-            raise ValueError(f'Shape {sid!r} size must be positive.')
-        if not _is_number(s.get('rot', 0)):
-            raise ValueError(f"Shape {sid!r} rot must be a number; got {s.get('rot')!r}.")
+        _validate_shape_geometry(sid, s)
 
     if not any(isinstance(s, dict) and s.get('type') == target for s in shapes):
         raise ValueError(f"shape_spec has no shape of target_type '{target}'.")
