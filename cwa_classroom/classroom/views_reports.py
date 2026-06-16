@@ -175,9 +175,12 @@ class StudentReportView(RoleRequiredMixin, View):
 
         return qs.order_by('student__first_name', 'student__last_name')
 
+    # How many parent/guardian contacts to export per student.
+    MAX_PARENTS = 2
+
     @staticmethod
-    def _parent_contacts(student_ids, school_ids):
-        """Map student_id -> (parent names string, parent emails string).
+    def _parents_by_student(student_ids, school_ids):
+        """Map student_id -> list of parent dicts (name/email/phone/relationship).
 
         Combines linked parent users (ParentStudent) and guardian records
         (StudentGuardian), primary contacts first, de-duplicated by email.
@@ -192,10 +195,14 @@ class StudentReportView(RoleRequiredMixin, View):
             is_active=True,
         ).select_related('parent')
         for link in parent_links:
-            name = link.parent.get_full_name() or link.parent.username
-            contacts.setdefault(link.student_id, []).append(
-                (link.is_primary_contact, name, link.parent.email or '')
-            )
+            p = link.parent
+            contacts.setdefault(link.student_id, []).append({
+                'primary': link.is_primary_contact,
+                'name': p.get_full_name() or p.username,
+                'email': p.email or '',
+                'phone': p.phone or '',
+                'relationship': link.get_relationship_display() if link.relationship else '',
+            })
 
         # Guardian records — scoped to the accessible schools so a student
         # enrolled in more than one school never leaks another school's contacts.
@@ -204,26 +211,29 @@ class StudentReportView(RoleRequiredMixin, View):
             guardian__school_id__in=school_ids,
         ).select_related('guardian')
         for sg in guardian_links:
-            name = f'{sg.guardian.first_name} {sg.guardian.last_name}'.strip()
-            contacts.setdefault(sg.student_id, []).append(
-                (sg.is_primary, name, sg.guardian.email or '')
-            )
+            g = sg.guardian
+            contacts.setdefault(sg.student_id, []).append({
+                'primary': sg.is_primary,
+                'name': f'{g.first_name} {g.last_name}'.strip(),
+                'email': g.email or '',
+                'phone': g.phone or '',
+                'relationship': g.get_relationship_display() if g.relationship else '',
+            })
 
         result = {}
-        for sid, triples in contacts.items():
+        for sid, parents in contacts.items():
             # Primary contacts first (stable sort keeps source order otherwise),
-            # then de-duplicate by (name, email).
-            triples.sort(key=lambda t: not t[0])
+            # then de-duplicate by email (falling back to name).
+            parents.sort(key=lambda p: not p['primary'])
             seen = set()
-            names, emails = [], []
-            for _primary, name, email in triples:
-                key = (name.lower(), email.lower())
+            unique = []
+            for p in parents:
+                key = p['email'].lower() if p['email'] else p['name'].lower()
                 if key in seen:
                     continue
                 seen.add(key)
-                names.append(name)
-                emails.append(email)
-            result[sid] = ('; '.join(names), '; '.join(emails))
+                unique.append(p)
+            result[sid] = unique
         return result
 
     @staticmethod
@@ -241,20 +251,25 @@ class StudentReportView(RoleRequiredMixin, View):
     def _export_csv(self, qs, school_ids):
         rows = list(qs)
         student_ids = [ss.student_id for ss in rows]
-        parent_map = self._parent_contacts(student_ids, school_ids)
+        parent_map = self._parents_by_student(student_ids, school_ids)
 
         response = HttpResponse(content_type='text/csv')
         response['Content-Disposition'] = 'attachment; filename="student_report.csv"'
         writer = csv.writer(response)
-        writer.writerow([
+
+        header = [
             'Student Name', 'Username', 'Student Email', 'Student ID',
             'Active Classes', 'Enrollment', 'Payment',
-            'Parent Name', 'Parent Email',
-        ])
+        ]
+        for i in range(1, self.MAX_PARENTS + 1):
+            header += [f'Parent {i} Name', f'Parent {i} Email',
+                       f'Parent {i} Phone', f'Parent {i} Relationship']
+        writer.writerow(header)
+
         for ss in rows:
             student = ss.student
-            parent_names, parent_emails = parent_map.get(ss.student_id, ('', ''))
-            writer.writerow([self._csv_safe(v) for v in [
+            parents = parent_map.get(ss.student_id, [])
+            row = [
                 student.get_full_name() or student.username,
                 student.username,
                 student.email or '',
@@ -262,9 +277,12 @@ class StudentReportView(RoleRequiredMixin, View):
                 ss.active_class_count,
                 'Active' if ss.is_active else 'Inactive',
                 'Blocked' if student.is_blocked else 'OK',
-                parent_names,
-                parent_emails,
-            ]])
+            ]
+            for i in range(self.MAX_PARENTS):
+                p = parents[i] if i < len(parents) else {}
+                row += [p.get('name', ''), p.get('email', ''),
+                        p.get('phone', ''), p.get('relationship', '')]
+            writer.writerow([self._csv_safe(v) for v in row])
         return response
 
 
