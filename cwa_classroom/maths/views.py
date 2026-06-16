@@ -1448,6 +1448,128 @@ def add_question(request, level_number):
         "level": level
     })
 
+
+def _render_shape_preview(request, spec, target, level_id, question_text, backend):
+    """Render the shape-import review page from a (possibly edited) spec."""
+    from maths.geometry_grading import SHAPE_TYPES
+    from maths.svg_geometry import shape_select_svg
+    import json as _json
+    vb = spec.get("viewbox") or [680, 400]
+    return render(request, "maths/shape_import_preview.html", {
+        "spec_json": _json.dumps(spec),
+        "shapes": spec.get("shapes", []),
+        "svg": shape_select_svg(spec),
+        "width": vb[0], "height": vb[1],
+        "backend": backend,
+        "target_type": target,
+        "shape_types": SHAPE_TYPES,
+        "level_id": str(level_id),
+        "question_text": question_text,
+    })
+
+
+@login_required
+def shape_import_upload(request):
+    """Upload an image of shapes → detect → review/correct → save (shape_select).
+
+    Detection is synchronous (OpenCV, with an opt-in Claude-vision fallback).
+    The detected geometry is carried into the review page as hidden JSON, so the
+    teacher can correct each shape's type / the target before saving — no
+    re-upload or re-detection on save.
+    """
+    from maths.geometry_grading import SHAPE_TYPES
+
+    if not request.user.is_teacher:
+        messages.error(request, "Only teachers can add questions.")
+        return redirect("maths:dashboard")
+
+    levels = ClassroomLevel.objects.filter(
+        level_number__gte=1, level_number__lte=12
+    ).order_by("level_number")
+
+    if request.method == "POST":
+        from maths.shape_detect import build_shape_spec_from_image
+
+        image = request.FILES.get("image")
+        target = request.POST.get("target_type", "")
+        level_id = request.POST.get("level", "")
+        allow_ai = request.POST.get("allow_ai") == "on"
+        question_text = (request.POST.get("question_text") or "").strip()
+
+        if not (image and target in SHAPE_TYPES and level_id):
+            messages.error(request, "Choose an image, a target shape, and a level.")
+        else:
+            media_type = getattr(image, "content_type", "") or "image/png"
+            try:
+                spec, backend = build_shape_spec_from_image(
+                    image.read(), target, allow_ai=allow_ai, media_type=media_type,
+                )
+            except ValueError:
+                messages.error(
+                    request,
+                    f"No {target} was detected in that image. Try a clearer "
+                    f"image, or tick “Use AI fallback”.",
+                )
+            else:
+                return _render_shape_preview(
+                    request, spec, target, level_id,
+                    question_text or f"Colour all the {target}s.", backend,
+                )
+
+    return render(request, "maths/shape_import_upload.html", {
+        "levels": levels, "shape_types": SHAPE_TYPES,
+    })
+
+
+@login_required
+def shape_import_save(request):
+    """Persist a reviewed shape-import spec as a shape_select Question."""
+    import json as _json
+
+    from maths.geometry_grading import SHAPE_TYPES, validate_shape_spec
+
+    if not request.user.is_teacher:
+        messages.error(request, "Only teachers can add questions.")
+        return redirect("maths:dashboard")
+    if request.method != "POST":
+        return redirect("maths:shape_import")
+
+    target = request.POST.get("target_type", "")
+    level_id = request.POST.get("level", "")
+    question_text = (request.POST.get("question_text") or "").strip()
+    try:
+        spec = _json.loads(request.POST.get("spec_json", ""))
+    except (ValueError, TypeError):
+        messages.error(request, "Lost the detected shapes — please upload again.")
+        return redirect("maths:shape_import")
+
+    # Apply the teacher's per-shape type corrections, then the chosen target.
+    for s in spec.get("shapes", []):
+        edited = request.POST.get(f"type_{s.get('id')}")
+        if edited in SHAPE_TYPES:
+            s["type"] = edited
+    spec["target_type"] = target
+
+    try:
+        validate_shape_spec(spec)
+    except ValueError as exc:
+        messages.error(request, f"Can't save yet: {exc}")
+        return _render_shape_preview(
+            request, spec, target, level_id,
+            question_text or f"Colour all the {target}s.", "edited",
+        )
+
+    from maths.models import Question
+
+    level = get_object_or_404(ClassroomLevel, pk=level_id)
+    q = Question.objects.create(
+        level=level, question_text=question_text or f"Colour all the {target}s.",
+        question_type=Question.SHAPE_SELECT, difficulty=1, points=1, shape_spec=spec,
+    )
+    messages.success(request, f"Created shape question #{q.pk} on {level}.")
+    return redirect("maths:level_questions", level_number=level.level_number)
+
+
 @login_required
 def level_questions(request, level_number):
     """Display all questions for a specific level"""

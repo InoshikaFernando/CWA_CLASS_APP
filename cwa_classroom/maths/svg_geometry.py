@@ -10,6 +10,8 @@ Pure functions — value in, SVG/coords out — no DB, no request.
 import math
 import re
 
+from maths.geometry_grading import SHAPE_TYPES, shape_geometry_form
+
 
 def angle_ray_points(degrees, *, size=240):
     """Return ``(vertex, baseline_end, ray_end)`` for an angle figure.
@@ -79,36 +81,53 @@ def angle_svg(degrees, *, size=240, label='a'):
 def _shape_inner(shape):
     """Return the SVG element for one ``shape_select`` shape, or '' if malformed.
 
-    Defensive on purpose — a spec that bypassed ``validate_shape_spec`` (raw
-    admin JSON, a hand-edited fixture) must not 500 the take-item render, so a
-    bad shape is simply skipped. The element carries ``data-shape-id`` /
-    ``data-shape-type`` and the ``cwa-shape`` class so the take-item JS can
-    toggle its fill and collect the coloured ids. ``fill="transparent"`` keeps
-    the outline tappable before it's coloured.
+    Handles all three geometry forms (parametric centre+size from the generator,
+    traced ``points`` polygons, traced ``rx``/``ry`` ellipses — see
+    ``shape_geometry_form``). Defensive on purpose — a spec that bypassed
+    ``validate_shape_spec`` (raw admin JSON, a hand-edited fixture) must not 500
+    the take-item render, so a bad shape is simply skipped. The element carries
+    ``data-shape-id`` / ``data-shape-type`` and the ``cwa-shape`` class so the
+    take-item JS can toggle its fill and collect the coloured ids.
+    ``fill="transparent"`` keeps the outline tappable before it's coloured.
     """
-    try:
-        sid = str(shape['id'])
-        stype = shape['type']
-        cx, cy, s = float(shape['cx']), float(shape['cy']), float(shape['size'])
-        rot = float(shape.get('rot', 0))
-    except (KeyError, TypeError, ValueError):
+    if not isinstance(shape, dict) or not isinstance(shape.get('id'), str):
         return ''
-    if s <= 0:
-        return ''
-    # Only a safe token reaches the data attribute / markup — ids are generated
-    # (``s0``, ``s1`` …) so this never mangles a legitimate id.
-    sid = re.sub(r'[^A-Za-z0-9_-]', '', sid)
-    if not sid or stype not in _SHAPE_GEOMETRY:
+    stype = shape.get('type')
+    # Only a safe token reaches the data attribute / markup — generated ids are
+    # ``s0``/``s1`` … so this never mangles a legitimate id.
+    sid = re.sub(r'[^A-Za-z0-9_-]', '', shape['id'])
+    if not sid or stype not in SHAPE_TYPES:
         return ''
 
     stroke = 'var(--svg-stroke, #1a1a1a)'
-    common = (
+    base = (
         f'class="cwa-shape" data-shape-id="{sid}" data-shape-type="{stype}" '
         f'fill="transparent" stroke="{stroke}" stroke-width="2" '
-        f'transform="rotate({_f(rot)} {_f(cx)} {_f(cy)})" '
         f'tabindex="0" role="button" aria-label="{stype}"'
     )
-    return _SHAPE_GEOMETRY[stype](cx, cy, s, common)
+    form = shape_geometry_form(shape)
+    try:
+        if form == 'polygon':
+            pts = [(float(p[0]), float(p[1])) for p in shape['points']]
+            return _poly(pts, base) if len(pts) >= 3 else ''
+        if form == 'ellipse':
+            cx, cy = float(shape['cx']), float(shape['cy'])
+            rx, ry = float(shape['rx']), float(shape['ry'])
+            rot = float(shape.get('rot', 0))
+            if rx <= 0 or ry <= 0:
+                return ''
+            spin = f' transform="rotate({_f(rot)} {_f(cx)} {_f(cy)})"' if rot else ''
+            return (f'<ellipse cx="{_f(cx)}" cy="{_f(cy)}" rx="{_f(rx)}" '
+                    f'ry="{_f(ry)}" {base}{spin}/>')
+        # parametric (generator)
+        cx, cy, s = float(shape['cx']), float(shape['cy']), float(shape['size'])
+        rot = float(shape.get('rot', 0))
+        if s <= 0:
+            return ''
+        common = f'{base} transform="rotate({_f(rot)} {_f(cx)} {_f(cy)})"'
+        return _SHAPE_GEOMETRY[stype](cx, cy, s, common)
+    except (KeyError, TypeError, ValueError, IndexError):
+        return ''
 
 
 def _poly(points, common):
