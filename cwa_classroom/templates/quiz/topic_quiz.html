@@ -62,7 +62,16 @@
   // ── Shared submit helper ──────────────────────────────────────────────────
   const _csrf = document.querySelector('meta[name="csrf-token"]').content;
 
+  // Answer choices stay enabled after answering (so kids can keep tapping the
+  // 🔊 speakers to repeat), so we guard grading here instead: _submitting blocks
+  // a double-tap mid-request, _answered blocks re-grading once feedback is shown.
+  // Both reset when the next question loads.
+  let _answered = false;
+  let _submitting = false;
+
   async function _submitAndAdvance(sessionId, payload) {
+    if (_answered || _submitting) return;
+    _submitting = true;
     try {
       const resp = await fetch('/api/submit-topic-answer/', {
         method: 'POST',
@@ -74,9 +83,12 @@
         _showError(data.error || 'Something went wrong. Please refresh and try again.');
         return;
       }
+      _answered = true;
       _showFeedback(data, sessionId);
     } catch (err) {
       _showError('Could not submit your answer. Please check your connection and try again.');
+    } finally {
+      _submitting = false;
     }
   }
 
@@ -93,9 +105,8 @@
     const card = document.getElementById('question-card');
     if (!card) return;
 
-    // Disable all interactive inputs — but keep the read-aloud speakers
-    // (.tts-btn) live so a student can still hear the answers after submitting.
-    card.querySelectorAll('.answer-btn, button:not(.tts-btn), input:not([data-speak])').forEach(el => el.disabled = true);
+    // Nothing is disabled — answer choices, inputs and speakers all stay live so
+    // kids can keep listening/exploring. Re-grading is prevented by _answered.
 
     const fb = document.createElement('div');
     fb.className = 'mt-5 space-y-3';
@@ -142,13 +153,14 @@
     const nextResp = await fetch('/api/topic-next/' + sessionId + '/');
     const html = await nextResp.text();
     document.getElementById('question-container').innerHTML = html;
+    _answered = false;        // fresh question — allow answering again
+    _submitting = false;
     currentQ++;
     _updateProgress();
   }
 
   // ── Answer submission functions ───────────────────────────────────────────
   function submitMCAnswer(sessionId, questionId, answerId) {
-    document.querySelectorAll('.answer-btn').forEach(b => b.disabled = true);
     _submitAndAdvance(sessionId, {
       session_id: sessionId, question_id: questionId, answer_id: answerId,
     });
@@ -158,7 +170,6 @@
     const input = document.getElementById('text-answer-input');
     const val = input ? input.value.trim() : '';
     if (!val) return;
-    input.disabled = true;
     _submitAndAdvance(sessionId, {
       session_id: sessionId, question_id: questionId, text_answer: val,
     });

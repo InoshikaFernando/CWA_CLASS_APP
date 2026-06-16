@@ -373,12 +373,3 @@
 
 </div>
 {% endif %}
-
-<script>
-  // Disable answer buttons after click to prevent double-submit
-  document.querySelectorAll('.answer-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-      document.querySelectorAll('.answer-btn').forEach(b => b.disabled = true);
-    });
-  });
-</script>
