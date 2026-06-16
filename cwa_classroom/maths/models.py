@@ -458,6 +458,9 @@ class Question(models.Model):
           rows     — list of right-aligned digit-string lists (one per operand), blanks left-padded
           operator — display symbol: '+', '−' or '×'
           cols     — range(width) for template iteration
+          partials — (long multiplication only) list of scratch working rows, one per
+                     non-zero multiplier digit; each is {'shift', 'boxes', 'spacers'}.
+                     Absent for +, −, single-significant-digit × and 3+ operands.
         Returns None if this isn't a valid column-arithmetic question.
         """
         ops = self.operands or []
@@ -475,12 +478,34 @@ class Question(models.Model):
             return [''] * (width - len(s)) + list(s)
 
         symbol = {'+': '+', '-': '−', '*': '×', '×': '×', 'x': '×'}.get(self.operator, self.operator)
-        return {
+        data = {
             'width': width,
             'rows': [pad(n) for n in nums],
             'operator': symbol,
             'cols': range(width),
         }
+
+        # Long-multiplication partial-product working rows.
+        # Only for a genuine multi-digit multiplier: × with exactly two operands
+        # where the multiplier (bottom number) has ≥ 2 non-zero digits. A single
+        # significant digit (×4, ×10, ×100, ×60) needs no partials — the simple
+        # single-answer-row layout is kept. Zero digits are skipped (no row); the
+        # next non-zero digit shifts by its full place value (23×101 → 2 rows).
+        if self.operator in ('*', '×', 'x') and len(nums) == 2:
+            multiplier_digits = str(abs(nums[1]))
+            if sum(1 for d in multiplier_digits if d != '0') >= 2:
+                partials = []
+                for shift, digit in enumerate(reversed(multiplier_digits)):
+                    if digit == '0':
+                        continue  # nothing to write for a zero digit
+                    partials.append({
+                        'shift': shift,                  # place-value offset, 0 = units
+                        'boxes': range(width - shift),   # scratch cells (value right-aligned here)
+                        'spacers': range(shift),         # empty cells on the right (the shift)
+                    })
+                data['partials'] = partials
+
+        return data
 
     @property
     def column_inline(self):
