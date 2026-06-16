@@ -120,4 +120,14 @@ class ResendEmailBackend(BaseEmailBackend):
         if message.extra_headers:
             params['headers'] = message.extra_headers
 
-        resend.Emails.send(params)
+        response = resend.Emails.send(params)
+        # Surface the Resend message id back to the caller so it can be stored
+        # on the EmailLog and later correlated with delivery webhooks. The SDK
+        # returns a dict-like {'id': '...'}; tolerate other shapes defensively.
+        message_id = ''
+        if isinstance(response, dict):
+            message_id = response.get('id', '') or ''
+        else:
+            message_id = getattr(response, 'id', '') or ''
+        message.resend_message_id = message_id
+        return response

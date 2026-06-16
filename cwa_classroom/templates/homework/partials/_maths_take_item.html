@@ -271,6 +271,22 @@ hidden-field-sync pattern of the long-division / prime-factorisation partials.
     {% endfor %}
   </div>
   {% endfor %}
+  {% if ca.partials %}
+  <!-- First rule: under the operands, above the long-multiplication working rows -->
+  <div class="flex border-t-2 border-gray-800 mt-1"><span class="w-10 inline-block"></span>{% for c in ca.cols %}<span class="w-10 inline-block"></span>{% endfor %}</div>
+  <!-- Partial-product working rows (long multiplication) — scratch space, not marked -->
+  {% for p in ca.partials %}
+  <div class="flex mt-1">
+    <span class="w-10 inline-block"></span>
+    {% for b in p.boxes %}
+      <input type="text" maxlength="1" inputmode="numeric"
+             data-ca-partial="{{ q.id }}" aria-label="partial product working digit"
+             class="w-10 h-10 text-center bg-amber-50 border-2 border-amber-200 rounded text-amber-600 font-bold focus:border-primary focus:bg-white focus:outline-none" />
+    {% endfor %}
+    {% for s in p.spacers %}<span class="w-10 h-10 inline-block"></span>{% endfor %}
+  </div>
+  {% endfor %}
+  {% endif %}
   <!-- Rule + answer row -->
   <div class="flex border-t-2 border-gray-800 pt-1 mt-1">
     <span class="w-10 inline-block"></span>
@@ -301,6 +317,58 @@ hidden-field-sync pattern of the long-division / prime-factorisation partials.
   });
   const form = wrap.closest('form');
   if (form) form.addEventListener('submit', refresh, true);
+})();
+</script>
+{% endwith %}
+
+{% elif q.question_type == 'shape_select' and q.shape_select_data %}
+{% comment %}
+Shape-select: tap a shape to colour it (the target type, e.g. "colour all the
+triangles"); tap again to undo. Coloured ids serialise to JSON in the hidden
+answer_{id} input as {"selected":["s0",...]}. Mirrors the hidden-field-sync
+pattern of the draw-on-grid partial; grading is server-side set comparison.
+{% endcomment %}
+{% with d=q.shape_select_data %}
+<input type="hidden" name="answer_{{ q.id }}" data-ss-hidden="{{ q.id }}" value='{"selected":[]}' />
+<p class="text-xs text-gray-500 mb-2">Tap each {{ d.target_type }} to colour it. Tap again to undo.</p>
+<svg data-ss-wrap="{{ q.id }}" viewBox="0 0 {{ d.width }} {{ d.height }}"
+     class="border border-gray-200 rounded-lg bg-white touch-none select-none max-w-full"
+     style="width:100%;height:auto">
+  {{ d.svg|safe }}
+</svg>
+<button type="button" data-ss-clear="{{ q.id }}"
+        class="mt-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50">Clear</button>
+<script>
+(function(){
+  var id = "{{ q.id }}";
+  var svg = document.querySelector('[data-ss-wrap="' + id + '"]');
+  var hidden = document.querySelector('[data-ss-hidden="' + id + '"]');
+  var clearBtn = document.querySelector('[data-ss-clear="' + id + '"]');
+  if (!svg || !hidden) return;
+  var FILL = "#f59e0b";        // amber crayon
+  var sel = new Set();
+  function sync(){ hidden.value = JSON.stringify({selected: Array.from(sel)}); }
+  function toggle(el){
+    var sid = el.getAttribute('data-shape-id');
+    if (!sid) return;
+    if (sel.has(sid)){ sel.delete(sid); el.setAttribute('fill', 'transparent'); }
+    else { sel.add(sid); el.setAttribute('fill', FILL); el.setAttribute('fill-opacity', '0.55'); }
+    sync();
+  }
+  svg.querySelectorAll('.cwa-shape').forEach(function(el){
+    el.addEventListener('click', function(){ toggle(el); });
+    el.addEventListener('keydown', function(e){
+      if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(el); }
+    });
+  });
+  if (clearBtn) clearBtn.addEventListener('click', function(){
+    sel.clear();
+    svg.querySelectorAll('.cwa-shape').forEach(function(el){ el.setAttribute('fill', 'transparent'); });
+    sync();
+  });
+  var form = svg.closest('form');
+  if (form) form.addEventListener('submit', sync, true);
+  sync();
 })();
 </script>
 {% endwith %}

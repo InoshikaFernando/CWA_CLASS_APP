@@ -1,0 +1,55 @@
+{% extends "maths/base.html" %}
+{% block content %}
+<h1>Create a shape question from an image</h1>
+<p style="color:#555;max-width:48rem;">
+  Upload an image of mixed 2D shapes (e.g. a worksheet). The shapes are detected
+  and traced, then you review them and save a tap-to-colour
+  &ldquo;find&nbsp;the&nbsp;shape&rdquo; question.
+</p>
+
+{% if messages %}
+  {% for message in messages %}
+    <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+  {% endfor %}
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" style="max-width:32rem;">
+  {% csrf_token %}
+
+  <div class="form-group" style="margin-bottom:1rem;">
+    <label for="id_image"><strong>Image</strong> (PNG or JPG)</label><br>
+    <input type="file" name="image" id="id_image" accept="image/png,image/jpeg" required>
+  </div>
+
+  <div class="form-group" style="margin-bottom:1rem;">
+    <label for="id_target"><strong>Shape to find</strong></label><br>
+    <select name="target_type" id="id_target" required>
+      {% for t in shape_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="form-group" style="margin-bottom:1rem;">
+    <label for="id_level"><strong>Level (year)</strong></label><br>
+    <select name="level" id="id_level" required>
+      <option value="">— choose —</option>
+      {% for lvl in levels %}<option value="{{ lvl.pk }}">Year {{ lvl.level_number }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="form-group" style="margin-bottom:1rem;">
+    <label for="id_text"><strong>Question text</strong> (optional)</label><br>
+    <input type="text" name="question_text" id="id_text" size="40"
+           placeholder="Colour all the triangles.">
+  </div>
+
+  <div class="form-group" style="margin-bottom:1rem;">
+    <label>
+      <input type="checkbox" name="allow_ai">
+      Use AI fallback if outline detection finds nothing
+      <span style="color:#a00;">(uses AI credits)</span>
+    </label>
+  </div>
+
+  <button type="submit">Detect shapes →</button>
+</form>
+{% endblock %}

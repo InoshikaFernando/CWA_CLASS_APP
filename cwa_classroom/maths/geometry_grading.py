@@ -192,3 +192,151 @@ def grade_draw_on_grid(grid_spec, payload):
     if not want:
         return False
     return want.issubset(got) if allow_extra else want == got
+
+
+# ── shape_select (CPP — find & colour shapes) ────────────────────────────
+# A scene of mixed 2D shapes where the student colours the ones matching a
+# target type ("colour all the triangles"). Same set-comparison philosophy as
+# draw_on_grid: the spec is server-authoritative (the shapes and their types
+# are stored), the target id set is DERIVED (shapes whose type == target_type),
+# and grading compares the student's coloured-id set to it.
+SHAPE_TYPES = ('triangle', 'circle', 'square', 'rectangle', 'ellipse', 'rhombus')
+
+
+def shape_target_ids(shape_spec):
+    """Set of shape ids whose type is the spec's ``target_type``.
+
+    Derived, never stored — so the answer key can't drift from the figure.
+    Defensive: returns an empty set for a malformed spec, so grading and the
+    render helper never raise on a spec that bypassed ``validate_shape_spec``.
+    """
+    if not isinstance(shape_spec, dict):
+        return set()
+    target = shape_spec.get('target_type')
+    out = set()
+    for s in shape_spec.get('shapes') or []:
+        if isinstance(s, dict) and s.get('type') == target and s.get('id') is not None:
+            out.add(str(s['id']))
+    return out
+
+
+def _is_number(v):
+    """True for a real numeric coordinate. ``bool`` is an ``int`` subclass, so
+    reject it explicitly — True/False must not pose as coordinates."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def shape_geometry_form(shape):
+    """Which geometry form a shape uses: ``polygon``, ``ellipse`` or ``parametric``.
+
+    Generated scenes use the parametric centre+size form; detected/traced shapes
+    carry explicit geometry — a ``points`` list (polygon) or ``rx``/``ry`` (an
+    ellipse). Both validation and the SVG builder dispatch on this, so the two
+    authoring paths (generator vs image import) share one spec + one grader.
+    """
+    if 'points' in shape:
+        return 'polygon'
+    if 'rx' in shape or 'ry' in shape:
+        return 'ellipse'
+    return 'parametric'
+
+
+def _validate_shape_geometry(sid, s):
+    """Validate one shape's geometry by its form; raise ``ValueError`` if invalid."""
+    form = shape_geometry_form(s)
+    if form == 'polygon':
+        pts = s.get('points')
+        if not isinstance(pts, list) or len(pts) < 3:
+            raise ValueError(f'Shape {sid!r} points must be a list of >= 3 [x, y].')
+        for p in pts:
+            if not (isinstance(p, (list, tuple)) and len(p) == 2
+                    and all(_is_number(c) for c in p)):
+                raise ValueError(f'Shape {sid!r} has a malformed point {p!r}.')
+    elif form == 'ellipse':
+        for k in ('cx', 'cy', 'rx', 'ry'):
+            if not _is_number(s.get(k)):
+                raise ValueError(f'Shape {sid!r} {k} must be a number; got {s.get(k)!r}.')
+        if s['rx'] <= 0 or s['ry'] <= 0:
+            raise ValueError(f'Shape {sid!r} rx/ry must be positive.')
+        if not _is_number(s.get('rot', 0)):
+            raise ValueError(f"Shape {sid!r} rot must be a number; got {s.get('rot')!r}.")
+    else:  # parametric
+        for k in ('cx', 'cy', 'size'):
+            if not _is_number(s.get(k)):
+                raise ValueError(f'Shape {sid!r} {k} must be a number; got {s.get(k)!r}.')
+        if s['size'] <= 0:
+            raise ValueError(f'Shape {sid!r} size must be positive.')
+        if not _is_number(s.get('rot', 0)):
+            raise ValueError(f"Shape {sid!r} rot must be a number; got {s.get('rot')!r}.")
+
+
+def validate_shape_spec(shape_spec):
+    """Validate a ``shape_select`` ``shape_spec``; raise ``ValueError`` if invalid.
+
+    Pure and framework-agnostic (no Django import) so it is reused by the model's
+    ``clean()`` AND by both authoring paths before a scene is stored — the
+    procedural generator and the image importer — so a malformed spec can't slip
+    in through any path. Mirrors ``validate_grid_spec``. Checks structure, a
+    ``target_type`` in ``SHAPE_TYPES``, a non-empty ``shapes`` list of known-type
+    shapes with unique string ids and valid geometry (parametric, polygon, or
+    ellipse form — see ``shape_geometry_form``), and that at least one shape
+    actually has the target type (else the question is unanswerable).
+    """
+    if not isinstance(shape_spec, dict):
+        raise ValueError('shape_spec must be a JSON object.')
+
+    target = shape_spec.get('target_type')
+    if target not in SHAPE_TYPES:
+        raise ValueError(f'shape_spec.target_type must be one of {SHAPE_TYPES}.')
+
+    shapes = shape_spec.get('shapes')
+    if not isinstance(shapes, list) or not shapes:
+        raise ValueError('shape_spec.shapes must be a non-empty list.')
+
+    seen = set()
+    for s in shapes:
+        if not isinstance(s, dict):
+            raise ValueError(f'Each shape must be an object; got {s!r}.')
+        sid = s.get('id')
+        if not isinstance(sid, str) or not sid:
+            raise ValueError(f'Shape id must be a non-empty string; got {sid!r}.')
+        if sid in seen:
+            raise ValueError(f'Duplicate shape id {sid!r}.')
+        seen.add(sid)
+        if s.get('type') not in SHAPE_TYPES:
+            raise ValueError(f"Shape {sid!r} has unknown type {s.get('type')!r}.")
+        _validate_shape_geometry(sid, s)
+
+    if not any(isinstance(s, dict) and s.get('type') == target for s in shapes):
+        raise ValueError(f"shape_spec has no shape of target_type '{target}'.")
+
+
+def grade_shape_select(shape_spec, payload):
+    """True if the student coloured exactly the shapes matching ``target_type``.
+
+    Deterministic SET comparison — the same order-independent philosophy as
+    ``grade_draw_on_grid``: the coloured-id set must EQUAL the target-id set
+    (colouring an extra shape, or missing one, is wrong — "colour *all* the
+    triangles"). ``payload`` is the student submission as a JSON string (or
+    already-parsed dict) shaped ``{"selected": ["s0", "s3", ...]}``.
+
+    Returns ``False`` on a malformed/empty payload or a spec with no target
+    shapes — never raises, so a bad submission is simply wrong, not a 500.
+    """
+    want = shape_target_ids(shape_spec)
+    if not want:
+        return False
+    try:
+        data = json.loads(payload) if isinstance(payload, str) else payload
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    selected = data.get('selected')
+    if not isinstance(selected, list):
+        return False
+    try:
+        got = {str(x) for x in selected}
+    except TypeError:
+        return False
+    return want == got

@@ -25,7 +25,7 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.7.3'          # MAJOR.MINOR.PATCH
+APP_VERSION       = '1.8.0'          # MAJOR.MINOR.PATCH
 APP_VERSION_DATE  = '2026-06-16'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
@@ -440,6 +440,11 @@ DAILY_EMAIL_LIMIT = int(os.environ.get('DAILY_EMAIL_LIMIT', '90'))
 
 # Priority: Resend API (recommended) > SMTP (legacy) > Console (dev)
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
+
+# Signing secret for the Resend delivery webhook (/webhooks/resend/). Copy it
+# from the webhook's page in the Resend dashboard. Without it, the endpoint
+# rejects all events.
+RESEND_WEBHOOK_SECRET = os.environ.get('RESEND_WEBHOOK_SECRET', '')
 
 if RESEND_API_KEY:
     EMAIL_BACKEND = 'cwa_classroom.email_backends.ResendEmailBackend'

@@ -22,7 +22,9 @@ from .models import (
     DiscountCode, Package, Subscription, DURATION_CHOICES,
 )
 from .reporting import (
-    get_paid_revenue, get_subscription_counts, StripeUnavailable,
+    get_paid_revenue, get_subscription_counts,
+    get_daily_active_series, get_daily_active_series_local,
+    DAILY_WINDOWS, StripeUnavailable,
 )
 from audit.services import log_event
 
@@ -102,6 +104,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
     ACTIVE_STATES = ['active', 'trialing']
     INACTIVE_STATES = ['past_due', 'cancelled', 'expired', 'suspended']
     ZERO = Decimal('0.00')
+    WINDOW_LABELS = {7: '7d', 30: '30d', 90: '90d', 365: '1y', 1825: '5y'}
 
     @staticmethod
     def _month_dt(d):
@@ -159,6 +162,18 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         except StripeUnavailable:
             counts_source = 'local'
 
+        # --- daily active-subscriptions graph (selectable window) -----------
+        try:
+            window_days = int(request.GET.get('days', 30))
+        except (TypeError, ValueError):
+            window_days = 30
+        if window_days not in DAILY_WINDOWS:
+            window_days = 30
+        try:
+            daily = get_daily_active_series(window_days)
+        except StripeUnavailable:
+            daily = get_daily_active_series_local(window_days)
+
         # Filter option lists
         countries = sorted({
             c for c in (
@@ -180,9 +195,19 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             'earnings_source': earnings_source,
             'earnings_currency': earnings_currency,
             'counts_source': counts_source,
+            'daily': daily,
+            'daily_window': window_days,
+            'daily_window_options': [
+                {'days': d, 'label': self.WINDOW_LABELS.get(d, str(d))}
+                for d in DAILY_WINDOWS
+            ],
             'combined_this_month': (
                 students.get('this_month', self.ZERO)
                 + institutes.get('this_month', self.ZERO)
+            ),
+            'combined_last_month': (
+                students.get('last_month', self.ZERO)
+                + institutes.get('last_month', self.ZERO)
             ),
             'combined_estimate': students['estimate'] + institutes['estimate'],
             'addons': addons['rows'],

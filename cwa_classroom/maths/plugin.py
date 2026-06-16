@@ -215,6 +215,13 @@ class MathsPlugin(SubjectPlugin):
             from maths.geometry_grading import grade_draw_on_grid
             text_answer = post_data.get(f'answer_{q.id}', '')
             is_correct = grade_draw_on_grid(q.grid_spec, text_answer)
+        elif q.question_type == Question.SHAPE_SELECT and q.shape_spec:
+            # Set-comparison of coloured shapes (e.g. "colour all the triangles").
+            # The client serialises the coloured ids to JSON in answer_{id} as
+            # {"selected": [...]}; the target set is derived from the spec.
+            from maths.geometry_grading import grade_shape_select
+            text_answer = post_data.get(f'answer_{q.id}', '')
+            is_correct = grade_shape_select(q.shape_spec, text_answer)
         else:
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
             # Routes to algebra grading when q.answer_format == 'algebra',
