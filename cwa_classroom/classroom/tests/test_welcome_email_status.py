@@ -85,6 +85,64 @@ class GetWelcomeEmailStatesTest(TestCase):
         self.assertEqual(states[b.id], 'failed')
 
 
+class ParentsListWelcomeStateTest(TestCase):
+    """The parents admin list surfaces welcome-email delivery state for parent
+    accounts (CPP-343)."""
+
+    def setUp(self):
+        from django.test import Client
+        from accounts.models import Role, UserRole
+        from classroom.models import SchoolStudent, ParentStudent
+
+        self.hoi = CustomUser.objects.create_user(
+            username='hoi_pl', email='hoi_pl@example.com', password='TestPass123!',
+        )
+        role, _ = Role.objects.get_or_create(
+            name=Role.HEAD_OF_INSTITUTE, defaults={'display_name': 'HoI'},
+        )
+        UserRole.objects.create(user=self.hoi, role=role)
+        self.school = School.objects.create(
+            name='Parent List School', slug='parent-list-school', admin=self.hoi,
+            is_active=True, is_published=True,
+        )
+        self.student = CustomUser.objects.create_user(
+            username='stu_pl', email='stu_pl@example.com', password='TestPass123!',
+        )
+        SchoolStudent.objects.create(school=self.school, student=self.student, is_active=True)
+        self.parent = CustomUser.objects.create_user(
+            username='par_pl', email='par_pl@example.com', password='TestPass123!',
+            first_name='Pat', last_name='Parent',
+        )
+        ParentStudent.objects.create(
+            parent=self.parent, student=self.student, school=self.school,
+            relationship='mother', is_active=True,
+        )
+        self.client = Client()
+        self.client.force_login(self.hoi)
+
+    def _parent_rows(self):
+        from django.urls import reverse
+        resp = self.client.get(
+            reverse('admin_school_parents', kwargs={'school_id': self.school.id})
+        )
+        self.assertEqual(resp.status_code, 200)
+        return {p.get('parent_id'): p for p in resp.context['page']}
+
+    def test_delivered_welcome_state_shown(self):
+        _welcome_log(self.parent, 'delivered')
+        rows = self._parent_rows()
+        self.assertEqual(rows[self.parent.id].get('welcome_email_state'), 'delivered')
+
+    def test_bounced_welcome_state_shown(self):
+        _welcome_log(self.parent, 'bounced')
+        rows = self._parent_rows()
+        self.assertEqual(rows[self.parent.id].get('welcome_email_state'), 'bounced')
+
+    def test_no_log_leaves_state_unset(self):
+        rows = self._parent_rows()
+        self.assertIsNone(rows[self.parent.id].get('welcome_email_state'))
+
+
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
 class StaffWelcomeEmailLoggingTest(TestCase):
 

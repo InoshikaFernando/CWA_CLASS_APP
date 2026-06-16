@@ -179,6 +179,16 @@ class SchoolParentListView(RoleRequiredMixin, View):
         paginator = Paginator(parents, 25)
         page = paginator.get_page(request.GET.get('page'))
 
+        # Welcome-email delivery status for parent accounts on this page
+        # (CPP-343). Guardian contacts have no account/welcome email, so skip.
+        from .email_service import get_welcome_email_states
+        states = get_welcome_email_states(
+            [p['parent_id'] for p in page if p.get('parent_id')]
+        )
+        for p in page:
+            if p.get('parent_id'):
+                p['welcome_email_state'] = states.get(p['parent_id'])
+
         ctx = {
             'school': school,
             'parents': page,

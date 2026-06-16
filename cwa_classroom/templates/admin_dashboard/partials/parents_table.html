@@ -10,11 +10,17 @@
         <p class="font-medium text-gray-900">
           {{ p.first_name }} {{ p.last_name }}
           {% if p.obj_type == 'parent_student' %}
-            {% if p.welcome_email_sent %}
-            <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-green-100 text-green-700" title="Welcome email sent {{ p.welcome_email_sent|date:'d M Y' }}">&#10003; Welcome sent</span>
-            {% else %}
-            <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-amber-100 text-amber-700">Welcome not sent</span>
-            {% endif %}
+            {% comment %}Welcome-email delivery status (CPP-343).{% endcomment %}
+            <span class="ml-1 inline-flex items-center gap-1">
+              <span class="text-xs text-gray-400">Welcome:</span>
+              {% if p.welcome_email_state %}
+                {% include "admin_dashboard/partials/_welcome_email_badge.html" with state=p.welcome_email_state %}
+              {% elif p.welcome_email_sent %}
+                <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700" title="Welcome email sent {{ p.welcome_email_sent|date:'d M Y' }}">&#10003; Sent</span>
+              {% else %}
+                <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Not sent</span>
+              {% endif %}
+            </span>
           {% endif %}
         </p>
         <p class="text-xs text-gray-400">
