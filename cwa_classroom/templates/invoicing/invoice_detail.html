@@ -372,20 +372,41 @@
             {% for log in email_logs %}
             <li class="px-5 py-3">
               <div class="flex items-start gap-2.5">
-                {% if log.status == 'sent' %}
+                {% comment %}
+                  Dot + pill colour by delivery state: green = delivered/opened/
+                  clicked, sky = accepted (sent), amber = delayed, red = bounced/
+                  complained/failed.
+                {% endcomment %}
+                {% if log.status == 'delivered' or log.status == 'opened' or log.status == 'clicked' %}
                   <span class="mt-0.5 flex-shrink-0 w-2 h-2 rounded-full bg-emerald-400"></span>
+                {% elif log.status == 'sent' %}
+                  <span class="mt-0.5 flex-shrink-0 w-2 h-2 rounded-full bg-sky-400"></span>
+                {% elif log.status == 'delayed' %}
+                  <span class="mt-0.5 flex-shrink-0 w-2 h-2 rounded-full bg-amber-400"></span>
                 {% else %}
                   <span class="mt-0.5 flex-shrink-0 w-2 h-2 rounded-full bg-red-400"></span>
                 {% endif %}
                 <div class="min-w-0 flex-1">
                   <p class="text-xs font-medium text-gray-800 truncate">{{ log.recipient_email }}</p>
-                  <p class="text-xs text-gray-400 mt-0.5">{{ log.sent_at|date:"M d, Y H:i" }}</p>
+                  <p class="text-xs text-gray-400 mt-0.5">
+                    {% if log.status_updated_at and log.status != 'sent' and log.status != 'failed' %}
+                      {{ log.get_status_display }} {{ log.status_updated_at|date:"M d, Y H:i" }}
+                    {% else %}
+                      {{ log.sent_at|date:"M d, Y H:i" }}
+                    {% endif %}
+                  </p>
                   {% if log.status == 'failed' and log.error_message %}
                     <p class="text-xs text-red-600 mt-1 break-words">{{ log.error_message|truncatechars:120 }}</p>
                   {% endif %}
+                  {% if log.status == 'bounced' and log.bounce_reason %}
+                    <p class="text-xs text-red-600 mt-1 break-words">{{ log.bounce_reason|truncatechars:120 }}</p>
+                  {% endif %}
                 </div>
                 <span class="flex-shrink-0 text-xs font-medium px-1.5 py-0.5 rounded
-                  {% if log.status == 'sent' %}bg-emerald-50 text-emerald-700{% else %}bg-red-50 text-red-700{% endif %}">
+                  {% if log.status == 'delivered' or log.status == 'opened' or log.status == 'clicked' %}bg-emerald-50 text-emerald-700
+                  {% elif log.status == 'sent' %}bg-sky-50 text-sky-700
+                  {% elif log.status == 'delayed' %}bg-amber-50 text-amber-700
+                  {% else %}bg-red-50 text-red-700{% endif %}">
                   {{ log.get_status_display }}
                 </span>
               </div>
