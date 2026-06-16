@@ -27,6 +27,7 @@ def _mixed_sheet():
         d.polygon([(60, 40), (140, 40), (100, 120)], outline='black', width=3)   # triangle
         d.rectangle([(220, 40), (320, 140)], outline='black', width=3)           # square
         d.ellipse([(400, 40), (500, 140)], outline='black', width=3)             # circle
+        d.ellipse([(400, 220), (560, 300)], outline='black', width=3)            # wide ellipse
         d.polygon([(80, 220), (180, 220), (130, 320)], outline='black', width=3)  # triangle
     return _img(draw)
 
@@ -46,6 +47,7 @@ def test_opencv_detects_shape_types():
     assert types.count('triangle') == 2
     assert any(s['type'] == 'circle' for s in shapes)
     assert any(s['type'] in ('square', 'rectangle') for s in shapes)
+    assert any(s['type'] == 'ellipse' for s in shapes)   # elongated ellipse, not just circles
 
 
 def test_build_spec_opencv_backend():

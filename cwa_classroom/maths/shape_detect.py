@@ -23,8 +23,8 @@ from maths.geometry_grading import SHAPE_TYPES, validate_shape_spec
 # Classification thresholds (tuned for clean printed line-art).
 _MIN_AREA_FRAC = 0.0015      # ignore specks below this fraction of the page
 _MAX_AREA_FRAC = 0.95        # ignore a full-page border contour
-_CIRCULARITY = 0.80          # 4·π·area / perimeter² above this reads as round
-_SQUARENESS = 0.82           # min/max side ratio above this reads as a square
+_SQUARENESS = 0.82           # min/max axis ratio above this reads as a square/circle
+_ELLIPSE_FIT_TOL = 0.22      # |contour area − fitted-ellipse area| / area, to accept an ellipse
 
 
 def _centroid(shape):
@@ -66,7 +66,6 @@ def _classify_contour(approx, area, perimeter, fit_ellipse):
     """
     n = len(approx)
     pts = [[int(p[0][0]), int(p[0][1])] for p in approx]
-    circularity = 4 * math.pi * area / (perimeter * perimeter) if perimeter else 0
 
     if n == 3:
         return 'triangle', {'points': pts}
@@ -87,12 +86,17 @@ def _classify_contour(approx, area, perimeter, fit_ellipse):
             return 'rhombus', {'points': pts}
         squareness = min(w, h) / max(w, h)
         return ('square' if squareness >= _SQUARENESS else 'rectangle'), {'points': pts}
-    if circularity >= _CIRCULARITY:
-        cx, cy, rx, ry, rot = fit_ellipse()
-        if rx <= 0 or ry <= 0:
-            return None
-        kind = 'circle' if _SQUARENESS <= min(rx, ry) / max(rx, ry) else 'ellipse'
-        return kind, {'cx': cx, 'cy': cy, 'rx': rx, 'ry': ry, 'rot': rot}
+
+    # Not a clean polygon → try an ellipse fit and accept it when the fitted
+    # ellipse's area matches the contour area. This catches elongated ellipses
+    # that a circularity test rejects (circularity falls with aspect ratio).
+    cx, cy, rx, ry, rot = fit_ellipse()
+    if rx > 0 and ry > 0:
+        ell_area = math.pi * rx * ry
+        if ell_area and abs(area - ell_area) / ell_area <= _ELLIPSE_FIT_TOL:
+            kind = 'circle' if min(rx, ry) / max(rx, ry) >= _SQUARENESS else 'ellipse'
+            return kind, {'cx': round(cx, 1), 'cy': round(cy, 1),
+                          'rx': round(rx, 1), 'ry': round(ry, 1), 'rot': round(rot, 1)}
     return None
 
 
