@@ -35,7 +35,7 @@
     <div class="space-y-3">
       {% for answer in answers %}
       <div class="flex items-center gap-2">
-        <button type="button"
+        <button type="button" data-answer-id="{{ answer.id }}"
                 class="answer-btn flex-1 text-left px-5 py-3.5 rounded-xl border-2 border-gray-200
                        hover:border-primary hover:bg-primary-light font-semibold text-gray-700
                        transition focus:outline-none"

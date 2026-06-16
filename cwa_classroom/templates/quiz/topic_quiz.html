@@ -68,6 +68,7 @@
   // Both reset when the next question loads.
   let _answered = false;
   let _submitting = false;
+  let _selectedAnswerId = null;   // which MCQ option the student tapped
 
   async function _submitAndAdvance(sessionId, payload) {
     if (_answered || _submitting) return;
@@ -108,6 +109,19 @@
     // Nothing is disabled — answer choices, inputs and speakers all stay live so
     // kids can keep listening/exploring. Re-grading is prevented by _answered.
 
+    // Colour the MCQ options: green for the correct one, red for a wrong pick,
+    // so a pre-reader can SEE the result, not just hear it.
+    const correctId = data.correct_answer_id;
+    card.querySelectorAll('.answer-btn[data-answer-id]').forEach(btn => {
+      const id = parseInt(btn.dataset.answerId, 10);
+      btn.classList.remove('border-gray-200', 'hover:border-primary', 'hover:bg-primary-light');
+      if (correctId != null && id === correctId) {
+        btn.classList.add('border-green-500', 'bg-green-50', 'text-green-800');
+      } else if (id === _selectedAnswerId) {
+        btn.classList.add('border-red-400', 'bg-red-50', 'text-red-700');
+      }
+    });
+
     const fb = document.createElement('div');
     fb.className = 'mt-5 space-y-3';
 
@@ -146,6 +160,8 @@
   }
 
   async function _loadNext(sessionId, nextUrl, isLast) {
+    // Stop any read-aloud so it doesn't carry over into the next question.
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     if (isLast && nextUrl) {
       window.location.href = nextUrl;
       return;
@@ -155,12 +171,14 @@
     document.getElementById('question-container').innerHTML = html;
     _answered = false;        // fresh question — allow answering again
     _submitting = false;
+    _selectedAnswerId = null;
     currentQ++;
     _updateProgress();
   }
 
   // ── Answer submission functions ───────────────────────────────────────────
   function submitMCAnswer(sessionId, questionId, answerId) {
+    _selectedAnswerId = answerId;
     _submitAndAdvance(sessionId, {
       session_id: sessionId, question_id: questionId, answer_id: answerId,
     });
