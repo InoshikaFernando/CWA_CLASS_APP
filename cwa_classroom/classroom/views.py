@@ -28,6 +28,26 @@ def _get_user_school_ids(user):
         teacher=user, role='head_of_institute', is_active=True,
     ).values_list('school_id', flat=True))
     return list(admin_ids | hoi_ids)
+
+
+def _get_billing_classroom_or_404(request, class_id):
+    """Fetch an active classroom for a per-student billing edit (fee / billing
+    start date), scoped to a school the requesting user actually belongs to.
+
+    The role is already enforced by RoleRequiredMixin; this adds the missing
+    tenant check so a privileged user of one school cannot POST changes to
+    another school's class. Membership = school admin, or any active
+    SchoolTeacher row (HoI / accountant / owner). Superusers bypass.
+    """
+    from django.db.models import Q
+    qs = ClassRoom.objects.filter(id=class_id, is_active=True)
+    if not request.user.is_superuser:
+        qs = qs.filter(
+            Q(school__admin=request.user)
+            | Q(school__school_teachers__teacher=request.user,
+                school__school_teachers__is_active=True)
+        ).distinct()
+    return get_object_or_404(qs)
 from billing.models import ModuleSubscription
 from .models import (
     ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent,
@@ -4408,12 +4428,9 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
     ]
 
     def post(self, request, class_id, student_id):
-        user = request.user
-        # Permission: find the classroom and ensure access (HoI/Accountant+ only)
-        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ACCOUNTANT):
-            classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
-        else:
-            raise Http404
+        # Tenant-scoped: only a class in a school the user belongs to (the role
+        # itself is enforced by RoleRequiredMixin).
+        classroom = _get_billing_classroom_or_404(request, class_id)
 
         cs = get_object_or_404(ClassStudent, classroom=classroom, student_id=student_id)
         old_fee = cs.fee_override  # captured for action-history revert
@@ -4442,6 +4459,53 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
             request=request,
         )
         messages.success(request, 'Student fee updated.')
+        return redirect('class_detail', class_id=class_id)
+
+
+class UpdateStudentBillingStartView(RoleRequiredMixin, View):
+    """Inline update of a student's per-class billing start date (CPP-342).
+
+    Records the date from which the student is billable for this class so
+    invoicing skips sessions before it. Editable by HoI / Accountant only.
+    Empty value clears it (NULL = bill the full requested period).
+    """
+    required_roles = [
+        Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
+        Role.ADMIN,
+        Role.ACCOUNTANT,
+    ]
+
+    def post(self, request, class_id, student_id):
+        # Tenant-scoped: only a class in a school the user belongs to (the role
+        # itself is enforced by RoleRequiredMixin).
+        classroom = _get_billing_classroom_or_404(request, class_id)
+
+        cs = get_object_or_404(ClassStudent, classroom=classroom, student_id=student_id)
+        old_value = cs.billing_start_date  # captured for action-history
+        date_str = request.POST.get('billing_start_date', '').strip()
+        if date_str:
+            try:
+                cs.billing_start_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                messages.error(request, 'Invalid date. Use the date picker (YYYY-MM-DD).')
+                return redirect('class_detail', class_id=class_id)
+        else:
+            cs.billing_start_date = None  # NULL = bill the full requested period
+        cs.save(update_fields=['billing_start_date'])
+        log_event(
+            user=request.user, school=classroom.school, category='data_change',
+            action='student_billing_start_updated',
+            detail={'class_id': classroom.id, 'student_id': student_id,
+                    'class_student_id': cs.id,
+                    'old_billing_start_date': None if old_value is None else old_value.isoformat(),
+                    'billing_start_date': None if cs.billing_start_date is None else cs.billing_start_date.isoformat()},
+            request=request,
+        )
+        if cs.billing_start_date is None:
+            messages.success(request, 'Billing start date cleared — the full period will be billed.')
+        else:
+            messages.success(request, f'Billing start date set to {cs.billing_start_date.isoformat()}.')
         return redirect('class_detail', class_id=class_id)
 
 

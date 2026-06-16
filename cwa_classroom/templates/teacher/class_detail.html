@@ -7,6 +7,7 @@
        showEditModal: false,
        showResendModal: false,
        feeEditing: {},
+       startDateEditing: {},
        openEditModal(url) {
          fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
            .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
@@ -160,13 +161,21 @@
                   {% endif %}
                 </span>
               {% endif %}
+              {% if can_edit_fee and item.class_student.billing_start_date %}
+                <span class="text-xs text-indigo-600 ml-1"
+                      title="Billing starts on this date; sessions before it are not invoiced">
+                  · bills from {{ item.class_student.billing_start_date|date:"d M Y" }}
+                </span>
+              {% endif %}
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <div x-show="!feeEditing['{{ item.student.id }}']" class="flex items-center gap-2">
+            <div x-show="!feeEditing['{{ item.student.id }}'] && !startDateEditing['{{ item.student.id }}']" class="flex items-center gap-2">
               {% if can_edit_fee %}
                 <button @click="feeEditing['{{ item.student.id }}'] = true" type="button"
                         class="text-xs text-accent hover:text-accent-dark font-medium">Fee</button>
+                <button @click="startDateEditing['{{ item.student.id }}'] = true" type="button"
+                        class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">Start date</button>
               {% endif %}
               <a href="{% url 'student_progress' student_id=item.student.id %}" class="text-xs text-primary hover:underline">Progress</a>
               {% if classroom.school_id %}
@@ -191,6 +200,17 @@
                      class="w-20 px-2 py-1 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-accent/30">
               <button type="submit" class="text-xs bg-accent text-white px-2 py-1 rounded font-semibold">Save</button>
               <button @click="feeEditing['{{ item.student.id }}'] = false" type="button" class="text-xs text-gray-400">✕</button>
+            </form>
+            <form x-show="startDateEditing['{{ item.student.id }}']" x-cloak method="post"
+                  action="{% url 'update_student_billing_start' class_id=classroom.id student_id=item.student.id %}"
+                  class="flex items-center gap-1"
+                  title="First date this student is billable for this class. Leave empty to bill the full period.">
+              {% csrf_token %}
+              <input type="date" name="billing_start_date"
+                     value="{{ item.class_student.billing_start_date|date:'Y-m-d' }}"
+                     class="px-2 py-1 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-indigo-500/30">
+              <button type="submit" class="text-xs bg-indigo-600 text-white px-2 py-1 rounded font-semibold">Save</button>
+              <button @click="startDateEditing['{{ item.student.id }}'] = false" type="button" class="text-xs text-gray-400">✕</button>
             </form>
             {% endif %}
           </div>
