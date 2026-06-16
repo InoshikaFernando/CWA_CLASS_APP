@@ -393,6 +393,21 @@ class TestStudentReportCSVExport(TestCase):
         rows = self._rows(self.client.get(URL, {'export': 'csv'}))
         self.assertEqual(len(rows), 3)  # header + own 2 students only
 
+    def test_export_does_not_leak_other_school_guardian(self):
+        # stu1 also has a guardian belonging to a school this admin can't see.
+        from classroom.models import Guardian, StudentGuardian
+        other_hoi = _user('csv_leak_hoi', Role.HEAD_OF_INSTITUTE)
+        other_school = _school(other_hoi)
+        foreign_guardian = Guardian.objects.create(
+            school=other_school, first_name='Foreign', last_name='Guardian',
+            email='foreign.guardian@example.com',
+        )
+        StudentGuardian.objects.create(student=self.stu1, guardian=foreign_guardian)
+        rows = self._rows(self.client.get(URL, {'export': 'csv'}))
+        alice = next(r for r in rows[1:] if r[0] == 'Alice Anderson')
+        self.assertNotIn('Foreign Guardian', alice[7])
+        self.assertNotIn('foreign.guardian@example.com', alice[8])
+
     def test_export_requires_admin_role(self):
         stu = _user('csv_bad_stu', Role.STUDENT)
         self.client.force_login(stu)

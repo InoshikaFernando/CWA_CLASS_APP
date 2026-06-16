@@ -184,27 +184,39 @@ class StudentReportView(RoleRequiredMixin, View):
         """
         contacts = {sid: [] for sid in student_ids}
 
+        # Linked parent users — scoped to the accessible schools, plus
+        # individual (no-school) links which apply regardless of school.
         parent_links = ParentStudent.objects.filter(
+            Q(school_id__in=school_ids) | Q(school__isnull=True),
             student_id__in=student_ids,
-            school_id__in=school_ids,
             is_active=True,
-        ).select_related('parent').order_by('-is_primary_contact')
+        ).select_related('parent')
         for link in parent_links:
             name = link.parent.get_full_name() or link.parent.username
-            contacts.setdefault(link.student_id, []).append((name, link.parent.email or ''))
+            contacts.setdefault(link.student_id, []).append(
+                (link.is_primary_contact, name, link.parent.email or '')
+            )
 
+        # Guardian records — scoped to the accessible schools so a student
+        # enrolled in more than one school never leaks another school's contacts.
         guardian_links = StudentGuardian.objects.filter(
             student_id__in=student_ids,
-        ).select_related('guardian').order_by('-is_primary')
+            guardian__school_id__in=school_ids,
+        ).select_related('guardian')
         for sg in guardian_links:
             name = f'{sg.guardian.first_name} {sg.guardian.last_name}'.strip()
-            contacts.setdefault(sg.student_id, []).append((name, sg.guardian.email or ''))
+            contacts.setdefault(sg.student_id, []).append(
+                (sg.is_primary, name, sg.guardian.email or '')
+            )
 
         result = {}
-        for sid, pairs in contacts.items():
+        for sid, triples in contacts.items():
+            # Primary contacts first (stable sort keeps source order otherwise),
+            # then de-duplicate by (name, email).
+            triples.sort(key=lambda t: not t[0])
             seen = set()
             names, emails = [], []
-            for name, email in pairs:
+            for _primary, name, email in triples:
                 key = (name.lower(), email.lower())
                 if key in seen:
                     continue
