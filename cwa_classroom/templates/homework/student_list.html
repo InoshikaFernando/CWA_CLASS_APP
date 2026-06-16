@@ -57,6 +57,10 @@
             &nbsp;·&nbsp; <span class="font-semibold text-gray-700">{{ row.best_submission.points|floatformat:1 }} pts</span>
           </p>
           {% endif %}
+          {% if row.attempt_count %}
+          <a href="{% url 'homework:attempt_history' homework_id=hw.id %}"
+             class="text-xs text-blue-600 hover:underline">View past attempts</a>
+          {% endif %}
 
           <!-- Action button. Overdue homework stays attemptable; only the
                attempt cap removes the button. -->

@@ -581,6 +581,16 @@ class BasicFactsResult(models.Model):
             student=student, subtopic=subtopic, level_number=level_number
         ).order_by('-points').first()
 
+    @classmethod
+    def prune_old_attempts(cls, instance):
+        """Keep only the most recent attempts for this student/subtopic/level."""
+        from classroom.attempt_retention import prune_to_last_n
+        return prune_to_last_n(cls, {
+            'student_id': instance.student_id,
+            'subtopic': instance.subtopic,
+            'level_number': instance.level_number,
+        })
+
 
 class TimeLog(models.Model):
     """Track daily and weekly time spent by students on the app"""
@@ -765,6 +775,13 @@ class StudentFinalAnswer(models.Model):
     # Legacy field retained from consolidation migration — new code uses 'points'
     points_earned = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Legacy: points from consolidation migration")
     shuffled = models.BooleanField(default=False, help_text="Whether the questions were presented in random order")
+    # Full per-question review payload (question text + student's answer + the
+    # correct answer + correctness) so an attempt can be reviewed later by the
+    # student, teacher or parent — mirrors BasicFactsResult.questions_data.
+    questions_data = models.JSONField(
+        default=list, blank=True,
+        help_text="Stores the questions + student answers for later review.",
+    )
     last_updated_time = models.DateTimeField(auto_now=True, help_text="Last time this record was updated")
 
     class Meta:
@@ -833,3 +850,30 @@ class StudentFinalAnswer(models.Model):
             topic=topic,
             level=level
         ).order_by('-completed_at').first()
+
+    @classmethod
+    def attempt_series_filter(cls, instance):
+        """Filter kwargs identifying the attempt *series* an instance belongs to.
+
+        Topic / mixed quizzes are grouped by (student, topic, level); times
+        tables by (student, table_number, operation). Including every key keeps
+        the three quiz types in separate series so pruning one never touches
+        another.
+        """
+        return {
+            'student_id': instance.student_id,
+            'topic_id': instance.topic_id,
+            'level_id': instance.level_id,
+            'quiz_type': instance.quiz_type,
+            'table_number': instance.table_number,
+            'operation': instance.operation,
+            # Shuffled vs ordered times-tables are tracked as distinct series
+            # for best/record purposes, so keep their histories separate too.
+            'shuffled': instance.shuffled,
+        }
+
+    @classmethod
+    def prune_old_attempts(cls, instance):
+        """Keep only the most recent attempts for ``instance``'s series."""
+        from classroom.attempt_retention import prune_to_last_n
+        return prune_to_last_n(cls, cls.attempt_series_filter(instance))

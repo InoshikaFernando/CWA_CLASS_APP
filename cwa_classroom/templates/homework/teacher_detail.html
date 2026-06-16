@@ -97,6 +97,7 @@
           <th scope="col" class="text-center px-4 py-3 font-semibold text-gray-600">Attempts</th>
           <th scope="col" class="text-center px-4 py-3 font-semibold text-gray-600">Best Score</th>
           <th scope="col" class="text-center px-4 py-3 font-semibold text-gray-600">Best Points</th>
+          <th scope="col" class="text-center px-4 py-3 font-semibold text-gray-600">History</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-50">
@@ -128,14 +129,20 @@
           <td class="px-4 py-3 text-center font-semibold text-gray-800">
             {% if row.best_submission %}{{ row.best_submission.points|floatformat:1 }}{% else %}—{% endif %}
           </td>
+          <td class="px-4 py-3 text-center">
+            {% if row.attempt_count %}
+              <a href="{% url 'homework:student_attempt_history' homework_id=homework.id student_id=row.student.id %}"
+                 class="text-blue-600 hover:underline text-xs font-medium">View attempts</a>
+            {% else %}<span class="text-gray-300 text-xs">—</span>{% endif %}
+          </td>
         </tr>
         {% empty %}
         <tr>
-          <td colspan="5" class="px-4 py-8 text-center text-gray-400">No students enrolled in this class.</td>
+          <td colspan="6" class="px-4 py-8 text-center text-gray-400">No students enrolled in this class.</td>
         </tr>
         {% endfor %}
         <tr id="no-matches-row" class="hidden">
-          <td colspan="5" class="px-4 py-8 text-center text-gray-400">No students match your search.</td>
+          <td colspan="6" class="px-4 py-8 text-center text-gray-400">No students match your search.</td>
         </tr>
       </tbody>
     </table>
