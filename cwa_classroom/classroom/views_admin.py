@@ -8,8 +8,9 @@ from django.contrib import messages
 from django.db import transaction
 from django.utils.text import slugify
 from django.utils import timezone
-from django.http import StreamingHttpResponse, HttpResponseForbidden
+from django.http import StreamingHttpResponse, HttpResponseForbidden, HttpResponse
 from django.conf import settings as django_settings
+import csv
 import subprocess
 import shutil
 import os
@@ -2020,6 +2021,135 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             messages.error(request, f'Error creating student: {e}')
 
         return redirect('admin_school_students', school_id=school.id)
+
+
+class SchoolStudentExportCSVView(RoleRequiredMixin, View):
+    """Download a CSV of every student in a school.
+
+    One row per student. Because a student can be enrolled in more than one
+    class, all of their classes within this school are collected into a single
+    "Classes" column (separated by " | ") rather than producing duplicate rows.
+    A "Class Count" column is included so multi-class students are easy to spot.
+
+    Up to two parents/guardians are exported (Parent 1 / Parent 2), drawn from
+    both the parent-user links (ParentStudent) and the guardian records
+    (StudentGuardian), with primary contacts listed first.
+    """
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.TEACHER,
+    ]
+
+    # Reuse the same access rules as the student management page.
+    _get_school = SchoolStudentManageView._get_school
+
+    def _collect_parents(self, student, school):
+        """Return a list of parent dicts (name/email/phone/relationship).
+
+        Merges parent-user links and guardian records, putting primary
+        contacts first and de-duplicating by email.
+        """
+        parents = []
+
+        # Parent-user links (ParentStudent), scoped to this school.
+        for link in student.student_parent_links.all():
+            if link.school_id and link.school_id != school.id:
+                continue
+            if not link.is_active:
+                continue
+            p = link.parent
+            name = p.get_full_name().strip() or p.username
+            parents.append({
+                'name': name,
+                'email': p.email or '',
+                'phone': getattr(p, 'phone', '') or '',
+                'relationship': link.get_relationship_display() if link.relationship else '',
+                'primary': link.is_primary_contact,
+            })
+
+        # Guardian records (StudentGuardian).
+        for sg in student.student_guardians.all():
+            g = sg.guardian
+            if g.school_id != school.id:
+                continue
+            name = f'{g.first_name} {g.last_name}'.strip()
+            parents.append({
+                'name': name,
+                'email': g.email or '',
+                'phone': g.phone or '',
+                'relationship': g.get_relationship_display() if g.relationship else '',
+                'primary': sg.is_primary,
+            })
+
+        # Primary contacts first, then de-duplicate on email (keep first seen).
+        parents.sort(key=lambda d: not d['primary'])
+        seen = set()
+        unique = []
+        for p in parents:
+            key = p['email'].lower() if p['email'] else p['name'].lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(p)
+        return unique
+
+    def get(self, request, school_id):
+        school = self._get_school(request, school_id)
+
+        school_students = (
+            SchoolStudent.objects.filter(school=school, is_active=True)
+            .select_related('student')
+            .prefetch_related(
+                'student__student_parent_links__parent',
+                'student__student_guardians__guardian',
+                'student__class_student_entries__classroom',
+            )
+            .order_by('student__last_name', 'student__first_name', 'student__id')
+        )
+
+        response = HttpResponse(content_type='text/csv')
+        filename = f'{slugify(school.name) or "school"}_students.csv'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        writer = csv.writer(response)
+        writer.writerow([
+            'Student ID', 'First Name', 'Last Name', 'Email', 'Username',
+            'Phone', 'Date of Birth',
+            'Parent 1 Name', 'Parent 1 Email', 'Parent 1 Phone', 'Parent 1 Relationship',
+            'Parent 2 Name', 'Parent 2 Email', 'Parent 2 Phone', 'Parent 2 Relationship',
+            'Classes', 'Class Count', 'Joined',
+        ])
+
+        for ss in school_students:
+            student = ss.student
+
+            classes = [
+                cse.classroom.name
+                for cse in student.class_student_entries.all()
+                if cse.is_active and cse.classroom and cse.classroom.school_id == school.id
+            ]
+            classes.sort()
+
+            parents = self._collect_parents(student, school)
+            p1 = parents[0] if len(parents) > 0 else {}
+            p2 = parents[1] if len(parents) > 1 else {}
+
+            writer.writerow([
+                ss.student_id_code,
+                student.first_name,
+                student.last_name,
+                student.email,
+                student.username,
+                getattr(student, 'phone', '') or '',
+                student.date_of_birth.isoformat() if getattr(student, 'date_of_birth', None) else '',
+                p1.get('name', ''), p1.get('email', ''), p1.get('phone', ''), p1.get('relationship', ''),
+                p2.get('name', ''), p2.get('email', ''), p2.get('phone', ''), p2.get('relationship', ''),
+                ' | '.join(classes),
+                len(classes),
+                ss.joined_at.strftime('%Y-%m-%d') if ss.joined_at else '',
+            ])
+
+        return response
 
 
 def _inline_create_parent(request, school, student_user):
