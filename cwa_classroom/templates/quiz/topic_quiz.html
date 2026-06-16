@@ -62,7 +62,17 @@
   // ── Shared submit helper ──────────────────────────────────────────────────
   const _csrf = document.querySelector('meta[name="csrf-token"]').content;
 
+  // Answer choices stay enabled after answering (so kids can keep tapping the
+  // 🔊 speakers to repeat), so we guard grading here instead: _submitting blocks
+  // a double-tap mid-request, _answered blocks re-grading once feedback is shown.
+  // Both reset when the next question loads.
+  let _answered = false;
+  let _submitting = false;
+  let _selectedAnswerId = null;   // which MCQ option the student tapped
+
   async function _submitAndAdvance(sessionId, payload) {
+    if (_answered || _submitting) return;
+    _submitting = true;
     try {
       const resp = await fetch('/api/submit-topic-answer/', {
         method: 'POST',
@@ -74,9 +84,12 @@
         _showError(data.error || 'Something went wrong. Please refresh and try again.');
         return;
       }
+      _answered = true;
       _showFeedback(data, sessionId);
     } catch (err) {
       _showError('Could not submit your answer. Please check your connection and try again.');
+    } finally {
+      _submitting = false;
     }
   }
 
@@ -93,8 +106,21 @@
     const card = document.getElementById('question-card');
     if (!card) return;
 
-    // Disable all interactive inputs
-    card.querySelectorAll('.answer-btn, button, input').forEach(el => el.disabled = true);
+    // Nothing is disabled — answer choices, inputs and speakers all stay live so
+    // kids can keep listening/exploring. Re-grading is prevented by _answered.
+
+    // Colour the MCQ options: green for the correct one, red for a wrong pick,
+    // so a pre-reader can SEE the result, not just hear it.
+    const correctId = data.correct_answer_id;
+    card.querySelectorAll('.answer-btn[data-answer-id]').forEach(btn => {
+      const id = parseInt(btn.dataset.answerId, 10);
+      btn.classList.remove('border-gray-200', 'hover:border-primary', 'hover:bg-primary-light');
+      if (correctId != null && id === correctId) {
+        btn.classList.add('border-green-500', 'bg-green-50', 'text-green-800');
+      } else if (id === _selectedAnswerId) {
+        btn.classList.add('border-red-400', 'bg-red-50', 'text-red-700');
+      }
+    });
 
     const fb = document.createElement('div');
     fb.className = 'mt-5 space-y-3';
@@ -105,10 +131,19 @@
           ✅ Correct!
         </div>`;
     } else {
+      const correctText = data.correct_answer_text || '';
+      // Escape for safe use inside the data-speak="" attribute.
+      const speakAttr = correctText.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                                   .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const speaker = correctText
+        ? ` <button type="button"
+              class="tts-btn shrink-0 w-8 h-8 rounded-full bg-accent-light text-accent hover:bg-accent hover:text-white transition inline-flex items-center justify-center align-middle"
+              data-speak="${speakAttr}" aria-label="Listen to the correct answer" title="Listen to the correct answer">🔊</button>`
+        : '';
       fb.innerHTML = `
         <div class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-800">
           <p class="font-semibold">❌ Incorrect</p>
-          ${data.correct_answer_text ? `<p class="text-sm mt-1">Correct answer: <strong>${data.correct_answer_text}</strong></p>` : ''}
+          ${correctText ? `<p class="text-sm mt-1">Correct answer: <strong>${correctText}</strong>${speaker}</p>` : ''}
         </div>
         ${data.explanation ? `<div class="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-blue-800 text-sm">${data.explanation}</div>` : ''}`;
     }
@@ -125,6 +160,8 @@
   }
 
   async function _loadNext(sessionId, nextUrl, isLast) {
+    // Stop any read-aloud so it doesn't carry over into the next question.
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     if (isLast && nextUrl) {
       window.location.href = nextUrl;
       return;
@@ -132,13 +169,16 @@
     const nextResp = await fetch('/api/topic-next/' + sessionId + '/');
     const html = await nextResp.text();
     document.getElementById('question-container').innerHTML = html;
+    _answered = false;        // fresh question — allow answering again
+    _submitting = false;
+    _selectedAnswerId = null;
     currentQ++;
     _updateProgress();
   }
 
   // ── Answer submission functions ───────────────────────────────────────────
   function submitMCAnswer(sessionId, questionId, answerId) {
-    document.querySelectorAll('.answer-btn').forEach(b => b.disabled = true);
+    _selectedAnswerId = answerId;
     _submitAndAdvance(sessionId, {
       session_id: sessionId, question_id: questionId, answer_id: answerId,
     });
@@ -148,7 +188,6 @@
     const input = document.getElementById('text-answer-input');
     const val = input ? input.value.trim() : '';
     if (!val) return;
-    input.disabled = true;
     _submitAndAdvance(sessionId, {
       session_id: sessionId, question_id: questionId, text_answer: val,
     });

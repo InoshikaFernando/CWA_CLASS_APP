@@ -18,20 +18,38 @@
        onload="var r=this.naturalWidth/this.naturalHeight; if(r>1.5){this.style.maxHeight='24rem';this.style.maxWidth='100%'}else if(r>1){this.style.maxHeight='16rem'}else{this.style.maxHeight='12rem'}" />
   {% endif %}
 
-  <!-- Question text -->
-  <p class="text-gray-800 font-semibold text-lg mb-6 leading-snug">{{ question.question_text }}</p>
+  <!-- Question text (with read-aloud speaker) -->
+  <div class="flex items-start gap-2 mb-6">
+    <p class="text-gray-800 font-semibold text-lg leading-snug flex-1">{{ question.question_text }}</p>
+    {% if question.question_text %}
+    <button type="button"
+            class="tts-btn shrink-0 w-10 h-10 rounded-full bg-accent-light text-accent
+                   hover:bg-accent hover:text-white transition text-xl flex items-center justify-center"
+            data-speak="{{ question.question_text }}"
+            aria-label="Listen to the question" title="Listen to the question">🔊</button>
+    {% endif %}
+  </div>
 
   <!-- Answer inputs by type -->
   {% if question.question_type == 'multiple_choice' or question.question_type == 'true_false' %}
     <div class="space-y-3">
       {% for answer in answers %}
-      <button type="button"
-              class="answer-btn w-full text-left px-5 py-3.5 rounded-xl border-2 border-gray-200
-                     hover:border-primary hover:bg-primary-light font-semibold text-gray-700
-                     transition focus:outline-none"
-              onclick="submitMCAnswer('{{ session_id }}', {{ question.id }}, {{ answer.id }})">
-        {{ answer.answer_text }}
-      </button>
+      <div class="flex items-center gap-2">
+        <button type="button" data-answer-id="{{ answer.id }}"
+                class="answer-btn flex-1 text-left px-5 py-3.5 rounded-xl border-2 border-gray-200
+                       hover:border-primary hover:bg-primary-light font-semibold text-gray-700
+                       transition focus:outline-none"
+                onclick="submitMCAnswer('{{ session_id }}', {{ question.id }}, {{ answer.id }})">
+          {{ answer.answer_text }}
+        </button>
+        {% if answer.answer_text %}
+        <button type="button"
+                class="tts-btn shrink-0 w-11 h-11 rounded-full bg-accent-light text-accent
+                       hover:bg-accent hover:text-white transition text-xl flex items-center justify-center"
+                data-speak="{{ answer.answer_text }}"
+                aria-label="Listen to this answer" title="Listen to this answer">🔊</button>
+        {% endif %}
+      </div>
       {% endfor %}
     </div>
 
@@ -278,7 +296,14 @@
       <li class="flex items-center gap-3 bg-gray-50 border border-slate-200 rounded-xl px-4 py-3 cursor-grab active:cursor-grabbing"
           data-id="{{ answer.id }}">
         <span class="text-gray-400">⠿</span>
-        <span class="font-semibold text-gray-800">{{ answer.answer_text }}</span>
+        <span class="font-semibold text-gray-800 flex-1">{{ answer.answer_text }}</span>
+        {% if answer.answer_text %}
+        <button type="button"
+                class="tts-btn shrink-0 w-9 h-9 rounded-full bg-accent-light text-accent
+                       hover:bg-accent hover:text-white transition text-lg flex items-center justify-center"
+                data-speak="{{ answer.answer_text }}"
+                aria-label="Listen to this tile" title="Listen">🔊</button>
+        {% endif %}
       </li>
       {% endfor %}
     </ul>
@@ -348,12 +373,3 @@
 
 </div>
 {% endif %}
-
-<script>
-  // Disable answer buttons after click to prevent double-submit
-  document.querySelectorAll('.answer-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-      document.querySelectorAll('.answer-btn').forEach(b => b.disabled = true);
-    });
-  });
-</script>
