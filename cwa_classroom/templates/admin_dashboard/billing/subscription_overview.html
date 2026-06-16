@@ -3,59 +3,68 @@
 {% block title %}Subscriptions Overview{% endblock %}
 
 {% block content %}
+<div class="-mx-4 -my-6 md:-mx-8 px-4 py-6 md:px-8 bg-slate-900 text-slate-200 min-h-[calc(100vh-4rem)]">
 <div class="max-w-7xl mx-auto">
 
   <!-- Header -->
-  <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
+  <div class="mb-5 flex flex-wrap items-start justify-between gap-4">
     <div>
-      <h1 class="text-2xl font-display font-bold text-gray-900">Subscriptions Overview</h1>
-      <p class="text-gray-500 mt-1">Live monitoring of student and institute subscriptions &middot; {{ today|date:"D, j M Y" }}</p>
-      <p class="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
-        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+      <h1 class="text-2xl font-display font-bold text-white">Subscriptions Overview</h1>
+      <p class="text-slate-400 mt-1">Live monitoring of student and institute subscriptions &middot; {{ today|date:"D, j M Y" }}</p>
+      <p class="text-xs text-slate-500 mt-1 flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
         Updated {{ now|date:"H:i:s" }} &middot; auto-refreshes every {{ refresh_seconds }}s
-        <span id="refresh-countdown" class="text-gray-300"></span>
+        <span id="refresh-countdown" class="text-slate-600"></span>
       </p>
     </div>
     {% if earnings_source == 'stripe' %}
-    <span class="text-xs text-emerald-700 bg-emerald-50 rounded-full px-3 py-1">Earnings = <strong>actual paid revenue</strong> from Stripe</span>
+    <span class="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-3 py-1">Earnings = <strong>actual paid revenue</strong> from Stripe</span>
     {% else %}
-    <span class="text-xs text-amber-700 bg-amber-50 rounded-full px-3 py-1">Earnings = <strong>estimate</strong> (Stripe unavailable)</span>
+    <span class="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-full px-3 py-1">Earnings = <strong>estimate</strong> (Stripe unavailable)</span>
     {% endif %}
   </div>
 
   <!-- ====================== AT-A-GLANCE (no scroll) ====================== -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-    <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
-      <p class="text-2xl font-bold text-emerald-600">{% if counts_source == 'stripe' %}{{ students.stripe.paid }}{% else %}{{ students.paying }}{% endif %}</p>
-      <p class="text-xs text-gray-500">Paying students</p>
+    <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+      <p class="text-2xl font-bold text-emerald-400">{% if counts_source == 'stripe' %}{{ students.stripe.paid }}{% else %}{{ students.paying }}{% endif %}</p>
+      <p class="text-xs text-slate-400">Paying students</p>
     </div>
-    <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
-      <p class="text-2xl font-bold text-indigo-600">{% if counts_source == 'stripe' %}{{ institutes.stripe.paid }}{% else %}{{ institutes.paying }}{% endif %}</p>
-      <p class="text-xs text-gray-500">Paying institutes</p>
+    <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+      <p class="text-2xl font-bold text-indigo-400">{% if counts_source == 'stripe' %}{{ institutes.stripe.paid }}{% else %}{{ institutes.paying }}{% endif %}</p>
+      <p class="text-xs text-slate-400">Paying institutes</p>
     </div>
-    <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
-      <p class="text-2xl font-bold text-gray-900">{% if earnings_source == 'stripe' %}${{ combined_this_month }}{% else %}~${{ combined_estimate }}{% endif %}</p>
-      <p class="text-xs text-gray-500">This month{% if earnings_source != 'stripe' %} (est.){% endif %}</p>
+    <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+      <p class="text-2xl font-bold text-white">{% if earnings_source == 'stripe' %}${{ combined_this_month }}{% else %}~${{ combined_estimate }}{% endif %}</p>
+      <p class="text-xs text-slate-400">This month{% if earnings_source != 'stripe' %} (est.){% endif %}</p>
     </div>
-    <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
-      <p class="text-2xl font-bold text-gray-900">{% if earnings_source == 'stripe' %}${{ combined_last_month }}{% else %}&mdash;{% endif %}</p>
-      <p class="text-xs text-gray-500">Last month</p>
+    <div class="bg-slate-800 rounded-xl p-4 border border-slate-700">
+      <p class="text-2xl font-bold text-white">{% if earnings_source == 'stripe' %}${{ combined_last_month }}{% else %}&mdash;{% endif %}</p>
+      <p class="text-xs text-slate-400">Last month</p>
     </div>
   </div>
 
-  <!-- Daily active subscriptions graph -->
-  <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm mb-8">
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-      <h2 class="text-base font-semibold text-gray-900">Daily active subscriptions</h2>
-      <div class="flex gap-1">
-        {% for opt in daily_window_options %}
-        <button type="button" onclick="setDays({{ opt.days }})"
-          class="px-2.5 py-1 text-xs font-medium rounded-lg transition {% if opt.days == daily_window %}bg-accent text-white{% else %}bg-slate-100 text-gray-600 hover:bg-slate-200{% endif %}">{{ opt.label }}</button>
-        {% endfor %}
+  <!-- Top row: line chart (left) + status donuts (right) -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-8">
+    <!-- Daily active subscriptions -->
+    <div class="lg:col-span-7 bg-slate-800 rounded-2xl p-5 border border-slate-700">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <h2 class="text-base font-semibold text-white">Daily active subscriptions</h2>
+        <div class="flex gap-1">
+          {% for opt in daily_window_options %}
+          <button type="button" onclick="setDays({{ opt.days }})"
+            class="px-2.5 py-1 text-xs font-medium rounded-lg transition {% if opt.days == daily_window %}bg-accent text-white{% else %}bg-slate-700 text-slate-300 hover:bg-slate-600{% endif %}">{{ opt.label }}</button>
+          {% endfor %}
+        </div>
+      </div>
+      <div style="position:relative;height:300px">
+        <canvas id="dailyChart" role="img" aria-label="Line chart of daily active student and institute subscriptions"></canvas>
       </div>
     </div>
-    <div style="position:relative;height:240px">
-      <canvas id="dailyChart" role="img" aria-label="Line chart of daily active student and institute subscriptions"></canvas>
+    <!-- Status donuts -->
+    <div class="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
+      {% include 'admin_dashboard/billing/_donut.html' with donut=students.donut title="Student status" %}
+      {% include 'admin_dashboard/billing/_donut.html' with donut=institutes.donut title="Institute status" %}
     </div>
   </div>
   {{ daily.labels|json_script:"daily-labels" }}
@@ -63,10 +72,10 @@
   {{ daily.institute|json_script:"daily-institute" }}
 
   <!-- Filter bar -->
-  <form method="get" class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm mb-8 flex flex-wrap items-end gap-4">
+  <form method="get" class="bg-slate-800 rounded-2xl p-4 border border-slate-700 mb-8 flex flex-wrap items-end gap-4">
     <div>
-      <label class="block text-xs font-medium text-gray-500 mb-1">Country</label>
-      <select name="country" class="rounded-lg border-slate-300 text-sm min-w-[10rem]">
+      <label class="block text-xs font-medium text-slate-400 mb-1">Country</label>
+      <select name="country" class="rounded-lg bg-slate-700 border-slate-600 text-slate-100 text-sm min-w-[10rem]">
         <option value="">All countries</option>
         {% for c in filters.countries %}
           <option value="{{ c }}" {% if c == filters.country %}selected{% endif %}>{{ c }}</option>
@@ -74,8 +83,8 @@
       </select>
     </div>
     <div>
-      <label class="block text-xs font-medium text-gray-500 mb-1">Institution <span class="text-gray-300">(institutes only)</span></label>
-      <select name="institution" class="rounded-lg border-slate-300 text-sm min-w-[12rem]">
+      <label class="block text-xs font-medium text-slate-400 mb-1">Institution <span class="text-slate-600">(institutes only)</span></label>
+      <select name="institution" class="rounded-lg bg-slate-700 border-slate-600 text-slate-100 text-sm min-w-[12rem]">
         <option value="">All institutions</option>
         {% for inst in filters.institutions %}
           <option value="{{ inst.id }}" {% if filters.institution == inst.id|stringformat:"s" %}selected{% endif %}>{{ inst.name }}</option>
@@ -84,85 +93,78 @@
     </div>
     <button type="submit" class="px-4 py-2 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-accent-dark transition">Apply</button>
     {% if filters.country or filters.institution %}
-      <a href="{% url 'billing_admin_subscription_overview' %}" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Clear</a>
+      <a href="{% url 'billing_admin_subscription_overview' %}" class="px-4 py-2 text-sm text-slate-400 hover:text-slate-200">Clear</a>
     {% endif %}
   </form>
 
-  {% comment %} Reusable look: each panel = count tiles + earnings + breakdown {% endcomment %}
-
   <!-- ============================ STUDENTS ============================ -->
   <section class="mb-10">
-    <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-      <svg class="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/></svg>
-      Student Subscriptions <span class="text-sm font-normal text-gray-400">(individual / B2C)</span>
+    <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <svg class="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/></svg>
+      Student Subscriptions <span class="text-sm font-normal text-slate-500">(individual / B2C)</span>
     </h2>
 
     {% if counts_source == 'stripe' %}
-    <p class="text-xs text-emerald-600 font-medium mb-2 flex items-center gap-1.5">
-      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>Counts live from Stripe (all paying students, incl. school students)
+    <p class="text-xs text-emerald-400 font-medium mb-2 flex items-center gap-1.5">
+      <span class="w-2 h-2 rounded-full bg-emerald-400"></span>Counts live from Stripe (all paying students, incl. school students)
     </p>
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-gray-900">{{ students.stripe.total }}</p>
-        <p class="text-sm text-gray-500">Total</p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-white">{{ students.stripe.total }}</p>
+        <p class="text-sm text-slate-400">Total</p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-emerald-600">{{ students.stripe.paid }}</p>
-        <p class="text-sm text-gray-500">Paid <span class="text-gray-400">(active)</span></p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-emerald-400">{{ students.stripe.paid }}</p>
+        <p class="text-sm text-slate-400">Paid <span class="text-slate-500">(active)</span></p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-amber-600">{{ students.stripe.trial }}</p>
-        <p class="text-sm text-gray-500">Trial</p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-amber-400">{{ students.stripe.trial }}</p>
+        <p class="text-sm text-slate-400">Trial</p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-gray-400">{{ students.stripe.other }}</p>
-        <p class="text-sm text-gray-500">Past due / canceled</p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-slate-500">{{ students.stripe.other }}</p>
+        <p class="text-sm text-slate-400">Past due / canceled</p>
       </div>
     </div>
     {% else %}
     <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-gray-900">{{ students.total }}</p>
-        <p class="text-sm text-gray-500">Total <span class="text-gray-400">(app DB)</span></p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-white">{{ students.total }}</p>
+        <p class="text-sm text-slate-400">Total <span class="text-slate-500">(app DB)</span></p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-emerald-600">{{ students.paying }}</p>
-        <p class="text-sm text-gray-500">Active <span class="text-gray-400">(paying)</span></p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-emerald-400">{{ students.paying }}</p>
+        <p class="text-sm text-slate-400">Active <span class="text-slate-500">(paying)</span></p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-sky-600">{{ students.free }}</p>
-        <p class="text-sm text-gray-500">Free <span class="text-gray-400">(no package)</span></p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-sky-400">{{ students.free }}</p>
+        <p class="text-sm text-slate-400">Free <span class="text-slate-500">(no package)</span></p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-amber-600">{{ students.trial }}</p>
-        <p class="text-sm text-gray-500">Trial</p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-amber-400">{{ students.trial }}</p>
+        <p class="text-sm text-slate-400">Trial</p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-gray-400">{{ students.inactive }}</p>
-        <p class="text-sm text-gray-500">Inactive</p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-slate-500">{{ students.inactive }}</p>
+        <p class="text-sm text-slate-400">Inactive</p>
       </div>
     </div>
     {% endif %}
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <!-- Status donut -->
-      {% include 'admin_dashboard/billing/_donut.html' with donut=students.donut title="Status breakdown" %}
-
-      <!-- Today + earnings -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {% include 'admin_dashboard/billing/_earnings.html' with panel=students source=earnings_source currency=earnings_currency %}
 
-      <!-- By package -->
-      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-3 border-b border-slate-200"><h3 class="font-semibold text-gray-900 text-sm">Active by Package</h3></div>
+      <div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+        <div class="px-6 py-3 border-b border-slate-700"><h3 class="font-semibold text-white text-sm">Active by Package</h3></div>
         <table class="w-full text-sm">
-          <tbody class="divide-y divide-slate-100">
+          <tbody class="divide-y divide-slate-700">
             {% for row in students.by_package %}
             <tr>
-              <td class="px-6 py-2.5 text-gray-900">{{ row.package__name|default:"— No package" }}</td>
-              <td class="px-6 py-2.5 text-right font-semibold text-gray-900">{{ row.count }}</td>
+              <td class="px-6 py-2.5 text-slate-200">{{ row.package__name|default:"— No package" }}</td>
+              <td class="px-6 py-2.5 text-right font-semibold text-white">{{ row.count }}</td>
             </tr>
             {% empty %}
-            <tr><td class="px-6 py-6 text-center text-gray-400">No active student subscriptions.</td></tr>
+            <tr><td class="px-6 py-6 text-center text-slate-500">No active student subscriptions.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -172,98 +174,92 @@
 
   <!-- ============================ INSTITUTES ============================ -->
   <section class="mb-10">
-    <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-      <svg class="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
+    <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <svg class="w-5 h-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
       Institute Subscriptions
     </h2>
 
     {% if counts_source == 'stripe' %}
-    <p class="text-xs text-emerald-600 font-medium mb-2 flex items-center gap-1.5">
-      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>Counts live from Stripe
+    <p class="text-xs text-emerald-400 font-medium mb-2 flex items-center gap-1.5">
+      <span class="w-2 h-2 rounded-full bg-emerald-400"></span>Counts live from Stripe
     </p>
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-gray-900">{{ institutes.stripe.total }}</p>
-        <p class="text-sm text-gray-500">Total</p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-white">{{ institutes.stripe.total }}</p>
+        <p class="text-sm text-slate-400">Total</p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-emerald-600">{{ institutes.stripe.paid }}</p>
-        <p class="text-sm text-gray-500">Paid <span class="text-gray-400">(active)</span></p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-emerald-400">{{ institutes.stripe.paid }}</p>
+        <p class="text-sm text-slate-400">Paid <span class="text-slate-500">(active)</span></p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-amber-600">{{ institutes.stripe.trial }}</p>
-        <p class="text-sm text-gray-500">Trial</p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-amber-400">{{ institutes.stripe.trial }}</p>
+        <p class="text-sm text-slate-400">Trial</p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-gray-400">{{ institutes.stripe.other }}</p>
-        <p class="text-sm text-gray-500">Past due / canceled</p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-slate-500">{{ institutes.stripe.other }}</p>
+        <p class="text-sm text-slate-400">Past due / canceled</p>
       </div>
     </div>
     {% else %}
     <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-gray-900">{{ institutes.total }}</p>
-        <p class="text-sm text-gray-500">Total <span class="text-gray-400">(app DB)</span></p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-white">{{ institutes.total }}</p>
+        <p class="text-sm text-slate-400">Total <span class="text-slate-500">(app DB)</span></p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-emerald-600">{{ institutes.paying }}</p>
-        <p class="text-sm text-gray-500">Active <span class="text-gray-400">(paying)</span></p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-emerald-400">{{ institutes.paying }}</p>
+        <p class="text-sm text-slate-400">Active <span class="text-slate-500">(paying)</span></p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-sky-600">{{ institutes.free }}</p>
-        <p class="text-sm text-gray-500">Free <span class="text-gray-400">(100% off)</span></p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-sky-400">{{ institutes.free }}</p>
+        <p class="text-sm text-slate-400">Free <span class="text-slate-500">(100% off)</span></p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-amber-600">{{ institutes.trial }}</p>
-        <p class="text-sm text-gray-500">Trial</p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-amber-400">{{ institutes.trial }}</p>
+        <p class="text-sm text-slate-400">Trial</p>
       </div>
-      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-        <p class="text-3xl font-bold text-gray-400">{{ institutes.inactive }}</p>
-        <p class="text-sm text-gray-500">Inactive</p>
+      <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+        <p class="text-3xl font-bold text-slate-500">{{ institutes.inactive }}</p>
+        <p class="text-sm text-slate-400">Inactive</p>
       </div>
     </div>
     {% endif %}
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <!-- Status donut -->
-      {% include 'admin_dashboard/billing/_donut.html' with donut=institutes.donut title="Status breakdown" %}
-
-      <!-- Today + earnings -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       {% include 'admin_dashboard/billing/_earnings.html' with panel=institutes source=earnings_source currency=earnings_currency %}
 
-      <!-- By type -->
-      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-3 border-b border-slate-200"><h3 class="font-semibold text-gray-900 text-sm">Active by Type</h3></div>
+      <div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+        <div class="px-6 py-3 border-b border-slate-700"><h3 class="font-semibold text-white text-sm">Active by Type</h3></div>
         <table class="w-full text-sm">
-          <tbody class="divide-y divide-slate-100">
+          <tbody class="divide-y divide-slate-700">
             {% for row in institutes.by_type %}
             <tr>
-              <td class="px-6 py-2.5 text-gray-900">{{ row.plan__name|default:"— No plan" }}</td>
-              <td class="px-6 py-2.5 text-right font-semibold text-gray-900">{{ row.count }}</td>
+              <td class="px-6 py-2.5 text-slate-200">{{ row.plan__name|default:"— No plan" }}</td>
+              <td class="px-6 py-2.5 text-right font-semibold text-white">{{ row.count }}</td>
             </tr>
             {% empty %}
-            <tr><td class="px-6 py-6 text-center text-gray-400">No active institute subscriptions.</td></tr>
+            <tr><td class="px-6 py-6 text-center text-slate-500">No active institute subscriptions.</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
 
-      <!-- Addons -->
-      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-6 py-3 border-b border-slate-200 flex items-center justify-between">
-          <h3 class="font-semibold text-gray-900 text-sm">Institution Add-ons</h3>
-          <span class="text-xs text-gray-500">${{ addons_total_revenue }}/mo est.</span>
+      <div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+        <div class="px-6 py-3 border-b border-slate-700 flex items-center justify-between">
+          <h3 class="font-semibold text-white text-sm">Institution Add-ons</h3>
+          <span class="text-xs text-slate-400">${{ addons_total_revenue }}/mo est.</span>
         </div>
         <table class="w-full text-sm">
-          <tbody class="divide-y divide-slate-100">
+          <tbody class="divide-y divide-slate-700">
             {% for a in addons %}
             <tr>
-              <td class="px-6 py-2.5 text-gray-900">{{ a.name }}</td>
-              <td class="px-4 py-2.5 text-right text-gray-500">{{ a.count }}&times;</td>
-              <td class="px-6 py-2.5 text-right font-semibold text-gray-900">${{ a.revenue }}</td>
+              <td class="px-6 py-2.5 text-slate-200">{{ a.name }}</td>
+              <td class="px-4 py-2.5 text-right text-slate-400">{{ a.count }}&times;</td>
+              <td class="px-6 py-2.5 text-right font-semibold text-white">${{ a.revenue }}</td>
             </tr>
             {% empty %}
-            <tr><td class="px-6 py-6 text-center text-gray-400">No active add-ons.</td></tr>
+            <tr><td class="px-6 py-6 text-center text-slate-500">No active add-ons.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -272,26 +268,26 @@
   </section>
 
   <!-- Combined -->
-  <div class="bg-gradient-to-r from-accent/10 to-indigo-50 rounded-2xl p-6 border border-slate-200 flex items-center justify-between">
+  <div class="bg-gradient-to-r from-accent/20 to-indigo-500/10 rounded-2xl p-6 border border-slate-700 flex items-center justify-between">
     {% if earnings_source == 'stripe' %}
     <div>
-      <p class="text-sm text-gray-600">Combined paid revenue this month (students + institutes)</p>
-      <p class="text-xs text-gray-400">Actual paid Stripe invoices for the current month</p>
+      <p class="text-sm text-slate-300">Combined paid revenue this month (students + institutes)</p>
+      <p class="text-xs text-slate-500">Actual paid Stripe invoices for the current month</p>
     </div>
-    <p class="text-3xl font-bold text-gray-900">${{ combined_this_month }}</p>
+    <p class="text-3xl font-bold text-white">${{ combined_this_month }}</p>
     {% else %}
     <div>
-      <p class="text-sm text-gray-600">Combined estimated monthly run-rate (students + institutes + add-ons)</p>
-      <p class="text-xs text-gray-400">Stripe unavailable — discount-aware estimate, not actual cash collected</p>
+      <p class="text-sm text-slate-300">Combined estimated monthly run-rate (students + institutes + add-ons)</p>
+      <p class="text-xs text-slate-500">Stripe unavailable — discount-aware estimate, not actual cash collected</p>
     </div>
-    <p class="text-3xl font-bold text-gray-900">${{ combined_estimate }}</p>
+    <p class="text-3xl font-bold text-white">${{ combined_estimate }}</p>
     {% endif %}
   </div>
 
 </div>
+</div>
 
 <script>
-  // Window selector: set ?days= preserving other query params (filters).
   function setDays(d) {
     var u = new URL(window.location);
     u.searchParams.set('days', d);
@@ -318,16 +314,18 @@
     var students = JSON.parse(document.getElementById('daily-student').textContent);
     var institutes = JSON.parse(document.getElementById('daily-institute').textContent);
     var dense = labels.length > 60;
+    var grid = 'rgba(148,163,184,0.15)';
+    var tick = '#94a3b8';
     new Chart(ctx.getContext('2d'), {
       type: 'line',
       data: {
         labels: labels,
         datasets: [
-          { label: 'Students', data: students, borderColor: '#10b981',
-            backgroundColor: 'rgba(16,185,129,0.08)', borderWidth: 2,
+          { label: 'Students', data: students, borderColor: '#34d399',
+            backgroundColor: 'rgba(52,211,153,0.12)', borderWidth: 2,
             pointRadius: dense ? 0 : 2, tension: 0.25, fill: true },
-          { label: 'Institutes', data: institutes, borderColor: '#6366f1',
-            backgroundColor: 'rgba(99,102,241,0.08)', borderWidth: 2,
+          { label: 'Institutes', data: institutes, borderColor: '#818cf8',
+            backgroundColor: 'rgba(129,140,248,0.12)', borderWidth: 2,
             pointRadius: dense ? 0 : 2, tension: 0.25, fill: true }
         ]
       },
@@ -335,11 +333,12 @@
         responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
         scales: {
-          x: { ticks: { maxTicksLimit: 12, autoSkip: true, maxRotation: 0 },
+          x: { ticks: { color: tick, maxTicksLimit: 12, autoSkip: true, maxRotation: 0 },
                grid: { display: false } },
-          y: { beginAtZero: true, ticks: { precision: 0 } }
+          y: { beginAtZero: true, ticks: { color: tick, precision: 0 },
+               grid: { color: grid } }
         },
-        plugins: { legend: { position: 'top', labels: { boxWidth: 12, usePointStyle: true } } }
+        plugins: { legend: { position: 'top', labels: { color: '#cbd5e1', boxWidth: 12, usePointStyle: true } } }
       }
     });
   })();
