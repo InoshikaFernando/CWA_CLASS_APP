@@ -32,6 +32,21 @@ from audit.services import log_event
 MAX_PARENTS_PER_STUDENT = 2
 
 
+def _annotate_welcome_email_state(items, user_id_getter):
+    """Attach ``.welcome_email_state`` to each item in a page of user-wrapping
+    rows (SchoolTeacher/SchoolStudent), driven by the latest welcome EmailLog
+    for that user (CPP-343). ``user_id_getter`` maps an item to its user id.
+    State is one of 'delivered'|'sent'|'bounced'|'failed' or None when no
+    welcome email has been logged.
+    """
+    from .email_service import get_welcome_email_states
+
+    pairs = [(item, user_id_getter(item)) for item in items]
+    states = get_welcome_email_states([uid for _, uid in pairs])
+    for item, uid in pairs:
+        item.welcome_email_state = states.get(uid)
+
+
 def _get_user_school(user, school_id=None):
     """Get a school the user has access to (as admin or HoI via SchoolTeacher).
 
@@ -693,6 +708,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
 
         paginator = Paginator(qs, 25)
         page = paginator.get_page(request.GET.get('page'))
+        _annotate_welcome_email_state(page, lambda st: st.teacher_id)
         return render(request, 'admin_dashboard/school_teachers.html', {
             'school': school,
             'school_teachers': page,
@@ -1873,6 +1889,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
 
         paginator = Paginator(qs, 25)
         page = paginator.get_page(request.GET.get('page'))
+        _annotate_welcome_email_state(page, lambda ss: ss.student_id)
         add_student_classes = (
             _allowed_classes_for_user(request.user, school)
             .select_related('subject', 'department')

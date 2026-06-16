@@ -64,6 +64,8 @@ def send_staff_welcome_email(
     from .email_service import resolve_cc_email
     cc = resolve_cc_email(school, department)
 
+    from .models import EmailLog
+
     try:
         msg = EmailMultiAlternatives(
             subject=subject,
@@ -73,7 +75,20 @@ def send_staff_welcome_email(
             cc=cc,
         )
         msg.attach_alternative(html_body, 'text/html')
-        msg.send(fail_silently=True)
+        sent_count = msg.send(fail_silently=True)
+        # Log delivery (CPP-343) so the staff welcome email gets the same
+        # tracking as other welcome emails — provider_message_id is set by the
+        # Resend backend and correlates with delivery webhooks. fail_silently=True
+        # means a backend error returns 0 rather than raising, so key off the count.
+        EmailLog.objects.create(
+            recipient=user,
+            recipient_email=user.email,
+            subject=subject,
+            notification_type='welcome',
+            school=school,
+            status='sent' if sent_count else 'failed',
+            provider_message_id=getattr(msg, 'resend_message_id', ''),
+        )
         logger.info(
             'Welcome email sent to %s (%s) at %s.',
             user.get_full_name(), role_display, school.name,
