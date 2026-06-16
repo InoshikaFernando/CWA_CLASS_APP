@@ -248,10 +248,22 @@ class StudentReportView(RoleRequiredMixin, View):
             return "'" + text
         return text
 
+    @staticmethod
+    def _subscribed_student_ids(student_ids):
+        """Set of student ids with an active or trialing subscription."""
+        from billing.models import Subscription
+        return set(
+            Subscription.objects.filter(
+                user_id__in=student_ids,
+                status__in=(Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIALING),
+            ).values_list('user_id', flat=True)
+        )
+
     def _export_csv(self, qs, school_ids):
         rows = list(qs)
         student_ids = [ss.student_id for ss in rows]
         parent_map = self._parents_by_student(student_ids, school_ids)
+        subscribed_ids = self._subscribed_student_ids(student_ids)
 
         response = HttpResponse(content_type='text/csv')
         response['Content-Disposition'] = 'attachment; filename="student_report.csv"'
@@ -259,7 +271,7 @@ class StudentReportView(RoleRequiredMixin, View):
 
         header = [
             'Student Name', 'Username', 'Student Email', 'Student ID',
-            'Active Classes', 'Enrollment', 'Payment',
+            'Active Classes', 'Enrollment', 'Payment', 'Is Subscribed',
         ]
         for i in range(1, self.MAX_PARENTS + 1):
             header += [f'Parent {i} Name', f'Parent {i} Email',
@@ -277,6 +289,7 @@ class StudentReportView(RoleRequiredMixin, View):
                 ss.active_class_count,
                 'Active' if ss.is_active else 'Inactive',
                 'Blocked' if student.is_blocked else 'OK',
+                'Yes' if ss.student_id in subscribed_ids else 'No',
             ]
             for i in range(self.MAX_PARENTS):
                 p = parents[i] if i < len(parents) else {}
