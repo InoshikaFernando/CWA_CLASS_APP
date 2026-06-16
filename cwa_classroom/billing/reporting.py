@@ -45,10 +45,14 @@ def get_subscription_counts():
     items live inside an institute subscription and are not counted separately.
 
     Returns {
-      'student':   {'paid': int, 'trial': int, 'other': int, 'total': int},
-      'institute': {'paid': int, 'trial': int, 'other': int, 'total': int},
+      'student':   {'paid': int, 'trial': int, 'other': int, 'total': int,
+                    'new_today': int, 'lost_today': int},
+      'institute': {'paid': int, 'trial': int, 'other': int, 'total': int,
+                    'new_today': int, 'lost_today': int},
     }  where paid = status 'active', trial = 'trialing', other = the rest
-    (past_due / canceled / unpaid / paused …).
+    (past_due / canceled / unpaid / paused …). new_today / lost_today count
+    distinct entities whose subscription was created / ended today (local
+    time), so they're consistent with the Stripe-sourced tiles above them.
 
     Raises StripeUnavailable if Stripe is not configured or the API fails.
     """
@@ -62,10 +66,13 @@ def get_subscription_counts():
     if not stripe.api_key:
         stripe.api_key = settings.STRIPE_SECRET_KEY
 
+    today = timezone.localdate()
+
     # Track DISTINCT entities (schools / students), not subscription rows, so a
     # re-subscribe / duplicate test subscription doesn't inflate the count.
     sets = {
-        p: {'paid': set(), 'trial': set(), 'other': set(), 'all': set()}
+        p: {'paid': set(), 'trial': set(), 'other': set(), 'all': set(),
+            'new_today': set(), 'lost_today': set()}
         for p in ('student', 'institute')
     }
     try:
@@ -86,6 +93,11 @@ def get_subscription_counts():
                       else 'trial' if status == 'trialing' else 'other')
             sets[panel][bucket].add(key)
             sets[panel]['all'].add(key)
+            if _ts_to_local_date(s.get('created')) == today:
+                sets[panel]['new_today'].add(key)
+            ended = _ts_to_local_date(s.get('ended_at') or s.get('canceled_at'))
+            if ended == today:
+                sets[panel]['lost_today'].add(key)
     except stripe.error.StripeError as exc:  # noqa: F841
         logger.warning('Stripe subscription count failed: %s', exc)
         raise StripeUnavailable(str(exc))
@@ -99,6 +111,8 @@ def get_subscription_counts():
             'trial': len(sets[p]['trial']),
             'other': len(sets[p]['other']),
             'total': len(sets[p]['all']),
+            'new_today': len(sets[p]['new_today']),
+            'lost_today': len(sets[p]['lost_today']),
         }
         for p in ('student', 'institute')
     }
@@ -174,6 +188,19 @@ def _ts_to_date(ts):
     if not ts:
         return None
     return datetime.fromtimestamp(ts, dt_timezone.utc).date()
+
+
+def _ts_to_local_date(ts):
+    """Stripe epoch seconds -> date in the app's local timezone.
+
+    Used for "today" comparisons so they line up with timezone.localdate()
+    (the same "today" the dashboard header shows).
+    """
+    if not ts:
+        return None
+    return timezone.localtime(
+        datetime.fromtimestamp(ts, dt_timezone.utc),
+    ).date()
 
 
 def get_daily_active_series(window_days):

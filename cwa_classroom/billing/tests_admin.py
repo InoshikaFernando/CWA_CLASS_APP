@@ -993,13 +993,19 @@ class SubscriptionOverviewTests(TestCase):
     @patch('billing.views_admin.get_subscription_counts')
     def test_counts_from_stripe(self, mock_counts):
         mock_counts.return_value = {
-            'student': {'paid': 20, 'trial': 1, 'other': 2, 'total': 23},
-            'institute': {'paid': 1, 'trial': 0, 'other': 0, 'total': 1},
+            'student': {'paid': 20, 'trial': 1, 'other': 2, 'total': 23,
+                        'new_today': 3, 'lost_today': 1},
+            'institute': {'paid': 1, 'trial': 0, 'other': 0, 'total': 1,
+                          'new_today': 0, 'lost_today': 0},
         }
         ctx = self._get().context
         self.assertEqual(ctx['counts_source'], 'stripe')
         self.assertEqual(ctx['students']['stripe']['paid'], 20)
         self.assertEqual(ctx['institutes']['stripe']['paid'], 1)
+        # New/lost-today tiles follow the Stripe source, not the local DB.
+        self.assertEqual(ctx['students']['new_today'], 3)
+        self.assertEqual(ctx['students']['lost_today'], 1)
+        self.assertEqual(ctx['institutes']['new_today'], 0)
 
     def test_counts_source_local_without_stripe(self):
         # No Stripe key in tests -> counts fall back to local DB
@@ -1250,3 +1256,39 @@ class StripeEarningsReportingTests(TestCase):
         self.assertEqual(c['institute']['paid'], 1)
         self.assertEqual(c['institute']['other'], 1)   # school 8 canceled
         self.assertEqual(c['institute']['total'], 2)   # schools 9 & 8
+        # no created/ended timestamps on these fixtures -> nothing today
+        self.assertEqual(c['student']['new_today'], 0)
+        self.assertEqual(c['student']['lost_today'], 0)
+
+    @override_settings(STRIPE_SECRET_KEY='sk_test_dummy')
+    @patch('billing.reporting.stripe.Subscription.list')
+    def test_subscription_counts_new_lost_today(self, mock_list):
+        """new_today / lost_today come from Stripe created / ended timestamps,
+        deduped per entity and measured in the app's local timezone."""
+        from billing.reporting import get_subscription_counts
+        from django.core.cache import cache
+        cache.clear()
+        now = int(timezone.now().timestamp())
+        old = now - 86400 * 10  # 10 days ago
+        subs = [
+            # started today -> counts as new (student user 1)
+            {'metadata': {'type': 'individual', 'user_id': '1'},
+             'status': 'trialing', 'created': now},
+            # started long ago -> not new
+            {'metadata': {'type': 'individual', 'user_id': '2'},
+             'status': 'active', 'created': old},
+            # same student re-subscribed today -> still one distinct "new"
+            {'metadata': {'type': 'school_student', 'user_id': '1'},
+             'status': 'trialing', 'created': now},
+            # institute canceled today -> counts as lost
+            {'metadata': {'type': 'institute', 'school_id': '9'},
+             'status': 'canceled', 'created': old, 'canceled_at': now},
+        ]
+        obj = MagicMock()
+        obj.auto_paging_iter.return_value = iter(subs)
+        mock_list.return_value = obj
+        c = get_subscription_counts()
+        self.assertEqual(c['student']['new_today'], 1)   # user 1 deduped
+        self.assertEqual(c['student']['lost_today'], 0)
+        self.assertEqual(c['institute']['new_today'], 0)
+        self.assertEqual(c['institute']['lost_today'], 1)  # school 9
