@@ -9,7 +9,7 @@ welcome emails).
 import datetime
 from decimal import Decimal
 
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 from accounts.models import CustomUser
@@ -141,6 +141,94 @@ class ParentsListWelcomeStateTest(TestCase):
     def test_no_log_leaves_state_unset(self):
         rows = self._parent_rows()
         self.assertIsNone(rows[self.parent.id].get('welcome_email_state'))
+
+
+class ParentsListWelcomeFilterTest(TestCase):
+    """The ?welcome= filter on the parents list buckets parents by genuine
+    welcome-email delivery state (CPP-343)."""
+
+    def setUp(self):
+        from django.test import Client
+        from accounts.models import Role, UserRole
+        from classroom.models import SchoolStudent, ParentStudent
+
+        self.hoi = CustomUser.objects.create_user(
+            username='hoi_pf', email='hoi_pf@example.com', password='TestPass123!',
+        )
+        role, _ = Role.objects.get_or_create(
+            name=Role.HEAD_OF_INSTITUTE, defaults={'display_name': 'HoI'},
+        )
+        UserRole.objects.create(user=self.hoi, role=role)
+        self.school = School.objects.create(
+            name='Parent Filter School', slug='parent-filter-school', admin=self.hoi,
+            is_active=True, is_published=True,
+        )
+        self.student = CustomUser.objects.create_user(
+            username='stu_pf', email='stu_pf@example.com', password='TestPass123!',
+        )
+        SchoolStudent.objects.create(school=self.school, student=self.student, is_active=True)
+        self._n = 0
+
+    def _parent(self, name, *, log_status=None, flag=False):
+        from classroom.models import ParentStudent
+        self._n += 1
+        u = CustomUser.objects.create_user(
+            username=f'par_{name}', email=f'par_{name}@example.com',
+            password='TestPass123!', first_name=name, last_name='P',
+        )
+        if flag:
+            u.welcome_email_sent = timezone.now()
+            u.save(update_fields=['welcome_email_sent'])
+        ParentStudent.objects.create(
+            parent=u, student=self.student, school=self.school,
+            relationship='mother', is_active=True,
+        )
+        if log_status:
+            _welcome_log(u, log_status)
+        return u
+
+    def _filter(self, value):
+        from django.urls import reverse
+        c = Client()
+        c.force_login(self.hoi)
+        resp = c.get(
+            reverse('admin_school_parents', kwargs={'school_id': self.school.id}),
+            {'welcome': value},
+        )
+        self.assertEqual(resp.status_code, 200)
+        return {p.get('parent_id') for p in resp.context['page']}
+
+    def test_sent_filter_includes_delivered_and_accepted_not_bounced(self):
+        delivered = self._parent('deliv', log_status='delivered')
+        accepted = self._parent('sent', log_status='sent')
+        bounced = self._parent('bounce', log_status='bounced')
+        ids = self._filter('sent')
+        self.assertIn(delivered.id, ids)
+        self.assertIn(accepted.id, ids)
+        # Genuine check: a bounced welcome email is NOT counted as sent.
+        self.assertNotIn(bounced.id, ids)
+
+    def test_legacy_flag_without_log_counts_as_sent(self):
+        legacy = self._parent('legacy', flag=True)
+        self.assertIn(legacy.id, self._filter('sent'))
+
+    def test_not_sent_filter_only_unsent(self):
+        unsent = self._parent('unsent')                      # no log, no flag
+        delivered = self._parent('deliv2', log_status='delivered')
+        ids = self._filter('not_sent')
+        self.assertIn(unsent.id, ids)
+        self.assertNotIn(delivered.id, ids)
+
+    def test_bounced_filter(self):
+        bounced = self._parent('bounce2', log_status='bounced')
+        delivered = self._parent('deliv3', log_status='delivered')
+        ids = self._filter('bounced')
+        self.assertIn(bounced.id, ids)
+        self.assertNotIn(delivered.id, ids)
+
+    def test_failed_filter(self):
+        failed = self._parent('fail', log_status='failed')
+        self.assertIn(failed.id, self._filter('failed'))
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
