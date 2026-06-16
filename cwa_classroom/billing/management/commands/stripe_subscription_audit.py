@@ -32,12 +32,20 @@ class Command(BaseCommand):
         by_type_status = Counter()
         by_type = Counter()
         total = 0
+        # Distinct entities (school_id / user_id) with an ACTIVE subscription.
+        paid_students, paid_institutes = set(), set()
         for s in stripe.Subscription.list(status='all', limit=100).auto_paging_iter():
             md = s.get('metadata') or {}
             t = md.get('type') or '(none)'
-            by_type_status[(t, s.get('status'))] += 1
+            status = s.get('status')
+            by_type_status[(t, status)] += 1
             by_type[t] += 1
             total += 1
+            if status == 'active':
+                if t in ('individual', 'school_student'):
+                    paid_students.add(md.get('user_id') or s.get('id'))
+                elif t == 'institute':
+                    paid_institutes.add(md.get('school_id') or s.get('id'))
 
         self.stdout.write(f'\nStripe subscriptions (all statuses): {total}')
         self.stdout.write('\nBy type + status:')
@@ -48,18 +56,20 @@ class Command(BaseCommand):
         for t, n in sorted(by_type.items()):
             self.stdout.write(f'  {t:<16} {n}')
 
-        # Dashboard buckets
-        students_paid = sum(
+        # Dashboard shows DISTINCT entities (deduped by school_id / user_id).
+        active_sub_students = sum(
             n for (t, st), n in by_type_status.items()
             if t in ('individual', 'school_student') and st == 'active'
         )
-        institutes_paid = sum(
+        active_sub_institutes = sum(
             n for (t, st), n in by_type_status.items()
             if t == 'institute' and st == 'active'
         )
         self.stdout.write(
-            f'\nDashboard would show — paid students: {students_paid} '
-            f'| active institutes: {institutes_paid}',
+            f'\nDashboard would show — paid students: {len(paid_students)} '
+            f'(distinct of {active_sub_students} active subs) '
+            f'| paid institutes: {len(paid_institutes)} '
+            f'(distinct of {active_sub_institutes} active subs)',
         )
 
         # Local DB comparison

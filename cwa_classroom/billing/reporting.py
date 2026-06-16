@@ -62,9 +62,11 @@ def get_subscription_counts():
     if not stripe.api_key:
         stripe.api_key = settings.STRIPE_SECRET_KEY
 
-    counts = {
-        'student': {'paid': 0, 'trial': 0, 'other': 0, 'total': 0},
-        'institute': {'paid': 0, 'trial': 0, 'other': 0, 'total': 0},
+    # Track DISTINCT entities (schools / students), not subscription rows, so a
+    # re-subscribe / duplicate test subscription doesn't inflate the count.
+    sets = {
+        p: {'paid': set(), 'trial': set(), 'other': set(), 'all': set()}
+        for p in ('student', 'institute')
     }
     try:
         subs = stripe.Subscription.list(status='all', limit=100)
@@ -73,18 +75,17 @@ def get_subscription_counts():
             sub_type = md.get('type')
             if sub_type in STUDENT_TYPES:
                 panel = 'student'
+                key = md.get('user_id') or s.get('id')
             elif sub_type in INSTITUTE_TYPES:
                 panel = 'institute'
+                key = md.get('school_id') or s.get('id')
             else:
                 continue
             status = s.get('status')
-            if status == 'active':
-                counts[panel]['paid'] += 1
-            elif status == 'trialing':
-                counts[panel]['trial'] += 1
-            else:
-                counts[panel]['other'] += 1
-            counts[panel]['total'] += 1
+            bucket = ('paid' if status == 'active'
+                      else 'trial' if status == 'trialing' else 'other')
+            sets[panel][bucket].add(key)
+            sets[panel]['all'].add(key)
     except stripe.error.StripeError as exc:  # noqa: F841
         logger.warning('Stripe subscription count failed: %s', exc)
         raise StripeUnavailable(str(exc))
@@ -92,6 +93,15 @@ def get_subscription_counts():
         logger.warning('Stripe subscription count error: %s', exc)
         raise StripeUnavailable(str(exc))
 
+    counts = {
+        p: {
+            'paid': len(sets[p]['paid']),
+            'trial': len(sets[p]['trial']),
+            'other': len(sets[p]['other']),
+            'total': len(sets[p]['all']),
+        }
+        for p in ('student', 'institute')
+    }
     cache.set('subs:counts', counts, CACHE_TTL)
     return counts
 
@@ -101,33 +111,48 @@ DAILY_WINDOWS = [7, 30, 90, 365, 1825]
 
 
 def _active_series_from_intervals(intervals, window_days):
-    """Given [(panel, start_date, end_date_or_None)], build per-day active
-    counts for the trailing `window_days` ending today (inclusive).
+    """Given [(panel, entity_key, start_date, end_date_or_None)], build per-day
+    counts of DISTINCT active entities (schools / students, not subscriptions)
+    for the trailing `window_days` ending today (inclusive).
 
-    A subscription is "active" on day D if it started on/before D and had not
-    ended on/before D. Uses a difference array + prefix sum (O(subs + days)).
+    Multiple subscriptions for the same entity are merged so an entity counts
+    once per day. Uses a difference array + prefix sum.
     Returns {'labels': [...isodate], 'student': [...], 'institute': [...],
     'window_days': n}.
     """
+    from collections import defaultdict
     n = window_days
     today = timezone.localdate()
     start_day = today - timedelta(days=n - 1)
     end_excl = today + timedelta(days=1)
-    diffs = {'student': [0] * (n + 1), 'institute': [0] * (n + 1)}
 
-    for panel, start, end in intervals:
-        if panel not in diffs or not start:
+    # Group spans per (panel, entity), so re-subscribes don't double-count.
+    groups = defaultdict(list)
+    for panel, key, start, end in intervals:
+        if panel not in ('student', 'institute') or not start:
             continue
-        lo = max(start, start_day)
-        hi = min(end or end_excl, end_excl)
-        if hi <= lo:
-            continue
-        i = max(0, (lo - start_day).days)
-        j = min(n, (hi - start_day).days)
-        if j <= i:
-            continue
-        diffs[panel][i] += 1
-        diffs[panel][j] -= 1
+        groups[(panel, key)].append((start, end or end_excl))
+
+    diffs = {'student': [0] * (n + 1), 'institute': [0] * (n + 1)}
+    for (panel, _key), spans in groups.items():
+        # Merge overlapping spans for this entity.
+        merged = []
+        for s, e in sorted(spans):
+            if merged and s <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+            else:
+                merged.append((s, e))
+        for s, e in merged:
+            lo = max(s, start_day)
+            hi = min(e, end_excl)
+            if hi <= lo:
+                continue
+            i = max(0, (lo - start_day).days)
+            j = min(n, (hi - start_day).days)
+            if j <= i:
+                continue
+            diffs[panel][i] += 1
+            diffs[panel][j] -= 1
 
     series = {}
     for panel in ('student', 'institute'):
@@ -173,16 +198,19 @@ def get_daily_active_series(window_days):
     intervals = []
     try:
         for s in stripe.Subscription.list(status='all', limit=100).auto_paging_iter():
-            t = (s.get('metadata') or {}).get('type')
+            md = s.get('metadata') or {}
+            t = md.get('type')
             if t in STUDENT_TYPES:
                 panel = 'student'
+                key = md.get('user_id') or s.get('id')
             elif t in INSTITUTE_TYPES:
                 panel = 'institute'
+                key = md.get('school_id') or s.get('id')
             else:
                 continue
             start = _ts_to_date(s.get('created'))
             end = _ts_to_date(s.get('ended_at') or s.get('canceled_at'))
-            intervals.append((panel, start, end))
+            intervals.append((panel, key, start, end))
     except stripe.error.StripeError as exc:  # noqa: F841
         logger.warning('Stripe daily-active fetch failed: %s', exc)
         raise StripeUnavailable(str(exc))
@@ -204,16 +232,17 @@ def get_daily_active_series_local(window_days):
         window_days = 30
     from billing.models import Subscription, SchoolSubscription
     intervals = []
-    for created, cancelled in Subscription.objects.values_list(
-            'created_at', 'cancelled_at'):
+    for user_id, created, cancelled in Subscription.objects.values_list(
+            'user_id', 'created_at', 'cancelled_at'):
         intervals.append((
-            'student',
+            'student', user_id,
             timezone.localtime(created).date() if created else None,
             timezone.localtime(cancelled).date() if cancelled else None,
         ))
-    for (created,) in SchoolSubscription.objects.values_list('created_at'):
+    for school_id, created in SchoolSubscription.objects.values_list(
+            'school_id', 'created_at'):
         intervals.append((
-            'institute',
+            'institute', school_id,
             timezone.localtime(created).date() if created else None,
             None,
         ))

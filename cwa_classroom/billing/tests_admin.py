@@ -1029,15 +1029,17 @@ class SubscriptionOverviewTests(TestCase):
         from datetime import timedelta
         today = timezone.localdate()
         intervals = [
-            ('student', today - timedelta(days=10), None),   # active all window
-            ('student', today - timedelta(days=2), None),    # active last 3 days
-            ('institute', today - timedelta(days=5),
-             today - timedelta(days=3)),                     # ended 3 days ago
+            ('student', 'u1', today - timedelta(days=10), None),  # active all window
+            ('student', 'u2', today - timedelta(days=2), None),   # active last 3 days
+            # same student re-subscribed (overlapping) -> must NOT double-count
+            ('student', 'u2', today - timedelta(days=1), None),
+            ('institute', 's1', today - timedelta(days=5),
+             today - timedelta(days=3)),                          # ended 3 days ago
         ]
         s = _active_series_from_intervals(intervals, 7)
         self.assertEqual(len(s['labels']), 7)
-        self.assertEqual(s['student'][-1], 2)   # both live today
-        self.assertEqual(s['student'][0], 1)    # only the older one 6 days ago
+        self.assertEqual(s['student'][-1], 2)   # u1 & u2 distinct, today
+        self.assertEqual(s['student'][0], 1)    # only u1 six days ago
         self.assertEqual(s['institute'][-1], 0)  # ended before today
 
     # -- breakdowns --
@@ -1226,11 +1228,13 @@ class StripeEarningsReportingTests(TestCase):
         from django.core.cache import cache
         cache.clear()
         subs = [
-            {'metadata': {'type': 'individual'}, 'status': 'active'},
-            {'metadata': {'type': 'school_student'}, 'status': 'active'},
-            {'metadata': {'type': 'individual'}, 'status': 'trialing'},
-            {'metadata': {'type': 'institute'}, 'status': 'active'},
-            {'metadata': {'type': 'institute'}, 'status': 'canceled'},
+            {'metadata': {'type': 'individual', 'user_id': '1'}, 'status': 'active'},
+            {'metadata': {'type': 'school_student', 'user_id': '2'}, 'status': 'active'},
+            {'metadata': {'type': 'individual', 'user_id': '3'}, 'status': 'trialing'},
+            {'metadata': {'type': 'institute', 'school_id': '9'}, 'status': 'active'},
+            # duplicate subscription for the SAME school -> must dedupe to 1
+            {'metadata': {'type': 'institute', 'school_id': '9'}, 'status': 'active'},
+            {'metadata': {'type': 'institute', 'school_id': '8'}, 'status': 'canceled'},
             {'metadata': {'type': 'module'}, 'status': 'active'},   # ignored
             {'metadata': {}, 'status': 'active'},                    # untyped, ignored
         ]
@@ -1238,10 +1242,11 @@ class StripeEarningsReportingTests(TestCase):
         obj.auto_paging_iter.return_value = iter(subs)
         mock_list.return_value = obj
         c = get_subscription_counts()
-        # students = individual + school_student
-        self.assertEqual(c['student']['paid'], 2)
-        self.assertEqual(c['student']['trial'], 1)
+        # students = distinct individual + school_student users
+        self.assertEqual(c['student']['paid'], 2)   # users 1 & 2
+        self.assertEqual(c['student']['trial'], 1)  # user 3
         self.assertEqual(c['student']['total'], 3)
+        # institutes deduped by school_id: school 9 (2 subs) counts once
         self.assertEqual(c['institute']['paid'], 1)
-        self.assertEqual(c['institute']['other'], 1)
-        self.assertEqual(c['institute']['total'], 2)
+        self.assertEqual(c['institute']['other'], 1)   # school 8 canceled
+        self.assertEqual(c['institute']['total'], 2)   # schools 9 & 8
