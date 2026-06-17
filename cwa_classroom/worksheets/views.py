@@ -4,6 +4,7 @@ Worksheets views: PDF upload → AI extraction → preview → confirm → assig
 import json
 import os
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,9 @@ ANSWER_PARTIAL_MAP = {
     'calculation':        _PARTIAL + '_answer_text.html',
     'extended_answer':    _PARTIAL + '_answer_extended.html',
     'long_division':      _PARTIAL + '_answer_long_division.html',
+    'column_operation':   _PARTIAL + '_answer_column_operation.html',
     'prime_factorization': _PARTIAL + '_answer_prime_factorization.html',
+    'measure':            _PARTIAL + '_answer_measure.html',
 }
 _ANSWER_PARTIAL_DEFAULT = _PARTIAL + '_answer_text.html'
 
@@ -109,6 +112,7 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             pdf_filename=pdf_file.name,
             pdf_file=pdf_file,
             worksheet_name=worksheet_name,
+            shape_naming=request.POST.get('shape_naming') == 'on',
             status=WorksheetUploadSession.STATUS_PROCESSING,
         )
 
@@ -712,6 +716,18 @@ def _grade_long_division(question, text_answer: str) -> bool:
         return False
 
 
+def _grade_column_operation(question, text_answer: str) -> bool:
+    """
+    Grade a column-arithmetic answer (the joined result digits) against the
+    computed column_result. Tolerant of surrounding spaces and leading zeros,
+    so it grades without needing a stored answer row.
+    """
+    if question.column_result is None:
+        return False
+    m = re.match(r'^\s*(-?\d+)\s*$', (text_answer or '').replace(' ', ''))
+    return bool(m) and int(m.group(1)) == question.column_result
+
+
 def _prime_factors(n: int):
     """Return sorted list of prime factors of n (with repetition), e.g. 12 → [2, 2, 3]."""
     factors = []
@@ -809,6 +825,19 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
             elif question.question_type == 'prime_factorization':
                 text_answer = request.POST.get('text_answer', '').strip()
                 is_correct = _grade_prime_factorization(question, text_answer)
+                if is_correct:
+                    points_earned = float(question.points)
+
+            elif question.question_type == 'measure' and question.numeric_answer is not None:
+                from maths.geometry_grading import grade_measure
+                text_answer = request.POST.get('text_answer', '').strip()
+                is_correct = grade_measure(question, text_answer)
+                if is_correct:
+                    points_earned = float(question.points)
+
+            elif question.question_type == 'column_operation':
+                text_answer = request.POST.get('text_answer', '').strip()
+                is_correct = _grade_column_operation(question, text_answer)
                 if is_correct:
                     points_earned = float(question.points)
 

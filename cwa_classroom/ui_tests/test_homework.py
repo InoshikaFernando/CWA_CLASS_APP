@@ -81,6 +81,24 @@ def active_homework(db, classroom, homework_topic, teacher_user):
     return hw
 
 
+@pytest.fixture
+def scheduled_homework(db, classroom, homework_topic, teacher_user):
+    """A homework scheduled to publish in the future — hidden from students."""
+    from homework.models import Homework
+
+    hw = Homework.objects.create(
+        classroom=classroom,
+        created_by=teacher_user,
+        title="Scheduled Future Homework",
+        homework_type="topic",
+        num_questions=5,
+        due_date=timezone.now() + timedelta(days=7),
+        publish_at=timezone.now() + timedelta(days=2),
+    )
+    hw.topics.add(homework_topic)
+    return hw
+
+
 # ===========================================================================
 # Teacher UI Tests
 # ===========================================================================
@@ -157,6 +175,35 @@ class TestTeacherHomeworkUI:
         page.goto(f"{live_server.url}/homework/{active_homework.pk}/")
         page.wait_for_load_state("networkidle")
         expect(page.get_by_role("heading", name="Algebra Practice Week 1")).to_be_visible()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_scheduled_homework_shows_created_status_and_publish_button(
+        self, page: Page, live_server, teacher_user, classroom, scheduled_homework
+    ):
+        """A scheduled homework shows the Created badge and a Publish now button."""
+        do_login(page, live_server.url, teacher_user)
+        page.goto(f"{live_server.url}/homework/monitor/?classroom={classroom.pk}")
+        page.wait_for_load_state("networkidle")
+        expect(page.get_by_text("Scheduled Future Homework")).to_be_visible()
+        expect(page.get_by_text("Created").first).to_be_visible()
+        expect(page.get_by_role("button", name="Publish now").first).to_be_visible()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_edit_homework_changes_due_date(
+        self, page: Page, live_server, teacher_user, classroom, active_homework
+    ):
+        """Teacher can open the edit form and change the due date."""
+        do_login(page, live_server.url, teacher_user)
+        page.goto(f"{live_server.url}/homework/{active_homework.pk}/edit/")
+        page.wait_for_load_state("networkidle")
+        expect(page.get_by_role("heading", name="Edit Homework")).to_be_visible()
+        # datetime-local carries local wall-clock time; compare in local time.
+        new_due = (timezone.localtime(timezone.now()) + timedelta(days=20)).strftime("%Y-%m-%dT%H:%M")
+        page.locator("#id_due_date").fill(new_due)
+        page.get_by_role("button", name="Save Changes").click()
+        page.wait_for_load_state("networkidle")
+        active_homework.refresh_from_db()
+        assert timezone.localtime(active_homework.due_date).strftime("%Y-%m-%dT%H:%M") == new_due
 
     # -----------------------------------------------------------------------
     # Sidebar → Monitor → New Homework button flow  (CPP-137)
@@ -262,6 +309,18 @@ class TestStudentHomeworkUI:
         page.goto(f"{live_server.url}/homework/")
         page.wait_for_load_state("networkidle")
         expect(page.get_by_text("Algebra Practice Week 1")).to_be_visible()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_scheduled_homework_hidden_from_student_list(
+        self, page: Page, live_server, enrolled_student, active_homework, scheduled_homework
+    ):
+        """Unpublished (scheduled) homework must not appear on the student list."""
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/homework/")
+        page.wait_for_load_state("networkidle")
+        # Published homework is visible; the scheduled one is not.
+        expect(page.get_by_text("Algebra Practice Week 1")).to_be_visible()
+        expect(page.get_by_text("Scheduled Future Homework")).to_have_count(0)
 
     @pytest.mark.django_db(transaction=True)
     def test_bottom_nav_has_homework(

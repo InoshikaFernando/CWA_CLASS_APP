@@ -39,20 +39,26 @@ class Command(BaseCommand):
         if retried:
             self.stdout.write(f'Reset {retried} previously failed email(s) to pending for retry.')
 
-        sent_today = EmailLog.objects.filter(status='sent', sent_at__date=today).count()
-        remaining = DAILY_EMAIL_LIMIT - sent_today
+        queue = EmailQueue.objects.filter(status=EmailQueue.STATUS_PENDING).order_by('created_at')
 
-        if remaining <= 0:
-            self.stdout.write(f'Daily limit already reached ({sent_today}/{DAILY_EMAIL_LIMIT}). Nothing sent.')
-            return
-
-        pending = EmailQueue.objects.filter(status=EmailQueue.STATUS_PENDING).order_by('created_at')[:remaining]
+        # DAILY_EMAIL_LIMIT <= 0 means no cap — drain the whole queue.
+        if DAILY_EMAIL_LIMIT > 0:
+            sent_today = EmailLog.objects.filter(status='sent', sent_at__date=today).count()
+            remaining = DAILY_EMAIL_LIMIT - sent_today
+            if remaining <= 0:
+                self.stdout.write(f'Daily limit already reached ({sent_today}/{DAILY_EMAIL_LIMIT}). Nothing sent.')
+                return
+            pending = queue[:remaining]
+            limit_note = f'{sent_today} already sent today, limit {DAILY_EMAIL_LIMIT}'
+        else:
+            pending = list(queue)
+            limit_note = 'no daily limit'
 
         if not pending:
             self.stdout.write('No queued emails to send.')
             return
 
-        self.stdout.write(f'Sending {len(pending)} queued email(s) ({sent_today} already sent today, limit {DAILY_EMAIL_LIMIT}).')
+        self.stdout.write(f'Sending {len(pending)} queued email(s) ({limit_note}).')
 
         sent = 0
         failed = 0

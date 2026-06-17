@@ -12,6 +12,17 @@
   <script src="{% static 'js/tailwind.min.js' %}"></script>
   <!-- Live superscript formatting for maths answer inputs (y^2 → y²) -->
   <script defer src="{% static 'js/maths_exponent.js' %}"></script>
+  <!-- Draggable/rotatable protractor & ruler for `measure` questions -->
+  <script defer src="{% static 'js/measure_tool.js' %}"></script>
+  <!-- Read-aloud (text-to-speech) for questions & answers -->
+  <script defer src="{% static 'js/tts_speaker.js' %}"></script>
+  <style>
+    /* Speaker (read-aloud) buttons — hidden when the browser has no TTS support */
+    .tts-unsupported .tts-btn { display: none !important; }
+    .tts-btn { line-height: 1; }
+    .tts-btn.tts-playing { animation: tts-pulse 1s ease-in-out infinite; }
+    @keyframes tts-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+  </style>
   <script>
     tailwind.config = {
       theme: {

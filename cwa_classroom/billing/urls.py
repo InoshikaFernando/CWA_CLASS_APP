@@ -31,6 +31,7 @@ urlpatterns = [
 
     # Super Admin Billing Management
     path('admin-dashboard/billing/', views_admin.BillingAdminDashboardView.as_view(), name='billing_admin_dashboard'),
+    path('admin-dashboard/billing/overview/', views_admin.SubscriptionOverviewView.as_view(), name='billing_admin_subscription_overview'),
 
     # Plans
     path('admin-dashboard/billing/plans/', views_admin.PlanListView.as_view(), name='billing_admin_plan_list'),

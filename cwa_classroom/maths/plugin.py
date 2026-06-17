@@ -195,6 +195,33 @@ class MathsPlugin(SubjectPlugin):
                 got_q = int(m.group(1))
                 got_r = int(m.group(2)) if m.group(2) is not None else 0
                 is_correct = (got_q == quot and got_r == rem)
+        elif q.question_type == Question.COLUMN_OPERATION and q.column_result is not None:
+            # Answer is computed from operands/operator — compare the student's
+            # number to the computed result (tolerant of spaces / leading zeros)
+            # so manually-created questions grade without a stored answer row.
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            import re as _re
+            m = _re.match(r'^\s*(-?\d+)\s*$', text_answer.replace(' ', ''))
+            if m:
+                is_correct = (int(m.group(1)) == q.column_result)
+        elif q.question_type == Question.MEASURE and q.numeric_answer is not None:
+            # Tolerance-graded numeric answer (e.g. "measure angle a").
+            from maths.geometry_grading import grade_measure
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            is_correct = grade_measure(q, text_answer)
+        elif q.question_type == Question.DRAW_ON_GRID and q.grid_spec:
+            # Set-comparison of grid segments/points (e.g. lines of symmetry).
+            # The client serialises the drawn marks to JSON in answer_{id}.
+            from maths.geometry_grading import grade_draw_on_grid
+            text_answer = post_data.get(f'answer_{q.id}', '')
+            is_correct = grade_draw_on_grid(q.grid_spec, text_answer)
+        elif q.question_type == Question.SHAPE_SELECT and q.shape_spec:
+            # Set-comparison of coloured shapes (e.g. "colour all the triangles").
+            # The client serialises the coloured ids to JSON in answer_{id} as
+            # {"selected": [...]}; the target set is derived from the spec.
+            from maths.geometry_grading import grade_shape_select
+            text_answer = post_data.get(f'answer_{q.id}', '')
+            is_correct = grade_shape_select(q.shape_spec, text_answer)
         else:
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
             # Routes to algebra grading when q.answer_format == 'algebra',

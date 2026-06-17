@@ -107,6 +107,31 @@ def fold_exponents(text: str) -> str:
     return re.sub(r"\s+", "", s)
 
 
+def fold_inequalities(text: str) -> str:
+    """Canonicalise the many ways a student types an inequality operator.
+
+    Folds the unicode operators (``≥`` ``≤``), the reversed-typo forms
+    (``=>`` ``=<``) and the ASCII forms (``>=`` ``<=``) onto a single ASCII
+    spelling so a stored ``x ≥ 2`` matches ``x>=2`` / ``x=>2`` / ``x ≥ 2``.
+    Whitespace is left untouched here (the caller folds it) so this composes
+    cleanly with :func:`fold_exponents`.
+
+    ``≥``/``≤`` (non-strict) and ``>``/``<`` (strict) are kept DISTINCT — a
+    student typing ``x>2`` is not accepted for a stored ``x ≥ 2``.
+
+    >>> fold_inequalities("x ≥ 2")
+    'x >= 2'
+    >>> fold_inequalities("x=>2") == fold_inequalities("x>=2") == "x>=2"
+    True
+    >>> fold_inequalities("y=<5") == fold_inequalities("y ≤ 5".replace(" ", "")) == "y<=5"
+    True
+    """
+    # Reversed typos first, then unicode, so every spelling lands on >=/<=.
+    s = text.replace("=>", ">=").replace("=<", "<=")
+    s = s.replace("≥", ">=").replace("≤", "<=")
+    return s
+
+
 def _to_fraction(num: str) -> Fraction:
     """Parse an int/decimal/simple-fraction coefficient token into a Fraction."""
     if "/" in num:

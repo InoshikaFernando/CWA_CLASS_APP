@@ -78,18 +78,21 @@
                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
 
-          <!-- Classroom -->
+          <!-- Classroom(s) -->
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">
-              Classroom <span class="text-red-500">*</span>
+              Classroom(s) <span class="text-red-500">*</span>
             </label>
-            <select name="classroom_id" required
+            <select name="classroom_ids" required multiple size="8"
                     class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">— select classroom —</option>
               {% for cls in classrooms %}
-              <option value="{{ cls.id }}" {% if session.classroom_id == cls.id %}selected{% endif %}>{{ cls.name }}</option>
+              <option value="{{ cls.id }}" {% if cls.id == session.classroom_id %}selected{% endif %}>{{ cls.name }}</option>
               {% endfor %}
             </select>
+            <p class="text-xs text-gray-500 mt-1">
+              Hold Ctrl (Cmd on Mac) to select more than one class. A separate homework
+              is created for each class, sharing the same questions.
+            </p>
           </div>
 
           <!-- Due date -->
@@ -99,6 +102,16 @@
             </label>
             <input type="datetime-local" name="due_date" required
                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+
+          <!-- Publish date -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Publish Date &amp; Time <span class="text-gray-400 font-normal">(leave blank to publish now)</span>
+            </label>
+            <input type="datetime-local" name="publish_at"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <p class="text-xs text-gray-400 mt-1">Set a future time to schedule — students see it and are emailed only then.</p>
           </div>
 
           <!-- Max attempts -->

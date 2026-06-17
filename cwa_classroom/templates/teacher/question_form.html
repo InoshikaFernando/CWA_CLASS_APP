@@ -126,6 +126,35 @@
         </div>
       </div>
 
+      <!-- Measure settings (shown only for question_type = measure) -->
+      <div id="measure-fields" style="display:none;" class="rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-3">
+        <label class="block text-sm font-semibold text-gray-700">Measure settings</label>
+        <p class="text-xs text-gray-500">
+          The student measures the figure with the on-screen protractor/ruler and types the value;
+          it is graded automatically within the tolerance band. Use unit <strong>°</strong> for angles
+          (a true-scale figure is generated from the value) or <strong>cm</strong>/<strong>mm</strong> for
+          lengths (upload an image to measure).
+        </p>
+        <div class="grid grid-cols-3 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5">Correct value <span class="text-red-500">*</span></label>
+            <input type="text" name="numeric_answer" inputmode="decimal" value="{{ question.numeric_answer|default:'' }}" placeholder="135"
+                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5">Tolerance ±</label>
+            <input type="text" name="answer_tolerance" inputmode="decimal" value="{{ question.answer_tolerance|default:'' }}" placeholder="2"
+                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+            <p class="text-[11px] text-gray-400 mt-1">Blank or 0 = exact match.</p>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1.5">Unit</label>
+            <input type="text" name="answer_unit" maxlength="10" value="{{ question.answer_unit|default:'' }}" placeholder="°"
+                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+          </div>
+        </div>
+      </div>
+
       <!-- Answers -->
       <div id="answers-section">
         <div class="flex items-center justify-between mb-3">
@@ -256,10 +285,31 @@ function syncCorrectAnswer(radio) {
   }
 }
 
+// Show the measure settings (and hide the Answer rows) for measure questions,
+// which are graded by numeric_answer ± tolerance and have no Answer rows. Runs
+// on every type change AND on load (new and edit), so the sections are correct
+// for an existing measure question being edited.
+function toggleSections(type) {
+  var isMeasure = (type === 'measure');
+  var measure = document.getElementById('measure-fields');
+  var answers = document.getElementById('answers-section');
+  if (measure) measure.style.display = isMeasure ? '' : 'none';
+  if (answers) answers.style.display = isMeasure ? 'none' : '';
+}
+
 function handleTypeChange(type) {
+  toggleSections(type);
+
   var container = document.getElementById('answers-container');
   var addBtn = document.getElementById('add-answer-btn');
   var help = document.getElementById('answers-help');
+
+  if (type === 'measure') {
+    // No Answer rows for measure — clear any so empty inputs aren't posted.
+    container.innerHTML = '';
+    addBtn.style.display = 'none';
+    return;
+  }
 
   if (type === 'true_false') {
     container.innerHTML =
@@ -308,7 +358,9 @@ function handleTypeChange(type) {
 document.addEventListener('DOMContentLoaded', function() {
   var typeSelect = document.getElementById('q-type-select');
   if (typeSelect) {
-    // Don't reset answers on edit page
+    // Section visibility must be correct on edit too (e.g. an existing measure
+    // question), but we must NOT rebuild answer rows on edit.
+    toggleSections(typeSelect.value);
     {% if not question %}
     handleTypeChange(typeSelect.value);
     {% endif %}

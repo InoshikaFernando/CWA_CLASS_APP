@@ -47,11 +47,22 @@
       {% endfor %}
     </div>
 
-    <div class="mt-6 flex gap-3">
-      <a href="{% url 'homework:student_list' %}"
-         class="px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
-        Back to Homework
-      </a>
+    <div class="mt-6 flex flex-wrap gap-3">
+      {% if viewing_other %}
+        <a href="{% url 'homework:student_attempt_history' homework_id=submission.homework.id student_id=student.id %}"
+           class="px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
+          All Attempts
+        </a>
+      {% else %}
+        <a href="{% url 'homework:student_list' %}"
+           class="px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
+          Back to Homework
+        </a>
+        <a href="{% url 'homework:attempt_history' homework_id=submission.homework.id %}"
+           class="px-5 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition">
+          All Attempts
+        </a>
+      {% endif %}
       {% with hw=submission.homework %}
       {% if can_retry %}
         <a href="{% url 'homework:student_take' homework_id=hw.id %}"

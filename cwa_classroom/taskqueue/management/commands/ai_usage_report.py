@@ -5,13 +5,12 @@ Prints pages, tokens, estimated cost and derived $/page broken down by source
 sanity-check real cost against what we charge.
 
     python manage.py ai_usage_report --days 30
+    python manage.py ai_usage_report --days 30 --format markdown   # for the dashboard issue
 """
-from decimal import Decimal
-
 from django.core.management.base import BaseCommand
-from django.db.models import Sum
 from django.utils import timezone
 
+from taskqueue.dashboard import aggregate_usage, build_usage_markdown
 from taskqueue.models import AIUsageLog
 
 
@@ -23,47 +22,47 @@ class Command(BaseCommand):
             '--days', type=int, default=None,
             help='Only include usage from the last N days (default: all time).',
         )
+        parser.add_argument(
+            '--format', choices=['table', 'markdown'], default='table',
+            help='Output format: human table (default) or GitHub-flavoured markdown.',
+        )
 
     def handle(self, *args, **options):
-        qs = AIUsageLog.objects.all()
         days = options['days']
+
+        if options['format'] == 'markdown':
+            # Delegate to the shared builder so the CLI and the published
+            # dashboard render identically (generation table + grading + total).
+            self.stdout.write(build_usage_markdown(days=days))
+            return
+
+        qs = AIUsageLog.objects.all()
         if days:
             since = timezone.now() - timezone.timedelta(days=days)
             qs = qs.filter(created_at__gte=since)
-            self.stdout.write(f'AI usage — last {days} days')
-        else:
-            self.stdout.write('AI usage — all time')
+        rows, tot = aggregate_usage(qs)
+        window = f'last {days} days' if days else 'all time'
+        self._render_table(rows, tot, window)
 
-        rows = qs.values('source').annotate(
-            pages=Sum('pages'),
-            input_tokens=Sum('input_tokens'),
-            output_tokens=Sum('output_tokens'),
-            cost=Sum('est_cost_usd'),
-        ).order_by('source')
-
-        header = f'{"source":<12}{"pages":>8}{"in_tok":>12}{"out_tok":>12}{"cost_usd":>12}{"$/page":>10}'
+    def _render_table(self, rows, tot, window):
+        self.stdout.write(f'AI usage — {window}')
+        header = (
+            f'{"source":<12}{"pages":>8}{"in_tok":>12}{"out_tok":>12}{"cost_usd":>12}'
+            f'{"$/page":>10}{"100pg":>12}{"500pg":>12}{"1000pg":>12}'
+        )
         self.stdout.write(header)
         self.stdout.write('-' * len(header))
-
-        tot_pages = 0
-        tot_in = tot_out = 0
-        tot_cost = Decimal('0')
         for r in rows:
-            pages = r['pages'] or 0
-            cost = r['cost'] or Decimal('0')
-            per_page = (cost / pages) if pages else Decimal('0')
+            pp = r['per_page']
             self.stdout.write(
-                f'{r["source"]:<12}{pages:>8}{r["input_tokens"] or 0:>12}'
-                f'{r["output_tokens"] or 0:>12}{cost:>12.4f}{per_page:>10.4f}'
+                f'{r["source"]:<12}{r["pages"]:>8}{r["input_tokens"]:>12}'
+                f'{r["output_tokens"]:>12}{r["cost"]:>12.4f}{pp:>10.4f}'
+                f'{pp * 100:>12.2f}{pp * 500:>12.2f}{pp * 1000:>12.2f}'
             )
-            tot_pages += pages
-            tot_in += r['input_tokens'] or 0
-            tot_out += r['output_tokens'] or 0
-            tot_cost += cost
-
         self.stdout.write('-' * len(header))
-        tot_per_page = (tot_cost / tot_pages) if tot_pages else Decimal('0')
+        tpp = tot['per_page']
         self.stdout.write(
-            f'{"TOTAL":<12}{tot_pages:>8}{tot_in:>12}{tot_out:>12}'
-            f'{tot_cost:>12.4f}{tot_per_page:>10.4f}'
+            f'{"TOTAL":<12}{tot["pages"]:>8}{tot["input_tokens"]:>12}'
+            f'{tot["output_tokens"]:>12}{tot["cost"]:>12.4f}{tpp:>10.4f}'
+            f'{tpp * 100:>12.2f}{tpp * 500:>12.2f}{tpp * 1000:>12.2f}'
         )

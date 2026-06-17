@@ -99,15 +99,25 @@ echo "==> Deep health check..."
 # so it works regardless of how/where TLS is terminated upstream.
 HEALTH_DOMAIN="${HEALTH_DOMAIN:-$(grep -E '^ALLOWED_HOSTS=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | cut -d, -f1)}"
 if [[ -n "$HEALTH_SOCKET" && -n "$HEALTH_DOMAIN" ]]; then
-    HTTP_CODE=$(curl -sS --unix-socket "$HEALTH_SOCKET" \
+    HEALTH_BODY_FILE="$(mktemp)"
+    # curl writes the body to -o and the status to stdout (-w). We capture the
+    # status into HTTP_CODE and use `|| true` (NOT `|| echo 000`) so a non-zero
+    # curl exit (e.g. error 23 "write error", which can fire even on a real 200)
+    # neither aborts the script under `set -e` nor concatenates onto the code —
+    # the old `|| echo 000` turned a "200" into "200000" and failed healthy
+    # deploys. Genuine failures still surface: a no-response curl emits "000".
+    HTTP_CODE="$(curl -sS --unix-socket "$HEALTH_SOCKET" \
         -H "Host: ${HEALTH_DOMAIN}" \
-        -o /tmp/cwa-health.json -w '%{http_code}' \
-        "http://localhost/api/health/?deep=1" || echo 000)
+        -o "$HEALTH_BODY_FILE" -w '%{http_code}' \
+        "http://localhost/api/health/?deep=1" 2>/dev/null)" || true
+    HTTP_CODE="${HTTP_CODE:0:3}"   # guard against any stray trailing characters
     if [[ "$HTTP_CODE" == "200" ]]; then
-        echo "    Healthy: $(cat /tmp/cwa-health.json)"
+        echo "    Healthy: $(cat "$HEALTH_BODY_FILE")"
+        rm -f "$HEALTH_BODY_FILE"
     else
-        echo "ERROR: health check via ${HEALTH_SOCKET} returned HTTP ${HTTP_CODE} (expected 200)."
-        echo "       Body: $(cat /tmp/cwa-health.json 2>/dev/null)"
+        echo "ERROR: health check via ${HEALTH_SOCKET} returned HTTP ${HTTP_CODE:-000} (expected 200)."
+        echo "       Body: $(cat "$HEALTH_BODY_FILE" 2>/dev/null)"
+        rm -f "$HEALTH_BODY_FILE"
         sudo journalctl -u "$SERVICE" --no-pager -n 20
         exit 1
     fi

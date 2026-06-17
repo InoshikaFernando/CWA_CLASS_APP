@@ -5,7 +5,8 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
 {% with q=ctx.question %}
 <p class="text-gray-900 font-medium mb-4">{{ q.question_text }}</p>
 
-{% if q.image %}
+{% comment %} measure renders its own figure inside the interactive tool stage. {% endcomment %}
+{% if q.image and q.question_type != 'measure' %}
 <img src="{{ q.image.url }}" alt="Question image" class="rounded-lg mb-4 max-h-48 object-contain">
 {% endif %}
 
@@ -148,6 +149,229 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
   if (form) form.addEventListener('submit', refresh, true);
 })();
 </script>
+
+{% elif q.question_type == 'measure' %}
+{% comment %}
+Measure: render the figure with an interactive protractor/ruler overlaid (a
+visual aid — see maths/partials/_measure_tool.html + static/js/measure_tool.js),
+then a numeric box with the unit as a suffix (like "a is [ ] °" on the paper).
+The grader strips the unit, so the student types just the number.
+{% endcomment %}
+{% include "maths/partials/_measure_tool.html" %}
+<div class="flex items-center gap-2">
+  <input type="text" id="answer_{{ q.id }}" name="answer_{{ q.id }}" inputmode="decimal"
+         class="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+         placeholder="Measure…" aria-label="Measured value">
+  {% if q.answer_unit %}<span class="text-gray-700 font-medium" aria-hidden="true">{{ q.answer_unit }}</span>{% endif %}
+</div>
+
+{% elif q.question_type == 'draw_on_grid' and q.draw_on_grid_data %}
+{% comment %}
+Draw-on-grid: click two dots to lay a line (e.g. a line of symmetry); click a
+drawn line to remove it. Marks serialise to JSON in the hidden answer_{id}
+input as {"segments":[{x1,y1,x2,y2}]} in grid-index coords. Mirrors the
+hidden-field-sync pattern of the long-division / prime-factorisation partials.
+{% endcomment %}
+{% with d=q.draw_on_grid_data %}
+<input type="hidden" name="answer_{{ q.id }}" data-dog-hidden="{{ q.id }}" value='{"segments":[]}' />
+<p class="text-xs text-gray-500 mb-2">Click two dots to draw a line. Click a line to remove it.</p>
+<svg data-dog-wrap="{{ q.id }}" viewBox="0 0 {{ d.width }} {{ d.height }}"
+     width="{{ d.width }}" height="{{ d.height }}"
+     class="border border-gray-200 rounded-lg bg-white touch-none select-none max-w-full">
+  {% if d.polygon %}<polygon points="{{ d.polygon }}" fill="none" stroke="#9ca3af" stroke-width="2"/>{% endif %}
+  <g data-dog-lines="{{ q.id }}"></g>
+  {% for dot in d.dots %}
+  <circle data-dog-dot="{{ q.id }}" data-gx="{{ dot.gx }}" data-gy="{{ dot.gy }}"
+          cx="{{ dot.px }}" cy="{{ dot.py }}" r="6" fill="#cbd5e1"
+          class="cursor-pointer" tabindex="0" role="button"
+          aria-label="grid dot {{ dot.gx }},{{ dot.gy }}"></circle>
+  {% endfor %}
+</svg>
+<button type="button" data-dog-clear="{{ q.id }}"
+        class="mt-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50">Clear</button>
+<script>
+(function(){
+  var id = "{{ q.id }}", pad = {{ d.pad }}, step = {{ d.step }};
+  var svg = document.querySelector('[data-dog-wrap="' + id + '"]');
+  var hidden = document.querySelector('[data-dog-hidden="' + id + '"]');
+  var lines = document.querySelector('[data-dog-lines="' + id + '"]');
+  var clearBtn = document.querySelector('[data-dog-clear="' + id + '"]');
+  if (!svg || !hidden || !lines) return;
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var segs = [];            // {x1,y1,x2,y2} in grid coords
+  var sel = null;           // first selected dot element
+
+  function px(g){ return pad + g * step; }
+  function sync(){ hidden.value = JSON.stringify({segments: segs}); }
+  function key(s){ var a=[[s.x1,s.y1],[s.x2,s.y2]].sort(); return JSON.stringify(a); }
+
+  function drawLine(s){
+    var ln = document.createElementNS(SVGNS, "line");
+    ln.setAttribute("x1", px(s.x1)); ln.setAttribute("y1", px(s.y1));
+    ln.setAttribute("x2", px(s.x2)); ln.setAttribute("y2", px(s.y2));
+    ln.setAttribute("stroke", "#2563eb"); ln.setAttribute("stroke-width", "3");
+    ln.setAttribute("stroke-linecap", "round");
+    ln.setAttribute("class", "cursor-pointer");
+    ln.dataset.k = key(s);
+    ln.addEventListener("click", function(e){ e.stopPropagation(); removeLine(s, ln); });
+    lines.appendChild(ln);
+  }
+  function removeLine(s, ln){
+    var k = key(s);
+    segs = segs.filter(function(t){ return key(t) !== k; });
+    if (ln && ln.parentNode) ln.parentNode.removeChild(ln);
+    sync();
+  }
+  function clearSel(){
+    if (sel){ sel.setAttribute("fill", "#cbd5e1"); sel.setAttribute("r", "6"); sel = null; }
+  }
+  function onDot(dot){
+    var gx = parseInt(dot.dataset.gx, 10), gy = parseInt(dot.dataset.gy, 10);
+    if (!sel){ sel = dot; dot.setAttribute("fill", "#2563eb"); dot.setAttribute("r", "8"); return; }
+    var sx = parseInt(sel.dataset.gx, 10), sy = parseInt(sel.dataset.gy, 10);
+    if (sx === gx && sy === gy){ clearSel(); return; }       // same dot → deselect
+    var s = {x1: sx, y1: sy, x2: gx, y2: gy};
+    if (!segs.some(function(t){ return key(t) === key(s); })){ segs.push(s); drawLine(s); sync(); }
+    clearSel();
+  }
+  svg.querySelectorAll('[data-dog-dot="' + id + '"]').forEach(function(dot){
+    dot.addEventListener("click", function(){ onDot(dot); });
+    dot.addEventListener("keydown", function(e){ if (e.key === "Enter" || e.key === " "){ e.preventDefault(); onDot(dot); } });
+  });
+  if (clearBtn) clearBtn.addEventListener("click", function(){
+    segs = []; while (lines.firstChild) lines.removeChild(lines.firstChild); clearSel(); sync();
+  });
+  var form = svg.closest('form');
+  if (form) form.addEventListener('submit', sync, true);
+  sync();
+})();
+</script>
+{% endwith %}
+
+{% elif q.question_type == 'column_operation' and q.column_arithmetic %}
+{% with ca=q.column_arithmetic %}
+<input type="hidden" name="answer_{{ q.id }}" data-ca-hidden="{{ q.id }}" />
+<p class="text-xs text-gray-500 mb-2">Use the small amber boxes to carry or borrow as you work, then write your answer in the blue boxes below the line.</p>
+<div class="font-mono text-2xl leading-none mb-2 inline-block" data-ca-wrap="{{ q.id }}">
+  <!-- Carry / borrow working row (scratch space, not marked) -->
+  <div class="flex">
+    <span class="w-10 inline-block"></span>
+    {% for c in ca.cols %}
+      <input type="text" maxlength="2" inputmode="numeric"
+             aria-label="carry or borrow column {{ c }}"
+             class="w-10 h-7 text-center bg-amber-50 border-2 border-amber-200 rounded text-amber-600 font-bold text-sm focus:border-primary focus:bg-white focus:outline-none" />
+    {% endfor %}
+  </div>
+  <!-- Operand rows (operator sign sits in the gutter on the last row) -->
+  {% for row in ca.rows %}
+  <div class="flex items-center mt-1">
+    <span class="w-10 inline-flex items-center justify-center font-bold text-gray-800">{% if forloop.last %}{{ ca.operator }}{% endif %}</span>
+    {% for d in row %}
+      <span class="w-10 h-10 inline-flex items-center justify-center font-bold text-gray-800">{{ d }}</span>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  {% if ca.partials %}
+  <!-- First rule: under the operands, above the long-multiplication working rows -->
+  <div class="flex border-t-2 border-gray-800 mt-1"><span class="w-10 inline-block"></span>{% for c in ca.cols %}<span class="w-10 inline-block"></span>{% endfor %}</div>
+  <!-- Partial-product working rows (long multiplication) — scratch space, not marked -->
+  {% for p in ca.partials %}
+  <div class="flex mt-1">
+    <span class="w-10 inline-block"></span>
+    {% for b in p.boxes %}
+      <input type="text" maxlength="1" inputmode="numeric"
+             data-ca-partial="{{ q.id }}" aria-label="partial product working digit"
+             class="w-10 h-10 text-center bg-amber-50 border-2 border-amber-200 rounded text-amber-600 font-bold focus:border-primary focus:bg-white focus:outline-none" />
+    {% endfor %}
+    {% for s in p.spacers %}<span class="w-10 h-10 inline-block"></span>{% endfor %}
+  </div>
+  {% endfor %}
+  {% endif %}
+  <!-- Rule + answer row -->
+  <div class="flex border-t-2 border-gray-800 pt-1 mt-1">
+    <span class="w-10 inline-block"></span>
+    {% for c in ca.cols %}
+      <input type="text" maxlength="1" inputmode="numeric"
+             data-ca-answer="{{ q.id }}" aria-label="answer digit column {{ c }}"
+             class="w-10 h-10 text-center bg-blue-50 border-2 border-blue-200 rounded font-bold text-blue-700 focus:border-primary focus:bg-white focus:outline-none" />
+    {% endfor %}
+  </div>
+</div>
+<script>
+(function(){
+  const id = "{{ q.id }}";
+  const wrap = document.querySelector('[data-ca-wrap="' + id + '"]');
+  const h    = document.querySelector('[data-ca-hidden="' + id + '"]');
+  if (!wrap || !h) return;
+  const cells = wrap.querySelectorAll('[data-ca-answer="' + id + '"]');
+  function refresh(){
+    // Join answer digits left→right, drop leading zeros (e.g. "08" → "8").
+    // An all-blank submission stays empty (graded wrong) — it must NOT become "0".
+    h.value = [...cells].map(c => (c.value || '').trim()).join('').replace(/^0+(?=\d)/, '');
+  }
+  cells.forEach((el,i) => {
+    el.addEventListener('input', () => { refresh(); if (el.value && i < cells.length-1) cells[i+1].focus(); });
+    el.addEventListener('change', refresh);
+    el.addEventListener('blur', refresh);
+    el.addEventListener('keydown', e => { if (e.key === 'Backspace' && !el.value && i > 0) cells[i-1].focus(); });
+  });
+  const form = wrap.closest('form');
+  if (form) form.addEventListener('submit', refresh, true);
+})();
+</script>
+{% endwith %}
+
+{% elif q.question_type == 'shape_select' and q.shape_select_data %}
+{% comment %}
+Shape-select: tap a shape to colour it (the target type, e.g. "colour all the
+triangles"); tap again to undo. Coloured ids serialise to JSON in the hidden
+answer_{id} input as {"selected":["s0",...]}. Mirrors the hidden-field-sync
+pattern of the draw-on-grid partial; grading is server-side set comparison.
+{% endcomment %}
+{% with d=q.shape_select_data %}
+<input type="hidden" name="answer_{{ q.id }}" data-ss-hidden="{{ q.id }}" value='{"selected":[]}' />
+<p class="text-xs text-gray-500 mb-2">Tap each {{ d.target_type }} to colour it. Tap again to undo.</p>
+<svg data-ss-wrap="{{ q.id }}" viewBox="0 0 {{ d.width }} {{ d.height }}"
+     class="border border-gray-200 rounded-lg bg-white touch-none select-none max-w-full"
+     style="width:100%;height:auto">
+  {{ d.svg|safe }}
+</svg>
+<button type="button" data-ss-clear="{{ q.id }}"
+        class="mt-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50">Clear</button>
+<script>
+(function(){
+  var id = "{{ q.id }}";
+  var svg = document.querySelector('[data-ss-wrap="' + id + '"]');
+  var hidden = document.querySelector('[data-ss-hidden="' + id + '"]');
+  var clearBtn = document.querySelector('[data-ss-clear="' + id + '"]');
+  if (!svg || !hidden) return;
+  var FILL = "#f59e0b";        // amber crayon
+  var sel = new Set();
+  function sync(){ hidden.value = JSON.stringify({selected: Array.from(sel)}); }
+  function toggle(el){
+    var sid = el.getAttribute('data-shape-id');
+    if (!sid) return;
+    if (sel.has(sid)){ sel.delete(sid); el.setAttribute('fill', 'transparent'); }
+    else { sel.add(sid); el.setAttribute('fill', FILL); el.setAttribute('fill-opacity', '0.55'); }
+    sync();
+  }
+  svg.querySelectorAll('.cwa-shape').forEach(function(el){
+    el.addEventListener('click', function(){ toggle(el); });
+    el.addEventListener('keydown', function(e){
+      if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(el); }
+    });
+  });
+  if (clearBtn) clearBtn.addEventListener('click', function(){
+    sel.clear();
+    svg.querySelectorAll('.cwa-shape').forEach(function(el){ el.setAttribute('fill', 'transparent'); });
+    sync();
+  });
+  var form = svg.closest('form');
+  if (form) form.addEventListener('submit', sync, true);
+  sync();
+})();
+</script>
+{% endwith %}
 
 {% else %}
 <div class="flex flex-wrap items-center gap-2 mb-2">

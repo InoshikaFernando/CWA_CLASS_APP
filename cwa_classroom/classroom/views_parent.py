@@ -791,9 +791,11 @@ class ParentHomeworkView(RoleRequiredMixin, View):
         joined_at_by_class = {cid: joined for cid, joined in memberships}
         class_ids = list(joined_at_by_class.keys())
 
+        # Only published homework is visible to parents, mirroring the student
+        # view — scheduled/unpublished work stays hidden until it goes live.
         homeworks = (
             Homework.objects
-            .filter(classroom_id__in=class_ids)
+            .filter(classroom_id__in=class_ids, published_at__isnull=False)
             .select_related('classroom')
             .order_by('-created_at')
         )

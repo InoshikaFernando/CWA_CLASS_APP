@@ -31,6 +31,10 @@ class HomeworkUploadSession(models.Model):
         help_text='Stored temporarily while AI extraction runs in the background.',
     )
     homework_title = models.CharField(max_length=200, blank=True)
+    shape_naming = models.BooleanField(
+        default=False,
+        help_text='Name-the-shape mode: AI generates one "name this shape" question per shape.',
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PROCESSING)
     error_message = models.TextField(blank=True)
     extracted_data = models.JSONField(default=dict)
@@ -57,6 +61,11 @@ class Homework(models.Model):
         ('mixed', 'Mixed Quiz'),
         ('pdf_upload', 'PDF Upload'),
     ]
+
+    # Lifecycle status (derived from publish_at / published_at / due_date).
+    STATUS_CREATED = 'created'      # saved but not yet live — hidden from students
+    STATUS_PUBLISHED = 'published'  # live and visible to students
+    STATUS_EXPIRED = 'expired'      # due date has passed
 
     classroom = models.ForeignKey(
         'classroom.ClassRoom', on_delete=models.CASCADE, related_name='homework_assignments'
@@ -86,6 +95,21 @@ class Homework(models.Model):
         null=True, blank=True,
         help_text='Leave blank for unlimited attempts.',
     )
+    publish_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text=(
+            'When this homework should automatically go live. Leave blank to '
+            'publish immediately on creation. A future value schedules it — '
+            'students see nothing and get no email until then.'
+        ),
+    )
+    published_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text=(
+            'Set when the homework actually went live. This is the single gate '
+            'for student visibility and the publish notification email.'
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -94,6 +118,16 @@ class Homework(models.Model):
 
     def __str__(self):
         return f'{self.title} ({self.classroom})'
+
+    def save(self, *args, **kwargs):
+        # Default to "published immediately on creation" unless a publish time
+        # was scheduled. This preserves the pre-scheduling behaviour (homework
+        # was always live the moment it was created) so existing callers and
+        # the published_at visibility gate keep working; scheduling for later
+        # is opt-in by setting ``publish_at``.
+        if self.pk is None and self.published_at is None and self.publish_at is None:
+            self.published_at = timezone.now()
+        super().save(*args, **kwargs)
 
     @property
     def is_past_due(self):
@@ -115,6 +149,45 @@ class Homework(models.Model):
     @property
     def attempts_unlimited(self):
         return self.max_attempts is None
+
+    @property
+    def is_published(self):
+        return self.published_at is not None
+
+    @property
+    def status(self):
+        """Lifecycle status for display.
+
+        The due date is the hard end of life, so an expired homework reports
+        ``expired`` regardless of whether it was ever published. Otherwise it
+        is ``published`` once it has gone live, else ``created`` (saved but not
+        yet visible to students — covers both drafts and scheduled-for-later).
+        """
+        if self.due_date and timezone.now() >= self.due_date:
+            return self.STATUS_EXPIRED
+        return self.STATUS_PUBLISHED if self.is_published else self.STATUS_CREATED
+
+    @property
+    def status_label(self):
+        return {
+            self.STATUS_CREATED: 'Created',
+            self.STATUS_PUBLISHED: 'Published',
+            self.STATUS_EXPIRED: 'Expired',
+        }[self.status]
+
+    def publish(self):
+        """Mark the homework live now and notify students.
+
+        Idempotent: a homework that is already published is left untouched so
+        the scheduled-publish cron and a manual "Publish now" click can never
+        double-send the notification email.
+        """
+        if self.published_at:
+            return
+        self.published_at = timezone.now()
+        self.save(update_fields=['published_at', 'updated_at'])
+        from .services import notify_students_homework_published
+        notify_students_homework_published(self)
 
 
 class HomeworkQuestion(models.Model):
@@ -213,7 +286,19 @@ class HomeworkSubmission(models.Model):
 
     @classmethod
     def get_attempt_count(cls, homework, student):
-        return cls.objects.filter(homework=homework, student=student).count()
+        """Number of attempts the student has *taken* for this homework.
+
+        This is the highest ``attempt_number`` assigned, not a row count: old
+        attempts beyond the retention limit are pruned, so counting rows would
+        under-report and silently defeat the ``max_attempts`` cap. Attempt
+        numbers are monotonic (``get_next_attempt_number`` uses ``Max + 1`` and
+        never reuses a number), so the max equals the true attempts taken.
+        """
+        from django.db.models import Max
+        result = cls.objects.filter(homework=homework, student=student).aggregate(
+            max_att=Max('attempt_number'),
+        )
+        return result['max_att'] or 0
 
     @classmethod
     def get_best_submission(cls, homework, student):
@@ -224,6 +309,17 @@ class HomeworkSubmission(models.Model):
         from django.db.models import Max
         result = cls.objects.filter(homework=homework, student=student).aggregate(max_att=Max('attempt_number'))
         return (result['max_att'] or 0) + 1
+
+    @classmethod
+    def prune_old_attempts(cls, homework, student):
+        """Keep only the most recent attempts for this student/homework.
+
+        Called after a new submission is saved so the stored history (and the
+        per-question answers that cascade from it) never grows past the shared
+        attempt limit.
+        """
+        from classroom.attempt_retention import prune_to_last_n
+        return prune_to_last_n(cls, {'homework': homework, 'student': student})
 
 
 class HomeworkStudentAnswer(models.Model):
@@ -376,3 +472,39 @@ class AIGradingCache(models.Model):
 
     def __str__(self):
         return f'Cache Q{self.question_id} — score={self.score_fraction:.2f} hits={self.hit_count}'
+
+
+class HomeworkDraft(models.Model):
+    """In-progress, ungraded answers a student has saved to resume later.
+
+    A draft is deliberately separate from :class:`HomeworkSubmission`: saving
+    progress neither grades the work nor consumes an attempt. There is at most
+    one draft per (homework, student) — each save overwrites the previous one,
+    and the draft is deleted once the student actually submits.
+
+    ``answers_data`` stores the raw answer form fields (the ``answer_<id>`` and
+    ``code_<content_id>`` inputs) as a flat JSON map of field-name -> value, so
+    the take page can restore them client-side without any per-subject Python.
+    """
+    homework = models.ForeignKey(
+        Homework, on_delete=models.CASCADE, related_name='drafts',
+    )
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='homework_drafts',
+    )
+    answers_data = models.JSONField(
+        default=dict,
+        help_text='Flat map of answer form field name -> saved value.',
+    )
+    time_taken_seconds = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # One live draft per student per homework — saves upsert this row.
+        unique_together = ('homework', 'student')
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return f'Draft — {self.homework.title} — {self.student.username}'

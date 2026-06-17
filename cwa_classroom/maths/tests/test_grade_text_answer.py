@@ -74,6 +74,40 @@ class GradeTextAnswerRoutingTests(TestCase):
         self.assertFalse(q.grade_text_answer('12 cm'))   # missing the power
         self.assertFalse(q.grade_text_answer('13 cm^2'))  # wrong value
 
+    def test_text_format_is_inequality_insensitive(self):
+        # A stored inequality must match however the student spells the operator
+        # (unicode ≥, ASCII >=, or the reversed-typo =>).
+        q = self._question('text', ['x ≥ 2'], question_type=Question.CALCULATION)
+        for ans in ['x ≥ 2', 'x>=2', 'x => 2', 'X >= 2']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+        # Strict inequality is a different statement — not accepted for ≥.
+        self.assertFalse(q.grade_text_answer('x > 2'))
+        self.assertFalse(q.grade_text_answer('x ≤ 2'))  # wrong direction
+
+    def test_text_format_folds_hyphen_and_filler_word(self):
+        # "Express $9.53 in words" — one stored answer must accept every natural
+        # phrasing: hyphenated or not, with or without the filler word "and".
+        q = self._question(
+            'text', ['nine dollars fifty three cents'],
+            question_type=Question.SHORT_ANSWER,
+        )
+        for ans in [
+            'nine dollars fifty three cents',
+            'nine dollars and fifty three cents',
+            'nine dollars fifty-three cents',
+            'nine dollars and fifty-three cents',
+            'Nine Dollars and Fifty-Three Cents',  # casing too
+        ]:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+        # A genuinely different amount is still wrong.
+        self.assertFalse(q.grade_text_answer('nine dollars fifteen cents'))
+
+    def test_text_format_keeps_negative_sign_significant(self):
+        # The hyphen fold must NOT strip a leading minus — "-5" != "5".
+        q = self._question('text', ['-5'], question_type=Question.CALCULATION)
+        self.assertTrue(q.grade_text_answer('-5'))
+        self.assertFalse(q.grade_text_answer('5'))
+
     # ── Defensive ───────────────────────────────────────────────────────────
     def test_empty_and_missing(self):
         q = self._question('algebra', ['2x^2 - 7x - 15'])

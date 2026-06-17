@@ -155,6 +155,32 @@ class TestSetFeeToZero(_ClassPageTestBase):
         self.cs.refresh_from_db()
         self.assertIsNone(self.cs.fee_override)
 
+    def test_fee_cross_tenant_write_blocked(self):
+        """A privileged user of school A cannot set a fee in school B's class."""
+        admin_b = CustomUser.objects.create_user(
+            username='admin_b_cpb', password='pass', email='admin_b_cpb@test.com',
+        )
+        UserRole.objects.create(user=admin_b, role=_ensure_role(Role.HEAD_OF_INSTITUTE))
+        school_b = School.objects.create(name='Test School CPB B', admin=admin_b)
+        classroom_b = ClassRoom.objects.create(
+            name='Class CPB B', school=school_b, code='CPB999',
+        )
+        student_b = CustomUser.objects.create_user(
+            username='student_b_cpb', password='pass', email='student_b_cpb@test.com',
+        )
+        UserRole.objects.create(user=student_b, role=_ensure_role(Role.STUDENT))
+        cs_b = ClassStudent.objects.create(classroom=classroom_b, student=student_b)
+
+        client = Client()
+        client.login(username='admin_cpb', password='pass')  # school A admin
+        url = reverse('update_student_fee', kwargs={
+            'class_id': classroom_b.id, 'student_id': student_b.id,
+        })
+        resp = client.post(url, {'fee_override': '50'})
+        self.assertEqual(resp.status_code, 404)
+        cs_b.refresh_from_db()
+        self.assertIsNone(cs_b.fee_override)
+
 
 class TestFeeVisibilityByRole(_ClassPageTestBase):
     """CPP-319: Only HoI and Accountant should see student fees on class detail."""
