@@ -327,6 +327,12 @@ def _snapshot_quiz_questions(session: BrainBuzzSession, quiz) -> None:
         )
 
 
+# BrainBuzz coding sessions only serve these question types — both render via
+# the same MCQ/TF tile selector. write_code/short_answer/fill_blank are excluded
+# (no quiz-style tiles). Shared by the snapshot and the create-form annotations.
+BRAINBUZZ_CODING_TYPES = ['multiple_choice', 'true_false']
+
+
 def _snapshot_coding_questions(session: BrainBuzzSession, topic_level_id: int, count: int):
     """Snapshot coding MCQ/TF/SA exercises into BrainBuzzSessionQuestion rows."""
     from coding.models import CodingExercise, CodingAnswer
@@ -353,16 +359,22 @@ def _snapshot_coding_questions(session: BrainBuzzSession, topic_level_id: int, c
         .filter(
             topic_level_id=topic_level_id,
             is_active=True,
-            question_type__in=['multiple_choice', 'true_false'],
+            question_type__in=BRAINBUZZ_CODING_TYPES,
         )
         .order_by('?')[:count]
     )
-    for i, ex in enumerate(qs):
+    order = 0
+    for ex in qs:
         answers = list(CodingAnswer.objects.filter(exercise=ex).order_by('order'))
         options = [
             {'label': chr(65 + idx), 'text': a.answer_text, 'is_correct': a.is_correct}
             for idx, a in enumerate(answers)
         ]
+        # An MCQ/TF exercise with no answer choices can't be rendered or graded
+        # as a tile question (creatable via paths that bypass CodingExercise
+        # validation), so skip it rather than snapshot a dead question.
+        if not options:
+            continue
         # Prefer description (the full prompt); fall back to title for
         # records where description was left blank.
         body = (ex.description or '').strip() or ex.title
@@ -372,7 +384,7 @@ def _snapshot_coding_questions(session: BrainBuzzSession, topic_level_id: int, c
         )
         BrainBuzzSessionQuestion.objects.create(
             session=session,
-            order=i,
+            order=order,
             question_text=body,
             question_type=bb_type,
             options_json=options,
@@ -382,6 +394,7 @@ def _snapshot_coding_questions(session: BrainBuzzSession, topic_level_id: int, c
             source_model='CodingExercise',
             source_id=ex.id,
         )
+        order += 1
 
 
 def _generate_qr_data_uri(url: str) -> str | None:
@@ -599,19 +612,18 @@ def _create_context():
     # Annotate coding topic-levels with question counts + question titles for popup
     try:
         from coding.models import CodingExercise
-        # BrainBuzz coding sessions only serve multiple-choice and true/false
-        # exercises (see _snapshot_coding_questions), so the create-form counts
-        # and titles popup must reflect that same pool — not all exercise types.
-        BB_CODING_TYPES = ['multiple_choice', 'true_false']
+        # BrainBuzz coding sessions only serve the BRAINBUZZ_CODING_TYPES pool
+        # (see _snapshot_coding_questions), so the create-form counts and titles
+        # popup must reflect that same pool — not all exercise types.
         counts = {
             r['topic_level_id']: r['n']
             for r in CodingExercise.objects
-                .filter(is_active=True, question_type__in=BB_CODING_TYPES)
+                .filter(is_active=True, question_type__in=BRAINBUZZ_CODING_TYPES)
                 .values('topic_level_id').annotate(n=Count('id'))
         }
         tl_q_map = {}
         for ex in (CodingExercise.objects
-                   .filter(is_active=True, question_type__in=BB_CODING_TYPES)
+                   .filter(is_active=True, question_type__in=BRAINBUZZ_CODING_TYPES)
                    .values('topic_level_id', 'title')
                    .order_by('topic_level_id', 'id')):
             tid = ex['topic_level_id']

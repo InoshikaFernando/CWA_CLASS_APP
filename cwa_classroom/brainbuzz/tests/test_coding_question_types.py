@@ -91,3 +91,23 @@ class SnapshotCodingQuestionTypesTest(TestCase):
         )
         for excluded in (self.ex_write.id, self.ex_short.id, self.ex_fill.id):
             self.assertNotIn(excluded, snapped)
+
+    def test_snapshot_skips_option_less_exercise_and_keeps_order_contiguous(self):
+        # A true_false exercise with no CodingAnswer rows (creatable via paths
+        # that bypass CodingExercise.clean()) can't be rendered as a tile
+        # question — it must be skipped, not snapshotted with empty options.
+        empty_tf = CodingExercise.objects.create(
+            topic_level=self.tl, title='Empty TF', description='No options',
+            question_type='true_false',
+        )
+        session = self._make_session()
+        _snapshot_coding_questions(session, self.tl.id, count=10)
+
+        rows = list(
+            BrainBuzzSessionQuestion.objects.filter(session=session).order_by('order')
+        )
+        snapped = {r.source_id for r in rows}
+        self.assertNotIn(empty_tf.id, snapped)
+        # Every snapshotted row carries real options and order is gap-free.
+        self.assertTrue(all(r.options_json for r in rows))
+        self.assertEqual([r.order for r in rows], list(range(len(rows))))
