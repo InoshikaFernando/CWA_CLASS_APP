@@ -109,6 +109,7 @@
             Topics: {% for t in hw.topics.all %}{{ t.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
             &nbsp;·&nbsp; {{ hw.num_questions }} questions
             &nbsp;·&nbsp; {% if hw.attempts_unlimited %}Unlimited attempts{% else %}{{ hw.max_attempts }} attempt{{ hw.max_attempts|pluralize }}{% endif %}
+            &nbsp;·&nbsp; {{ hw.student_count }} student{{ hw.student_count|pluralize }} submitted
           </p>
         </a>
         <div class="text-right flex-shrink-0">
