@@ -56,13 +56,16 @@
   </div>
 
   {% comment %}
-    ---- Main grid (12 cols): narrow line chart | students panel | institutes panel ----
-    items-start so a short panel never stretches to match a taller neighbour.
+    ---- Main grid (12 cols): line chart | students panel | institutes panel ----
+    items-stretch so all three columns share the height of the tallest panel;
+    the chart and the breakdown tables flex-grow to absorb the slack, which
+    keeps the row a balanced rectangle instead of leaving bare background
+    beside a taller neighbour.
   {% endcomment %}
-  <div class="grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-start">
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-stretch">
 
-    {% comment %} ===== Narrow line chart ===== {% endcomment %}
-    <section class="lg:col-span-4 bg-slate-800 rounded-lg p-3 border border-slate-700">
+    {% comment %} ===== Line chart (fills its column height) ===== {% endcomment %}
+    <section class="lg:col-span-4 bg-slate-800 rounded-lg p-3 border border-slate-700 flex flex-col">
       <div class="flex items-center justify-between gap-2 mb-2">
         <h2 class="text-xs font-semibold text-white">Daily active subscriptions</h2>
         <div class="flex gap-0.5">
@@ -72,7 +75,7 @@
           {% endfor %}
         </div>
       </div>
-      <div style="position:relative;height:300px">
+      <div class="relative flex-1 min-h-[300px]">
         <canvas id="dailyChart" role="img" aria-label="Line chart of daily active student and institute subscriptions"></canvas>
       </div>
     </section>
@@ -137,8 +140,8 @@
         {% endif %}
       </div>
 
-      {% comment %} breakdown {% endcomment %}
-      <div>
+      {% comment %} breakdown (flex-1 absorbs slack so the panel fills its column) {% endcomment %}
+      <div class="flex-1">
         <div class="text-[10px] font-medium uppercase tracking-wide text-slate-500 mb-1">Active by package</div>
         <table class="w-full text-xs">
           <tbody class="divide-y divide-slate-700/60">
@@ -212,8 +215,8 @@
         {% endif %}
       </div>
 
-      {% comment %} breakdown: by type + add-ons, two columns {% endcomment %}
-      <div class="grid grid-cols-2 gap-x-4">
+      {% comment %} breakdown: by type + add-ons, two columns (flex-1 absorbs slack) {% endcomment %}
+      <div class="grid grid-cols-2 gap-x-4 flex-1">
         <div>
           <div class="text-[10px] font-medium uppercase tracking-wide text-slate-500 mb-1">Active by type</div>
           <table class="w-full text-xs">
