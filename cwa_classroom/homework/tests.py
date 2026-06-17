@@ -497,6 +497,15 @@ class StudentHomeworkTakeTest(HomeworkTestBase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'HW Question 1')
 
+    def test_take_page_shows_rough_work_whiteboard(self):
+        # Maths homework should offer the rough-work scratchpad: the floating
+        # trigger + the script are injected only when has_maths_item is set.
+        url = reverse('homework:student_take', kwargs={'homework_id': self.homework.id})
+        resp = self.client.get(url)
+        self.assertTrue(resp.context['has_maths_item'])
+        self.assertContains(resp, 'id="rw-fab"')
+        self.assertContains(resp, 'whiteboard.js')
+
     def test_take_allowed_when_past_due(self):
         # Overdue homework is intentionally still attemptable — the past-due
         # block was removed so students can complete late work.
