@@ -5,7 +5,7 @@ import time as time_module
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import Max, Prefetch, Q
+from django.db.models import Count, Max, Prefetch, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -315,6 +315,9 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
             .select_related('classroom')
             .prefetch_related(
                 Prefetch('topics', queryset=Topic.objects.select_related('subject', 'parent'))
+            )
+            .annotate(
+                student_count=Count('submissions__student', distinct=True)
             )
             .order_by('-created_at')
         )
