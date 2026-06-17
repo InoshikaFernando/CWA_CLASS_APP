@@ -33,6 +33,7 @@
 <div id="question-container">
   {% include "quiz/partials/topic_question.html" %}
 </div>
+{% include "partials/_rough_work_whiteboard.html" %}
 {% endblock %}
 
 {% block extra_js %}
@@ -175,6 +176,7 @@
     _selectedAnswerId = null;
     currentQ++;
     _updateProgress();
+    if (window.RoughWork) window.RoughWork.clear();  // fresh scratchpad per question
   }
 
   // ── Answer submission functions ───────────────────────────────────────────

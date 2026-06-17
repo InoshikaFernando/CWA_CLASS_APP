@@ -782,6 +782,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             })
 
         has_coding_item = any(item.get('subject_slug') == 'coding' for item in items)
+        has_maths_item = any(item.get('subject_slug') == 'mathematics' for item in items)
 
         # If the student saved progress earlier, hand the take page their saved
         # answers + elapsed time so it can restore them client-side. A draft is
@@ -795,6 +796,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             'items': items,
             'attempt_number': attempt_count + 1,
             'has_coding_item': has_coding_item,
+            'has_maths_item': has_maths_item,
             'draft_answers': draft.answers_data if draft else {},
             'draft_time_taken': draft.time_taken_seconds if draft else 0,
             'draft_saved_at': draft.updated_at.isoformat() if draft else '',

@@ -106,6 +106,8 @@
   </div>
 </div>
 
+{% if has_maths_item %}{% include "partials/_rough_work_whiteboard.html" %}{% endif %}
+
 <script>
   const form     = document.getElementById('hw-form');
   const timerEl  = document.getElementById('timer');
