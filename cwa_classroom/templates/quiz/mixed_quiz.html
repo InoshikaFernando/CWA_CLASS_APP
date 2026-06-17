@@ -51,21 +51,6 @@
         {% if q.question_type == 'column_operation' and q.column_inline %}
         <p class="font-mono text-2xl font-bold text-gray-800 mb-2">{{ q.column_inline }} =</p>
         {% endif %}
-        <div class="flex flex-wrap items-center gap-2 mb-2">
-          <button type="button" onclick="window.cwaInsertCaret('text_{{ q.id }}')"
-                  class="px-3 py-1.5 rounded-lg border-2 border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:border-primary transition">x<sup>2</sup></button>
-          <span class="text-xs text-gray-500">Type powers with <kbd class="px-1 border border-gray-300 rounded">^</kbd> — e.g. cm^2 or x^2</span>
-        </div>
-        <script>
-          window.cwaInsertCaret = window.cwaInsertCaret || function (name) {
-            var f = document.getElementsByName(name)[0];
-            if (!f) return;
-            var s = f.selectionStart, e = f.selectionEnd;
-            f.value = f.value.slice(0, s) + '^' + f.value.slice(e);
-            f.focus();
-            f.selectionStart = f.selectionEnd = s + 1;
-          };
-        </script>
         <input type="text" name="text_{{ q.id }}" placeholder="Your answer..."
                class="cwa-exp-input w-full rounded-xl border-2 border-gray-200 px-4 py-2.5 focus:outline-none focus:border-primary transition font-semibold" />
       {% endif %}
