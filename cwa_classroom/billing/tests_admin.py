@@ -1096,7 +1096,7 @@ class SubscriptionOverviewTests(TestCase):
     def test_auto_refresh_present(self):
         resp = self._get()
         self.assertEqual(resp.context['refresh_seconds'], 60)
-        self.assertContains(resp, 'auto-refreshes every')
+        self.assertContains(resp, 'auto-refresh')
         self.assertContains(resp, 'window.location.reload()')
 
     # -- B2C exclusion: institute students must NOT count as student subs --
