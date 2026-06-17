@@ -74,15 +74,26 @@ class SubjectPlugin:
         """
         return 'topics'
 
-    def pick_homework_items(self, classroom, selected_topic_ids, n: int) -> list[int]:
+    def pick_homework_items(self, classroom, selected_topic_ids, n: int, question_type=None) -> list[int]:
         """Return up to n content ids drawn from the selected topics.
 
         The plugin owns the selection strategy (stratified random, weighted,
         ...). Returns a list of pks into the plugin's own content table:
         ``maths.Question.id`` for maths, ``coding.CodingExercise.id`` for
         coding, etc. Empty list means "no content available".
+
+        ``question_type`` optionally constrains selection to a single
+        ``question_type`` value (e.g. 'write_code'); ``None`` means "any type".
         """
         raise NotImplementedError
+
+    def homework_question_type_choices(self) -> list:
+        """Return ``[(value, label), ...]`` for the homework question-type filter.
+
+        Empty list (the default) hides the filter for subjects that don't
+        distinguish question types.
+        """
+        return []
 
     def save_homework_topics(self, homework, selected_topic_ids) -> None:
         """Persist the selected topics onto the homework.

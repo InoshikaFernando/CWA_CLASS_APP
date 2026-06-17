@@ -191,11 +191,18 @@ class CodingExercisePlugin(SubjectPlugin):
         # Coding homework never uses the maths topics M2M.
         homework.topics.clear()
 
-    def pick_homework_items(self, classroom, selected_topic_ids, n):
+    def homework_question_type_choices(self):
+        from coding.models import CodingExercise
+        return CodingExercise.QUESTION_TYPE_CHOICES
+
+    def pick_homework_items(self, classroom, selected_topic_ids, n, question_type=None):
         """Return up to ``n`` CodingExercise pks from the selected TopicLevels.
 
         Randomised but deterministic per session — callers that want strictly
         reproducible selection can seed ``random`` before calling.
+
+        ``question_type`` optionally restricts to a single type (e.g.
+        'write_code'); ``None`` selects across all types.
         """
         import random
         from coding.models import CodingExercise, TopicLevel
@@ -210,11 +217,12 @@ class CodingExercisePlugin(SubjectPlugin):
         )
         if not valid_tl_ids:
             return []
-        exercise_pks = list(
-            CodingExercise.objects.filter(
-                topic_level_id__in=valid_tl_ids, is_active=True,
-            ).values_list('pk', flat=True)
+        exercise_qs = CodingExercise.objects.filter(
+            topic_level_id__in=valid_tl_ids, is_active=True,
         )
+        if question_type:
+            exercise_qs = exercise_qs.filter(question_type=question_type)
+        exercise_pks = list(exercise_qs.values_list('pk', flat=True))
         if not exercise_pks:
             return []
         if len(exercise_pks) > n:
