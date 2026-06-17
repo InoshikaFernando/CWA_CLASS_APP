@@ -311,26 +311,37 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
         else:
             hw_qs = Homework.objects.none()
 
-        # Optional weekly filter. ``week`` is the Monday date (YYYY-MM-DD) of the
-        # week to show; we normalise any date in that week back to its Monday so
-        # the prev/next links and the published_at window always span a full
-        # Monday-to-Sunday week. With no/blank/invalid param we show every week.
+        # Weekly filter. ``week`` is the Monday date (YYYY-MM-DD) of the week to
+        # show; we normalise any date in that week back to its Monday so the
+        # prev/next links and the published_at window always span a full
+        # Monday-to-Sunday week. The week bar is always shown: with no/blank/
+        # invalid param we default to the current week (filter active), and the
+        # explicit sentinel ``week=all`` shows every week.
+        today = timezone.localdate()
+        current_week_start = today - timedelta(days=today.weekday())
+
         week_param = request.GET.get('week')
+        all_weeks = week_param == 'all'
         week_start = None
-        if week_param:
-            try:
-                picked = datetime.strptime(week_param, '%Y-%m-%d').date()
-                week_start = picked - timedelta(days=picked.weekday())
-            except (ValueError, TypeError):
-                week_start = None
+        if not all_weeks:
+            if week_param:
+                try:
+                    picked = datetime.strptime(week_param, '%Y-%m-%d').date()
+                    week_start = picked - timedelta(days=picked.weekday())
+                except (ValueError, TypeError):
+                    week_start = None
+            # No / blank / unparseable param defaults to the current week.
+            if week_start is None:
+                week_start = current_week_start
 
-        week_end = None
-        prev_week = next_week = None
+        # The week the bar displays and navigates from: the selected week, or the
+        # current week while "All weeks" is active (so the arrows still work).
+        display_week_start = week_start or current_week_start
+        week_end = (week_start + timedelta(days=6)) if week_start else None  # Sun
+        prev_week = (display_week_start - timedelta(days=7)).isoformat()
+        next_week = (display_week_start + timedelta(days=7)).isoformat()
+
         if week_start is not None:
-            week_end = week_start + timedelta(days=6)  # Sunday
-            prev_week = (week_start - timedelta(days=7)).isoformat()
-            next_week = (week_start + timedelta(days=7)).isoformat()
-
             # Filter on published_at within [Mon 00:00, next Mon 00:00). Build
             # timezone-aware bounds so the comparison matches stored UTC values.
             start_dt = timezone.make_aware(
@@ -357,8 +368,10 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
             'selected_classroom': selected_classroom,
             'show_all': show_all,
             'homework_list': homework_list,
+            'all_weeks': all_weeks,
             'week_start': week_start,
             'week_end': week_end,
+            'display_week_start': display_week_start.isoformat(),
             'prev_week': prev_week,
             'next_week': next_week,
         })
