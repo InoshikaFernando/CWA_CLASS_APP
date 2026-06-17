@@ -45,6 +45,55 @@ def resolve_cc_email(school, department=None):
     return [cc_email] if cc_email else []
 
 
+# Notification types that represent a welcome email (CPP-343). Kept here so the
+# admin user lists can surface welcome-email delivery status the same way the
+# invoice dashboard surfaces invoice-email status.
+WELCOME_NOTIFICATION_TYPES = ('welcome', 'welcome_resend')
+
+
+def _delivery_state_from_status(status):
+    """Collapse an EmailLog.status into a coarse display state.
+
+    Returns 'delivered' | 'sent' | 'bounced' | 'failed' | None.
+    """
+    if status in ('delivered', 'opened', 'clicked'):
+        return 'delivered'
+    if status in ('sent', 'delayed'):
+        return 'sent'
+    if status in ('bounced', 'complained'):
+        return 'bounced'
+    if status == 'failed':
+        return 'failed'
+    return None
+
+
+def get_welcome_email_states(user_ids):
+    """Map each user id to the delivery state of their latest welcome email.
+
+    Welcome emails go to a single recipient, so the most recent welcome
+    EmailLog row per user is authoritative (a resend adds a newer row; a
+    delivery webhook updates the row in place). Users with no welcome email
+    are absent from the returned dict. Returns {user_id: state}.
+    """
+    from .models import EmailLog
+
+    ids = [uid for uid in user_ids if uid]
+    if not ids:
+        return {}
+
+    states = {}
+    logs = (
+        EmailLog.objects
+        .filter(recipient_id__in=ids, notification_type__in=WELCOME_NOTIFICATION_TYPES)
+        .order_by('recipient_id', '-sent_at', '-pk')
+        .values_list('recipient_id', 'status')
+    )
+    for recipient_id, status in logs:
+        if recipient_id not in states:  # first row per recipient = latest
+            states[recipient_id] = _delivery_state_from_status(status)
+    return states
+
+
 def send_templated_email(
     recipient_email,
     subject,
@@ -143,6 +192,9 @@ def send_templated_email(
             school=school,
             invoice=invoice,
             status='sent',
+            # Set by ResendEmailBackend; empty for other backends. Correlation
+            # key for delivery webhooks.
+            provider_message_id=getattr(msg, 'resend_message_id', ''),
         )
         return True
 

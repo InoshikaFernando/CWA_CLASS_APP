@@ -4,6 +4,8 @@ Super Admin Billing Management views.
 All views require superuser access via SuperuserRequiredMixin.
 """
 import logging
+import math
+from datetime import datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.shortcuts import render, redirect, get_object_or_404
@@ -17,7 +19,12 @@ from django.db.models import Sum, Count, Q
 from .models import (
     InstitutePlan, InstituteDiscountCode, ModuleProduct,
     SchoolSubscription, ModuleSubscription, PromoCode,
-    DiscountCode, Package, DURATION_CHOICES,
+    DiscountCode, Package, Subscription, DURATION_CHOICES,
+)
+from .reporting import (
+    get_paid_revenue, get_subscription_counts,
+    get_daily_active_series, get_daily_active_series_local,
+    DAILY_WINDOWS, StripeUnavailable,
 )
 from audit.services import log_event
 
@@ -66,6 +73,325 @@ class BillingAdminDashboardView(SuperuserRequiredMixin, View):
             'active_discounts': active_discounts,
             'mrr': mrr,
         })
+
+
+# ---------------------------------------------------------------------------
+# Subscriptions Overview (students + institutes)
+# ---------------------------------------------------------------------------
+
+class SubscriptionOverviewView(SuperuserRequiredMixin, View):
+    """Super-admin monitoring view for student (B2C) and institute subscriptions.
+
+    Renders standalone (no sidebar, via hide_sidebar) so it can be popped into
+    its own tab and watched while working elsewhere.
+
+    Definitions
+    -----------
+    * Active   = status 'active'
+    * Trial    = status 'trialing'      (in free trial, not yet paying)
+    * Inactive = anything else          (past_due / cancelled / expired / suspended)
+    * Paying   = active subs that actually bill (real package/plan with price>0,
+      not 100%-discounted). Shown alongside Active.
+    * Earnings = ACTUAL paid Stripe invoices for this/last month (real cash,
+      post-discount/refund). If Stripe is unavailable, falls back to a local
+      discount-aware estimate, flagged in the UI.
+
+    Filters (GET params): ?country=<name>  and  ?institution=<school_id>
+    (institution applies to the institute panel only — B2C students have no
+    institution).
+    """
+
+    ACTIVE_STATES = ['active', 'trialing']
+    INACTIVE_STATES = ['past_due', 'cancelled', 'expired', 'suspended']
+    ZERO = Decimal('0.00')
+    WINDOW_LABELS = {7: '7d', 30: '30d', 90: '90d', 365: '1y', 1825: '5y'}
+
+    @staticmethod
+    def _month_dt(d):
+        """Local date -> timezone-aware datetime at 00:00 (for Stripe ranges)."""
+        return timezone.make_aware(datetime.combine(d, time.min))
+
+    def get(self, request):
+        from classroom.models import School
+
+        country = (request.GET.get('country') or '').strip()
+        institution = (request.GET.get('institution') or '').strip()
+
+        # --- period bounds --------------------------------------------------
+        today = timezone.localdate()
+        this_month_start = today.replace(day=1)
+        last_month_start = (this_month_start - timedelta(days=1)).replace(day=1)
+        if this_month_start.month == 12:
+            next_month_start = this_month_start.replace(
+                year=this_month_start.year + 1, month=1,
+            )
+        else:
+            next_month_start = this_month_start.replace(month=this_month_start.month + 1)
+
+        students = self._student_stats(country, today)
+        institutes = self._institute_stats(country, institution, today)
+        addons = self._addon_stats()
+
+        # --- earnings: actual paid revenue from Stripe (fallback: estimate) --
+        earnings_source = 'stripe'
+        earnings_currency = ''
+        try:
+            this_rev = get_paid_revenue(
+                self._month_dt(this_month_start), self._month_dt(next_month_start))
+            last_rev = get_paid_revenue(
+                self._month_dt(last_month_start), self._month_dt(this_month_start))
+            students['this_month'] = this_rev['student']
+            students['last_month'] = last_rev['student']
+            students['this_month_count'] = this_rev['student_count']
+            institutes['this_month'] = this_rev['institute']
+            institutes['last_month'] = last_rev['institute']
+            institutes['this_month_count'] = this_rev['institute_count']
+            earnings_currency = this_rev['currency'] or last_rev['currency']
+        except StripeUnavailable:
+            earnings_source = 'estimate'
+
+        # --- counts: live subscription counts from Stripe (source of truth) --
+        # Stripe knows every paying subscription (incl. school students) and
+        # applies the real status; the local DB can drift, so when Stripe is
+        # reachable its counts drive the headline tiles.
+        counts_source = 'stripe'
+        try:
+            sc = get_subscription_counts()
+            students['stripe'] = sc['student']
+            institutes['stripe'] = sc['institute']
+            # New/lost-today tiles sit under the Stripe-sourced count tiles, so
+            # source them from Stripe too — otherwise the local-DB figures
+            # (B2C-only, excluding school students) drift from the tiles and a
+            # student who started today shows as "+0 New today".
+            for panel, key in ((students, 'student'), (institutes, 'institute')):
+                panel['new_today'] = sc[key].get('new_today', panel['new_today'])
+                panel['lost_today'] = sc[key].get(
+                    'lost_today', panel['lost_today'])
+        except StripeUnavailable:
+            counts_source = 'local'
+
+        # --- daily active-subscriptions graph (selectable window) -----------
+        try:
+            window_days = int(request.GET.get('days', 30))
+        except (TypeError, ValueError):
+            window_days = 30
+        if window_days not in DAILY_WINDOWS:
+            window_days = 30
+        try:
+            daily = get_daily_active_series(window_days)
+        except StripeUnavailable:
+            daily = get_daily_active_series_local(window_days)
+
+        # Filter option lists
+        countries = sorted({
+            c for c in (
+                list(School.objects.exclude(country='')
+                     .values_list('country', flat=True))
+                + list(self._b2c_subscriptions().exclude(user__country='')
+                       .values_list('user__country', flat=True))
+            ) if c
+        })
+        institutions = list(
+            School.objects.filter(is_active=True)
+            .order_by('name').values('id', 'name'),
+        )
+
+        return render(request, 'admin_dashboard/billing/subscription_overview.html', {
+            'hide_sidebar': True,
+            'students': students,
+            'institutes': institutes,
+            'earnings_source': earnings_source,
+            'earnings_currency': earnings_currency,
+            'counts_source': counts_source,
+            'daily': daily,
+            'daily_window': window_days,
+            'daily_window_options': [
+                {'days': d, 'label': self.WINDOW_LABELS.get(d, str(d))}
+                for d in DAILY_WINDOWS
+            ],
+            'combined_this_month': (
+                students.get('this_month', self.ZERO)
+                + institutes.get('this_month', self.ZERO)
+            ),
+            'combined_last_month': (
+                students.get('last_month', self.ZERO)
+                + institutes.get('last_month', self.ZERO)
+            ),
+            'combined_estimate': students['estimate'] + institutes['estimate'],
+            'addons': addons['rows'],
+            'addons_total_revenue': addons['total_revenue'],
+            'filters': {
+                'country': country,
+                'institution': institution,
+                'countries': countries,
+                'institutions': institutions,
+            },
+            'today': today,
+            'now': timezone.localtime(),
+            'refresh_seconds': 60,  # auto-refresh interval for the standalone tab
+        })
+
+    # -- students (B2C) ------------------------------------------------------
+    @staticmethod
+    def _b2c_subscriptions():
+        """Individual / B2C subscriptions only.
+
+        Institute students also get a billing.Subscription row (created via
+        webhook / grant-access), but they are covered by their institute's
+        subscription and do not pay as individuals — so anyone who is a
+        current student of an institute is excluded here. Counting them as
+        paying B2C students overstates both the student count and earnings.
+        """
+        return Subscription.objects.exclude(
+            user__school_student_entries__is_active=True,
+        )
+
+    def _student_stats(self, country, today):
+        qs = self._b2c_subscriptions()
+        if country:
+            qs = qs.filter(user__country__iexact=country)
+
+        active = qs.filter(status='active')
+        # "Paying" = active with a real priced package (excludes no-package/comp).
+        # "Free" = the rest of the actives (no package / $0) — real accounts,
+        # but $0 revenue, shown as their own category.
+        paying = active.filter(package__isnull=False, package__price__gt=0)
+        estimate = paying.aggregate(t=Sum('package__price'))['t'] or self.ZERO
+
+        active_n = active.count()
+        paying_n = paying.count()
+        free_n = active_n - paying_n
+        trial_n = qs.filter(status='trialing').count()
+        inactive_n = qs.filter(status__in=self.INACTIVE_STATES).count()
+
+        return {
+            'total': qs.count(),
+            'trial': trial_n,
+            'active': active_n,
+            'paying': paying_n,
+            'free': free_n,
+            'inactive': inactive_n,
+            'new_today': qs.filter(created_at__date=today).count(),
+            'lost_today': qs.filter(cancelled_at__date=today).count(),
+            'estimate': estimate,
+            'by_package': list(
+                active.values('package__name').annotate(
+                    count=Count('id')).order_by('-count'),
+            ),
+            'donut': self._donut(paying_n, free_n, trial_n, inactive_n),
+        }
+
+    # -- institutes ----------------------------------------------------------
+    def _institute_stats(self, country, institution, today):
+        # Deactivated schools are excluded everywhere on this dashboard.
+        qs = SchoolSubscription.objects.filter(school__is_active=True)
+        if country:
+            qs = qs.filter(school__country__iexact=country)
+        if institution.isdigit():
+            qs = qs.filter(school_id=int(institution))
+
+        active = qs.filter(status='active')
+        # Discount-aware estimate + "paying" count. 100%-off subs (e.g. CWA)
+        # bill nothing, so they don't count as paying and add $0.
+        estimate = self.ZERO
+        paying_n = 0
+        for sub in active.select_related('plan', 'discount_code'):
+            if not sub.plan or sub.plan.price <= 0:
+                continue
+            pct = sub.discount_code.discount_percent if sub.discount_code else 0
+            if pct >= 100:
+                continue
+            paying_n += 1
+            estimate += sub.plan.price * (Decimal(100 - pct) / Decimal(100))
+        estimate += self._addon_revenue_for(active)
+
+        active_n = active.count()
+        free_n = active_n - paying_n  # active but $0 (no plan / 100%-off)
+        trial_n = qs.filter(status='trialing').count()
+        inactive_n = qs.filter(status__in=self.INACTIVE_STATES).count()
+
+        return {
+            'total': qs.count(),
+            'trial': trial_n,
+            'active': active_n,
+            'paying': paying_n,
+            'free': free_n,
+            'inactive': inactive_n,
+            'new_today': qs.filter(created_at__date=today).count(),
+            # No cancelled_at on SchoolSubscription — use status + updated_at.
+            'lost_today': qs.filter(
+                status='cancelled', updated_at__date=today).count(),
+            'estimate': estimate,
+            'by_type': list(
+                active.values('plan__name').annotate(
+                    count=Count('id')).order_by('-count'),
+            ),
+            'donut': self._donut(paying_n, free_n, trial_n, inactive_n),
+        }
+
+    # Donut ring geometry (inline SVG, no JS). Returns segments with
+    # stroke-dasharray/offset so the template just renders <circle>s.
+    DONUT_RADIUS = 54
+
+    def _donut(self, active, free, trial, inactive):
+        circumference = 2 * math.pi * self.DONUT_RADIUS
+        parts = [
+            ('Active', active, '#10b981'),    # emerald (paying / real)
+            ('Free', free, '#0ea5e9'),        # sky (active but no package / 100%-off)
+            ('Trial', trial, '#f59e0b'),      # amber
+            ('Inactive', inactive, '#94a3b8'),  # slate
+        ]
+        total = active + free + trial + inactive
+        segments = []
+        cumulative = 0.0
+        for label, value, color in parts:
+            frac = (value / total) if total else 0.0
+            seg_len = frac * circumference
+            segments.append({
+                'label': label,
+                'value': value,
+                'color': color,
+                'pct': round(frac * 100, 1),
+                'dasharray': f'{seg_len:.2f} {circumference - seg_len:.2f}',
+                'dashoffset': f'{-cumulative:.2f}',
+            })
+            cumulative += seg_len
+        return {
+            'segments': segments,
+            'total': total,
+            'radius': self.DONUT_RADIUS,
+            'active_pct': round((active / total * 100) if total else 0.0, 1),
+        }
+
+    def _addon_revenue_for(self, school_sub_qs):
+        prices = {m.module: m.price for m in ModuleProduct.objects.all()}
+        rows = (ModuleSubscription.objects
+                .filter(is_active=True, school_subscription__in=school_sub_qs)
+                .values('module').annotate(count=Count('id')))
+        return sum(
+            (prices.get(r['module'], self.ZERO) * r['count'] for r in rows),
+            self.ZERO,
+        )
+
+    def _addon_stats(self):
+        prices = {m.module: m.price for m in ModuleProduct.objects.all()}
+        labels = dict(ModuleSubscription.MODULE_CHOICES)
+        rows = (ModuleSubscription.objects
+                .filter(is_active=True, school_subscription__school__is_active=True)
+                .values('module').annotate(count=Count('id')).order_by('-count'))
+        out, total = [], self.ZERO
+        for r in rows:
+            price = prices.get(r['module'], self.ZERO)
+            revenue = price * r['count']
+            total += revenue
+            out.append({
+                'module': r['module'],
+                'name': labels.get(r['module'], r['module']),
+                'count': r['count'],
+                'price': price,
+                'revenue': revenue,
+            })
+        return {'rows': out, 'total_revenue': total}
 
 
 # ---------------------------------------------------------------------------

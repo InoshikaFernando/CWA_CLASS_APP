@@ -89,6 +89,12 @@ cat > /etc/logrotate.d/cwa <<'LOGROTATE'
     delaycompress
     missingok
     notifempty
+    # Rotate as the cwa user and recreate the fresh log owned by cwa. Without
+    # these, logrotate (running as root) recreates the files root-owned, so
+    # gunicorn/Django (running as cwa) can no longer write to them and errors
+    # are silently dropped until someone notices and chowns them back.
+    su cwa cwa
+    create 0644 cwa cwa
     postrotate
         systemctl reload cwa-gunicorn 2>/dev/null || true
     endscript

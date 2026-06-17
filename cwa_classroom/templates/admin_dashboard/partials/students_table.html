@@ -50,7 +50,10 @@
                   {% if not ss.is_active %}
                   <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-red-100 text-red-600">Inactive</span>
                   {% endif %}
-                  {% if ss.student.welcome_email_sent %}
+                  {% comment %}Welcome-email delivery status (CPP-343).{% endcomment %}
+                  {% if ss.welcome_email_state %}
+                  <span class="ml-1">{% include "admin_dashboard/partials/_welcome_email_badge.html" with state=ss.welcome_email_state %}</span>
+                  {% elif ss.student.welcome_email_sent %}
                   <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-green-100 text-green-700" title="Welcome email sent {{ ss.student.welcome_email_sent|date:'d M Y' }}">&#10003; Welcome sent</span>
                   {% else %}
                   <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-amber-100 text-amber-700">Welcome not sent</span>

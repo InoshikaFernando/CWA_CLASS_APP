@@ -286,7 +286,19 @@ class HomeworkSubmission(models.Model):
 
     @classmethod
     def get_attempt_count(cls, homework, student):
-        return cls.objects.filter(homework=homework, student=student).count()
+        """Number of attempts the student has *taken* for this homework.
+
+        This is the highest ``attempt_number`` assigned, not a row count: old
+        attempts beyond the retention limit are pruned, so counting rows would
+        under-report and silently defeat the ``max_attempts`` cap. Attempt
+        numbers are monotonic (``get_next_attempt_number`` uses ``Max + 1`` and
+        never reuses a number), so the max equals the true attempts taken.
+        """
+        from django.db.models import Max
+        result = cls.objects.filter(homework=homework, student=student).aggregate(
+            max_att=Max('attempt_number'),
+        )
+        return result['max_att'] or 0
 
     @classmethod
     def get_best_submission(cls, homework, student):
@@ -297,6 +309,17 @@ class HomeworkSubmission(models.Model):
         from django.db.models import Max
         result = cls.objects.filter(homework=homework, student=student).aggregate(max_att=Max('attempt_number'))
         return (result['max_att'] or 0) + 1
+
+    @classmethod
+    def prune_old_attempts(cls, homework, student):
+        """Keep only the most recent attempts for this student/homework.
+
+        Called after a new submission is saved so the stored history (and the
+        per-question answers that cascade from it) never grows past the shared
+        attempt limit.
+        """
+        from classroom.attempt_retention import prune_to_last_n
+        return prune_to_last_n(cls, {'homework': homework, 'student': student})
 
 
 class HomeworkStudentAnswer(models.Model):
@@ -449,3 +472,39 @@ class AIGradingCache(models.Model):
 
     def __str__(self):
         return f'Cache Q{self.question_id} — score={self.score_fraction:.2f} hits={self.hit_count}'
+
+
+class HomeworkDraft(models.Model):
+    """In-progress, ungraded answers a student has saved to resume later.
+
+    A draft is deliberately separate from :class:`HomeworkSubmission`: saving
+    progress neither grades the work nor consumes an attempt. There is at most
+    one draft per (homework, student) — each save overwrites the previous one,
+    and the draft is deleted once the student actually submits.
+
+    ``answers_data`` stores the raw answer form fields (the ``answer_<id>`` and
+    ``code_<content_id>`` inputs) as a flat JSON map of field-name -> value, so
+    the take page can restore them client-side without any per-subject Python.
+    """
+    homework = models.ForeignKey(
+        Homework, on_delete=models.CASCADE, related_name='drafts',
+    )
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='homework_drafts',
+    )
+    answers_data = models.JSONField(
+        default=dict,
+        help_text='Flat map of answer form field name -> saved value.',
+    )
+    time_taken_seconds = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # One live draft per student per homework — saves upsert this row.
+        unique_together = ('homework', 'student')
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return f'Draft — {self.homework.title} — {self.student.username}'

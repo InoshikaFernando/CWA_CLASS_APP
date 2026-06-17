@@ -11,10 +11,10 @@ pytestmark = pytest.mark.django_db
 
 
 def test_estimate_cost_uses_default_rates():
-    # 1M input @ $3 + 1M output @ $15 = $18.
-    assert estimate_cost_usd(1_000_000, 1_000_000) == Decimal('18.00000')
-    # Half a million output only @ $15 = $7.50.
-    assert estimate_cost_usd(0, 500_000) == Decimal('7.50000')
+    # Opus 4.8 list pricing: 1M input @ $5 + 1M output @ $25 = $30.
+    assert estimate_cost_usd(1_000_000, 1_000_000) == Decimal('30.00000')
+    # Half a million output only @ $25 = $12.50.
+    assert estimate_cost_usd(0, 500_000) == Decimal('12.50000')
     assert estimate_cost_usd(0, 0) == Decimal('0.00000')
 
 
@@ -38,10 +38,10 @@ def test_record_ai_usage_creates_row_with_cost():
     assert log.input_tokens == 30_000
     assert log.output_tokens == 15_000
     assert log.total_tokens == 45_000
-    # 30k in @ $3/M + 15k out @ $15/M = 0.09 + 0.225 = 0.315
-    assert log.est_cost_usd == Decimal('0.31500')
-    # $0.315 / 13 pages.
-    assert log.cost_per_page_usd == Decimal('0.31500') / 13
+    # 30k in @ $5/M + 15k out @ $25/M = 0.15 + 0.375 = 0.525
+    assert log.est_cost_usd == Decimal('0.52500')
+    # $0.525 / 13 pages.
+    assert log.cost_per_page_usd == Decimal('0.52500') / 13
 
 
 def test_record_ai_usage_handles_missing_tokens():
@@ -89,7 +89,8 @@ def test_usage_report_command_runs():
 def test_usage_report_markdown_includes_cost_per_page():
     from io import StringIO
 
-    # worksheet: 20k in + 10k out = $0.06 + $0.15 = $0.21 over 10 pages -> $0.021/page
+    # worksheet: 20k in @ $5/M + 10k out @ $25/M = $0.10 + $0.25 = $0.35 over
+    # 10 pages -> $0.035/page (Opus 4.8 rates).
     record_ai_usage(
         school=None, source='worksheet', session_id=1, pages=10,
         usage={'input_tokens': 20_000, 'output_tokens': 10_000},
@@ -105,10 +106,10 @@ def test_usage_report_markdown_includes_cost_per_page():
     ) in md
     assert '| Worksheet |' in md
     assert '**Total**' in md
-    assert '$0.0210' in md          # $/page for the single source
-    assert '$2.10' in md            # 100-page projection ($0.021 * 100)
-    assert '$10.50' in md           # 500-page projection ($0.021 * 500)
-    assert '$21.00' in md           # 1000-page projection ($0.021 * 1000)
+    assert '$0.0350' in md          # $/page for the single source
+    assert '$3.50' in md            # 100-page projection ($0.035 * 100)
+    assert '$17.50' in md           # 500-page projection ($0.035 * 500)
+    assert '$35.00' in md           # 1000-page projection ($0.035 * 1000)
     assert 'AI Generation Usage' in md
 
 
@@ -119,4 +120,188 @@ def test_usage_report_markdown_handles_no_data():
     call_command('ai_usage_report', '--days', '1', '--format', 'markdown', stdout=out)
     md = out.getvalue()
     assert 'no usage recorded' in md
-    assert '**Total**' in md
+    assert 'Total AI cost' in md
+
+
+def test_aggregate_grading_zero_when_empty():
+    from taskqueue.dashboard import aggregate_grading
+
+    g = aggregate_grading(days=30)
+    assert g is not None
+    assert g['answers'] == 0
+    assert g['cost'] == Decimal('0')
+
+
+def test_markdown_has_grading_section_and_grand_total():
+    """Generation + grading render as separate tables with a combined total."""
+    from taskqueue.dashboard import render_markdown
+
+    rows = [{
+        'source': 'homework', 'label': 'Homework PDF', 'pages': 10,
+        'input_tokens': 1_000, 'output_tokens': 500,
+        'cost': Decimal('0.21'), 'per_page': Decimal('0.021'),
+    }]
+    tot = {
+        'pages': 10, 'input_tokens': 1_000, 'output_tokens': 500,
+        'cost': Decimal('0.21'), 'per_page': Decimal('0.021'),
+    }
+    grading = {
+        'answers': 50, 'tokens': 20_000,
+        'cost': Decimal('1.50'), 'per_answer': Decimal('0.03'),
+    }
+    md = render_markdown(rows, tot, 'last 30 days', grading=grading)
+
+    assert '### Generation & classification (per page)' in md
+    assert '### AI grading (per answer)' in md
+    assert '| 50 | 20,000 | $1.5000 | $0.0300 |' in md
+    # Grand total sums both ledgers: 0.21 + 1.50 = 1.71.
+    assert 'Total AI cost — **$1.7100**' in md
+
+
+# --- live GitHub dashboard refresh ------------------------------------------
+
+class _FakeResp:
+    def __init__(self, payload=None, status=200):
+        self._payload = payload
+        self.status_code = status
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f'HTTP {self.status_code}')
+
+
+def test_dashboard_update_noop_when_unconfigured(settings, monkeypatch):
+    from taskqueue import dashboard
+
+    # No token/repo → must not touch the network.
+    settings.AI_DASHBOARD_GITHUB_TOKEN = ''
+    settings.AI_DASHBOARD_GITHUB_REPO = ''
+    called = []
+    monkeypatch.setattr(dashboard.requests, 'get', lambda *a, **k: called.append('get'))
+    monkeypatch.setattr(dashboard.requests, 'patch', lambda *a, **k: called.append('patch'))
+
+    assert dashboard.update_dashboard_issue() is False
+    assert called == []
+
+
+def test_dashboard_update_patches_own_section_only(settings, monkeypatch):
+    """The env writes its own section and preserves the others."""
+    from taskqueue import dashboard
+
+    settings.AI_DASHBOARD_GITHUB_TOKEN = 'tok'
+    settings.AI_DASHBOARD_GITHUB_REPO = 'owner/repo'
+    settings.AI_DASHBOARD_ISSUE_NUMBER = '378'      # skip label lookup
+    settings.AI_DASHBOARD_ENV = 'Production'
+
+    # The issue already has a Test section that must survive the prod update.
+    existing = (
+        '# 🤖 AI Generation Usage\n\n'
+        '<!-- AIDASH:Test:START -->\n## 🧪 Test\n(test data)\n<!-- AIDASH:Test:END -->\n'
+    )
+    seen = {}
+    monkeypatch.setattr(
+        dashboard.requests, 'get',
+        lambda url, **k: _FakeResp(payload={'body': existing}),
+    )
+
+    def fake_patch(url, **kwargs):
+        seen['url'] = url
+        seen['body'] = kwargs['json']['body']
+        return _FakeResp(payload={})
+    monkeypatch.setattr(dashboard.requests, 'patch', fake_patch)
+
+    record_ai_usage(
+        school=None, source='homework', session_id=1, pages=4,
+        usage={'input_tokens': 8_000, 'output_tokens': 4_000},
+    )
+
+    assert dashboard.update_dashboard_issue() is True
+    assert seen['url'].endswith('/repos/owner/repo/issues/378')
+    body = seen['body']
+    # Production section added (heading + markers + data)…
+    assert '<!-- AIDASH:Production:START -->' in body
+    assert '## 🏭 Production' in body
+    assert '| Homework PDF |' in body
+    # …and the pre-existing Test section preserved.
+    assert '<!-- AIDASH:Test:START -->' in body
+    assert '## 🧪 Test' in body
+
+
+def test_dashboard_update_never_raises_on_http_error(settings, monkeypatch):
+    from taskqueue import dashboard
+
+    settings.AI_DASHBOARD_GITHUB_TOKEN = 'tok'
+    settings.AI_DASHBOARD_GITHUB_REPO = 'owner/repo'
+
+    def boom(*a, **k):
+        raise RuntimeError('github down')
+    monkeypatch.setattr(dashboard.requests, 'get', boom)
+
+    # Must swallow the error and report failure, not propagate.
+    assert dashboard.update_dashboard_issue() is False
+
+
+def test_record_ai_usage_triggers_dashboard_refresh(monkeypatch):
+    import taskqueue.dashboard as dashboard
+
+    calls = []
+    monkeypatch.setattr(dashboard, 'update_dashboard_issue', lambda *a, **k: calls.append(1))
+
+    record_ai_usage(
+        school=None, source='worksheet', session_id=7, pages=3,
+        usage={'input_tokens': 1_000, 'output_tokens': 500},
+    )
+    assert calls == [1]
+
+
+# --- per-environment section merge ------------------------------------------
+
+def test_merge_section_replaces_only_its_block():
+    from taskqueue.dashboard import _merge_section
+
+    body = (
+        '# 🤖 AI Generation Usage\n\n'
+        '<!-- AIDASH:Production:START -->\n## 🏭 Production\nOLD PROD\n<!-- AIDASH:Production:END -->\n\n'
+        '<!-- AIDASH:Test:START -->\n## 🧪 Test\nTEST\n<!-- AIDASH:Test:END -->\n'
+    )
+    out = _merge_section(body, 'Production', '## 🏭 Production\nNEW PROD')
+
+    assert 'NEW PROD' in out
+    assert 'OLD PROD' not in out
+    assert 'TEST' in out                                             # other env untouched
+    assert out.count('<!-- AIDASH:Production:START -->') == 1        # no duplication
+
+
+def test_merge_section_appends_new_env():
+    from taskqueue.dashboard import _merge_section
+
+    body = (
+        '# 🤖 AI Generation Usage\n\n'
+        '<!-- AIDASH:Production:START -->\n## 🏭 Production\nPROD\n<!-- AIDASH:Production:END -->\n'
+    )
+    out = _merge_section(body, 'Test', '## 🧪 Test\nTEST')
+
+    assert '<!-- AIDASH:Production:START -->' in out                 # preserved
+    assert '<!-- AIDASH:Test:START -->' in out                       # added
+    assert 'TEST' in out
+
+
+def test_merge_section_fresh_issue_gets_title():
+    from taskqueue.dashboard import _merge_section
+
+    out = _merge_section('', 'Production', '## 🏭 Production\nPROD')
+
+    assert out.startswith('# 🤖 AI Generation Usage')
+    assert '<!-- AIDASH:Production:START -->' in out
+
+
+def test_section_heading_adds_env_emoji():
+    from taskqueue.dashboard import _section_heading
+
+    assert _section_heading('Production') == '🏭 Production'
+    assert _section_heading('Test') == '🧪 Test'
+    assert _section_heading('Others') == '🗂️ Others'
+    assert _section_heading('Staging').endswith('Staging')           # unknown → generic icon

@@ -70,6 +70,10 @@
           {% if item.attempt_count > 1 %}
           <span class="text-gray-400">{{ item.attempt_count }} attempt{{ item.attempt_count|pluralize }}</span>
           {% endif %}
+          {% if item.attempt_count %}
+          <a href="{% url 'homework:student_attempt_history' homework_id=item.homework.id student_id=child.id %}"
+             class="text-accent hover:underline ml-auto">View results &amp; answers →</a>
+          {% endif %}
         </div>
         {% endif %}
       </div>

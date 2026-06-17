@@ -142,7 +142,7 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                             "type": "string",
                             "enum": ["multiple_choice", "true_false", "short_answer",
                                      "fill_blank", "calculation", "extended_answer",
-                                     "long_division"],
+                                     "long_division", "column_operation"],
                         },
                         "dividend": {
                             "type": "integer",
@@ -151,6 +151,16 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                         "divisor": {
                             "type": "integer",
                             "description": "For long_division only: the number dividing (outside/left of the bar), e.g. 47.",
+                        },
+                        "operands": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "For column_operation only: the stacked numbers top-to-bottom, e.g. [23, 25].",
+                        },
+                        "operator": {
+                            "type": "string",
+                            "enum": ["+", "-", "*"],
+                            "description": "For column_operation only: the arithmetic operator ('+', '-' or '*').",
                         },
                         "validation_type": {
                             "type": "string",
@@ -296,6 +306,14 @@ Rules:
    "Solve using long division: {dividend} ÷ {divisor}". Do NOT concatenate the digits into
    one number (never "47611") and set has_image=false — the app draws the bracket itself.
    The answer is computed automatically; leave answers=[].
+10. COLUMN ARITHMETIC: if numbers are stacked vertically for addition, subtraction or
+   multiplication — written one under another, right-aligned, with a +, − or × sign and a
+   rule line under which the answer goes (e.g. "23" above "+ 25" with a line below) — set
+   question_type="column_operation", "operands" to the stacked numbers top-to-bottom
+   (e.g. [23, 25]), and "operator" to "+", "-" or "*". Set question_text to the inline form,
+   e.g. "23 + 25". Do NOT concatenate the digits into one number (never "2325") and set
+   has_image=false — the app draws the stacked grid itself. The answer is computed
+   automatically; leave answers=[].
 
 IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
 - has_image=true ONLY when the question genuinely depends on a visual that cannot be written
@@ -718,13 +736,29 @@ def _trim_whitespace(pix):
     try:
         from PIL import Image
         import io
-        img = Image.frombytes('RGB', (w, h), bytes(samples))
-        img = img.crop((left, top, right + 1, bottom + 1))
+        # pix.n may include an alpha channel (RGBA, n==4) — e.g. when the
+        # diagram was rendered with header redaction. Build the image with the
+        # real channel count, then normalise to RGB. Hardcoding 'RGB' on a
+        # 4-channel pixmap mis-aligns the buffer and makes img.save() raise
+        # "tile cannot extend outside image", dropping the whole diagram. For
+        # anything other than RGB/RGBA (e.g. CMYK n==5) skip the trim rather
+        # than mis-read the buffer.
+        mode = {3: 'RGB', 4: 'RGBA'}.get(n)
+        if mode is None:
+            return pix
+        img = Image.frombytes(mode, (w, h), bytes(samples))
+        img = img.crop((left, top, right + 1, bottom + 1)).convert('RGB')
         buf = io.BytesIO()
         img.save(buf, format='PNG')
         return buf.getvalue()  # return raw bytes when Pillow is available
     except ImportError:
         return pix  # Pillow not installed — return original
+    except Exception:
+        # Any other Pillow failure (degenerate crop, odd colorspace) must never
+        # cost us the image — fall back to the untrimmed pixmap.
+        logger.warning('Q image: whitespace trim failed; using untrimmed image',
+                       exc_info=True)
+        return pix
 
 
 def render_question_images(doc, extracted_pages, classified_result):

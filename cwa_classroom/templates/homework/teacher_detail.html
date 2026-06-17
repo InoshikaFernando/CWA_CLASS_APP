@@ -5,8 +5,11 @@
 <div class="p-6">
 
   <!-- Header -->
-  <nav class="text-sm text-gray-500 mb-4">
-    <a href="{% url 'homework:teacher_monitor' %}" class="hover:text-gray-700">Homework</a>
+  <nav class="text-sm text-gray-500 mb-4 flex items-center">
+    <a href="{% url 'homework:teacher_monitor' %}?classroom=all" class="inline-flex items-center gap-1 hover:text-gray-700">
+      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
+      Homework
+    </a>
     <span class="mx-2">/</span>
     <span class="text-gray-700">{{ homework.title }}</span>
   </nav>
@@ -50,31 +53,39 @@
   </div>
 
   <!-- Summary cards -->
-  {% with total=student_rows|length %}
-  {% with on_time=student_rows|dictsort:"status" %}
   <div class="grid grid-cols-3 gap-4 mb-6">
     <div class="bg-white rounded-xl border border-gray-100 p-4 text-center">
-      <p class="text-2xl font-bold text-gray-900">{{ total }}</p>
+      <p class="text-2xl font-bold text-gray-900">{{ student_rows|length }}</p>
       <p class="text-xs text-gray-500 mt-0.5">Total Students</p>
     </div>
     <div class="bg-green-50 rounded-xl border border-green-100 p-4 text-center">
-      <p class="text-2xl font-bold text-green-700">
-        {% with count=0 %}{% for r in student_rows %}{% if r.status == 'on_time' %}{% with count=count|add:1 %}{% endwith %}{% endif %}{% endfor %}
-        {% for r in student_rows %}{% if r.status == 'on_time' %}1{% endif %}{% endfor %}&zwnj;
-        {% endwith %}
-        {{ student_rows|dictsort:"status"|length }}
-      </p>
+      <p class="text-2xl font-bold text-green-700">{{ submitted_count }}</p>
       <p class="text-xs text-gray-500 mt-0.5">Submitted</p>
     </div>
     <div class="bg-red-50 rounded-xl border border-red-100 p-4 text-center">
-      <p class="text-2xl font-bold text-red-600">
-        {% for r in student_rows %}{% if r.status == 'not_submitted' %}x{% endif %}{% endfor %}&zwnj;
-      </p>
+      <p class="text-2xl font-bold text-red-600">{{ overdue_count }}</p>
       <p class="text-xs text-gray-500 mt-0.5">Overdue</p>
     </div>
   </div>
-  {% endwith %}
-  {% endwith %}
+
+  <!-- Search / filter -->
+  <div class="flex flex-col sm:flex-row gap-3 mb-3">
+    <div class="relative flex-1">
+      <input type="text" id="student-search" placeholder="Search students by name…"
+             autocomplete="off"
+             class="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300">
+      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z"/>
+      </svg>
+    </div>
+    <select id="status-filter"
+            class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300">
+      <option value="all">All statuses</option>
+      <option value="submitted">Submitted</option>
+      <option value="pending">Pending</option>
+      <option value="overdue">Overdue</option>
+    </select>
+  </div>
 
   <!-- Student table -->
   <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -86,11 +97,14 @@
           <th scope="col" class="text-center px-4 py-3 font-semibold text-gray-600">Attempts</th>
           <th scope="col" class="text-center px-4 py-3 font-semibold text-gray-600">Best Score</th>
           <th scope="col" class="text-center px-4 py-3 font-semibold text-gray-600">Best Points</th>
+          <th scope="col" class="text-center px-4 py-3 font-semibold text-gray-600">History</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-50">
         {% for row in student_rows %}
-        <tr class="hover:bg-gray-50/50">
+        <tr class="student-row hover:bg-gray-50/50"
+            data-name="{{ row.student.get_full_name|default:row.student.username|lower }}"
+            data-status="{% if row.status == 'on_time' or row.status == 'late' %}submitted{% elif row.status == 'not_submitted' %}overdue{% else %}pending{% endif %}">
           <td class="px-4 py-3 font-medium text-gray-800">
             {{ row.student.get_full_name|default:row.student.username }}
           </td>
@@ -115,15 +129,50 @@
           <td class="px-4 py-3 text-center font-semibold text-gray-800">
             {% if row.best_submission %}{{ row.best_submission.points|floatformat:1 }}{% else %}—{% endif %}
           </td>
+          <td class="px-4 py-3 text-center">
+            {% if row.attempt_count %}
+              <a href="{% url 'homework:student_attempt_history' homework_id=homework.id student_id=row.student.id %}"
+                 class="text-blue-600 hover:underline text-xs font-medium">View attempts</a>
+            {% else %}<span class="text-gray-300 text-xs">—</span>{% endif %}
+          </td>
         </tr>
         {% empty %}
         <tr>
-          <td colspan="5" class="px-4 py-8 text-center text-gray-400">No students enrolled in this class.</td>
+          <td colspan="6" class="px-4 py-8 text-center text-gray-400">No students enrolled in this class.</td>
         </tr>
         {% endfor %}
+        <tr id="no-matches-row" class="hidden">
+          <td colspan="6" class="px-4 py-8 text-center text-gray-400">No students match your search.</td>
+        </tr>
       </tbody>
     </table>
   </div>
 
 </div>
+
+<script>
+(function () {
+  const search = document.getElementById('student-search');
+  const statusFilter = document.getElementById('status-filter');
+  const rows = Array.from(document.querySelectorAll('.student-row'));
+  const noMatches = document.getElementById('no-matches-row');
+
+  function applyFilters() {
+    const term = search.value.trim().toLowerCase();
+    const status = statusFilter.value;
+    let visible = 0;
+    rows.forEach(function (row) {
+      const matchesName = !term || row.dataset.name.includes(term);
+      const matchesStatus = status === 'all' || row.dataset.status === status;
+      const show = matchesName && matchesStatus;
+      row.classList.toggle('hidden', !show);
+      if (show) visible++;
+    });
+    if (noMatches) noMatches.classList.toggle('hidden', visible > 0 || rows.length === 0);
+  }
+
+  search.addEventListener('input', applyFilters);
+  statusFilter.addEventListener('change', applyFilters);
+})();
+</script>
 {% endblock %}

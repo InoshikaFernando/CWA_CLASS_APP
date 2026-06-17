@@ -70,6 +70,11 @@
 
   <!-- Quick links -->
   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <a href="{% url 'billing_admin_subscription_overview' %}"
+       class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition group">
+      <h3 class="text-lg font-semibold text-gray-900 group-hover:text-accent transition">Subscriptions Overview</h3>
+      <p class="text-sm text-gray-500 mt-1">How many students and institutes are subscribed</p>
+    </a>
     <a href="{% url 'billing_admin_plan_list' %}"
        class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md hover:border-accent/30 transition group">
       <h3 class="text-lg font-semibold text-gray-900 group-hover:text-accent transition">Plans</h3>

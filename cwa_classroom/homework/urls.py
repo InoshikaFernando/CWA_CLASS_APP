@@ -27,5 +27,10 @@ urlpatterns = [
     # Student
     path('homework/', views.StudentHomeworkListView.as_view(), name='student_list'),
     path('homework/<int:homework_id>/take/', views.StudentHomeworkTakeView.as_view(), name='student_take'),
+    path('homework/<int:homework_id>/save-progress/', views.SaveHomeworkProgressView.as_view(), name='save_progress'),
     path('homework/result/<int:submission_id>/', views.StudentHomeworkResultView.as_view(), name='student_result'),
+    # Attempt history (last 10) — own (no student id) or a specific student
+    # (teacher / parent), access-checked in the view.
+    path('homework/<int:homework_id>/history/', views.HomeworkAttemptHistoryView.as_view(), name='attempt_history'),
+    path('homework/<int:homework_id>/history/<int:student_id>/', views.HomeworkAttemptHistoryView.as_view(), name='student_attempt_history'),
 ]

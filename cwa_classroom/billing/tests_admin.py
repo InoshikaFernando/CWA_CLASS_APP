@@ -14,9 +14,10 @@ from django.utils import timezone
 from accounts.models import CustomUser, Role, UserRole
 from billing.models import (
     InstitutePlan, InstituteDiscountCode, ModuleProduct,
-    SchoolSubscription, PromoCode, DiscountCode, Package,
+    SchoolSubscription, PromoCode, DiscountCode, Package, Subscription,
+    ModuleSubscription,
 )
-from classroom.models import School
+from classroom.models import School, SchoolStudent
 
 
 # ---------------------------------------------------------------------------
@@ -824,3 +825,470 @@ class CPP301_UnlimitedDisplayTest(TestCase):
         resp = self.client.get(reverse('institute_plan_upgrade'))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Unlimited')
+
+
+# ===========================================================================
+# Subscription Overview (students + institutes)
+# ===========================================================================
+
+class SubscriptionOverviewTests(TestCase):
+    """Super-admin overview of how many students and institutes are subscribed."""
+
+    def setUp(self):
+        self.superuser = _create_superuser()
+        self.normaluser = _create_normal_user()
+        self.client.login(username='super', password='testpass123')
+
+        # Individual student package + subscriptions:
+        # 2 active + 1 trialing + 1 cancelled = total 4
+        self.package = Package.objects.create(name='Student Monthly', price=Decimal('9.00'))
+        for i, status in enumerate(['active', 'active', 'trialing', 'cancelled']):
+            user = _create_normal_user(username=f'student{i}')
+            user.country = 'New Zealand' if i == 0 else 'Australia'
+            user.save(update_fields=['country'])
+            Subscription.objects.create(user=user, package=self.package, status=status)
+
+        # Institutes: 1 active + 1 trialing + 1 expired = total 3
+        self.plan = _create_plan()  # 'Starter' @ $49
+        for i, status in enumerate(['active', 'trialing', 'expired']):
+            admin = _create_normal_user(username=f'schooladmin{i}')
+            school = _create_school(admin, name=f'School {i}', slug=f'school-{i}')
+            school.country = 'New Zealand' if i == 0 else 'Australia'
+            school.save(update_fields=['country'])
+            SchoolSubscription.objects.create(school=school, plan=self.plan, status=status)
+
+    def _get(self, **params):
+        return self.client.get(reverse('billing_admin_subscription_overview'), params)
+
+    # -- access control --
+    def test_normal_user_redirected(self):
+        self.client.logout()
+        self.client.login(username='normal', password='testpass123')
+        self.assertEqual(self._get().status_code, 302)
+
+    def test_anonymous_redirected(self):
+        self.client.logout()
+        self.assertEqual(self._get().status_code, 302)
+
+    def test_superuser_can_access(self):
+        self.assertEqual(self._get().status_code, 200)
+
+    # -- layout: standalone, no sidebar --
+    def test_renders_without_sidebar(self):
+        resp = self._get()
+        self.assertTrue(resp.context['hide_sidebar'])
+        # sidebar partial is skipped, so its nav links are absent
+        self.assertNotContains(resp, 'id="sidebar"')
+
+    # -- student counts --
+    def test_student_counts(self):
+        s = self._get().context['students']
+        self.assertEqual(s['total'], 4)
+        self.assertEqual(s['active'], 2)
+        self.assertEqual(s['paying'], 2)
+        self.assertEqual(s['free'], 0)  # all setUp actives have a package
+        self.assertEqual(s['trial'], 1)
+        self.assertEqual(s['inactive'], 1)
+
+    def test_student_new_today(self):
+        # all created in setUp -> today
+        self.assertEqual(self._get().context['students']['new_today'], 4)
+
+    def test_student_lost_today(self):
+        # cancelled status alone doesn't count; needs cancelled_at = today
+        self.assertEqual(self._get().context['students']['lost_today'], 0)
+        sub = Subscription.objects.filter(status='cancelled').first()
+        sub.cancelled_at = timezone.now()
+        sub.save(update_fields=['cancelled_at'])
+        self.assertEqual(self._get().context['students']['lost_today'], 1)
+
+    # -- institute counts --
+    def test_institute_counts(self):
+        inst = self._get().context['institutes']
+        self.assertEqual(inst['total'], 3)
+        self.assertEqual(inst['active'], 1)
+        self.assertEqual(inst['paying'], 1)
+        self.assertEqual(inst['free'], 0)
+        self.assertEqual(inst['trial'], 1)
+        self.assertEqual(inst['inactive'], 1)
+
+    # -- paying counts --
+    def test_paying_counts(self):
+        ctx = self._get().context
+        # 2 active students have a priced package ($9) -> 2 paying
+        self.assertEqual(ctx['students']['paying'], 2)
+        # 1 active institute on Starter ($49), no discount -> 1 paying
+        self.assertEqual(ctx['institutes']['paying'], 1)
+
+    def test_no_package_student_active_but_not_paying(self):
+        user = _create_normal_user(username='free_student')
+        Subscription.objects.create(user=user, package=None, status='active')
+        ctx = self._get().context
+        self.assertEqual(ctx['students']['active'], 3)  # active status total
+        self.assertEqual(ctx['students']['paying'], 2)  # paying (priced package)
+        self.assertEqual(ctx['students']['free'], 1)    # active but no package
+
+    def test_full_discount_institute_not_paying(self):
+        from billing.models import InstituteDiscountCode
+        code = InstituteDiscountCode.objects.create(
+            code='FREE100', discount_percent=100,
+        )
+        school = School.objects.filter(name='School 0').first()  # the active one
+        sub = SchoolSubscription.objects.get(school=school)
+        sub.discount_code = code
+        sub.save(update_fields=['discount_code'])
+        ctx = self._get().context
+        self.assertEqual(ctx['institutes']['active'], 1)   # still active
+        self.assertEqual(ctx['institutes']['paying'], 0)   # but fully discounted
+        self.assertEqual(ctx['institutes']['free'], 1)     # shows as Free
+        self.assertEqual(ctx['institutes']['estimate'], Decimal('0.00'))
+
+    # -- earnings: estimate fallback (no Stripe key in tests) --
+    def test_earnings_source_is_estimate_without_stripe(self):
+        ctx = self._get().context
+        self.assertEqual(ctx['earnings_source'], 'estimate')
+
+    def test_student_estimate(self):
+        s = self._get().context['students']
+        self.assertEqual(s['estimate'], Decimal('18.00'))  # 2 active x $9
+
+    def test_institute_estimate(self):
+        inst = self._get().context['institutes']
+        self.assertEqual(inst['estimate'], Decimal('49.00'))  # 1 active x $49
+
+    def test_combined_estimate(self):
+        self.assertEqual(self._get().context['combined_estimate'], Decimal('67.00'))
+
+    def test_half_discount_institute_estimate(self):
+        from billing.models import InstituteDiscountCode
+        code = InstituteDiscountCode.objects.create(
+            code='HALF50', discount_percent=50,
+        )
+        school = School.objects.filter(name='School 0').first()
+        sub = SchoolSubscription.objects.get(school=school)
+        sub.discount_code = code
+        sub.save(update_fields=['discount_code'])
+        inst = self._get().context['institutes']
+        self.assertEqual(inst['estimate'], Decimal('24.50'))  # $49 * 50%
+        self.assertEqual(inst['paying'], 1)                    # still paying (partial)
+
+    # -- earnings: actual from Stripe (mocked) --
+    @patch('billing.views_admin.get_paid_revenue')
+    def test_earnings_from_stripe(self, mock_rev):
+        mock_rev.side_effect = [
+            {'student': Decimal('5.00'), 'institute': Decimal('7.00'),
+             'student_count': 1, 'institute_count': 1, 'currency': 'NZD'},   # this month
+            {'student': Decimal('3.00'), 'institute': Decimal('4.00'),
+             'student_count': 1, 'institute_count': 1, 'currency': 'NZD'},   # last month
+        ]
+        ctx = self._get().context
+        self.assertEqual(ctx['earnings_source'], 'stripe')
+        self.assertEqual(ctx['earnings_currency'], 'NZD')
+        self.assertEqual(ctx['students']['this_month'], Decimal('5.00'))
+        self.assertEqual(ctx['students']['last_month'], Decimal('3.00'))
+        self.assertEqual(ctx['institutes']['this_month'], Decimal('7.00'))
+        self.assertEqual(ctx['combined_this_month'], Decimal('12.00'))
+
+    # -- counts: live from Stripe (mocked) --
+    @patch('billing.views_admin.get_subscription_counts')
+    def test_counts_from_stripe(self, mock_counts):
+        mock_counts.return_value = {
+            'student': {'paid': 20, 'trial': 1, 'other': 2, 'total': 23,
+                        'new_today': 3, 'lost_today': 1},
+            'institute': {'paid': 1, 'trial': 0, 'other': 0, 'total': 1,
+                          'new_today': 0, 'lost_today': 0},
+        }
+        ctx = self._get().context
+        self.assertEqual(ctx['counts_source'], 'stripe')
+        self.assertEqual(ctx['students']['stripe']['paid'], 20)
+        self.assertEqual(ctx['institutes']['stripe']['paid'], 1)
+        # New/lost-today tiles follow the Stripe source, not the local DB.
+        self.assertEqual(ctx['students']['new_today'], 3)
+        self.assertEqual(ctx['students']['lost_today'], 1)
+        self.assertEqual(ctx['institutes']['new_today'], 0)
+
+    def test_counts_source_local_without_stripe(self):
+        # No Stripe key in tests -> counts fall back to local DB
+        self.assertEqual(self._get().context['counts_source'], 'local')
+
+    # -- daily active graph (selectable window) --
+    def test_daily_graph_default_window(self):
+        ctx = self._get().context
+        self.assertEqual(ctx['daily_window'], 30)
+        self.assertEqual(len(ctx['daily']['labels']), 30)
+        self.assertEqual(len(ctx['daily']['student']), 30)
+        # setUp subs were created today -> last point reflects them (local fallback)
+        self.assertEqual(ctx['daily']['student'][-1], 4)
+        self.assertEqual(ctx['daily']['institute'][-1], 3)
+        self.assertEqual(ctx['daily']['student'][0], 0)  # none existed 30 days ago
+
+    def test_daily_graph_window_param(self):
+        ctx = self._get(days='7').context
+        self.assertEqual(ctx['daily_window'], 7)
+        self.assertEqual(len(ctx['daily']['labels']), 7)
+
+    def test_daily_graph_invalid_window_defaults_to_30(self):
+        self.assertEqual(self._get(days='999').context['daily_window'], 30)
+
+    def test_active_series_from_intervals(self):
+        from billing.reporting import _active_series_from_intervals
+        from datetime import timedelta
+        today = timezone.localdate()
+        intervals = [
+            ('student', 'u1', today - timedelta(days=10), None),  # active all window
+            ('student', 'u2', today - timedelta(days=2), None),   # active last 3 days
+            # same student re-subscribed (overlapping) -> must NOT double-count
+            ('student', 'u2', today - timedelta(days=1), None),
+            ('institute', 's1', today - timedelta(days=5),
+             today - timedelta(days=3)),                          # ended 3 days ago
+        ]
+        s = _active_series_from_intervals(intervals, 7)
+        self.assertEqual(len(s['labels']), 7)
+        self.assertEqual(s['student'][-1], 2)   # u1 & u2 distinct, today
+        self.assertEqual(s['student'][0], 1)    # only u1 six days ago
+        self.assertEqual(s['institute'][-1], 0)  # ended before today
+
+    # -- breakdowns --
+    def test_breakdowns(self):
+        ctx = self._get().context
+        packages = {r['package__name']: r['count'] for r in ctx['students']['by_package']}
+        types = {r['plan__name']: r['count'] for r in ctx['institutes']['by_type']}
+        self.assertEqual(packages.get('Student Monthly'), 2)  # active only
+        self.assertEqual(types.get('Starter'), 1)             # active only
+
+    # -- addons --
+    def test_addons(self):
+        from billing.models import ModuleProduct
+        ModuleProduct.objects.create(
+            module='teachers_attendance', name='Teachers Attendance',
+            price=Decimal('10.00'),
+        )
+        active_sub = SchoolSubscription.objects.filter(status='active').first()
+        ModuleSubscription.objects.create(
+            school_subscription=active_sub, module='teachers_attendance', is_active=True,
+        )
+        ctx = self._get().context
+        self.assertEqual(len(ctx['addons']), 1)
+        self.assertEqual(ctx['addons'][0]['count'], 1)
+        self.assertEqual(ctx['addons'][0]['revenue'], Decimal('10.00'))
+        self.assertEqual(ctx['addons_total_revenue'], Decimal('10.00'))
+        # addon revenue rolls into the institute estimate
+        self.assertEqual(ctx['institutes']['estimate'], Decimal('59.00'))
+
+    # -- filters --
+    def test_country_filter(self):
+        ctx = self._get(country='New Zealand').context
+        # only 1 NZ student sub (active) and 1 NZ institute (active)
+        self.assertEqual(ctx['students']['total'], 1)
+        self.assertEqual(ctx['institutes']['total'], 1)
+        self.assertIn('New Zealand', ctx['filters']['countries'])
+
+    def test_institution_filter(self):
+        school = _create_school(
+            _create_normal_user(username='solo_admin'),
+            name='Solo School', slug='solo-school',
+        )
+        SchoolSubscription.objects.create(school=school, plan=self.plan, status='active')
+        ctx = self._get(institution=str(school.id)).context
+        self.assertEqual(ctx['institutes']['total'], 1)
+        self.assertEqual(ctx['institutes']['active'], 1)
+
+    def test_page_renders_sections(self):
+        resp = self._get()
+        self.assertContains(resp, 'Student Subscriptions')
+        self.assertContains(resp, 'Institute Subscriptions')
+        self.assertContains(resp, 'Institution Add-ons')
+
+    def test_auto_refresh_present(self):
+        resp = self._get()
+        self.assertEqual(resp.context['refresh_seconds'], 60)
+        self.assertContains(resp, 'auto-refresh')
+        self.assertContains(resp, 'window.location.reload()')
+
+    # -- B2C exclusion: institute students must NOT count as student subs --
+    def test_institute_students_excluded_from_student_panel(self):
+        # Baseline: 4 B2C student subs from setUp
+        self.assertEqual(self._get().context['students']['total'], 4)
+
+        # An institute student: has a Subscription AND an active SchoolStudent row
+        school = School.objects.filter(name='School 0').first()
+        inst_user = _create_normal_user(username='inst_student')
+        SchoolStudent.objects.create(
+            school=school, student=inst_user, is_active=True,
+        )
+        Subscription.objects.create(
+            user=inst_user, package=self.package, status='active',
+        )
+
+        # Still 4 — the institute student is excluded from the B2C panel
+        s = self._get().context['students']
+        self.assertEqual(s['total'], 4)
+        self.assertEqual(s['active'], 2)  # unchanged, not 3
+
+    def test_former_institute_student_counts_as_b2c(self):
+        # If the school membership is inactive, they're B2C again
+        school = School.objects.filter(name='School 0').first()
+        user = _create_normal_user(username='left_school')
+        SchoolStudent.objects.create(school=school, student=user, is_active=False)
+        Subscription.objects.create(user=user, package=self.package, status='active')
+        self.assertEqual(self._get().context['students']['total'], 5)
+
+    # -- deactivated schools must not appear anywhere on the dashboard --
+    def test_deactivated_schools_excluded(self):
+        # Baseline: 3 institute subs from setUp (all active schools)
+        self.assertEqual(self._get().context['institutes']['total'], 3)
+
+        # Deactivate "School 0" (which has an active subscription)
+        school = School.objects.filter(name='School 0').first()
+        school.is_active = False
+        school.save(update_fields=['is_active'])
+
+        ctx = self._get().context
+        inst = ctx['institutes']
+        self.assertEqual(inst['total'], 2)   # School 0 dropped
+        self.assertEqual(inst['active'], 0)  # School 0 was the only active one
+        # and it's gone from the institution filter dropdown
+        names = [i['name'] for i in ctx['filters']['institutions']]
+        self.assertNotIn('School 0', names)
+
+    # -- status donut --
+    def test_student_donut_segments(self):
+        donut = self._get().context['students']['donut']
+        labels = {s['label']: s['value'] for s in donut['segments']}
+        # 2 paying (Active), 0 free, 1 trial, 1 inactive
+        self.assertEqual(labels, {'Active': 2, 'Free': 0, 'Trial': 1, 'Inactive': 1})
+        self.assertEqual(donut['total'], 4)
+        self.assertEqual(donut['active_pct'], 50.0)  # 2 paying of 4
+
+    def test_donut_renders_svg(self):
+        resp = self._get()
+        self.assertContains(resp, 'Student status')
+        self.assertContains(resp, 'Institute status')
+        self.assertContains(resp, 'stroke-dasharray')
+
+    def test_donut_handles_zero_total(self):
+        Subscription.objects.all().delete()
+        donut = self._get().context['students']['donut']
+        self.assertEqual(donut['total'], 0)
+        self.assertEqual(donut['active_pct'], 0.0)
+        # all segments present but zero-valued (template skips rendering them)
+        self.assertEqual(len(donut['segments']), 4)
+
+
+class StripeEarningsReportingTests(TestCase):
+    """billing.reporting.get_paid_revenue — attribution + fallback."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        pkg = Package.objects.create(name='Wizard', price=Decimal('19.90'))
+        u = _create_normal_user(username='paycust')
+        Subscription.objects.create(
+            user=u, package=pkg, status='active', stripe_customer_id='cus_student',
+        )
+        admin = _create_normal_user(username='payadmin')
+        school = _create_school(admin, name='Pay School', slug='pay-school')
+        SchoolSubscription.objects.create(
+            school=school, plan=_create_plan(), status='active',
+            stripe_customer_id='cus_inst',
+        )
+
+    def test_no_stripe_key_raises_unavailable(self):
+        from billing.reporting import get_paid_revenue, StripeUnavailable
+        import datetime
+        start = timezone.make_aware(datetime.datetime(2026, 5, 1))
+        end = timezone.make_aware(datetime.datetime(2026, 6, 1))
+        with override_settings(STRIPE_SECRET_KEY=''):
+            with self.assertRaises(StripeUnavailable):
+                get_paid_revenue(start, end)
+
+    @override_settings(STRIPE_SECRET_KEY='sk_test_dummy')
+    @patch('billing.reporting.stripe.Invoice.list')
+    def test_attribution_by_customer(self, mock_list):
+        from billing.reporting import get_paid_revenue
+        import datetime
+        sub = 'subscription_cycle'
+        invoices = [
+            {'amount_paid': 1990, 'customer': 'cus_student', 'billing_reason': sub, 'currency': 'nzd'},
+            {'amount_paid': 9450, 'customer': 'cus_inst', 'billing_reason': sub, 'currency': 'nzd'},
+            {'amount_paid': 500, 'customer': 'cus_unknown', 'billing_reason': sub, 'currency': 'nzd'},  # not ours
+            {'amount_paid': 0, 'customer': 'cus_student', 'billing_reason': sub, 'currency': 'nzd'},     # zero
+            {'amount_paid': 5000, 'customer': 'cus_inst', 'billing_reason': 'manual', 'currency': 'nzd'},  # not a sub
+        ]
+        obj = MagicMock()
+        obj.auto_paging_iter.return_value = iter(invoices)
+        mock_list.return_value = obj
+        start = timezone.make_aware(datetime.datetime(2026, 5, 1))
+        end = timezone.make_aware(datetime.datetime(2026, 6, 1))
+        res = get_paid_revenue(start, end)
+        self.assertEqual(res['student'], Decimal('19.90'))
+        self.assertEqual(res['institute'], Decimal('94.50'))  # manual $50 excluded
+        self.assertEqual(res['student_count'], 1)
+        self.assertEqual(res['institute_count'], 1)
+        self.assertEqual(res['currency'], 'NZD')
+
+    @override_settings(STRIPE_SECRET_KEY='sk_test_dummy')
+    @patch('billing.reporting.stripe.Subscription.list')
+    def test_subscription_counts(self, mock_list):
+        from billing.reporting import get_subscription_counts
+        from django.core.cache import cache
+        cache.clear()
+        subs = [
+            {'metadata': {'type': 'individual', 'user_id': '1'}, 'status': 'active'},
+            {'metadata': {'type': 'school_student', 'user_id': '2'}, 'status': 'active'},
+            {'metadata': {'type': 'individual', 'user_id': '3'}, 'status': 'trialing'},
+            {'metadata': {'type': 'institute', 'school_id': '9'}, 'status': 'active'},
+            # duplicate subscription for the SAME school -> must dedupe to 1
+            {'metadata': {'type': 'institute', 'school_id': '9'}, 'status': 'active'},
+            {'metadata': {'type': 'institute', 'school_id': '8'}, 'status': 'canceled'},
+            {'metadata': {'type': 'module'}, 'status': 'active'},   # ignored
+            {'metadata': {}, 'status': 'active'},                    # untyped, ignored
+        ]
+        obj = MagicMock()
+        obj.auto_paging_iter.return_value = iter(subs)
+        mock_list.return_value = obj
+        c = get_subscription_counts()
+        # students = distinct individual + school_student users
+        self.assertEqual(c['student']['paid'], 2)   # users 1 & 2
+        self.assertEqual(c['student']['trial'], 1)  # user 3
+        self.assertEqual(c['student']['total'], 3)
+        # institutes deduped by school_id: school 9 (2 subs) counts once
+        self.assertEqual(c['institute']['paid'], 1)
+        self.assertEqual(c['institute']['other'], 1)   # school 8 canceled
+        self.assertEqual(c['institute']['total'], 2)   # schools 9 & 8
+        # no created/ended timestamps on these fixtures -> nothing today
+        self.assertEqual(c['student']['new_today'], 0)
+        self.assertEqual(c['student']['lost_today'], 0)
+
+    @override_settings(STRIPE_SECRET_KEY='sk_test_dummy')
+    @patch('billing.reporting.stripe.Subscription.list')
+    def test_subscription_counts_new_lost_today(self, mock_list):
+        """new_today / lost_today come from Stripe created / ended timestamps,
+        deduped per entity and measured in the app's local timezone."""
+        from billing.reporting import get_subscription_counts
+        from django.core.cache import cache
+        cache.clear()
+        now = int(timezone.now().timestamp())
+        old = now - 86400 * 10  # 10 days ago
+        subs = [
+            # started today -> counts as new (student user 1)
+            {'metadata': {'type': 'individual', 'user_id': '1'},
+             'status': 'trialing', 'created': now},
+            # started long ago -> not new
+            {'metadata': {'type': 'individual', 'user_id': '2'},
+             'status': 'active', 'created': old},
+            # same student re-subscribed today -> still one distinct "new"
+            {'metadata': {'type': 'school_student', 'user_id': '1'},
+             'status': 'trialing', 'created': now},
+            # institute canceled today -> counts as lost
+            {'metadata': {'type': 'institute', 'school_id': '9'},
+             'status': 'canceled', 'created': old, 'canceled_at': now},
+        ]
+        obj = MagicMock()
+        obj.auto_paging_iter.return_value = iter(subs)
+        mock_list.return_value = obj
+        c = get_subscription_counts()
+        self.assertEqual(c['student']['new_today'], 1)   # user 1 deduped
+        self.assertEqual(c['student']['lost_today'], 0)
+        self.assertEqual(c['institute']['new_today'], 0)
+        self.assertEqual(c['institute']['lost_today'], 1)  # school 9

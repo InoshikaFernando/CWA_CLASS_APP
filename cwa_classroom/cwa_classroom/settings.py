@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.6.3'          # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-06-14'     # ISO date of this release
+APP_VERSION       = '1.8.0'          # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-06-16'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -115,11 +115,28 @@ FEEDBACK_OWNER_EMAIL = os.environ.get('FEEDBACK_OWNER_EMAIL', '')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
 # Claude pricing (USD per 1M tokens) used to estimate per-upload AI cost in the
-# usage ledger. Override via env when the model or list price changes.
+# usage ledger. Defaults match Claude Opus 4.8 list price — the model both AI
+# pipelines actually run (AI_IMPORT_MODEL / WORKSHEET_MODEL). Override via env
+# when the model or list price changes. (Was $3/$15 Sonnet 4, which understated
+# true cost ~1.67x while the pipelines ran on Opus.)
 CLAUDE_INPUT_COST_PER_MTOK = float(
-    os.environ.get('CLAUDE_INPUT_COST_PER_MTOK', '3.0'))
+    os.environ.get('CLAUDE_INPUT_COST_PER_MTOK', '5.0'))
 CLAUDE_OUTPUT_COST_PER_MTOK = float(
-    os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '15.0'))
+    os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '25.0'))
+
+# Live AI usage dashboard — after each AI call the worker rewrites a pinned
+# GitHub issue with the latest usage/cost. Best-effort: stays disabled (no-op)
+# until a token + repo are configured, so dev/test/local never call out.
+AI_DASHBOARD_GITHUB_TOKEN = os.environ.get('AI_DASHBOARD_GITHUB_TOKEN', '')
+AI_DASHBOARD_GITHUB_REPO = os.environ.get('AI_DASHBOARD_GITHUB_REPO', '')
+AI_DASHBOARD_ISSUE_LABEL = os.environ.get('AI_DASHBOARD_ISSUE_LABEL', 'ai-usage-dashboard')
+AI_DASHBOARD_ISSUE_NUMBER = os.environ.get('AI_DASHBOARD_ISSUE_NUMBER', '')
+AI_USAGE_WINDOW_DAYS = int(os.environ.get('AI_USAGE_WINDOW_DAYS', '30'))
+# When set (e.g. "Production" / "Test"), this environment owns one named section
+# of a shared dashboard issue and only rewrites its own block — so prod and test
+# can publish to the same issue without clobbering each other. Empty = legacy
+# whole-issue mode (the env owns the entire issue body).
+AI_DASHBOARD_ENV = os.environ.get('AI_DASHBOARD_ENV', '')
 
 # ---------------------------------------------------------------------------
 # Redis / RQ  (background task processing)
@@ -225,8 +242,27 @@ if _DB_ENGINE == 'sqlite':
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            # Live-server tests (Playwright UI suite) run the dev server in a
+            # thread that writes to the same SQLite file as the test, so writers
+            # contend. Wait up to 30s for the lock instead of erroring at
+            # SQLite's 5s default — fixes intermittent "database is locked".
+            'OPTIONS': {'timeout': 30},
         },
     }
+
+    # Put SQLite in WAL mode on every new connection so readers don't block the
+    # writer (the other half of the "database is locked" fix). Scoped to the
+    # sqlite vendor, so this is a no-op for MySQL/Postgres (prod is untouched).
+    from django.db.backends.signals import connection_created
+
+    def _enable_sqlite_wal(sender, connection, **kwargs):
+        if connection.vendor == 'sqlite':
+            cursor = connection.cursor()
+            cursor.execute('PRAGMA journal_mode=WAL;')
+            cursor.execute('PRAGMA synchronous=NORMAL;')
+            cursor.execute('PRAGMA busy_timeout=30000;')
+
+    connection_created.connect(_enable_sqlite_wal, dispatch_uid='sqlite_wal_pragmas')
 elif _DB_ENGINE == 'postgres':
     DATABASES = {
         'default': {
@@ -316,6 +352,18 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
+# ---------------------------------------------------------------------------
+# Login rate limiting
+# ---------------------------------------------------------------------------
+# Keyed primarily by *username* so a shared-IP site (e.g. a school behind one
+# NAT) can't be locked out collectively by a few students' typos — one
+# student's failures only lock that student. A generous per-IP cap is a
+# secondary safety net against a single host enumerating many accounts; raise
+# LOGIN_RATELIMIT_IP_MAX if a very large school ever trips it.
+LOGIN_RATELIMIT_USER_MAX = int(os.environ.get('LOGIN_RATELIMIT_USER_MAX', '10'))
+LOGIN_RATELIMIT_IP_MAX = int(os.environ.get('LOGIN_RATELIMIT_IP_MAX', '100'))
+LOGIN_RATELIMIT_WINDOW = int(os.environ.get('LOGIN_RATELIMIT_WINDOW', '900'))  # 15 min
+
 
 # ---------------------------------------------------------------------------
 # Internationalisation
@@ -392,6 +440,11 @@ DAILY_EMAIL_LIMIT = int(os.environ.get('DAILY_EMAIL_LIMIT', '90'))
 
 # Priority: Resend API (recommended) > SMTP (legacy) > Console (dev)
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
+
+# Signing secret for the Resend delivery webhook (/webhooks/resend/). Copy it
+# from the webhook's page in the Resend dashboard. Without it, the endpoint
+# rejects all events.
+RESEND_WEBHOOK_SECRET = os.environ.get('RESEND_WEBHOOK_SECRET', '')
 
 if RESEND_API_KEY:
     EMAIL_BACKEND = 'cwa_classroom.email_backends.ResendEmailBackend'
@@ -591,5 +644,8 @@ LOGGING = {
         'homework':   {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
         'billing':    {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
         'classroom':  {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+        # INFO so successful logins (which clear the rate-limit counter) are
+        # visible alongside the WARNING-level failures and lockouts.
+        'accounts':   {'handlers': _app_handlers, 'level': 'INFO', 'propagate': False},
     },
 }

@@ -8,6 +8,7 @@ from . import views_student
 from . import views_progress
 from . import views_hierarchy
 from . import views_invoicing
+from . import views_webhooks
 from . import views_salaries
 from . import views_parent
 from . import views_parent_admin
@@ -142,6 +143,7 @@ urlpatterns = [
 
     # Student management (school-level)
     path('admin-dashboard/schools/<int:school_id>/students/', views_admin.SchoolStudentManageView.as_view(), name='admin_school_students'),
+    path('admin-dashboard/schools/<int:school_id>/students/export-csv/', views_admin.SchoolStudentExportCSVView.as_view(), name='admin_school_students_export_csv'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit/', views_admin.SchoolStudentEditView.as_view(), name='admin_school_student_edit'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit-modal/', views_admin.StudentEditModalView.as_view(), name='admin_school_student_edit_modal'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/', views_admin.SchoolStudentRemoveView.as_view(), name='admin_school_student_remove'),
@@ -282,6 +284,8 @@ urlpatterns = [
 
     # Per-student fee override
     path('class/<int:class_id>/student/<int:student_id>/fee/', views.UpdateStudentFeeView.as_view(), name='update_student_fee'),
+    # Per-student billing start date (CPP-342)
+    path('class/<int:class_id>/student/<int:student_id>/billing-start/', views.UpdateStudentBillingStartView.as_view(), name='update_student_billing_start'),
     path('class/<int:class_id>/student/<int:student_id>/remove/', views.ClassStudentRemoveView.as_view(), name='class_student_remove'),
     path('class/<int:class_id>/teacher/<int:teacher_id>/remove/', views.ClassTeacherRemoveView.as_view(), name='class_teacher_remove'),
 
@@ -339,6 +343,9 @@ urlpatterns = [
     path('invoicing/<int:invoice_id>/cancel/', views_invoicing.CancelInvoiceView.as_view(), name='cancel_invoice'),
     path('invoicing/<int:invoice_id>/resend/', views_invoicing.ResendInvoiceView.as_view(), name='resend_invoice'),
     path('invoicing/<int:invoice_id>/pay/', views_invoicing.RecordManualPaymentView.as_view(), name='record_manual_payment'),
+
+    # Inbound webhooks (unauthenticated, signature-verified)
+    path('webhooks/resend/', views_webhooks.ResendWebhookView.as_view(), name='resend_webhook'),
     path('invoicing/csv/upload/', views_invoicing.CSVUploadView.as_view(), name='csv_upload'),
     path('invoicing/csv/mapping/', views_invoicing.CSVColumnMappingView.as_view(), name='csv_column_mapping'),
     path('invoicing/csv/<int:import_id>/review/', views_invoicing.CSVReviewMatchesView.as_view(), name='csv_review_matches'),

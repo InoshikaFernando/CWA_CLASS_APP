@@ -53,7 +53,7 @@ class TestTopicQuizE2E:
             answer_btn = page.locator(
                 "#question-container button[onclick*='submitMC'], "
                 "#question-container .answer-btn, "
-                "#question-container button"
+                "#question-container button:not(.tts-btn)"
             ).first
             answer_btn.wait_for(state="visible", timeout=10_000)
 
@@ -205,7 +205,7 @@ class TestTimesTablesE2E:
             # Wait for an answer button
             answer_btn = page.locator(
                 ".tt-answer-btn, "
-                "#question-container button, "
+                "#question-container button:not(.tts-btn), "
                 "button[onclick*='submitAnswer']"
             ).first
             answer_btn.wait_for(state="visible", timeout=10_000)

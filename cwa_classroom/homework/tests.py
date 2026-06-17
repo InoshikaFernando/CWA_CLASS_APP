@@ -358,6 +358,45 @@ class TeacherHomeworkDetailTest(HomeworkTestBase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 404)
 
+    def test_submitted_count_reflects_actual_submissions(self):
+        url = reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        # No submissions yet → 0, even though the class has students.
+        resp = self.client.get(url)
+        self.assertEqual(resp.context['submitted_count'], 0)
+        self.assertEqual(resp.context['overdue_count'], 0)
+
+        # One real submission → count is 1, not the student total.
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            attempt_number=1, score=4, total_questions=5, points=80.0,
+        )
+        resp = self.client.get(url)
+        self.assertEqual(resp.context['submitted_count'], 1)
+
+    def test_overdue_count_reflects_unsubmitted_past_due(self):
+        url = reverse('homework:teacher_detail', kwargs={'homework_id': self.past_homework.id})
+        resp = self.client.get(url)
+        # Both enrolled students missed the past-due homework.
+        self.assertEqual(resp.context['overdue_count'], 2)
+        self.assertEqual(resp.context['submitted_count'], 0)
+
+    def test_students_ordered_by_name(self):
+        self.student.first_name = 'Zoe'
+        self.student.save(update_fields=['first_name'])
+        self.student2.first_name = 'Aaron'
+        self.student2.save(update_fields=['first_name'])
+        url = reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        resp = self.client.get(url)
+        names = [r['student'].get_full_name() for r in resp.context['student_rows']]
+        self.assertEqual(names, sorted(names, key=str.lower))
+        self.assertLess(names.index('Aaron'), names.index('Zoe'))
+
+    def test_search_and_filter_controls_present(self):
+        url = reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        resp = self.client.get(url)
+        self.assertContains(resp, 'id="student-search"')
+        self.assertContains(resp, 'id="status-filter"')
+
 
 # ---------------------------------------------------------------------------
 # Student view tests
@@ -780,6 +819,71 @@ class HomeworkMonitorUITest(HomeworkTestBase):
         )
         detail_url = reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
         self.assertContains(resp, detail_url)
+
+
+class HomeworkMonitorWeekFilterTest(HomeworkTestBase):
+    """The monitor's weekly filter (published_at, Monday-Sunday weeks)."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='teacher1', password='pass1234')
+        self.url = reverse('homework:teacher_monitor') + f'?classroom={self.classroom.id}'
+
+        # Published two weeks ago — outside the current week, but inside its own.
+        self.old_published_at = timezone.now() - timedelta(days=14)
+        self.old_hw = Homework.objects.create(
+            classroom=self.classroom, created_by=self.teacher,
+            title='Old Week Homework', homework_type='topic', num_questions=5,
+            due_date=timezone.now() - timedelta(days=10),
+            published_at=self.old_published_at,
+        )
+        # Scheduled for the future → published_at stays NULL (unpublished).
+        self.scheduled_hw = Homework.objects.create(
+            classroom=self.classroom, created_by=self.teacher,
+            title='Scheduled Week Homework', homework_type='topic', num_questions=5,
+            due_date=timezone.now() + timedelta(days=20),
+            publish_at=timezone.now() + timedelta(days=3),
+        )
+
+    def _monday_param(self, dt):
+        d = timezone.localtime(dt).date()
+        return (d - timedelta(days=d.weekday())).isoformat()
+
+    def test_default_view_shows_current_week_published(self):
+        # self.homework is auto-published "now" by the model, so it falls in the
+        # current week and shows on the default (no week param) view.
+        resp = self.client.get(self.url)
+        self.assertContains(resp, 'Test Homework')
+
+    def test_default_view_hides_homework_published_in_other_week(self):
+        resp = self.client.get(self.url)
+        self.assertNotContains(resp, 'Old Week Homework')
+
+    def test_selecting_week_shows_that_weeks_homework(self):
+        resp = self.client.get(self.url + f'&week={self._monday_param(self.old_published_at)}')
+        self.assertContains(resp, 'Old Week Homework')
+        # ...and hides homework published in the current week.
+        self.assertNotContains(resp, 'Test Homework')
+
+    def test_unpublished_homework_always_visible(self):
+        # Scheduled (unpublished) homework has no published date, so it shows
+        # regardless of which week is selected.
+        for q in ('', f'&week={self._monday_param(self.old_published_at)}'):
+            resp = self.client.get(self.url + q)
+            self.assertContains(resp, 'Scheduled Week Homework')
+
+    def test_all_weeks_shows_every_published_homework(self):
+        resp = self.client.get(self.url + '&week=all')
+        self.assertContains(resp, 'Old Week Homework')
+        self.assertContains(resp, 'Test Homework')
+        self.assertContains(resp, 'All weeks')
+
+    def test_week_bar_always_present_on_default_view(self):
+        resp = self.client.get(self.url)
+        # Range label, navigation and the escape link render without a param.
+        self.assertContains(resp, 'Previous week')
+        self.assertContains(resp, 'Next week')
+        self.assertContains(resp, 'All weeks')
 
 
 class HomeworkDetailUITest(HomeworkTestBase):
@@ -2003,6 +2107,29 @@ class PDFConfirmMultiClassTests(TestCase):
         session.refresh_from_db()
         self.assertFalse(session.is_confirmed)
 
+    def test_pdf_homework_published_by_default(self):
+        session = self._make_session()
+        self._post(session, classroom_ids=[str(self.c1.id)])
+        hw = Homework.objects.get(title='Multi HW', classroom=self.c1)
+        self.assertIsNotNone(hw.published_at)
+        self.assertEqual(hw.status, Homework.STATUS_PUBLISHED)
+
+    def test_pdf_homework_can_be_scheduled(self):
+        session = self._make_session()
+        # Future publish_at, before the 2099 due date.
+        self._post(session, classroom_ids=[str(self.c1.id)], publish_at='2030-01-01T10:00')
+        hw = Homework.objects.get(title='Multi HW', classroom=self.c1)
+        self.assertIsNone(hw.published_at)
+        self.assertIsNotNone(hw.publish_at)
+        self.assertEqual(hw.status, Homework.STATUS_CREATED)
+
+    def test_pdf_publish_at_after_due_date_rejected(self):
+        session = self._make_session()
+        # publish_at after the 2099 due date is invalid → no homework created.
+        resp = self._post(session, classroom_ids=[str(self.c1.id)], publish_at='2100-01-01T10:00')
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Homework.objects.filter(title='Multi HW').exists())
+
     def test_duplicate_questions_are_deduped(self):
         # Two extracted questions with identical text resolve to the same
         # maths.Question via get_or_create; the confirm step must dedupe them
@@ -2229,3 +2356,105 @@ class HomeworkPreviewAddQuestionTest(HomeworkTestBase):
         session.refresh_from_db()
         texts = [q['question_text'] for q in session.extracted_data['questions']]
         self.assertEqual(texts, ['edited', '2+2?'])
+
+
+# ---------------------------------------------------------------------------
+# CPP-344 — Homework monitor "All" filter + back-to-All button
+# ---------------------------------------------------------------------------
+
+class TeacherHomeworkMonitorAllFilterTest(HomeworkTestBase):
+    """The monitor filter must offer an 'All' option (the default) that shows
+    homework across every class the teacher is assigned to, and the detail page
+    back button must land on the monitor with All selected."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        # A second class taught by the same teacher, with its own homework.
+        cls.classroom2 = ClassRoom.objects.create(
+            name='Year 6 Science', code='HWTEST02', school=cls.school,
+        )
+        ClassTeacher.objects.create(classroom=cls.classroom2, teacher=cls.teacher)
+        cls.homework2 = Homework.objects.create(
+            classroom=cls.classroom2,
+            created_by=cls.teacher,
+            title='Science Homework',
+            homework_type='topic',
+            num_questions=5,
+            due_date=timezone.now() + timedelta(days=7),
+            max_attempts=2,
+        )
+        cls.homework2.topics.add(cls.topic)
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='teacher1', password='pass1234')
+
+    def _monitor(self, query=''):
+        return self.client.get(reverse('homework:teacher_monitor') + query)
+
+    def test_all_option_present(self):
+        resp = self._monitor()
+        self.assertContains(resp, 'value="all"')
+        self.assertContains(resp, 'All classes')
+
+    def test_default_is_not_all(self):
+        # No param keeps the first-class default so the New Homework shortcut
+        # stays available; All is opt-in via the dropdown / back button.
+        resp = self._monitor()
+        self.assertFalse(resp.context['show_all'])
+        self.assertIsNotNone(resp.context['selected_classroom'])
+
+    def test_all_shows_homework_across_classes(self):
+        resp = self._monitor('?classroom=all')
+        self.assertContains(resp, 'Test Homework')      # class 1
+        self.assertContains(resp, 'Science Homework')    # class 2
+
+    def test_all_explicit_param(self):
+        resp = self._monitor('?classroom=all')
+        self.assertTrue(resp.context['show_all'])
+        self.assertContains(resp, 'Science Homework')
+
+    def test_class_badge_shown_in_all_view(self):
+        resp = self._monitor('?classroom=all')
+        # Each card is tagged with its class name in the All view.
+        self.assertContains(resp, 'Year 6 Science')
+
+    def test_specific_class_filters_out_others(self):
+        resp = self._monitor(f'?classroom={self.classroom2.id}')
+        self.assertFalse(resp.context['show_all'])
+        self.assertEqual(resp.context['selected_classroom'], self.classroom2)
+        self.assertContains(resp, 'Science Homework')
+        self.assertNotContains(resp, 'Test Homework')
+
+    def test_invalid_classroom_falls_back_gracefully(self):
+        # Unknown id falls back to the first class (original behaviour), not a 500.
+        resp = self._monitor('?classroom=999999')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context['show_all'])
+        self.assertIsNotNone(resp.context['selected_classroom'])
+
+    def test_non_numeric_classroom_does_not_500(self):
+        resp = self._monitor('?classroom=abc')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_detail_back_link_lands_on_all(self):
+        resp = self.client.get(
+            reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, reverse('homework:teacher_monitor') + '?classroom=all')
+
+    def test_other_teacher_classes_excluded_from_all(self):
+        # A class taught by a different teacher must not appear in teacher1's All view.
+        other_class = ClassRoom.objects.create(
+            name='Other Teacher Class', code='HWTEST03', school=self.school,
+        )
+        ClassTeacher.objects.create(classroom=other_class, teacher=self.other_teacher)
+        Homework.objects.create(
+            classroom=other_class, created_by=self.other_teacher,
+            title='Other Teacher Homework', homework_type='topic',
+            num_questions=5, due_date=timezone.now() + timedelta(days=7), max_attempts=1,
+        )
+        resp = self._monitor('?classroom=all')
+        self.assertNotContains(resp, 'Other Teacher Homework')

@@ -2,9 +2,15 @@
 {% block title %}{{ student.get_full_name|default:student.username }} — Progress{% endblock %}
 {% block content %}
 <div class="max-w-5xl mx-auto space-y-6">
-  <div>
-    <h1 class="font-display text-3xl text-primary">{{ student.get_full_name|default:student.username }}</h1>
-    <p class="text-gray-400 text-sm mt-1">{{ student.username }} · Progress report</p>
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h1 class="font-display text-3xl text-primary">{{ student.get_full_name|default:student.username }}</h1>
+      <p class="text-gray-400 text-sm mt-1">{{ student.username }} · Progress report</p>
+    </div>
+    <a href="{% url 'quiz_student_attempt_history' student_id=student.id %}"
+       class="shrink-0 mt-1 text-sm font-semibold text-accent hover:underline">
+      View quiz attempt history &rarr;
+    </a>
   </div>
 
   {% for row in progress_grid %}
