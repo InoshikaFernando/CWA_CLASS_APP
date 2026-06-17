@@ -113,12 +113,13 @@ def _can_view_student_homework(user, student, homework):
 # Call plugin.homework_topic_tree(classroom) instead.
 
 
-def _select_and_save_questions(homework, selected_topic_ids, num_questions):
+def _select_and_save_questions(homework, selected_topic_ids, num_questions, question_type=None):
     """Ask the plugin for content ids, then persist HomeworkQuestion rows.
 
     Delegates the subject-specific selection to the plugin bound to
     ``homework.subject_slug`` so the same code path works for maths, coding,
-    or any future subject.
+    or any future subject. ``question_type`` optionally constrains the
+    auto-selection to a single question type (None = any type).
     """
     plugin = get_plugin(homework.subject_slug)
     if plugin is None or not plugin.supports_homework:
@@ -126,6 +127,7 @@ def _select_and_save_questions(homework, selected_topic_ids, num_questions):
 
     content_ids = plugin.pick_homework_items(
         homework.classroom, selected_topic_ids, num_questions,
+        question_type=question_type,
     )
     if not content_ids:
         return 0
@@ -182,6 +184,7 @@ class HomeworkCreateView(RoleRequiredMixin, View):
             'homework_subject_choices': homework_subject_choices(),
             'selected_subject_slug': plugin.slug,
             'topic_field_name': plugin.homework_topic_field_name(),
+            'question_type_choices': plugin.homework_question_type_choices(),
         }
 
     def get(self, request, classroom_id):
@@ -214,6 +217,9 @@ class HomeworkCreateView(RoleRequiredMixin, View):
         if plugin.slug == 'mathematics' and form.cleaned_data.get('topics'):
             topic_ids = [str(t.pk) for t in form.cleaned_data['topics']]
 
+        # Optional question-type constraint on the auto-selection.
+        question_type = (request.POST.get('question_type') or '').strip() or None
+
         with transaction.atomic():
             homework = form.save(commit=False)
             homework.classroom = classroom
@@ -225,13 +231,19 @@ class HomeworkCreateView(RoleRequiredMixin, View):
             form.save_m2m()
             plugin.save_homework_topics(homework, topic_ids)
 
-            count = _select_and_save_questions(homework, topic_ids, homework.num_questions)
+            count = _select_and_save_questions(
+                homework, topic_ids, homework.num_questions, question_type=question_type,
+            )
 
         if count == 0:
-            messages.warning(
-                request,
-                'No items found for the selected topics. Please add content first.',
-            )
+            if question_type:
+                warning = (
+                    'No questions of the selected type were found for these topics. '
+                    'Try “All types” or pick different topics.'
+                )
+            else:
+                warning = 'No items found for the selected topics. Please add content first.'
+            messages.warning(request, warning)
             homework.delete()
             return render(request, self.template_name, self._base_context(request, classroom, plugin, form))
 

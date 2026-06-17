@@ -343,16 +343,17 @@ def _snapshot_coding_questions(session: BrainBuzzSession, topic_level_id: int, c
         'fill_blank':      QUESTION_TYPE_FILL_BLANK,
     }
 
-    # BrainBuzz currently only renders multiple-choice cleanly across all
-    # devices, so restrict the pool to MCQ rows. (Short-answer / fill-blank
-    # rendering has had recurring issues on the student client; true_false
-    # works but is excluded here to keep the experience uniform.)
+    # BrainBuzz renders multiple-choice and true/false cleanly across all
+    # devices (both use the same tile selector), so restrict the pool to those
+    # two types. Short-answer / fill-blank rendering has had recurring issues
+    # on the student client and write_code has no quiz-style answer, so both
+    # are excluded to keep the experience uniform.
     qs = (
         CodingExercise.objects
         .filter(
             topic_level_id=topic_level_id,
             is_active=True,
-            question_type='multiple_choice',
+            question_type__in=['multiple_choice', 'true_false'],
         )
         .order_by('?')[:count]
     )
@@ -598,13 +599,19 @@ def _create_context():
     # Annotate coding topic-levels with question counts + question titles for popup
     try:
         from coding.models import CodingExercise
+        # BrainBuzz coding sessions only serve multiple-choice and true/false
+        # exercises (see _snapshot_coding_questions), so the create-form counts
+        # and titles popup must reflect that same pool — not all exercise types.
+        BB_CODING_TYPES = ['multiple_choice', 'true_false']
         counts = {
             r['topic_level_id']: r['n']
-            for r in CodingExercise.objects.filter(is_active=True).values('topic_level_id').annotate(n=Count('id'))
+            for r in CodingExercise.objects
+                .filter(is_active=True, question_type__in=BB_CODING_TYPES)
+                .values('topic_level_id').annotate(n=Count('id'))
         }
         tl_q_map = {}
         for ex in (CodingExercise.objects
-                   .filter(is_active=True, question_type='multiple_choice')
+                   .filter(is_active=True, question_type__in=BB_CODING_TYPES)
                    .values('topic_level_id', 'title')
                    .order_by('topic_level_id', 'id')):
             tid = ex['topic_level_id']

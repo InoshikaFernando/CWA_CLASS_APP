@@ -93,7 +93,11 @@ class MathsPlugin(SubjectPlugin):
         # Clear the alternate M2M so the homework only carries maths topics.
         homework.coding_topics.clear()
 
-    def pick_homework_items(self, classroom, selected_topic_ids, n):
+    def homework_question_type_choices(self):
+        from maths.models import Question
+        return Question.QUESTION_TYPES
+
+    def pick_homework_items(self, classroom, selected_topic_ids, n, question_type=None):
         from classroom.models import Topic
         from maths.models import Question
         from maths.views import select_questions_stratified
@@ -106,6 +110,8 @@ class MathsPlugin(SubjectPlugin):
         qs = Question.objects.filter(topic__in=topics).select_related('topic')
         if classroom_levels.exists():
             qs = qs.filter(level__in=classroom_levels)
+        if question_type:
+            qs = qs.filter(question_type=question_type)
         all_questions = list(qs)
 
         if not all_questions:
