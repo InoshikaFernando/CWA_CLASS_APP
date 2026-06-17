@@ -1,6 +1,7 @@
 import json
 import random
 import time as time_module
+from datetime import datetime, time as datetime_time, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -310,6 +311,53 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
         else:
             hw_qs = Homework.objects.none()
 
+        # Weekly filter. ``week`` is the Monday date (YYYY-MM-DD) of the week to
+        # show; we normalise any date in that week back to its Monday so the
+        # prev/next links and the published_at window always span a full
+        # Monday-to-Sunday week. The week bar is always shown: with no/blank/
+        # invalid param we default to the current week (filter active), and the
+        # explicit sentinel ``week=all`` shows every week.
+        today = timezone.localdate()
+        current_week_start = today - timedelta(days=today.weekday())
+
+        week_param = request.GET.get('week')
+        all_weeks = week_param == 'all'
+        week_start = None
+        if not all_weeks:
+            if week_param:
+                try:
+                    picked = datetime.strptime(week_param, '%Y-%m-%d').date()
+                    week_start = picked - timedelta(days=picked.weekday())
+                except (ValueError, TypeError):
+                    week_start = None
+            # No / blank / unparseable param defaults to the current week.
+            if week_start is None:
+                week_start = current_week_start
+
+        # The week the bar displays and navigates from: the selected week, or the
+        # current week while "All weeks" is active (so the arrows still work).
+        display_week_start = week_start or current_week_start
+        week_end = (week_start + timedelta(days=6)) if week_start else None  # Sun
+        prev_week = (display_week_start - timedelta(days=7)).isoformat()
+        next_week = (display_week_start + timedelta(days=7)).isoformat()
+
+        if week_start is not None:
+            # Filter on published_at within [Mon 00:00, next Mon 00:00). Build
+            # timezone-aware bounds so the comparison matches stored UTC values.
+            # Unpublished (Created/scheduled) homework has no published date, so
+            # it isn't subject to the week window — it's always shown so teachers
+            # can still find and publish it from the default current-week view.
+            start_dt = timezone.make_aware(
+                datetime.combine(week_start, datetime_time.min)
+            )
+            end_dt = timezone.make_aware(
+                datetime.combine(week_start + timedelta(days=7), datetime_time.min)
+            )
+            hw_qs = hw_qs.filter(
+                Q(published_at__gte=start_dt, published_at__lt=end_dt)
+                | Q(published_at__isnull=True)
+            )
+
         homework_list = (
             hw_qs
             .select_related('classroom')
@@ -324,6 +372,12 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
             'selected_classroom': selected_classroom,
             'show_all': show_all,
             'homework_list': homework_list,
+            'all_weeks': all_weeks,
+            'week_start': week_start,
+            'week_end': week_end,
+            'display_week_start': display_week_start.isoformat(),
+            'prev_week': prev_week,
+            'next_week': next_week,
         })
 
 
