@@ -85,6 +85,8 @@ class WorksheetBuilderView(RoleRequiredMixin, View):
             'coding_languages': coding_languages,
             'coding_levels': CODING_LEVELS,
             'levels': levels,
+            # Initial render is Mathematics; coding types are swapped in via cascade.
+            'question_types': Question.QUESTION_TYPES,
         })
 
 
@@ -104,12 +106,13 @@ class WorksheetBuilderQuestionsView(RoleRequiredMixin, View):
         topic_id = request.GET.get('topic', '').strip()
         subtopic_id = request.GET.get('subtopic', '').strip()
         level_filter = request.GET.get('level', '').strip()
+        question_type = request.GET.get('question_type', '').strip()
         search = request.GET.get('q', '').strip()
 
         filter_params = {k: v for k, v in request.GET.items() if k != 'page'}
 
         if subject_slug == 'coding':
-            return self._coding_response(request, topic_id, subtopic_id, level_filter, search, filter_params)
+            return self._coding_response(request, topic_id, subtopic_id, level_filter, search, filter_params, question_type)
 
         # --- Maths (default) ---
         qs = Question.objects.filter(
@@ -137,6 +140,9 @@ class WorksheetBuilderQuestionsView(RoleRequiredMixin, View):
             except (ValueError, TypeError):
                 pass
 
+        if question_type:
+            qs = qs.filter(question_type=question_type)
+
         if search:
             qs = qs.filter(question_text__icontains=search)
 
@@ -157,7 +163,7 @@ class WorksheetBuilderQuestionsView(RoleRequiredMixin, View):
             'total_count': paginator.count,
         })
 
-    def _coding_response(self, request, topic_id, subtopic_id, level_filter, search, filter_params):
+    def _coding_response(self, request, topic_id, subtopic_id, level_filter, search, filter_params, question_type=''):
         """Build and paginate a CodingExercise queryset for the given filters."""
         qs = CodingExercise.objects.filter(
             is_active=True,
@@ -179,6 +185,9 @@ class WorksheetBuilderQuestionsView(RoleRequiredMixin, View):
 
         if level_filter:
             qs = qs.filter(topic_level__level_choice=level_filter)
+
+        if question_type:
+            qs = qs.filter(question_type=question_type)
 
         if search:
             qs = qs.filter(
@@ -219,6 +228,7 @@ class WorksheetBuilderCascadeView(RoleRequiredMixin, View):
         school = get_school_for_user(request.user)
         subject_slug = request.GET.get('subject', '').strip()
         topic_id = request.GET.get('topic', '').strip()
+        question_type = request.GET.get('question_type', '').strip()
         step = request.GET.get('step', 'subject')  # 'subject' or 'topic'
 
         # --- Build cascade data ---
@@ -235,6 +245,7 @@ class WorksheetBuilderCascadeView(RoleRequiredMixin, View):
                     pass
             level_options = CODING_LEVELS
             level_type = 'coding'
+            qtype_options = CodingExercise.QUESTION_TYPE_CHOICES
         else:
             # Mathematics (or default)
             maths_global = Subject.objects.filter(slug='mathematics', school__isnull=True).first()
@@ -250,6 +261,7 @@ class WorksheetBuilderCascadeView(RoleRequiredMixin, View):
                     pass
             level_options = list(Level.objects.filter(level_number__lte=12).order_by('level_number'))
             level_type = 'year'
+            qtype_options = Question.QUESTION_TYPES
 
         # --- Question list (same logic as WorksheetBuilderQuestionsView) ---
         is_coding = (subject_slug == 'coding')
@@ -262,6 +274,8 @@ class WorksheetBuilderCascadeView(RoleRequiredMixin, View):
                     qs = qs.filter(topic_level__topic__language_id=int(topic_id))
                 except (ValueError, TypeError):
                     pass
+            if question_type:
+                qs = qs.filter(question_type=question_type)
             search = request.GET.get('q', '').strip()
             if search:
                 qs = qs.filter(Q(title__icontains=search) | Q(description__icontains=search))
@@ -280,6 +294,8 @@ class WorksheetBuilderCascadeView(RoleRequiredMixin, View):
                     qs = qs.filter(topic_id__in=[tid] + child_ids)
                 except (ValueError, TypeError):
                     pass
+            if question_type:
+                qs = qs.filter(question_type=question_type)
             search = request.GET.get('q', '').strip()
             if search:
                 qs = qs.filter(question_text__icontains=search)
@@ -297,6 +313,7 @@ class WorksheetBuilderCascadeView(RoleRequiredMixin, View):
             'subtopic_items': subtopic_items,
             'level_options': level_options,
             'level_type': level_type,
+            'qtype_options': qtype_options,
             'page_obj': page_obj,
             'filter_params': {k: v for k, v in request.GET.items() if k not in ('page', 'step')},
             'total_count': total_count,

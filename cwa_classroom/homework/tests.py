@@ -259,6 +259,45 @@ class TeacherHomeworkCreateTest(HomeworkTestBase):
         hw = Homework.objects.get(title='Question Assignment HW')
         self.assertGreater(hw.homework_questions.count(), 0)
 
+    def test_create_page_shows_question_type_filter(self):
+        url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
+        resp = self.client.get(url)
+        self.assertContains(resp, 'Question Type')
+        self.assertContains(resp, 'name="question_type"')
+
+    def test_create_with_matching_question_type_assigns_questions(self):
+        # All fixture questions are multiple_choice.
+        url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
+        due = (timezone.now() + timedelta(days=3)).strftime('%Y-%m-%dT%H:%M')
+        self.client.post(url, {
+            'title': 'MCQ-only HW',
+            'homework_type': 'topic',
+            'topics': [self.topic.id],
+            'num_questions': 3,
+            'due_date': due,
+            'max_attempts': 1,
+            'question_type': 'multiple_choice',
+        })
+        hw = Homework.objects.get(title='MCQ-only HW')
+        self.assertEqual(hw.homework_questions.count(), 3)
+
+    def test_create_with_unmatched_question_type_creates_nothing(self):
+        # No short_answer questions exist for this topic → selection is empty,
+        # so the homework is rolled back and the form re-renders with a warning.
+        url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
+        due = (timezone.now() + timedelta(days=3)).strftime('%Y-%m-%dT%H:%M')
+        resp = self.client.post(url, {
+            'title': 'Short-answer HW',
+            'homework_type': 'topic',
+            'topics': [self.topic.id],
+            'num_questions': 3,
+            'due_date': due,
+            'max_attempts': 1,
+            'question_type': 'short_answer',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Homework.objects.filter(title='Short-answer HW').exists())
+
     def test_create_past_due_date_rejected(self):
         url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
         past = (timezone.now() - timedelta(days=1)).strftime('%Y-%m-%dT%H:%M')
