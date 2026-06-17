@@ -1,6 +1,7 @@
 import json
 import random
 import time as time_module
+from datetime import datetime, time as datetime_time, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -322,6 +323,43 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
         else:
             hw_qs = Homework.objects.none()
 
+        # Optional weekly filter. ``week`` is the Monday date (YYYY-MM-DD) of the
+        # week to show; we normalise any date in that week back to its Monday so
+        # the prev/next links and the published_at window always span a full
+        # Monday-to-Sunday week. With no/blank/invalid param we show every week.
+        week_param = request.GET.get('week')
+        week_start = None
+        if week_param:
+            try:
+                picked = datetime.strptime(week_param, '%Y-%m-%d').date()
+                week_start = picked - timedelta(days=picked.weekday())
+            except (ValueError, TypeError):
+                week_start = None
+
+        week_end = None
+        prev_week = next_week = None
+        if week_start is not None:
+            week_end = week_start + timedelta(days=6)  # Sunday
+            prev_week = (week_start - timedelta(days=7)).isoformat()
+            next_week = (week_start + timedelta(days=7)).isoformat()
+
+            # Filter on published_at within [Mon 00:00, next Mon 00:00). Build
+            # timezone-aware bounds so the comparison matches stored UTC values.
+            start_dt = timezone.make_aware(
+                datetime.combine(week_start, datetime_time.min)
+            )
+            end_dt = timezone.make_aware(
+                datetime.combine(week_start + timedelta(days=7), datetime_time.min)
+            )
+            hw_qs = hw_qs.filter(
+                published_at__gte=start_dt, published_at__lt=end_dt
+            )
+
+        # Default the week picker's value to the current week so the date input
+        # opens on something sensible even when no filter is active.
+        today = timezone.localdate()
+        current_week_start = today - timedelta(days=today.weekday())
+
         homework_list = (
             hw_qs
             .select_related('classroom')
@@ -336,6 +374,11 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
             'selected_classroom': selected_classroom,
             'show_all': show_all,
             'homework_list': homework_list,
+            'week_start': week_start,
+            'week_end': week_end,
+            'prev_week': prev_week,
+            'next_week': next_week,
+            'current_week_start': current_week_start.isoformat(),
         })
 
 
