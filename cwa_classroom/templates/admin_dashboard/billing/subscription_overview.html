@@ -59,7 +59,7 @@
     ---- Main grid (12 cols): narrow line chart | students panel | institutes panel ----
     items-start so a short panel never stretches to match a taller neighbour.
   {% endcomment %}
-  <div class="grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-stretch flex-1">
+  <div class="grid grid-cols-1 lg:grid-cols-12 lg:grid-rows-1 gap-2.5 items-stretch flex-1 min-h-0">
 
     {% comment %} ===== Narrow line chart ===== {% endcomment %}
     <section class="lg:col-span-4 bg-slate-800 rounded-lg p-3 border border-slate-700 flex flex-col">
