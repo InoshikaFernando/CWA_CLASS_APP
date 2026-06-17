@@ -86,6 +86,19 @@
           </select>
         </div>
 
+        <!-- Question type — maths types for Mathematics, write-code/MCQ/etc for coding.
+             Wrapper is OOB target when subject changes. -->
+        <div id="filter-qtype-wrapper">
+          <label class="block text-xs font-medium text-gray-500 mb-1">Question Type</label>
+          <select id="filter-qtype"
+                  class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">
+            <option value="">All Types</option>
+            {% for val, label in question_types %}
+            <option value="{{ val }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
         <!-- Search -->
         <div>
           <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
@@ -549,11 +562,12 @@ function switchMobileTab(tab) {
 
   function builderGetFilters() {
     return {
-      subject:  document.getElementById('filter-subject')?.value  || '',
-      topic:    document.getElementById('filter-topic')?.value    || '',
-      subtopic: document.getElementById('filter-subtopic')?.value || '',
-      level:    document.getElementById('filter-level')?.value    || '',
-      q:        document.getElementById('filter-search')?.value   || '',
+      subject:       document.getElementById('filter-subject')?.value  || '',
+      topic:         document.getElementById('filter-topic')?.value    || '',
+      subtopic:      document.getElementById('filter-subtopic')?.value || '',
+      level:         document.getElementById('filter-level')?.value    || '',
+      question_type: document.getElementById('filter-qtype')?.value    || '',
+      q:             document.getElementById('filter-search')?.value   || '',
     };
   }
 
@@ -577,9 +591,9 @@ function switchMobileTab(tab) {
     });
   }
 
-  // Subject change — cascade everything (topic, subtopic, level all reset)
+  // Subject change — cascade everything (topic, subtopic, level, qtype all reset)
   document.getElementById('filter-subject').addEventListener('change', function () {
-    builderCascade('subject', ['filter-topic', 'filter-subtopic', 'filter-level']);
+    builderCascade('subject', ['filter-topic', 'filter-subtopic', 'filter-level', 'filter-qtype']);
   });
 
   // Event delegation for OOB-replaced elements (topic, subtopic, level)
@@ -588,6 +602,9 @@ function switchMobileTab(tab) {
       builderCascade('topic', ['filter-subtopic']);
     }
     if (e.target.id === 'filter-subtopic') {
+      builderRefreshQuestions();
+    }
+    if (e.target.id === 'filter-qtype') {
       builderRefreshQuestions();
     }
     if (e.target.id === 'filter-level') {
