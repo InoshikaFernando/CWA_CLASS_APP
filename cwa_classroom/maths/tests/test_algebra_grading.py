@@ -238,6 +238,12 @@ class TestFoldInequalities:
         assert fold_inequalities("x>2") != fold_inequalities("x ≥ 2")
         assert fold_inequalities("x<2") != fold_inequalities("x ≤ 2")
 
+    def test_not_equal_spellings_collapse_equal(self):
+        # The keypad inserts ≠; ASCII <> and != must match it.
+        forms = ["a ≠ b", "a<>b", "a!=b"]
+        folded = {fold_exponents(fold_inequalities(f)) for f in forms}
+        assert folded == {"a!=b"}
+
     def test_plain_values_unaffected(self):
         assert fold_inequalities("8") == "8"
         assert fold_inequalities("2x + 3") == "2x + 3"

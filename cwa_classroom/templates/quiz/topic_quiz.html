@@ -293,15 +293,7 @@
       });
       textInput.focus();  // autofocus attribute is inert on a swapped-in node
     }
-    const expBtn = document.getElementById('exp-btn');
-    if (expBtn && textInput) {
-      expBtn.addEventListener('click', function () {
-        const s = textInput.selectionStart, e = textInput.selectionEnd;
-        textInput.value = textInput.value.slice(0, s) + '^' + textInput.value.slice(e);
-        textInput.focus();
-        textInput.selectionStart = textInput.selectionEnd = s + 1;
-      });
-    }
+    // The x² button is part of the symbol keypad injected by maths_exponent.js.
 
     // Multiple choice: disable the whole set on click to block double-submit.
     card.querySelectorAll('.answer-btn').forEach(btn => {
