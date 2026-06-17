@@ -343,11 +343,6 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
                 published_at__gte=start_dt, published_at__lt=end_dt
             )
 
-        # Default the week picker's value to the current week so the date input
-        # opens on something sensible even when no filter is active.
-        today = timezone.localdate()
-        current_week_start = today - timedelta(days=today.weekday())
-
         homework_list = (
             hw_qs
             .select_related('classroom')
@@ -366,7 +361,6 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
             'week_end': week_end,
             'prev_week': prev_week,
             'next_week': next_week,
-            'current_week_start': current_week_start.isoformat(),
         })
 
 
