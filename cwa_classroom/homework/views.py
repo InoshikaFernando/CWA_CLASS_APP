@@ -344,6 +344,9 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
         if week_start is not None:
             # Filter on published_at within [Mon 00:00, next Mon 00:00). Build
             # timezone-aware bounds so the comparison matches stored UTC values.
+            # Unpublished (Created/scheduled) homework has no published date, so
+            # it isn't subject to the week window — it's always shown so teachers
+            # can still find and publish it from the default current-week view.
             start_dt = timezone.make_aware(
                 datetime.combine(week_start, datetime_time.min)
             )
@@ -351,7 +354,8 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
                 datetime.combine(week_start + timedelta(days=7), datetime_time.min)
             )
             hw_qs = hw_qs.filter(
-                published_at__gte=start_dt, published_at__lt=end_dt
+                Q(published_at__gte=start_dt, published_at__lt=end_dt)
+                | Q(published_at__isnull=True)
             )
 
         homework_list = (

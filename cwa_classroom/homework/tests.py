@@ -821,6 +821,71 @@ class HomeworkMonitorUITest(HomeworkTestBase):
         self.assertContains(resp, detail_url)
 
 
+class HomeworkMonitorWeekFilterTest(HomeworkTestBase):
+    """The monitor's weekly filter (published_at, Monday-Sunday weeks)."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='teacher1', password='pass1234')
+        self.url = reverse('homework:teacher_monitor') + f'?classroom={self.classroom.id}'
+
+        # Published two weeks ago — outside the current week, but inside its own.
+        self.old_published_at = timezone.now() - timedelta(days=14)
+        self.old_hw = Homework.objects.create(
+            classroom=self.classroom, created_by=self.teacher,
+            title='Old Week Homework', homework_type='topic', num_questions=5,
+            due_date=timezone.now() - timedelta(days=10),
+            published_at=self.old_published_at,
+        )
+        # Scheduled for the future → published_at stays NULL (unpublished).
+        self.scheduled_hw = Homework.objects.create(
+            classroom=self.classroom, created_by=self.teacher,
+            title='Scheduled Week Homework', homework_type='topic', num_questions=5,
+            due_date=timezone.now() + timedelta(days=20),
+            publish_at=timezone.now() + timedelta(days=3),
+        )
+
+    def _monday_param(self, dt):
+        d = timezone.localtime(dt).date()
+        return (d - timedelta(days=d.weekday())).isoformat()
+
+    def test_default_view_shows_current_week_published(self):
+        # self.homework is auto-published "now" by the model, so it falls in the
+        # current week and shows on the default (no week param) view.
+        resp = self.client.get(self.url)
+        self.assertContains(resp, 'Test Homework')
+
+    def test_default_view_hides_homework_published_in_other_week(self):
+        resp = self.client.get(self.url)
+        self.assertNotContains(resp, 'Old Week Homework')
+
+    def test_selecting_week_shows_that_weeks_homework(self):
+        resp = self.client.get(self.url + f'&week={self._monday_param(self.old_published_at)}')
+        self.assertContains(resp, 'Old Week Homework')
+        # ...and hides homework published in the current week.
+        self.assertNotContains(resp, 'Test Homework')
+
+    def test_unpublished_homework_always_visible(self):
+        # Scheduled (unpublished) homework has no published date, so it shows
+        # regardless of which week is selected.
+        for q in ('', f'&week={self._monday_param(self.old_published_at)}'):
+            resp = self.client.get(self.url + q)
+            self.assertContains(resp, 'Scheduled Week Homework')
+
+    def test_all_weeks_shows_every_published_homework(self):
+        resp = self.client.get(self.url + '&week=all')
+        self.assertContains(resp, 'Old Week Homework')
+        self.assertContains(resp, 'Test Homework')
+        self.assertContains(resp, 'All weeks')
+
+    def test_week_bar_always_present_on_default_view(self):
+        resp = self.client.get(self.url)
+        # Range label, navigation and the escape link render without a param.
+        self.assertContains(resp, 'Previous week')
+        self.assertContains(resp, 'Next week')
+        self.assertContains(resp, 'All weeks')
+
+
 class HomeworkDetailUITest(HomeworkTestBase):
     """Assert the teacher detail page renders the student table correctly."""
 
