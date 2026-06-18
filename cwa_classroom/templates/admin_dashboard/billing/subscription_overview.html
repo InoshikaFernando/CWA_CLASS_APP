@@ -100,7 +100,7 @@
 
         <div class="flex items-center gap-3 mb-1">
           <h3 class="sr-only">Student status</h3>
-          <svg viewBox="0 0 140 140" class="w-24 h-24 flex-shrink-0" role="img" aria-label="Student status breakdown">
+          <svg viewBox="0 0 140 140" class="w-32 h-32 flex-shrink-0" role="img" aria-label="Student status breakdown">
             <circle cx="70" cy="70" r="{{ students.donut.radius }}" fill="none" stroke="#334155" stroke-width="13"/>
             {% for seg in students.donut.segments %}{% if seg.value %}
             <circle cx="70" cy="70" r="{{ students.donut.radius }}" fill="none" stroke="{{ seg.color }}" stroke-width="13" stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}" transform="rotate(-90 70 70)"/>
@@ -160,7 +160,7 @@
 
         <div class="flex items-center gap-3 mb-1">
           <h3 class="sr-only">Institute status</h3>
-          <svg viewBox="0 0 140 140" class="w-24 h-24 flex-shrink-0" role="img" aria-label="Institute status breakdown">
+          <svg viewBox="0 0 140 140" class="w-32 h-32 flex-shrink-0" role="img" aria-label="Institute status breakdown">
             <circle cx="70" cy="70" r="{{ institutes.donut.radius }}" fill="none" stroke="#334155" stroke-width="13"/>
             {% for seg in institutes.donut.segments %}{% if seg.value %}
             <circle cx="70" cy="70" r="{{ institutes.donut.radius }}" fill="none" stroke="{{ seg.color }}" stroke-width="13" stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}" transform="rotate(-90 70 70)"/>
