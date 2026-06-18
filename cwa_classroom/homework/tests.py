@@ -259,6 +259,45 @@ class TeacherHomeworkCreateTest(HomeworkTestBase):
         hw = Homework.objects.get(title='Question Assignment HW')
         self.assertGreater(hw.homework_questions.count(), 0)
 
+    def test_create_page_shows_question_type_filter(self):
+        url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
+        resp = self.client.get(url)
+        self.assertContains(resp, 'Question Type')
+        self.assertContains(resp, 'name="question_type"')
+
+    def test_create_with_matching_question_type_assigns_questions(self):
+        # All fixture questions are multiple_choice.
+        url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
+        due = (timezone.now() + timedelta(days=3)).strftime('%Y-%m-%dT%H:%M')
+        self.client.post(url, {
+            'title': 'MCQ-only HW',
+            'homework_type': 'topic',
+            'topics': [self.topic.id],
+            'num_questions': 3,
+            'due_date': due,
+            'max_attempts': 1,
+            'question_type': 'multiple_choice',
+        })
+        hw = Homework.objects.get(title='MCQ-only HW')
+        self.assertEqual(hw.homework_questions.count(), 3)
+
+    def test_create_with_unmatched_question_type_creates_nothing(self):
+        # No short_answer questions exist for this topic → selection is empty,
+        # so the homework is rolled back and the form re-renders with a warning.
+        url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
+        due = (timezone.now() + timedelta(days=3)).strftime('%Y-%m-%dT%H:%M')
+        resp = self.client.post(url, {
+            'title': 'Short-answer HW',
+            'homework_type': 'topic',
+            'topics': [self.topic.id],
+            'num_questions': 3,
+            'due_date': due,
+            'max_attempts': 1,
+            'question_type': 'short_answer',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Homework.objects.filter(title='Short-answer HW').exists())
+
     def test_create_past_due_date_rejected(self):
         url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
         past = (timezone.now() - timedelta(days=1)).strftime('%Y-%m-%dT%H:%M')
@@ -457,6 +496,15 @@ class StudentHomeworkTakeTest(HomeworkTestBase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'HW Question 1')
+
+    def test_take_page_shows_rough_work_whiteboard(self):
+        # Maths homework should offer the rough-work scratchpad: the floating
+        # trigger + the script are injected only when has_maths_item is set.
+        url = reverse('homework:student_take', kwargs={'homework_id': self.homework.id})
+        resp = self.client.get(url)
+        self.assertTrue(resp.context['has_maths_item'])
+        self.assertContains(resp, 'id="rw-fab"')
+        self.assertContains(resp, 'whiteboard.js')
 
     def test_take_allowed_when_past_due(self):
         # Overdue homework is intentionally still attemptable — the past-due
@@ -819,6 +867,71 @@ class HomeworkMonitorUITest(HomeworkTestBase):
         )
         detail_url = reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
         self.assertContains(resp, detail_url)
+
+
+class HomeworkMonitorWeekFilterTest(HomeworkTestBase):
+    """The monitor's weekly filter (published_at, Monday-Sunday weeks)."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='teacher1', password='pass1234')
+        self.url = reverse('homework:teacher_monitor') + f'?classroom={self.classroom.id}'
+
+        # Published two weeks ago — outside the current week, but inside its own.
+        self.old_published_at = timezone.now() - timedelta(days=14)
+        self.old_hw = Homework.objects.create(
+            classroom=self.classroom, created_by=self.teacher,
+            title='Old Week Homework', homework_type='topic', num_questions=5,
+            due_date=timezone.now() - timedelta(days=10),
+            published_at=self.old_published_at,
+        )
+        # Scheduled for the future → published_at stays NULL (unpublished).
+        self.scheduled_hw = Homework.objects.create(
+            classroom=self.classroom, created_by=self.teacher,
+            title='Scheduled Week Homework', homework_type='topic', num_questions=5,
+            due_date=timezone.now() + timedelta(days=20),
+            publish_at=timezone.now() + timedelta(days=3),
+        )
+
+    def _monday_param(self, dt):
+        d = timezone.localtime(dt).date()
+        return (d - timedelta(days=d.weekday())).isoformat()
+
+    def test_default_view_shows_current_week_published(self):
+        # self.homework is auto-published "now" by the model, so it falls in the
+        # current week and shows on the default (no week param) view.
+        resp = self.client.get(self.url)
+        self.assertContains(resp, 'Test Homework')
+
+    def test_default_view_hides_homework_published_in_other_week(self):
+        resp = self.client.get(self.url)
+        self.assertNotContains(resp, 'Old Week Homework')
+
+    def test_selecting_week_shows_that_weeks_homework(self):
+        resp = self.client.get(self.url + f'&week={self._monday_param(self.old_published_at)}')
+        self.assertContains(resp, 'Old Week Homework')
+        # ...and hides homework published in the current week.
+        self.assertNotContains(resp, 'Test Homework')
+
+    def test_unpublished_homework_always_visible(self):
+        # Scheduled (unpublished) homework has no published date, so it shows
+        # regardless of which week is selected.
+        for q in ('', f'&week={self._monday_param(self.old_published_at)}'):
+            resp = self.client.get(self.url + q)
+            self.assertContains(resp, 'Scheduled Week Homework')
+
+    def test_all_weeks_shows_every_published_homework(self):
+        resp = self.client.get(self.url + '&week=all')
+        self.assertContains(resp, 'Old Week Homework')
+        self.assertContains(resp, 'Test Homework')
+        self.assertContains(resp, 'All weeks')
+
+    def test_week_bar_always_present_on_default_view(self):
+        resp = self.client.get(self.url)
+        # Range label, navigation and the escape link render without a param.
+        self.assertContains(resp, 'Previous week')
+        self.assertContains(resp, 'Next week')
+        self.assertContains(resp, 'All weeks')
 
 
 class HomeworkDetailUITest(HomeworkTestBase):

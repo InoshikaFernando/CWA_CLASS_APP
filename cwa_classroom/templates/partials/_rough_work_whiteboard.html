@@ -1,0 +1,77 @@
+{% load static %}
+{% comment %}
+Rough-work whiteboard — a floating scratchpad for maths questions.
+
+Included once per maths question page (homework take + the quiz pages), never
+on Brain Buzz. Working is ephemeral: never submitted or graded. One-question-at
+-a-time quizzes call window.RoughWork.clear() on advance to auto-clear; the
+Clear button lets a student wipe and retry the same question anywhere.
+{% endcomment %}
+
+{# Floating trigger #}
+<button type="button" id="rw-fab" aria-label="Open rough work whiteboard"
+        class="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 inline-flex items-center gap-2
+               px-4 py-2.5 rounded-full bg-accent text-white text-sm font-semibold shadow-lg
+               hover:bg-accent-dark transition focus:outline-none focus:ring-2 focus:ring-accent">
+  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round"
+          d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zM19.5 7.125L16.875 4.5"/>
+  </svg>
+  Rough work
+</button>
+
+{# Floating pad #}
+<div id="rw-panel"
+     class="hidden fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50
+            bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden"
+     style="width: min(92vw, 460px);">
+  <div class="flex items-center gap-1.5 px-3 py-2 border-b border-gray-100 flex-wrap">
+    <span class="mr-auto inline-flex items-center gap-1.5 text-sm font-semibold text-gray-500">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round"
+              d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zM19.5 7.125L16.875 4.5"/>
+      </svg>
+      Rough work
+    </span>
+
+    <button type="button" data-rw-color="#1e293b" aria-label="Black pen" aria-pressed="true"
+            class="rw-pen w-7 h-7 rounded-full bg-slate-800 ring-2 ring-offset-1 ring-accent aria-[pressed=false]:ring-transparent"></button>
+    <button type="button" data-rw-color="#3b82f6" aria-label="Blue pen" aria-pressed="false"
+            class="rw-pen w-7 h-7 rounded-full bg-blue-500 ring-2 ring-offset-1 ring-accent aria-[pressed=false]:ring-transparent"></button>
+    <button type="button" data-rw-color="#ef4444" aria-label="Red pen" aria-pressed="false"
+            class="rw-pen w-7 h-7 rounded-full bg-red-500 ring-2 ring-offset-1 ring-accent aria-[pressed=false]:ring-transparent"></button>
+
+    <button type="button" id="rw-erase" aria-label="Eraser" aria-pressed="false"
+            class="w-8 h-8 inline-flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 aria-[pressed=true]:bg-accent-light aria-[pressed=true]:text-accent-dark">
+      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round"
+              d="M16.5 3.75l3.75 3.75-9 9H7.5v-3.75l9-9zM4.5 20.25h15"/>
+      </svg>
+    </button>
+    <button type="button" id="rw-undo" aria-label="Undo"
+            class="w-8 h-8 inline-flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100">
+      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round"
+              d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"/>
+      </svg>
+    </button>
+    <button type="button" id="rw-clear" aria-label="Clear all"
+            class="w-8 h-8 inline-flex items-center justify-center rounded-lg text-gray-600 hover:bg-red-50 hover:text-red-600">
+      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round"
+              d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+      </svg>
+    </button>
+    <button type="button" id="rw-close" aria-label="Close whiteboard"
+            class="w-8 h-8 inline-flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100">
+      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+
+  <canvas id="rw-canvas" class="block w-full bg-white cursor-crosshair"
+          style="height: 300px; touch-action: none;"></canvas>
+</div>
+
+<script src="{% static 'js/whiteboard.js' %}"></script>

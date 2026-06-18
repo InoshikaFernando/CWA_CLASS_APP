@@ -117,7 +117,8 @@ def fold_inequalities(text: str) -> str:
     cleanly with :func:`fold_exponents`.
 
     ``≥``/``≤`` (non-strict) and ``>``/``<`` (strict) are kept DISTINCT — a
-    student typing ``x>2`` is not accepted for a stored ``x ≥ 2``.
+    student typing ``x>2`` is not accepted for a stored ``x ≥ 2``. Not-equal is
+    also folded: the keypad's ``≠`` and the ASCII ``<>`` both land on ``!=``.
 
     >>> fold_inequalities("x ≥ 2")
     'x >= 2'
@@ -125,10 +126,14 @@ def fold_inequalities(text: str) -> str:
     True
     >>> fold_inequalities("y=<5") == fold_inequalities("y ≤ 5".replace(" ", "")) == "y<=5"
     True
+    >>> fold_inequalities("a ≠ b") == fold_inequalities("a <> b") == "a != b"
+    True
     """
     # Reversed typos first, then unicode, so every spelling lands on >=/<=.
     s = text.replace("=>", ">=").replace("=<", "<=")
     s = s.replace("≥", ">=").replace("≤", "<=")
+    # not-equal: keypad ≠ and the ASCII <> spelling -> !=
+    s = s.replace("≠", "!=").replace("<>", "!=")
     return s
 
 

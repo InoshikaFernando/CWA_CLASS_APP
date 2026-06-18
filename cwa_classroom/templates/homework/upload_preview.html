@@ -249,8 +249,8 @@
             <!-- Answers (hidden for extended_answer, long_division and column_operation — all compute/skip fixed answers) -->
             {% if q.question_type != 'extended_answer' and q.question_type != 'long_division' and q.question_type != 'column_operation' %}
             <div id="answers-row-{{ q_idx }}">
-              <label class="block text-xs font-medium text-gray-500 mb-2">Answers</label>
-              <div class="space-y-2">
+              <label class="block text-xs font-medium text-gray-500 mb-2">Answers <span class="text-gray-400 font-normal">(tick the correct one — add alternatives that should also be accepted)</span></label>
+              <div class="space-y-2" id="answers-box-{{ q_idx }}">
                 {% for a in q.answers %}
                 <div class="flex items-center gap-2">
                   <input type="checkbox" name="q_{{ q_idx }}_answer_{{ forloop.counter0 }}_correct"
@@ -262,6 +262,7 @@
                 </div>
                 {% endfor %}
               </div>
+              <button type="button" onclick="addAnswerRowNew({{ q_idx }})" class="mt-2 text-xs text-blue-600 hover:text-blue-800">+ Add answer</button>
             </div>
             {% endif %}
 
