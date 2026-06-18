@@ -15,7 +15,7 @@
   }
 </style>
 <div id="fit-frame" class="-mx-4 -my-6 md:-mx-8 px-4 py-3 md:px-8 bg-slate-900 text-slate-200 min-h-[calc(100vh-4rem)] flex flex-col lg:h-[calc(100vh-4rem)] lg:min-h-0 lg:overflow-hidden lg:items-center lg:justify-start">
-<div id="fit-content" class="max-w-[1400px] w-full mx-auto flex flex-col gap-2.5">
+<div id="fit-content" class="max-w-[1750px] w-full mx-auto flex flex-col gap-2.5">
 
   {% comment %} Header: title + status + earnings badge + filters {% endcomment %}
   <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -100,7 +100,7 @@
 
         <div class="flex items-center gap-3 mb-1">
           <h3 class="sr-only">Student status</h3>
-          <svg viewBox="0 0 140 140" class="w-32 h-32 flex-shrink-0" role="img" aria-label="Student status breakdown">
+          <svg viewBox="0 0 140 140" class="w-40 h-40 flex-shrink-0" role="img" aria-label="Student status breakdown">
             <circle cx="70" cy="70" r="{{ students.donut.radius }}" fill="none" stroke="#334155" stroke-width="13"/>
             {% for seg in students.donut.segments %}{% if seg.value %}
             <circle cx="70" cy="70" r="{{ students.donut.radius }}" fill="none" stroke="{{ seg.color }}" stroke-width="13" stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}" transform="rotate(-90 70 70)"/>
@@ -160,7 +160,7 @@
 
         <div class="flex items-center gap-3 mb-1">
           <h3 class="sr-only">Institute status</h3>
-          <svg viewBox="0 0 140 140" class="w-32 h-32 flex-shrink-0" role="img" aria-label="Institute status breakdown">
+          <svg viewBox="0 0 140 140" class="w-40 h-40 flex-shrink-0" role="img" aria-label="Institute status breakdown">
             <circle cx="70" cy="70" r="{{ institutes.donut.radius }}" fill="none" stroke="#334155" stroke-width="13"/>
             {% for seg in institutes.donut.segments %}{% if seg.value %}
             <circle cx="70" cy="70" r="{{ institutes.donut.radius }}" fill="none" stroke="{{ seg.color }}" stroke-width="13" stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}" transform="rotate(-90 70 70)"/>
