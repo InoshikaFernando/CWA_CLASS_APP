@@ -108,7 +108,7 @@
             <text x="70" y="66" text-anchor="middle" style="fill:#f1f5f9;font-size:24px;font-weight:700">{{ students.donut.active_pct }}%</text>
             <text x="70" y="89" text-anchor="middle" style="fill:#94a3b8;font-size:12px">active</text>
           </svg>
-          <ul class="grid grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] flex-1">
+          <ul class="grid grid-cols-2 xl:grid-cols-1 gap-x-4 gap-y-0.5 text-[11px] flex-1 min-w-0">
             {% for seg in students.donut.segments %}
             <li class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ seg.color }}"></span><span class="text-slate-400 flex-1">{{ seg.label }}</span><span class="font-semibold text-white">{{ seg.value }}</span><span class="text-slate-500 w-9 text-right">{{ seg.pct }}%</span></li>
             {% endfor %}
@@ -168,7 +168,7 @@
             <text x="70" y="66" text-anchor="middle" style="fill:#f1f5f9;font-size:24px;font-weight:700">{{ institutes.donut.active_pct }}%</text>
             <text x="70" y="89" text-anchor="middle" style="fill:#94a3b8;font-size:12px">active</text>
           </svg>
-          <ul class="grid grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] flex-1">
+          <ul class="grid grid-cols-2 xl:grid-cols-1 gap-x-4 gap-y-0.5 text-[11px] flex-1 min-w-0">
             {% for seg in institutes.donut.segments %}
             <li class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ seg.color }}"></span><span class="text-slate-400 flex-1">{{ seg.label }}</span><span class="font-semibold text-white">{{ seg.value }}</span><span class="text-slate-500 w-9 text-right">{{ seg.pct }}%</span></li>
             {% endfor %}
@@ -194,7 +194,7 @@
           {% if earnings_source == 'stripe' %}<span class="text-slate-400">Last <b class="text-white">${{ institutes.last_month }}</b> &middot; This <b class="text-white">${{ institutes.this_month }}</b></span>{% else %}<span class="text-slate-400">Est. <b class="text-white">${{ institutes.estimate }}</b></span>{% endif %}
         </div>
 
-        <div class="grid grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 gap-x-4 gap-y-1">
+        <div class="grid grid-cols-2 gap-x-3 gap-y-1">
           <div>
             <div class="text-[10px] font-medium uppercase tracking-wide text-slate-500 mb-1">Active by type</div>
             <table class="w-full text-xs">
