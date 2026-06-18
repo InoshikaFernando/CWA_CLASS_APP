@@ -198,6 +198,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
 
         return render(request, 'admin_dashboard/billing/subscription_overview.html', {
             'hide_sidebar': True,
+            'hide_footer': True,
             'students': students,
             'institutes': institutes,
             'earnings_source': earnings_source,

@@ -3,8 +3,8 @@
 {% block title %}Subscriptions Overview{% endblock %}
 
 {% block content %}
-<div class="-mx-4 -my-6 md:-mx-8 px-4 py-3 md:px-6 bg-slate-900 text-slate-200 min-h-[calc(100vh-8rem)] flex flex-col">
-<div class="max-w-[1600px] w-full mx-auto flex flex-col gap-2.5 flex-1">
+<div id="fit-frame" class="-mx-4 -my-6 md:-mx-8 px-4 py-2 md:px-6 bg-slate-900 text-slate-200 min-h-[calc(100vh-4rem)] flex flex-col lg:h-[calc(100vh-4rem)] lg:min-h-0 lg:overflow-hidden lg:items-center lg:justify-center">
+<div id="fit-content" class="max-w-[1600px] w-full mx-auto flex flex-col gap-2.5">
 
   {% comment %} Header: title + status + earnings badge + filters {% endcomment %}
   <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -18,16 +18,16 @@
     </div>
     <div class="flex items-center gap-2">
       {% if earnings_source == 'stripe' %}
-      <span class="text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2.5 py-1 leading-none">Earnings = <strong>actual</strong> (Stripe){% if earnings_currency and earnings_currency != 'MIXED' %} &middot; {{ earnings_currency }}{% endif %}</span>
+      <span class="text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2.5 py-0.5 leading-none">Earnings = <strong>actual</strong> (Stripe){% if earnings_currency and earnings_currency != 'MIXED' %} &middot; {{ earnings_currency }}{% endif %}</span>
       {% else %}
-      <span class="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-full px-2.5 py-1 leading-none">Earnings = <strong>estimate</strong></span>
+      <span class="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-full px-2.5 py-0.5 leading-none">Earnings = <strong>estimate</strong></span>
       {% endif %}
       <form method="get" class="flex items-center gap-2">
-        <select name="country" onchange="this.form.submit()" class="rounded-lg bg-slate-800 border-slate-600 text-slate-100 text-[11px] py-1 pr-7">
+        <select name="country" onchange="this.form.submit()" class="rounded-lg bg-slate-800 border-slate-600 text-slate-100 text-[11px] py-0.5 pr-7">
           <option value="">All countries</option>
           {% for c in filters.countries %}<option value="{{ c }}" {% if c == filters.country %}selected{% endif %}>{{ c }}</option>{% endfor %}
         </select>
-        <select name="institution" onchange="this.form.submit()" class="rounded-lg bg-slate-800 border-slate-600 text-slate-100 text-[11px] py-1 pr-7 max-w-[180px]">
+        <select name="institution" onchange="this.form.submit()" class="rounded-lg bg-slate-800 border-slate-600 text-slate-100 text-[11px] py-0.5 pr-7 max-w-[180px]">
           <option value="">All institutions</option>
           {% for inst in filters.institutions %}<option value="{{ inst.id }}" {% if filters.institution == inst.id|stringformat:"s" %}selected{% endif %}>{{ inst.name }}</option>{% endfor %}
         </select>
@@ -37,30 +37,30 @@
 
   {% comment %} KPI strip {% endcomment %}
   <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-    <div class="bg-slate-800 rounded-lg px-3 py-2 border border-slate-700 flex items-baseline gap-2">
+    <div class="bg-slate-800 rounded-lg px-3 py-1 border border-slate-700 flex items-baseline gap-2">
       <span class="text-lg font-bold text-emerald-400 leading-none">{% if counts_source == 'stripe' %}{{ students.stripe.paid }}{% else %}{{ students.paying }}{% endif %}</span>
       <span class="text-[11px] text-slate-400">Paying students</span>
     </div>
-    <div class="bg-slate-800 rounded-lg px-3 py-2 border border-slate-700 flex items-baseline gap-2">
+    <div class="bg-slate-800 rounded-lg px-3 py-1 border border-slate-700 flex items-baseline gap-2">
       <span class="text-lg font-bold text-indigo-400 leading-none">{% if counts_source == 'stripe' %}{{ institutes.stripe.paid }}{% else %}{{ institutes.paying }}{% endif %}</span>
       <span class="text-[11px] text-slate-400">Paying institutes</span>
     </div>
-    <div class="bg-slate-800 rounded-lg px-3 py-2 border border-slate-700 flex items-baseline gap-2">
+    <div class="bg-slate-800 rounded-lg px-3 py-1 border border-slate-700 flex items-baseline gap-2">
       <span class="text-lg font-bold text-white leading-none">{% if earnings_source == 'stripe' %}${{ combined_this_month }}{% else %}~${{ combined_estimate }}{% endif %}</span>
       <span class="text-[11px] text-slate-400">This month</span>
     </div>
-    <div class="bg-slate-800 rounded-lg px-3 py-2 border border-slate-700 flex items-baseline gap-2">
+    <div class="bg-slate-800 rounded-lg px-3 py-1 border border-slate-700 flex items-baseline gap-2">
       <span class="text-lg font-bold text-white leading-none">{% if earnings_source == 'stripe' %}${{ combined_last_month }}{% else %}&mdash;{% endif %}</span>
       <span class="text-[11px] text-slate-400">Last month</span>
     </div>
   </div>
 
-  {% comment %} Main row: 50/50 — line chart | stacked Student + Institute panels (fills height) {% endcomment %}
-  <div class="grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-1 gap-2.5 flex-1 min-h-0">
+  {% comment %} Main row: 50/50 — line chart | stacked Student + Institute panels. Row height = right column's natural content height; chart fills the stretched cell so its bottom aligns with the Institute panel bottom. {% endcomment %}
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-stretch">
 
-    {% comment %} ===== Left: line chart (fills) ===== {% endcomment %}
-    <section class="bg-slate-800 rounded-lg p-3 border border-slate-700 flex flex-col min-h-0">
-      <div class="flex items-center justify-between gap-2 mb-2">
+    {% comment %} ===== Left: line chart (fills stretched cell) ===== {% endcomment %}
+    <section class="bg-slate-800 rounded-lg px-3 pt-3 pb-0.5 border border-slate-700 flex flex-col min-h-0">
+      <div class="flex items-center justify-between gap-2 mb-1">
         <h2 class="text-xs font-semibold text-white">Daily active subscriptions</h2>
         <div class="flex gap-0.5">
           {% for opt in daily_window_options %}
@@ -69,7 +69,7 @@
           {% endfor %}
         </div>
       </div>
-      <div class="flex-1 min-h-[260px]" style="position:relative">
+      <div class="flex-1 min-h-[200px]" style="position:relative">
         <canvas id="dailyChart" role="img" aria-label="Line chart of daily active student and institute subscriptions"></canvas>
       </div>
     </section>
@@ -78,8 +78,8 @@
     <div class="flex flex-col gap-2.5 min-h-0">
 
       {% comment %} ----- STUDENTS ----- {% endcomment %}
-      <section class="bg-slate-800 rounded-lg border border-slate-700 p-3 flex-1 min-h-0 flex flex-col">
-        <div class="flex items-center justify-between mb-2">
+      <section class="bg-slate-800 rounded-lg border border-slate-700 p-2 flex flex-col">
+        <div class="flex items-center justify-between mb-1">
           <h2 class="text-xs font-semibold text-white flex items-center gap-1.5">
             <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/></svg>
             Student Subscriptions <span class="text-[10px] font-normal text-slate-500">(B2C)</span>
@@ -87,9 +87,9 @@
           {% if counts_source == 'stripe' %}<span class="text-[10px] text-emerald-400">live · Stripe</span>{% endif %}
         </div>
 
-        <div class="flex items-center gap-3 mb-2">
+        <div class="flex items-center gap-3 mb-1">
           <h3 class="sr-only">Student status</h3>
-          <svg viewBox="0 0 140 140" class="w-14 h-14 flex-shrink-0" role="img" aria-label="Student status breakdown">
+          <svg viewBox="0 0 140 140" class="w-12 h-12 flex-shrink-0" role="img" aria-label="Student status breakdown">
             <circle cx="70" cy="70" r="{{ students.donut.radius }}" fill="none" stroke="#334155" stroke-width="13"/>
             {% for seg in students.donut.segments %}{% if seg.value %}
             <circle cx="70" cy="70" r="{{ students.donut.radius }}" fill="none" stroke="{{ seg.color }}" stroke-width="13" stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}" transform="rotate(-90 70 70)"/>
@@ -104,31 +104,31 @@
           </ul>
         </div>
 
-        <div class="grid grid-cols-4 gap-1.5 text-center mb-2">
+        <div class="grid grid-cols-4 gap-1.5 text-center mb-1">
           {% if counts_source == 'stripe' %}
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-white leading-none">{{ students.stripe.total }}</div><div class="text-[10px] text-slate-400 mt-0.5">Total</div></div>
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-emerald-400 leading-none">{{ students.stripe.paid }}</div><div class="text-[10px] text-slate-400 mt-0.5">Paid</div></div>
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-amber-400 leading-none">{{ students.stripe.trial }}</div><div class="text-[10px] text-slate-400 mt-0.5">Trial</div></div>
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-slate-500 leading-none">{{ students.stripe.other }}</div><div class="text-[10px] text-slate-400 mt-0.5">Past/canc</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-white leading-none">{{ students.stripe.total }}</div><div class="text-[10px] text-slate-400 mt-0.5">Total</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-emerald-400 leading-none">{{ students.stripe.paid }}</div><div class="text-[10px] text-slate-400 mt-0.5">Paid</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-amber-400 leading-none">{{ students.stripe.trial }}</div><div class="text-[10px] text-slate-400 mt-0.5">Trial</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-slate-500 leading-none">{{ students.stripe.other }}</div><div class="text-[10px] text-slate-400 mt-0.5">Past/canc</div></div>
           {% else %}
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-emerald-400 leading-none">{{ students.paying }}</div><div class="text-[10px] text-slate-400 mt-0.5">Active</div></div>
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-sky-400 leading-none">{{ students.free }}</div><div class="text-[10px] text-slate-400 mt-0.5">Free</div></div>
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-amber-400 leading-none">{{ students.trial }}</div><div class="text-[10px] text-slate-400 mt-0.5">Trial</div></div>
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-slate-500 leading-none">{{ students.inactive }}</div><div class="text-[10px] text-slate-400 mt-0.5">Inactive</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-emerald-400 leading-none">{{ students.paying }}</div><div class="text-[10px] text-slate-400 mt-0.5">Active</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-sky-400 leading-none">{{ students.free }}</div><div class="text-[10px] text-slate-400 mt-0.5">Free</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-amber-400 leading-none">{{ students.trial }}</div><div class="text-[10px] text-slate-400 mt-0.5">Trial</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-slate-500 leading-none">{{ students.inactive }}</div><div class="text-[10px] text-slate-400 mt-0.5">Inactive</div></div>
           {% endif %}
         </div>
 
-        <div class="flex items-center justify-between text-[11px] mb-2 pb-2 border-b border-slate-700">
+        <div class="flex items-center justify-between text-[11px] mb-1 pb-1 border-b border-slate-700">
           <span><b class="text-emerald-400">+{{ students.new_today }}</b> <span class="text-slate-500">new</span> &middot; <b class="text-rose-400">&minus;{{ students.lost_today }}</b> <span class="text-slate-500">lost</span></span>
           {% if earnings_source == 'stripe' %}<span class="text-slate-400">Last <b class="text-white">${{ students.last_month }}</b> &middot; This <b class="text-white">${{ students.this_month }}</b></span>{% else %}<span class="text-slate-400">Est. <b class="text-white">${{ students.estimate }}</b></span>{% endif %}
         </div>
 
-        <div class="flex-1 min-h-0 overflow-auto">
+        <div>
           <div class="text-[10px] font-medium uppercase tracking-wide text-slate-500 mb-1">Active by package</div>
           <table class="w-full text-xs">
             <tbody class="divide-y divide-slate-700/60">
               {% for row in students.by_package %}
-              <tr><td class="py-1 text-slate-200">{{ row.package__name|default:"— No package" }}</td><td class="py-1 text-right font-semibold text-white">{{ row.count }}</td></tr>
+              <tr><td class="py-0.5 text-slate-200">{{ row.package__name|default:"— No package" }}</td><td class="py-0.5 text-right font-semibold text-white">{{ row.count }}</td></tr>
               {% empty %}
               <tr><td class="py-2 text-center text-slate-500">No active student subscriptions.</td></tr>
               {% endfor %}
@@ -138,8 +138,8 @@
       </section>
 
       {% comment %} ----- INSTITUTES ----- {% endcomment %}
-      <section class="bg-slate-800 rounded-lg border border-slate-700 p-3 flex-1 min-h-0 flex flex-col">
-        <div class="flex items-center justify-between mb-2">
+      <section class="bg-slate-800 rounded-lg border border-slate-700 p-2 flex flex-col">
+        <div class="flex items-center justify-between mb-1">
           <h2 class="text-xs font-semibold text-white flex items-center gap-1.5">
             <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
             Institute Subscriptions
@@ -147,9 +147,9 @@
           {% if counts_source == 'stripe' %}<span class="text-[10px] text-emerald-400">live · Stripe</span>{% endif %}
         </div>
 
-        <div class="flex items-center gap-3 mb-2">
+        <div class="flex items-center gap-3 mb-1">
           <h3 class="sr-only">Institute status</h3>
-          <svg viewBox="0 0 140 140" class="w-14 h-14 flex-shrink-0" role="img" aria-label="Institute status breakdown">
+          <svg viewBox="0 0 140 140" class="w-12 h-12 flex-shrink-0" role="img" aria-label="Institute status breakdown">
             <circle cx="70" cy="70" r="{{ institutes.donut.radius }}" fill="none" stroke="#334155" stroke-width="13"/>
             {% for seg in institutes.donut.segments %}{% if seg.value %}
             <circle cx="70" cy="70" r="{{ institutes.donut.radius }}" fill="none" stroke="{{ seg.color }}" stroke-width="13" stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}" transform="rotate(-90 70 70)"/>
@@ -164,32 +164,32 @@
           </ul>
         </div>
 
-        <div class="grid grid-cols-4 gap-1.5 text-center mb-2">
+        <div class="grid grid-cols-4 gap-1.5 text-center mb-1">
           {% if counts_source == 'stripe' %}
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-white leading-none">{{ institutes.stripe.total }}</div><div class="text-[10px] text-slate-400 mt-0.5">Total</div></div>
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-emerald-400 leading-none">{{ institutes.stripe.paid }}</div><div class="text-[10px] text-slate-400 mt-0.5">Paid</div></div>
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-amber-400 leading-none">{{ institutes.stripe.trial }}</div><div class="text-[10px] text-slate-400 mt-0.5">Trial</div></div>
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-slate-500 leading-none">{{ institutes.stripe.other }}</div><div class="text-[10px] text-slate-400 mt-0.5">Past/canc</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-white leading-none">{{ institutes.stripe.total }}</div><div class="text-[10px] text-slate-400 mt-0.5">Total</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-emerald-400 leading-none">{{ institutes.stripe.paid }}</div><div class="text-[10px] text-slate-400 mt-0.5">Paid</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-amber-400 leading-none">{{ institutes.stripe.trial }}</div><div class="text-[10px] text-slate-400 mt-0.5">Trial</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-slate-500 leading-none">{{ institutes.stripe.other }}</div><div class="text-[10px] text-slate-400 mt-0.5">Past/canc</div></div>
           {% else %}
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-emerald-400 leading-none">{{ institutes.paying }}</div><div class="text-[10px] text-slate-400 mt-0.5">Active</div></div>
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-sky-400 leading-none">{{ institutes.free }}</div><div class="text-[10px] text-slate-400 mt-0.5">Free</div></div>
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-amber-400 leading-none">{{ institutes.trial }}</div><div class="text-[10px] text-slate-400 mt-0.5">Trial</div></div>
-          <div class="bg-slate-900/40 rounded py-1"><div class="text-base font-bold text-slate-500 leading-none">{{ institutes.inactive }}</div><div class="text-[10px] text-slate-400 mt-0.5">Inactive</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-emerald-400 leading-none">{{ institutes.paying }}</div><div class="text-[10px] text-slate-400 mt-0.5">Active</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-sky-400 leading-none">{{ institutes.free }}</div><div class="text-[10px] text-slate-400 mt-0.5">Free</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-amber-400 leading-none">{{ institutes.trial }}</div><div class="text-[10px] text-slate-400 mt-0.5">Trial</div></div>
+          <div class="bg-slate-900/40 rounded py-0.5"><div class="text-base font-bold text-slate-500 leading-none">{{ institutes.inactive }}</div><div class="text-[10px] text-slate-400 mt-0.5">Inactive</div></div>
           {% endif %}
         </div>
 
-        <div class="flex items-center justify-between text-[11px] mb-2 pb-2 border-b border-slate-700">
+        <div class="flex items-center justify-between text-[11px] mb-1 pb-1 border-b border-slate-700">
           <span><b class="text-emerald-400">+{{ institutes.new_today }}</b> <span class="text-slate-500">new</span> &middot; <b class="text-rose-400">&minus;{{ institutes.lost_today }}</b> <span class="text-slate-500">lost</span></span>
           {% if earnings_source == 'stripe' %}<span class="text-slate-400">Last <b class="text-white">${{ institutes.last_month }}</b> &middot; This <b class="text-white">${{ institutes.this_month }}</b></span>{% else %}<span class="text-slate-400">Est. <b class="text-white">${{ institutes.estimate }}</b></span>{% endif %}
         </div>
 
-        <div class="flex-1 min-h-0 overflow-auto grid grid-cols-2 gap-x-4">
+        <div class="grid grid-cols-2 gap-x-4">
           <div>
             <div class="text-[10px] font-medium uppercase tracking-wide text-slate-500 mb-1">Active by type</div>
             <table class="w-full text-xs">
               <tbody class="divide-y divide-slate-700/60">
                 {% for row in institutes.by_type %}
-                <tr><td class="py-1 text-slate-200">{{ row.plan__name|default:"— No plan" }}</td><td class="py-1 text-right font-semibold text-white">{{ row.count }}</td></tr>
+                <tr><td class="py-0.5 text-slate-200">{{ row.plan__name|default:"— No plan" }}</td><td class="py-0.5 text-right font-semibold text-white">{{ row.count }}</td></tr>
                 {% empty %}
                 <tr><td class="py-2 text-center text-slate-500">None.</td></tr>
                 {% endfor %}
@@ -201,7 +201,7 @@
             <table class="w-full text-xs">
               <tbody class="divide-y divide-slate-700/60">
                 {% for a in addons %}
-                <tr><td class="py-1 text-slate-200">{{ a.name }}</td><td class="py-1 text-right text-slate-400">{{ a.count }}&times;</td><td class="py-1 text-right font-semibold text-white">${{ a.revenue }}</td></tr>
+                <tr><td class="py-0.5 text-slate-200">{{ a.name }}</td><td class="py-0.5 text-right text-slate-400">{{ a.count }}&times;</td><td class="py-0.5 text-right font-semibold text-white">${{ a.revenue }}</td></tr>
                 {% empty %}
                 <tr><td class="py-2 text-center text-slate-500">None.</td></tr>
                 {% endfor %}
@@ -258,6 +258,48 @@
         plugins: { legend: { position: 'top', labels: { color: '#cbd5e1', boxWidth: 12, usePointStyle: true } } }
       }
     });
+    // Re-fit once the chart has laid out.
+    if (window.fitDashboard) { requestAnimationFrame(window.fitDashboard); }
+  })();
+</script>
+<script>
+  (function () {
+    var frame = document.getElementById('fit-frame');
+    var content = document.getElementById('fit-content');
+    if (!frame || !content) { return; }
+    var LG = 1024; // Tailwind lg breakpoint
+    var MAX_SCALE = 1.5;
+    var raf = null;
+
+    function fit() {
+      // Below lg: let it flow naturally (mobile can scroll).
+      if (window.innerWidth < LG) {
+        content.style.transform = '';
+        content.style.transformOrigin = '';
+        return;
+      }
+      // Measure natural size with transform cleared.
+      content.style.transform = 'none';
+      var cw = content.offsetWidth;
+      var ch = content.offsetHeight;
+      var fw = frame.clientWidth;
+      var fh = frame.clientHeight;
+      if (!cw || !ch || !fw || !fh) { content.style.transform = ''; return; }
+      var s = Math.min(fw / cw, fh / ch);
+      if (s > MAX_SCALE) { s = MAX_SCALE; }
+      content.style.transformOrigin = 'center center';
+      content.style.transform = 'scale(' + s + ')';
+    }
+
+    window.fitDashboard = function () {
+      if (raf) { cancelAnimationFrame(raf); }
+      raf = requestAnimationFrame(fit);
+    };
+
+    window.addEventListener('resize', window.fitDashboard);
+    window.fitDashboard();
+    // Run again after fonts/late layout settle.
+    setTimeout(window.fitDashboard, 150);
   })();
 </script>
 {% endblock %}
