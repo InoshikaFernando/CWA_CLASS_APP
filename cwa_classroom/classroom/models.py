@@ -1470,6 +1470,121 @@ class ProgressRecord(models.Model):
         return f'{self.student.username} — {self.criteria.name} ({self.status})'
 
 
+class ProgressReportComment(models.Model):
+    """A teacher's narrative comment on a student's progress for a term.
+
+    Multiple comments may exist per student / term (e.g. from different
+    teachers or subjects); each one is editable so teachers can update old
+    comments at any time.
+    """
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='progress_report_comments',
+    )
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE,
+        related_name='progress_report_comments',
+    )
+    term = models.ForeignKey(
+        Term, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='progress_report_comments',
+        help_text='Term this comment applies to. Null = general / all terms.',
+    )
+    subject = models.ForeignKey(
+        Subject, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='progress_report_comments',
+        help_text='Optional: a subject-specific comment. Null = overall comment.',
+    )
+    body = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='authored_progress_comments',
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Comment on {self.student.username} by {self.created_by.username if self.created_by else "?"}'
+
+    @property
+    def was_edited(self):
+        # auto_now / auto_now_add can differ by microseconds on creation.
+        if not self.created_at or not self.updated_at:
+            return False
+        return (self.updated_at - self.created_at).total_seconds() > 1
+
+
+class ProgressReport(models.Model):
+    """A generated end-of-term progress report for a student.
+
+    Teachers generate the report (a draft) and then send it to the student's
+    linked parents/guardians. The progress data and comments are rendered live
+    at view / send time; this model tracks the generate → send lifecycle.
+    """
+    STATUS_DRAFT = 'draft'
+    STATUS_SENT = 'sent'
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, 'Draft'),
+        (STATUS_SENT, 'Sent'),
+    ]
+
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='progress_reports',
+    )
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE,
+        related_name='progress_reports',
+    )
+    term = models.ForeignKey(
+        Term, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='progress_reports',
+    )
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    generated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='generated_progress_reports',
+    )
+    generated_at = models.DateTimeField(auto_now_add=True)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='sent_progress_reports',
+    )
+    sent_at = models.DateTimeField(null=True, blank=True)
+    recipient_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['-generated_at']
+
+    def __str__(self):
+        term_name = self.term.name if self.term else 'All terms'
+        return f'Report: {self.student.username} — {term_name} ({self.status})'
+
+    @property
+    def is_sent(self):
+        return self.status == self.STATUS_SENT
+
+
 # ---------------------------------------------------------------------------
 # Notifications
 # ---------------------------------------------------------------------------
@@ -1488,6 +1603,7 @@ class Notification(models.Model):
         ('parent_link_approved', 'Parent Link Approved'),
         ('parent_link_rejected', 'Parent Link Rejected'),
         ('homework_assigned', 'Homework Assigned'),
+        ('progress_report', 'Progress Report'),
         ('general', 'General'),
     ]
     user = models.ForeignKey(

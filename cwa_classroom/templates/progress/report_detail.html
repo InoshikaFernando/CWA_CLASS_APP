@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Progress Report{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+
+  <!-- Toolbar (hidden when printing) -->
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-6 print:hidden">
+    <a href="{% url 'student_progress' student.id %}{% if term %}?term={{ term.id }}{% endif %}"
+       class="text-sm text-gray-500 hover:text-gray-700">&larr; Back to progress</a>
+    <div class="flex items-center gap-3">
+      <button type="button" onclick="window.print()"
+              class="px-4 py-2 bg-white border border-slate-300 text-sm font-medium rounded-lg hover:bg-slate-50">Print / PDF</button>
+      {% if report.is_sent %}
+        <span class="inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium bg-emerald-100 text-emerald-700">
+          Sent to {{ report.recipient_count }} parent(s) on {{ report.sent_at|date:"j M Y" }}
+        </span>
+      {% endif %}
+      <form method="post" action="{% url 'progress_report_send' report.id %}"
+            onsubmit="return confirm('Send this progress report to the student's parents/guardians?');">
+        {% csrf_token %}
+        <button type="submit"
+                class="px-5 py-2 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-blue-600">
+          {% if report.is_sent %}Resend to parents{% else %}Send to parents{% endif %}
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {% if not parents %}
+  <div class="mb-6 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800 print:hidden">
+    This student has no linked parents/guardians. Link a parent before sending.
+  </div>
+  {% endif %}
+
+  <!-- Report body -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+    <div class="border-b border-slate-100 pb-5 mb-6">
+      <p class="text-sm text-gray-500">{{ school.name }}</p>
+      <h1 class="text-2xl font-display font-bold text-gray-900 mt-1">Progress Report</h1>
+      <p class="text-gray-600 mt-2">
+        <span class="font-medium">{{ student.get_full_name|default:student.username }}</span>
+        · {{ term.name|default:"All terms" }}
+      </p>
+    </div>
+
+    <!-- Summary -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div class="rounded-xl p-4 border border-slate-200 text-center">
+        <p class="text-xl font-bold text-gray-900">{{ overall.total }}</p>
+        <p class="text-xs text-gray-500">Total Criteria</p>
+      </div>
+      <div class="rounded-xl p-4 border border-slate-200 text-center">
+        <p class="text-xl font-bold text-emerald-600">{{ overall.achieved }}</p>
+        <p class="text-xs text-gray-500">Achieved</p>
+      </div>
+      <div class="rounded-xl p-4 border border-slate-200 text-center">
+        <p class="text-xl font-bold text-accent">{{ overall.in_progress }}</p>
+        <p class="text-xs text-gray-500">In Progress</p>
+      </div>
+      <div class="rounded-xl p-4 border border-slate-200 text-center">
+        <p class="text-xl font-bold text-gray-400">{{ overall.not_started }}</p>
+        <p class="text-xs text-gray-500">Not Started</p>
+      </div>
+    </div>
+
+    <!-- Progress by subject & level -->
+    {% if grouped_progress %}
+      <div class="space-y-6">
+        {% for group in grouped_progress %}
+          <div class="border border-slate-200 rounded-xl">
+            <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+              <h2 class="font-semibold text-gray-900">{{ group.subject }} — {{ group.level }}</h2>
+              <span class="text-xs text-gray-500">{{ group.achieved }}/{{ group.total }} achieved</span>
+            </div>
+            <div class="divide-y divide-slate-50">
+              {% for record in group.records %}
+                <div class="flex items-center justify-between px-4 py-2.5">
+                  <p class="text-sm text-gray-700">{{ record.criteria.name }}</p>
+                  <span class="text-xs font-medium px-2.5 py-1 rounded-full
+                    {% if record.status == 'achieved' %}bg-emerald-100 text-emerald-700
+                    {% elif record.status == 'in_progress' %}bg-accent-light text-accent-dark
+                    {% else %}bg-slate-100 text-slate-500{% endif %}">
+                    {{ record.get_status_display }}
+                  </span>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-sm text-gray-400">No progress records yet.</p>
+    {% endif %}
+
+    <!-- Teacher comments -->
+    <div class="mt-8 pt-6 border-t border-slate-100">
+      <h2 class="font-semibold text-gray-900 mb-3">Teacher Comments</h2>
+      {% for comment in comments %}
+        <div class="mb-4">
+          <p class="text-sm text-gray-800 whitespace-pre-line">{{ comment.body }}</p>
+          <p class="text-xs text-gray-400 mt-1">
+            — {{ comment.created_by.get_full_name|default:comment.created_by.username|default:"Teacher" }}
+            {% if comment.subject %}, {{ comment.subject.name }}{% endif %}
+          </p>
+        </div>
+      {% empty %}
+        <p class="text-sm text-gray-400">No comments.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
