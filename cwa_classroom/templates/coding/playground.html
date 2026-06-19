@@ -22,6 +22,7 @@
     --cw-surface: #fff; --cw-border: rgba(0,0,0,0.08);
     --cw-text-secondary: #5F5E5A; --cw-text-muted: #888780;
     --ed-bg: #1a1b2e; --ed-bar: #13141f;
+    --panel-h: 480px;   /* shared height so the editor + output panels match */
   }
   .ed-page { background: var(--cw-green-50); margin: -24px -16px -96px; padding: 16px 16px 64px; min-height: calc(100vh - 10rem); }
   @media (min-width: 768px) { .ed-page { margin: -24px -32px -24px; padding: 20px 32px 64px; } }
@@ -37,8 +38,12 @@
 
   .ed-col { display: flex; flex-direction: column; gap: 12px; }
 
-  .ed-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  /* Equal-height toolbar in BOTH columns so the panels below line up */
+  .ed-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; }
+  .ed-toolbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .ed-subtitle { font-size: 14px; font-weight: 700; color: #1a1a18; white-space: nowrap; }
   .ed-lang-label { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); }
+  .ed-panel-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); }
   .ed-toolbar-btns { display: flex; gap: 8px; align-items: center; }
   .ed-reset-btn { font-size: 12px; padding: 7px 14px; border-radius: 8px; background: var(--cw-surface); border: 1px solid rgba(0,0,0,0.13); color: var(--cw-text-secondary); cursor: pointer; font-family: inherit; transition: background .15s; }
   .ed-reset-btn:hover { background: #f1f0ea; }
@@ -51,35 +56,33 @@
   .ed-tab { font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 8px 8px 0 0; border: 1px solid var(--cw-border); border-bottom: none; background: #e9efe9; color: var(--cw-text-muted); cursor: pointer; font-family: inherit; }
   .ed-tab.active { background: var(--ed-bar); color: #e2e8f0; }
 
-  .ed-chrome { border-radius: 14px; overflow: hidden; border: 1px solid #2a2d3a; }
-  .ed-chrome-bar { display: flex; align-items: center; gap: 6px; padding: 9px 14px; background: var(--ed-bar); border-bottom: 1px solid #2a2d3a; }
+  .ed-chrome { border-radius: 14px; overflow: hidden; border: 1px solid #2a2d3a; height: var(--panel-h); display: flex; flex-direction: column; }
+  .ed-chrome-bar { display: flex; align-items: center; gap: 6px; padding: 9px 14px; background: var(--ed-bar); border-bottom: 1px solid #2a2d3a; flex: 0 0 auto; }
   .ed-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
   .ed-dot-r { background: #ff5f57; } .ed-dot-y { background: #febc2e; } .ed-dot-g { background: #28c840; }
   .ed-file { font-size: 12px; color: #6b7280; font-family: 'JetBrains Mono', monospace; margin-left: 6px; }
 
-  .ed-editor-host .CodeMirror { height: 440px; background: var(--ed-bg); color: #e2e8f0; font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; font-size: 14px; line-height: 1.7; }
+  .ed-editor-host { flex: 1 1 auto; min-height: 0; }
+  .ed-editor-host .CodeMirror { height: 100%; background: var(--ed-bg); color: #e2e8f0; font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; font-size: 14px; line-height: 1.7; }
   .ed-editor-host .CodeMirror-cursor { border-left: 2px solid #1D9E75; }
   .ed-editor-host.hidden { display: none; }
 
-  /* Output (python / js) */
-  .ed-output-wrap { background: #0f1117; border-radius: 14px; border: 1px solid #2a2d3a; overflow: hidden; }
-  .ed-output-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #161821; border-bottom: 1px solid #2a2d3a; }
-  .ed-output-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #6b7280; }
-  .ed-clear-btn { font-size: 11px; color: #6b7280; background: none; border: none; cursor: pointer; font-family: inherit; padding: 0; transition: color .15s; }
-  .ed-clear-btn:hover { color: #9ca3af; }
-  #ed-stdout { font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; font-size: 13px; line-height: 1.6; color: #4ade80; padding: 14px; min-height: 200px; max-height: 460px; white-space: pre-wrap; overflow-y: auto; margin: 0; }
-  #ed-stderr { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; color: #f87171; padding: 0 14px 12px; white-space: pre-wrap; display: none; }
+  /* Output (python / js) — same height as the editor, fills the box */
+  .ed-output-wrap { background: #0f1117; border-radius: 14px; border: 1px solid #2a2d3a; overflow: hidden; height: var(--panel-h); display: flex; flex-direction: column; }
+  .ed-clear-btn { font-size: 11px; color: var(--cw-text-muted); background: none; border: none; cursor: pointer; font-family: inherit; padding: 0; transition: color .15s; }
+  .ed-clear-btn:hover { color: #5F5E5A; }
+  #ed-stdout { font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; font-size: 13px; line-height: 1.6; color: #4ade80; padding: 14px; flex: 1 1 auto; min-height: 0; white-space: pre-wrap; overflow-y: auto; margin: 0; }
+  #ed-stderr { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; color: #f87171; padding: 0 14px 12px; white-space: pre-wrap; display: none; flex: 0 0 auto; }
 
   /* Stdin */
   .ed-stdin-wrap { background: var(--cw-surface); border-radius: 12px; border: 1px solid var(--cw-border); overflow: hidden; }
   .ed-stdin-bar { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); padding: 8px 12px; border-bottom: 1px solid var(--cw-border); }
   #ed-stdin { width: 100%; border: none; resize: vertical; min-height: 56px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #1a1a18; box-sizing: border-box; outline: none; }
 
-  /* Live preview (html/css) */
-  .ed-preview-wrap { background: var(--cw-surface); border-radius: 14px; border: 1px solid var(--cw-border); overflow: hidden; }
-  .ed-preview-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--cw-border); }
-  .ed-preview-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); }
-  #ed-preview-frame { width: 100%; height: 480px; border: none; display: block; background: #fff; }
+  /* Live preview (html/css) — same height as the editor */
+  .ed-preview-wrap { background: var(--cw-surface); border-radius: 14px; border: 1px solid var(--cw-border); overflow: hidden; height: var(--panel-h); display: flex; flex-direction: column; }
+  .ed-preview-hint { font-size: 11px; color: var(--cw-green-600); }
+  #ed-preview-frame { width: 100%; flex: 1 1 auto; min-height: 0; border: none; display: block; background: #fff; }
 </style>
 {% endblock %}
 
@@ -101,14 +104,17 @@
       <!-- LEFT: editor -->
       <div class="ed-col">
         <div class="ed-toolbar">
-          {% if cfg.mode == 'preview' %}
-          <div class="ed-tabs">
-            <button type="button" class="ed-tab active" id="tab-html" onclick="pgShowTab('html')">index.html</button>
-            <button type="button" class="ed-tab" id="tab-css" onclick="pgShowTab('css')">style.css</button>
+          <div class="ed-toolbar-left">
+            <span class="ed-subtitle">Online Compiler</span>
+            {% if cfg.mode == 'preview' %}
+            <div class="ed-tabs">
+              <button type="button" class="ed-tab active" id="tab-html" onclick="pgShowTab('html')">index.html</button>
+              <button type="button" class="ed-tab" id="tab-css" onclick="pgShowTab('css')">style.css</button>
+            </div>
+            {% else %}
+            <span class="ed-lang-label">{{ cfg.name }}</span>
+            {% endif %}
           </div>
-          {% else %}
-          <span class="ed-lang-label">{{ cfg.name }}</span>
-          {% endif %}
           <div class="ed-toolbar-btns">
             <button type="button" class="ed-reset-btn" onclick="pgReset()">Reset</button>
             <button type="button" class="ed-run-btn" id="ed-run-btn" onclick="pgRun()">&#9654; Run</button>
@@ -141,19 +147,23 @@
       <!-- RIGHT: output / preview -->
       <div class="ed-col">
         {% if cfg.mode == 'preview' %}
-        <div class="ed-preview-wrap">
-          <div class="ed-preview-bar">
-            <span class="ed-preview-label">Live Preview</span>
-            <span class="ed-preview-label">Press Run to refresh</span>
+        <div class="ed-toolbar">
+          <div class="ed-toolbar-left">
+            <span class="ed-panel-label">Live Preview</span>
           </div>
+          <span class="ed-preview-hint">Press Run to refresh</span>
+        </div>
+        <div class="ed-preview-wrap">
           <iframe id="ed-preview-frame" sandbox="allow-scripts allow-modals" srcdoc=""></iframe>
         </div>
         {% else %}
-        <div class="ed-output-wrap">
-          <div class="ed-output-bar">
-            <span class="ed-output-label">Output</span>
-            <button type="button" class="ed-clear-btn" onclick="pgClear()">Clear</button>
+        <div class="ed-toolbar">
+          <div class="ed-toolbar-left">
+            <span class="ed-panel-label">Output</span>
           </div>
+          <button type="button" class="ed-clear-btn" onclick="pgClear()">Clear</button>
+        </div>
+        <div class="ed-output-wrap">
           <pre id="ed-stdout">Press &#34;Run&#34; to see your output here.</pre>
           <div id="ed-stderr"></div>
         </div>
@@ -199,14 +209,14 @@ if (PG_MODE === 'preview') {
            Object.assign({ mode: 'css' }, CM_OPTS));
   edHtml.setValue(STARTER_HTML);
   edCss.setValue(STARTER_CSS);
-  edHtml.setSize('100%', '440px');
-  edCss.setSize('100%', '440px');
+  edHtml.setSize('100%', '100%');
+  edCss.setSize('100%', '100%');
   pgRun();  // show initial preview
 } else {
   edCode = CodeMirror.fromTextArea(document.getElementById('ed-code'),
            Object.assign({ mode: CM_MODE }, CM_OPTS));
   edCode.setValue(STARTER);
-  edCode.setSize('100%', '440px');
+  edCode.setSize('100%', '100%');
 }
 
 function pgShowTab(which) {
