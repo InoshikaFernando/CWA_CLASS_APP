@@ -109,6 +109,17 @@ INSTALLED_APPS = [
 # is assigned to this user. Falls back to the first superuser when unset.
 FEEDBACK_OWNER_EMAIL = os.environ.get('FEEDBACK_OWNER_EMAIL', '')
 
+# Jira integration for auto-filing bug-category feedback as CPP Bug issues.
+# When any of BASE_URL / USER_EMAIL / API_TOKEN is unset the integration is a
+# no-op (the service logs a warning and skips), so local/dev keeps working.
+JIRA_BASE_URL = os.environ.get('JIRA_BASE_URL', '')
+JIRA_USER_EMAIL = os.environ.get('JIRA_USER_EMAIL', '')
+JIRA_API_TOKEN = os.environ.get('JIRA_API_TOKEN', '')
+JIRA_PROJECT_KEY = os.environ.get('JIRA_PROJECT_KEY', 'CPP')
+
+# Optional Discord webhook to announce newly-filed bugs. Empty = disabled.
+FEEDBACK_DISCORD_WEBHOOK = os.environ.get('FEEDBACK_DISCORD_WEBHOOK', '')
+
 # ---------------------------------------------------------------------------
 # AI / Anthropic
 # ---------------------------------------------------------------------------

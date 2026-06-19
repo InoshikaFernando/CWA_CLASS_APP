@@ -109,6 +109,16 @@ BODY=$(echo "$RESPONSE" | sed '$d')
 if [[ "$HTTP_CODE" == "201" ]]; then
     ISSUE_KEY=$(echo "$BODY" | grep -o '"key":"[^"]*"' | head -1 | cut -d'"' -f4)
     echo "$(date): Created Jira issue ${ISSUE_KEY} with ${ERROR_COUNT} error(s)."
+
+    # Optionally announce the filed issue on Discord. Skipped when the webhook
+    # is unset; a failed post must not fail the cron run (|| true).
+    if [[ -n "${FEEDBACK_DISCORD_WEBHOOK:-}" ]]; then
+        ISSUE_URL="${JIRA_BASE_URL}/browse/${ISSUE_KEY}"
+        curl -s -X POST \
+            -H 'Content-Type: application/json' \
+            -d "{\"content\":\"🐞 Error-log bug filed: ${ISSUE_KEY} ${SUMMARY} ${ISSUE_URL}\"}" \
+            "$FEEDBACK_DISCORD_WEBHOOK" >/dev/null || true
+    fi
 else
     echo "$(date): ERROR creating Jira issue. HTTP ${HTTP_CODE}: ${BODY}"
     exit 1

@@ -94,6 +94,11 @@ class Feedback(models.Model):
         null=True, blank=True, related_name='assigned_feedback',
         help_text='Product owner the item is assigned to for triage.',
     )
+    jira_key = models.CharField(
+        max_length=30, blank=True, default='',
+        help_text='Key of the Jira issue auto-created for this bug (e.g. '
+                  'CPP-123). Used for traceability and to dedupe re-reports.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     removed_at = models.DateTimeField(
