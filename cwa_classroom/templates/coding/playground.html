@@ -1,0 +1,294 @@
+{% extends "coding/base.html" %}
+{% block coding_title %}{{ cfg.name }} Compiler{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+{# ── CodeMirror 5 — loaded in <head> so it's ready before DOMContentLoaded ── #}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+<style>
+  :root {
+    --cw-green-50: #f0faf5; --cw-green-200: #9FE1CB;
+    --cw-green-400: #1D9E75; --cw-green-600: #0F6E56;
+    --cw-surface: #fff; --cw-border: rgba(0,0,0,0.08);
+    --cw-text-secondary: #5F5E5A; --cw-text-muted: #888780;
+    --ed-bg: #1a1b2e; --ed-bar: #13141f;
+  }
+  .ed-page { background: var(--cw-green-50); margin: -24px -16px -96px; padding: 16px 16px 64px; min-height: calc(100vh - 10rem); }
+  @media (min-width: 768px) { .ed-page { margin: -24px -32px -24px; padding: 20px 32px 64px; } }
+  .ed-inner { max-width: 1280px; margin: 0 auto; }
+
+  .ed-topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+  .ed-back { font-size: 13px; color: var(--cw-text-muted); text-decoration: none; display: inline-flex; align-items: center; gap: 5px; transition: color .15s; }
+  .ed-back:hover { color: var(--cw-green-600); }
+  .ed-title { font-size: 15px; font-weight: 700; color: #1a1a18; }
+
+  .ed-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .ed-split { grid-template-columns: 1fr; } }
+
+  .ed-col { display: flex; flex-direction: column; gap: 12px; }
+
+  .ed-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .ed-lang-label { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); }
+  .ed-toolbar-btns { display: flex; gap: 8px; align-items: center; }
+  .ed-reset-btn { font-size: 12px; padding: 7px 14px; border-radius: 8px; background: var(--cw-surface); border: 1px solid rgba(0,0,0,0.13); color: var(--cw-text-secondary); cursor: pointer; font-family: inherit; transition: background .15s; }
+  .ed-reset-btn:hover { background: #f1f0ea; }
+  .ed-run-btn { font-size: 13px; font-weight: 600; padding: 7px 20px; border-radius: 8px; background: var(--cw-green-400); color: #fff; border: none; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; transition: background .15s, opacity .15s; }
+  .ed-run-btn:hover { background: var(--cw-green-600); }
+  .ed-run-btn:disabled { opacity: .6; cursor: not-allowed; }
+
+  /* Tabs (HTML/CSS only) */
+  .ed-tabs { display: flex; gap: 4px; }
+  .ed-tab { font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 8px 8px 0 0; border: 1px solid var(--cw-border); border-bottom: none; background: #e9efe9; color: var(--cw-text-muted); cursor: pointer; font-family: inherit; }
+  .ed-tab.active { background: var(--ed-bar); color: #e2e8f0; }
+
+  .ed-chrome { border-radius: 14px; overflow: hidden; border: 1px solid #2a2d3a; }
+  .ed-chrome-bar { display: flex; align-items: center; gap: 6px; padding: 9px 14px; background: var(--ed-bar); border-bottom: 1px solid #2a2d3a; }
+  .ed-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .ed-dot-r { background: #ff5f57; } .ed-dot-y { background: #febc2e; } .ed-dot-g { background: #28c840; }
+  .ed-file { font-size: 12px; color: #6b7280; font-family: 'JetBrains Mono', monospace; margin-left: 6px; }
+
+  .ed-editor-host .CodeMirror { height: 440px; background: var(--ed-bg); color: #e2e8f0; font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; font-size: 14px; line-height: 1.7; }
+  .ed-editor-host .CodeMirror-cursor { border-left: 2px solid #1D9E75; }
+  .ed-editor-host.hidden { display: none; }
+
+  /* Output (python / js) */
+  .ed-output-wrap { background: #0f1117; border-radius: 14px; border: 1px solid #2a2d3a; overflow: hidden; }
+  .ed-output-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #161821; border-bottom: 1px solid #2a2d3a; }
+  .ed-output-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #6b7280; }
+  .ed-clear-btn { font-size: 11px; color: #6b7280; background: none; border: none; cursor: pointer; font-family: inherit; padding: 0; transition: color .15s; }
+  .ed-clear-btn:hover { color: #9ca3af; }
+  #ed-stdout { font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; font-size: 13px; line-height: 1.6; color: #4ade80; padding: 14px; min-height: 200px; max-height: 460px; white-space: pre-wrap; overflow-y: auto; margin: 0; }
+  #ed-stderr { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; color: #f87171; padding: 0 14px 12px; white-space: pre-wrap; display: none; }
+
+  /* Stdin */
+  .ed-stdin-wrap { background: var(--cw-surface); border-radius: 12px; border: 1px solid var(--cw-border); overflow: hidden; }
+  .ed-stdin-bar { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); padding: 8px 12px; border-bottom: 1px solid var(--cw-border); }
+  #ed-stdin { width: 100%; border: none; resize: vertical; min-height: 56px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #1a1a18; box-sizing: border-box; outline: none; }
+
+  /* Live preview (html/css) */
+  .ed-preview-wrap { background: var(--cw-surface); border-radius: 14px; border: 1px solid var(--cw-border); overflow: hidden; }
+  .ed-preview-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--cw-border); }
+  .ed-preview-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); }
+  #ed-preview-frame { width: 100%; height: 480px; border: none; display: block; background: #fff; }
+</style>
+{% endblock %}
+
+{% block content %}
+{{ cfg.starter|default:''|json_script:"starter-data" }}
+{{ cfg.starter_html|default:''|json_script:"starter-html-data" }}
+{{ cfg.starter_css|default:''|json_script:"starter-css-data" }}
+
+<div class="ed-page">
+  <div class="ed-inner">
+
+    <div class="ed-topbar">
+      <a class="ed-back" href="{% url 'coding:playground_index' %}">&#8592; All compilers</a>
+      <span class="ed-title">{{ cfg.name }} Compiler</span>
+    </div>
+
+    <div class="ed-split">
+
+      <!-- LEFT: editor -->
+      <div class="ed-col">
+        <div class="ed-toolbar">
+          {% if cfg.mode == 'preview' %}
+          <div class="ed-tabs">
+            <button type="button" class="ed-tab active" id="tab-html" onclick="pgShowTab('html')">index.html</button>
+            <button type="button" class="ed-tab" id="tab-css" onclick="pgShowTab('css')">style.css</button>
+          </div>
+          {% else %}
+          <span class="ed-lang-label">{{ cfg.name }}</span>
+          {% endif %}
+          <div class="ed-toolbar-btns">
+            <button type="button" class="ed-reset-btn" onclick="pgReset()">Reset</button>
+            <button type="button" class="ed-run-btn" id="ed-run-btn" onclick="pgRun()">&#9654; Run</button>
+          </div>
+        </div>
+
+        <div class="ed-chrome">
+          <div class="ed-chrome-bar">
+            <span class="ed-dot ed-dot-r"></span>
+            <span class="ed-dot ed-dot-y"></span>
+            <span class="ed-dot ed-dot-g"></span>
+            <span class="ed-file" id="ed-file-label">{{ cfg.filename }}</span>
+          </div>
+          {% if cfg.mode == 'preview' %}
+          <div class="ed-editor-host" id="host-html"><textarea id="ed-html"></textarea></div>
+          <div class="ed-editor-host hidden" id="host-css"><textarea id="ed-css"></textarea></div>
+          {% else %}
+          <div class="ed-editor-host" id="host-code"><textarea id="ed-code"></textarea></div>
+          {% endif %}
+        </div>
+
+        {% if cfg.mode == 'run' %}
+        <div class="ed-stdin-wrap">
+          <div class="ed-stdin-bar">Standard input (optional)</div>
+          <textarea id="ed-stdin" placeholder="Lines here are piped to your program's stdin&hellip;"></textarea>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- RIGHT: output / preview -->
+      <div class="ed-col">
+        {% if cfg.mode == 'preview' %}
+        <div class="ed-preview-wrap">
+          <div class="ed-preview-bar">
+            <span class="ed-preview-label">Live Preview</span>
+            <span class="ed-preview-label">Press Run to refresh</span>
+          </div>
+          <iframe id="ed-preview-frame" sandbox="allow-scripts allow-modals" srcdoc=""></iframe>
+        </div>
+        {% else %}
+        <div class="ed-output-wrap">
+          <div class="ed-output-bar">
+            <span class="ed-output-label">Output</span>
+            <button type="button" class="ed-clear-btn" onclick="pgClear()">Clear</button>
+          </div>
+          <pre id="ed-stdout">Press &#34;Run&#34; to see your output here.</pre>
+          <div id="ed-stderr"></div>
+        </div>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+var PG_MODE   = "{{ cfg.mode }}";
+var PG_LANG   = "{{ lang_slug }}";
+var CM_MODE   = "{{ cfg.cm_mode }}";
+var CSRF_TOKEN = "{{ csrf_token }}";
+var RUN_URL   = "{% url 'coding:api_playground_run' %}";
+
+var STARTER      = JSON.parse(document.getElementById('starter-data').textContent) || '';
+var STARTER_HTML = JSON.parse(document.getElementById('starter-html-data').textContent) || '';
+var STARTER_CSS  = JSON.parse(document.getElementById('starter-css-data').textContent) || '';
+
+var CM_OPTS = {
+  theme: 'dracula', lineNumbers: true, indentUnit: 2, tabSize: 2,
+  indentWithTabs: false, autoCloseBrackets: true, matchBrackets: true,
+  styleActiveLine: true,
+  extraKeys: {
+    'Tab': function (cm) {
+      if (cm.somethingSelected()) { cm.indentSelection('add'); }
+      else { cm.replaceSelection('  ', 'end'); }
+    },
+    'Shift-Tab': 'indentLess',
+    'Ctrl-Enter': function () { pgRun(); },
+    'Cmd-Enter':  function () { pgRun(); },
+  },
+};
+
+var edCode = null, edHtml = null, edCss = null;
+
+if (PG_MODE === 'preview') {
+  edHtml = CodeMirror.fromTextArea(document.getElementById('ed-html'),
+           Object.assign({ mode: 'htmlmixed' }, CM_OPTS));
+  edCss  = CodeMirror.fromTextArea(document.getElementById('ed-css'),
+           Object.assign({ mode: 'css' }, CM_OPTS));
+  edHtml.setValue(STARTER_HTML);
+  edCss.setValue(STARTER_CSS);
+  edHtml.setSize('100%', '440px');
+  edCss.setSize('100%', '440px');
+  pgRun();  // show initial preview
+} else {
+  edCode = CodeMirror.fromTextArea(document.getElementById('ed-code'),
+           Object.assign({ mode: CM_MODE }, CM_OPTS));
+  edCode.setValue(STARTER);
+  edCode.setSize('100%', '440px');
+}
+
+function pgShowTab(which) {
+  var showHtml = which === 'html';
+  document.getElementById('host-html').classList.toggle('hidden', !showHtml);
+  document.getElementById('host-css').classList.toggle('hidden', showHtml);
+  document.getElementById('tab-html').classList.toggle('active', showHtml);
+  document.getElementById('tab-css').classList.toggle('active', !showHtml);
+  document.getElementById('ed-file-label').textContent = showHtml ? 'index.html' : 'style.css';
+  // CodeMirror needs a refresh after being un-hidden to render correctly.
+  setTimeout(function () { (showHtml ? edHtml : edCss).refresh(); }, 0);
+}
+
+function pgClear() {
+  document.getElementById('ed-stdout').textContent = 'Press “Run” to see your output here.';
+  var se = document.getElementById('ed-stderr');
+  se.textContent = ''; se.style.display = 'none';
+}
+
+function pgReset() {
+  if (!confirm('Reset code to the starter template?')) return;
+  if (PG_MODE === 'preview') {
+    edHtml.setValue(STARTER_HTML);
+    edCss.setValue(STARTER_CSS);
+    pgRun();
+  } else {
+    edCode.setValue(STARTER);
+    edCode.clearHistory();
+    pgClear();
+  }
+}
+
+function pgBuildDocument() {
+  var html = edHtml.getValue();
+  var css  = edCss.getValue();
+  // Inject the stylesheet just before </head>, or prepend if no head exists.
+  var styleTag = '<style>\n' + css + '\n</style>';
+  if (/<\/head>/i.test(html)) {
+    return html.replace(/<\/head>/i, styleTag + '\n</head>');
+  }
+  return styleTag + '\n' + html;
+}
+
+async function pgRun() {
+  if (PG_MODE === 'preview') {
+    document.getElementById('ed-preview-frame').srcdoc = pgBuildDocument();
+    return;
+  }
+
+  var btn = document.getElementById('ed-run-btn');
+  var stdoutEl = document.getElementById('ed-stdout');
+  var stderrEl = document.getElementById('ed-stderr');
+
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  stdoutEl.textContent = 'Running…';
+  stderrEl.textContent = ''; stderrEl.style.display = 'none';
+
+  try {
+    var res = await fetch(RUN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+      body: JSON.stringify({
+        language: PG_LANG,
+        code: edCode.getValue(),
+        stdin: document.getElementById('ed-stdin').value,
+      }),
+    });
+    var data = await res.json();
+    if (!res.ok) {
+      stdoutEl.textContent = data.error || ('Server error ' + res.status);
+    } else {
+      var out = data.stdout || '';
+      stdoutEl.textContent = out || (data.error ? data.error : '(no output)');
+      if (data.stderr) { stderrEl.textContent = data.stderr; stderrEl.style.display = 'block'; }
+    }
+  } catch (_) {
+    stdoutEl.textContent = 'Network error — please try again.';
+  }
+
+  btn.disabled = false;
+  btn.textContent = '▶ Run';
+}
+</script>
+{% endblock %}

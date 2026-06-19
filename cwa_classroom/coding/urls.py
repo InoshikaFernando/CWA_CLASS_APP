@@ -11,6 +11,12 @@ urlpatterns = [
     # ── Unified progress page (all languages) ────────────────────────────────
     path('my-progress/', views.my_progress, name='my_progress'),
 
+    # ── Online compilers / playgrounds ───────────────────────────────────────
+    # Declared BEFORE the <slug:lang_slug>/ catch-all so the literal
+    # "playground/" segment is matched first.
+    path('playground/', views.playground_index, name='playground_index'),
+    path('playground/<slug:lang>/', views.playground, name='playground'),
+
     # ── Topic browsing ───────────────────────────────────────────────────────
     # e.g. /coding/python/
     path('<slug:lang_slug>/', views.topic_list, name='topic_list'),
@@ -38,6 +44,9 @@ urlpatterns = [
     # ── API endpoints ────────────────────────────────────────────────────────
     # Run code (topic exercises — output only, no test cases)
     path('api/run/', views.api_run_code, name='api_run_code'),
+
+    # Run free-form playground code (online compilers)
+    path('api/playground-run/', views.api_playground_run, name='api_playground_run'),
 
     # Submit against test cases (problem solving)
     path('api/submit/<int:problem_id>/', views.api_submit_problem, name='api_submit_problem'),
