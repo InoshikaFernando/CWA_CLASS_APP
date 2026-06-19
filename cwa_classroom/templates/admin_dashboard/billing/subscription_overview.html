@@ -3,8 +3,19 @@
 {% block title %}Subscriptions Overview{% endblock %}
 
 {% block content %}
-<div id="fit-frame" class="-mx-4 -my-6 md:-mx-8 px-4 py-2 md:px-6 bg-slate-900 text-slate-200 min-h-[calc(100vh-4rem)] flex flex-col lg:h-[calc(100vh-4rem)] lg:min-h-0 lg:overflow-hidden lg:items-center lg:justify-center">
-<div id="fit-content" class="max-w-[1600px] w-full mx-auto flex flex-col gap-2.5">
+<style>
+  /* Desktop "fill" mode: content fills the viewport height responsively
+     (no uniform scaling), so vertical space isn't wasted and side margins
+     come from the centered max-width. Toggled by JS only when the content
+     actually fits; short screens fall back to a uniform down-scale. */
+  @media (min-width: 1024px) {
+    #fit-content.fill-mode { height: 100%; }
+    #fit-content.fill-mode .main-row { flex: 1 1 0%; min-height: 0; }
+    #fit-content.fill-mode .inst-panel { flex: 1 1 0%; min-height: 0; }
+  }
+</style>
+<div id="fit-frame" class="-mx-4 -my-6 md:-mx-8 px-3 py-3 bg-slate-900 text-slate-200 min-h-[calc(100vh-4rem)] flex flex-col lg:h-[calc(100vh-4rem)] lg:min-h-0 lg:overflow-hidden lg:items-center lg:justify-start">
+<div id="fit-content" class="w-full mx-auto flex flex-col gap-2.5">
 
   {% comment %} Header: title + status + earnings badge + filters {% endcomment %}
   <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -55,11 +66,11 @@
     </div>
   </div>
 
-  {% comment %} Main row: 50/50 — line chart | stacked Student + Institute panels. Row height = right column's natural content height; chart fills the stretched cell so its bottom aligns with the Institute panel bottom. {% endcomment %}
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-stretch">
+  {% comment %} Main row. xl+: single row — chart (2 cols) | Student (1) | Institute (1), i.e. chart:panel = 2:1. Keeps the dashboard short & wide so it fills ultrawide screens at full width with no shrink. lg: chart | stacked panels. <lg: stacked. {% endcomment %}
+  <div class="main-row grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-2.5 items-stretch lg:min-h-0">
 
-    {% comment %} ===== Left: line chart (fills stretched cell) ===== {% endcomment %}
-    <section class="bg-slate-800 rounded-lg px-3 pt-3 pb-0.5 border border-slate-700 flex flex-col min-h-0">
+    {% comment %} ===== Left: line chart (spans 2 cols on xl, fills stretched cell) ===== {% endcomment %}
+    <section class="xl:col-span-2 bg-slate-800 rounded-lg px-3 pt-3 pb-0.5 border border-slate-700 flex flex-col min-h-0">
       <div class="flex items-center justify-between gap-2 mb-1">
         <h2 class="text-xs font-semibold text-white">Daily active subscriptions</h2>
         <div class="flex gap-0.5">
@@ -74,8 +85,8 @@
       </div>
     </section>
 
-    {% comment %} ===== Right: Student + Institute panels stacked ===== {% endcomment %}
-    <div class="flex flex-col gap-2.5 min-h-0">
+    {% comment %} ===== Right: Student + Institute. xl: dissolve wrapper (contents) so they become grid cells 3 & 4 next to the chart; lg: stacked in this column. ===== {% endcomment %}
+    <div class="flex flex-col gap-2.5 min-h-0 xl:contents">
 
       {% comment %} ----- STUDENTS ----- {% endcomment %}
       <section class="bg-slate-800 rounded-lg border border-slate-700 p-2 flex flex-col">
@@ -89,7 +100,7 @@
 
         <div class="flex items-center gap-3 mb-1">
           <h3 class="sr-only">Student status</h3>
-          <svg viewBox="0 0 140 140" class="w-12 h-12 flex-shrink-0" role="img" aria-label="Student status breakdown">
+          <svg viewBox="0 0 140 140" class="w-40 h-40 flex-shrink-0" role="img" aria-label="Student status breakdown">
             <circle cx="70" cy="70" r="{{ students.donut.radius }}" fill="none" stroke="#334155" stroke-width="13"/>
             {% for seg in students.donut.segments %}{% if seg.value %}
             <circle cx="70" cy="70" r="{{ students.donut.radius }}" fill="none" stroke="{{ seg.color }}" stroke-width="13" stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}" transform="rotate(-90 70 70)"/>
@@ -97,7 +108,7 @@
             <text x="70" y="66" text-anchor="middle" style="fill:#f1f5f9;font-size:24px;font-weight:700">{{ students.donut.active_pct }}%</text>
             <text x="70" y="89" text-anchor="middle" style="fill:#94a3b8;font-size:12px">active</text>
           </svg>
-          <ul class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] flex-1">
+          <ul class="grid grid-cols-2 xl:grid-cols-1 gap-x-4 gap-y-0.5 text-[11px] flex-1 min-w-0">
             {% for seg in students.donut.segments %}
             <li class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ seg.color }}"></span><span class="text-slate-400 flex-1">{{ seg.label }}</span><span class="font-semibold text-white">{{ seg.value }}</span><span class="text-slate-500 w-9 text-right">{{ seg.pct }}%</span></li>
             {% endfor %}
@@ -138,7 +149,7 @@
       </section>
 
       {% comment %} ----- INSTITUTES ----- {% endcomment %}
-      <section class="bg-slate-800 rounded-lg border border-slate-700 p-2 flex flex-col">
+      <section class="inst-panel bg-slate-800 rounded-lg border border-slate-700 p-2 flex flex-col">
         <div class="flex items-center justify-between mb-1">
           <h2 class="text-xs font-semibold text-white flex items-center gap-1.5">
             <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
@@ -149,7 +160,7 @@
 
         <div class="flex items-center gap-3 mb-1">
           <h3 class="sr-only">Institute status</h3>
-          <svg viewBox="0 0 140 140" class="w-12 h-12 flex-shrink-0" role="img" aria-label="Institute status breakdown">
+          <svg viewBox="0 0 140 140" class="w-40 h-40 flex-shrink-0" role="img" aria-label="Institute status breakdown">
             <circle cx="70" cy="70" r="{{ institutes.donut.radius }}" fill="none" stroke="#334155" stroke-width="13"/>
             {% for seg in institutes.donut.segments %}{% if seg.value %}
             <circle cx="70" cy="70" r="{{ institutes.donut.radius }}" fill="none" stroke="{{ seg.color }}" stroke-width="13" stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}" transform="rotate(-90 70 70)"/>
@@ -157,7 +168,7 @@
             <text x="70" y="66" text-anchor="middle" style="fill:#f1f5f9;font-size:24px;font-weight:700">{{ institutes.donut.active_pct }}%</text>
             <text x="70" y="89" text-anchor="middle" style="fill:#94a3b8;font-size:12px">active</text>
           </svg>
-          <ul class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] flex-1">
+          <ul class="grid grid-cols-2 xl:grid-cols-1 gap-x-4 gap-y-0.5 text-[11px] flex-1 min-w-0">
             {% for seg in institutes.donut.segments %}
             <li class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ seg.color }}"></span><span class="text-slate-400 flex-1">{{ seg.label }}</span><span class="font-semibold text-white">{{ seg.value }}</span><span class="text-slate-500 w-9 text-right">{{ seg.pct }}%</span></li>
             {% endfor %}
@@ -183,7 +194,7 @@
           {% if earnings_source == 'stripe' %}<span class="text-slate-400">Last <b class="text-white">${{ institutes.last_month }}</b> &middot; This <b class="text-white">${{ institutes.this_month }}</b></span>{% else %}<span class="text-slate-400">Est. <b class="text-white">${{ institutes.estimate }}</b></span>{% endif %}
         </div>
 
-        <div class="grid grid-cols-2 gap-x-4">
+        <div class="grid grid-cols-2 gap-x-3 gap-y-1">
           <div>
             <div class="text-[10px] font-medium uppercase tracking-wide text-slate-500 mb-1">Active by type</div>
             <table class="w-full text-xs">
@@ -268,27 +279,42 @@
     var content = document.getElementById('fit-content');
     if (!frame || !content) { return; }
     var LG = 1024; // Tailwind lg breakpoint
-    var MAX_SCALE = 1.5;
     var raf = null;
 
     function fit() {
       // Below lg: let it flow naturally (mobile can scroll).
       if (window.innerWidth < LG) {
+        content.classList.remove('fill-mode');
         content.style.transform = '';
         content.style.transformOrigin = '';
         return;
       }
-      // Measure natural size with transform cleared.
+      // Measure the natural (minimum) content height with fill + scale off.
+      content.classList.remove('fill-mode');
       content.style.transform = 'none';
       var cw = content.offsetWidth;
       var ch = content.offsetHeight;
       var fw = frame.clientWidth;
       var fh = frame.clientHeight;
-      if (!cw || !ch || !fw || !fh) { content.style.transform = ''; return; }
-      var s = Math.min(fw / cw, fh / ch);
-      if (s > MAX_SCALE) { s = MAX_SCALE; }
-      content.style.transformOrigin = 'center center';
-      content.style.transform = 'scale(' + s + ')';
+      // Subtract the frame's vertical padding so we compare against the usable area.
+      var cs = window.getComputedStyle(frame);
+      var padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+      var availH = fh - padY;
+      if (!cw || !ch || !fw || !availH) { content.style.transform = ''; return; }
+
+      if (ch <= availH) {
+        // Fits: fill the height responsively (no scaling). Gutters come from
+        // the centered max-width; the chart + institute panel grow to the
+        // bottom together so their bottoms stay aligned.
+        content.style.transform = '';
+        content.style.transformOrigin = '';
+        content.classList.add('fill-mode');
+      } else {
+        // Too tall for this screen: uniformly down-scale to fit (never up).
+        var s = Math.min(fw / cw, availH / ch);
+        content.style.transformOrigin = 'top center';
+        content.style.transform = 'scale(' + s + ')';
+      }
     }
 
     window.fitDashboard = function () {

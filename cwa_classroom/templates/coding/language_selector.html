@@ -278,7 +278,8 @@
         {{ total_languages }} language{{ total_languages|pluralize }} available
       </div>
       <h1>Coding Practice</h1>
-      <p>Choose a language to get started with topic exercises and challenges.</p>
+      <p>Choose a language to get started with topic exercises and challenges &mdash;
+         or open an <a href="{% url 'coding:playground_index' %}" style="color: var(--cw-green-600); font-weight: 600; text-decoration: underline;">online compiler</a> to experiment freely.</p>
 
       {% if total_languages %}
       <div class="cw-progress-row">

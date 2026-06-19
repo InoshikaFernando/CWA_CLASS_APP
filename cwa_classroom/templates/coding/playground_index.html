@@ -1,0 +1,68 @@
+{% extends "coding/base.html" %}
+{% block coding_title %}Online Compilers{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+<style>
+  :root {
+    --cw-green-50:  #f0faf5; --cw-green-200: #9FE1CB;
+    --cw-green-400: #1D9E75; --cw-green-600: #0F6E56;
+    --cw-text-secondary: #5F5E5A; --cw-text-muted: #888780;
+    --cw-border: rgba(0,0,0,0.09);
+  }
+  .cw-page { background: var(--cw-green-50); margin: -24px -16px -96px; padding: 20px 16px 64px; min-height: calc(100vh - 10rem); }
+  @media (min-width: 768px) { .cw-page { margin: -24px -32px -24px; padding: 28px 40px 64px; } }
+  .cw-inner { max-width: 1060px; margin: 0 auto; }
+  .cw-pill { display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid var(--cw-green-200); border-radius: 99px; padding: 5px 14px; font-size: 12px; font-weight: 500; color: var(--cw-green-600); margin-bottom: 16px; }
+  .cw-pill-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cw-green-400); }
+  .cw-hero h1 { font-size: 30px; font-weight: 800; color: #1a1a18; margin: 0 0 8px; }
+  .cw-hero p { font-size: 15px; color: var(--cw-text-secondary); margin: 0 0 36px; }
+  .cw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
+  .cw-card { display: flex; flex-direction: column; gap: 12px; background: #fff; border: 1px solid var(--cw-border); border-radius: 16px; padding: 22px; text-decoration: none; transition: transform .15s, box-shadow .15s, border-color .15s; }
+  .cw-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.06); border-color: var(--cw-green-200); }
+  .cw-icon { width: 52px; height: 52px; border-radius: 13px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; color: #fff; }
+  .cw-icon-python     { background: #2563eb; }
+  .cw-icon-javascript { background: #d69e2e; }
+  .cw-icon-html-css   { background: #dc2626; }
+  .cw-card h3 { font-size: 17px; font-weight: 700; color: #1a1a18; margin: 0; }
+  .cw-card p { font-size: 13px; color: var(--cw-text-secondary); margin: 0; line-height: 1.55; }
+  .cw-card-footer { margin-top: auto; display: flex; align-items: center; justify-content: space-between; }
+  .cw-open { font-size: 13px; font-weight: 600; color: var(--cw-green-600); }
+  .cw-arrow { color: var(--cw-green-400); font-size: 18px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="cw-page">
+  <div class="cw-inner">
+
+    <section class="cw-hero">
+      <div class="cw-pill"><span class="cw-pill-dot"></span>Online compilers</div>
+      <h1>Try it yourself</h1>
+      <p>Open a free-form editor, write whatever you like, and run it instantly &mdash; no exercise required.</p>
+    </section>
+
+    <div class="cw-grid">
+      {% for pg in playgrounds %}
+      <a class="cw-card" href="{% url 'coding:playground' lang=pg.slug %}">
+        <div class="cw-icon cw-icon-{{ pg.slug }}">
+          {% if pg.slug == 'python' %}Py
+          {% elif pg.slug == 'javascript' %}JS
+          {% elif pg.slug == 'html-css' %}&lt;/&gt;
+          {% else %}{ }{% endif %}
+        </div>
+        <div>
+          <h3>{{ pg.name }}</h3>
+          <p>{{ pg.tagline }}</p>
+        </div>
+        <div class="cw-card-footer">
+          <span class="cw-open">Open compiler</span>
+          <span class="cw-arrow">&rarr;</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+
+  </div>
+</div>
+{% endblock %}

@@ -386,6 +386,52 @@ sudo -u cwa /home/cwa/CWA_CLASS_APP/venv/bin/python \
 See `cwa_classroom/MANAGEMENT_COMMANDS.md` for the full catalogue. Several are
 cron-driven (e.g. `auto_complete_sessions` every ~15 min).
 
+### 4.6 Discord / Jira feedback integration
+
+Bug-category feedback (and the daily error-log cron) auto-files a Jira **CPP
+Bug** and pings the `#cwa-feedback` Discord channel. Everything is
+**config-gated**: with the env unset the app logs a warning and no-ops, so a
+missing integration never breaks feedback submission. To enable it on a host,
+set these env vars (mode-600 `.env` files, no quotes, no `export`):
+
+| Var | Goes in | Purpose |
+|-----|---------|---------|
+| `FEEDBACK_DISCORD_WEBHOOK` | `cwa.env`, `cwa-test.env`, `cron_jira.env` | Discord webhook for `#cwa-feedback`. Empty = no ping. |
+| `JIRA_BASE_URL` | `cwa.env`, `cwa-test.env` | e.g. `https://codewizardsaotearoa.atlassian.net`. Already in `cron_jira.env`. |
+| `JIRA_USER_EMAIL` | `cwa.env`, `cwa-test.env` | Atlassian account email for the API token. |
+| `JIRA_API_TOKEN` | `cwa.env`, `cwa-test.env` | Atlassian API token. **Without all three Jira vars the Discord ping still fires but says `(Jira not configured)` and no issue is created.** |
+
+The webhook is needed in all three files because the **cron** (`cron_jira.env`)
+and the **app** (`cwa.env` / `cwa-test.env`) each read their own env. The Jira
+creds already live in `cron_jira.env`; copy them into the two app env files so
+the app can file issues too — e.g.:
+
+```bash
+# copy the three Jira vars from the cron env into the two app env files
+SRC=/etc/cwa/cron_jira.env
+for VAR in JIRA_BASE_URL JIRA_USER_EMAIL JIRA_API_TOKEN; do
+  LINE=$(grep "^$VAR=" "$SRC") || { echo "MISSING $VAR in $SRC"; continue; }
+  for f in /etc/cwa/cwa.env /etc/cwa/cwa-test.env; do
+    grep -q "^$VAR=" "$f" && sudo sed -i "s#^$VAR=.*#$LINE#" "$f" \
+                          || echo "$LINE" | sudo tee -a "$f" >/dev/null
+  done
+done
+sudo systemctl restart cwa-gunicorn cwa-gunicorn-test   # env is read at process start
+```
+
+The cron reads its env fresh each run, so it needs no restart — only gunicorn
+caches env at start. Verify (without printing the secret):
+
+```bash
+for f in /etc/cwa/cwa.env /etc/cwa/cwa-test.env /etc/cwa/cron_jira.env; do
+  grep -q '^FEEDBACK_DISCORD_WEBHOOK=' "$f" && echo "OK  $f" || echo "MISS $f"
+done
+```
+
+To test end-to-end: submit a feedback item with category **Bug** on the site →
+expect a Jira CPP Bug + a `#cwa-feedback` message. Code lives in
+`cwa_classroom/feedback/services.py`; see also `cwa_classroom/feedback/README.md`.
+
 ---
 
 ## 5. Troubleshooting

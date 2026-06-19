@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.9.4'          # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-06-18'     # ISO date of this release
+APP_VERSION       = '1.9.11'         # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-06-19'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -108,6 +108,17 @@ INSTALLED_APPS = [
 # Email of the product owner who owns the feedback triage queue. New feedback
 # is assigned to this user. Falls back to the first superuser when unset.
 FEEDBACK_OWNER_EMAIL = os.environ.get('FEEDBACK_OWNER_EMAIL', '')
+
+# Jira integration for auto-filing bug-category feedback as CPP Bug issues.
+# When any of BASE_URL / USER_EMAIL / API_TOKEN is unset the integration is a
+# no-op (the service logs a warning and skips), so local/dev keeps working.
+JIRA_BASE_URL = os.environ.get('JIRA_BASE_URL', '')
+JIRA_USER_EMAIL = os.environ.get('JIRA_USER_EMAIL', '')
+JIRA_API_TOKEN = os.environ.get('JIRA_API_TOKEN', '')
+JIRA_PROJECT_KEY = os.environ.get('JIRA_PROJECT_KEY', 'CPP')
+
+# Optional Discord webhook to announce newly-filed bugs. Empty = disabled.
+FEEDBACK_DISCORD_WEBHOOK = os.environ.get('FEEDBACK_DISCORD_WEBHOOK', '')
 
 # ---------------------------------------------------------------------------
 # AI / Anthropic
