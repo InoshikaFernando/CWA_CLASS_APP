@@ -112,6 +112,7 @@ _BREADCRUMB_MAP = [
     ('/coding/html/',           [('Hub', '/hub/'), ('Coding', '/coding/'), ('HTML', None)]),
     ('/coding/css/',            [('Hub', '/hub/'), ('Coding', '/coding/'), ('CSS', None)]),
     ('/coding/scratch/',        [('Hub', '/hub/'), ('Coding', '/coding/'), ('Scratch', None)]),
+    ('/coding/playground/',     [('Hub', '/hub/'), ('Coding', '/coding/'), ('Online Compiler', None)]),
     ('/coding/',                [('Hub', '/hub/'), ('Coding', None)]),
     # BrainBuzz
     ('/brainbuzz/api/',         []),
