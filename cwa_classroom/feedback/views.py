@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
@@ -10,6 +12,8 @@ from billing.entitlements import get_school_for_user
 from .forms import FeedbackForm
 from .models import Feedback
 from .owner import get_feedback_owner, is_feedback_owner
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_page_url(url):
@@ -68,6 +72,27 @@ class SubmitFeedbackView(LoginRequiredMixin, View):
         feedback.status = Feedback.STATUS_NEW
         feedback.assignee = get_feedback_owner()
         feedback.save()
+
+        # Bug reports get auto-filed to Jira (+ Discord) in the background. The
+        # task is config-gated and idempotent, so enqueue unconditionally for
+        # bugs; a queue-unavailable error must never fail the submission.
+        if feedback.category == Feedback.CATEGORY_BUG:
+            from taskqueue.services import enqueue_task
+            from .tasks import report_bug_to_jira
+            try:
+                enqueue_task(
+                    school=feedback.school,
+                    user=request.user,
+                    task_type='feedback_bug_report',
+                    func=report_bug_to_jira,
+                    args=[feedback.id],
+                    queue='default',
+                )
+            except Exception:
+                logger.exception(
+                    'Failed to enqueue Jira bug report for feedback %s',
+                    feedback.id,
+                )
 
         return render(
             request,
