@@ -102,6 +102,18 @@ class GradeTextAnswerRoutingTests(TestCase):
         # A genuinely different amount is still wrong.
         self.assertFalse(q.grade_text_answer('nine dollars fifteen cents'))
 
+    def test_text_format_ignores_commas(self):
+        # Commas are insignificant for short answers: digit-grouping or list
+        # commas must not change the match, and spacing around them is folded too.
+        q = self._question('text', ['1,000'], question_type=Question.CALCULATION)
+        for ans in ['1000', '1,000', '1, 000', '1 000']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+        self.assertFalse(q.grade_text_answer('100'))  # genuinely different value
+
+        q2 = self._question('text', ['red, green'], question_type=Question.SHORT_ANSWER)
+        for ans in ['red green', 'red,green', 'red, green']:
+            self.assertTrue(q2.grade_text_answer(ans), ans)
+
     def test_text_format_keeps_negative_sign_significant(self):
         # The hyphen fold must NOT strip a leading minus — "-5" != "5".
         q = self._question('text', ['-5'], question_type=Question.CALCULATION)
