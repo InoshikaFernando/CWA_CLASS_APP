@@ -999,13 +999,20 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     if discount_obj:
                         discount_obj.uses += 1
                         discount_obj.save(update_fields=['uses'])
-                    Subscription.objects.get_or_create(
+                    sub, _ = Subscription.objects.get_or_create(
                         user=user,
                         defaults={
                             'package': package,
                             'status': Subscription.STATUS_ACTIVE,
                         },
                     )
+                    # Record the discount so the HoI management view (CPP-XXX)
+                    # can show/clear it without inferring from Stripe state.
+                    sub.package = package
+                    sub.status = Subscription.STATUS_ACTIVE
+                    sub.discount_code = discount_obj
+                    sub.discount_percent_snapshot = 100
+                    sub.save()
                     user.package = package
                     user.profile_completed = True
                     user.save(update_fields=['package', 'profile_completed'])
@@ -1017,6 +1024,17 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     try:
                         from billing.stripe_service import create_student_checkout_session
                         stripe_coupon = discount_obj.stripe_coupon_id if discount_obj and discount_obj.stripe_coupon_id else None
+                        # Record a partial discount on the subscription up front so
+                        # the HoI view (CPP-XXX) can show/clear it; the webhook
+                        # fills in stripe_subscription_id/status and preserves this.
+                        if discount_obj:
+                            sub, _ = Subscription.objects.get_or_create(
+                                user=user, defaults={'package': package},
+                            )
+                            sub.package = package
+                            sub.discount_code = discount_obj
+                            sub.discount_percent_snapshot = discount_obj.discount_percent
+                            sub.save()
                         session = create_student_checkout_session(
                             user, package, request,
                             stripe_coupon_id=stripe_coupon,

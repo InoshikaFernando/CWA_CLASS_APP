@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.http import StreamingHttpResponse, HttpResponseForbidden, HttpResponse
 from django.conf import settings as django_settings
 import csv
+import logging
 import subprocess
 import shutil
 import os
@@ -30,6 +31,19 @@ from .email_utils import send_staff_welcome_email
 from audit.services import log_event
 
 MAX_PARENTS_PER_STUDENT = 2
+
+
+logger = logging.getLogger(__name__)
+
+
+def _subscription_or_none(user):
+    """Return the user's billing.Subscription, or None (no exception) — the
+    OneToOne reverse accessor raises DoesNotExist when there is no row."""
+    from billing.models import Subscription
+    try:
+        return user.subscription
+    except Subscription.DoesNotExist:
+        return None
 
 
 def _annotate_welcome_email_state(items, user_id_getter):
@@ -1846,7 +1860,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         if not show_inactive:
             qs = qs.filter(is_active=True)
         qs = (
-            qs.select_related('student')
+            qs.select_related('student', 'student__subscription')
             .prefetch_related(
                 'student__student_guardians__guardian',
                 'student__student_parent_links__parent',
@@ -1862,6 +1876,22 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             )
             .order_by('student__last_name', 'student__first_name', 'student__id')
         )
+
+        # Discount management (CPP-XXX): optional filter by discount state.
+        # DB-level on the recorded snapshot — exact once backfill has run.
+        discount_filter = request.GET.get('discount', '').strip()
+        if discount_filter == 'discounted':
+            qs = qs.filter(
+                student__subscription__status__in=['active', 'trialing'],
+                student__subscription__discount_percent_snapshot__gte=1,
+            )
+        elif discount_filter == 'paying':
+            qs = qs.filter(
+                student__subscription__status__in=['active', 'trialing'],
+            ).filter(
+                Q(student__subscription__discount_percent_snapshot__isnull=True)
+                | Q(student__subscription__discount_percent_snapshot=0)
+            )
 
         # Server-side search
         q = request.GET.get('q', '').strip()
@@ -1890,6 +1920,33 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         paginator = Paginator(qs, 25)
         page = paginator.get_page(request.GET.get('page'))
         _annotate_welcome_email_state(page, lambda ss: ss.student_id)
+        # Discount state per row (CPP-XXX). Only institute leadership manages
+        # subscriptions — HoI / Owner / Admin. HoD and teachers see it read-only.
+        can_clear_discount = (
+            request.user.is_superuser
+            or request.user.has_role(Role.ADMIN)
+            or request.user.has_role(Role.INSTITUTE_OWNER)
+            or request.user.has_role(Role.HEAD_OF_INSTITUTE)
+        )
+        from billing.models import Payment, Subscription
+        page_user_ids = [ss.student_id for ss in page]
+        paid_ids = set(
+            Payment.objects.filter(
+                user_id__in=page_user_ids, status=Payment.STATUS_SUCCEEDED,
+            ).values_list('user_id', flat=True)
+        )
+        for ss in page:
+            sub = _subscription_or_none(ss.student)
+            if sub:
+                ss.discount_state = Subscription.classify_discount(
+                    sub.status, sub.stripe_subscription_id,
+                    sub.discount_percent_snapshot, ss.student_id in paid_ids,
+                )
+                ss.discount_percent = sub.discount_percent_snapshot
+            else:
+                ss.discount_state = 'none'
+                ss.discount_percent = None
+            ss.can_clear_discount = can_clear_discount and ss.discount_state in ('free_100', 'partial')
         add_student_classes = (
             _allowed_classes_for_user(request.user, school)
             .select_related('subject', 'department')
@@ -1902,6 +1959,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             'show_inactive': show_inactive,
             'q': q,
             'order_by': order_by,
+            'discount_filter': discount_filter,
             'total_count': paginator.count,
             'sort_columns': [
                 ('name', 'Name'),
@@ -2037,6 +2095,92 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         except Exception as e:
             messages.error(request, f'Error creating student: {e}')
 
+        return redirect('admin_school_students', school_id=school.id)
+
+
+class StudentDiscountClearView(RoleRequiredMixin, View):
+    """Clear a student's discount (CPP-XXX).
+
+    Cancels the discounted/free subscription, clears the recorded discount, and
+    re-gates the student (``profile_completed=False``) so on their next login
+    they pay the FULL amount via CompleteProfileView -> Stripe Checkout
+    (subscription mode). For a partial Stripe subscription, the Stripe sub is
+    cancelled too. Institute-leadership only (HoI / Institute Owner / Admin) —
+    HoDs and teachers cannot manage subscriptions. Audit-logged and the
+    student/parents notified.
+    """
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+    ]
+
+    def _resolve_student(self, request, school_id, student_id):
+        # Institute-leadership only (no HoD): _get_school already restricts an
+        # HoI/Owner to their own school and an Admin to any school.
+        school = SchoolStudentManageView()._get_school(request, school_id)
+        ss = get_object_or_404(
+            SchoolStudent, school=school, student_id=student_id, is_active=True,
+        )
+        return school, ss
+
+    def post(self, request, school_id, student_id):
+        from django.db import transaction
+        from billing.models import Subscription
+        school, ss = self._resolve_student(request, school_id, student_id)
+        student = ss.student
+
+        sub = _subscription_or_none(student)
+        if not sub or not sub.has_discount:
+            messages.info(request, f'{student.get_full_name() or student.username} has no discount to clear.')
+            return redirect('admin_school_students', school_id=school.id)
+
+        old_state = sub.discount_state
+        old_percent = sub.discount_percent_snapshot
+
+        # Cancel a live partial Stripe subscription, if any. Stripe-first (so we
+        # never leave a discounted sub billing the card), then the local clear.
+        # An already-cancelled/missing Stripe sub is treated as success so a
+        # retry after a transient DB failure still completes the local clear.
+        if sub.stripe_subscription_id:
+            import stripe
+            from django.conf import settings
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            try:
+                stripe.Subscription.delete(sub.stripe_subscription_id)
+            except stripe.error.InvalidRequestError:
+                logger.warning('Stripe sub %s already gone for user %s — clearing locally.',
+                               sub.stripe_subscription_id, student.id)
+            except Exception as e:
+                logger.error('Failed to cancel Stripe sub %s for user %s: %s',
+                             sub.stripe_subscription_id, student.id, e)
+                messages.error(request, 'Could not cancel the Stripe subscription — nothing was changed. Please retry.')
+                return redirect('admin_school_students', school_id=school.id)
+
+        with transaction.atomic():
+            sub.clear_discount(by_user=request.user)
+            student.profile_completed = False
+            student.save(update_fields=['profile_completed'])
+
+        log_event(
+            user=request.user, school=school, category='billing',
+            action='student_discount_cleared',
+            detail={
+                'student_id': student.id, 'student_username': student.username,
+                'old_state': old_state, 'old_percent': old_percent,
+            },
+            request=request,
+        )
+
+        try:
+            from billing.email_utils import send_discount_cleared_notification
+            send_discount_cleared_notification(student, school)
+        except Exception:
+            logger.exception('Failed to send discount-cleared email for user %s', student.id)
+
+        messages.success(
+            request,
+            f'Discount cleared for {student.get_full_name() or student.username}. '
+            f'They must pay the full amount on next login.',
+        )
         return redirect('admin_school_students', school_id=school.id)
 
 
