@@ -10,13 +10,12 @@ Usage:
     python manage.py audit_question_image_paths            # human output
     python manage.py audit_question_image_paths --quiet    # only summary
 """
-import re
 import sys
 
 from django.core.management.base import BaseCommand
 
-
-VALID_PATH_RE = re.compile(r'^questions/year[0-9]+/[a-zA-Z0-9_-]+/.+')
+# Single source of truth — the same regex Question.clean() enforces.
+from maths.models import QUESTION_IMAGE_PATH_RE as VALID_PATH_RE
 
 
 class Command(BaseCommand):
