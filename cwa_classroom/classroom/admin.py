@@ -5,7 +5,8 @@ from .models import (
     StudentLevelEnrollment, SubjectApp, ContactMessage,
     School, SchoolStudent, SchoolTeacher, AcademicYear, TopicLevel, SubTopic,
     ClassSession, Enrollment, StudentAttendance, TeacherAttendance,
-    ProgressCriteria, ProgressRecord, Notification, Department, DepartmentLevel,
+    ProgressCriteria, ProgressRecord, ProgressReportComment, ProgressReport,
+    Notification, Department, DepartmentLevel,
     EmailCampaign, EmailLog, EmailPreference,
     DepartmentFee, StudentFeeOverride, InvoiceNumberSequence,
     Invoice, InvoiceLineItem, CSVColumnTemplate, CSVImport,
@@ -242,6 +243,20 @@ class ProgressCriteriaAdmin(admin.ModelAdmin):
 class ProgressRecordAdmin(admin.ModelAdmin):
     list_display = ('student', 'criteria', 'status', 'recorded_by', 'recorded_at')
     list_filter = ('status',)
+
+
+@admin.register(ProgressReportComment)
+class ProgressReportCommentAdmin(admin.ModelAdmin):
+    list_display = ('student', 'school', 'term', 'subject', 'created_by', 'created_at')
+    list_filter = ('school', 'term', 'subject')
+    search_fields = ('student__username', 'body')
+
+
+@admin.register(ProgressReport)
+class ProgressReportAdmin(admin.ModelAdmin):
+    list_display = ('student', 'school', 'term', 'status', 'recipient_count', 'generated_at', 'sent_at')
+    list_filter = ('status', 'school', 'term')
+    search_fields = ('student__username',)
 
 
 # ---------------------------------------------------------------------------

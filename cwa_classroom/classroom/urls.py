@@ -282,6 +282,16 @@ urlpatterns = [
     path('progress/student/<int:student_id>/', views_progress.StudentProgressView.as_view(), name='student_progress'),
     path('progress/report/', views_progress.StudentProgressReportView.as_view(), name='student_progress_report'),
 
+    # Progress report comments (teacher add/edit/delete)
+    path('progress/student/<int:student_id>/comment/add/', views_progress.ProgressReportCommentCreateView.as_view(), name='progress_comment_add'),
+    path('progress/comment/<int:comment_id>/edit/', views_progress.ProgressReportCommentEditView.as_view(), name='progress_comment_edit'),
+    path('progress/comment/<int:comment_id>/delete/', views_progress.ProgressReportCommentDeleteView.as_view(), name='progress_comment_delete'),
+
+    # Progress report generate / view / send to parents
+    path('progress/student/<int:student_id>/report/generate/', views_progress.ProgressReportGenerateView.as_view(), name='progress_report_generate'),
+    path('progress/report/<int:report_id>/', views_progress.ProgressReportDetailView.as_view(), name='progress_report_detail'),
+    path('progress/report/<int:report_id>/send/', views_progress.ProgressReportSendView.as_view(), name='progress_report_send'),
+
     # Per-student fee override
     path('class/<int:class_id>/student/<int:student_id>/fee/', views.UpdateStudentFeeView.as_view(), name='update_student_fee'),
     # Per-student billing start date (CPP-342)
