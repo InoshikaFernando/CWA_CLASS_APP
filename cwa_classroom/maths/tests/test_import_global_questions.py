@@ -116,3 +116,49 @@ def test_overwrite_updates_and_replaces_answers(global_maths, tmp_path):
     assert q1.explanation == 'Updated explanation'
     assert q1.answers.count() == 1                       # replaced, not appended
     assert Question.objects.filter(school__isnull=True).count() == 2
+
+
+# Many image questions share a generic stem; they must NOT collapse on import.
+IMAGE_GROUP = [{
+    'year': 'Year 8', 'level_number': 8, 'title': 'Geometry', 'subtitle': '2D Shapes',
+    'questions': [
+        {'question_text': 'What is the name of this shape?',
+         'question_type': 'multiple_choice', 'difficulty': 1, 'points': 1,
+         'image': f'questions/year8/2d-shapes/shape_{i}.png',
+         'answers': [{'answer_text': 'Square', 'is_correct': True, 'order': 0}]}
+        for i in range(3)
+    ],
+}]
+
+
+def test_image_questions_same_text_not_collapsed(global_maths, tmp_path):
+    # Three questions, identical text, distinct images → 3 global rows, not 1
+    # (dedup must be by image path, not text).
+    call_command('import_global_questions', _write(tmp_path, IMAGE_GROUP))
+
+    qs = Question.objects.filter(school__isnull=True,
+                                 question_text='What is the name of this shape?')
+    assert qs.count() == 3
+    assert sorted(str(q.image) for q in qs) == [
+        'questions/year8/2d-shapes/shape_0.png',
+        'questions/year8/2d-shapes/shape_1.png',
+        'questions/year8/2d-shapes/shape_2.png',
+    ]
+
+    # Re-run is idempotent (dedup on image path finds them).
+    call_command('import_global_questions', _write(tmp_path, IMAGE_GROUP))
+    assert qs.count() == 3
+
+
+def test_import_links_topic_to_level(global_maths, tmp_path):
+    # The promoted topic (and its parent strand) must be registered for the
+    # level via Topic.levels so it appears in that year's topic-quiz picker.
+    call_command('import_global_questions', _write(tmp_path, IMAGE_GROUP))
+
+    level = Level.objects.get(level_number=8)
+    two_d = Topic.objects.get(subject=global_maths, slug='2d-shapes')
+    geometry = Topic.objects.get(subject=global_maths, slug='geometry')
+    assert two_d.levels.filter(pk=level.pk).exists()      # sub-topic linked
+    assert geometry.levels.filter(pk=level.pk).exists()   # parent strand linked
+    # And it surfaces via the reverse relation the picker uses.
+    assert two_d in level.topics.all()
