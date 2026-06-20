@@ -1867,6 +1867,32 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         return redirect('homework:teacher_monitor')
 
 
+def _mirror_topic_as_subtopic(topic):
+    """Return a same-named sub-topic of ``topic`` (creating it once).
+
+    Used when an AI-extracted question only resolves to a top-level topic: we
+    give it a sub-topic with the topic's own name so every question lands at the
+    "topic › sub-topic" level. The child needs its own slug because
+    ``unique_together = (subject, slug)`` — derive a free one from the name.
+    """
+    from django.utils.text import slugify
+    from classroom.models import Topic
+
+    child = Topic.objects.filter(
+        subject=topic.subject, name=topic.name, parent=topic,
+    ).first()
+    if child:
+        return child
+    base = slugify(topic.name) or 'topic'
+    slug, n = base, 1
+    while Topic.objects.filter(subject=topic.subject, slug=slug).exists():
+        n += 1
+        slug = f'{base}-{n}'
+    return Topic.objects.create(
+        subject=topic.subject, name=topic.name, slug=slug, parent=topic,
+    )
+
+
 def _save_homework_pdf_questions(questions_data, global_data, user, school, session,
                                  save_images=True):
     """
@@ -1914,6 +1940,12 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             topic = Topic.objects.filter(subject=subject).first()
         if not topic:
             continue
+
+        # Every question should hang off a sub-topic so the hierarchy is always
+        # "topic › sub-topic". When the AI only gives a top-level topic (no finer
+        # sub-topic), mirror it as its own same-named sub-topic.
+        if topic.parent_id is None:
+            topic = _mirror_topic_as_subtopic(topic)
 
         # Determine validation type — downgrade to 'auto' for non-extended types
         q_type = q.get('question_type', 'short_answer')
