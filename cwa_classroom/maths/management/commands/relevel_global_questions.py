@@ -49,7 +49,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         from maths.models import Question
-        from classroom.models import Level
+        from classroom.models import Level, Topic
 
         dry_run = opts['dry_run']
 
@@ -64,7 +64,9 @@ class Command(BaseCommand):
 
         total = 0
         report = []
+        link_changes = []
         with transaction.atomic():
+            # 1) Move questions sitting below their curriculum year up to it.
             for name, target in sorted(TARGET_YEAR.items(), key=lambda kv: kv[1]):
                 target_level = levels.get(target)
                 if target_level is None:
@@ -83,6 +85,29 @@ class Command(BaseCommand):
                     spread = ','.join(f'Y{y}:{c}' for y, c in sorted(from_years.items()))
                     report.append((name, target, n, spread))
 
+            # 2) Sync each affected topic's Topic.levels to where its questions
+            #    now actually are, so they show in the year's quiz picker. Only
+            #    curriculum levels (year < 100); basic-facts links are untouched.
+            for name in TARGET_YEAR:
+                for t in Topic.objects.filter(name__iexact=name,
+                                              subject__school__isnull=True):
+                    want = set(Question.objects
+                               .filter(school__isnull=True, topic=t)
+                               .exclude(level__level_number__gte=100)
+                               .values_list('level__level_number', flat=True))
+                    have = set(t.levels.filter(level_number__lt=100)
+                               .values_list('level_number', flat=True))
+                    add, remove = want - have, have - want
+                    if add or remove:
+                        label = (f'{t.parent.name} > ' if t.parent else '') + t.name
+                        link_changes.append((label, sorted(add), sorted(remove)))
+                        if not dry_run:
+                            if add:
+                                t.levels.add(*Level.objects.filter(
+                                    level_number__in=add, school__isnull=True))
+                            if remove:
+                                t.levels.remove(*t.levels.filter(level_number__in=remove))
+
             if dry_run:
                 transaction.set_rollback(True)
 
@@ -92,7 +117,14 @@ class Command(BaseCommand):
             f"{'  [DRY RUN]' if dry_run else ''}"))
         for name, target, n, spread in report:
             self.stdout.write(f"  {name:42} {spread:24} -> Y{target}  ({n})")
+        if link_changes:
+            self.stdout.write(self.style.MIGRATE_HEADING(
+                f"\n{'Would update' if dry_run else 'Updated'} topic->level links "
+                f"(picker visibility):"))
+            for label, add, remove in link_changes:
+                self.stdout.write(
+                    f"  {label:46} +{add or '[]'} -{remove or '[]'}")
         if dry_run:
-            self.stdout.write(self.style.WARNING('Dry run — nothing written.'))
+            self.stdout.write(self.style.WARNING('\nDry run — nothing written.'))
         else:
-            self.stdout.write(self.style.SUCCESS('Done.'))
+            self.stdout.write(self.style.SUCCESS('\nDone.'))
