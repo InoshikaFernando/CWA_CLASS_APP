@@ -171,29 +171,35 @@ class Command(BaseCommand):
         if not title or title == '(no topic)':
             return None
         title_topic = self._get_or_create_topic(title, parent=None)
-        if subtitle:
-            return self._get_or_create_topic(subtitle, parent=title_topic)
-        return title_topic
+        # No sub-title given: mirror the topic name as its own sub-topic so every
+        # question lands at the title › sub-title level.
+        if not subtitle:
+            subtitle = title
+        return self._get_or_create_topic(subtitle, parent=title_topic)
 
     def _get_or_create_topic(self, name, parent):
         from classroom.models import Topic
-        slug = slugify(name) or slugify(f'{name}-x')
-        key = (slug, parent.id if parent else None)
+        key = (name, parent.id if parent else None)
         if key in self._topic_cache:
             return self._topic_cache[key]
-        # unique_together is (subject, slug) — match on that, then ensure parent.
-        topic = Topic.objects.filter(subject=self.subject, slug=slug).first()
+        # Match on (name, parent) so a mirrored sub-topic (same name as its
+        # parent) is its own row. unique_together is (subject, slug), so derive a
+        # free slug — the obvious one is taken by the parent in the mirror case.
+        topic = Topic.objects.filter(
+            subject=self.subject, name=name, parent=parent,
+        ).first()
         if topic is None:
+            base = slugify(name) or 'topic'
+            slug, n = base, 1
+            while Topic.objects.filter(subject=self.subject, slug=slug).exists():
+                n += 1
+                slug = f'{base}-{n}'
             topic = Topic.objects.create(
                 subject=self.subject, name=name, slug=slug, parent=parent,
             )
             self.stdout.write(
                 f"  Created topic '{name}'"
                 + (f" under '{parent.name}'" if parent else ' (top-level)'))
-        elif parent and topic.parent_id != parent.id:
-            self.stderr.write(self.style.WARNING(
-                f"  Topic '{name}' (slug={slug}) already exists with a different "
-                f"parent — leaving its parent unchanged."))
         self._topic_cache[key] = topic
         return topic
 

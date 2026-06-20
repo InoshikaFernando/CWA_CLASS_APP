@@ -62,7 +62,9 @@ class Command(BaseCommand):
             if q.topic and q.topic.parent_id:
                 title, subtitle = q.topic.parent.name, q.topic.name
             elif q.topic:
-                title, subtitle = q.topic.name, ''
+                # No sub-topic: mirror the topic name as its own sub-title so the
+                # global hierarchy is always title › sub-title.
+                title, subtitle = q.topic.name, q.topic.name
             else:
                 title, subtitle = '(no topic)', ''
 

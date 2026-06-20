@@ -75,10 +75,13 @@ def test_import_creates_global_questions_with_hierarchy(global_maths, tmp_path):
     assert q1.answers.count() == 2
     assert q1.answers.get(is_correct=True).answer_text == '2x + 6'
 
-    # no sub-title → question hangs off the title topic, type fields preserved
+    # no sub-title → topic is mirrored as its own same-named sub-topic, so the
+    # question still lands at the title › sub-title level. Type fields preserved.
     q2 = Question.objects.get(question_text='18 + 12 + 27')
-    number = Topic.objects.get(subject=global_maths, slug='number')
-    assert q2.topic_id == number.id
+    number_top = Topic.objects.get(subject=global_maths, name='Number', parent__isnull=True)
+    assert q2.topic.name == 'Number'
+    assert q2.topic_id != number_top.id          # not the top-level row
+    assert q2.topic.parent_id == number_top.id   # mirrored beneath it
     assert q2.operands == [18, 12, 27]
     assert q2.operator == '+'
 
