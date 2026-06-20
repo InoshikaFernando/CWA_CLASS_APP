@@ -135,8 +135,9 @@ Within a transaction, for the target student (tenant-checked):
 4. `log_event(action='student_discount_cleared', detail={student, old_state,
    old_percent})` for the audit trail.
 5. **Notify the student (and active linked parents)** by email that their
-   discount was removed and payment is now required on next login. Queue it (do
-   not send in-request); skip recipients with no email and report it.
+   discount was removed and payment is now required on next login. Best-effort
+   synchronous send via `billing.email_utils` (matches the other lifecycle
+   emails; `fail_silently`), skipping recipients with no email.
 
 "Enter card if none / charged full if partial" is automatic: the gate's checkout
 collects a card and bills the full package price because no code is applied.

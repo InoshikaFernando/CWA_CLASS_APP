@@ -531,35 +531,52 @@ class Subscription(models.Model):
     def __str__(self):
         return f'{self.user.username} — {self.package} — {self.status}'
 
-    @property
-    def discount_state(self):
-        """Classify this subscription's discount for the HoI management view.
+    @staticmethod
+    def classify_discount(status, stripe_subscription_id, discount_percent_snapshot, has_paid):
+        """Pure discount classifier — single source of truth for the property,
+        the HoI list view, and the backfill command (CPP-XXX).
 
-        Reads only local fields + a cheap Payment existence check — never a
-        Stripe API call. See CPP-XXX spec for the resolution rules, including
-        the legacy-paid guard (a student who paid via the removed one-time
-        PaymentIntent flow is ``active`` with no ``stripe_subscription_id`` but
-        must NOT be treated as a free/discounted student).
+        ``has_paid`` is "the user has a succeeded billing.Payment", supplied by
+        the caller so a list view can batch it (avoid an N+1). Rules:
+          * non-active/trialing                          -> none
+          * snapshot >= 100                              -> free_100
+          * 0 < snapshot < 100 AND a Stripe sub exists   -> partial
+            (a partial snapshot with no Stripe sub is an abandoned checkout)
+          * snapshot == 0                                -> full
+          * no snapshot, ACTIVE, no Stripe sub, not paid -> free_100 (legacy)
+            (TRIALING is excluded so a paid-plan trial isn't read as free; the
+            has_paid guard excludes legacy one-time-PaymentIntent payers)
+          * otherwise                                    -> full
         """
-        if self.status not in (self.STATUS_ACTIVE, self.STATUS_TRIALING):
-            return self.DISCOUNT_NONE
-
-        pct = self.discount_percent_snapshot
+        if status not in (Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIALING):
+            return Subscription.DISCOUNT_NONE
+        pct = discount_percent_snapshot
         if pct is not None:
             if pct >= 100:
-                return self.DISCOUNT_FREE_100
+                return Subscription.DISCOUNT_FREE_100
             if pct > 0:
-                return self.DISCOUNT_PARTIAL
-            return self.DISCOUNT_FULL
+                return (Subscription.DISCOUNT_PARTIAL if stripe_subscription_id
+                        else Subscription.DISCOUNT_NONE)
+            return Subscription.DISCOUNT_FULL
+        if (status == Subscription.STATUS_ACTIVE
+                and not stripe_subscription_id and not has_paid):
+            return Subscription.DISCOUNT_FREE_100
+        return Subscription.DISCOUNT_FULL
 
-        # No snapshot recorded (legacy row): infer, but guard paid students.
-        if not self.stripe_subscription_id:
+    @property
+    def discount_state(self):
+        # Only the legacy-inference branch needs the Payment lookup.
+        has_paid = False
+        if (self.discount_percent_snapshot is None
+                and self.status == self.STATUS_ACTIVE
+                and not self.stripe_subscription_id):
             has_paid = Payment.objects.filter(
                 user_id=self.user_id, status=Payment.STATUS_SUCCEEDED,
             ).exists()
-            if not has_paid:
-                return self.DISCOUNT_FREE_100
-        return self.DISCOUNT_FULL
+        return self.classify_discount(
+            self.status, self.stripe_subscription_id,
+            self.discount_percent_snapshot, has_paid,
+        )
 
     @property
     def has_discount(self):

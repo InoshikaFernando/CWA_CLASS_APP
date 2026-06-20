@@ -31,8 +31,6 @@ from billing.models import Payment, Subscription
 
 logger = logging.getLogger(__name__)
 
-_ACTIVE = (Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIALING)
-
 
 class Command(BaseCommand):
     help = 'Backfill discount_percent_snapshot on existing subscriptions (CPP-XXX).'
@@ -57,7 +55,9 @@ class Command(BaseCommand):
 
         for sub in rows.iterator():
             new_pct = None
-            if (sub.status in _ACTIVE and not sub.stripe_subscription_id
+            # Free inference requires ACTIVE (not TRIALING) so a paid-plan trial
+            # with no Stripe sub yet isn't mislabelled as 100%-free.
+            if (sub.status == Subscription.STATUS_ACTIVE and not sub.stripe_subscription_id
                     and sub.user_id not in paid_user_ids):
                 new_pct = 100
             elif with_stripe and sub.stripe_subscription_id:

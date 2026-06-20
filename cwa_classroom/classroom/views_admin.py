@@ -1881,7 +1881,10 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         # DB-level on the recorded snapshot — exact once backfill has run.
         discount_filter = request.GET.get('discount', '').strip()
         if discount_filter == 'discounted':
-            qs = qs.filter(student__subscription__discount_percent_snapshot__gte=1)
+            qs = qs.filter(
+                student__subscription__status__in=['active', 'trialing'],
+                student__subscription__discount_percent_snapshot__gte=1,
+            )
         elif discount_filter == 'paying':
             qs = qs.filter(
                 student__subscription__status__in=['active', 'trialing'],
@@ -1925,10 +1928,24 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             or request.user.has_role(Role.INSTITUTE_OWNER)
             or request.user.has_role(Role.HEAD_OF_INSTITUTE)
         )
+        from billing.models import Payment, Subscription
+        page_user_ids = [ss.student_id for ss in page]
+        paid_ids = set(
+            Payment.objects.filter(
+                user_id__in=page_user_ids, status=Payment.STATUS_SUCCEEDED,
+            ).values_list('user_id', flat=True)
+        )
         for ss in page:
             sub = _subscription_or_none(ss.student)
-            ss.discount_state = sub.discount_state if sub else 'none'
-            ss.discount_percent = sub.discount_percent_snapshot if sub else None
+            if sub:
+                ss.discount_state = Subscription.classify_discount(
+                    sub.status, sub.stripe_subscription_id,
+                    sub.discount_percent_snapshot, ss.student_id in paid_ids,
+                )
+                ss.discount_percent = sub.discount_percent_snapshot
+            else:
+                ss.discount_state = 'none'
+                ss.discount_percent = None
             ss.can_clear_discount = can_clear_discount and ss.discount_state in ('free_100', 'partial')
         add_student_classes = (
             _allowed_classes_for_user(request.user, school)
@@ -2119,17 +2136,23 @@ class StudentDiscountClearView(RoleRequiredMixin, View):
         old_state = sub.discount_state
         old_percent = sub.discount_percent_snapshot
 
-        # Cancel a live partial Stripe subscription, if any.
+        # Cancel a live partial Stripe subscription, if any. Stripe-first (so we
+        # never leave a discounted sub billing the card), then the local clear.
+        # An already-cancelled/missing Stripe sub is treated as success so a
+        # retry after a transient DB failure still completes the local clear.
         if sub.stripe_subscription_id:
+            import stripe
+            from django.conf import settings
+            stripe.api_key = settings.STRIPE_SECRET_KEY
             try:
-                import stripe
-                from django.conf import settings
-                stripe.api_key = settings.STRIPE_SECRET_KEY
                 stripe.Subscription.delete(sub.stripe_subscription_id)
+            except stripe.error.InvalidRequestError:
+                logger.warning('Stripe sub %s already gone for user %s — clearing locally.',
+                               sub.stripe_subscription_id, student.id)
             except Exception as e:
                 logger.error('Failed to cancel Stripe sub %s for user %s: %s',
                              sub.stripe_subscription_id, student.id, e)
-                messages.error(request, 'Could not cancel the Stripe subscription. Nothing was changed — please retry.')
+                messages.error(request, 'Could not cancel the Stripe subscription — nothing was changed. Please retry.')
                 return redirect('admin_school_students', school_id=school.id)
 
         with transaction.atomic():
@@ -2151,7 +2174,7 @@ class StudentDiscountClearView(RoleRequiredMixin, View):
             from billing.email_utils import send_discount_cleared_notification
             send_discount_cleared_notification(student, school)
         except Exception:
-            logger.exception('Failed to queue discount-cleared email for user %s', student.id)
+            logger.exception('Failed to send discount-cleared email for user %s', student.id)
 
         messages.success(
             request,

@@ -43,8 +43,24 @@ class DiscountStateTest(TestCase):
         self.assertTrue(s.has_discount)
 
     def test_partial_from_snapshot(self):
-        s = self._sub(status=Subscription.STATUS_ACTIVE, discount_percent_snapshot=75)
+        # A real partial discount has a Stripe subscription backing it.
+        s = self._sub(status=Subscription.STATUS_ACTIVE, discount_percent_snapshot=75,
+                      stripe_subscription_id='sub_partial')
         self.assertEqual(s.discount_state, Subscription.DISCOUNT_PARTIAL)
+
+    def test_partial_without_stripe_sub_is_none(self):
+        # Abandoned partial checkout: snapshot set but no Stripe sub -> not a
+        # real discount (no phantom discounted student).
+        s = self._sub(status=Subscription.STATUS_TRIALING, discount_percent_snapshot=75)
+        self.assertEqual(s.discount_state, Subscription.DISCOUNT_NONE)
+        self.assertFalse(s.has_discount)
+
+    def test_trialing_legacy_not_free(self):
+        # Paid-plan trial (trialing, no Stripe id yet, no snapshot, no payment)
+        # must NOT be inferred as 100%-free.
+        s = self._sub(status=Subscription.STATUS_TRIALING)
+        self.assertEqual(s.discount_state, Subscription.DISCOUNT_FULL)
+        self.assertFalse(s.has_discount)
 
     def test_full_when_paid_stripe_sub(self):
         s = self._sub(status=Subscription.STATUS_ACTIVE, stripe_subscription_id='sub_live')
@@ -199,7 +215,10 @@ class BackfillCommandTest(TestCase):
             user=_student('paid1'), package=pkg, status=Subscription.STATUS_ACTIVE)
         Payment.objects.create(user=paid.user, package=pkg, amount=Decimal('19.90'),
                                status=Payment.STATUS_SUCCEEDED)
+        trialing = Subscription.objects.create(
+            user=_student('trial1'), package=pkg, status=Subscription.STATUS_TRIALING)
         call_command('backfill_subscription_discounts')
-        free.refresh_from_db(); paid.refresh_from_db()
+        free.refresh_from_db(); paid.refresh_from_db(); trialing.refresh_from_db()
         self.assertEqual(free.discount_percent_snapshot, 100)   # inferred free
         self.assertIsNone(paid.discount_percent_snapshot)        # paid -> left full
+        self.assertIsNone(trialing.discount_percent_snapshot)    # trial -> NOT free
