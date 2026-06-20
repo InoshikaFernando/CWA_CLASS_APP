@@ -2211,6 +2211,34 @@ class PDFConfirmMultiClassTests(TestCase):
         'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
         'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
     })
+    def test_image_ref_with_space_is_idempotent(self):
+        # Storage sanitises 'q 12.jpg' -> 'q_12.jpg' on save, so the dedup target
+        # must use the sanitised name; otherwise every run re-creates the row
+        # (and on prod would duplicate existing questions with spaced refs).
+        from maths.models import Question as MQ
+        from homework.views import _save_homework_pdf_questions
+        session = self._make_session()
+        data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [{'question_text': 'Name this shape', 'include': True,
+                           'question_type': 'short_answer', 'has_image': True,
+                           'image_ref': 'q 12.jpg'}],
+        }
+        session.extracted_data = data
+        session.extracted_images = {'q 12.jpg': self._PNG_B64}
+        session.save()
+
+        _save_homework_pdf_questions(data['questions'], data, self.owner, self.school, session)
+        _save_homework_pdf_questions(data['questions'], data, self.owner, self.school, session)
+
+        qs = MQ.objects.filter(question_text='Name this shape')
+        self.assertEqual(qs.count(), 1)               # not duplicated on re-run
+        self.assertIn('q_12.jpg', str(qs.first().image))  # stored sanitised
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
     def test_image_questions_with_same_text_are_not_collapsed(self):
         # Regression: a PDF of image questions that all share a generic stem
         # ("What is the name of this shape?") must produce one maths.Question per

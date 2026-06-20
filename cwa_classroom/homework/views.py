@@ -1986,6 +1986,13 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             and mapped_type not in (MQ.LONG_DIVISION, MQ.COLUMN_OPERATION)
         )
         topic_slug = topic.slug if getattr(topic, 'slug', '') else str(topic.id)
+        # Storage sanitises the filename on save (e.g. "q 12.jpg" -> "q_12.jpg"),
+        # so the *stored* image path uses the sanitised ref. Build the dedup
+        # target with the same sanitised name or it never matches an existing
+        # row — which would silently re-create (and on prod duplicate) every
+        # question whose image_ref contains a space or other stripped character.
+        from django.utils.text import get_valid_filename
+        safe_ref = get_valid_filename(image_ref) if image_ref else image_ref
 
         defaults = {
             'question_type': mapped_type,
@@ -2002,7 +2009,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         }
 
         if is_image_question:
-            target_image = f'questions/year{yl}/{topic_slug}/{image_ref}'
+            target_image = f'questions/year{yl}/{topic_slug}/{safe_ref}'
             mq = MQ.objects.filter(
                 image=target_image, level=level, school_id=school_id,
             ).first()
@@ -2037,7 +2044,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 import base64
                 from django.core.files.base import ContentFile
                 img_bytes = base64.b64decode(image_b64)
-                img_filename = f'year{yl}/{topic_slug}/{image_ref}'
+                img_filename = f'year{yl}/{topic_slug}/{safe_ref}'
                 mq.image.save(img_filename, ContentFile(img_bytes), save=True)
                 _img_logger.info('Saved question image: %s', mq.image.name)
             except Exception as _exc:
