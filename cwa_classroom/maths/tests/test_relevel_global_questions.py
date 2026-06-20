@@ -64,3 +64,18 @@ def test_relevel_is_idempotent(setup):
     # nothing left below target
     assert not Question.objects.filter(
         school__isnull=True, topic=setup['trig'], level__level_number__lt=9).exists()
+
+
+def test_relevel_syncs_topic_levels(setup):
+    # After moving questions, the topic's level-links must follow so the
+    # questions show in the picker at their new year.
+    q = setup['q']
+    trig = setup['trig']
+    trig.levels.add(Level.objects.get(level_number=1))   # stale link at old year
+    q(1, trig)  # will move Y1 -> Y9
+
+    call_command('relevel_global_questions')
+
+    linked = set(trig.levels.values_list('level_number', flat=True))
+    assert 9 in linked       # linked to the new year (picker shows it)
+    assert 1 not in linked   # stale empty old-year link removed
