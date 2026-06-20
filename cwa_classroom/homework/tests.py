@@ -2243,16 +2243,15 @@ class PDFConfirmMultiClassTests(TestCase):
         self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 3)
         self.assertEqual(hw.num_questions, 3)
 
-        # Three distinct questions, each with its own stored image. The topic
-        # 'Addition' is top-level, so questions are filed under its mirrored
-        # same-named sub-topic (slug 'addition'), which drives the image path.
+        # Three distinct questions, each with its own stored image (path uses the
+        # topic slug 'addition-mc').
         qs = MQ.objects.filter(question_text='What is the name of this shape?')
         self.assertEqual(qs.count(), 3)
         images = sorted(str(q.image) for q in qs)
         self.assertEqual(images, [
-            'questions/year505/addition/shape_a.png',
-            'questions/year505/addition/shape_b.png',
-            'questions/year505/addition/shape_c.png',
+            'questions/year505/addition-mc/shape_a.png',
+            'questions/year505/addition-mc/shape_b.png',
+            'questions/year505/addition-mc/shape_c.png',
         ])
 
     @override_settings(STORAGES={
@@ -2344,7 +2343,7 @@ class PDFConfirmMultiClassTests(TestCase):
         call_command('recover_homework_pdf_images', '--session', str(session.pk), '--dry-run')
 
         self.assertEqual(MQ.objects.count(), before)  # rolled back
-        self.assertFalse(default_storage.exists('questions/year505/addition/dry.png'))
+        self.assertFalse(default_storage.exists('questions/year505/addition-mc/dry.png'))
 
     @override_settings(STORAGES={
         'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
@@ -2397,12 +2396,10 @@ class PDFConfirmMultiClassTests(TestCase):
         school_id, _dept, _ = _get_question_scope(self.owner)
 
         # The one question the bug left behind, shared by both class homeworks.
-        # Top-level topic mirrors to sub-topic slug 'addition', so the existing
-        # collapsed question's image lives under that slug.
         q0 = MQ.objects.create(
             question_text='Name this shape', topic=self.topic, level=self.level,
             school_id=school_id, question_type='short_answer',
-            image='questions/year505/addition/k0.png',
+            image='questions/year505/addition-mc/k0.png',
         )
         hw_a = Homework.objects.create(
             classroom=self.c1, created_by=self.owner, title='Shared HW',
@@ -2439,21 +2436,6 @@ class PDFConfirmMultiClassTests(TestCase):
         self.assertEqual(HomeworkQuestion.objects.filter(homework=hw_b).count(), 3)
         hw_b.refresh_from_db()
         self.assertEqual(hw_b.num_questions, 3)
-
-    def test_top_level_topic_gets_mirrored_subtopic(self):
-        # When the AI only resolves a top-level topic (no finer sub-topic), the
-        # saved question is filed under a same-named sub-topic so the hierarchy
-        # is always topic › sub-topic.
-        from maths.models import Question as MQ
-        session = self._make_session()  # extracted topic 'Addition' (top-level)
-        self._post(session, classroom_ids=[str(self.c1.id)])
-
-        q = MQ.objects.filter(question_text='1+1?').first()
-        self.assertIsNotNone(q)
-        self.assertEqual(q.topic.name, 'Addition')
-        self.assertIsNotNone(q.topic.parent_id)            # now a sub-topic
-        self.assertEqual(q.topic.parent.name, 'Addition')  # mirrored under the topic
-        self.assertIsNone(q.topic.parent.parent_id)        # parent is the top-level topic
 
     def test_session_classroom_fallback_when_no_ids_posted(self):
         # Legacy/no-JS path: no classroom_ids submitted falls back to the
