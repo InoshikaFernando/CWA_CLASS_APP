@@ -141,29 +141,32 @@ Within a transaction, for the target student (tenant-checked):
 "Enter card if none / charged full if partial" is automatic: the gate's checkout
 collects a card and bills the full package price because no code is applied.
 
-**HoD department scoping (required).** `_get_school` only proves the actor heads
-*some* department in the school — it returns the whole school. For an HoD, the
-clear view must **additionally** verify the target student is enrolled in a class
-belonging to a department the HoD heads (via `ClassStudent` → `ClassRoom` →
-`Department.head == actor`), else 404. Admin / Owner / HoI are school-wide and
-skip this check.
+**Institute-leadership only.** Per product decision, only HoI / Institute Owner
+/ Admin can clear a discount — HoDs and teachers cannot (the clear view's
+`required_roles` excludes them, and the list hides the Clear button for them).
+`_get_school` already scopes an HoI/Owner to their own school and an Admin to any
+school, so no extra per-student check is needed.
 
 ## Permissions
 
 Default deny. Reuse `SchoolStudentManageView._get_school` tenant scoping.
+
+Managing subscriptions (clearing discounts) is **institute-leadership only** —
+HoI / Institute Owner / Admin. HoDs and teachers can *see* the state but cannot
+clear (per product decision: only HoI add/remove subscriptions).
 
 | Role | See discount column | Clear discount |
 | --- | --- | --- |
 | Admin / superuser | ✅ any school | ✅ |
 | Institute Owner | ✅ own school | ✅ |
 | Head of Institute | ✅ own school | ✅ |
-| Head of Department | ✅ dept students | ✅ (dept only) |
+| Head of Department | ✅ (read only) | ❌ |
 | Teacher | ✅ class students (read only) | ❌ |
 | Parent / Student | ❌ | ❌ |
 
-`StudentDiscountClearView` requires `[Admin, Institute Owner, Head of Institute,
-Head of Department]` **and** the student must resolve within the actor's school
-(HoD: within their department), else 404.
+`StudentDiscountClearView` requires `[Admin, Institute Owner, Head of Institute]`
+**and** the student must resolve within the actor's school (via `_get_school`),
+else 404.
 
 ## Edge cases
 

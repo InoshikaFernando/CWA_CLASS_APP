@@ -153,20 +153,20 @@ class ClearDiscountViewTest(TestCase):
         resp = self.client.post(self._url())
         self.assertEqual(resp.status_code, 404)
 
-    def test_hod_department_scoping(self):
+    def test_hod_cannot_clear(self):
+        # Per product decision, only institute leadership (HoI/Owner/Admin) may
+        # clear discounts — an HoD is redirected and nothing changes, even for a
+        # student in their own department.
         hod = CustomUser.objects.create_user('hod', 'hod@t.com', 'pass1234')
         hod.roles.add(_role(Role.HEAD_OF_DEPARTMENT))
         dept = Department.objects.create(school=self.school, name='Coding', head=hod)
-        # Student NOT in the HoD's department -> 404
-        self.client.force_login(hod)
-        self.assertEqual(self.client.post(self._url()).status_code, 404)
-        # Put the student in a class of the HoD's department -> allowed
         cls_room = ClassRoom.objects.create(name='C1', code='CL1', school=self.school, department=dept)
         ClassStudent.objects.create(classroom=cls_room, student=self.student, is_active=True)
+        self.client.force_login(hod)
         resp = self.client.post(self._url())
-        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.status_code, 302)  # RoleRequiredMixin redirect
         self.sub.refresh_from_db()
-        self.assertEqual(self.sub.status, Subscription.STATUS_CANCELLED)
+        self.assertEqual(self.sub.status, Subscription.STATUS_ACTIVE)  # unchanged
 
 
 # ---------------------------------------------------------------------------

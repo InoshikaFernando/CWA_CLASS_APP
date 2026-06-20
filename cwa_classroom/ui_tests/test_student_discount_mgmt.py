@@ -38,8 +38,8 @@ class TestStudentDiscountManagement:
     def test_discount_badge_and_clear_control_present(self):
         self.page.goto(f"{self.url}/admin-dashboard/schools/{self.school.id}/students/")
         self.page.wait_for_load_state("domcontentloaded")
-        # The 100% discount badge shows in the (always-visible) summary row.
-        assert_page_has_text(self.page, "100% discount")
+        # The 100%-off (free, no payment) badge shows in the always-visible row.
+        assert_page_has_text(self.page, "100% off")
         # The Clear-discount control points at the clear endpoint (in the DOM,
         # inside the collapsible edit panel).
         clear_url = f"/admin-dashboard/schools/{self.school.id}/students/{self.student.id}/clear-discount/"

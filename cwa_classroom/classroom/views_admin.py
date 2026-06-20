@@ -1917,13 +1917,13 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         paginator = Paginator(qs, 25)
         page = paginator.get_page(request.GET.get('page'))
         _annotate_welcome_email_state(page, lambda ss: ss.student_id)
-        # Discount state per row (CPP-XXX). Only billing-privileged roles can clear.
+        # Discount state per row (CPP-XXX). Only institute leadership manages
+        # subscriptions — HoI / Owner / Admin. HoD and teachers see it read-only.
         can_clear_discount = (
             request.user.is_superuser
             or request.user.has_role(Role.ADMIN)
             or request.user.has_role(Role.INSTITUTE_OWNER)
             or request.user.has_role(Role.HEAD_OF_INSTITUTE)
-            or request.user.has_role(Role.HEAD_OF_DEPARTMENT)
         )
         for ss in page:
             sub = _subscription_or_none(ss.student)
@@ -2088,34 +2088,21 @@ class StudentDiscountClearView(RoleRequiredMixin, View):
     re-gates the student (``profile_completed=False``) so on their next login
     they pay the FULL amount via CompleteProfileView -> Stripe Checkout
     (subscription mode). For a partial Stripe subscription, the Stripe sub is
-    cancelled too. Scoped to the actor's school; HoD additionally limited to
-    their department's students. Audit-logged and the student/parents notified.
+    cancelled too. Institute-leadership only (HoI / Institute Owner / Admin) —
+    HoDs and teachers cannot manage subscriptions. Audit-logged and the
+    student/parents notified.
     """
     required_roles = [
         Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
-        Role.HEAD_OF_DEPARTMENT,
     ]
 
     def _resolve_student(self, request, school_id, student_id):
-        from django.http import Http404
+        # Institute-leadership only (no HoD): _get_school already restricts an
+        # HoI/Owner to their own school and an Admin to any school.
         school = SchoolStudentManageView()._get_school(request, school_id)
         ss = get_object_or_404(
             SchoolStudent, school=school, student_id=student_id, is_active=True,
         )
-        # HoD: restrict to students in a class of a department they head.
-        user = request.user
-        is_school_wide = (
-            user.is_superuser or user.has_role(Role.ADMIN)
-            or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.HEAD_OF_INSTITUTE)
-        )
-        if not is_school_wide and user.has_role(Role.HEAD_OF_DEPARTMENT):
-            in_dept = ClassStudent.objects.filter(
-                student_id=student_id, is_active=True,
-                classroom__school=school,
-                classroom__department__head=user,
-            ).exists()
-            if not in_dept:
-                raise Http404
         return school, ss
 
     def post(self, request, school_id, student_id):

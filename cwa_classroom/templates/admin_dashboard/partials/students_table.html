@@ -58,13 +58,13 @@
                   {% else %}
                   <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-amber-100 text-amber-700">Welcome not sent</span>
                   {% endif %}
-                  {% comment %}Discount state (CPP-XXX).{% endcomment %}
+                  {% comment %}Discount state (CPP-XXX). 100% = free, never "paid".{% endcomment %}
                   {% if ss.discount_state == 'free_100' %}
-                  <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-purple-100 text-purple-700">100% discount</span>
+                  <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-purple-100 text-purple-700" title="100% discount — no payment collected">Free · 100% off</span>
                   {% elif ss.discount_state == 'partial' %}
-                  <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-amber-100 text-amber-700">{{ ss.discount_percent }}% discount</span>
+                  <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-amber-100 text-amber-700" title="Partial discount — pays the remainder">{{ ss.discount_percent }}% off · paying rest</span>
                   {% elif ss.discount_state == 'full' %}
-                  <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-green-100 text-green-700">Paying</span>
+                  <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-green-100 text-green-700" title="Paying full price">Paying (full)</span>
                   {% endif %}
                 </p>
                 <p class="text-xs text-gray-400">
