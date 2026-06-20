@@ -2315,6 +2315,35 @@ class PDFConfirmMultiClassTests(TestCase):
         hw.refresh_from_db()
         self.assertEqual(hw.num_questions, 3)
 
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_recover_dry_run_creates_nothing_and_writes_no_file(self):
+        # --dry-run must leave the DB untouched AND upload no image to storage
+        # (image writes aren't transactional, so a naive rollback would orphan
+        # files in S3/Spaces).
+        from maths.models import Question as MQ
+        from django.core.management import call_command
+        from django.core.files.storage import default_storage
+        session = self._make_session()
+        session.extracted_data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': 'Name this shape', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': 'dry.png'},
+            ],
+        }
+        session.extracted_images = {'dry.png': self._PNG_B64}
+        session.is_confirmed = True
+        session.save()
+
+        before = MQ.objects.count()
+        call_command('recover_homework_pdf_images', '--session', str(session.pk), '--dry-run')
+
+        self.assertEqual(MQ.objects.count(), before)  # rolled back
+        self.assertFalse(default_storage.exists('questions/year505/addition-mc/dry.png'))
+
     def test_session_classroom_fallback_when_no_ids_posted(self):
         # Legacy/no-JS path: no classroom_ids submitted falls back to the
         # session's pre-selected class (still re-checked against scope).

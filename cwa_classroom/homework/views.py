@@ -1867,11 +1867,17 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         return redirect('homework:teacher_monitor')
 
 
-def _save_homework_pdf_questions(questions_data, global_data, user, school, session):
+def _save_homework_pdf_questions(questions_data, global_data, user, school, session,
+                                 save_images=True):
     """
     Save AI-extracted homework questions as maths.Question + maths.Answer records.
 
     Returns a list of Question objects in order.
+
+    ``save_images`` (default True) gates the storage upload of question images.
+    A caller that runs inside a transaction it intends to roll back (e.g. a
+    dry-run recovery) passes False so no orphan files are written to S3/Spaces —
+    image writes are NOT transactional and would survive the rollback.
     """
     from maths.models import Question as MQ, Answer as MA
     from classroom.models import Topic, Level, Subject
@@ -2024,7 +2030,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         # Runs when newly created OR when an existing row still lacks its image
         # (covers re-uploads after a previously broken confirm). Long division /
         # column arithmetic draw their own layout — never attach an image.
-        if is_image_question and (created or not mq.image):
+        if is_image_question and save_images and (created or not mq.image):
             import logging as _img_log
             _img_logger = _img_log.getLogger('homework')
             try:

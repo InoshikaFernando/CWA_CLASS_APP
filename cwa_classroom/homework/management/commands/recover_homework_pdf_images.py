@@ -70,8 +70,11 @@ class Command(BaseCommand):
             created = attached = 0
             try:
                 with transaction.atomic():
+                    # save_images=False on a dry run so the rolled-back
+                    # transaction leaves no orphan files in S3/Spaces.
                     saved = _save_homework_pdf_questions(
                         questions_data, data, s.user, s.school, s,
+                        save_images=not dry,
                     )
                     created = Question.objects.count() - before
 
