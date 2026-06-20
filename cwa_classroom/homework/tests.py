@@ -2344,6 +2344,98 @@ class PDFConfirmMultiClassTests(TestCase):
         self.assertEqual(MQ.objects.count(), before)  # rolled back
         self.assertFalse(default_storage.exists('questions/year505/addition-mc/dry.png'))
 
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_recover_skips_homework_with_submissions(self):
+        # Recovery restores questions to the bank but must NOT retro-edit a
+        # homework students have already submitted to.
+        from maths.models import Question as MQ
+        from homework.models import HomeworkSubmission
+        from django.core.management import call_command
+        session = self._make_session()
+        session.extracted_data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': 'Name this shape', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': f's{i}.png'}
+                for i in range(2)
+            ],
+        }
+        session.extracted_images = {f's{i}.png': self._PNG_B64 for i in range(2)}
+        session.is_confirmed = True
+        hw = Homework.objects.create(
+            classroom=self.c1, created_by=self.owner, title='Submitted HW',
+            homework_type='pdf_upload', num_questions=0,
+            due_date=timezone.now() + timedelta(days=30),
+        )
+        HomeworkSubmission.objects.create(homework=hw, student=self.owner, total_questions=1)
+        session.homework = hw
+        session.save()
+
+        call_command('recover_homework_pdf_images', '--session', str(session.pk), '--attach')
+
+        # Questions recovered to the bank, but homework left untouched.
+        self.assertEqual(MQ.objects.filter(question_text='Name this shape').count(), 2)
+        self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 0)
+        hw.refresh_from_db()
+        self.assertEqual(hw.num_questions, 0)
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_recover_attaches_to_sibling_classes(self):
+        # The same PDF assigned to two classes: both (0-submission) homeworks get
+        # the recovered questions, not just the session-linked one.
+        from maths.models import Question as MQ
+        from classroom.views import _get_question_scope
+        from django.core.management import call_command
+        school_id, _dept, _ = _get_question_scope(self.owner)
+
+        # The one question the bug left behind, shared by both class homeworks.
+        q0 = MQ.objects.create(
+            question_text='Name this shape', topic=self.topic, level=self.level,
+            school_id=school_id, question_type='short_answer',
+            image='questions/year505/addition-mc/k0.png',
+        )
+        hw_a = Homework.objects.create(
+            classroom=self.c1, created_by=self.owner, title='Shared HW',
+            homework_type='pdf_upload', num_questions=1,
+            due_date=timezone.now() + timedelta(days=30))
+        hw_b = Homework.objects.create(
+            classroom=self.c2, created_by=self.owner, title='Shared HW',
+            homework_type='pdf_upload', num_questions=1,
+            due_date=timezone.now() + timedelta(days=30))
+        for hw in (hw_a, hw_b):
+            HomeworkQuestion.objects.create(
+                homework=hw, question=q0, subject_slug='mathematics',
+                content_id=q0.pk, order=1)
+
+        session = self._make_session()
+        session.extracted_data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': 'Name this shape', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': f'k{i}.png'}
+                for i in range(3)
+            ],
+        }
+        session.extracted_images = {f'k{i}.png': self._PNG_B64 for i in range(3)}
+        session.is_confirmed = True
+        session.homework = hw_a
+        session.save()
+
+        call_command('recover_homework_pdf_images', '--session', str(session.pk), '--attach')
+
+        # 2 new questions (k1, k2) created; both class homeworks now hold all 3.
+        self.assertEqual(MQ.objects.filter(question_text='Name this shape').count(), 3)
+        self.assertEqual(HomeworkQuestion.objects.filter(homework=hw_a).count(), 3)
+        self.assertEqual(HomeworkQuestion.objects.filter(homework=hw_b).count(), 3)
+        hw_b.refresh_from_db()
+        self.assertEqual(hw_b.num_questions, 3)
+
     def test_session_classroom_fallback_when_no_ids_posted(self):
         # Legacy/no-JS path: no classroom_ids submitted falls back to the
         # session's pre-selected class (still re-checked against scope).

@@ -54,7 +54,7 @@ class Command(BaseCommand):
 
         dry = opts['dry_run']
         attach = opts['attach']
-        total_before = total_after = total_attached = 0
+        total_before = total_after = total_attached = total_skipped_subs = 0
 
         for s in sessions:
             data = s.extracted_data or {}
@@ -67,7 +67,7 @@ class Command(BaseCommand):
                 continue
 
             before = Question.objects.count()
-            created = attached = 0
+            created = attached = skipped_subs = 0
             try:
                 with transaction.atomic():
                     # save_images=False on a dry run so the rolled-back
@@ -79,30 +79,7 @@ class Command(BaseCommand):
                     created = Question.objects.count() - before
 
                     if attach and s.homework_id and saved:
-                        existing = set(
-                            HomeworkQuestion.objects
-                            .filter(homework_id=s.homework_id)
-                            .values_list('content_id', flat=True)
-                        )
-                        seen = set()
-                        new_rows = []
-                        order = len(existing)
-                        for q in saved:
-                            if q.pk in existing or q.pk in seen:
-                                continue
-                            seen.add(q.pk)
-                            order += 1
-                            new_rows.append(HomeworkQuestion(
-                                homework_id=s.homework_id, question=q,
-                                subject_slug='mathematics', content_id=q.pk, order=order,
-                            ))
-                        if new_rows:
-                            HomeworkQuestion.objects.bulk_create(new_rows)
-                            attached = len(new_rows)
-                            hw = s.homework
-                            hw.num_questions = HomeworkQuestion.objects.filter(
-                                homework_id=s.homework_id).count()
-                            hw.save(update_fields=['num_questions'])
+                        attached, skipped_subs = self._attach_to_homeworks(s, saved)
 
                     if dry:
                         transaction.set_rollback(True)
@@ -113,13 +90,78 @@ class Command(BaseCommand):
             total_before += len(questions_data)
             total_after += created
             total_attached += attached
+            total_skipped_subs += skipped_subs
             self.stdout.write(
                 f"  session #{s.pk} '{(s.homework_title or '')[:30]}': "
                 f"{len(questions_data)} extracted, {created} question(s) recovered"
-                + (f", {attached} attached to HW#{s.homework_id}" if attach else ''))
+                + (f", {attached} attached" if attach else '')
+                + (f", {skipped_subs} skipped (has submissions)" if skipped_subs else ''))
 
         verb = 'Would recover' if dry else 'Recovered'
         self.stdout.write(self.style.SUCCESS(
             f"\n{verb}: {total_after} question(s) across {len(sessions)} session(s)"
             + (f", {total_attached} attached" if attach else '')
+            + (f", {total_skipped_subs} homework(s) skipped (have submissions)"
+               if total_skipped_subs else '')
             + (' (dry run — rolled back)' if dry else '')))
+
+    def _attach_to_homeworks(self, session, saved):
+        """Link recovered questions to the session's homework AND its sibling
+        class copies (same teacher + title + identical question set), but only
+        when a homework has NO student submissions — never retro-edit a graded
+        assignment. Returns (attached_rows, skipped_homeworks_with_submissions).
+        """
+        from django.db.models import Max
+        from homework.models import Homework, HomeworkQuestion, HomeworkSubmission
+
+        linked = session.homework
+        base_ids = set(
+            HomeworkQuestion.objects.filter(homework_id=linked.id)
+            .values_list('content_id', flat=True)
+        )
+
+        # Siblings: the same PDF assignment given to other classes. The confirm
+        # step linked an identical question set to each, so a homework with the
+        # exact same content set, title and creator is a sibling of this upload.
+        targets = [linked]
+        for hw in Homework.all_objects.filter(
+            homework_type='pdf_upload',
+            created_by_id=linked.created_by_id,
+            title=linked.title,
+        ).exclude(pk=linked.id):
+            cids = set(
+                HomeworkQuestion.objects.filter(homework_id=hw.id)
+                .values_list('content_id', flat=True)
+            )
+            if cids and cids == base_ids:
+                targets.append(hw)
+
+        recovered = list(dict.fromkeys(q.pk for q in saved))  # de-dup, keep order
+        attached = skipped = 0
+        for hw in targets:
+            existing = set(
+                HomeworkQuestion.objects.filter(homework_id=hw.id)
+                .values_list('content_id', flat=True)
+            )
+            to_add = [pk for pk in recovered if pk not in existing]
+            if not to_add:
+                continue  # nothing this homework is missing — leave it alone
+            if HomeworkSubmission.objects.filter(homework_id=hw.id).exists():
+                self.stderr.write(self.style.WARNING(
+                    f'    HW#{hw.id} "{hw.title}" has submissions — skipped (not retro-edited).'))
+                skipped += 1
+                continue
+            order = (HomeworkQuestion.objects.filter(homework_id=hw.id)
+                     .aggregate(m=Max('order'))['m'] or 0)
+            new_rows = []
+            for pk in to_add:
+                order += 1
+                new_rows.append(HomeworkQuestion(
+                    homework_id=hw.id, question_id=pk,
+                    subject_slug='mathematics', content_id=pk, order=order,
+                ))
+            HomeworkQuestion.objects.bulk_create(new_rows)
+            attached += len(new_rows)
+            hw.num_questions = HomeworkQuestion.objects.filter(homework_id=hw.id).count()
+            hw.save(update_fields=['num_questions'])
+        return attached, skipped
