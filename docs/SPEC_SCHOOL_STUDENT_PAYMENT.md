@@ -99,6 +99,30 @@ python manage.py reset_imported_student_gating
 ```
 Safe to re-run; a second run reports "No students need re-gating."
 
+## Discount code policy (per school)
+
+The baseline is **every school student pays their own $19.90/mo subscription**
+through the `CompleteProfileView` gate above. The *only* thing that varies
+between students is the **discount code** they redeem at that gate — access,
+roles and class enrolment are otherwise identical for all school students.
+
+| School | Student discount code | Effect at the gate |
+| --- | --- | --- |
+| **Code Wizards Aotearoa (CWA)** | **100%** (`is_fully_free`) | Activates a free `active` Subscription immediately, no Stripe. |
+| **MHB** | **75%** | Stripe Checkout with the code's `stripe_coupon_id`; student pays the remaining **25%** of $19.90/mo, recurring. |
+| (no code) | — | Full **$19.90/mo** recurring checkout. |
+
+**Exceptions pay full.** A student with no code pays the full price like any
+individual. Current known exception: `siheli.gamage` (CWA) — her 100% code was
+removed so she pays the full $19.90/mo. She stays a CWA `Role.STUDENT`; the only
+change is "no discount code", handled entirely by the standard gate (no role
+change, no detaching from the school).
+
+The code is applied **once, at onboarding** (`CompleteProfileView`). To put an
+already-onboarded student back through it (e.g. after revoking their code), set
+`profile_completed=False` — the same mechanism `reset_imported_student_gating`
+uses — and they re-run the gate on next login.
+
 ## Data / flow notes
 
 - **No schema change / no migration.** Everything reuses existing fields
@@ -123,6 +147,23 @@ Safe to re-run; a second run reports "No students need re-gating."
   → publish → email → student login → gate).
 
 ## Known follow-up
+
+**Legacy one-time PaymentIntent flow (FIXED).** A deprecated PaymentIntent
+checkout (`billing/views.py`, backed by the legacy `billing.Payment` model) used
+to **charge the card once without creating a recurring subscription or saving a
+card** — leaving `Subscription.status='active'` with an empty
+`stripe_subscription_id` and a Stripe customer that has a charge but no
+subscription. This is how `siheli.gamage` was charged $19.90 after her code was
+removed (charge `ch_3TkCiC…`, customer `cus_Ujg4…`); it was reachable from the
+`trial_expired` / `change_package` pages via the `billing_checkout` link.
+
+Fixed: `CheckoutView` now always routes through Stripe Checkout in subscription
+mode (`create_student_checkout_session` for school students,
+`create_individual_checkout_session` otherwise), so any successful payment
+creates a subscription the webhook links back. `CreatePaymentIntentView` and
+`ConfirmPaymentView` are hard-disabled (HTTP 410) so the one-off path can never
+charge again. (A separate audit identifies any already-affected users to
+reconcile.)
 
 Two welcome-email templates are in play: Part 1 reuses
 `email/transactional/school_published.html`; Part 2 reuses the
