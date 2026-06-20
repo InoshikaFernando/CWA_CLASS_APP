@@ -374,6 +374,9 @@ def validate_and_preview(data_rows, column_mapping, school):
     # Collect student data grouped by a unique key
     students_by_key = {}
     _generated_email_counts = {}  # base_email -> count, for collision numbering
+    _generated_name_emails = {}   # (first_slug, last_slug) -> email, so the SAME
+                                  # child repeated in one import collapses into one
+                                  # student instead of N numbered duplicate accounts
     for row_idx, row in enumerate(data_rows, start=2):  # row 2 = first data row
         # Determine student name
         if children_mode:
@@ -414,31 +417,42 @@ def validate_and_preview(data_rows, column_mapping, school):
             email = ''
 
         if not email:
-            child_slug = slugify(first_name) if first_name else slugify(f'{first_name}-{last_name}')
-            if parent_email and '@' in parent_email:
-                # Use plus-addressing: parent+firstName@domain
-                # e.g. test@example.com -> test+ryan@example.com
-                # Delivers to parent inbox, unique per child, works for siblings
-                prefix = parent_email.split('@')[0]
-                domain = parent_email.split('@')[1]
-                base_email = f'{prefix}+{child_slug}@{domain}'.lower()
+            # The SAME child listed more than once in a single import (e.g. a
+            # repeated name in the "children" column, or duplicate rows for one
+            # family) must resolve to ONE generated email — otherwise collision
+            # numbering below mints a fresh address each time and we create
+            # duplicate student accounts for a single real child.
+            name_key = (slugify(first_name), slugify(last_name))
+            if name_key in _generated_name_emails:
+                email = _generated_name_emails[name_key]
             else:
-                base_email = f'{child_slug}@student.local'.lower()
+                child_slug = slugify(first_name) if first_name else slugify(f'{first_name}-{last_name}')
+                if parent_email and '@' in parent_email:
+                    # Use plus-addressing: parent+firstName@domain
+                    # e.g. test@example.com -> test+ryan@example.com
+                    # Delivers to parent inbox, unique per child, works for siblings
+                    prefix = parent_email.split('@')[0]
+                    domain = parent_email.split('@')[1]
+                    base_email = f'{prefix}+{child_slug}@{domain}'.lower()
+                else:
+                    base_email = f'{child_slug}@student.local'.lower()
 
-            # Handle collisions: if the same base was already generated, append 1, 2, ...
-            if base_email not in _generated_email_counts:
-                _generated_email_counts[base_email] = 0
-                email = base_email
-            else:
-                _generated_email_counts[base_email] += 1
-                n = _generated_email_counts[base_email]
-                # Insert the number before the @: test+joanna1@example.com
-                local, domain_part = base_email.split('@', 1)
-                email = f'{local}{n}@{domain_part}'
+                # Handle collisions between *different* children whose first
+                # names share a slug: append 1, 2, ... so each stays distinct.
+                if base_email not in _generated_email_counts:
+                    _generated_email_counts[base_email] = 0
+                    email = base_email
+                else:
+                    _generated_email_counts[base_email] += 1
+                    n = _generated_email_counts[base_email]
+                    # Insert the number before the @: test+joanna1@example.com
+                    local, domain_part = base_email.split('@', 1)
+                    email = f'{local}{n}@{domain_part}'
 
-            warnings.append(
-                f'Row {row_idx}: No student email — generated "{email}".'
-            )
+                _generated_name_emails[name_key] = email
+                warnings.append(
+                    f'Row {row_idx}: No student email — generated "{email}".'
+                )
 
         if not last_name:
             # Use parent's last name as fallback
