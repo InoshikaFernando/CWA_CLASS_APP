@@ -42,6 +42,16 @@
         </button>
       </form>
       {% endif %}
+      {% if homework.created_by_id == user.id %}
+      <form method="post" action="{% url 'homework:delete' homework_id=homework.id %}"
+            onsubmit="return confirm('Delete &quot;{{ homework.title|escapejs }}&quot;? It will be hidden from students and teachers. Students\' existing submissions and grades are kept.');">
+        {% csrf_token %}
+        <button type="submit"
+                class="px-3 py-1.5 bg-red-50 text-red-700 text-xs font-semibold rounded-lg hover:bg-red-100 transition">
+          Delete
+        </button>
+      </form>
+      {% endif %}
       {% if homework.status == 'published' %}
       <span class="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">Published</span>
       {% elif homework.status == 'expired' %}
