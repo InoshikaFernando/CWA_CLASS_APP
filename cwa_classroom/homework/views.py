@@ -1965,26 +1965,54 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 # than import a broken one with no usable answer.
                 continue
 
-        # Create or get question (avoid exact duplicates within same topic/level)
-        mq, created = MQ.objects.get_or_create(
-            question_text=q_text,
-            topic=topic,
-            level=level,
-            school_id=school_id,
-            defaults={
-                'question_type': mapped_type,
-                'validation_type': validation_type,
-                'grading_rubric': grading_rubric,
-                'difficulty': q.get('difficulty', 1),
-                'points': q.get('points', 1),
-                'explanation': q.get('explanation', ''),
-                'department_id': dept_id,
-                'dividend': dividend,
-                'divisor': divisor,
-                'operands': operands,
-                'operator': operator,
-            },
+        # Image-based questions are visually distinct even when they share a
+        # generic stem (e.g. 79 "What is the name of this shape?" questions, one
+        # per shape image). Keying dedup on text alone collapsed them all into a
+        # single row via get_or_create and the (created or not mq.image) guard
+        # then dropped every image but the first — silent data loss. So a question
+        # that carries image data is deduped on its would-be image PATH (unique
+        # per image_ref) instead of the text: re-runs stay idempotent, but
+        # distinct figures sharing a stem are never merged.
+        image_ref = q.get('image_ref')
+        image_b64 = session.extracted_images.get(image_ref) if image_ref else None
+        is_image_question = (
+            bool(image_b64)
+            and mapped_type not in (MQ.LONG_DIVISION, MQ.COLUMN_OPERATION)
         )
+        topic_slug = topic.slug if getattr(topic, 'slug', '') else str(topic.id)
+
+        defaults = {
+            'question_type': mapped_type,
+            'validation_type': validation_type,
+            'grading_rubric': grading_rubric,
+            'difficulty': q.get('difficulty', 1),
+            'points': q.get('points', 1),
+            'explanation': q.get('explanation', ''),
+            'department_id': dept_id,
+            'dividend': dividend,
+            'divisor': divisor,
+            'operands': operands,
+            'operator': operator,
+        }
+
+        if is_image_question:
+            target_image = f'questions/year{yl}/{topic_slug}/{image_ref}'
+            mq = MQ.objects.filter(
+                image=target_image, level=level, school_id=school_id,
+            ).first()
+            created = mq is None
+            if created:
+                mq = MQ.objects.create(
+                    question_text=q_text, topic=topic, level=level,
+                    school_id=school_id, **defaults,
+                )
+        else:
+            # Text-only question: exact duplicates within the same topic/level
+            # genuinely are the same question, so collapse them.
+            mq, created = MQ.objects.get_or_create(
+                question_text=q_text, topic=topic, level=level,
+                school_id=school_id, defaults=defaults,
+            )
 
         if not created and validation_type != 'auto':
             # Update rubric in case teacher edited it
@@ -1992,30 +2020,25 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             mq.grading_rubric = grading_rubric
             mq.save(update_fields=['validation_type', 'grading_rubric'])
 
-        # Save image to storage (DO Spaces / S3) via Django's ImageField.save()
-        # Run when newly created OR when question exists but has no image yet
-        # (covers re-uploads after previously broken confirm attempts).
-        # Long division / column arithmetic draw their own layout from the stored
-        # numbers — never attach an image.
-        if mapped_type not in (MQ.LONG_DIVISION, MQ.COLUMN_OPERATION) and (created or not mq.image):
+        # Save image to storage (DO Spaces / S3) via Django's ImageField.save().
+        # Runs when newly created OR when an existing row still lacks its image
+        # (covers re-uploads after a previously broken confirm). Long division /
+        # column arithmetic draw their own layout — never attach an image.
+        if is_image_question and (created or not mq.image):
             import logging as _img_log
             _img_logger = _img_log.getLogger('homework')
-            image_ref = q.get('image_ref')
-            image_b64 = session.extracted_images.get(image_ref) if image_ref else None
-            if image_b64:
-                try:
-                    import base64
-                    from django.core.files.base import ContentFile
-                    topic_slug = topic.slug if hasattr(topic, 'slug') else str(topic.id)
-                    img_bytes = base64.b64decode(image_b64)
-                    img_filename = f'year{yl}/{topic_slug}/{image_ref}'
-                    mq.image.save(img_filename, ContentFile(img_bytes), save=True)
-                    _img_logger.info('Saved question image: %s', mq.image.name)
-                except Exception as _exc:
-                    _img_logger.error(
-                        'Failed to save image for question %s (ref=%s): %s',
-                        mq.pk, image_ref, _exc, exc_info=True,
-                    )
+            try:
+                import base64
+                from django.core.files.base import ContentFile
+                img_bytes = base64.b64decode(image_b64)
+                img_filename = f'year{yl}/{topic_slug}/{image_ref}'
+                mq.image.save(img_filename, ContentFile(img_bytes), save=True)
+                _img_logger.info('Saved question image: %s', mq.image.name)
+            except Exception as _exc:
+                _img_logger.error(
+                    'Failed to save image for question %s (ref=%s): %s',
+                    mq.pk, image_ref, _exc, exc_info=True,
+                )
 
         # Save answers (skip for extended_answer)
         if mapped_type == MQ.LONG_DIVISION:

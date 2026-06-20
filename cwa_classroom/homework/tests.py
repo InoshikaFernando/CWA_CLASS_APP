@@ -1,7 +1,7 @@
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -2200,6 +2200,120 @@ class PDFConfirmMultiClassTests(TestCase):
         for hw in hws:
             self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 1)
             self.assertEqual(hw.num_questions, 1)
+
+    # A 1×1 PNG — enough for ImageField.save() to store bytes (no Pillow on save).
+    _PNG_B64 = (
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+        'YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+    )
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_image_questions_with_same_text_are_not_collapsed(self):
+        # Regression: a PDF of image questions that all share a generic stem
+        # ("What is the name of this shape?") must produce one maths.Question per
+        # image, not collapse to a single row (which silently dropped every image
+        # but the first).
+        from maths.models import Question as MQ
+        session = self._make_session()
+        session.extracted_data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': 'What is the name of this shape?', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': 'shape_a.png'},
+                {'question_text': 'What is the name of this shape?', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': 'shape_b.png'},
+                {'question_text': 'What is the name of this shape?', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': 'shape_c.png'},
+            ],
+        }
+        session.extracted_images = {
+            'shape_a.png': self._PNG_B64,
+            'shape_b.png': self._PNG_B64,
+            'shape_c.png': self._PNG_B64,
+        }
+        session.save(update_fields=['extracted_data', 'extracted_images'])
+
+        resp = self._post(session, classroom_ids=[str(self.c1.id)])
+        self.assertEqual(resp.status_code, 302)
+
+        hw = Homework.objects.get(title='Multi HW', classroom=self.c1)
+        self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 3)
+        self.assertEqual(hw.num_questions, 3)
+
+        # Three distinct questions, each with its own stored image.
+        qs = MQ.objects.filter(question_text='What is the name of this shape?')
+        self.assertEqual(qs.count(), 3)
+        images = sorted(str(q.image) for q in qs)
+        self.assertEqual(images, [
+            'questions/year505/addition-mc/shape_a.png',
+            'questions/year505/addition-mc/shape_b.png',
+            'questions/year505/addition-mc/shape_c.png',
+        ])
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_image_question_save_is_idempotent(self):
+        # Re-running the save for the same session (the recovery path) must not
+        # duplicate image questions — dedup is on the image path.
+        from maths.models import Question as MQ
+        from homework.views import _save_homework_pdf_questions
+        session = self._make_session()
+        data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': 'Name this shape', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': 'x.png'},
+            ],
+        }
+        session.extracted_data = data
+        session.extracted_images = {'x.png': self._PNG_B64}
+        session.save(update_fields=['extracted_data', 'extracted_images'])
+
+        first = _save_homework_pdf_questions(data['questions'], data, self.owner, self.school, session)
+        second = _save_homework_pdf_questions(data['questions'], data, self.owner, self.school, session)
+
+        self.assertEqual(MQ.objects.filter(question_text='Name this shape').count(), 1)
+        self.assertEqual(first[0].pk, second[0].pk)
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_recover_command_restores_dropped_image_questions(self):
+        # A confirmed session whose image questions were collapsed (1 saved) is
+        # re-run by the recovery command — all three come back and attach.
+        from maths.models import Question as MQ
+        from django.core.management import call_command
+        session = self._make_session()
+        session.extracted_data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': 'Name this shape', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': f'r{i}.png'}
+                for i in range(3)
+            ],
+        }
+        session.extracted_images = {f'r{i}.png': self._PNG_B64 for i in range(3)}
+        session.is_confirmed = True
+        hw = Homework.objects.create(
+            classroom=self.c1, created_by=self.owner, title='Rec HW',
+            homework_type='pdf_upload', num_questions=0,
+            due_date=timezone.now() + timedelta(days=30),
+        )
+        session.homework = hw
+        session.save()
+
+        call_command('recover_homework_pdf_images', '--session', str(session.pk), '--attach')
+
+        self.assertEqual(MQ.objects.filter(question_text='Name this shape').count(), 3)
+        self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 3)
+        hw.refresh_from_db()
+        self.assertEqual(hw.num_questions, 3)
 
     def test_session_classroom_fallback_when_no_ids_posted(self):
         # Legacy/no-JS path: no classroom_ids submitted falls back to the
