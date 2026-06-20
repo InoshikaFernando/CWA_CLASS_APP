@@ -2506,3 +2506,124 @@ class TeacherHomeworkMonitorAllFilterTest(HomeworkTestBase):
         )
         resp = self._monitor('?classroom=all')
         self.assertNotContains(resp, 'Other Teacher Homework')
+
+
+# ---------------------------------------------------------------------------
+# Soft-delete: the creator (HoI / HoD / teacher) can delete homework they added
+# ---------------------------------------------------------------------------
+
+class HomeworkDeleteTest(HomeworkTestBase):
+    """As HoI/HoD/Teacher I can delete any homework I added.
+
+    Deletion is a soft-delete: the homework disappears from every teacher and
+    student view, but student submissions and grades are preserved.
+    """
+
+    def _delete_url(self, hw):
+        return reverse('homework:delete', kwargs={'homework_id': hw.id})
+
+    def test_creator_can_soft_delete(self):
+        self.client.force_login(self.teacher)
+        resp = self.client.post(self._delete_url(self.homework))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse('homework:teacher_monitor'))
+
+        # Row still exists (soft delete) and is stamped with who/when.
+        hw = Homework.all_objects.get(pk=self.homework.pk)
+        self.assertIsNotNone(hw.deleted_at)
+        self.assertEqual(hw.deleted_by, self.teacher)
+
+        # Hidden from the default manager used by every list/detail query.
+        self.assertFalse(Homework.objects.filter(pk=self.homework.pk).exists())
+
+    def test_soft_delete_preserves_student_submissions_and_grades(self):
+        submission = HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            score=4, total_questions=5, points=8.0,
+        )
+        answer = HomeworkStudentAnswer.objects.create(
+            submission=submission, question=self.questions[0],
+            selected_answer=self.questions[0].answers.first(), is_correct=True,
+        )
+
+        self.client.force_login(self.teacher)
+        self.client.post(self._delete_url(self.homework))
+
+        # Submissions and answers survive the soft delete.
+        self.assertTrue(HomeworkSubmission.objects.filter(pk=submission.pk).exists())
+        self.assertTrue(HomeworkStudentAnswer.objects.filter(pk=answer.pk).exists())
+        # And the relation back to the (hidden) homework still resolves.
+        self.assertEqual(
+            HomeworkSubmission.objects.get(pk=submission.pk).homework_id,
+            self.homework.pk,
+        )
+
+    def test_deleted_homework_hidden_from_teacher_monitor(self):
+        self.client.force_login(self.teacher)
+        self.client.post(self._delete_url(self.homework))
+        resp = self.client.get(reverse('homework:teacher_monitor') + '?classroom=all&week=all')
+        # Assert on the detail link rather than the title — the title also shows
+        # in the "… deleted." flash message rendered on this same page.
+        detail_url = reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        self.assertNotContains(resp, f'href="{detail_url}"')
+
+    def test_deleted_homework_hidden_from_student_list(self):
+        self.client.force_login(self.teacher)
+        self.client.post(self._delete_url(self.homework))
+        self.client.logout()
+
+        self.client.force_login(self.student)
+        resp = self.client.get(reverse('homework:student_list'))
+        self.assertNotContains(resp, 'Test Homework')
+
+    def test_deleted_homework_detail_returns_404(self):
+        self.client.force_login(self.teacher)
+        self.client.post(self._delete_url(self.homework))
+        resp = self.client.get(
+            reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_non_creator_cannot_delete(self):
+        # other_teacher holds the teacher role (passes the role gate) but did not
+        # create this homework, so the delete must 404 and change nothing.
+        self.client.force_login(self.other_teacher)
+        resp = self.client.post(self._delete_url(self.homework))
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(Homework.objects.filter(pk=self.homework.pk).exists())
+
+    def test_delete_requires_login(self):
+        resp = self.client.post(self._delete_url(self.homework))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/login', resp.url.lower())
+        self.assertTrue(Homework.objects.filter(pk=self.homework.pk).exists())
+
+    def test_delete_is_post_only(self):
+        self.client.force_login(self.teacher)
+        resp = self.client.get(self._delete_url(self.homework))
+        self.assertEqual(resp.status_code, 405)
+        self.assertTrue(Homework.objects.filter(pk=self.homework.pk).exists())
+
+    def test_delete_writes_audit_log(self):
+        self.client.force_login(self.teacher)
+        self.client.post(self._delete_url(self.homework))
+        self.assertTrue(
+            AuditLog.objects.filter(action='homework_deleted').exists()
+        )
+
+    def test_delete_button_shown_to_creator(self):
+        self.client.force_login(self.teacher)
+        resp = self.client.get(
+            reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        )
+        self.assertContains(resp, self._delete_url(self.homework))
+
+    def test_double_delete_is_idempotent(self):
+        self.client.force_login(self.teacher)
+        self.client.post(self._delete_url(self.homework))
+        first = Homework.all_objects.get(pk=self.homework.pk).deleted_at
+        # A second POST 404s (already hidden from the default manager) and the
+        # original timestamp is left untouched.
+        resp = self.client.post(self._delete_url(self.homework))
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(Homework.all_objects.get(pk=self.homework.pk).deleted_at, first)
