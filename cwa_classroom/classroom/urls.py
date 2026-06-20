@@ -145,6 +145,7 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/students/', views_admin.SchoolStudentManageView.as_view(), name='admin_school_students'),
     path('admin-dashboard/schools/<int:school_id>/students/export-csv/', views_admin.SchoolStudentExportCSVView.as_view(), name='admin_school_students_export_csv'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit/', views_admin.SchoolStudentEditView.as_view(), name='admin_school_student_edit'),
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/clear-discount/', views_admin.StudentDiscountClearView.as_view(), name='admin_student_discount_clear'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit-modal/', views_admin.StudentEditModalView.as_view(), name='admin_school_student_edit_modal'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/', views_admin.SchoolStudentRemoveView.as_view(), name='admin_school_student_remove'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/restore/', views_admin.SchoolStudentRestoreView.as_view(), name='admin_school_student_restore'),
