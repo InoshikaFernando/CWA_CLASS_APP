@@ -1,4 +1,5 @@
 import json
+import logging
 import stripe
 
 from django.shortcuts import render, redirect, get_object_or_404
@@ -17,6 +18,8 @@ from .entitlements import get_school_for_user, get_school_subscription, check_cl
 from audit.services import log_event
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -95,143 +98,75 @@ def _create_account_from_pending(pending, stripe_subscription_id=''):
 
 
 class CheckoutView(LoginRequiredMixin, View):
-    """DEPRECATED: Legacy PaymentIntent checkout. Use Stripe Checkout Sessions instead."""
+    """Start a Stripe Checkout (subscription mode) for a package.
+
+    This used to render a legacy one-time PaymentIntent page that charged the
+    card WITHOUT creating a recurring subscription and without saving a card —
+    leaving the customer paid-but-unsubscribed (active ``Subscription`` with an
+    empty ``stripe_subscription_id``, a Stripe customer with a charge but no
+    subscription). It now always routes through Stripe Checkout in subscription
+    mode, so any successful payment creates a real subscription that the webhook
+    links back to the user. School students use the school-student checkout;
+    everyone else the individual checkout.
+    """
 
     def get(self, request, package_id):
         package = get_object_or_404(Package, id=package_id, is_active=True)
-        return render(request, 'billing/checkout.html', {
-            'package': package,
-            'stripe_publishable_key': settings.STRIPE_PUBLISHABLE_KEY,
-        })
+        if package.is_free:
+            messages.info(request, 'This package is free — no payment is required.')
+            return redirect('subjects_hub')
+
+        from .stripe_service import (
+            create_individual_checkout_session,
+            create_student_checkout_session,
+        )
+        try:
+            if request.user.is_student:
+                session = create_student_checkout_session(request.user, package, request)
+            else:
+                session = create_individual_checkout_session(request.user, package, request)
+        except Exception as e:  # noqa: BLE001 — surface any Stripe/config error to the user
+            logger.error(
+                'Checkout session creation failed for user %s, package %s: %s',
+                request.user.id, package.id, e,
+            )
+            messages.error(
+                request,
+                'Could not start checkout. Please try again, or contact support if it persists.',
+            )
+            return redirect('trial_expired')
+        return redirect(session.url)
 
 
 class CreatePaymentIntentView(LoginRequiredMixin, View):
-    """DEPRECATED: Create a Stripe PaymentIntent. Use Stripe Checkout Sessions instead."""
+    """REMOVED: legacy one-time PaymentIntent checkout.
+
+    Kept as a hard-disabled stub so any stale client/bookmark can never create a
+    one-off charge that doesn't set up a subscription. All payments now go
+    through Stripe Checkout (subscription mode) via :class:`CheckoutView`.
+    """
 
     def post(self, request, package_id):
-        package = get_object_or_404(Package, id=package_id, is_active=True)
-        if package.is_free:
-            return JsonResponse({'error': 'Cannot checkout a free package.'}, status=400)
-
-        # Check for applied discount code (validated server-side earlier)
-        body = json.loads(request.body) if request.body else {}
-        discount_code_str = (body.get('discount_code') or '').strip().upper()
-
-        discount_percent = 0
-        if discount_code_str:
-            try:
-                dc = DiscountCode.objects.get(code=discount_code_str)
-                if dc.is_valid() and not dc.is_fully_free:
-                    discount_percent = dc.discount_percent
-            except DiscountCode.DoesNotExist:
-                pass
-
-        original_amount = int(package.price * 100)  # Stripe uses cents
-        if discount_percent:
-            amount = int(original_amount * (1 - discount_percent / 100))
-        else:
-            amount = original_amount
-
-        if amount < 50:  # Stripe minimum is 50 cents
-            amount = 50
-
-        try:
-            # Get or create Stripe customer
-            sub = getattr(request.user, 'subscription', None)
-            customer_id = sub.stripe_customer_id if sub and sub.stripe_customer_id else None
-
-            if not customer_id:
-                customer = stripe.Customer.create(
-                    email=request.user.email,
-                    metadata={'user_id': request.user.id},
-                )
-                customer_id = customer.id
-                if sub:
-                    sub.stripe_customer_id = customer_id
-                    sub.save(update_fields=['stripe_customer_id'])
-
-            intent = stripe.PaymentIntent.create(
-                amount=amount,
-                currency=settings.STRIPE_CURRENCY,
-                customer=customer_id,
-                metadata={
-                    'user_id': request.user.id,
-                    'package_id': package.id,
-                    'discount_code': discount_code_str or '',
-                    'discount_percent': str(discount_percent),
-                },
-            )
-
-            log_event(
-                user=request.user, school=None, category='billing',
-                action='payment_intent_created',
-                detail={
-                    'package_id': package.id, 'package_name': package.name,
-                    'original_amount': original_amount, 'amount': amount,
-                    'discount_code': discount_code_str or None, 'discount_percent': discount_percent,
-                },
-                request=request,
-            )
-
-            return JsonResponse({'client_secret': intent.client_secret, 'amount': amount})
-
-        except stripe.error.StripeError as e:
-            return JsonResponse({'error': str(e)}, status=400)
+        return JsonResponse(
+            {'error': 'This checkout method is no longer available. Please reload the page and try again.'},
+            status=410,
+        )
 
 
 class ConfirmPaymentView(LoginRequiredMixin, View):
-    """DEPRECATED: Confirm a PaymentIntent. Use Stripe Checkout Sessions + webhooks instead."""
+    """REMOVED: legacy PaymentIntent confirmation.
+
+    Subscriptions are now created and activated by Stripe Checkout + the
+    webhook handler, never by a one-off confirm call. Hard-disabled so it can no
+    longer create a ``Payment`` + ``active`` subscription with no
+    ``stripe_subscription_id``.
+    """
 
     def post(self, request):
-        data = json.loads(request.body)
-        payment_intent_id = data.get('payment_intent_id')
-        package_id = data.get('package_id')
-
-        if not payment_intent_id or not package_id:
-            return JsonResponse({'error': 'Missing parameters.'}, status=400)
-
-        package = get_object_or_404(Package, id=package_id)
-
-        try:
-            intent = stripe.PaymentIntent.retrieve(payment_intent_id)
-        except stripe.error.StripeError:
-            return JsonResponse({'error': 'Invalid payment.'}, status=400)
-
-        if intent.status != 'succeeded':
-            return JsonResponse({'error': 'Payment not completed.'}, status=400)
-
-        # Record payment
-        Payment.objects.create(
-            user=request.user,
-            package=package,
-            amount=package.price,
-            stripe_payment_intent_id=payment_intent_id,
-            status=Payment.STATUS_SUCCEEDED,
+        return JsonResponse(
+            {'error': 'This checkout method is no longer available. Please reload the page and try again.'},
+            status=410,
         )
-
-        # Activate subscription
-        sub, _ = Subscription.objects.get_or_create(
-            user=request.user,
-            defaults={'package': package},
-        )
-        sub.package = package
-        sub.status = Subscription.STATUS_ACTIVE
-        sub.trial_end = None
-        sub.current_period_start = timezone.now()
-        sub.save()
-
-        # Update user package
-        request.user.package = package
-        request.user.save(update_fields=['package'])
-
-        log_event(
-            user=request.user, school=None, category='billing',
-            action='payment_confirmed',
-            detail={'package_id': package.id, 'package_name': package.name, 'amount': str(package.price), 'stripe_payment_intent_id': payment_intent_id},
-            request=request,
-        )
-
-        return JsonResponse({'success': True, 'redirect_url': '/billing/success/'})
 
 
 class ApplyPromoCodeView(LoginRequiredMixin, View):
