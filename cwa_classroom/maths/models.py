@@ -244,6 +244,11 @@ class Question(models.Model):
             # on a negative number stays significant ("-5" must not match "5").
             value = re.sub(r'(?<=[A-Za-z])-(?=[A-Za-z])', ' ', value)
             value = re.sub(r'\band\b', ' ', value, flags=re.IGNORECASE)
+            # Commas are insignificant for short answers: a digit-grouping or
+            # list comma should not change the match ("1,000" == "1000",
+            # "red, green" == "red green"). fold_exponents then strips all
+            # whitespace, so spacing around the comma is irrelevant too.
+            value = value.replace(',', '')
             return fold_exponents(fold_inequalities(value))
 
         user = _fold(text_answer)

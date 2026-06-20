@@ -71,38 +71,40 @@ def calculate_points(
 def normalize_short_answer(text: str) -> str:
     """
     Normalize short answer for case-insensitive comparison.
-    
+
     Performs:
-    1. Strip leading/trailing whitespace
-    2. Convert to lowercase
-    3. Normalize whitespace (multiple spaces → single space)
-    4. Remove extra punctuation variations
-    
+    1. Convert to lowercase
+    2. Remove ALL whitespace (so "py thon" == "python" and spacing never
+       affects the match)
+    3. Remove commas (digit-grouping or list commas are insignificant, so
+       "1,000" == "1000" and "red,green" == "red green")
+
     Args:
         text: Raw user answer
-    
+
     Returns:
         Normalized answer
-    
+
     Examples:
         >>> normalize_short_answer("  Python  ")
         'python'
-        
+
         >>> normalize_short_answer("3.0")
         '3.0'
-        
+
         >>> normalize_short_answer("JavaScript")
         'javascript'
+
+        >>> normalize_short_answer("1,000")
+        '1000'
     """
-    # Strip whitespace
-    text = text.strip()
-    
     # Convert to lowercase
     text = text.lower()
-    
-    # Normalize whitespace: collapse multiple spaces to single
-    text = re.sub(r'\s+', ' ', text)
-    
+
+    # Drop commas, then remove all whitespace entirely.
+    text = text.replace(',', '')
+    text = re.sub(r'\s+', '', text)
+
     return text
 
 
