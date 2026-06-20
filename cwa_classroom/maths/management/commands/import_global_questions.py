@@ -90,6 +90,14 @@ class Command(BaseCommand):
                     continue
 
                 topic = self._resolve_topic(g.get('title'), g.get('subtitle'))
+                # Register the topic (and its parent strand) for this level so it
+                # appears in the year's topic-quiz picker — the Topic.levels M2M
+                # the AI-import pipeline also maintains. Scoped to the promoted
+                # (topic, level) pairs only, never the whole bank.
+                if topic is not None:
+                    topic.levels.add(level)
+                    if topic.parent_id:
+                        topic.parent.levels.add(level)
 
                 for q in g.get('questions', []):
                     text = (q.get('question_text') or '').strip()
@@ -97,14 +105,24 @@ class Command(BaseCommand):
                         skipped += 1
                         continue
 
-                    existing = self.Question.objects.filter(
-                        school__isnull=True, question_text=text, level=level,
-                    ).first()
+                    image = q.get('image') or None
+
+                    # Image-based questions are distinct even when they share a
+                    # generic stem (e.g. many "name this shape" items), so dedup
+                    # on the image path; text-only questions dedup on (text,
+                    # level). Keying images on text alone silently merged them.
+                    if image:
+                        existing = self.Question.objects.filter(
+                            school__isnull=True, image=image,
+                        ).first()
+                    else:
+                        existing = self.Question.objects.filter(
+                            school__isnull=True, question_text=text, level=level,
+                        ).first()
                     if existing and not overwrite:
                         skipped += 1
                         continue
 
-                    image = q.get('image') or None
                     if image and not QUESTION_IMAGE_PATH_RE.match(image):
                         img_warn += 1
                         self.stderr.write(self.style.WARNING(
