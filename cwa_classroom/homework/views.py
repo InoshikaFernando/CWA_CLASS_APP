@@ -495,6 +495,50 @@ class HomeworkPublishView(RoleRequiredMixin, View):
         return redirect('homework:teacher_detail', homework_id=homework.id)
 
 
+class HomeworkDeleteView(RoleRequiredMixin, View):
+    """Soft-delete a homework the current user created.
+
+    Scope is deliberately narrow — only the *creator* may delete, matching
+    "as HoI/HoD/Teacher I can delete any homework I added". Anyone else (even a
+    co-teacher or admin who can otherwise manage the class) gets a 404, so this
+    never becomes a way to wipe another teacher's homework.
+
+    The delete is soft: ``Homework.soft_delete`` only flips ``deleted_at`` so the
+    homework vanishes from every list while student submissions and grades are
+    preserved (they would cascade-delete on a hard delete).
+    """
+    required_roles = ['teacher', 'senior_teacher', 'junior_teacher']
+
+    def post(self, request, homework_id):
+        from django.http import Http404
+        homework = get_object_or_404(
+            Homework.objects.select_related('classroom'), id=homework_id,
+        )
+        if homework.created_by_id != request.user.id:
+            raise Http404
+
+        title = homework.title
+        homework.soft_delete(user=request.user)
+
+        log_event(
+            user=request.user,
+            school=homework.classroom.school,
+            category='data_change',
+            action='homework_deleted',
+            detail={
+                'homework_id': homework.id,
+                'title': title,
+                'classroom_id': homework.classroom_id,
+                'classroom_name': homework.classroom.name,
+                'soft_delete': True,
+            },
+            request=request,
+        )
+
+        messages.success(request, f'Homework "{title}" deleted.')
+        return redirect('homework:teacher_monitor')
+
+
 class HomeworkEditView(RoleRequiredMixin, View):
     """Edit a homework's schedule (publish date, due date) and metadata.
 

@@ -55,6 +55,21 @@ class HomeworkUploadSession(models.Model):
         return f'{self.pdf_filename} — {self.user.username} — {"confirmed" if self.is_confirmed else "pending"}'
 
 
+class HomeworkManager(models.Manager):
+    """Default manager that hides soft-deleted homework everywhere.
+
+    Rows with ``deleted_at`` set are excluded from every normal query — the
+    teacher monitor/detail pages, the student list, the publish cron, the
+    sidebar badge counts and reverse relations all resolve through this
+    manager — so a deleted homework disappears from the app while its student
+    submissions and grades stay in the database. Use ``Homework.all_objects``
+    to reach soft-deleted rows (e.g. a future restore or an audit).
+    """
+
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
 class Homework(models.Model):
     HOMEWORK_TYPE_CHOICES = [
         ('topic', 'Topic Quiz'),
@@ -112,12 +127,54 @@ class Homework(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Soft-delete: the creator (HoI / HoD / teacher) can remove a homework they
+    # added. We never hard-delete because HomeworkSubmission/HomeworkStudentAnswer
+    # cascade off this row — wiping the homework would erase students' grades.
+    deleted_at = models.DateTimeField(
+        null=True, blank=True, db_index=True,
+        help_text=(
+            'Soft-delete timestamp. When set, the homework is hidden from all '
+            'teacher, student and parent views but its submissions and grades '
+            'are preserved in the database.'
+        ),
+    )
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+        help_text='User who soft-deleted this homework.',
+    )
+
+    # ``objects`` (filtered) is declared first so it is the default manager used
+    # by reverse relations and get_object_or_404; ``all_objects`` sees everything.
+    objects = HomeworkManager()
+    all_objects = models.Manager()
 
     class Meta:
         ordering = ['-created_at']
+        # Keep the base manager unfiltered so following a relation to a
+        # soft-deleted homework (e.g. submission.homework on a past result page)
+        # and refresh_from_db() still resolve it. Only ``objects`` (the default
+        # manager) hides soft-deleted rows from list/detail queries.
+        base_manager_name = 'all_objects'
 
     def __str__(self):
         return f'{self.title} ({self.classroom})'
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
+
+    def soft_delete(self, user=None):
+        """Hide this homework while preserving its submissions and grades.
+
+        Idempotent: re-deleting an already-deleted homework leaves the original
+        ``deleted_at`` timestamp untouched.
+        """
+        if self.deleted_at is not None:
+            return
+        self.deleted_at = timezone.now()
+        self.deleted_by = user
+        self.save(update_fields=['deleted_at', 'deleted_by', 'updated_at'])
 
     def save(self, *args, **kwargs):
         # Default to "published immediately on creation" unless a publish time
