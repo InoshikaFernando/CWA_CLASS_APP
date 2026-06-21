@@ -237,13 +237,25 @@
   setInterval(() => { if (!saving) saveProgress({ silent: true }); }, 30000);
 
   // "Save & continue later" — checkpoint, then return to the homework list.
+  // Only leave the page once the save has ACTUALLY succeeded: navigating away
+  // on a failed save would strand the student on the list believing their work
+  // was kept when it wasn't. On failure we keep them here (answers intact) with
+  // a clear message so they can retry.
   const saveExitBtn = document.getElementById('save-exit-btn');
   if (saveExitBtn) {
     saveExitBtn.addEventListener('click', async () => {
       saveExitBtn.disabled = true;
       clearTimeout(pendingTimer);
-      await saveProgress({ silent: false });
-      window.location.href = form.dataset.listUrl;
+      const ok = await saveProgress({ silent: false });
+      if (ok) {
+        window.location.href = form.dataset.listUrl;
+        return;
+      }
+      saveExitBtn.disabled = false;
+      statusEl.className = 'text-xs text-red-600 font-semibold';
+      statusEl.textContent =
+        'Could not save — please check your connection and try again. ' +
+        'Your answers are still on this page.';
     });
   }
 
