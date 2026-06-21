@@ -150,6 +150,9 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/', views_admin.SchoolStudentRemoveView.as_view(), name='admin_school_student_remove'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/restore/', views_admin.SchoolStudentRestoreView.as_view(), name='admin_school_student_restore'),
     path('admin-dashboard/schools/<int:school_id>/students/batch-update/', views_admin.SchoolStudentBatchUpdateView.as_view(), name='admin_school_student_batch_update'),
+    # Merge duplicate student accounts (same name + same parents)
+    path('admin-dashboard/schools/<int:school_id>/students/merge/modal/', views_parent_admin.MergeStudentsModalView.as_view(), name='admin_student_merge_modal'),
+    path('admin-dashboard/schools/<int:school_id>/students/merge/', views_parent_admin.MergeStudentsView.as_view(), name='admin_student_merge'),
 
     # HoI password reset (any school member: student, teacher, or parent)
     path('admin-dashboard/schools/<int:school_id>/users/<int:user_id>/reset-password/modal/',
