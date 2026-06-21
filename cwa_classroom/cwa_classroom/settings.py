@@ -100,6 +100,9 @@ INSTALLED_APPS = [
 
     # User feedback & feature requests (CPP-321)
     'feedback',
+
+    # Jira sprint burndown chart
+    'sprints',
 ]
 
 # ---------------------------------------------------------------------------
@@ -116,6 +119,14 @@ JIRA_BASE_URL = os.environ.get('JIRA_BASE_URL', '')
 JIRA_USER_EMAIL = os.environ.get('JIRA_USER_EMAIL', '')
 JIRA_API_TOKEN = os.environ.get('JIRA_API_TOKEN', '')
 JIRA_PROJECT_KEY = os.environ.get('JIRA_PROJECT_KEY', 'CPP')
+
+# Sprint burndown (sprints app). The Agile board the active sprint is read from
+# and the custom field carrying story points. Leave JIRA_BOARD_ID unset to keep
+# the burndown sync a no-op. The story-points field id is Jira-instance
+# specific — customfield_10016 is the common Jira Cloud default; check your
+# instance (Settings → Issues → Custom fields) and override via env if needed.
+JIRA_BOARD_ID = os.environ.get('JIRA_BOARD_ID', '')
+JIRA_STORY_POINTS_FIELD = os.environ.get('JIRA_STORY_POINTS_FIELD', 'customfield_10016')
 
 # Optional Discord webhook to announce newly-filed bugs. Empty = disabled.
 FEEDBACK_DISCORD_WEBHOOK = os.environ.get('FEEDBACK_DISCORD_WEBHOOK', '')

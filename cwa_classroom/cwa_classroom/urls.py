@@ -80,6 +80,9 @@ urlpatterns = [
     # --- User feedback & feature requests (CPP-321) ---
     path('feedback/', include('feedback.urls', namespace='feedback')),
 
+    # --- Jira sprint burndown chart ---
+    path('sprints/', include('sprints.urls', namespace='sprints')),
+
     # --- Core apps ---
     path('', include('classroom.urls')),
     path('maths/', include('number_puzzles.urls')),

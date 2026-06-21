@@ -177,6 +177,26 @@ python manage.py generate_puzzles --dry-run          # preview
 
 ---
 
+## Jira Sprint Burndown
+
+### `sync_sprint_burndown`
+Record one burndown snapshot (story points remaining) for the active Jira sprint
+on the configured board. A burndown is time-series and Jira only reports each
+issue's *current* state, so this must run daily to build up history. Idempotent —
+re-running upserts today's snapshot. No-ops (logs a warning) when the Jira env or
+`JIRA_BOARD_ID` is unconfigured. Requires `JIRA_BASE_URL`, `JIRA_USER_EMAIL`,
+`JIRA_API_TOKEN`, `JIRA_BOARD_ID`, and (if your instance differs from the default)
+`JIRA_STORY_POINTS_FIELD`. View the chart at `/sprints/burndown/`.
+```bash
+python manage.py sync_sprint_burndown
+```
+Intended to run as a cron job once a day. On the DigitalOcean server (`cwa` user):
+```cron
+55 23 * * * cd /home/cwa/CWA_CLASS_APP && /home/cwa/CWA_CLASS_APP/venv/bin/python manage.py sync_sprint_burndown >> /var/log/cwa/sync_sprint_burndown.log 2>&1
+```
+
+---
+
 ## Data Import / Migration
 
 ### `import_backup`
