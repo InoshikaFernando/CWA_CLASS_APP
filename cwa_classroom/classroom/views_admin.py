@@ -1952,6 +1952,21 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             .select_related('subject', 'department')
             .order_by('name')
         ) if not request.headers.get('HX-Request') else []
+        # Possible duplicate students (same name + same parent set). Leadership
+        # only, and only on a full-page render (skip on HTMX search swaps).
+        duplicate_groups = []
+        can_merge = can_clear_discount  # HoI / Owner / Admin
+        if can_merge and not request.headers.get('HX-Request'):
+            from .student_merge import find_duplicate_groups
+            duplicate_groups = [
+                {
+                    'ids': ','.join(str(u.id) for u in g),
+                    'name': f'{g[0].first_name} {g[0].last_name}',
+                    'accounts': g,
+                    'count': len(g),
+                }
+                for g in find_duplicate_groups(school)
+            ]
         ctx = {
             'school': school,
             'school_students': page,
@@ -1970,6 +1985,8 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             'add_student_classes': add_student_classes,
             'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
             'default_relationship': 'guardian',
+            'duplicate_groups': duplicate_groups,
+            'can_merge': can_merge,
         }
         if request.headers.get('HX-Request'):
             return render(request, 'admin_dashboard/partials/students_table.html', ctx)

@@ -1161,3 +1161,58 @@ class ParentAccountSearchView(RoleRequiredMixin, View):
             'school': school,
             'q': q,
         })
+
+
+class MergeStudentsModalView(RoleRequiredMixin, View):
+    """HTMX modal: confirm merging a group of duplicate student accounts.
+
+    Shows each account with its data counts and lets the admin pick which one
+    survives (the most-active is pre-selected). Leadership only.
+    """
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        from .student_merge import get_group_by_ids, account_summary, suggest_keep
+        raw = [i for i in request.GET.get('ids', '').split(',') if i.strip()]
+        try:
+            group = get_group_by_ids(school, raw)
+        except ValueError as exc:
+            return render(request, 'admin_dashboard/partials/merge_students_modal.html', {
+                'school': school, 'error': str(exc),
+            })
+        summaries = [account_summary(u, school) for u in group]
+        return render(request, 'admin_dashboard/partials/merge_students_modal.html', {
+            'school': school,
+            'ids': ','.join(str(u.id) for u in group),
+            'summaries': summaries,
+            'suggested_keep_id': suggest_keep(group).id,
+            'student_name': f'{group[0].first_name} {group[0].last_name}',
+        })
+
+
+class MergeStudentsView(RoleRequiredMixin, View):
+    """POST: perform the soft-merge, then return to the students list."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        from .student_merge import get_group_by_ids, merge_students
+        raw = [i for i in request.POST.get('ids', '').split(',') if i.strip()]
+        keep_id = request.POST.get('keep_id', '').strip()
+        try:
+            group = get_group_by_ids(school, raw)
+            keep = next((u for u in group if str(u.id) == keep_id), None)
+            if keep is None:
+                raise ValueError('Choose which account to keep.')
+            absorbed = [u for u in group if u.id != keep.id]
+            merge_students(keep, absorbed, school, actor=request.user, request=request)
+        except ValueError as exc:
+            messages.error(request, f'Merge failed: {exc}')
+            return redirect('admin_school_students', school_id=school.id)
+        messages.success(
+            request,
+            f'Merged {len(absorbed)} duplicate account(s) into '
+            f'{keep.get_full_name() or keep.username}.',
+        )
+        return redirect('admin_school_students', school_id=school.id)
