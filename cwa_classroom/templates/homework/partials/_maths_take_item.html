@@ -450,7 +450,9 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
       c.setAttribute("r", "5"); c.setAttribute("fill", "#dc2626");
       marks.appendChild(c);
     });
-    if (line){
+    // Only plot_line (segments mode) joins the dots. plot_points must leave them
+    // unconnected — connecting them would misrepresent a "plot these points" task.
+    if (line && mode === "segments"){
       line.setAttribute("points", pts.map(function(p){ return px(p[0]) + "," + py(p[1]); }).join(" "));
     }
   }

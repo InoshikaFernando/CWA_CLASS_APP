@@ -178,6 +178,17 @@ class TestPlotPoints:
         assert _answer(hw, enrolled_student, q).is_correct is True
 
     @pytest.mark.django_db(transaction=True)
+    def test_dots_are_not_connected(self, page, live_server, enrolled_student, plot_points_hw):
+        # plot_points draws dots only — it must NOT join them with a line
+        # (that is plot_line's job). Regression: the polyline was drawn in both modes.
+        hw, q = plot_points_hw
+        _take(page, live_server, enrolled_student, hw)
+        _dot(page, q.pk, 3, -2).click()
+        _dot(page, q.pk, 1, 4).click()
+        line_points = page.locator(f'[data-pl-line="{q.pk}"]').get_attribute("points")
+        assert not (line_points or "").strip()      # polyline stays empty
+
+    @pytest.mark.django_db(transaction=True)
     def test_mobile_tap_targets(self, page, live_server, enrolled_student, plot_points_hw):
         hw, q = plot_points_hw
         page.set_viewport_size({"width": 375, "height": 720})
@@ -198,6 +209,9 @@ class TestPlotLine:
         _dot(page, q.pk, -2, 1).click()
         _dot(page, q.pk, 0, 4).click()
         _dot(page, q.pk, 3, 1).click()
+        # plot_line DOES join the dots — the polyline is populated.
+        line_points = page.locator(f'[data-pl-line="{q.pk}"]').get_attribute("points")
+        assert (line_points or "").strip()
         _submit(page)
         assert _answer(hw, enrolled_student, q).is_correct is True
 
