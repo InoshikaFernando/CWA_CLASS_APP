@@ -22,8 +22,7 @@ from .models import (
     DiscountCode, Package, Subscription, DURATION_CHOICES,
 )
 from .reporting import (
-    get_paid_revenue, get_subscription_counts,
-    get_daily_active_series, get_daily_active_series_local,
+    get_paid_revenue, get_daily_active_series_local,
     DAILY_WINDOWS, StripeUnavailable,
 )
 from audit.services import log_event
@@ -150,44 +149,30 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         except StripeUnavailable:
             earnings_source = 'estimate'
 
-        # --- counts: live subscription counts from Stripe (source of truth) --
-        # Stripe knows every paying subscription (incl. school students) and
-        # applies the real status; the local DB can drift, so when Stripe is
-        # reachable its counts drive the headline tiles.
-        counts_source = 'stripe'
-        try:
-            sc = get_subscription_counts()
-            students['stripe'] = sc['student']
-            institutes['stripe'] = sc['institute']
-            # New/lost-today tiles sit under the Stripe-sourced count tiles, so
-            # source them from Stripe too — otherwise the local-DB figures
-            # (B2C-only, excluding school students) drift from the tiles and a
-            # student who started today shows as "+0 New today".
-            for panel, key in ((students, 'student'), (institutes, 'institute')):
-                panel['new_today'] = sc[key].get('new_today', panel['new_today'])
-                panel['lost_today'] = sc[key].get(
-                    'lost_today', panel['lost_today'])
-        except StripeUnavailable:
-            counts_source = 'local'
+        # --- counts: local DB (mirrors the admin-dashboard entry card). ------
+        # The entry card counts every student/school subscription locally (incl.
+        # free / no-package accounts). Stripe only knows the paying/trialing
+        # subset, so sourcing counts from Stripe would make this panel disagree
+        # with the card. Stripe stays the source of truth for earnings $ only.
+        counts_source = 'local'
 
         # --- daily active-subscriptions graph (selectable window) -----------
+        # Plots paying + trial subscriptions over time for both lines (free /
+        # no-package actives excluded), sourced locally to match the panel.
         try:
             window_days = int(request.GET.get('days', 30))
         except (TypeError, ValueError):
             window_days = 30
         if window_days not in DAILY_WINDOWS:
             window_days = 30
-        try:
-            daily = get_daily_active_series(window_days)
-        except StripeUnavailable:
-            daily = get_daily_active_series_local(window_days)
+        daily = get_daily_active_series_local(window_days)
 
         # Filter option lists
         countries = sorted({
             c for c in (
                 list(School.objects.exclude(country='')
                      .values_list('country', flat=True))
-                + list(self._b2c_subscriptions().exclude(user__country='')
+                + list(self._student_subscriptions().exclude(user__country='')
                        .values_list('user__country', flat=True))
             ) if c
         })
@@ -232,23 +217,21 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             'refresh_seconds': 60,  # auto-refresh interval for the standalone tab
         })
 
-    # -- students (B2C) ------------------------------------------------------
+    # -- students ------------------------------------------------------------
     @staticmethod
-    def _b2c_subscriptions():
-        """Individual / B2C subscriptions only.
+    def _student_subscriptions():
+        """Every student subscription, however enrolled.
 
-        Institute students also get a billing.Subscription row (created via
-        webhook / grant-access), but they are covered by their institute's
-        subscription and do not pay as individuals — so anyone who is a
-        current student of an institute is excluded here. Counting them as
-        paying B2C students overstates both the student count and earnings.
+        Mirrors the admin-dashboard entry card, which counts all student
+        billing.Subscription rows (individual / B2C *and* institute students,
+        who also get a row via webhook / grant-access). The panel and the card
+        therefore agree on "how many students". Earnings are still real Stripe
+        cash, so institute-covered students contribute $0 there.
         """
-        return Subscription.objects.exclude(
-            user__school_student_entries__is_active=True,
-        )
+        return Subscription.objects.all()
 
     def _student_stats(self, country, today):
-        qs = self._b2c_subscriptions()
+        qs = self._student_subscriptions()
         if country:
             qs = qs.filter(user__country__iexact=country)
 

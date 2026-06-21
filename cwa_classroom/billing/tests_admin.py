@@ -989,26 +989,10 @@ class SubscriptionOverviewTests(TestCase):
         self.assertEqual(ctx['institutes']['this_month'], Decimal('7.00'))
         self.assertEqual(ctx['combined_this_month'], Decimal('12.00'))
 
-    # -- counts: live from Stripe (mocked) --
-    @patch('billing.views_admin.get_subscription_counts')
-    def test_counts_from_stripe(self, mock_counts):
-        mock_counts.return_value = {
-            'student': {'paid': 20, 'trial': 1, 'other': 2, 'total': 23,
-                        'new_today': 3, 'lost_today': 1},
-            'institute': {'paid': 1, 'trial': 0, 'other': 0, 'total': 1,
-                          'new_today': 0, 'lost_today': 0},
-        }
-        ctx = self._get().context
-        self.assertEqual(ctx['counts_source'], 'stripe')
-        self.assertEqual(ctx['students']['stripe']['paid'], 20)
-        self.assertEqual(ctx['institutes']['stripe']['paid'], 1)
-        # New/lost-today tiles follow the Stripe source, not the local DB.
-        self.assertEqual(ctx['students']['new_today'], 3)
-        self.assertEqual(ctx['students']['lost_today'], 1)
-        self.assertEqual(ctx['institutes']['new_today'], 0)
-
-    def test_counts_source_local_without_stripe(self):
-        # No Stripe key in tests -> counts fall back to local DB
+    # -- counts: always local DB (mirrors the entry card, never Stripe) --
+    def test_counts_source_is_always_local(self):
+        # Counts mirror the admin-dashboard entry card (local Subscription /
+        # SchoolSubscription rows), so the panel never sources them from Stripe.
         self.assertEqual(self._get().context['counts_source'], 'local')
 
     # -- daily active graph (selectable window) --
@@ -1017,9 +1001,11 @@ class SubscriptionOverviewTests(TestCase):
         self.assertEqual(ctx['daily_window'], 30)
         self.assertEqual(len(ctx['daily']['labels']), 30)
         self.assertEqual(len(ctx['daily']['student']), 30)
-        # setUp subs were created today -> last point reflects them (local fallback)
+        # setUp subs created today -> last point reflects PAYING + TRIAL only.
+        # Students: all 4 have a priced package -> 4. Institutes: active +
+        # trialing count, the expired one is excluded -> 2.
         self.assertEqual(ctx['daily']['student'][-1], 4)
-        self.assertEqual(ctx['daily']['institute'][-1], 3)
+        self.assertEqual(ctx['daily']['institute'][-1], 2)
         self.assertEqual(ctx['daily']['student'][0], 0)  # none existed 30 days ago
 
     def test_daily_graph_window_param(self):
@@ -1029,6 +1015,14 @@ class SubscriptionOverviewTests(TestCase):
 
     def test_daily_graph_invalid_window_defaults_to_30(self):
         self.assertEqual(self._get(days='999').context['daily_window'], 30)
+
+    def test_daily_graph_excludes_free_students(self):
+        # A free / no-package active student is neither paying nor trial, so it
+        # must not lift the graph's student line.
+        user = _create_normal_user(username='free_grapher')
+        Subscription.objects.create(user=user, package=None, status='active')
+        ctx = self._get().context
+        self.assertEqual(ctx['daily']['student'][-1], 4)  # still 4, free excluded
 
     def test_active_series_from_intervals(self):
         from billing.reporting import _active_series_from_intervals
@@ -1105,9 +1099,9 @@ class SubscriptionOverviewTests(TestCase):
         self.assertContains(resp, 'auto-refresh')
         self.assertContains(resp, 'window.location.reload()')
 
-    # -- B2C exclusion: institute students must NOT count as student subs --
-    def test_institute_students_excluded_from_student_panel(self):
-        # Baseline: 4 B2C student subs from setUp
+    # -- all students count, incl. institute students (matches the entry card) --
+    def test_institute_students_included_in_student_panel(self):
+        # Baseline: 4 student subs from setUp
         self.assertEqual(self._get().context['students']['total'], 4)
 
         # An institute student: has a Subscription AND an active SchoolStudent row
@@ -1120,13 +1114,13 @@ class SubscriptionOverviewTests(TestCase):
             user=inst_user, package=self.package, status='active',
         )
 
-        # Still 4 — the institute student is excluded from the B2C panel
+        # Now 5 — the institute student is counted, like the entry card does
         s = self._get().context['students']
-        self.assertEqual(s['total'], 4)
-        self.assertEqual(s['active'], 2)  # unchanged, not 3
+        self.assertEqual(s['total'], 5)
+        self.assertEqual(s['active'], 3)  # was 2, now incl. the institute student
 
-    def test_former_institute_student_counts_as_b2c(self):
-        # If the school membership is inactive, they're B2C again
+    def test_former_institute_student_also_counts(self):
+        # Every student counts now, including ones who left a school
         school = School.objects.filter(name='School 0').first()
         user = _create_normal_user(username='left_school')
         SchoolStudent.objects.create(school=school, student=user, is_active=False)
