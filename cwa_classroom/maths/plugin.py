@@ -228,6 +228,25 @@ class MathsPlugin(SubjectPlugin):
             from maths.geometry_grading import grade_shape_select
             text_answer = post_data.get(f'answer_{q.id}', '')
             is_correct = grade_shape_select(q.shape_spec, text_answer)
+        elif q.question_type in (Question.PLOT_POINTS, Question.PLOT_LINE) and q.plane_spec:
+            # Set-comparison of plotted points / auto-connected segments on a
+            # signed Cartesian plane. The client serialises the marks to JSON in
+            # answer_{id} as {"points":[...]} or {"segments":[...]}.
+            from maths.geometry_grading import grade_plane
+            text_answer = post_data.get(f'answer_{q.id}', '')
+            is_correct = grade_plane(q.plane_spec, text_answer)
+        elif q.question_type == Question.IDENTIFY_COORDS and q.plane_spec:
+            # Student types the coordinates of the plotted point(s); parsed and
+            # compared as a set against the spec's target.points.
+            from maths.geometry_grading import grade_identify_coords
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            is_correct = grade_identify_coords(q.plane_spec, text_answer)
+        elif q.question_type == Question.READ_GRAPH and q.numeric_answer is not None:
+            # Read a value off a graph: tolerance-graded numeric answer, reusing
+            # the measure grader (numeric_answer + answer_tolerance).
+            from maths.geometry_grading import grade_measure
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            is_correct = grade_measure(q, text_answer)
         else:
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
             # Routes to algebra grading when q.answer_format == 'algebra',

@@ -1,0 +1,72 @@
+{% if error %}
+  <div class="text-center">
+    <div class="w-12 h-12 mx-auto mb-3 rounded-full bg-red-100 flex items-center justify-center">
+      <svg class="w-6 h-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/>
+      </svg>
+    </div>
+    <h3 class="text-lg font-semibold text-gray-900 mb-1">Can't merge these accounts</h3>
+    <p class="text-sm text-gray-500 mb-5">{{ error }}</p>
+    <button type="button" @click="showEditModal = false"
+            class="px-4 py-2 text-sm font-semibold text-gray-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition">
+      Close
+    </button>
+  </div>
+{% else %}
+  <form method="post" action="{% url 'admin_student_merge' school.id %}" @submit="saving = true">
+    {% csrf_token %}
+    <input type="hidden" name="ids" value="{{ ids }}">
+
+    <div class="mb-4">
+      <h3 class="text-lg font-display font-bold text-gray-900">Merge duplicate accounts</h3>
+      <p class="text-sm text-gray-500 mt-1">
+        {{ summaries|length }} accounts for <span class="font-medium text-gray-700">{{ student_name }}</span>.
+        Choose the account to <span class="font-semibold">keep</span> — the others are
+        deactivated and all their classes, invoices and history move onto it.
+      </p>
+    </div>
+
+    <div class="space-y-2 mb-5">
+      {% for s in summaries %}
+      <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50 transition has-[:checked]:border-accent has-[:checked]:bg-accent/5">
+        <input type="radio" name="keep_id" value="{{ s.user.id }}"
+               class="mt-1 text-accent focus:ring-accent"
+               {% if s.user.id == suggested_keep_id %}checked{% endif %}>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="font-medium text-gray-900">{{ s.user.username }}</span>
+            {% if s.user.id == suggested_keep_id %}
+            <span class="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Suggested</span>
+            {% endif %}
+            {% if s.subscription %}
+            <span class="text-[11px] font-semibold px-1.5 py-0.5 rounded-full
+                         {% if s.subscription_live %}bg-purple-100 text-purple-700{% else %}bg-slate-100 text-slate-600{% endif %}"
+                  title="Subscription status">{{ s.subscription }} sub</span>
+            {% endif %}
+            {% if s.logged_in %}
+            <span class="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">Has logged in</span>
+            {% endif %}
+          </div>
+          <p class="text-xs text-gray-400 truncate">{{ s.user.email }}</p>
+          <p class="text-xs text-gray-500 mt-1">
+            {{ s.classes }} class{{ s.classes|pluralize:"es" }} ·
+            {{ s.invoices }} invoice{{ s.invoices|pluralize }} ·
+            {{ s.homework }} homework
+          </p>
+        </div>
+      </label>
+      {% endfor %}
+    </div>
+
+    <div class="flex items-center justify-end gap-2">
+      <button type="button" @click="showEditModal = false"
+              class="px-4 py-2 text-sm font-semibold text-gray-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition">
+        Cancel
+      </button>
+      <button type="submit"
+              class="px-4 py-2 text-sm font-semibold text-white bg-accent rounded-lg hover:bg-accent-dark transition">
+        Merge accounts
+      </button>
+    </div>
+  </form>
+{% endif %}
