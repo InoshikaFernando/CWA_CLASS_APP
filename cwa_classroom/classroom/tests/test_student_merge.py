@@ -79,6 +79,15 @@ class DetectionTests(StudentMergeTestBase):
         groups = find_duplicate_groups(self.school)
         self.assertEqual(groups[0][0].id, b.id)  # survivor suggested first
 
+    def test_subscription_account_wins_over_login(self):
+        from billing.models import Subscription
+        a = self._student('sam1', login=True)   # logged in + would otherwise win
+        b = self._student('sam2', login=False)
+        Subscription.objects.create(user=b, status=Subscription.STATUS_ACTIVE)
+        groups = find_duplicate_groups(self.school)
+        self.assertEqual(groups[0][0].id, b.id)  # subscription is top priority
+        self.assertNotEqual(groups[0][0].id, a.id)
+
 
 class ValidationTests(StudentMergeTestBase):
     def test_rejects_self(self):

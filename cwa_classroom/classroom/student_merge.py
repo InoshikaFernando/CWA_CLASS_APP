@@ -62,18 +62,30 @@ def parent_ids(student, school):
     )
 
 
-def _activity_score(user):
-    """Sort key for choosing the survivor: logged-in, then most data, then
-    oldest account. Higher tuple sorts first."""
-    homework = getattr(user, 'homework_submissions', None)
-    hw = homework.count() if homework is not None else 0
+def _subscription_rank(user):
+    """2 = live subscription (active/trialing), 1 = any other subscription
+    (past_due/cancelled/expired), 0 = none.
+
+    The survivor MUST be the account that already holds a subscription:
+    `Subscription.user` is OneToOne, so re-pointing it onto another account is
+    a risky move on a Stripe-linked record — keeping it in place avoids that.
+    """
+    from billing.models import Subscription
+    sub = Subscription.objects.filter(user_id=user.id).first()
+    if sub is None:
+        return 0
+    return 2 if sub.status in (Subscription.STATUS_ACTIVE,
+                               Subscription.STATUS_TRIALING) else 1
+
+
+def _survivor_rank(user):
+    """Sort key for choosing which account to keep (highest wins):
+    subscription > has logged in > most learning data > oldest account."""
+    hw = user.homework_submissions.count() if hasattr(user, 'homework_submissions') else 0
     bf = user.basicfactsresult_set.count() if hasattr(user, 'basicfactsresult_set') else 0
-    classes = ClassStudentCount(user)
-    return (1 if user.last_login else 0, hw + bf + classes, -user.id)
-
-
-def ClassStudentCount(user):
-    return user.class_student_entries.filter(is_active=True).count()
+    classes = user.class_student_entries.filter(is_active=True).count()
+    return (_subscription_rank(user), 1 if user.last_login else 0,
+            hw + bf + classes, -user.id)
 
 
 def _parent_map(school):
@@ -116,7 +128,7 @@ def find_duplicate_groups(school):
     for members in buckets.values():
         if len(members) < 2:
             continue
-        members.sort(key=_activity_score, reverse=True)
+        members.sort(key=_survivor_rank, reverse=True)
         groups.append(members)
     # Stable, friendly ordering for the UI.
     groups.sort(key=lambda g: (_norm(g[0].first_name), _norm(g[0].last_name)))
@@ -146,13 +158,15 @@ def get_group_by_ids(school, ids):
         ok, err = validate_merge(anchor, other, school)
         if not ok:
             raise ValueError(err)
-    users.sort(key=_activity_score, reverse=True)
+    users.sort(key=_survivor_rank, reverse=True)
     return users
 
 
 def account_summary(user, school):
     """Per-account data counts shown in the merge modal so the admin sees what
     will move onto the survivor."""
+    from billing.models import Subscription
+    sub = Subscription.objects.filter(user_id=user.id).first()
     return {
         'user': user,
         'logged_in': bool(user.last_login),
@@ -160,12 +174,15 @@ def account_summary(user, school):
         'invoices': user.invoices.count(),
         'homework': (user.homework_submissions.count()
                      if hasattr(user, 'homework_submissions') else 0),
+        'subscription': sub.get_status_display() if sub else None,
+        'subscription_live': bool(sub and sub.status in (
+            Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIALING)),
     }
 
 
 def suggest_keep(group):
     """The account the UI pre-selects as the survivor."""
-    return max(group, key=_activity_score)
+    return max(group, key=_survivor_rank)
 
 
 def validate_merge(keep, absorbed, school):
