@@ -855,7 +855,11 @@ class SubscriptionOverviewTests(TestCase):
             school = _create_school(admin, name=f'School {i}', slug=f'school-{i}')
             school.country = 'New Zealand' if i == 0 else 'Australia'
             school.save(update_fields=['country'])
-            SchoolSubscription.objects.create(school=school, plan=self.plan, status=status)
+            # Real (Stripe-billed) institutes — required to count as "paying".
+            SchoolSubscription.objects.create(
+                school=school, plan=self.plan, status=status,
+                stripe_subscription_id=f'sub_school{i}',
+            )
 
     def _get(self, **params):
         return self.client.get(reverse('billing_admin_subscription_overview'), params)
@@ -927,6 +931,22 @@ class SubscriptionOverviewTests(TestCase):
         self.assertEqual(ctx['students']['active'], 3)  # active status total
         self.assertEqual(ctx['students']['paying'], 2)  # paying (priced package)
         self.assertEqual(ctx['students']['free'], 1)    # active but no package
+
+    def test_comped_institute_without_stripe_sub_is_free(self):
+        # A school on a priced plan but with no Stripe subscription (e.g. CWA,
+        # comped / manually granted) bills nothing -> Free, not Paying.
+        admin = _create_normal_user(username='comp_admin')
+        school = _create_school(admin, name='Comp School', slug='comp-school')
+        SchoolSubscription.objects.create(
+            school=school, plan=self.plan, status='active',
+            stripe_subscription_id='',  # never billed through Stripe
+        )
+        inst = self._get().context['institutes']
+        self.assertEqual(inst['active'], 2)   # School 0 + Comp School
+        self.assertEqual(inst['paying'], 1)   # only the Stripe-billed School 0
+        self.assertEqual(inst['free'], 1)     # the comped school
+        # and it adds no revenue to the estimate
+        self.assertEqual(inst['estimate'], Decimal('49.00'))  # School 0 only
 
     def test_full_discount_institute_not_paying(self):
         from billing.models import InstituteDiscountCode

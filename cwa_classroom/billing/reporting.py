@@ -277,10 +277,18 @@ def get_daily_active_series_local(window_days):
             timezone.localtime(created).date() if created else None,
             timezone.localtime(cancelled).date() if cancelled else None,
         ))
+    # Paying institute = Stripe-billed, priced plan, not 100%-off. Comped
+    # schools (e.g. CWA — priced plan but no Stripe subscription) are excluded.
     institute_qs = SchoolSubscription.objects.filter(
         status__in=['active', 'trialing'],
     ).filter(
-        Q(plan__isnull=False, plan__price__gt=0) | Q(status='trialing'),
+        Q(status='trialing')
+        | (
+            Q(plan__isnull=False, plan__price__gt=0)
+            & ~Q(stripe_subscription_id='')
+            & (Q(discount_code__isnull=True)
+               | Q(discount_code__discount_percent__lt=100))
+        ),
     )
     for school_id, created in institute_qs.values_list(
             'school_id', 'created_at'):

@@ -275,12 +275,17 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             qs = qs.filter(school_id=int(institution))
 
         active = qs.filter(status='active')
-        # Discount-aware estimate + "paying" count. 100%-off subs (e.g. CWA)
-        # bill nothing, so they don't count as paying and add $0.
+        # Discount-aware estimate + "paying" count. An institute is "paying"
+        # only if Stripe actually bills it: it must have a Stripe subscription,
+        # a priced plan, and not be 100%-discounted. Comped / manually granted
+        # schools (e.g. CWA — priced plan but no Stripe subscription) bill
+        # nothing, so they count as Free and add $0.
         estimate = self.ZERO
         paying_n = 0
         for sub in active.select_related('plan', 'discount_code'):
             if not sub.plan or sub.plan.price <= 0:
+                continue
+            if not sub.stripe_subscription_id:
                 continue
             pct = sub.discount_code.discount_percent if sub.discount_code else 0
             if pct >= 100:
