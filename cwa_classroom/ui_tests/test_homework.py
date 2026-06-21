@@ -679,4 +679,9 @@ class TestOverdueHomeworkUI:
         )
         page.wait_for_load_state("networkidle")
 
-        expect(page.get_by_text("Overdue Submission")).to_be_visible()
+        # Scope to the student table: the summary cards now carry an "Overdue
+        # Submission" tally label too, so an unscoped text match is ambiguous.
+        # This assertion is about the per-student row badge specifically.
+        expect(
+            page.locator("table").get_by_text("Overdue Submission")
+        ).to_be_visible()

@@ -1173,7 +1173,9 @@ class MergeStudentsModalView(RoleRequiredMixin, View):
 
     def get(self, request, school_id):
         school = _get_user_school_or_404(request.user, school_id)
-        from .student_merge import get_group_by_ids, account_summary, suggest_keep
+        from .student_merge import (
+            get_group_by_ids, account_summary, suggest_keep, keep_reason,
+        )
         raw = [i for i in request.GET.get('ids', '').split(',') if i.strip()]
         try:
             group = get_group_by_ids(school, raw)
@@ -1182,11 +1184,13 @@ class MergeStudentsModalView(RoleRequiredMixin, View):
                 'school': school, 'error': str(exc),
             })
         summaries = [account_summary(u, school) for u in group]
+        suggested = suggest_keep(group)
         return render(request, 'admin_dashboard/partials/merge_students_modal.html', {
             'school': school,
             'ids': ','.join(str(u.id) for u in group),
             'summaries': summaries,
-            'suggested_keep_id': suggest_keep(group).id,
+            'suggested_keep_id': suggested.id,
+            'suggested_reason': keep_reason(suggested),
             'student_name': f'{group[0].first_name} {group[0].last_name}',
         })
 

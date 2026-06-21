@@ -88,6 +88,15 @@ class DetectionTests(StudentMergeTestBase):
         self.assertEqual(groups[0][0].id, b.id)  # subscription is top priority
         self.assertNotEqual(groups[0][0].id, a.id)
 
+    def test_keep_reason_reports_subscription(self):
+        from billing.models import Subscription
+        from classroom.student_merge import keep_reason
+        b = self._student('sam2')
+        Subscription.objects.create(user=b, status=Subscription.STATUS_ACTIVE)
+        self.assertEqual(keep_reason(b), 'it has an active subscription')
+        loginer = self._student('sam1', login=True)
+        self.assertEqual(keep_reason(loginer), 'it has been logged into')
+
 
 class ValidationTests(StudentMergeTestBase):
     def test_rejects_self(self):
