@@ -185,6 +185,23 @@ def suggest_keep(group):
     return max(group, key=_survivor_rank)
 
 
+def keep_reason(user):
+    """Short, human explanation of why this account is the suggested survivor —
+    mirrors the _survivor_rank priority (subscription first)."""
+    from billing.models import Subscription
+    sub = Subscription.objects.filter(user_id=user.id).first()
+    if sub and sub.status in (Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIALING):
+        return 'it has an active subscription'
+    if sub:
+        return f'it has a subscription ({sub.get_status_display()})'
+    if user.last_login:
+        return 'it has been logged into'
+    if (user.class_student_entries.filter(is_active=True).exists()
+            or user.invoices.exists()):
+        return 'it has the most activity'
+    return 'it is the oldest account'
+
+
 def validate_merge(keep, absorbed, school):
     """Enforce the three guardrails for one (keep, absorbed) pair.
     Returns (ok: bool, error: str|None)."""
