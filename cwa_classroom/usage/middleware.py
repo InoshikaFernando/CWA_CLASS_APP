@@ -87,4 +87,24 @@ class UsageTrackingMiddleware:
             status_code=response.status_code,
             user=user,
             session_key=session_key,
+            client_key=self._client_key(request),
         )
+
+    @staticmethod
+    def _client_key(request):
+        """Stable, non-reversible per-visitor key from IP + user agent.
+
+        Used to count distinct guests (anonymous visitors) without relying on
+        a saved session. Salted with SECRET_KEY so the stored value can't be
+        reversed to an IP.
+        """
+        import hashlib
+        from django.conf import settings
+        from audit.services import get_client_ip
+
+        ip = get_client_ip(request) or ''
+        ua = request.headers.get('user-agent', '')
+        if not ip and not ua:
+            return ''
+        raw = f'{settings.SECRET_KEY}:{ip}:{ua}'.encode('utf-8', 'ignore')
+        return hashlib.sha256(raw).hexdigest()[:32]

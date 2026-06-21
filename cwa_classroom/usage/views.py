@@ -21,11 +21,15 @@ REFRESH_SECONDS = 60
 
 class UsageOverviewView(SuperuserRequiredMixin, View):
     def get(self, request):
-        hourly_24 = reporting.active_usage_hourly(24)
-        daily_7 = reporting.active_usage_daily(7)
-        daily_30 = reporting.active_usage_daily(30)
-        top_pages_7 = reporting.top_pages_daily(7)
-        top_pages_30 = reporting.top_pages_daily(30)
+        # Combined entry points: one DB scan for the three active-usage charts
+        # and one for the two top-pages charts (instead of a query per chart).
+        usage = reporting.active_usage(30)
+        pages = reporting.top_pages(30)
+        hourly_24 = usage['hourly24']
+        daily_7 = usage['daily7']
+        daily_30 = usage['daily30']
+        top_pages_7 = pages['d7']
+        top_pages_30 = pages['d30']
         errors_30 = reporting.error_series_daily(30)
         active_now = reporting.active_now()
 

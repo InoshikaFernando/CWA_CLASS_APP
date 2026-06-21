@@ -23,15 +23,23 @@ class PageHit(models.Model):
         on_delete=models.SET_NULL,
         related_name='page_hits',
     )
-    # Stored so an anonymous-visitor metric can be added later without a
-    # schema change; the dashboard's "distinct users" line uses `user`.
+    # Legacy anonymous identifier — often empty (Django only assigns a
+    # session_key once the session is saved). Kept for back-compat; the guest
+    # metric now uses `client_key` instead.
     session_key = models.CharField(max_length=40, blank=True)
+    # Salted hash of client IP + user agent, set on every hit. Lets the
+    # "guests active now" metric count distinct anonymous visitors reliably
+    # (unlike session_key, which is blank for visitors who never save a
+    # session). Not reversible to an IP.
+    client_key = models.CharField(max_length=32, blank=True)
 
     class Meta:
         indexes = [
             models.Index(fields=['created_at']),
             models.Index(fields=['status_code', 'created_at']),
             models.Index(fields=['path', 'created_at']),
+            # Serves the distinct-active-users-by-window aggregation.
+            models.Index(fields=['created_at', 'user']),
         ]
         ordering = ['-created_at']
 
