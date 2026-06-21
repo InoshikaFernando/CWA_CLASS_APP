@@ -142,7 +142,41 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                             "type": "string",
                             "enum": ["multiple_choice", "true_false", "short_answer",
                                      "fill_blank", "calculation", "extended_answer",
-                                     "long_division", "column_operation"],
+                                     "long_division", "column_operation",
+                                     "plot_points", "plot_line", "identify_coords",
+                                     "read_graph"],
+                        },
+                        "plane_spec": {
+                            "type": "object",
+                            "description": (
+                                "For plot_points / plot_line / identify_coords only — a signed Cartesian "
+                                "plane. bounds = visible axis range; mode 'points' (plot/identify dots) or "
+                                "'segments' (a line/shape to join); target = the correct answer (points OR "
+                                "segments) in SIGNED integer coords; given_points = points already drawn "
+                                "(identify_coords reads these). The app draws the blank plane, so "
+                                "set has_image=false for these types."
+                            ),
+                        },
+                        "graph_spec": {
+                            "type": "object",
+                            "description": (
+                                "For read_graph only and OPTIONAL — a clean re-draw of the line graph "
+                                "(x_axis/y_axis with label/unit/min/max/step; series with points). Only "
+                                "supply when you can read the series points confidently; otherwise omit it "
+                                "and keep the graph image (has_image=true)."
+                            ),
+                        },
+                        "numeric_answer": {
+                            "type": "number",
+                            "description": "For read_graph only: the value the student reads off the graph.",
+                        },
+                        "answer_tolerance": {
+                            "type": "number",
+                            "description": "For read_graph only: accepted ± band around numeric_answer (e.g. 5). Omit for exact.",
+                        },
+                        "answer_unit": {
+                            "type": "string",
+                            "description": "For read_graph only: unit shown after the answer box, e.g. 'km', 'min'.",
                         },
                         "dividend": {
                             "type": "integer",
@@ -314,6 +348,20 @@ Rules:
    e.g. "23 + 25". Do NOT concatenate the digits into one number (never "2325") and set
    has_image=false — the app draws the stacked grid itself. The answer is computed
    automatically; leave answers=[].
+11. CARTESIAN PLANE: if the question shows a BLANK signed coordinate plane (numbered x/y axes,
+   four quadrants) and asks the student to PLOT coordinates, use "plot_points" — put the visible
+   axis range in plane_spec.bounds, mode "points", and the coordinates to plot in
+   plane_spec.target.points (signed integers, e.g. [[3,-2]]). If it asks to plot AND JOIN points
+   into a line/shape, use "plot_line" — mode "segments" and plane_spec.target.segments as the
+   joined line ([{"x1","y1","x2","y2"}]). If a point is ALREADY PLOTTED and the student must WRITE
+   its coordinates, use "identify_coords" — mode "points", put the plotted point in BOTH
+   plane_spec.given_points and plane_spec.target.points. Set has_image=false (the app draws the
+   plane) and leave answers=[].
+12. READ A GRAPH: if a PRE-DRAWN line graph (e.g. distance-vs-time) is shown and the student must
+   READ a value off it, use "read_graph". Set numeric_answer to the value to read,
+   answer_tolerance to a sensible ± band, answer_unit to the axis unit. Keep the graph image
+   (has_image=true, image_bbox around the graph). Only add graph_spec if you can read the series
+   points confidently; otherwise omit it. Leave answers=[]; validation_type="auto".
 
 IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
 - has_image=true ONLY when the question genuinely depends on a visual that cannot be written
