@@ -141,6 +141,15 @@
     }
   });
 
+  // Interactive maths widgets (long division, prime factorisation, column
+  // operations, draw-on-grid, shape-select, plot-points/line) only save their
+  // final synthesised answer, not the individual working cells. Now that the
+  // hidden answer_<id> fields above are restored, ask each widget to rebuild
+  // its on-screen working from that value. Without this the cells stay blank on
+  // resume AND the widget's on-submit rebuild would recompute the hidden field
+  // from those empty cells — silently wiping a resumed answer at submit time.
+  (window.__hwRehydrateMaths || []).forEach(fn => { try { fn(); } catch (e) {} });
+
   // ── Timer ─────────────────────────────────────────────────────────────────
   let seconds = parseInt(form.dataset.draftTime || '0', 10) || 0;
   function paintTimer() {
