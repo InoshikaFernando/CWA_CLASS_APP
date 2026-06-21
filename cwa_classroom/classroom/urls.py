@@ -145,10 +145,14 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/students/', views_admin.SchoolStudentManageView.as_view(), name='admin_school_students'),
     path('admin-dashboard/schools/<int:school_id>/students/export-csv/', views_admin.SchoolStudentExportCSVView.as_view(), name='admin_school_students_export_csv'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit/', views_admin.SchoolStudentEditView.as_view(), name='admin_school_student_edit'),
+    path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/clear-discount/', views_admin.StudentDiscountClearView.as_view(), name='admin_student_discount_clear'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit-modal/', views_admin.StudentEditModalView.as_view(), name='admin_school_student_edit_modal'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/remove/', views_admin.SchoolStudentRemoveView.as_view(), name='admin_school_student_remove'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/restore/', views_admin.SchoolStudentRestoreView.as_view(), name='admin_school_student_restore'),
     path('admin-dashboard/schools/<int:school_id>/students/batch-update/', views_admin.SchoolStudentBatchUpdateView.as_view(), name='admin_school_student_batch_update'),
+    # Merge duplicate student accounts (same name + same parents)
+    path('admin-dashboard/schools/<int:school_id>/students/merge/modal/', views_parent_admin.MergeStudentsModalView.as_view(), name='admin_student_merge_modal'),
+    path('admin-dashboard/schools/<int:school_id>/students/merge/', views_parent_admin.MergeStudentsView.as_view(), name='admin_student_merge'),
 
     # HoI password reset (any school member: student, teacher, or parent)
     path('admin-dashboard/schools/<int:school_id>/users/<int:user_id>/reset-password/modal/',
@@ -281,6 +285,16 @@ urlpatterns = [
     path('progress/class/<int:class_id>/record/', views_progress.RecordProgressView.as_view(), name='record_progress'),
     path('progress/student/<int:student_id>/', views_progress.StudentProgressView.as_view(), name='student_progress'),
     path('progress/report/', views_progress.StudentProgressReportView.as_view(), name='student_progress_report'),
+
+    # Progress report comments (teacher add/edit/delete)
+    path('progress/student/<int:student_id>/comment/add/', views_progress.ProgressReportCommentCreateView.as_view(), name='progress_comment_add'),
+    path('progress/comment/<int:comment_id>/edit/', views_progress.ProgressReportCommentEditView.as_view(), name='progress_comment_edit'),
+    path('progress/comment/<int:comment_id>/delete/', views_progress.ProgressReportCommentDeleteView.as_view(), name='progress_comment_delete'),
+
+    # Progress report generate / view / send to parents
+    path('progress/student/<int:student_id>/report/generate/', views_progress.ProgressReportGenerateView.as_view(), name='progress_report_generate'),
+    path('progress/report/<int:report_id>/', views_progress.ProgressReportDetailView.as_view(), name='progress_report_detail'),
+    path('progress/report/<int:report_id>/send/', views_progress.ProgressReportSendView.as_view(), name='progress_report_send'),
 
     # Per-student fee override
     path('class/<int:class_id>/student/<int:student_id>/fee/', views.UpdateStudentFeeView.as_view(), name='update_student_fee'),

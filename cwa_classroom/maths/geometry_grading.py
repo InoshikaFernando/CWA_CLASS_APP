@@ -8,6 +8,7 @@ CPP-332 adds ``grade_measure`` for the ``measure`` question type; CPP-337 adds
 ``grade_draw_on_grid`` for the ``draw_on_grid`` type (set-comparison grading).
 """
 import json
+import re
 from decimal import Decimal, InvalidOperation
 
 
@@ -340,3 +341,246 @@ def grade_shape_select(shape_spec, payload):
     except TypeError:
         return False
     return want == got
+
+
+# ── plane_spec (CPP — Cartesian plane: plot / identify coordinates) ───────────
+# A SIGNED coordinate plane (four quadrants, negatives allowed) shared by three
+# question types: plot_points (tap dots), plot_line (tap dots that auto-connect
+# into segments), and identify_coords (read plotted points, type them). Same
+# set-comparison philosophy as draw_on_grid; the only logic difference is the
+# bounds check accepts negatives (xmin <= x <= xmax) instead of 0 <= x < cols.
+_PLANE_MODES = ('points', 'segments')
+# Max axis span a plane may declare. cartesian_plane_svg refuses to draw a larger
+# plane (it would emit thousands of grid lines / a node per lattice point), so the
+# validator rejects it too — the figure and the validator share one limit.
+_MAX_PLANE_SPAN = 40
+
+
+def _plane_bounds(plane_spec):
+    """Return ``(xmin, xmax, ymin, ymax)`` as ints, or ``None`` if malformed.
+
+    Shared by the validator, the grader and the render helper so "what is in
+    bounds" is defined once.
+    """
+    if not isinstance(plane_spec, dict):
+        return None
+    b = plane_spec.get('bounds')
+    if not isinstance(b, dict):
+        return None
+    try:
+        xmin, xmax = int(b['xmin']), int(b['xmax'])
+        ymin, ymax = int(b['ymin']), int(b['ymax'])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if xmin >= xmax or ymin >= ymax:
+        return None
+    return xmin, xmax, ymin, ymax
+
+
+def validate_plane_spec(plane_spec):
+    """Validate a ``plane_spec``; raise ``ValueError`` if invalid.
+
+    Pure and framework-agnostic (no Django import) so it is reused by the model's
+    ``clean()`` AND by both AI-PDF importers before a spec is stored — a
+    malformed spec can't slip in through any path. Mirrors ``validate_grid_spec``
+    but on SIGNED integer coordinates. Checks bounds, a known ``mode``, a
+    non-empty ``target`` for that mode, and that every coordinate (given + target)
+    is an integer inside the declared bounds.
+    """
+    if not isinstance(plane_spec, dict):
+        raise ValueError('plane_spec must be a JSON object.')
+
+    bounds = _plane_bounds(plane_spec)
+    if bounds is None:
+        raise ValueError(
+            'plane_spec.bounds must have integer xmin<xmax and ymin<ymax.'
+        )
+    xmin, xmax, ymin, ymax = bounds
+    # Cap the span to match cartesian_plane_svg's render limit: beyond this the
+    # backdrop SVG bails out (returning '') while the lattice still renders a node
+    # per point — an axis-less plane and a huge DOM. Reject it at the source so a
+    # plane that can't be drawn can't be stored.
+    if (xmax - xmin) > _MAX_PLANE_SPAN or (ymax - ymin) > _MAX_PLANE_SPAN:
+        raise ValueError(
+            f'plane_spec bounds span must not exceed {_MAX_PLANE_SPAN} units per axis.'
+        )
+
+    mode = plane_spec.get('mode')
+    if mode not in _PLANE_MODES:
+        raise ValueError(f'plane_spec.mode must be one of {_PLANE_MODES}.')
+
+    def _check_point(p):
+        if not (isinstance(p, (list, tuple)) and len(p) == 2):
+            raise ValueError(f'Point must be [x, y]; got {p!r}.')
+        x, y = p
+        if not (isinstance(x, int) and isinstance(y, int)
+                and not isinstance(x, bool) and not isinstance(y, bool)):
+            raise ValueError(f'Point coordinates must be integers; got {p!r}.')
+        if not (xmin <= x <= xmax and ymin <= y <= ymax):
+            raise ValueError(f'Point {p!r} is outside the plane bounds.')
+
+    def _check_segment(s):
+        if not isinstance(s, dict):
+            raise ValueError(f'Segment must be an object; got {s!r}.')
+        try:
+            pts = [(s['x1'], s['y1']), (s['x2'], s['y2'])]
+        except (KeyError, TypeError):
+            raise ValueError(f'Segment must have x1, y1, x2, y2; got {s!r}.')
+        for p in pts:
+            _check_point(list(p))
+        if pts[0] == pts[1]:
+            raise ValueError(f'Segment endpoints must differ; got {s!r}.')
+
+    # Given points (shown pre-plotted) must be in-bounds too.
+    given = plane_spec.get('given_points') or []
+    if not isinstance(given, list):
+        raise ValueError('plane_spec.given_points must be a list.')
+    for p in given:
+        _check_point(p)
+
+    target = plane_spec.get('target')
+    if not isinstance(target, dict):
+        raise ValueError('plane_spec.target must be an object.')
+    if mode == 'points':
+        items = target.get('points')
+        if not isinstance(items, list) or not items:
+            raise ValueError("plane_spec.target.points must be a non-empty list for mode 'points'.")
+        for p in items:
+            _check_point(p)
+    else:  # segments
+        items = target.get('segments')
+        if not isinstance(items, list) or not items:
+            raise ValueError("plane_spec.target.segments must be a non-empty list for mode 'segments'.")
+        for s in items:
+            _check_segment(s)
+
+
+def grade_plane(plane_spec, payload):
+    """True if the student's plotted marks match the target set for a plane question.
+
+    Deterministic SET comparison — the signed-coordinate sibling of
+    ``grade_draw_on_grid`` (and reuses ``_segment_key`` / ``_point_key``). The
+    ``mode`` selects what is compared: ``points`` (plotted dots) or ``segments``
+    (auto-connected line). ``allow_extra`` (default False): when False the
+    student set must EQUAL the target; when True the target must be a SUBSET.
+
+    ``payload`` is the student submission as a JSON string (or already-parsed
+    dict) shaped ``{"points": [...]}`` or ``{"segments": [...]}``. Returns
+    ``False`` on a malformed/empty payload or empty target — never raises.
+    """
+    if not isinstance(plane_spec, dict):
+        return False
+    mode = plane_spec.get('mode') or 'points'
+    target = plane_spec.get('target')
+    if not isinstance(target, dict):
+        return False
+    allow_extra = bool(plane_spec.get('allow_extra'))
+
+    try:
+        data = json.loads(payload) if isinstance(payload, str) else payload
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+
+    try:
+        if mode == 'segments':
+            want = {_segment_key(s) for s in target.get('segments', [])}
+            got = {_segment_key(s) for s in data.get('segments', [])}
+        else:  # points
+            want = {_point_key(p) for p in target.get('points', [])}
+            got = {_point_key(p) for p in data.get('points', [])}
+    except (AttributeError, KeyError, TypeError, ValueError, IndexError):
+        return False
+
+    if not want:
+        return False
+    return want.issubset(got) if allow_extra else want == got
+
+
+# ── identify_coords — student TYPES the coordinates of plotted point(s) ───────
+_COORD_PAIR_RE = re.compile(r'\(?\s*(-?\d+)\s*,\s*(-?\d+)\s*\)?')
+
+
+def parse_coords(text):
+    """Parse typed coordinates into a set of ``(x, y)`` integer tuples.
+
+    Tolerant of the many ways a pupil writes a point: ``"(-2, 4)"``, ``"-2,4"``,
+    ``" ( -2 , 4 ) "``, and several points ``"(1,2) (3,4)"`` or
+    ``"(1,2); (3,4)"``. Pure and defensive — returns ``set()`` for anything
+    unparseable, never raises (a bad answer is wrong, not a 500).
+    """
+    if not isinstance(text, str):
+        return set()
+    out = set()
+    for m in _COORD_PAIR_RE.finditer(text):
+        try:
+            out.add((int(m.group(1)), int(m.group(2))))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def grade_identify_coords(plane_spec, text):
+    """True if the typed coordinates equal the plane_spec's ``target.points`` set.
+
+    The plane is rendered with the point(s) already plotted (``given_points``);
+    the student reads and types them. Grading is exact SET equality of parsed
+    coordinates against ``target.points``. Returns ``False`` on a malformed spec
+    or unparseable answer — never raises.
+    """
+    if not isinstance(plane_spec, dict):
+        return False
+    target = plane_spec.get('target')
+    if not isinstance(target, dict):
+        return False
+    try:
+        want = {_point_key(p) for p in target.get('points', [])}
+    except (TypeError, ValueError, IndexError):
+        return False
+    if not want:
+        return False
+    return parse_coords(text) == want
+
+
+def validate_graph_spec(graph_spec):
+    """Validate a ``read_graph`` ``graph_spec`` (render-only); raise ``ValueError``.
+
+    Requires an ``x_axis`` and ``y_axis`` each with numeric ``min`` < ``max``,
+    and a non-empty ``series`` whose every point is numeric and within axis
+    range. Pure and framework-agnostic so it is reused by the model's
+    ``clean()`` AND both importers. The *answer* is graded by ``grade_measure``
+    (numeric_answer + tolerance) — this validates only the figure data.
+    """
+    if not isinstance(graph_spec, dict):
+        raise ValueError('graph_spec must be a JSON object.')
+
+    def _axis(name):
+        ax = graph_spec.get(name)
+        if not isinstance(ax, dict):
+            raise ValueError(f'graph_spec.{name} must be an object.')
+        lo, hi = ax.get('min'), ax.get('max')
+        if not (_is_number(lo) and _is_number(hi)):
+            raise ValueError(f'graph_spec.{name}.min and .max must be numbers.')
+        if lo >= hi:
+            raise ValueError(f'graph_spec.{name}.min must be less than .max.')
+        return lo, hi
+
+    xmin, xmax = _axis('x_axis')
+    ymin, ymax = _axis('y_axis')
+
+    series = graph_spec.get('series')
+    if not isinstance(series, list) or not series:
+        raise ValueError('graph_spec.series must be a non-empty list.')
+    for s in series:
+        if not isinstance(s, dict):
+            raise ValueError(f'Each series must be an object; got {s!r}.')
+        pts = s.get('points')
+        if not isinstance(pts, list) or not pts:
+            raise ValueError('Each series must have a non-empty points list.')
+        for p in pts:
+            if not (isinstance(p, (list, tuple)) and len(p) == 2
+                    and _is_number(p[0]) and _is_number(p[1])):
+                raise ValueError(f'Series point must be [x, y] numbers; got {p!r}.')
+            if not (xmin <= p[0] <= xmax and ymin <= p[1] <= ymax):
+                raise ValueError(f'Series point {p!r} is outside the axis range.')

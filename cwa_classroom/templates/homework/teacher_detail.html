@@ -42,6 +42,16 @@
         </button>
       </form>
       {% endif %}
+      {% if homework.created_by_id == user.id %}
+      <form method="post" action="{% url 'homework:delete' homework_id=homework.id %}"
+            onsubmit="return confirm('Delete &quot;{{ homework.title|escapejs }}&quot;? It will be hidden from students and teachers. Students\' existing submissions and grades are kept.');">
+        {% csrf_token %}
+        <button type="submit"
+                class="px-3 py-1.5 bg-red-50 text-red-700 text-xs font-semibold rounded-lg hover:bg-red-100 transition">
+          Delete
+        </button>
+      </form>
+      {% endif %}
       {% if homework.status == 'published' %}
       <span class="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">Published</span>
       {% elif homework.status == 'expired' %}
@@ -53,18 +63,22 @@
   </div>
 
   <!-- Summary cards -->
-  <div class="grid grid-cols-3 gap-4 mb-6">
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
     <div class="bg-white rounded-xl border border-gray-100 p-4 text-center">
       <p class="text-2xl font-bold text-gray-900">{{ student_rows|length }}</p>
       <p class="text-xs text-gray-500 mt-0.5">Total Students</p>
     </div>
     <div class="bg-green-50 rounded-xl border border-green-100 p-4 text-center">
-      <p class="text-2xl font-bold text-green-700">{{ submitted_count }}</p>
-      <p class="text-xs text-gray-500 mt-0.5">Submitted</p>
+      <p class="text-2xl font-bold text-green-700">{{ on_time_count }}</p>
+      <p class="text-xs text-gray-500 mt-0.5">On Time</p>
+    </div>
+    <div class="bg-amber-50 rounded-xl border border-amber-100 p-4 text-center">
+      <p class="text-2xl font-bold text-amber-600">{{ late_count }}</p>
+      <p class="text-xs text-gray-500 mt-0.5">Overdue Submission</p>
     </div>
     <div class="bg-red-50 rounded-xl border border-red-100 p-4 text-center">
-      <p class="text-2xl font-bold text-red-600">{{ overdue_count }}</p>
-      <p class="text-xs text-gray-500 mt-0.5">Overdue</p>
+      <p class="text-2xl font-bold text-red-600">{{ not_submitted_count }}</p>
+      <p class="text-xs text-gray-500 mt-0.5">Not Submitted</p>
     </div>
   </div>
 
@@ -81,9 +95,10 @@
     <select id="status-filter"
             class="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300">
       <option value="all">All statuses</option>
-      <option value="submitted">Submitted</option>
+      <option value="on_time">On Time</option>
+      <option value="late">Overdue Submission</option>
+      <option value="not_submitted">Not Submitted</option>
       <option value="pending">Pending</option>
-      <option value="overdue">Overdue</option>
     </select>
   </div>
 
@@ -104,7 +119,7 @@
         {% for row in student_rows %}
         <tr class="student-row hover:bg-gray-50/50"
             data-name="{{ row.student.get_full_name|default:row.student.username|lower }}"
-            data-status="{% if row.status == 'on_time' or row.status == 'late' %}submitted{% elif row.status == 'not_submitted' %}overdue{% else %}pending{% endif %}">
+            data-status="{{ row.status }}">
           <td class="px-4 py-3 font-medium text-gray-800">
             {{ row.student.get_full_name|default:row.student.username }}
           </td>
@@ -112,9 +127,9 @@
             {% if row.status == 'on_time' %}
               <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">On Time</span>
             {% elif row.status == 'late' %}
-              <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-medium">Overdue Submission</span>
+              <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">Overdue Submission</span>
             {% elif row.status == 'not_submitted' %}
-              <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">Overdue</span>
+              <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-medium">Not Submitted</span>
             {% else %}
               <span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-600 text-xs font-medium">Pending</span>
             {% endif %}

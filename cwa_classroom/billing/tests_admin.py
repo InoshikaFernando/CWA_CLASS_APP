@@ -846,7 +846,13 @@ class SubscriptionOverviewTests(TestCase):
             user = _create_normal_user(username=f'student{i}')
             user.country = 'New Zealand' if i == 0 else 'Australia'
             user.save(update_fields=['country'])
-            Subscription.objects.create(user=user, package=self.package, status=status)
+            # Real (Stripe-billed) payers — required to count as "paying"
+            # (an active priced sub with no Stripe sub + no payment is read as
+            # a legacy 100%-free comp by discount_state).
+            Subscription.objects.create(
+                user=user, package=self.package, status=status,
+                stripe_subscription_id=f'sub_stu{i}',
+            )
 
         # Institutes: 1 active + 1 trialing + 1 expired = total 3
         self.plan = _create_plan()  # 'Starter' @ $49
@@ -855,7 +861,11 @@ class SubscriptionOverviewTests(TestCase):
             school = _create_school(admin, name=f'School {i}', slug=f'school-{i}')
             school.country = 'New Zealand' if i == 0 else 'Australia'
             school.save(update_fields=['country'])
-            SchoolSubscription.objects.create(school=school, plan=self.plan, status=status)
+            # Real (Stripe-billed) institutes — required to count as "paying".
+            SchoolSubscription.objects.create(
+                school=school, plan=self.plan, status=status,
+                stripe_subscription_id=f'sub_school{i}',
+            )
 
     def _get(self, **params):
         return self.client.get(reverse('billing_admin_subscription_overview'), params)
@@ -928,6 +938,36 @@ class SubscriptionOverviewTests(TestCase):
         self.assertEqual(ctx['students']['paying'], 2)  # paying (priced package)
         self.assertEqual(ctx['students']['free'], 1)    # active but no package
 
+    def test_full_discount_student_is_free_not_paying(self):
+        # A student on a priced package but a 100% discount pays $0 -> Free,
+        # not Paying (e.g. the Wizard students on a 100% code).
+        comp = _create_normal_user(username='comp_student')
+        Subscription.objects.create(
+            user=comp, package=self.package, status='active',
+            stripe_subscription_id='sub_comp', discount_percent_snapshot=100,
+        )
+        s = self._get().context['students']
+        self.assertEqual(s['active'], 3)    # 2 setUp payers + this comped one
+        self.assertEqual(s['paying'], 2)    # comped student is NOT paying
+        self.assertEqual(s['free'], 1)      # it shows as Free
+        self.assertEqual(s['estimate'], Decimal('18.00'))  # 2 x $9, comp adds $0
+
+    def test_comped_institute_without_stripe_sub_is_free(self):
+        # A school on a priced plan but with no Stripe subscription (e.g. CWA,
+        # comped / manually granted) bills nothing -> Free, not Paying.
+        admin = _create_normal_user(username='comp_admin')
+        school = _create_school(admin, name='Comp School', slug='comp-school')
+        SchoolSubscription.objects.create(
+            school=school, plan=self.plan, status='active',
+            stripe_subscription_id='',  # never billed through Stripe
+        )
+        inst = self._get().context['institutes']
+        self.assertEqual(inst['active'], 2)   # School 0 + Comp School
+        self.assertEqual(inst['paying'], 1)   # only the Stripe-billed School 0
+        self.assertEqual(inst['free'], 1)     # the comped school
+        # and it adds no revenue to the estimate
+        self.assertEqual(inst['estimate'], Decimal('49.00'))  # School 0 only
+
     def test_full_discount_institute_not_paying(self):
         from billing.models import InstituteDiscountCode
         code = InstituteDiscountCode.objects.create(
@@ -989,26 +1029,10 @@ class SubscriptionOverviewTests(TestCase):
         self.assertEqual(ctx['institutes']['this_month'], Decimal('7.00'))
         self.assertEqual(ctx['combined_this_month'], Decimal('12.00'))
 
-    # -- counts: live from Stripe (mocked) --
-    @patch('billing.views_admin.get_subscription_counts')
-    def test_counts_from_stripe(self, mock_counts):
-        mock_counts.return_value = {
-            'student': {'paid': 20, 'trial': 1, 'other': 2, 'total': 23,
-                        'new_today': 3, 'lost_today': 1},
-            'institute': {'paid': 1, 'trial': 0, 'other': 0, 'total': 1,
-                          'new_today': 0, 'lost_today': 0},
-        }
-        ctx = self._get().context
-        self.assertEqual(ctx['counts_source'], 'stripe')
-        self.assertEqual(ctx['students']['stripe']['paid'], 20)
-        self.assertEqual(ctx['institutes']['stripe']['paid'], 1)
-        # New/lost-today tiles follow the Stripe source, not the local DB.
-        self.assertEqual(ctx['students']['new_today'], 3)
-        self.assertEqual(ctx['students']['lost_today'], 1)
-        self.assertEqual(ctx['institutes']['new_today'], 0)
-
-    def test_counts_source_local_without_stripe(self):
-        # No Stripe key in tests -> counts fall back to local DB
+    # -- counts: always local DB (mirrors the entry card, never Stripe) --
+    def test_counts_source_is_always_local(self):
+        # Counts mirror the admin-dashboard entry card (local Subscription /
+        # SchoolSubscription rows), so the panel never sources them from Stripe.
         self.assertEqual(self._get().context['counts_source'], 'local')
 
     # -- daily active graph (selectable window) --
@@ -1017,9 +1041,11 @@ class SubscriptionOverviewTests(TestCase):
         self.assertEqual(ctx['daily_window'], 30)
         self.assertEqual(len(ctx['daily']['labels']), 30)
         self.assertEqual(len(ctx['daily']['student']), 30)
-        # setUp subs were created today -> last point reflects them (local fallback)
+        # setUp subs created today -> last point reflects PAYING + TRIAL only.
+        # Students: all 4 have a priced package -> 4. Institutes: active +
+        # trialing count, the expired one is excluded -> 2.
         self.assertEqual(ctx['daily']['student'][-1], 4)
-        self.assertEqual(ctx['daily']['institute'][-1], 3)
+        self.assertEqual(ctx['daily']['institute'][-1], 2)
         self.assertEqual(ctx['daily']['student'][0], 0)  # none existed 30 days ago
 
     def test_daily_graph_window_param(self):
@@ -1029,6 +1055,14 @@ class SubscriptionOverviewTests(TestCase):
 
     def test_daily_graph_invalid_window_defaults_to_30(self):
         self.assertEqual(self._get(days='999').context['daily_window'], 30)
+
+    def test_daily_graph_excludes_free_students(self):
+        # A free / no-package active student is neither paying nor trial, so it
+        # must not lift the graph's student line.
+        user = _create_normal_user(username='free_grapher')
+        Subscription.objects.create(user=user, package=None, status='active')
+        ctx = self._get().context
+        self.assertEqual(ctx['daily']['student'][-1], 4)  # still 4, free excluded
 
     def test_active_series_from_intervals(self):
         from billing.reporting import _active_series_from_intervals
@@ -1105,9 +1139,9 @@ class SubscriptionOverviewTests(TestCase):
         self.assertContains(resp, 'auto-refresh')
         self.assertContains(resp, 'window.location.reload()')
 
-    # -- B2C exclusion: institute students must NOT count as student subs --
-    def test_institute_students_excluded_from_student_panel(self):
-        # Baseline: 4 B2C student subs from setUp
+    # -- all students count, incl. institute students (matches the entry card) --
+    def test_institute_students_included_in_student_panel(self):
+        # Baseline: 4 student subs from setUp
         self.assertEqual(self._get().context['students']['total'], 4)
 
         # An institute student: has a Subscription AND an active SchoolStudent row
@@ -1120,13 +1154,13 @@ class SubscriptionOverviewTests(TestCase):
             user=inst_user, package=self.package, status='active',
         )
 
-        # Still 4 — the institute student is excluded from the B2C panel
+        # Now 5 — the institute student is counted, like the entry card does
         s = self._get().context['students']
-        self.assertEqual(s['total'], 4)
-        self.assertEqual(s['active'], 2)  # unchanged, not 3
+        self.assertEqual(s['total'], 5)
+        self.assertEqual(s['active'], 3)  # was 2, now incl. the institute student
 
-    def test_former_institute_student_counts_as_b2c(self):
-        # If the school membership is inactive, they're B2C again
+    def test_former_institute_student_also_counts(self):
+        # Every student counts now, including ones who left a school
         school = School.objects.filter(name='School 0').first()
         user = _create_normal_user(username='left_school')
         SchoolStudent.objects.create(school=school, student=user, is_active=False)
@@ -1155,8 +1189,8 @@ class SubscriptionOverviewTests(TestCase):
     def test_student_donut_segments(self):
         donut = self._get().context['students']['donut']
         labels = {s['label']: s['value'] for s in donut['segments']}
-        # 2 paying (Active), 0 free, 1 trial, 1 inactive
-        self.assertEqual(labels, {'Active': 2, 'Free': 0, 'Trial': 1, 'Inactive': 1})
+        # 2 paying, 0 free, 1 trial, 1 inactive
+        self.assertEqual(labels, {'Paying': 2, 'Free': 0, 'Trial': 1, 'Inactive': 1})
         self.assertEqual(donut['total'], 4)
         self.assertEqual(donut['active_pct'], 50.0)  # 2 paying of 4
 

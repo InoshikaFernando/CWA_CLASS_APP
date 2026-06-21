@@ -1,7 +1,7 @@
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -386,10 +386,11 @@ class TeacherHomeworkDetailTest(HomeworkTestBase):
         resp = self.client.get(url)
         self.assertContains(resp, 'Overdue Submission')
 
-    def test_overdue_student_shows_overdue_status(self):
+    def test_overdue_student_shows_not_submitted_status(self):
         url = reverse('homework:teacher_detail', kwargs={'homework_id': self.past_homework.id})
         resp = self.client.get(url)
-        self.assertContains(resp, 'Overdue')
+        # Past-due homework, nobody submitted → the row badge reads "Not Submitted".
+        self.assertContains(resp, 'Not Submitted')
 
     def test_other_teacher_gets_404(self):
         self.client.login(username='teacher2', password='pass1234')
@@ -418,6 +419,26 @@ class TeacherHomeworkDetailTest(HomeworkTestBase):
         # Both enrolled students missed the past-due homework.
         self.assertEqual(resp.context['overdue_count'], 2)
         self.assertEqual(resp.context['submitted_count'], 0)
+
+    def test_summary_splits_on_time_late_and_not_submitted(self):
+        # On the past-due homework: student1 submits late, student2 never does.
+        # The summary must report this as 0 on-time / 1 late / 1 not-submitted,
+        # not lump the late submission into "submitted" and hide it.
+        sub = HomeworkSubmission.objects.create(
+            homework=self.past_homework, student=self.student,
+            attempt_number=1, score=3, total_questions=5, points=60.0,
+        )
+        HomeworkSubmission.objects.filter(pk=sub.pk).update(
+            submitted_at=self.past_homework.due_date + timedelta(hours=2)
+        )
+        url = reverse('homework:teacher_detail', kwargs={'homework_id': self.past_homework.id})
+        resp = self.client.get(url)
+        self.assertEqual(resp.context['on_time_count'], 0)
+        self.assertEqual(resp.context['late_count'], 1)
+        self.assertEqual(resp.context['not_submitted_count'], 1)
+        # Back-compat aliases still tally the old two-way split.
+        self.assertEqual(resp.context['submitted_count'], 1)
+        self.assertEqual(resp.context['overdue_count'], 1)
 
     def test_students_ordered_by_name(self):
         self.student.first_name = 'Zoe'
@@ -2201,6 +2222,270 @@ class PDFConfirmMultiClassTests(TestCase):
             self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 1)
             self.assertEqual(hw.num_questions, 1)
 
+    # A 1×1 PNG — enough for ImageField.save() to store bytes (no Pillow on save).
+    _PNG_B64 = (
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+        'YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+    )
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_image_ref_with_space_is_idempotent(self):
+        # Storage sanitises 'q 12.jpg' -> 'q_12.jpg' on save, so the dedup target
+        # must use the sanitised name; otherwise every run re-creates the row
+        # (and on prod would duplicate existing questions with spaced refs).
+        from maths.models import Question as MQ
+        from homework.views import _save_homework_pdf_questions
+        session = self._make_session()
+        data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [{'question_text': 'Name this shape', 'include': True,
+                           'question_type': 'short_answer', 'has_image': True,
+                           'image_ref': 'q 12.jpg'}],
+        }
+        session.extracted_data = data
+        session.extracted_images = {'q 12.jpg': self._PNG_B64}
+        session.save()
+
+        _save_homework_pdf_questions(data['questions'], data, self.owner, self.school, session)
+        _save_homework_pdf_questions(data['questions'], data, self.owner, self.school, session)
+
+        qs = MQ.objects.filter(question_text='Name this shape')
+        self.assertEqual(qs.count(), 1)               # not duplicated on re-run
+        self.assertIn('q_12.jpg', str(qs.first().image))  # stored sanitised
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_image_questions_with_same_text_are_not_collapsed(self):
+        # Regression: a PDF of image questions that all share a generic stem
+        # ("What is the name of this shape?") must produce one maths.Question per
+        # image, not collapse to a single row (which silently dropped every image
+        # but the first).
+        from maths.models import Question as MQ
+        session = self._make_session()
+        session.extracted_data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': 'What is the name of this shape?', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': 'shape_a.png'},
+                {'question_text': 'What is the name of this shape?', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': 'shape_b.png'},
+                {'question_text': 'What is the name of this shape?', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': 'shape_c.png'},
+            ],
+        }
+        session.extracted_images = {
+            'shape_a.png': self._PNG_B64,
+            'shape_b.png': self._PNG_B64,
+            'shape_c.png': self._PNG_B64,
+        }
+        session.save(update_fields=['extracted_data', 'extracted_images'])
+
+        resp = self._post(session, classroom_ids=[str(self.c1.id)])
+        self.assertEqual(resp.status_code, 302)
+
+        hw = Homework.objects.get(title='Multi HW', classroom=self.c1)
+        self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 3)
+        self.assertEqual(hw.num_questions, 3)
+
+        # Three distinct questions, each with its own stored image (path uses the
+        # topic slug 'addition-mc').
+        qs = MQ.objects.filter(question_text='What is the name of this shape?')
+        self.assertEqual(qs.count(), 3)
+        images = sorted(str(q.image) for q in qs)
+        self.assertEqual(images, [
+            'questions/year505/addition-mc/shape_a.png',
+            'questions/year505/addition-mc/shape_b.png',
+            'questions/year505/addition-mc/shape_c.png',
+        ])
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_image_question_save_is_idempotent(self):
+        # Re-running the save for the same session (the recovery path) must not
+        # duplicate image questions — dedup is on the image path.
+        from maths.models import Question as MQ
+        from homework.views import _save_homework_pdf_questions
+        session = self._make_session()
+        data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': 'Name this shape', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': 'x.png'},
+            ],
+        }
+        session.extracted_data = data
+        session.extracted_images = {'x.png': self._PNG_B64}
+        session.save(update_fields=['extracted_data', 'extracted_images'])
+
+        first = _save_homework_pdf_questions(data['questions'], data, self.owner, self.school, session)
+        second = _save_homework_pdf_questions(data['questions'], data, self.owner, self.school, session)
+
+        self.assertEqual(MQ.objects.filter(question_text='Name this shape').count(), 1)
+        self.assertEqual(first[0].pk, second[0].pk)
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_recover_command_restores_dropped_image_questions(self):
+        # A confirmed session whose image questions were collapsed (1 saved) is
+        # re-run by the recovery command — all three come back and attach.
+        from maths.models import Question as MQ
+        from django.core.management import call_command
+        session = self._make_session()
+        session.extracted_data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': 'Name this shape', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': f'r{i}.png'}
+                for i in range(3)
+            ],
+        }
+        session.extracted_images = {f'r{i}.png': self._PNG_B64 for i in range(3)}
+        session.is_confirmed = True
+        hw = Homework.objects.create(
+            classroom=self.c1, created_by=self.owner, title='Rec HW',
+            homework_type='pdf_upload', num_questions=0,
+            due_date=timezone.now() + timedelta(days=30),
+        )
+        session.homework = hw
+        session.save()
+
+        call_command('recover_homework_pdf_images', '--session', str(session.pk), '--attach')
+
+        self.assertEqual(MQ.objects.filter(question_text='Name this shape').count(), 3)
+        self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 3)
+        hw.refresh_from_db()
+        self.assertEqual(hw.num_questions, 3)
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_recover_dry_run_creates_nothing_and_writes_no_file(self):
+        # --dry-run must leave the DB untouched AND upload no image to storage
+        # (image writes aren't transactional, so a naive rollback would orphan
+        # files in S3/Spaces).
+        from maths.models import Question as MQ
+        from django.core.management import call_command
+        from django.core.files.storage import default_storage
+        session = self._make_session()
+        session.extracted_data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': 'Name this shape', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': 'dry.png'},
+            ],
+        }
+        session.extracted_images = {'dry.png': self._PNG_B64}
+        session.is_confirmed = True
+        session.save()
+
+        before = MQ.objects.count()
+        call_command('recover_homework_pdf_images', '--session', str(session.pk), '--dry-run')
+
+        self.assertEqual(MQ.objects.count(), before)  # rolled back
+        self.assertFalse(default_storage.exists('questions/year505/addition-mc/dry.png'))
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_recover_skips_homework_with_submissions(self):
+        # Recovery restores questions to the bank but must NOT retro-edit a
+        # homework students have already submitted to.
+        from maths.models import Question as MQ
+        from homework.models import HomeworkSubmission
+        from django.core.management import call_command
+        session = self._make_session()
+        session.extracted_data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': 'Name this shape', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': f's{i}.png'}
+                for i in range(2)
+            ],
+        }
+        session.extracted_images = {f's{i}.png': self._PNG_B64 for i in range(2)}
+        session.is_confirmed = True
+        hw = Homework.objects.create(
+            classroom=self.c1, created_by=self.owner, title='Submitted HW',
+            homework_type='pdf_upload', num_questions=0,
+            due_date=timezone.now() + timedelta(days=30),
+        )
+        HomeworkSubmission.objects.create(homework=hw, student=self.owner, total_questions=1)
+        session.homework = hw
+        session.save()
+
+        call_command('recover_homework_pdf_images', '--session', str(session.pk), '--attach')
+
+        # Questions recovered to the bank, but homework left untouched.
+        self.assertEqual(MQ.objects.filter(question_text='Name this shape').count(), 2)
+        self.assertEqual(HomeworkQuestion.objects.filter(homework=hw).count(), 0)
+        hw.refresh_from_db()
+        self.assertEqual(hw.num_questions, 0)
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_recover_attaches_to_sibling_classes(self):
+        # The same PDF assigned to two classes: both (0-submission) homeworks get
+        # the recovered questions, not just the session-linked one.
+        from maths.models import Question as MQ
+        from classroom.views import _get_question_scope
+        from django.core.management import call_command
+        school_id, _dept, _ = _get_question_scope(self.owner)
+
+        # The one question the bug left behind, shared by both class homeworks.
+        q0 = MQ.objects.create(
+            question_text='Name this shape', topic=self.topic, level=self.level,
+            school_id=school_id, question_type='short_answer',
+            image='questions/year505/addition-mc/k0.png',
+        )
+        hw_a = Homework.objects.create(
+            classroom=self.c1, created_by=self.owner, title='Shared HW',
+            homework_type='pdf_upload', num_questions=1,
+            due_date=timezone.now() + timedelta(days=30))
+        hw_b = Homework.objects.create(
+            classroom=self.c2, created_by=self.owner, title='Shared HW',
+            homework_type='pdf_upload', num_questions=1,
+            due_date=timezone.now() + timedelta(days=30))
+        for hw in (hw_a, hw_b):
+            HomeworkQuestion.objects.create(
+                homework=hw, question=q0, subject_slug='mathematics',
+                content_id=q0.pk, order=1)
+
+        session = self._make_session()
+        session.extracted_data = {
+            'year_level': 505, 'subject': 'Mathematics', 'topic': 'Addition',
+            'questions': [
+                {'question_text': 'Name this shape', 'include': True,
+                 'question_type': 'short_answer', 'has_image': True, 'image_ref': f'k{i}.png'}
+                for i in range(3)
+            ],
+        }
+        session.extracted_images = {f'k{i}.png': self._PNG_B64 for i in range(3)}
+        session.is_confirmed = True
+        session.homework = hw_a
+        session.save()
+
+        call_command('recover_homework_pdf_images', '--session', str(session.pk), '--attach')
+
+        # 2 new questions (k1, k2) created; both class homeworks now hold all 3.
+        self.assertEqual(MQ.objects.filter(question_text='Name this shape').count(), 3)
+        self.assertEqual(HomeworkQuestion.objects.filter(homework=hw_a).count(), 3)
+        self.assertEqual(HomeworkQuestion.objects.filter(homework=hw_b).count(), 3)
+        hw_b.refresh_from_db()
+        self.assertEqual(hw_b.num_questions, 3)
+
     def test_session_classroom_fallback_when_no_ids_posted(self):
         # Legacy/no-JS path: no classroom_ids submitted falls back to the
         # session's pre-selected class (still re-checked against scope).
@@ -2506,3 +2791,124 @@ class TeacherHomeworkMonitorAllFilterTest(HomeworkTestBase):
         )
         resp = self._monitor('?classroom=all')
         self.assertNotContains(resp, 'Other Teacher Homework')
+
+
+# ---------------------------------------------------------------------------
+# Soft-delete: the creator (HoI / HoD / teacher) can delete homework they added
+# ---------------------------------------------------------------------------
+
+class HomeworkDeleteTest(HomeworkTestBase):
+    """As HoI/HoD/Teacher I can delete any homework I added.
+
+    Deletion is a soft-delete: the homework disappears from every teacher and
+    student view, but student submissions and grades are preserved.
+    """
+
+    def _delete_url(self, hw):
+        return reverse('homework:delete', kwargs={'homework_id': hw.id})
+
+    def test_creator_can_soft_delete(self):
+        self.client.force_login(self.teacher)
+        resp = self.client.post(self._delete_url(self.homework))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse('homework:teacher_monitor'))
+
+        # Row still exists (soft delete) and is stamped with who/when.
+        hw = Homework.all_objects.get(pk=self.homework.pk)
+        self.assertIsNotNone(hw.deleted_at)
+        self.assertEqual(hw.deleted_by, self.teacher)
+
+        # Hidden from the default manager used by every list/detail query.
+        self.assertFalse(Homework.objects.filter(pk=self.homework.pk).exists())
+
+    def test_soft_delete_preserves_student_submissions_and_grades(self):
+        submission = HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            score=4, total_questions=5, points=8.0,
+        )
+        answer = HomeworkStudentAnswer.objects.create(
+            submission=submission, question=self.questions[0],
+            selected_answer=self.questions[0].answers.first(), is_correct=True,
+        )
+
+        self.client.force_login(self.teacher)
+        self.client.post(self._delete_url(self.homework))
+
+        # Submissions and answers survive the soft delete.
+        self.assertTrue(HomeworkSubmission.objects.filter(pk=submission.pk).exists())
+        self.assertTrue(HomeworkStudentAnswer.objects.filter(pk=answer.pk).exists())
+        # And the relation back to the (hidden) homework still resolves.
+        self.assertEqual(
+            HomeworkSubmission.objects.get(pk=submission.pk).homework_id,
+            self.homework.pk,
+        )
+
+    def test_deleted_homework_hidden_from_teacher_monitor(self):
+        self.client.force_login(self.teacher)
+        self.client.post(self._delete_url(self.homework))
+        resp = self.client.get(reverse('homework:teacher_monitor') + '?classroom=all&week=all')
+        # Assert on the detail link rather than the title — the title also shows
+        # in the "… deleted." flash message rendered on this same page.
+        detail_url = reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        self.assertNotContains(resp, f'href="{detail_url}"')
+
+    def test_deleted_homework_hidden_from_student_list(self):
+        self.client.force_login(self.teacher)
+        self.client.post(self._delete_url(self.homework))
+        self.client.logout()
+
+        self.client.force_login(self.student)
+        resp = self.client.get(reverse('homework:student_list'))
+        self.assertNotContains(resp, 'Test Homework')
+
+    def test_deleted_homework_detail_returns_404(self):
+        self.client.force_login(self.teacher)
+        self.client.post(self._delete_url(self.homework))
+        resp = self.client.get(
+            reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_non_creator_cannot_delete(self):
+        # other_teacher holds the teacher role (passes the role gate) but did not
+        # create this homework, so the delete must 404 and change nothing.
+        self.client.force_login(self.other_teacher)
+        resp = self.client.post(self._delete_url(self.homework))
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(Homework.objects.filter(pk=self.homework.pk).exists())
+
+    def test_delete_requires_login(self):
+        resp = self.client.post(self._delete_url(self.homework))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/login', resp.url.lower())
+        self.assertTrue(Homework.objects.filter(pk=self.homework.pk).exists())
+
+    def test_delete_is_post_only(self):
+        self.client.force_login(self.teacher)
+        resp = self.client.get(self._delete_url(self.homework))
+        self.assertEqual(resp.status_code, 405)
+        self.assertTrue(Homework.objects.filter(pk=self.homework.pk).exists())
+
+    def test_delete_writes_audit_log(self):
+        self.client.force_login(self.teacher)
+        self.client.post(self._delete_url(self.homework))
+        self.assertTrue(
+            AuditLog.objects.filter(action='homework_deleted').exists()
+        )
+
+    def test_delete_button_shown_to_creator(self):
+        self.client.force_login(self.teacher)
+        resp = self.client.get(
+            reverse('homework:teacher_detail', kwargs={'homework_id': self.homework.id})
+        )
+        self.assertContains(resp, self._delete_url(self.homework))
+
+    def test_double_delete_is_idempotent(self):
+        self.client.force_login(self.teacher)
+        self.client.post(self._delete_url(self.homework))
+        first = Homework.all_objects.get(pk=self.homework.pk).deleted_at
+        # A second POST 404s (already hidden from the default manager) and the
+        # original timestamp is left untouched.
+        resp = self.client.post(self._delete_url(self.homework))
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(Homework.all_objects.get(pk=self.homework.pk).deleted_at, first)

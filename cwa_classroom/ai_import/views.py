@@ -312,6 +312,11 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 q['strand'] = data.get('strand', '')
             if 'topic' not in q or not q['topic']:
                 q['topic'] = data.get('topic', '')
+            # Pre-format the structured-spec JSON for the editable textareas.
+            if q.get('plane_spec'):
+                q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)
+            if q.get('graph_spec'):
+                q['graph_spec_json'] = json.dumps(q['graph_spec'], indent=2)
 
         return render(request, 'ai_import/preview.html', {
             'session': session,
@@ -330,6 +335,10 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 ('column_operation', 'Column Arithmetic'),
                 ('long_division', 'Long Division'),
                 ('extended_answer', 'Extended Answer (written)'),
+                ('plot_points', 'Plot Points (Cartesian plane)'),
+                ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
+                ('identify_coords', 'Identify Coordinates (type the point)'),
+                ('read_graph', 'Read a Graph (read off a value)'),
             ],
         })
 
@@ -396,6 +405,34 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                             q[fld] = int(raw)
                         except ValueError:
                             pass
+
+            # Cartesian-plane spec (plot_points / plot_line / identify_coords).
+            # Edited as raw JSON in the preview; a parse failure leaves the prior
+            # spec untouched so the import-time validator surfaces the issue.
+            if q['question_type'] in ('plot_points', 'plot_line', 'identify_coords'):
+                raw = request.POST.get(f'{prefix}plane_spec', '').strip()
+                if raw:
+                    try:
+                        q['plane_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
+            # Read-a-graph fields: numeric answer (+ tolerance/unit) and optional
+            # graph_spec JSON.
+            if q['question_type'] == 'read_graph':
+                for fld in ('numeric_answer', 'answer_tolerance'):
+                    raw = request.POST.get(f'{prefix}{fld}', '').strip()
+                    if raw:
+                        q[fld] = raw
+                unit = request.POST.get(f'{prefix}answer_unit', '').strip()
+                if unit:
+                    q['answer_unit'] = unit
+                raw = request.POST.get(f'{prefix}graph_spec', '').strip()
+                if raw:
+                    try:
+                        q['graph_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
 
             # Dynamic answers — collect all answer fields
             answers = []

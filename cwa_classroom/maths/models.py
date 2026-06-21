@@ -52,6 +52,10 @@ class Question(models.Model):
     MEASURE = 'measure'
     DRAW_ON_GRID = 'draw_on_grid'
     SHAPE_SELECT = 'shape_select'
+    PLOT_POINTS = 'plot_points'
+    PLOT_LINE = 'plot_line'
+    IDENTIFY_COORDS = 'identify_coords'
+    READ_GRAPH = 'read_graph'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -66,6 +70,10 @@ class Question(models.Model):
         ('measure', 'Measure (angle/scale, tolerance-graded)'),
         ('draw_on_grid', 'Draw on Grid (symmetry / reflection / plot)'),
         ('shape_select', 'Shape Select (find & colour shapes)'),
+        ('plot_points', 'Plot Points (Cartesian plane)'),
+        ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
+        ('identify_coords', 'Identify Coordinates (type the point)'),
+        ('read_graph', 'Read a Graph (read off a value)'),
     ]
 
     # Validation mode — how student answers are graded
@@ -191,6 +199,31 @@ class Question(models.Model):
         help_text="shape_select only. Scene of shapes + the target type to find (set-comparison graded).",
     )
 
+    # Cartesian-plane question data: a SIGNED coordinate plane (four quadrants,
+    # negatives allowed) shared by plot_points / plot_line / identify_coords.
+    # Coordinates are signed integers; grading is set-comparison (plot_points/
+    # plot_line) or typed-string parsing (identify_coords). Schema validation
+    # lives in Question.clean() (validate_plane_spec). Shape:
+    #   {"bounds": {"xmin", "xmax", "ymin", "ymax"}, "mode": "points"|"segments",
+    #    "given_points": [[x,y], ...], "target": {"points"|"segments": [...]},
+    #    "allow_extra": bool}
+    plane_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="plot_points / plot_line / identify_coords only. Signed coordinate plane (set-comparison graded).",
+    )
+
+    # Read-a-graph question data: a render-only line-graph definition (axes,
+    # labels, units, series). The ANSWER reuses numeric_answer / answer_tolerance
+    # / answer_unit (the measure fields) — read_graph adds no grading code. When a
+    # graph_spec is absent (PDF-extracted), the figure falls back to the uploaded
+    # image. Schema validation lives in Question.clean() (validate_graph_spec).
+    #   {"title", "x_axis": {"label","unit","min","max","step"}, "y_axis": {...},
+    #    "series": [{"points": [[x,y], ...]}]}
+    graph_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="read_graph only. Render-only line-graph (axes/series); answer uses the measure numeric fields.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -244,6 +277,11 @@ class Question(models.Model):
             # on a negative number stays significant ("-5" must not match "5").
             value = re.sub(r'(?<=[A-Za-z])-(?=[A-Za-z])', ' ', value)
             value = re.sub(r'\band\b', ' ', value, flags=re.IGNORECASE)
+            # Commas are insignificant for short answers: a digit-grouping or
+            # list comma should not change the match ("1,000" == "1000",
+            # "red, green" == "red green"). fold_exponents then strips all
+            # whitespace, so spacing around the comma is irrelevant too.
+            value = value.replace(',', '')
             return fold_exponents(fold_inequalities(value))
 
         user = _fold(text_answer)
@@ -323,6 +361,50 @@ class Question(models.Model):
                 raise ValidationError({
                     'question_type': (
                         'Shape-select questions are graded by the coloured shapes '
+                        'and must not have answer options.'
+                    )
+                })
+
+        # Cartesian-plane questions are graded by set comparison (plot) or by
+        # parsing the typed coordinates (identify) — both need a plane_spec.
+        if self.question_type in (self.PLOT_POINTS, self.PLOT_LINE, self.IDENTIFY_COORDS):
+            if not self.plane_spec:
+                raise ValidationError({
+                    'plane_spec': 'Cartesian-plane questions require a plane_spec.'
+                })
+            from maths.geometry_grading import validate_plane_spec
+            try:
+                validate_plane_spec(self.plane_spec)
+            except ValueError as exc:
+                raise ValidationError({'plane_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Cartesian-plane questions are graded by the plotted/typed '
+                        'coordinates and must not have answer options.'
+                    )
+                })
+
+        # Read-a-graph questions are tolerance-graded numeric answers (reuse the
+        # measure fields); a graph_spec, when present, must be a valid figure.
+        if self.question_type == self.READ_GRAPH:
+            if self.numeric_answer is None:
+                raise ValidationError({
+                    'numeric_answer': (
+                        'Read-a-graph questions require a numeric answer '
+                        '(the value the student reads off the graph).'
+                    )
+                })
+            if self.graph_spec:
+                from maths.geometry_grading import validate_graph_spec
+                try:
+                    validate_graph_spec(self.graph_spec)
+                except ValueError as exc:
+                    raise ValidationError({'graph_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Read-a-graph questions are graded by numeric tolerance '
                         'and must not have answer options.'
                     )
                 })
@@ -454,6 +536,80 @@ class Question(models.Model):
             'width': width, 'height': height, 'svg': svg,
             'target_type': self.shape_spec.get('target_type', ''),
         }
+
+    @property
+    def plane_data(self):
+        """SVG-ready render data for a Cartesian-plane question, or None.
+
+        Maps the ``plane_spec`` (signed integer coords) to pixel coordinates the
+        take-item template draws: the axes/ticks SVG, the tappable lattice points
+        (each carrying its signed coord for the click-to-plot JS), any
+        pre-plotted ``given_points``, and the canvas size. Returns None when
+        there's nothing renderable, so templates guard with a single check.
+        Mirrors ``draw_on_grid_data`` / ``shape_select_data`` — render data on the
+        model, no per-view plumbing.
+        """
+        if self.question_type not in (
+            self.PLOT_POINTS, self.PLOT_LINE, self.IDENTIFY_COORDS
+        ) or not self.plane_spec:
+            return None
+        from maths.geometry_grading import _plane_bounds
+        from maths.svg_geometry import cartesian_plane_svg
+        bounds = _plane_bounds(self.plane_spec)
+        if bounds is None:
+            return None
+        xmin, xmax, ymin, ymax = bounds
+        pad, step = 28, 32
+
+        def px(x):
+            return pad + (x - xmin) * step
+
+        def py(y):
+            # y grows upward on a Cartesian plane, downward in SVG.
+            return pad + (ymax - y) * step
+
+        cols = xmax - xmin + 1
+        rows = ymax - ymin + 1
+        width = pad * 2 + (cols - 1) * step
+        height = pad * 2 + (rows - 1) * step
+        # Tappable lattice points (interactive plot types only — identify_coords
+        # is read-only and renders no hit-targets).
+        interactive = self.question_type in (self.PLOT_POINTS, self.PLOT_LINE)
+        dots = []
+        if interactive:
+            dots = [
+                {'gx': x, 'gy': y, 'px': px(x), 'py': py(y)}
+                for y in range(ymin, ymax + 1) for x in range(xmin, xmax + 1)
+            ]
+        given = []
+        for p in (self.plane_spec.get('given_points') or []):
+            if (isinstance(p, (list, tuple)) and len(p) == 2
+                    and all(isinstance(c, int) and not isinstance(c, bool) for c in p)):
+                given.append({'gx': p[0], 'gy': p[1], 'px': px(p[0]), 'py': py(p[1])})
+        return {
+            'svg': cartesian_plane_svg(self.plane_spec, pad=pad, step=step),
+            'width': width, 'height': height, 'pad': pad, 'step': step,
+            'xmin': xmin, 'xmax': xmax, 'ymin': ymin, 'ymax': ymax,
+            'mode': self.plane_spec.get('mode') or 'points',
+            'dots': dots, 'given': given, 'interactive': interactive,
+        }
+
+    @property
+    def graph_data(self):
+        """SVG-ready render data for a read_graph question, or None.
+
+        Bridges the pure ``maths.svg_geometry.line_graph_svg`` builder into the
+        take-item template. Returns None when there's no ``graph_spec`` to render
+        (the template then falls back to ``question.image``), so a PDF-extracted
+        read_graph still shows its figure. Mirrors ``measure_figure_svg``.
+        """
+        if self.question_type != self.READ_GRAPH or not self.graph_spec:
+            return None
+        from maths.svg_geometry import line_graph_svg
+        svg = line_graph_svg(self.graph_spec)
+        if not svg:
+            return None
+        return {'svg': svg}
 
     @property
     def prime_factorization_rows(self):
