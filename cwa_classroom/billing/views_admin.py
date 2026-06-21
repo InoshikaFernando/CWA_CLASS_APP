@@ -320,7 +320,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
     def _donut(self, active, free, trial, inactive):
         circumference = 2 * math.pi * self.DONUT_RADIUS
         parts = [
-            ('Active', active, '#10b981'),    # emerald (paying / real)
+            ('Paying', active, '#10b981'),    # emerald (paying / real)
             ('Free', free, '#0ea5e9'),        # sky (active but no package / 100%-off)
             ('Trial', trial, '#f59e0b'),      # amber
             ('Inactive', inactive, '#94a3b8'),  # slate

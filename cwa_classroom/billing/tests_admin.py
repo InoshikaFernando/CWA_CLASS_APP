@@ -1149,8 +1149,8 @@ class SubscriptionOverviewTests(TestCase):
     def test_student_donut_segments(self):
         donut = self._get().context['students']['donut']
         labels = {s['label']: s['value'] for s in donut['segments']}
-        # 2 paying (Active), 0 free, 1 trial, 1 inactive
-        self.assertEqual(labels, {'Active': 2, 'Free': 0, 'Trial': 1, 'Inactive': 1})
+        # 2 paying, 0 free, 1 trial, 1 inactive
+        self.assertEqual(labels, {'Paying': 2, 'Free': 0, 'Trial': 1, 'Inactive': 1})
         self.assertEqual(donut['total'], 4)
         self.assertEqual(donut['active_pct'], 50.0)  # 2 paying of 4
 

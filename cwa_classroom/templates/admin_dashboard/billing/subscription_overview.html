@@ -105,7 +105,7 @@
             <circle cx="70" cy="70" r="{{ students.donut.radius }}" fill="none" stroke="{{ seg.color }}" stroke-width="13" stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}" transform="rotate(-90 70 70)"/>
             {% endif %}{% endfor %}
             <text x="70" y="66" text-anchor="middle" style="fill:#f1f5f9;font-size:24px;font-weight:700">{{ students.donut.active_pct }}%</text>
-            <text x="70" y="89" text-anchor="middle" style="fill:#94a3b8;font-size:12px">active</text>
+            <text x="70" y="89" text-anchor="middle" style="fill:#94a3b8;font-size:12px">paying</text>
           </svg>
           <ul class="grid grid-cols-2 xl:grid-cols-1 gap-x-4 gap-y-0.5 text-[11px] flex-1 min-w-0">
             {% for seg in students.donut.segments %}
@@ -158,7 +158,7 @@
             <circle cx="70" cy="70" r="{{ institutes.donut.radius }}" fill="none" stroke="{{ seg.color }}" stroke-width="13" stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}" transform="rotate(-90 70 70)"/>
             {% endif %}{% endfor %}
             <text x="70" y="66" text-anchor="middle" style="fill:#f1f5f9;font-size:24px;font-weight:700">{{ institutes.donut.active_pct }}%</text>
-            <text x="70" y="89" text-anchor="middle" style="fill:#94a3b8;font-size:12px">active</text>
+            <text x="70" y="89" text-anchor="middle" style="fill:#94a3b8;font-size:12px">paying</text>
           </svg>
           <ul class="grid grid-cols-2 xl:grid-cols-1 gap-x-4 gap-y-0.5 text-[11px] flex-1 min-w-0">
             {% for seg in institutes.donut.segments %}
