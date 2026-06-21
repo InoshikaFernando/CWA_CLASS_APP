@@ -386,10 +386,11 @@ class TeacherHomeworkDetailTest(HomeworkTestBase):
         resp = self.client.get(url)
         self.assertContains(resp, 'Overdue Submission')
 
-    def test_overdue_student_shows_overdue_status(self):
+    def test_overdue_student_shows_not_submitted_status(self):
         url = reverse('homework:teacher_detail', kwargs={'homework_id': self.past_homework.id})
         resp = self.client.get(url)
-        self.assertContains(resp, 'Overdue')
+        # Past-due homework, nobody submitted → the row badge reads "Not Submitted".
+        self.assertContains(resp, 'Not Submitted')
 
     def test_other_teacher_gets_404(self):
         self.client.login(username='teacher2', password='pass1234')
@@ -418,6 +419,26 @@ class TeacherHomeworkDetailTest(HomeworkTestBase):
         # Both enrolled students missed the past-due homework.
         self.assertEqual(resp.context['overdue_count'], 2)
         self.assertEqual(resp.context['submitted_count'], 0)
+
+    def test_summary_splits_on_time_late_and_not_submitted(self):
+        # On the past-due homework: student1 submits late, student2 never does.
+        # The summary must report this as 0 on-time / 1 late / 1 not-submitted,
+        # not lump the late submission into "submitted" and hide it.
+        sub = HomeworkSubmission.objects.create(
+            homework=self.past_homework, student=self.student,
+            attempt_number=1, score=3, total_questions=5, points=60.0,
+        )
+        HomeworkSubmission.objects.filter(pk=sub.pk).update(
+            submitted_at=self.past_homework.due_date + timedelta(hours=2)
+        )
+        url = reverse('homework:teacher_detail', kwargs={'homework_id': self.past_homework.id})
+        resp = self.client.get(url)
+        self.assertEqual(resp.context['on_time_count'], 0)
+        self.assertEqual(resp.context['late_count'], 1)
+        self.assertEqual(resp.context['not_submitted_count'], 1)
+        # Back-compat aliases still tally the old two-way split.
+        self.assertEqual(resp.context['submitted_count'], 1)
+        self.assertEqual(resp.context['overdue_count'], 1)
 
     def test_students_ordered_by_name(self):
         self.student.first_name = 'Zoe'

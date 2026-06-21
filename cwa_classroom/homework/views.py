@@ -441,17 +441,34 @@ class HomeworkDetailView(RoleRequiredMixin, View):
         )
 
         # Summary counts (computed here — Django templates can't tally a loop).
-        # "Submitted" = anyone with a best submission (on-time or late);
-        # "Overdue"   = overdue with nothing submitted.
-        submitted_count = sum(1 for r in student_rows if r['best_submission'])
-        overdue_count = sum(
+        # The per-student status already separates on-time, late ("overdue
+        # submission") and never-submitted; surface that same three-way split in
+        # the summary cards. Lumping late submissions into a single "Submitted"
+        # tally hid them, and counting only non-submitters as "Overdue" left the
+        # late submitters — who also missed the deadline — out of both buckets.
+        on_time_count = sum(
+            1 for r in student_rows
+            if r['status'] == HomeworkSubmission.STATUS_ON_TIME
+        )
+        late_count = sum(
+            1 for r in student_rows
+            if r['status'] == HomeworkSubmission.STATUS_LATE
+        )
+        not_submitted_count = sum(
             1 for r in student_rows
             if r['status'] == HomeworkSubmission.STATUS_NOT_SUBMITTED
         )
+        # Back-compat aliases: "Submitted" = on-time + late, "Overdue" =
+        # never-submitted-and-past-due. Kept for existing callers/tests.
+        submitted_count = on_time_count + late_count
+        overdue_count = not_submitted_count
 
         return render(request, self.template_name, {
             'homework': homework,
             'student_rows': student_rows,
+            'on_time_count': on_time_count,
+            'late_count': late_count,
+            'not_submitted_count': not_submitted_count,
             'submitted_count': submitted_count,
             'overdue_count': overdue_count,
         })
