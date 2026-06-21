@@ -1470,6 +1470,11 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             q.setdefault('grading_rubric', '')
             ref = q.get('image_ref')
             q['image_b64'] = session.extracted_images.get(ref) if ref else None
+            # Pre-format the structured-spec JSON for the editable textareas.
+            if q.get('plane_spec'):
+                q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)
+            if q.get('graph_spec'):
+                q['graph_spec_json'] = json.dumps(q['graph_spec'], indent=2)
 
         return render(request, self.template_name, {
             'session': session,
@@ -1487,6 +1492,10 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                 ('extended_answer', 'Extended Answer (written)'),
                 ('long_division', 'Long Division'),
                 ('column_operation', 'Column Arithmetic'),
+                ('plot_points', 'Plot Points (Cartesian plane)'),
+                ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
+                ('identify_coords', 'Identify Coordinates (type the point)'),
+                ('read_graph', 'Read a Graph (read off a value)'),
             ],
             'validation_types': [
                 ('auto', 'Auto (system checks)'),
@@ -1566,6 +1575,33 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                 op = request.POST.get(f'{prefix}operator', '').strip()
                 if op in ('+', '-', '*'):
                     q['operator'] = op
+
+            # Cartesian-plane spec (plot_points / plot_line / identify_coords),
+            # edited as raw JSON; a parse failure leaves the prior spec untouched
+            # so the import-time validator surfaces the issue.
+            if q['question_type'] in ('plot_points', 'plot_line', 'identify_coords'):
+                raw = request.POST.get(f'{prefix}plane_spec', '').strip()
+                if raw:
+                    try:
+                        q['plane_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
+            # Read-a-graph fields: numeric answer (+ tolerance/unit) and optional graph_spec.
+            if q['question_type'] == 'read_graph':
+                for fld in ('numeric_answer', 'answer_tolerance'):
+                    raw = request.POST.get(f'{prefix}{fld}', '').strip()
+                    if raw:
+                        q[fld] = raw
+                unit = request.POST.get(f'{prefix}answer_unit', '').strip()
+                if unit:
+                    q['answer_unit'] = unit
+                raw = request.POST.get(f'{prefix}graph_spec', '').strip()
+                if raw:
+                    try:
+                        q['graph_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
 
             # Handle image replacement / removal
             if request.POST.get(f'{prefix}remove_image') == 'on':
@@ -1937,6 +1973,10 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             'extended_answer': MQ.EXTENDED_ANSWER,
             'long_division': MQ.LONG_DIVISION,
             'column_operation': MQ.COLUMN_OPERATION,
+            'plot_points': MQ.PLOT_POINTS,
+            'plot_line': MQ.PLOT_LINE,
+            'identify_coords': MQ.IDENTIFY_COORDS,
+            'read_graph': MQ.READ_GRAPH,
         }
         mapped_type = type_map.get(q_type, MQ.SHORT_ANSWER)
 
@@ -1971,6 +2011,47 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 # than import a broken one with no usable answer.
                 continue
 
+        # Cartesian-plane: validate the spec; skip a malformed one rather than
+        # import a question that can never be graded. The app draws the plane.
+        plane_spec = None
+        if mapped_type in (MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS):
+            from maths.geometry_grading import validate_plane_spec
+            plane_spec = q.get('plane_spec')
+            try:
+                validate_plane_spec(plane_spec)
+            except (ValueError, TypeError):
+                continue
+
+        # Read-a-graph: numeric answer (+ tolerance/unit) and an optional clean
+        # graph_spec; keep the graph image when no spec is given.
+        graph_spec = None
+        numeric_answer = None
+        answer_tolerance = None
+        answer_unit = ''
+        if mapped_type == MQ.READ_GRAPH:
+            from decimal import Decimal, InvalidOperation
+            try:
+                numeric_answer = Decimal(str(q.get('numeric_answer')))
+            except (InvalidOperation, TypeError, ValueError):
+                numeric_answer = None
+            if numeric_answer is None:
+                # No readable value — can't grade; skip rather than import broken.
+                continue
+            raw_tol = q.get('answer_tolerance')
+            if raw_tol not in (None, ''):
+                try:
+                    answer_tolerance = Decimal(str(raw_tol))
+                except (InvalidOperation, ValueError):
+                    answer_tolerance = None
+            answer_unit = (q.get('answer_unit') or '')[:10]
+            graph_spec = q.get('graph_spec') or None
+            if graph_spec:
+                from maths.geometry_grading import validate_graph_spec
+                try:
+                    validate_graph_spec(graph_spec)
+                except (ValueError, TypeError):
+                    graph_spec = None  # fall back to the image
+
         # Image-based questions are visually distinct even when they share a
         # generic stem (e.g. 79 "What is the name of this shape?" questions, one
         # per shape image). Keying dedup on text alone collapsed them all into a
@@ -1983,7 +2064,10 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         image_b64 = session.extracted_images.get(image_ref) if image_ref else None
         is_image_question = (
             bool(image_b64)
-            and mapped_type not in (MQ.LONG_DIVISION, MQ.COLUMN_OPERATION)
+            and mapped_type not in (
+                MQ.LONG_DIVISION, MQ.COLUMN_OPERATION,
+                MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS,
+            )
         )
         topic_slug = topic.slug if getattr(topic, 'slug', '') else str(topic.id)
         # Storage sanitises the filename on save (e.g. "q 12.jpg" -> "q_12.jpg"),
@@ -2006,6 +2090,11 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             'divisor': divisor,
             'operands': operands,
             'operator': operator,
+            'plane_spec': plane_spec,
+            'graph_spec': graph_spec,
+            'numeric_answer': numeric_answer,
+            'answer_tolerance': answer_tolerance,
+            'answer_unit': answer_unit,
         }
 
         if is_image_question:
@@ -2070,6 +2159,10 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                     answer_text=str(mq.column_result),
                     is_correct=True,
                 )
+        elif mapped_type in (MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS, MQ.READ_GRAPH):
+            # Graded by the plane_spec set / typed coords / numeric tolerance —
+            # no Answer rows (mirrors measure / draw_on_grid / shape_select).
+            pass
         elif mapped_type != MQ.EXTENDED_ANSWER:
             answers_data = q.get('answers', [])
             if answers_data and created:

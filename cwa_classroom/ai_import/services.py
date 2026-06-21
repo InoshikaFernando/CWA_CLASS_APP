@@ -258,6 +258,21 @@ QUESTION TYPE RULES (important):
   use question_type "multiple_choice" and generate 3-4 plausible wrong answers alongside the correct one.
 - For true/false questions, use "true_false" type.
 - For fill-in-the-blank, use "fill_blank" type.
+- If the question shows a BLANK Cartesian plane (numbered x/y axes, four quadrants) and asks the
+  student to PLOT given coordinates, use "plot_points". Put the visible axis range in
+  plane_spec.bounds, set mode "points", and put the coordinates to plot in plane_spec.target.points
+  (signed integers, e.g. [[3,-2],[1,4]]). Do NOT generate answers.
+- If it asks the student to PLOT points AND JOIN them into a line/shape, use "plot_line": mode
+  "segments" and plane_spec.target.segments as a list of {"x1","y1","x2","y2"} for the joined line
+  (consecutive points). Do NOT generate answers.
+- If a point (or points) is ALREADY PLOTTED on the plane and the student must WRITE the coordinates,
+  use "identify_coords": mode "points", put the plotted point(s) in BOTH plane_spec.given_points
+  (so they are drawn) and plane_spec.target.points (the answer). Do NOT generate answers.
+- If the question shows a PRE-DRAWN line graph (e.g. distance-vs-time) and asks the student to READ a
+  value off it, use "read_graph". Set numeric_answer to the value to read, answer_tolerance to a
+  sensible ± band, and answer_unit to the axis unit. Keep the graph image (set image_page/image_box
+  so the original graph is attached). Only add graph_spec if you can read the plotted series points
+  confidently; otherwise omit it. Do NOT generate answers.
 
 ANSWER BLANK FORMATTING (important):
 - When a question is an equation where the student fills in a missing value, ALWAYS represent
@@ -321,7 +336,50 @@ CLASSIFICATION_TOOL = {
                         "question_text": {"type": "string"},
                         "question_type": {
                             "type": "string",
-                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division"],
+                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division", "plot_points", "plot_line", "identify_coords", "read_graph"],
+                        },
+                        "plane_spec": {
+                            "type": "object",
+                            "description": (
+                                "For plot_points / plot_line / identify_coords only — a signed Cartesian "
+                                "plane. bounds = the visible axis range; mode 'points' for plotting/identifying "
+                                "dots, 'segments' for a line/shape to join; target = the correct answer "
+                                "(points OR segments) in SIGNED integer coords; given_points = points already "
+                                "drawn on the plane (used by identify_coords so the student reads them)."
+                            ),
+                            "properties": {
+                                "bounds": {
+                                    "type": "object",
+                                    "properties": {
+                                        "xmin": {"type": "integer"}, "xmax": {"type": "integer"},
+                                        "ymin": {"type": "integer"}, "ymax": {"type": "integer"},
+                                    },
+                                },
+                                "mode": {"type": "string", "enum": ["points", "segments"]},
+                                "given_points": {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}},
+                                "target": {"type": "object"},
+                            },
+                        },
+                        "graph_spec": {
+                            "type": "object",
+                            "description": (
+                                "For read_graph only and OPTIONAL — a clean re-draw of the line graph "
+                                "(x_axis/y_axis with label, unit, min, max, step; series with points). "
+                                "Only supply when you can read the series points confidently; otherwise omit "
+                                "it and the original graph image is kept instead."
+                            ),
+                        },
+                        "numeric_answer": {
+                            "type": "number",
+                            "description": "For read_graph only: the value the student should read off the graph.",
+                        },
+                        "answer_tolerance": {
+                            "type": "number",
+                            "description": "For read_graph only: accepted ± band around numeric_answer (e.g. 5). Omit for exact.",
+                        },
+                        "answer_unit": {
+                            "type": "string",
+                            "description": "For read_graph only: unit shown after the answer box, e.g. 'km', 'min', '°'.",
                         },
                         "operands": {
                             "type": "array",
@@ -914,8 +972,9 @@ def save_questions_from_session(session, user, overrides=None):
             image_ref = None
 
         # Self-rendering types draw their own layout from structured fields, so any
-        # attached worksheet graphic (division bracket, column grid) is just noise.
-        if q_type in ('column_operation', 'long_division'):
+        # attached worksheet graphic (division bracket, column grid, blank plane) is
+        # just noise. read_graph is the exception — it KEEPS its graph image.
+        if q_type in ('column_operation', 'long_division', 'plot_points', 'plot_line', 'identify_coords'):
             image_ref = None
 
         # Long-division fields (bus-stop layout)
@@ -961,6 +1020,49 @@ def save_questions_from_session(session, user, overrides=None):
                 failed += 1
                 continue
 
+        # Cartesian-plane fields (plot_points / plot_line / identify_coords).
+        plane_spec = None
+        if q_type in ('plot_points', 'plot_line', 'identify_coords'):
+            from maths.geometry_grading import validate_plane_spec
+            plane_spec = q.get('plane_spec')
+            try:
+                validate_plane_spec(plane_spec)
+            except (ValueError, TypeError) as exc:
+                errors.append(f'Q{idx}: Invalid plane_spec ({exc})')
+                failed += 1
+                continue
+
+        # Read-a-graph fields: numeric answer (+ tolerance/unit) and an optional
+        # clean graph_spec; the original graph image is kept when no spec is given.
+        graph_spec = None
+        numeric_answer = None
+        answer_tolerance = None
+        answer_unit = ''
+        if q_type == 'read_graph':
+            from decimal import Decimal, InvalidOperation
+            try:
+                numeric_answer = Decimal(str(q.get('numeric_answer')))
+            except (InvalidOperation, TypeError, ValueError):
+                numeric_answer = None
+            if numeric_answer is None:
+                errors.append(f'Q{idx}: read_graph needs a numeric_answer')
+                failed += 1
+                continue
+            raw_tol = q.get('answer_tolerance')
+            if raw_tol not in (None, ''):
+                try:
+                    answer_tolerance = Decimal(str(raw_tol))
+                except (InvalidOperation, ValueError):
+                    answer_tolerance = None
+            answer_unit = (q.get('answer_unit') or '')[:10]
+            graph_spec = q.get('graph_spec') or None
+            if graph_spec:
+                from maths.geometry_grading import validate_graph_spec
+                try:
+                    validate_graph_spec(graph_spec)
+                except (ValueError, TypeError):
+                    graph_spec = None  # fall back to the image; don't fail the import
+
         try:
             with transaction.atomic():
                 # Check for existing question (same text + topic + level + scope)
@@ -981,6 +1083,11 @@ def save_questions_from_session(session, user, overrides=None):
                     existing.operator = operator
                     existing.dividend = dividend
                     existing.divisor = divisor
+                    existing.plane_spec = plane_spec
+                    existing.graph_spec = graph_spec
+                    existing.numeric_answer = numeric_answer
+                    existing.answer_tolerance = answer_tolerance
+                    existing.answer_unit = answer_unit
                     existing.save()
                     existing.answers.all().delete()
                     question = existing
@@ -996,6 +1103,9 @@ def save_questions_from_session(session, user, overrides=None):
                         explanation=explanation,
                         operands=operands, operator=operator,
                         dividend=dividend, divisor=divisor,
+                        plane_spec=plane_spec, graph_spec=graph_spec,
+                        numeric_answer=numeric_answer,
+                        answer_tolerance=answer_tolerance, answer_unit=answer_unit,
                     )
                     inserted += 1
 
@@ -1032,6 +1142,10 @@ def save_questions_from_session(session, user, overrides=None):
                         is_correct=True,
                         order=1,
                     )
+                elif q_type in ('plot_points', 'plot_line', 'identify_coords', 'read_graph'):
+                    # Graded by the plane_spec set / typed coords / numeric tolerance —
+                    # no Answer rows (mirrors measure / draw_on_grid / shape_select).
+                    pass
                 else:
                     for a_idx, ans in enumerate(answers_data):
                         MathsAnswer.objects.create(
