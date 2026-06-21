@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     'billing',
     'progress',
     'audit',
+    'usage',
 
     # Subject apps
     'maths',
@@ -206,6 +207,7 @@ MIDDLEWARE = [
     'cwa_classroom.middleware.TrialExpiryMiddleware',
     'cwa_classroom.middleware.AccountBlockMiddleware',
     'cwa_classroom.middleware.ProfileCompletionMiddleware',
+    'usage.middleware.UsageTrackingMiddleware',  # last: records final page-view status
 ]
 
 AUTHENTICATION_BACKENDS = [
