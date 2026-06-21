@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+
+{% block title %}Usage Analytics{% endblock %}
+
+{% block content %}
+<div class="-mx-4 -my-6 md:-mx-8 px-3 py-3 bg-slate-900 text-slate-200 min-h-[calc(100vh-4rem)]">
+<div class="w-full mx-auto flex flex-col gap-2.5">
+
+  {% comment %} Header {% endcomment %}
+  <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+    <div class="flex items-baseline gap-3">
+      <h1 class="text-base font-display font-bold text-white leading-none">Usage Analytics</h1>
+      <p class="text-[11px] text-slate-500 flex items-center gap-1.5 leading-none">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        updated now &middot; auto-refresh {{ refresh_seconds }}s
+        <span id="refresh-countdown" class="text-slate-600"></span>
+      </p>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="inline-flex items-center gap-1.5 text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2.5 py-0.5 leading-none">
+        <span class="relative flex h-2 w-2">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+        </span>
+        <strong class="text-sm">{{ active_now.users }}</strong> users{% if active_now.guests %} <span class="text-emerald-400/70">+ {{ active_now.guests }} guests</span>{% endif %} active now
+        <span class="text-emerald-400/60">&middot; last {{ active_now.minutes }} min</span>
+      </span>
+      <span class="text-[11px] text-slate-400 bg-slate-800 border border-slate-700 rounded-full px-2.5 py-0.5 leading-none">Page views only &middot; 90-day retention</span>
+    </div>
+  </div>
+
+  {% comment %} KPI strip {% endcomment %}
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+    <div class="bg-slate-800 rounded-lg px-3 py-1 border border-slate-700 flex items-baseline gap-2">
+      <span class="text-lg font-bold text-emerald-400 leading-none">{{ kpi.users_today }}</span>
+      <span class="text-[11px] text-slate-400">Active users today</span>
+    </div>
+    <div class="bg-slate-800 rounded-lg px-3 py-1 border border-slate-700 flex items-baseline gap-2">
+      <span class="text-lg font-bold text-indigo-400 leading-none">{{ kpi.views_today }}</span>
+      <span class="text-[11px] text-slate-400">Page views today</span>
+    </div>
+    <div class="bg-slate-800 rounded-lg px-3 py-1 border border-slate-700 flex items-baseline gap-2">
+      <span class="text-lg font-bold text-white leading-none">{{ kpi.views_24h }}</span>
+      <span class="text-[11px] text-slate-400">Page views (24h)</span>
+    </div>
+    <div class="bg-slate-800 rounded-lg px-3 py-1 border border-slate-700 flex items-baseline gap-2">
+      <span class="text-lg font-bold {% if kpi.errors_today %}text-rose-400{% else %}text-slate-500{% endif %} leading-none">{{ kpi.errors_today }}</span>
+      <span class="text-[11px] text-slate-400">Errors today</span>
+    </div>
+  </div>
+
+  {% comment %} Charts grid {% endcomment %}
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
+
+    {% comment %} 1. Active usage — last 24h hourly {% endcomment %}
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-2 border border-slate-700 flex flex-col">
+      <h2 class="text-xs font-semibold text-white mb-1">Active usage &mdash; last 24 hours (hourly)</h2>
+      <div class="min-h-[220px] flex-1" style="position:relative"><canvas id="chartHourly24"></canvas></div>
+    </section>
+
+    {% comment %} 2. Active usage — last 7 days {% endcomment %}
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-2 border border-slate-700 flex flex-col">
+      <h2 class="text-xs font-semibold text-white mb-1">Active usage &mdash; last 7 days (daily)</h2>
+      <div class="min-h-[220px] flex-1" style="position:relative"><canvas id="chartDaily7"></canvas></div>
+    </section>
+
+    {% comment %} 3. Active usage — last 30 days {% endcomment %}
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-2 border border-slate-700 flex flex-col">
+      <h2 class="text-xs font-semibold text-white mb-1">Active usage &mdash; last 30 days (daily)</h2>
+      <div class="min-h-[220px] flex-1" style="position:relative"><canvas id="chartDaily30"></canvas></div>
+    </section>
+
+    {% comment %} 6. Errors — last 30 days (placed next to active usage 30d) {% endcomment %}
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-2 border border-slate-700 flex flex-col">
+      <h2 class="text-xs font-semibold text-white mb-1">Errors 4xx / 5xx &mdash; last 30 days</h2>
+      <div class="min-h-[180px] flex-1" style="position:relative"><canvas id="chartErrors30"></canvas></div>
+      {% if errors_30.top_errors %}
+      <div class="mt-2">
+        <div class="text-[10px] font-medium uppercase tracking-wide text-slate-500 mb-1">Top failing pages</div>
+        <table class="w-full text-xs">
+          <tbody class="divide-y divide-slate-700/60">
+            {% for e in errors_30.top_errors %}
+            <tr>
+              <td class="py-0.5 text-slate-300 truncate max-w-0 w-full">{{ e.path }}</td>
+              <td class="py-0.5 px-2 text-right font-mono {% if e.status >= 500 %}text-rose-400{% else %}text-amber-400{% endif %}">{{ e.status }}</td>
+              <td class="py-0.5 text-right font-semibold text-white">{{ e.count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-[11px] text-slate-500 mt-2">No 4xx/5xx responses in the last 30 days.</p>
+      {% endif %}
+    </section>
+
+    {% comment %} 4. Most-visited pages — last 7 days {% endcomment %}
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-2 border border-slate-700 flex flex-col">
+      <h2 class="text-xs font-semibold text-white mb-1">Most-visited pages &mdash; daily, last 7 days</h2>
+      <div class="min-h-[240px] flex-1" style="position:relative"><canvas id="chartTop7"></canvas></div>
+    </section>
+
+    {% comment %} 5. Most-visited pages — last 30 days {% endcomment %}
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-2 border border-slate-700 flex flex-col">
+      <h2 class="text-xs font-semibold text-white mb-1">Most-visited pages &mdash; daily, last 30 days</h2>
+      <div class="min-h-[240px] flex-1" style="position:relative"><canvas id="chartTop30"></canvas></div>
+    </section>
+
+  </div>
+</div>
+</div>
+
+{{ hourly_24|json_script:"data-hourly24" }}
+{{ daily_7|json_script:"data-daily7" }}
+{{ daily_30|json_script:"data-daily30" }}
+{{ top_pages_7|json_script:"data-top7" }}
+{{ top_pages_30|json_script:"data-top30" }}
+{{ errors_30|json_script:"data-errors30" }}
+
+<script>
+  (function () {
+    var seconds = {{ refresh_seconds }};
+    var el = document.getElementById('refresh-countdown');
+    var remaining = seconds;
+    setInterval(function () {
+      remaining -= 1;
+      if (el) { el.textContent = remaining > 0 ? '(' + remaining + 's)' : '(refreshing…)'; }
+      if (remaining <= 0) { window.location.reload(); }
+    }, 1000);
+  })();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script>
+  (function () {
+    if (typeof Chart === 'undefined') { return; }
+    function read(id) { return JSON.parse(document.getElementById(id).textContent); }
+
+    var GRID = 'rgba(148,163,184,0.15)';
+    var TICK = '#94a3b8';
+    var LEGEND = '#cbd5e1';
+
+    function baseOptions(dense, extraScales) {
+      var scales = {
+        x: { ticks: { color: TICK, maxTicksLimit: 12, autoSkip: true, maxRotation: 0 }, grid: { display: false } },
+      };
+      for (var k in extraScales) { scales[k] = extraScales[k]; }
+      return {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        elements: { point: { radius: dense ? 0 : 2 } },
+        scales: scales,
+        plugins: { legend: { position: 'top', labels: { color: LEGEND, boxWidth: 12, usePointStyle: true, font: { size: 10 } } } }
+      };
+    }
+
+    // ---- Active-usage charts: Views (left axis) + Users (right axis) ----
+    function activeUsage(canvasId, d) {
+      var ctx = document.getElementById(canvasId);
+      if (!ctx) { return; }
+      var dense = d.labels.length > 25;
+      new Chart(ctx.getContext('2d'), {
+        type: 'line',
+        data: { labels: d.labels, datasets: [
+          { label: 'Page views', data: d.views, yAxisID: 'y', borderColor: '#818cf8', backgroundColor: 'rgba(129,140,248,0.12)', borderWidth: 2, tension: 0.25, fill: true },
+          { label: 'Active users', data: d.users, yAxisID: 'y1', borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.12)', borderWidth: 2, tension: 0.25, fill: false }
+        ] },
+        options: baseOptions(dense, {
+          y:  { beginAtZero: true, position: 'left',  ticks: { color: '#a5b4fc', precision: 0 }, grid: { color: GRID }, title: { display: true, text: 'Views', color: '#a5b4fc', font: { size: 10 } } },
+          y1: { beginAtZero: true, position: 'right', ticks: { color: '#6ee7b7', precision: 0 }, grid: { drawOnChartArea: false }, title: { display: true, text: 'Users', color: '#6ee7b7', font: { size: 10 } } }
+        })
+      });
+    }
+
+    activeUsage('chartHourly24', read('data-hourly24'));
+    activeUsage('chartDaily7', read('data-daily7'));
+    activeUsage('chartDaily30', read('data-daily30'));
+
+    // ---- Most-visited pages: one line per top page ----
+    function topPages(canvasId, d) {
+      var ctx = document.getElementById(canvasId);
+      if (!ctx) { return; }
+      var dense = d.labels.length > 25;
+      var datasets = d.series.map(function (s) {
+        return { label: s.path, data: s.data, borderColor: s.color, backgroundColor: s.color, borderWidth: 2, tension: 0.25, fill: false };
+      });
+      new Chart(ctx.getContext('2d'), {
+        type: 'line',
+        data: { labels: d.labels, datasets: datasets },
+        options: baseOptions(dense, {
+          y: { beginAtZero: true, ticks: { color: TICK, precision: 0 }, grid: { color: GRID } }
+        })
+      });
+    }
+
+    topPages('chartTop7', read('data-top7'));
+    topPages('chartTop30', read('data-top30'));
+
+    // ---- Errors: 4xx + 5xx per day ----
+    (function () {
+      var ctx = document.getElementById('chartErrors30');
+      if (!ctx) { return; }
+      var d = read('data-errors30');
+      new Chart(ctx.getContext('2d'), {
+        type: 'line',
+        data: { labels: d.labels, datasets: [
+          { label: '4xx (client)', data: d.client_4xx, borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,0.12)', borderWidth: 2, tension: 0.25, fill: true },
+          { label: '5xx (server)', data: d.server_5xx, borderColor: '#f43f5e', backgroundColor: 'rgba(244,63,94,0.14)', borderWidth: 2, tension: 0.25, fill: true }
+        ] },
+        options: baseOptions(true, {
+          y: { beginAtZero: true, ticks: { color: TICK, precision: 0 }, grid: { color: GRID } }
+        })
+      });
+    })();
+  })();
+</script>
+{% endblock %}
