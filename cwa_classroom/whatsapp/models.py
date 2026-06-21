@@ -133,6 +133,12 @@ class WhatsAppMessageLog(models.Model):
         STATUS_FAILED: 4,
         STATUS_UNDELIVERABLE: 4,
     }
+    # Terminal outcomes — once reached, status is never changed by a later
+    # event (only the event's timestamp is still recorded). 'read' is the
+    # success terminal (a read message did deliver), so a late/out-of-order
+    # 'failed' must not downgrade it; 'failed'/'undeliverable' are failure
+    # terminals. 'delivered' is intentionally NOT terminal: 'read' may follow.
+    TERMINAL_STATUSES = {STATUS_READ, STATUS_FAILED, STATUS_UNDELIVERABLE}
 
     EVENT_HOMEWORK_PUBLISHED = 'homework_published'
     EVENT_HOMEWORK_RESULT = 'homework_result'
@@ -219,9 +225,12 @@ class WhatsAppMessageLog(models.Model):
             self.error_detail = detail
             changed = True
 
+        # A terminal status is never overwritten (the timestamp above is still
+        # recorded); otherwise advance when the new event ranks at least as high.
         current_rank = self.STATUS_RANK.get(self.status, 0)
         new_rank = self.STATUS_RANK.get(new_status, 0)
-        if new_rank >= current_rank and new_status != self.status:
+        if (self.status not in self.TERMINAL_STATUSES
+                and new_rank >= current_rank and new_status != self.status):
             self.status = new_status
             changed = True
 

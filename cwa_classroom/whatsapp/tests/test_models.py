@@ -68,6 +68,24 @@ class WhatsAppMessageLogTests(TestCase):
         log.apply_delivery_event(WhatsAppMessageLog.STATUS_DELIVERED, now)
         self.assertEqual(log.status, WhatsAppMessageLog.STATUS_FAILED)
 
+    def test_read_not_overwritten_by_late_failed(self):
+        # 'read' is terminal: a late/out-of-order 'failed' must not downgrade a
+        # message that was already read (it did deliver).
+        log = self._log()
+        now = timezone.now()
+        log.apply_delivery_event(WhatsAppMessageLog.STATUS_READ, now)
+        # The failed event's timestamp is still recorded, but status stays read.
+        log.apply_delivery_event(WhatsAppMessageLog.STATUS_FAILED, now)
+        self.assertEqual(log.status, WhatsAppMessageLog.STATUS_READ)
+
+    def test_failed_not_overwritten_by_late_success(self):
+        # 'failed' is terminal: a stray later 'delivered' must not flip it.
+        log = self._log()
+        now = timezone.now()
+        log.mark_failed(code='hard', detail='permanent')
+        log.apply_delivery_event(WhatsAppMessageLog.STATUS_DELIVERED, now)
+        self.assertEqual(log.status, WhatsAppMessageLog.STATUS_FAILED)
+
     def test_read_advances_over_delivered(self):
         log = self._log()
         now = timezone.now()
