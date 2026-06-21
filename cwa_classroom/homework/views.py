@@ -2062,13 +2062,20 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         # distinct figures sharing a stem are never merged.
         image_ref = q.get('image_ref')
         image_b64 = session.extracted_images.get(image_ref) if image_ref else None
-        is_image_question = (
+        # Types that self-draw from structured fields never carry an image.
+        has_image = (
             bool(image_b64)
             and mapped_type not in (
                 MQ.LONG_DIVISION, MQ.COLUMN_OPERATION,
                 MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS,
             )
         )
+        # read_graph carries a graph image but its IDENTITY is the numeric answer,
+        # not the picture: two questions reading different values off the same
+        # graph must stay distinct, so it dedups by text like its sibling
+        # auto-graded types. Other image questions dedup on the image PATH (one
+        # figure per question — keying on a shared stem would collapse them).
+        dedup_by_image = has_image and mapped_type != MQ.READ_GRAPH
         topic_slug = topic.slug if getattr(topic, 'slug', '') else str(topic.id)
         # Storage sanitises the filename on save (e.g. "q 12.jpg" -> "q_12.jpg"),
         # so the *stored* image path uses the sanitised ref. Build the dedup
@@ -2097,7 +2104,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             'answer_unit': answer_unit,
         }
 
-        if is_image_question:
+        if dedup_by_image:
             target_image = f'questions/year{yl}/{topic_slug}/{safe_ref}'
             mq = MQ.objects.filter(
                 image=target_image, level=level, school_id=school_id,
@@ -2126,7 +2133,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         # Runs when newly created OR when an existing row still lacks its image
         # (covers re-uploads after a previously broken confirm). Long division /
         # column arithmetic draw their own layout — never attach an image.
-        if is_image_question and save_images and (created or not mq.image):
+        if has_image and save_images and (created or not mq.image):
             import logging as _img_log
             _img_logger = _img_log.getLogger('homework')
             try:

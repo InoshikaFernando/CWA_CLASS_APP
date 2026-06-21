@@ -350,6 +350,10 @@ def grade_shape_select(shape_spec, payload):
 # set-comparison philosophy as draw_on_grid; the only logic difference is the
 # bounds check accepts negatives (xmin <= x <= xmax) instead of 0 <= x < cols.
 _PLANE_MODES = ('points', 'segments')
+# Max axis span a plane may declare. cartesian_plane_svg refuses to draw a larger
+# plane (it would emit thousands of grid lines / a node per lattice point), so the
+# validator rejects it too — the figure and the validator share one limit.
+_MAX_PLANE_SPAN = 40
 
 
 def _plane_bounds(plane_spec):
@@ -392,6 +396,14 @@ def validate_plane_spec(plane_spec):
             'plane_spec.bounds must have integer xmin<xmax and ymin<ymax.'
         )
     xmin, xmax, ymin, ymax = bounds
+    # Cap the span to match cartesian_plane_svg's render limit: beyond this the
+    # backdrop SVG bails out (returning '') while the lattice still renders a node
+    # per point — an axis-less plane and a huge DOM. Reject it at the source so a
+    # plane that can't be drawn can't be stored.
+    if (xmax - xmin) > _MAX_PLANE_SPAN or (ymax - ymin) > _MAX_PLANE_SPAN:
+        raise ValueError(
+            f'plane_spec bounds span must not exceed {_MAX_PLANE_SPAN} units per axis.'
+        )
 
     mode = plane_spec.get('mode')
     if mode not in _PLANE_MODES:

@@ -188,13 +188,14 @@ def cartesian_plane_svg(plane_spec, *, pad=28, step=32):
     guard with a single check. ``pad``/``step`` must match the model's
     ``plane_data`` so backdrop and overlaid dots align.
     """
-    from maths.geometry_grading import _plane_bounds
+    from maths.geometry_grading import _MAX_PLANE_SPAN, _plane_bounds
     bounds = _plane_bounds(plane_spec)
     if bounds is None:
         return ''
     xmin, xmax, ymin, ymax = bounds
     # Guard against an absurd plane that would emit thousands of grid lines.
-    if (xmax - xmin) > 40 or (ymax - ymin) > 40:
+    # validate_plane_spec enforces the same cap so a stored spec always renders.
+    if (xmax - xmin) > _MAX_PLANE_SPAN or (ymax - ymin) > _MAX_PLANE_SPAN:
         return ''
 
     def px(x):

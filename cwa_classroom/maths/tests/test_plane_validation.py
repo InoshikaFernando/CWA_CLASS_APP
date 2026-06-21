@@ -86,6 +86,15 @@ def test_plane_non_integer_coord_rejected():
         validate_plane_spec(_plane(points=[[1.5, 2]]))
 
 
+def test_plane_span_too_large_rejected():
+    # A plane the renderer can't draw (span > 40) must be rejected at the source,
+    # else it would render a node-per-point with no axes backdrop.
+    bad = _plane(points=[[0, 0]])
+    bad['bounds'] = {'xmin': -50, 'xmax': 50, 'ymin': -5, 'ymax': 5}
+    with pytest.raises(ValueError, match='span'):
+        validate_plane_spec(bad)
+
+
 def test_plane_bool_not_a_coord():
     with pytest.raises(ValueError, match='integers'):
         validate_plane_spec(_plane(points=[[True, 2]]))
