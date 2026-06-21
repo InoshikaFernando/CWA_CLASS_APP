@@ -38,6 +38,11 @@
             {% if s.user.id == suggested_keep_id %}
             <span class="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Suggested</span>
             {% endif %}
+            {% if s.subscription %}
+            <span class="text-[11px] font-semibold px-1.5 py-0.5 rounded-full
+                         {% if s.subscription_live %}bg-purple-100 text-purple-700{% else %}bg-slate-100 text-slate-600{% endif %}"
+                  title="Subscription status">{{ s.subscription }} sub</span>
+            {% endif %}
             {% if s.logged_in %}
             <span class="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">Has logged in</span>
             {% endif %}
