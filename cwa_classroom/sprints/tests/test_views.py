@@ -26,10 +26,11 @@ class BurndownViewAccessTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/accounts/login', resp.url)
 
-    def test_non_owner_forbidden(self):
+    def test_non_superuser_redirected(self):
         self.client.force_login(self.student)
         resp = self.client.get(self.url)
-        self.assertEqual(resp.status_code, 403)
+        # SuperuserRequiredMixin redirects non-superusers (not a 403).
+        self.assertEqual(resp.status_code, 302)
 
     def test_owner_sees_empty_state_without_data(self):
         self.client.force_login(self.owner)

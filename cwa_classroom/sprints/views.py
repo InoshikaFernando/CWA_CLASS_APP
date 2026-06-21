@@ -1,32 +1,36 @@
 """Burndown chart surface.
 
-Owner-only (reuses the feedback triage owner gate). Renders the active sprint's
-burndown from stored snapshots; the daily sync (management command / RQ task)
-keeps those snapshots fresh.
+Superuser-only, matching the rest of the platform super-admin area
+(admin-dashboard/billing/...). Renders the active sprint's burndown from
+stored snapshots; the daily sync (management command / RQ task) keeps those
+snapshots fresh.
 """
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.exceptions import PermissionDenied
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.views import View
-
-from feedback.owner import is_feedback_owner
 
 from .burndown import build_burndown_series
 from .models import Sprint
 
 
-class OwnerRequiredMixin(LoginRequiredMixin):
-    """Restrict a view to the platform feedback/product owner."""
+class SuperuserRequiredMixin(LoginRequiredMixin):
+    """Restrict access to superusers only. Redirects with an error if not.
+
+    Mirrors billing.views_admin.SuperuserRequiredMixin so the burndown sits in
+    the same super-admin surface as the billing admin pages.
+    """
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return self.handle_no_permission()
-        if not is_feedback_owner(request.user):
-            raise PermissionDenied("You don't have access to the sprint burndown.")
+        if not request.user.is_superuser:
+            messages.error(request, 'You do not have permission to access this page.')
+            return redirect('subjects_hub')
         return super().dispatch(request, *args, **kwargs)
 
 
-class BurndownChartView(OwnerRequiredMixin, View):
+class BurndownChartView(SuperuserRequiredMixin, View):
     """Show the burndown for the most recent active sprint (or latest sprint).
 
     Defaults to the active sprint; falls back to the most recently started
