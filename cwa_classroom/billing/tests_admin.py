@@ -846,7 +846,13 @@ class SubscriptionOverviewTests(TestCase):
             user = _create_normal_user(username=f'student{i}')
             user.country = 'New Zealand' if i == 0 else 'Australia'
             user.save(update_fields=['country'])
-            Subscription.objects.create(user=user, package=self.package, status=status)
+            # Real (Stripe-billed) payers — required to count as "paying"
+            # (an active priced sub with no Stripe sub + no payment is read as
+            # a legacy 100%-free comp by discount_state).
+            Subscription.objects.create(
+                user=user, package=self.package, status=status,
+                stripe_subscription_id=f'sub_stu{i}',
+            )
 
         # Institutes: 1 active + 1 trialing + 1 expired = total 3
         self.plan = _create_plan()  # 'Starter' @ $49
@@ -931,6 +937,20 @@ class SubscriptionOverviewTests(TestCase):
         self.assertEqual(ctx['students']['active'], 3)  # active status total
         self.assertEqual(ctx['students']['paying'], 2)  # paying (priced package)
         self.assertEqual(ctx['students']['free'], 1)    # active but no package
+
+    def test_full_discount_student_is_free_not_paying(self):
+        # A student on a priced package but a 100% discount pays $0 -> Free,
+        # not Paying (e.g. the Wizard students on a 100% code).
+        comp = _create_normal_user(username='comp_student')
+        Subscription.objects.create(
+            user=comp, package=self.package, status='active',
+            stripe_subscription_id='sub_comp', discount_percent_snapshot=100,
+        )
+        s = self._get().context['students']
+        self.assertEqual(s['active'], 3)    # 2 setUp payers + this comped one
+        self.assertEqual(s['paying'], 2)    # comped student is NOT paying
+        self.assertEqual(s['free'], 1)      # it shows as Free
+        self.assertEqual(s['estimate'], Decimal('18.00'))  # 2 x $9, comp adds $0
 
     def test_comped_institute_without_stripe_sub_is_free(self):
         # A school on a priced plan but with no Stripe subscription (e.g. CWA,
