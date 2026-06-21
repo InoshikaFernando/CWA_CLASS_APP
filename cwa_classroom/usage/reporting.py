@@ -140,7 +140,10 @@ def top_pages_daily(days, top_n=TOP_PAGES):
             totals[path] += 1
             per_path_day[path][idx] += 1
 
-    top = sorted(totals, key=totals.get, reverse=True)[:top_n]
+    # Sort by hit count desc, then path asc — the path tie-break keeps the
+    # selected set and their colours stable across 60s refreshes when several
+    # paths are tied near the cutoff (otherwise lines flicker in/out).
+    top = sorted(totals, key=lambda p: (-totals[p], p))[:top_n]
     labels = [(start_day + timedelta(days=k)).isoformat() for k in range(days)]
     series = [
         {

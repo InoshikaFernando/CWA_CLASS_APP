@@ -53,9 +53,16 @@ class MiddlewareTests(TestCase):
         self._run(req, HttpResponse('<html>ok</html>'))
         self.assertEqual(PageHit.objects.get().user, user)
 
-    def test_skips_static_and_admin(self):
-        for path in ('/static/app.css', '/admin/', '/media/x.png', '/stripe/webhook/'):
+    def test_skips_static_admin_and_admin_dashboard(self):
+        for path in ('/static/app.css', '/admin/', '/media/x.png',
+                     '/stripe/webhook/', '/admin-dashboard/usage/overview/',
+                     '/admin-dashboard/billing/overview/'):
             self._run(self.factory.get(path), HttpResponse('<html>x</html>'))
+        self.assertEqual(PageHit.objects.count(), 0)
+
+    def test_skips_redirects(self):
+        from django.http import HttpResponseRedirect
+        self._run(self.factory.get('/dashboard/'), HttpResponseRedirect('/login/'))
         self.assertEqual(PageHit.objects.count(), 0)
 
     def test_skips_htmx_xhr_and_json(self):
@@ -137,6 +144,15 @@ class ReportingTests(TestCase):
         # The 500 is not counted in the popular line.
         popular = next(s for s in result['series'] if s['path'] == '/popular/')
         self.assertEqual(popular['data'][-1], 3)
+
+    def test_top_pages_tie_break_is_stable(self):
+        # All paths tie on 1 hit; the cutoff must select deterministically by
+        # path name so lines don't flicker between refreshes.
+        now = timezone.now()
+        for p in ('/d/', '/b/', '/a/', '/c/', '/f/', '/e/', '/g/'):
+            _hit(path=p, when=now)
+        paths = [s['path'] for s in reporting.top_pages_daily(7, top_n=3)['series']]
+        self.assertEqual(paths, ['/a/', '/b/', '/c/'])
 
     def test_active_now(self):
         now = timezone.now()

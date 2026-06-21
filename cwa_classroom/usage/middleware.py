@@ -19,6 +19,7 @@ EXCLUDED_PREFIXES = (
     '/static/',
     '/media/',
     '/admin/',
+    '/admin-dashboard/',  # superuser admin/analytics pages (incl. this dashboard)
     '/stripe/',        # Stripe webhooks / redirects
     '/__',             # /__debug__/, /__reload__/ etc.
     '/favicon',
@@ -60,9 +61,13 @@ class UsageTrackingMiddleware:
 
         status = response.status_code
         content_type = response.get('Content-Type', '') or ''
-        # Track real HTML pages, plus any error response on a page route so the
-        # 4xx/5xx chart is complete (covers JSON 500s on page URLs too).
-        return content_type.startswith('text/html') or status >= 400
+        # Count only successful HTML pages as page views. 3xx redirects also
+        # carry text/html but aren't a page the user looked at, and counting
+        # them double-counts redirect loops (expired trial, login-required).
+        # Still record every >=400 (incl. JSON 500s on page URLs) so the
+        # 4xx/5xx chart is complete.
+        is_page_view = content_type.startswith('text/html') and 200 <= status < 300
+        return is_page_view or status >= 400
 
     def _record(self, request, response):
         from .models import PageHit
