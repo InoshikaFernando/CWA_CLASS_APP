@@ -53,6 +53,9 @@
             {{ s.invoices }} invoice{{ s.invoices|pluralize }} ·
             {{ s.homework }} homework
           </p>
+          {% if s.user.id == suggested_keep_id and suggested_reason %}
+          <p class="text-[11px] text-emerald-700 mt-1">Suggested to keep — {{ suggested_reason }}.</p>
+          {% endif %}
         </div>
       </label>
       {% endfor %}

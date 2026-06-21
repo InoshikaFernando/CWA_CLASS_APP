@@ -251,22 +251,38 @@ def get_daily_active_series(window_days):
 
 
 def get_daily_active_series_local(window_days):
-    """Local-DB fallback for the daily active graph (used when Stripe is
-    unavailable, e.g. local dev). Students from billing.Subscription,
-    institutes from SchoolSubscription (no cancel timestamp → treated as
-    live)."""
+    """Daily active-subscriptions graph from the local DB — PAYING + TRIAL only.
+
+    Both lines exclude "free" / no-package actives so the graph tracks the
+    meaningful subscriber trend rather than every account:
+      * paying = a priced package / plan (price > 0)
+      * trial  = status 'trialing'
+    Students come from billing.Subscription (span ends at cancelled_at);
+    institutes from SchoolSubscription, restricted to active/trialing (it has
+    no cancel timestamp, so a cancelled one would otherwise read as live
+    forever).
+    """
+    from django.db.models import Q
     if window_days not in DAILY_WINDOWS:
         window_days = 30
     from billing.models import Subscription, SchoolSubscription
     intervals = []
-    for user_id, created, cancelled in Subscription.objects.values_list(
+    student_qs = Subscription.objects.filter(
+        Q(package__isnull=False, package__price__gt=0) | Q(status='trialing'),
+    )
+    for user_id, created, cancelled in student_qs.values_list(
             'user_id', 'created_at', 'cancelled_at'):
         intervals.append((
             'student', user_id,
             timezone.localtime(created).date() if created else None,
             timezone.localtime(cancelled).date() if cancelled else None,
         ))
-    for school_id, created in SchoolSubscription.objects.values_list(
+    institute_qs = SchoolSubscription.objects.filter(
+        status__in=['active', 'trialing'],
+    ).filter(
+        Q(plan__isnull=False, plan__price__gt=0) | Q(status='trialing'),
+    )
+    for school_id, created in institute_qs.values_list(
             'school_id', 'created_at'):
         intervals.append((
             'institute', school_id,
