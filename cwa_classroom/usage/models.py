@@ -38,7 +38,9 @@ class PageHit(models.Model):
             models.Index(fields=['created_at']),
             models.Index(fields=['status_code', 'created_at']),
             models.Index(fields=['path', 'created_at']),
-            # Serves the distinct-active-users-by-window aggregation.
+            # Covering index for the active-users series' window fetch
+            # (SELECT created_at, user WHERE created_at >= ...): lets it scan
+            # index-only instead of hitting the table.
             models.Index(fields=['created_at', 'user']),
         ]
         ordering = ['-created_at']

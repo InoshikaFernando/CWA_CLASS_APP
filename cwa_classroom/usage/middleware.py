@@ -81,13 +81,20 @@ class UsageTrackingMiddleware:
         if session is not None:
             session_key = session.session_key or ''
 
+        # Never let a fingerprinting edge case drop the whole row (the page
+        # view / error still matters even without a guest key).
+        try:
+            client_key = self._client_key(request)
+        except Exception:
+            client_key = ''
+
         PageHit.objects.create(
             path=request.path[:255],
             method=request.method,
             status_code=response.status_code,
             user=user,
             session_key=session_key,
-            client_key=self._client_key(request),
+            client_key=client_key,
         )
 
     @staticmethod

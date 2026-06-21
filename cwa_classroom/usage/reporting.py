@@ -30,10 +30,16 @@ ACTIVE_NOW_MINUTES = 5  # "active right now" window
 PAGE_COLORS = ['#34d399', '#818cf8', '#f472b6', '#fbbf24', '#22d3ee', '#a78bfa']
 
 
-def _window_start_dt(days):
-    """Aware datetime at 00:00 local, (days-1) days before today."""
+def _window_bounds(days):
+    """(start_day, start_dt) for the trailing `days` ending today.
+
+    Both are derived from a SINGLE localdate() read so the DB filter window and
+    the Python bucket origin can't disagree if the clock crosses midnight
+    between two reads. start_dt is 00:00 local on start_day.
+    """
     start_day = timezone.localdate() - timedelta(days=days - 1)
-    return timezone.make_aware(datetime.combine(start_day, time.min))
+    start_dt = timezone.make_aware(datetime.combine(start_day, time.min))
+    return start_day, start_dt
 
 
 # ---------------------------------------------------------------------------
@@ -138,8 +144,8 @@ def active_usage(days=30):
     if cached is not None:
         return cached
 
-    start_day = timezone.localdate() - timedelta(days=days - 1)
-    rows = list(PageHit.objects.filter(created_at__gte=_window_start_dt(days))
+    start_day, start_dt = _window_bounds(days)
+    rows = list(PageHit.objects.filter(created_at__gte=start_dt)
                 .values_list('created_at', 'user_id'))
 
     daily_full = _daily_from_rows(rows, days, start_day)
@@ -155,18 +161,23 @@ def top_pages(days=30, top_n=TOP_PAGES):
     """Most-visited pages over 7 and `days`-day windows, from one scan. The
     7-day top-N is recomputed from the subset (a page hot this week may not be
     hot over 30 days), so it is not just a slice of the 30-day lines."""
-    cache_key = f'usage:toppages:{days}:{top_n}'
+    # NOTE: distinct from the old single-window key ('usage:toppages:...') and
+    # from top_pages_daily ('usage:toppages1:...') — this returns a different
+    # shape ({d7,d30}), so it must never read a value written under those keys.
+    cache_key = f'usage:toppages_combined:{days}:{top_n}'
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
 
-    start_day = timezone.localdate() - timedelta(days=days - 1)
+    start_day, start_dt = _window_bounds(days)
     rows = list(PageHit.objects.filter(
-        created_at__gte=_window_start_dt(days), status_code__lt=400,
+        created_at__gte=start_dt, status_code__lt=400,
     ).values_list('created_at', 'path'))
 
     d_full = _top_from_rows(rows, days, start_day, top_n)
-    start_day7 = timezone.localdate() - timedelta(days=6)
+    # Derive the 7-day origin from the same start_day snapshot (no 2nd
+    # localdate read): start_day + (days-7) == today - 6.
+    start_day7 = start_day + timedelta(days=days - 7)
     rows7 = [(c, p) for (c, p) in rows
              if timezone.localtime(c).date() >= start_day7]
     d7 = _top_from_rows(rows7, 7, start_day7, top_n)
@@ -200,9 +211,9 @@ def active_usage_daily(days):
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
-    start_day = timezone.localdate() - timedelta(days=days - 1)
+    start_day, start_dt = _window_bounds(days)
     rows = PageHit.objects.filter(
-        created_at__gte=_window_start_dt(days),
+        created_at__gte=start_dt,
     ).values_list('created_at', 'user_id')
     result = _daily_from_rows(rows, days, start_day)
     cache.set(cache_key, result, CACHE_TTL)
@@ -215,9 +226,9 @@ def top_pages_daily(days, top_n=TOP_PAGES):
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
-    start_day = timezone.localdate() - timedelta(days=days - 1)
+    start_day, start_dt = _window_bounds(days)
     rows = PageHit.objects.filter(
-        created_at__gte=_window_start_dt(days), status_code__lt=400,
+        created_at__gte=start_dt, status_code__lt=400,
     ).values_list('created_at', 'path')
     result = _top_from_rows(rows, days, start_day, top_n)
     cache.set(cache_key, result, CACHE_TTL)
@@ -231,12 +242,12 @@ def error_series_daily(days=30):
     if cached is not None:
         return cached
 
-    start_day = timezone.localdate() - timedelta(days=days - 1)
+    start_day, start_dt = _window_bounds(days)
     client_4xx = [0] * days
     server_5xx = [0] * days
     err_totals = defaultdict(int)
     rows = PageHit.objects.filter(
-        created_at__gte=_window_start_dt(days), status_code__gte=400,
+        created_at__gte=start_dt, status_code__gte=400,
     ).values_list('created_at', 'path', 'status_code')
     for created_at, path, status in rows:
         idx = (timezone.localtime(created_at).date() - start_day).days
