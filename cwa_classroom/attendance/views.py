@@ -34,7 +34,7 @@ class ClassAttendanceView(RoleRequiredMixin, View):
         students = [cs.student for cs in enrolled_students]
         session_ids = [s.pk for s in sessions]
         att_qs = StudentAttendance.objects.filter(session_id__in=session_ids).values('session_id', 'student_id', 'status')
-        att_map = {($a['session_id'], a['student_id']): a['status'] for a in att_qs}
+        att_map = {(a['session_id'], a['student_id']): a['status'] for a in att_qs}
         grid = []
         for student in students:
             row = {'student': student, 'cells': []}

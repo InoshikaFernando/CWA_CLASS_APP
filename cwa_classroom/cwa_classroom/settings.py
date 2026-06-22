@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     'billing',
     'progress',
     'audit',
+    'usage',
 
     # Subject apps
     'maths',
@@ -214,6 +215,7 @@ MIDDLEWARE = [
     'cwa_classroom.middleware.TrialExpiryMiddleware',
     'cwa_classroom.middleware.AccountBlockMiddleware',
     'cwa_classroom.middleware.ProfileCompletionMiddleware',
+    'usage.middleware.UsageTrackingMiddleware',  # last: records final page-view status
 ]
 
 AUTHENTICATION_BACKENDS = [
@@ -538,6 +540,15 @@ if REDIS_URL:
     SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 else:
     SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+    # No Redis: fall back to an explicit per-process in-memory cache. NOTE:
+    # LocMemCache is NOT shared across gunicorn workers, so short-TTL caches
+    # (e.g. the Usage dashboard's 60s reporting cache) only de-duplicate work
+    # within a single worker. Set REDIS_URL for cross-process cache sharing.
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        },
+    }
 
 # ---------------------------------------------------------------------------
 # Sessions — harden cookie & limit session size

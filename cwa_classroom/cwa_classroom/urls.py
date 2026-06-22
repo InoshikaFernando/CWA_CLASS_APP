@@ -98,6 +98,9 @@ urlpatterns = [
     # --- Audit ---
     path('', include('audit.urls')),
 
+    # --- Usage analytics ---
+    path('', include('usage.urls')),
+
     # --- Subject apps ---
     path('brainbuzz/', include('brainbuzz.urls', namespace='brainbuzz')),
     path('maths/', include('maths.urls', namespace='maths')),
