@@ -107,9 +107,9 @@ class CreateJiraBugUnconfiguredTests(TestCase):
     FEEDBACK_DISCORD_WEBHOOK='',
 )
 class CreateJiraBugConfiguredTests(TestCase):
-    @mock.patch('feedback.services.requests.post')
-    def test_builds_adf_and_returns_key(self, mock_post):
-        mock_post.return_value = mock.Mock(
+    @mock.patch('cwa_classroom.jira_client.requests.request')
+    def test_builds_adf_and_returns_key(self, mock_request):
+        mock_request.return_value = mock.Mock(
             status_code=201, json=mock.Mock(return_value={'key': 'CPP-999'}),
         )
         key = services.create_jira_bug(
@@ -117,7 +117,7 @@ class CreateJiraBugConfiguredTests(TestCase):
         )
         self.assertEqual(key, 'CPP-999')
 
-        _, kwargs = mock_post.call_args
+        _, kwargs = mock_request.call_args
         fields = kwargs['json']['fields']
         self.assertEqual(fields['project']['key'], 'CPP')
         self.assertEqual(fields['issuetype']['name'], 'Bug')
@@ -131,10 +131,10 @@ class CreateJiraBugConfiguredTests(TestCase):
         # HTTP basic auth uses email:token.
         self.assertEqual(kwargs['auth'], ('svc@example.com', 'token123'))
 
-    @mock.patch('feedback.services.requests.post')
-    def test_non_2xx_returns_none_and_logs_error(self, mock_post):
-        mock_post.return_value = mock.Mock(status_code=400, text='bad request')
-        with self.assertLogs('feedback.services', level='ERROR') as cm:
+    @mock.patch('cwa_classroom.jira_client.requests.request')
+    def test_non_2xx_returns_none_and_logs_error(self, mock_request):
+        mock_request.return_value = mock.Mock(status_code=400, text='bad request')
+        with self.assertLogs('cwa_classroom.jira_client', level='ERROR') as cm:
             key = services.create_jira_bug(summary='x', description='y')
         self.assertIsNone(key)
         self.assertTrue(any('400' in m for m in cm.output))
@@ -172,20 +172,22 @@ class ReportFeedbackBugTests(TestCase):
         return Feedback.objects.create(**defaults)
 
     @mock.patch('feedback.services.requests.post')
-    def test_files_jira_and_saves_key_then_posts_discord(self, mock_post):
-        # First call: Jira issue creation. Second: Discord webhook.
-        jira_resp = mock.Mock(
+    @mock.patch('cwa_classroom.jira_client.requests.request')
+    def test_files_jira_and_saves_key_then_posts_discord(self, mock_request, mock_post):
+        # Jira issue creation goes through the shared client; Discord stays on
+        # feedback.services' own requests.post.
+        mock_request.return_value = mock.Mock(
             status_code=201, json=mock.Mock(return_value={'key': 'CPP-123'}),
         )
-        discord_resp = mock.Mock(status_code=204, text='')
-        mock_post.side_effect = [jira_resp, discord_resp]
+        mock_post.return_value = mock.Mock(status_code=204, text='')
 
         feedback = self._make_feedback()
         services.report_feedback_bug(feedback)
 
         feedback.refresh_from_db()
         self.assertEqual(feedback.jira_key, 'CPP-123')
-        self.assertEqual(mock_post.call_count, 2)
+        self.assertEqual(mock_request.call_count, 1)  # one Jira call
+        self.assertEqual(mock_post.call_count, 1)      # one Discord call
         # Discord content references the Jira browse URL and reporter.
         _, discord_kwargs = mock_post.call_args
         content = discord_kwargs['json']['content']
@@ -193,10 +195,12 @@ class ReportFeedbackBugTests(TestCase):
         self.assertIn('reporter@example.com', content)
 
     @mock.patch('feedback.services.requests.post')
-    def test_idempotent_when_jira_key_already_set(self, mock_post):
+    @mock.patch('cwa_classroom.jira_client.requests.request')
+    def test_idempotent_when_jira_key_already_set(self, mock_request, mock_post):
         feedback = self._make_feedback(jira_key='CPP-555')
         services.report_feedback_bug(feedback)
         # Already filed → no Jira/Discord calls at all.
+        mock_request.assert_not_called()
         mock_post.assert_not_called()
         feedback.refresh_from_db()
         self.assertEqual(feedback.jira_key, 'CPP-555')
