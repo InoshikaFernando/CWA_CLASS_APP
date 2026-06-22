@@ -157,7 +157,26 @@ Line Amount = Daily Rate × Days Attended (in billing period)
 
 ### 4.4 Mid-Period Enrollment
 
-In **both modes**, only sessions on or after the student's `ClassStudent.joined_at` date are counted. A student who enrolled on the 15th of a month is only charged for sessions from the 15th onward.
+In **both modes**, only sessions on or after the student's `ClassStudent.billing_start_date` are counted. A student who started on the 15th of a month is only charged for sessions from the 15th onward.
+
+#### 4.4.1 Editable Billing Start Date (CPP-342)
+
+`ClassStudent.billing_start_date` records the first date a student is billable for
+a given class, so invoicing skips sessions before it.
+
+- **Set at enrollment:** the Add Students flow has an optional "first billable
+  session date" for genuine late starters (left empty for backdated entry).
+- **Editable afterwards:** the HoI / Accountant can change or clear it inline on the
+  class detail page (per student), next to the fee override
+  (`update_student_billing_start`, POST `billing_start_date`). HoD / teacher cannot.
+  The write is school-scoped (`_get_billing_classroom_or_404`): a privileged user of
+  one school cannot edit another school's class (404). The same guard also protects
+  the sibling fee-override endpoint.
+- **NULL semantics:** empty = bill the **full** requested period (e.g. backdated data
+  entry for a student who was already attending). A set date = sessions before it are
+  not billed.
+- An invalid date is rejected and the existing value is left unchanged. Every change
+  is recorded via `log_event` (`student_billing_start_updated`, with old/new values).
 
 ---
 
@@ -893,12 +912,34 @@ Step 2: Preview & Confirm (saved as draft)
 
 ### 12.5 Invoice List Page
 
-- Table: Invoice #, Student, Period, Amount, Paid, Credit Applied, Due, Status
-- Filters: status, date range, department, student search
+- Table: Invoice #, Student, Period, Amount, Status, **Email**, Created, Actions
+- Filters: status, department, class, student search, **email send status**
 - Pagination: 25 per page
 - Click row → Invoice detail view
 - **Invoice Detail View:** line items, payment history, credit applications, "Record Payment" button, "Cancel Invoice" button (with reason dialog)
 - **Empty state:** "No invoices generated yet."
+
+#### 12.5.1 Email Send Status (CPP-343)
+
+The invoice list surfaces, per invoice, the outcome of the most recent attempt to
+email the invoice to its recipients (student / parents / guardians). This is
+**distinct** from the issued/draft/cancelled invoice status — it answers "did the
+email actually go out?".
+
+- **Source of truth:** `EmailLog` rows linked to the invoice (`EmailLog.invoice` FK),
+  written by `_send_invoice_email` and the `resend_invoice` action. Each send produces
+  one log per recipient with `status` ∈ {`sent`, `failed`} and an `error_message`.
+- **Derived per-invoice state** (aggregate over the latest activity):
+  - `failed` — the most recent failed log is newer than the most recent successful log
+    (or there are only failed logs). Needs attention; the failure reason is shown on hover.
+  - `sent` — at least one successful log and no later failure.
+  - `none` — no email logs yet. Rendered as "Not sent" for issued/paid invoices and
+    "—" for drafts/cancelled (no email expected).
+  - A successful **Resend** flips a `failed` invoice back to `sent` (newer success logs).
+- **Filter:** an "Email" dropdown (`?email=sent|failed|none`) lets the HoI isolate
+  invoices whose delivery failed so they can resend or escalate.
+- **Resend / escalate:** the existing per-row Resend button (and the failure reason
+  visible on the badge / invoice detail) cover resending and informing support.
 
 ### 12.6 Import Payments Page
 

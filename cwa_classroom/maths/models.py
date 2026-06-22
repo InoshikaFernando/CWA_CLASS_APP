@@ -48,6 +48,14 @@ class Question(models.Model):
     EXTENDED_ANSWER = 'extended_answer'
     LONG_DIVISION = 'long_division'
     PRIME_FACTORIZATION = 'prime_factorization'
+    COLUMN_OPERATION = 'column_operation'
+    MEASURE = 'measure'
+    DRAW_ON_GRID = 'draw_on_grid'
+    SHAPE_SELECT = 'shape_select'
+    PLOT_POINTS = 'plot_points'
+    PLOT_LINE = 'plot_line'
+    IDENTIFY_COORDS = 'identify_coords'
+    READ_GRAPH = 'read_graph'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -58,6 +66,14 @@ class Question(models.Model):
         ('extended_answer', 'Extended Answer (written proof/explanation)'),
         ('long_division', 'Long Division'),
         ('prime_factorization', 'Prime Factorization'),
+        ('column_operation', 'Column Arithmetic'),
+        ('measure', 'Measure (angle/scale, tolerance-graded)'),
+        ('draw_on_grid', 'Draw on Grid (symmetry / reflection / plot)'),
+        ('shape_select', 'Shape Select (find & colour shapes)'),
+        ('plot_points', 'Plot Points (Cartesian plane)'),
+        ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
+        ('identify_coords', 'Identify Coordinates (type the point)'),
+        ('read_graph', 'Read a Graph (read off a value)'),
     ]
 
     # Validation mode — how student answers are graded
@@ -116,10 +132,97 @@ class Question(models.Model):
         ),
     )
 
+    # How a typed (short_answer / calculation) answer is matched.
+    ANSWER_FORMAT_TEXT = 'text'
+    ANSWER_FORMAT_ALGEBRA = 'algebra'
+    ANSWER_FORMAT_CHOICES = [
+        ('text', 'Text — exact match (case/space-insensitive)'),
+        ('algebra', 'Algebra — simplified polynomial (e.g. expand & simplify)'),
+    ]
+    answer_format = models.CharField(
+        max_length=10, choices=ANSWER_FORMAT_CHOICES, default='text',
+        help_text=(
+            'For short_answer / calculation questions. "Algebra" grades the answer as a '
+            'fully simplified, expanded polynomial — e.g. (2x+3)(x-5) must be entered as '
+            '"2x^2 - 7x - 15". Term order and spacing are ignored, but un-combined like '
+            'terms and un-expanded brackets are marked wrong even when algebraically equal.'
+        ),
+    )
+
     # Long-division and prime-factorisation question data
     dividend = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number being divided")
     divisor = models.PositiveIntegerField(null=True, blank=True, help_text="Long-division: number dividing")
     target_number = models.PositiveIntegerField(null=True, blank=True, help_text="Prime-factorization: number to factorise")
+
+    # Column-arithmetic question data (vertical/stacked addition, subtraction, multiplication)
+    operands = models.JSONField(null=True, blank=True, help_text="Column arithmetic: list of numbers top-to-bottom, e.g. [90, 82]")
+    operator = models.CharField(max_length=1, blank=True, default='', help_text="Column arithmetic operator: '+', '-' or '*'")
+
+    # Measure question data (read an angle/scale and type the value; graded within a tolerance band).
+    # Generic on purpose — serves "measure the angle", "read the scale", "estimate the length", etc.
+    numeric_answer = models.DecimalField(
+        max_digits=10, decimal_places=3, null=True, blank=True,
+        help_text="Measure: the true value to be measured (e.g. 135 for a 135° angle).",
+    )
+    answer_tolerance = models.DecimalField(
+        max_digits=10, decimal_places=3, null=True, blank=True,
+        help_text="Measure: accepted ± band. 135 ± 2 marks 133–137 correct. NULL or 0 = exact match.",
+    )
+    answer_unit = models.CharField(
+        max_length=10, blank=True, default='',
+        help_text="Measure: unit shown in the answer box, e.g. '°', 'cm', 'g'.",
+    )
+
+    # Draw-on-grid question data: a single JSON document describing the dot grid,
+    # the shape, the interaction mode, and the correct target set. Coordinates are
+    # integer grid indices (not pixels) so the figure is scale-independent. See
+    # docs/specs/CPP-330_interactive_geometry_questions.md §3.4 for the schema:
+    #   {"grid": {"cols", "rows"}, "shape": {...},
+    #    "mode": "segments"|"points"|"shape_complete",
+    #    "target": {"segments"|"points"|"expected_extra_segments": [...]},
+    #    "allow_extra": bool}
+    # Schema validation lives in Question.clean() (CPP-338).
+    grid_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="draw_on_grid only. Dot grid + shape + correct target set (grid-index coords).",
+    )
+
+    # Shape-select question data: a self-contained scene of 2D shapes plus the
+    # target type the student must find and colour ("colour all the triangles").
+    # The correct-answer set is DERIVED (shapes whose type == target_type), so it
+    # can never drift from the figure. Schema validation lives in
+    # Question.clean(); scenes are produced by maths.shape_select_gen. Shape:
+    #   {"target_type": "triangle", "viewbox": [w, h],
+    #    "shapes": [{"id", "type", "cx", "cy", "size", "rot"}, ...]}
+    shape_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="shape_select only. Scene of shapes + the target type to find (set-comparison graded).",
+    )
+
+    # Cartesian-plane question data: a SIGNED coordinate plane (four quadrants,
+    # negatives allowed) shared by plot_points / plot_line / identify_coords.
+    # Coordinates are signed integers; grading is set-comparison (plot_points/
+    # plot_line) or typed-string parsing (identify_coords). Schema validation
+    # lives in Question.clean() (validate_plane_spec). Shape:
+    #   {"bounds": {"xmin", "xmax", "ymin", "ymax"}, "mode": "points"|"segments",
+    #    "given_points": [[x,y], ...], "target": {"points"|"segments": [...]},
+    #    "allow_extra": bool}
+    plane_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="plot_points / plot_line / identify_coords only. Signed coordinate plane (set-comparison graded).",
+    )
+
+    # Read-a-graph question data: a render-only line-graph definition (axes,
+    # labels, units, series). The ANSWER reuses numeric_answer / answer_tolerance
+    # / answer_unit (the measure fields) — read_graph adds no grading code. When a
+    # graph_spec is absent (PDF-extracted), the figure falls back to the uploaded
+    # image. Schema validation lives in Question.clean() (validate_graph_spec).
+    #   {"title", "x_axis": {"label","unit","min","max","step"}, "y_axis": {...},
+    #    "series": [{"points": [[x,y], ...]}]}
+    graph_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="read_graph only. Render-only line-graph (axes/series); answer uses the measure numeric fields.",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -131,6 +234,58 @@ class Question(models.Model):
     def needs_grading(self):
         """True if this question requires AI or human grading (not instant auto-check)."""
         return self.validation_type in (self.VALIDATION_AI, self.VALIDATION_HUMAN)
+
+    def grade_text_answer(self, text_answer):
+        """Grade a typed short_answer / calculation answer against the stored
+        correct answers (the Answer rows with is_correct=True).
+
+        Routing is driven by ``answer_format``:
+          - 'text'    → case/space-insensitive exact match (legacy behaviour).
+          - 'algebra' → simplified-polynomial match (see maths.algebra_grading);
+                        any of the correct answers may be the canonical form, and
+                        each may itself list ``|`` separated acceptable forms.
+
+        Centralised here so every delivery surface (worksheets, the maths plugin)
+        grades identically. Returns a bool.
+        """
+        if not text_answer:
+            return False
+        correct = [
+            a.answer_text for a in self.answers.filter(is_correct=True)
+            if a.answer_text
+        ]
+        if not correct:
+            return False
+
+        if self.answer_format == self.ANSWER_FORMAT_ALGEBRA:
+            from maths.algebra_grading import is_algebraic_answer_correct
+            return any(is_algebraic_answer_correct(text_answer, c) for c in correct)
+
+        # Exact match, but exponent- and inequality-insensitive so the x² button
+        # is usable on ordinary maths answers (cm^2 == cm² == cm2) and a typed
+        # inequality matches however the student spells the operator
+        # (x ≥ 2 == x>=2 == x=>2). See fold_exponents / fold_inequalities.
+        from maths.algebra_grading import fold_exponents, fold_inequalities
+
+        def _fold(value):
+            # Make word-form answers tolerant of hyphenation and the filler
+            # word "and" so a single stored answer matches every natural
+            # phrasing, e.g. "nine dollars fifty-three cents" ==
+            # "nine dollars and fifty three cents". Run before fold_exponents
+            # collapses whitespace so "and" is still a separable word.
+            # Only hyphens *between letters* fold to a space — a leading "-"
+            # on a negative number stays significant ("-5" must not match "5").
+            value = re.sub(r'(?<=[A-Za-z])-(?=[A-Za-z])', ' ', value)
+            value = re.sub(r'\band\b', ' ', value, flags=re.IGNORECASE)
+            # Commas are insignificant for short answers: a digit-grouping or
+            # list comma should not change the match ("1,000" == "1000",
+            # "red, green" == "red green"). fold_exponents then strips all
+            # whitespace, so spacing around the comma is irrelevant too.
+            value = value.replace(',', '')
+            return fold_exponents(fold_inequalities(value))
+
+        user = _fold(text_answer)
+        return any(user == _fold(c) for c in correct)
 
     class Meta:
         ordering = ['level', 'difficulty', 'created_at']
@@ -154,6 +309,106 @@ class Question(models.Model):
                     )
                 })
 
+        # Measure questions are graded by numeric tolerance, not answer options.
+        if self.question_type == self.MEASURE:
+            if self.numeric_answer is None:
+                raise ValidationError({
+                    'numeric_answer': (
+                        'Measure questions require a numeric answer '
+                        '(the true value the student must measure).'
+                    )
+                })
+            # Guard on pk: answers can only exist for a saved question.
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Measure questions are graded by numeric tolerance '
+                        'and must not have answer options.'
+                    )
+                })
+
+        # Draw-on-grid questions are graded by set comparison of grid marks.
+        if self.question_type == self.DRAW_ON_GRID:
+            if not self.grid_spec:
+                raise ValidationError({
+                    'grid_spec': 'Draw-on-grid questions require a grid_spec.'
+                })
+            from maths.geometry_grading import validate_grid_spec
+            try:
+                validate_grid_spec(self.grid_spec)
+            except ValueError as exc:
+                raise ValidationError({'grid_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Draw-on-grid questions are graded by the drawn marks '
+                        'and must not have answer options.'
+                    )
+                })
+
+        # Shape-select questions are graded by set comparison of coloured shapes.
+        if self.question_type == self.SHAPE_SELECT:
+            if not self.shape_spec:
+                raise ValidationError({
+                    'shape_spec': 'Shape-select questions require a shape_spec.'
+                })
+            from maths.geometry_grading import validate_shape_spec
+            try:
+                validate_shape_spec(self.shape_spec)
+            except ValueError as exc:
+                raise ValidationError({'shape_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Shape-select questions are graded by the coloured shapes '
+                        'and must not have answer options.'
+                    )
+                })
+
+        # Cartesian-plane questions are graded by set comparison (plot) or by
+        # parsing the typed coordinates (identify) — both need a plane_spec.
+        if self.question_type in (self.PLOT_POINTS, self.PLOT_LINE, self.IDENTIFY_COORDS):
+            if not self.plane_spec:
+                raise ValidationError({
+                    'plane_spec': 'Cartesian-plane questions require a plane_spec.'
+                })
+            from maths.geometry_grading import validate_plane_spec
+            try:
+                validate_plane_spec(self.plane_spec)
+            except ValueError as exc:
+                raise ValidationError({'plane_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Cartesian-plane questions are graded by the plotted/typed '
+                        'coordinates and must not have answer options.'
+                    )
+                })
+
+        # Read-a-graph questions are tolerance-graded numeric answers (reuse the
+        # measure fields); a graph_spec, when present, must be a valid figure.
+        if self.question_type == self.READ_GRAPH:
+            if self.numeric_answer is None:
+                raise ValidationError({
+                    'numeric_answer': (
+                        'Read-a-graph questions require a numeric answer '
+                        '(the value the student reads off the graph).'
+                    )
+                })
+            if self.graph_spec:
+                from maths.geometry_grading import validate_graph_spec
+                try:
+                    validate_graph_spec(self.graph_spec)
+                except ValueError as exc:
+                    raise ValidationError({'graph_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Read-a-graph questions are graded by numeric tolerance '
+                        'and must not have answer options.'
+                    )
+                })
+
     @property
     def long_division_step_count(self):
         """Number of subtraction blocks needed to long-divide dividend by divisor."""
@@ -167,6 +422,194 @@ class Question(models.Model):
                 acc -= (acc // self.divisor) * self.divisor
                 count += 1
         return count
+
+    @property
+    def long_division_answer(self):
+        """Canonical answer for a long-division question: "Q" when it divides evenly,
+        otherwise "Q r R" (e.g. "56 r 4"). None if dividend/divisor aren't set."""
+        if not (self.dividend and self.divisor):
+            return None
+        quotient, remainder = divmod(self.dividend, self.divisor)
+        return str(quotient) if remainder == 0 else f"{quotient} r {remainder}"
+
+    @property
+    def is_degree_measure(self):
+        """True for a ``measure`` question whose unit is degrees (vs a length).
+
+        Centralises the unit sniff used by both the generated figure and the
+        interactive tool, so "what counts as an angle" is defined once.
+        """
+        if self.question_type != self.MEASURE:
+            return False
+        unit = (self.answer_unit or '').strip().lower()
+        return '°' in unit or unit in ('deg', 'degree', 'degrees')
+
+    @property
+    def measure_tool(self):
+        """Which on-screen instrument the digital surfaces overlay on a
+        ``measure`` figure: a ``protractor`` for angles, else a ``ruler``.
+        Drives ``data-measure-tool`` in the shared partial (measure_tool.js)."""
+        return 'protractor' if self.is_degree_measure else 'ruler'
+
+    @property
+    def measure_figure_svg(self):
+        """Inline SVG of the angle to measure, generated from ``numeric_answer``.
+
+        Only angle questions (degree unit) get a generated figure — drawing an
+        angle for a length/mass "measure" question (unit cm, g, …) would be
+        misleading, so those render no figure (the author supplies an image or
+        describes the scale in the question text). Returns '' when there's
+        nothing to draw, so templates can render it unconditionally. Bridges the
+        pure ``maths.svg_geometry`` helper into templates without per-view
+        context plumbing — the same way the long-division / prime-factorisation
+        render helpers live on the model.
+        """
+        if not self.is_degree_measure or self.numeric_answer is None:
+            return ''
+        from maths.svg_geometry import angle_svg
+        return angle_svg(self.numeric_answer)
+
+    @property
+    def draw_on_grid_data(self):
+        """SVG-ready render data for a draw_on_grid question, or None.
+
+        Maps the ``grid_spec`` (grid-index coords) to pixel coordinates the
+        take-item template draws: the dot lattice (each dot carries its grid
+        index for the click-to-draw JS), the shape polygon, and the canvas
+        size. Returns None when there's nothing renderable, so templates guard
+        with a single check. Kept on the model — like the long-division /
+        prime-factorisation render helpers — so no per-view plumbing is needed.
+        """
+        if self.question_type != self.DRAW_ON_GRID or not self.grid_spec:
+            return None
+        grid = self.grid_spec.get('grid') or {}
+        cols, rows = grid.get('cols'), grid.get('rows')
+        if not (isinstance(cols, int) and isinstance(rows, int) and cols > 0 and rows > 0):
+            return None
+        pad, step = 20, 36
+
+        def px(x):
+            return pad + x * step
+
+        dots = [
+            {'gx': x, 'gy': y, 'px': px(x), 'py': px(y)}
+            for y in range(rows) for x in range(cols)
+        ]
+        shape = self.grid_spec.get('shape')
+        shape_points = shape.get('points', []) if isinstance(shape, dict) else []
+        # Defensive: only well-formed integer [x, y] points reach the SVG, so a
+        # spec that bypassed validate_grid_spec can't 500 the take-item render.
+        polygon = ' '.join(
+            f'{px(p[0])},{px(p[1])}'
+            for p in shape_points
+            if isinstance(p, (list, tuple)) and len(p) == 2
+            and all(isinstance(c, int) for c in p)
+        )
+        return {
+            'cols': cols, 'rows': rows, 'pad': pad, 'step': step,
+            'width': pad * 2 + (cols - 1) * step,
+            'height': pad * 2 + (rows - 1) * step,
+            'dots': dots, 'polygon': polygon,
+        }
+
+    @property
+    def shape_select_data(self):
+        """SVG-ready render data for a shape_select question, or None.
+
+        Bridges the pure ``maths.svg_geometry.shape_select_svg`` builder into the
+        take-item template (no per-view context plumbing — same pattern as
+        ``draw_on_grid_data`` / ``measure_figure_svg``). Returns None when
+        there's nothing renderable, so templates guard with a single check.
+        """
+        if self.question_type != self.SHAPE_SELECT or not self.shape_spec:
+            return None
+        from maths.svg_geometry import shape_select_svg
+        svg = shape_select_svg(self.shape_spec)
+        if not svg:
+            return None
+        vb = self.shape_spec.get('viewbox') or [680, 400]
+        try:
+            width, height = int(vb[0]), int(vb[1])
+        except (TypeError, ValueError, IndexError):
+            width, height = 680, 400
+        return {
+            'width': width, 'height': height, 'svg': svg,
+            'target_type': self.shape_spec.get('target_type', ''),
+        }
+
+    @property
+    def plane_data(self):
+        """SVG-ready render data for a Cartesian-plane question, or None.
+
+        Maps the ``plane_spec`` (signed integer coords) to pixel coordinates the
+        take-item template draws: the axes/ticks SVG, the tappable lattice points
+        (each carrying its signed coord for the click-to-plot JS), any
+        pre-plotted ``given_points``, and the canvas size. Returns None when
+        there's nothing renderable, so templates guard with a single check.
+        Mirrors ``draw_on_grid_data`` / ``shape_select_data`` — render data on the
+        model, no per-view plumbing.
+        """
+        if self.question_type not in (
+            self.PLOT_POINTS, self.PLOT_LINE, self.IDENTIFY_COORDS
+        ) or not self.plane_spec:
+            return None
+        from maths.geometry_grading import _plane_bounds
+        from maths.svg_geometry import cartesian_plane_svg
+        bounds = _plane_bounds(self.plane_spec)
+        if bounds is None:
+            return None
+        xmin, xmax, ymin, ymax = bounds
+        pad, step = 28, 32
+
+        def px(x):
+            return pad + (x - xmin) * step
+
+        def py(y):
+            # y grows upward on a Cartesian plane, downward in SVG.
+            return pad + (ymax - y) * step
+
+        cols = xmax - xmin + 1
+        rows = ymax - ymin + 1
+        width = pad * 2 + (cols - 1) * step
+        height = pad * 2 + (rows - 1) * step
+        # Tappable lattice points (interactive plot types only — identify_coords
+        # is read-only and renders no hit-targets).
+        interactive = self.question_type in (self.PLOT_POINTS, self.PLOT_LINE)
+        dots = []
+        if interactive:
+            dots = [
+                {'gx': x, 'gy': y, 'px': px(x), 'py': py(y)}
+                for y in range(ymin, ymax + 1) for x in range(xmin, xmax + 1)
+            ]
+        given = []
+        for p in (self.plane_spec.get('given_points') or []):
+            if (isinstance(p, (list, tuple)) and len(p) == 2
+                    and all(isinstance(c, int) and not isinstance(c, bool) for c in p)):
+                given.append({'gx': p[0], 'gy': p[1], 'px': px(p[0]), 'py': py(p[1])})
+        return {
+            'svg': cartesian_plane_svg(self.plane_spec, pad=pad, step=step),
+            'width': width, 'height': height, 'pad': pad, 'step': step,
+            'xmin': xmin, 'xmax': xmax, 'ymin': ymin, 'ymax': ymax,
+            'mode': self.plane_spec.get('mode') or 'points',
+            'dots': dots, 'given': given, 'interactive': interactive,
+        }
+
+    @property
+    def graph_data(self):
+        """SVG-ready render data for a read_graph question, or None.
+
+        Bridges the pure ``maths.svg_geometry.line_graph_svg`` builder into the
+        take-item template. Returns None when there's no ``graph_spec`` to render
+        (the template then falls back to ``question.image``), so a PDF-extracted
+        read_graph still shows its figure. Mirrors ``measure_figure_svg``.
+        """
+        if self.question_type != self.READ_GRAPH or not self.graph_spec:
+            return None
+        from maths.svg_geometry import line_graph_svg
+        svg = line_graph_svg(self.graph_spec)
+        if not svg:
+            return None
+        return {'svg': svg}
 
     @property
     def prime_factorization_rows(self):
@@ -193,6 +636,103 @@ class Question(models.Model):
             rows.append({'show_number': False, 'number': None, 'number_input': True, 'prime_input': True})
         rows.append({'show_number': True, 'number': 1, 'number_input': False, 'prime_input': False})
         return rows
+
+    @property
+    def column_result(self):
+        """Computed answer for a column-arithmetic question, or None if not applicable."""
+        ops = self.operands or []
+        if not ops or not self.operator:
+            return None
+        try:
+            nums = [int(o) for o in ops]
+        except (TypeError, ValueError):
+            return None
+        if not nums:
+            return None
+        if self.operator == '+':
+            return sum(nums)
+        if self.operator == '-':
+            result = nums[0]
+            for n in nums[1:]:
+                result -= n
+            return result
+        if self.operator in ('*', '×', 'x'):
+            result = 1
+            for n in nums:
+                result *= n
+            return result
+        return None
+
+    @property
+    def column_arithmetic(self):
+        """Render structure for the column-arithmetic widget.
+
+        Returns a dict with:
+          width    — number of digit columns (max of widest operand and the result)
+          rows     — list of right-aligned digit-string lists (one per operand), blanks left-padded
+          operator — display symbol: '+', '−' or '×'
+          cols     — range(width) for template iteration
+          partials — (long multiplication only) list of scratch working rows, one per
+                     non-zero multiplier digit; each is {'shift', 'boxes', 'spacers'}.
+                     Absent for +, −, single-significant-digit × and 3+ operands.
+        Returns None if this isn't a valid column-arithmetic question.
+        """
+        ops = self.operands or []
+        result = self.column_result
+        if not ops or not self.operator or result is None:
+            return None
+        try:
+            nums = [int(o) for o in ops]
+        except (TypeError, ValueError):
+            return None
+        width = max([len(str(abs(n))) for n in nums] + [len(str(abs(result)))])
+
+        def pad(n):
+            s = str(abs(n))
+            return [''] * (width - len(s)) + list(s)
+
+        symbol = {'+': '+', '-': '−', '*': '×', '×': '×', 'x': '×'}.get(self.operator, self.operator)
+        data = {
+            'width': width,
+            'rows': [pad(n) for n in nums],
+            'operator': symbol,
+            'cols': range(width),
+        }
+
+        # Long-multiplication partial-product working rows.
+        # Only for a genuine multi-digit multiplier: × with exactly two operands
+        # where the multiplier (bottom number) has ≥ 2 non-zero digits. A single
+        # significant digit (×4, ×10, ×100, ×60) needs no partials — the simple
+        # single-answer-row layout is kept. Zero digits are skipped (no row); the
+        # next non-zero digit shifts by its full place value (23×101 → 2 rows).
+        if self.operator in ('*', '×', 'x') and len(nums) == 2:
+            multiplier_digits = str(abs(nums[1]))
+            if sum(1 for d in multiplier_digits if d != '0') >= 2:
+                partials = []
+                for shift, digit in enumerate(reversed(multiplier_digits)):
+                    if digit == '0':
+                        continue  # nothing to write for a zero digit
+                    partials.append({
+                        'shift': shift,                  # place-value offset, 0 = units
+                        'boxes': range(width - shift),   # scratch cells (value right-aligned here)
+                        'spacers': range(shift),         # empty cells on the right (the shift)
+                    })
+                data['partials'] = partials
+
+        return data
+
+    @property
+    def column_inline(self):
+        """Single-line form of the problem, e.g. "90 − 82".
+
+        Renderers that don't draw the stacked grid (mixed quiz, homework,
+        worksheet preview) show this so the numbers are still visible — the
+        grid renderer presents the operands visually instead.
+        """
+        ca = self.column_arithmetic
+        if not ca:
+            return ''
+        return f" {ca['operator']} ".join(str(int(o)) for o in self.operands)
 
 
 class Answer(models.Model):
@@ -279,6 +819,16 @@ class BasicFactsResult(models.Model):
         return cls.objects.filter(
             student=student, subtopic=subtopic, level_number=level_number
         ).order_by('-points').first()
+
+    @classmethod
+    def prune_old_attempts(cls, instance):
+        """Keep only the most recent attempts for this student/subtopic/level."""
+        from classroom.attempt_retention import prune_to_last_n
+        return prune_to_last_n(cls, {
+            'student_id': instance.student_id,
+            'subtopic': instance.subtopic,
+            'level_number': instance.level_number,
+        })
 
 
 class TimeLog(models.Model):
@@ -464,6 +1014,13 @@ class StudentFinalAnswer(models.Model):
     # Legacy field retained from consolidation migration — new code uses 'points'
     points_earned = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Legacy: points from consolidation migration")
     shuffled = models.BooleanField(default=False, help_text="Whether the questions were presented in random order")
+    # Full per-question review payload (question text + student's answer + the
+    # correct answer + correctness) so an attempt can be reviewed later by the
+    # student, teacher or parent — mirrors BasicFactsResult.questions_data.
+    questions_data = models.JSONField(
+        default=list, blank=True,
+        help_text="Stores the questions + student answers for later review.",
+    )
     last_updated_time = models.DateTimeField(auto_now=True, help_text="Last time this record was updated")
 
     class Meta:
@@ -532,3 +1089,30 @@ class StudentFinalAnswer(models.Model):
             topic=topic,
             level=level
         ).order_by('-completed_at').first()
+
+    @classmethod
+    def attempt_series_filter(cls, instance):
+        """Filter kwargs identifying the attempt *series* an instance belongs to.
+
+        Topic / mixed quizzes are grouped by (student, topic, level); times
+        tables by (student, table_number, operation). Including every key keeps
+        the three quiz types in separate series so pruning one never touches
+        another.
+        """
+        return {
+            'student_id': instance.student_id,
+            'topic_id': instance.topic_id,
+            'level_id': instance.level_id,
+            'quiz_type': instance.quiz_type,
+            'table_number': instance.table_number,
+            'operation': instance.operation,
+            # Shuffled vs ordered times-tables are tracked as distinct series
+            # for best/record purposes, so keep their histories separate too.
+            'shuffled': instance.shuffled,
+        }
+
+    @classmethod
+    def prune_old_attempts(cls, instance):
+        """Keep only the most recent attempts for ``instance``'s series."""
+        from classroom.attempt_retention import prune_to_last_n
+        return prune_to_last_n(cls, cls.attempt_series_filter(instance))

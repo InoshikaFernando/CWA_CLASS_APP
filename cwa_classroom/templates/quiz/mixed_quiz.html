@@ -48,8 +48,11 @@
           {% endfor %}
         </div>
       {% else %}
+        {% if q.question_type == 'column_operation' and q.column_inline %}
+        <p class="font-mono text-2xl font-bold text-gray-800 mb-2">{{ q.column_inline }} =</p>
+        {% endif %}
         <input type="text" name="text_{{ q.id }}" placeholder="Your answer..."
-               class="w-full rounded-xl border-2 border-gray-200 px-4 py-2.5 focus:outline-none focus:border-primary transition font-semibold" />
+               class="cwa-exp-input w-full rounded-xl border-2 border-gray-200 px-4 py-2.5 focus:outline-none focus:border-primary transition font-semibold" />
       {% endif %}
     </div>
     {% endfor %}
@@ -66,6 +69,7 @@
     </div>
   </div>
 </form>
+{% include "partials/_rough_work_whiteboard.html" %}
 {% endblock %}
 
 {% block extra_js %}

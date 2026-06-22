@@ -1,10 +1,12 @@
+import json
 import random
 import time as time_module
+from datetime import datetime, time as datetime_time, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import Max, Prefetch
+from django.db.models import Count, Max, Prefetch, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -12,7 +14,7 @@ from django.utils import timezone
 from django.views import View
 
 from audit.services import log_event
-from classroom.models import ClassRoom, ClassStudent, ClassTeacher, Topic
+from classroom.models import ClassRoom, ClassStudent, ClassTeacher, SchoolStudent, Topic
 from classroom.notifications import create_notification
 from classroom.subject_registry import (
     get as get_plugin,
@@ -23,8 +25,15 @@ from classroom.views import RoleRequiredMixin
 from maths.models import Answer, Question, calculate_points
 from maths.views import select_questions_stratified
 
-from .forms import HomeworkCreateForm
-from .models import Homework, HomeworkQuestion, HomeworkStudentAnswer, HomeworkSubmission
+from .forms import HomeworkCreateForm, HomeworkEditForm
+from .models import (
+    Homework,
+    HomeworkDraft,
+    HomeworkQuestion,
+    HomeworkStudentAnswer,
+    HomeworkSubmission,
+)
+from .services import notify_students_homework_published
 
 
 # ---------------------------------------------------------------------------
@@ -32,9 +41,72 @@ from .models import Homework, HomeworkQuestion, HomeworkStudentAnswer, HomeworkS
 # ---------------------------------------------------------------------------
 
 def _teacher_classrooms(user):
-    """Return classrooms where the user is a teacher."""
-    class_ids = ClassTeacher.objects.filter(teacher=user).values_list('classroom_id', flat=True)
-    return ClassRoom.objects.filter(id__in=class_ids, is_active=True)
+    """Classrooms a user manages for homework — view, monitor, assign, and grade.
+
+    A plain class teacher manages the classes they personally teach. School
+    admins (institute owner / head of institute / school admin) additionally
+    manage every class in their school, and a head of department every class in
+    the department(s) they head. This mirrors the school-scoping used elsewhere
+    (see ``classroom.views_reports._get_all_school_ids``) so an owner who isn't
+    listed as a ClassTeacher can still see and run homework for their school.
+
+    Note the scope only *widens* for admin/HoD roles; a plain teacher still sees
+    only their own classes.
+    """
+    from classroom.models import School, SchoolTeacher, Department
+
+    if user.is_superuser:
+        return ClassRoom.objects.filter(is_active=True)
+
+    # Classes the user personally teaches.
+    taught_ids = set(
+        ClassTeacher.objects.filter(teacher=user).values_list('classroom_id', flat=True)
+    )
+
+    # Schools the user administers (owner / school admin via School.admin,
+    # head of institute via SchoolTeacher.role).
+    admin_school_ids = set(
+        School.objects.filter(admin=user, is_active=True).values_list('id', flat=True)
+    ) | set(
+        SchoolTeacher.objects.filter(
+            teacher=user, role='head_of_institute', is_active=True,
+        ).values_list('school_id', flat=True)
+    )
+
+    # Departments the user heads.
+    headed_dept_ids = set(
+        Department.objects.filter(head=user, is_active=True).values_list('id', flat=True)
+    )
+
+    scope = Q(id__in=taught_ids)
+    if admin_school_ids:
+        scope |= Q(school_id__in=admin_school_ids)
+    if headed_dept_ids:
+        scope |= Q(department_id__in=headed_dept_ids)
+
+    return ClassRoom.objects.filter(scope, is_active=True).distinct()
+
+
+# Assigning homework uses the same scope as managing it. Kept as a named alias
+# so the PDF-upload call sites read clearly.
+def _assignable_classrooms(user):
+    return _teacher_classrooms(user)
+
+
+def _can_view_student_homework(user, student, homework):
+    """Whether *user* may view *student*'s saved results for *homework*.
+
+    Allowed for the student themselves, a teacher who manages the homework's
+    class, and a parent with an active link to the student.
+    """
+    if user.is_superuser or user.pk == student.pk:
+        return True
+    if _teacher_classrooms(user).filter(pk=homework.classroom_id).exists():
+        return True
+    from classroom.models import ParentStudent
+    return ParentStudent.objects.filter(
+        parent=user, student=student, is_active=True,
+    ).exists()
 
 
 # NOTE: _topics_with_questions() and _build_topic_groups() used to live here.
@@ -42,12 +114,13 @@ def _teacher_classrooms(user):
 # Call plugin.homework_topic_tree(classroom) instead.
 
 
-def _select_and_save_questions(homework, selected_topic_ids, num_questions):
+def _select_and_save_questions(homework, selected_topic_ids, num_questions, question_type=None):
     """Ask the plugin for content ids, then persist HomeworkQuestion rows.
 
     Delegates the subject-specific selection to the plugin bound to
     ``homework.subject_slug`` so the same code path works for maths, coding,
-    or any future subject.
+    or any future subject. ``question_type`` optionally constrains the
+    auto-selection to a single question type (None = any type).
     """
     plugin = get_plugin(homework.subject_slug)
     if plugin is None or not plugin.supports_homework:
@@ -55,6 +128,7 @@ def _select_and_save_questions(homework, selected_topic_ids, num_questions):
 
     content_ids = plugin.pick_homework_items(
         homework.classroom, selected_topic_ids, num_questions,
+        question_type=question_type,
     )
     if not content_ids:
         return 0
@@ -111,6 +185,7 @@ class HomeworkCreateView(RoleRequiredMixin, View):
             'homework_subject_choices': homework_subject_choices(),
             'selected_subject_slug': plugin.slug,
             'topic_field_name': plugin.homework_topic_field_name(),
+            'question_type_choices': plugin.homework_question_type_choices(),
         }
 
     def get(self, request, classroom_id):
@@ -143,6 +218,9 @@ class HomeworkCreateView(RoleRequiredMixin, View):
         if plugin.slug == 'mathematics' and form.cleaned_data.get('topics'):
             topic_ids = [str(t.pk) for t in form.cleaned_data['topics']]
 
+        # Optional question-type constraint on the auto-selection.
+        question_type = (request.POST.get('question_type') or '').strip() or None
+
         with transaction.atomic():
             homework = form.save(commit=False)
             homework.classroom = classroom
@@ -154,17 +232,42 @@ class HomeworkCreateView(RoleRequiredMixin, View):
             form.save_m2m()
             plugin.save_homework_topics(homework, topic_ids)
 
-            count = _select_and_save_questions(homework, topic_ids, homework.num_questions)
+            count = _select_and_save_questions(
+                homework, topic_ids, homework.num_questions, question_type=question_type,
+            )
 
         if count == 0:
-            messages.warning(
-                request,
-                'No items found for the selected topics. Please add content first.',
-            )
+            if question_type:
+                warning = (
+                    'No questions of the selected type were found for these topics. '
+                    'Try “All types” or pick different topics.'
+                )
+            else:
+                warning = 'No items found for the selected topics. Please add content first.'
+            messages.warning(request, warning)
             homework.delete()
             return render(request, self.template_name, self._base_context(request, classroom, plugin, form))
 
-        messages.success(request, f'Homework "{homework.title}" created with {count} questions.')
+        # Publish now (blank or past publish_at) vs schedule for later. A
+        # scheduled homework stays hidden from students and sends no email
+        # until the publish_scheduled_homework command (or a manual "Publish
+        # now" click) flips published_at.
+        publish_at = form.cleaned_data.get('publish_at')
+        publish_now = publish_at is None or publish_at <= timezone.now()
+        if publish_now:
+            homework.published_at = timezone.now()
+            homework.save(update_fields=['published_at', 'updated_at'])
+            notify_students_homework_published(homework)
+            messages.success(
+                request,
+                f'Homework "{homework.title}" published with {count} questions.',
+            )
+        else:
+            messages.success(
+                request,
+                f'Homework "{homework.title}" created with {count} questions — '
+                f'scheduled to publish on {publish_at.strftime("%d %b %Y %H:%M")}.',
+            )
 
         log_event(
             user=request.user,
@@ -179,29 +282,12 @@ class HomeworkCreateView(RoleRequiredMixin, View):
                 'subject_slug': homework.subject_slug,
                 'num_questions': count,
                 'due_date': str(homework.due_date) if homework.due_date else None,
+                'publish_at': str(publish_at) if publish_at else None,
+                'status': homework.status,
                 'max_attempts': homework.max_attempts,
             },
             request=request,
         )
-
-        # Notify all active students in the classroom
-        homework_url = reverse('homework:student_take', kwargs={'homework_id': homework.id})
-        due_str = homework.due_date.strftime('%d %b %Y') if homework.due_date else 'no deadline'
-        active_students = (
-            ClassStudent.objects
-            .filter(classroom=classroom, is_active=True)
-            .select_related('student')
-        )
-        for cs in active_students:
-            create_notification(
-                user=cs.student,
-                message=(
-                    f'New homework "{homework.title}" has been assigned in '
-                    f'{classroom.name}. Due: {due_str}.'
-                ),
-                notification_type='homework_assigned',
-                link=homework_url,
-            )
 
         return redirect('homework:teacher_detail', homework_id=homework.id)
 
@@ -214,29 +300,99 @@ class HomeworkMonitorView(RoleRequiredMixin, View):
         classrooms = _teacher_classrooms(request.user)
         selected_classroom_id = request.GET.get('classroom')
 
-        if selected_classroom_id:
+        # "All" is an explicit filter option that shows homework across every
+        # class the teacher teaches, and is where the detail page's back button
+        # lands (CPP-344). With no param we keep auto-selecting the first class
+        # so the "New Homework" shortcut stays available on first visit.
+        selected_classroom = None
+        show_all = False
+        if selected_classroom_id == 'all':
+            show_all = True
+        elif selected_classroom_id:
             try:
                 selected_classroom = classrooms.get(id=selected_classroom_id)
-            except ClassRoom.DoesNotExist:
+            except (ClassRoom.DoesNotExist, ValueError, TypeError):
                 selected_classroom = classrooms.first()
         else:
             selected_classroom = classrooms.first()
 
-        homework_list = []
-        if selected_classroom:
-            homework_list = (
-                Homework.objects
-                .filter(classroom=selected_classroom)
-                .prefetch_related(
-                    Prefetch('topics', queryset=Topic.objects.select_related('subject', 'parent'))
-                )
-                .order_by('-created_at')
+        if show_all:
+            hw_qs = Homework.objects.filter(classroom__in=classrooms)
+        elif selected_classroom:
+            hw_qs = Homework.objects.filter(classroom=selected_classroom)
+        else:
+            hw_qs = Homework.objects.none()
+
+        # Weekly filter. ``week`` is the Monday date (YYYY-MM-DD) of the week to
+        # show; we normalise any date in that week back to its Monday so the
+        # prev/next links and the published_at window always span a full
+        # Monday-to-Sunday week. The week bar is always shown: with no/blank/
+        # invalid param we default to the current week (filter active), and the
+        # explicit sentinel ``week=all`` shows every week.
+        today = timezone.localdate()
+        current_week_start = today - timedelta(days=today.weekday())
+
+        week_param = request.GET.get('week')
+        all_weeks = week_param == 'all'
+        week_start = None
+        if not all_weeks:
+            if week_param:
+                try:
+                    picked = datetime.strptime(week_param, '%Y-%m-%d').date()
+                    week_start = picked - timedelta(days=picked.weekday())
+                except (ValueError, TypeError):
+                    week_start = None
+            # No / blank / unparseable param defaults to the current week.
+            if week_start is None:
+                week_start = current_week_start
+
+        # The week the bar displays and navigates from: the selected week, or the
+        # current week while "All weeks" is active (so the arrows still work).
+        display_week_start = week_start or current_week_start
+        week_end = (week_start + timedelta(days=6)) if week_start else None  # Sun
+        prev_week = (display_week_start - timedelta(days=7)).isoformat()
+        next_week = (display_week_start + timedelta(days=7)).isoformat()
+
+        if week_start is not None:
+            # Filter on published_at within [Mon 00:00, next Mon 00:00). Build
+            # timezone-aware bounds so the comparison matches stored UTC values.
+            # Unpublished (Created/scheduled) homework has no published date, so
+            # it isn't subject to the week window — it's always shown so teachers
+            # can still find and publish it from the default current-week view.
+            start_dt = timezone.make_aware(
+                datetime.combine(week_start, datetime_time.min)
             )
+            end_dt = timezone.make_aware(
+                datetime.combine(week_start + timedelta(days=7), datetime_time.min)
+            )
+            hw_qs = hw_qs.filter(
+                Q(published_at__gte=start_dt, published_at__lt=end_dt)
+                | Q(published_at__isnull=True)
+            )
+
+        homework_list = (
+            hw_qs
+            .select_related('classroom')
+            .prefetch_related(
+                Prefetch('topics', queryset=Topic.objects.select_related('subject', 'parent'))
+            )
+            .annotate(
+                student_count=Count('submissions__student', distinct=True)
+            )
+            .order_by('-created_at')
+        )
 
         return render(request, self.template_name, {
             'classrooms': classrooms,
             'selected_classroom': selected_classroom,
+            'show_all': show_all,
             'homework_list': homework_list,
+            'all_weeks': all_weeks,
+            'week_start': week_start,
+            'week_end': week_end,
+            'display_week_start': display_week_start.isoformat(),
+            'prev_week': prev_week,
+            'next_week': next_week,
         })
 
 
@@ -260,9 +416,12 @@ class HomeworkDetailView(RoleRequiredMixin, View):
             best = HomeworkSubmission.get_best_submission(homework, student)
             attempt_count = HomeworkSubmission.get_attempt_count(homework, student)
 
+            # Judge lateness/overdue relative to when this student joined the
+            # class. A student who enrolled after the due date is never flagged
+            # as late or overdue — the deadline passed before they were a member.
             if best:
-                status = best.submission_status
-            elif homework.is_past_due:
+                status = best.submission_status_for(cs.joined_at)
+            elif homework.is_overdue_for(cs.joined_at):
                 status = HomeworkSubmission.STATUS_NOT_SUBMITTED
             else:
                 status = 'pending'
@@ -274,14 +433,206 @@ class HomeworkDetailView(RoleRequiredMixin, View):
                 'status': status,
             })
 
-        # Sort: on-time first, then late, then not-submitted/pending
-        order = {'on_time': 0, 'late': 1, 'not_submitted': 2, 'pending': 3}
-        student_rows.sort(key=lambda r: order.get(r['status'], 9))
+        # Order students alphabetically by display name.
+        student_rows.sort(
+            key=lambda r: (
+                r['student'].get_full_name() or r['student'].username
+            ).lower()
+        )
+
+        # Summary counts (computed here — Django templates can't tally a loop).
+        # The per-student status already separates on-time, late ("overdue
+        # submission") and never-submitted; surface that same three-way split in
+        # the summary cards. Lumping late submissions into a single "Submitted"
+        # tally hid them, and counting only non-submitters as "Overdue" left the
+        # late submitters — who also missed the deadline — out of both buckets.
+        on_time_count = sum(
+            1 for r in student_rows
+            if r['status'] == HomeworkSubmission.STATUS_ON_TIME
+        )
+        late_count = sum(
+            1 for r in student_rows
+            if r['status'] == HomeworkSubmission.STATUS_LATE
+        )
+        not_submitted_count = sum(
+            1 for r in student_rows
+            if r['status'] == HomeworkSubmission.STATUS_NOT_SUBMITTED
+        )
+        # Back-compat aliases: "Submitted" = on-time + late, "Overdue" =
+        # never-submitted-and-past-due. Kept for existing callers/tests.
+        submitted_count = on_time_count + late_count
+        overdue_count = not_submitted_count
 
         return render(request, self.template_name, {
             'homework': homework,
             'student_rows': student_rows,
+            'on_time_count': on_time_count,
+            'late_count': late_count,
+            'not_submitted_count': not_submitted_count,
+            'submitted_count': submitted_count,
+            'overdue_count': overdue_count,
         })
+
+
+class HomeworkPublishView(RoleRequiredMixin, View):
+    """Teacher action to publish a Created/scheduled homework immediately.
+
+    Flips ``published_at`` to now and notifies students via
+    ``Homework.publish()``. Idempotent — an already-published homework is left
+    alone with a friendly message.
+    """
+    required_roles = ['teacher', 'senior_teacher', 'junior_teacher']
+
+    def post(self, request, homework_id):
+        homework = get_object_or_404(Homework, id=homework_id)
+        _check_teacher_owns_class(request, homework.classroom)
+
+        if homework.is_published:
+            messages.info(request, f'"{homework.title}" is already published.')
+            return redirect('homework:teacher_detail', homework_id=homework.id)
+
+        homework.publish()
+
+        log_event(
+            user=request.user,
+            school=homework.classroom.school,
+            category='data_change',
+            action='homework_published',
+            detail={
+                'homework_id': homework.id,
+                'title': homework.title,
+                'classroom_id': homework.classroom_id,
+                'classroom_name': homework.classroom.name,
+                'manual': True,
+            },
+            request=request,
+        )
+
+        messages.success(request, f'Homework "{homework.title}" published.')
+        return redirect('homework:teacher_detail', homework_id=homework.id)
+
+
+class HomeworkDeleteView(RoleRequiredMixin, View):
+    """Soft-delete a homework the current user created.
+
+    Scope is deliberately narrow — only the *creator* may delete, matching
+    "as HoI/HoD/Teacher I can delete any homework I added". Anyone else (even a
+    co-teacher or admin who can otherwise manage the class) gets a 404, so this
+    never becomes a way to wipe another teacher's homework.
+
+    The delete is soft: ``Homework.soft_delete`` only flips ``deleted_at`` so the
+    homework vanishes from every list while student submissions and grades are
+    preserved (they would cascade-delete on a hard delete).
+    """
+    required_roles = ['teacher', 'senior_teacher', 'junior_teacher']
+
+    def post(self, request, homework_id):
+        from django.http import Http404
+        homework = get_object_or_404(
+            Homework.objects.select_related('classroom'), id=homework_id,
+        )
+        if homework.created_by_id != request.user.id:
+            raise Http404
+
+        title = homework.title
+        homework.soft_delete(user=request.user)
+
+        log_event(
+            user=request.user,
+            school=homework.classroom.school,
+            category='data_change',
+            action='homework_deleted',
+            detail={
+                'homework_id': homework.id,
+                'title': title,
+                'classroom_id': homework.classroom_id,
+                'classroom_name': homework.classroom.name,
+                'soft_delete': True,
+            },
+            request=request,
+        )
+
+        messages.success(request, f'Homework "{title}" deleted.')
+        return redirect('homework:teacher_monitor')
+
+
+class HomeworkEditView(RoleRequiredMixin, View):
+    """Edit a homework's schedule (publish date, due date) and metadata.
+
+    Question selection is left untouched. While a homework is still unpublished
+    the teacher can reschedule ``publish_at`` (or blank it to publish now); once
+    published the publish field is hidden and only the due date / title / notes
+    / attempt cap can change.
+    """
+    required_roles = ['teacher', 'senior_teacher', 'junior_teacher']
+    template_name = 'homework/teacher_edit.html'
+
+    def get(self, request, homework_id):
+        homework = get_object_or_404(Homework, id=homework_id)
+        _check_teacher_owns_class(request, homework.classroom)
+        form = HomeworkEditForm(instance=homework)
+        return render(request, self.template_name, {'form': form, 'homework': homework})
+
+    def post(self, request, homework_id):
+        homework = get_object_or_404(Homework, id=homework_id)
+        _check_teacher_owns_class(request, homework.classroom)
+
+        was_published = homework.is_published
+        before = {
+            'title': homework.title,
+            'due_date': str(homework.due_date) if homework.due_date else None,
+            'publish_at': str(homework.publish_at) if homework.publish_at else None,
+            'max_attempts': homework.max_attempts,
+        }
+
+        form = HomeworkEditForm(request.POST, instance=homework)
+        if not form.is_valid():
+            return render(request, self.template_name, {'form': form, 'homework': homework})
+
+        hw = form.save(commit=False)
+
+        # Decide whether this edit publishes a still-unpublished homework. A
+        # blank or past publish_at on an unpublished homework means "publish now";
+        # a future publish_at reschedules it. Already-published homework keeps
+        # published_at untouched (the publish_at field was dropped from the form).
+        publish_now = False
+        if not was_published:
+            publish_at = form.cleaned_data.get('publish_at')
+            publish_now = publish_at is None or publish_at <= timezone.now()
+            if publish_now:
+                hw.published_at = timezone.now()
+                hw.publish_at = None
+
+        hw.save()
+
+        if publish_now:
+            notify_students_homework_published(hw)
+
+        log_event(
+            user=request.user,
+            school=hw.classroom.school,
+            category='data_change',
+            action='homework_edited',
+            detail={
+                'homework_id': hw.id,
+                'before': before,
+                'after': {
+                    'title': hw.title,
+                    'due_date': str(hw.due_date) if hw.due_date else None,
+                    'publish_at': str(hw.publish_at) if hw.publish_at else None,
+                    'max_attempts': hw.max_attempts,
+                },
+                'published_by_edit': publish_now,
+                'status': hw.status,
+            },
+            request=request,
+        )
+
+        if publish_now:
+            messages.success(request, f'Homework "{hw.title}" updated and published.')
+        else:
+            messages.success(request, f'Homework "{hw.title}" updated.')
+        return redirect('homework:teacher_detail', homework_id=hw.id)
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +696,10 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
             if Homework.objects.filter(title=homework.title, classroom=classroom).exists():
                 continue
 
-            # Create new Homework for this classroom, copying all settings
+            # Create new Homework for this classroom, copying all settings.
+            # Carry over the publish lifecycle (publish_at / published_at) so a
+            # scheduled homework stays scheduled in the new class instead of
+            # being auto-published by Homework.save()'s publish-on-create default.
             new_hw = Homework.objects.create(
                 classroom=classroom,
                 created_by=request.user,
@@ -356,6 +710,8 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
                 num_questions=homework.num_questions,
                 due_date=homework.due_date,
                 max_attempts=homework.max_attempts,
+                publish_at=homework.publish_at,
+                published_at=homework.published_at,
             )
             new_hw.topics.set(homework.topics.all())
 
@@ -391,32 +747,46 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
     template_name = 'homework/student_list.html'
 
     def get(self, request):
-        # Find classrooms the student belongs to
-        class_ids = ClassStudent.objects.filter(
+        # Find classrooms the student belongs to, keeping the join date per
+        # classroom so "overdue" can be judged relative to when this student
+        # actually enrolled (a late joiner never sees pre-join work as overdue).
+        memberships = ClassStudent.objects.filter(
             student=request.user, is_active=True
-        ).values_list('classroom_id', flat=True)
+        ).values_list('classroom_id', 'joined_at')
+        joined_at_by_class = {cid: joined for cid, joined in memberships}
+        class_ids = list(joined_at_by_class.keys())
 
         homework_qs = (
             Homework.objects
-            .filter(classroom_id__in=class_ids)
+            .filter(classroom_id__in=class_ids, published_at__isnull=False)
             .prefetch_related(
                 Prefetch('topics', queryset=Topic.objects.select_related('subject', 'parent'))
             )
             .order_by('due_date')
         )
 
+        # Homework this student has an in-progress (saved-but-not-submitted)
+        # draft for, so the list can show a "Resume" affordance.
+        draft_hw_ids = set(
+            HomeworkDraft.objects
+            .filter(student=request.user, homework_id__in=[hw.id for hw in homework_qs])
+            .values_list('homework_id', flat=True)
+        )
+
         rows = []
         for hw in homework_qs:
+            joined_at = joined_at_by_class.get(hw.classroom_id)
             best = HomeworkSubmission.get_best_submission(hw, request.user)
             attempt_count = HomeworkSubmission.get_attempt_count(hw, request.user)
+            # Overdue no longer blocks attempts — only the attempt cap does.
             can_attempt = (
-                not hw.is_past_due and
-                (hw.attempts_unlimited or attempt_count < hw.max_attempts)
+                hw.attempts_unlimited or attempt_count < hw.max_attempts
             )
+            is_overdue = hw.is_overdue_for(joined_at)
 
             if best:
-                status = best.submission_status
-            elif hw.is_past_due:
+                status = best.submission_status_for(joined_at)
+            elif is_overdue:
                 status = HomeworkSubmission.STATUS_NOT_SUBMITTED
             else:
                 status = 'pending'
@@ -426,7 +796,9 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
                 'best_submission': best,
                 'attempt_count': attempt_count,
                 'can_attempt': can_attempt,
+                'is_overdue': is_overdue,
                 'status': status,
+                'has_draft': hw.id in draft_hw_ids,
             })
 
         return render(request, self.template_name, {'rows': rows})
@@ -437,15 +809,21 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
 
     def get(self, request, homework_id):
         homework = get_object_or_404(Homework, id=homework_id)
-        _check_student_enrolled(request, homework.classroom)
+        access_redirect = _student_enrollment_redirect(request, homework.classroom)
+        if access_redirect:
+            return access_redirect
+
+        if not homework.is_published:
+            messages.error(request, 'This homework is not available yet.')
+            return redirect('homework:student_list')
 
         attempt_count = HomeworkSubmission.get_attempt_count(homework, request.user)
         if not homework.attempts_unlimited and attempt_count >= homework.max_attempts:
             messages.error(request, 'You have used all your attempts for this homework.')
             return redirect('homework:student_list')
-        if homework.is_past_due:
-            messages.error(request, 'This homework is past its due date.')
-            return redirect('homework:student_list')
+        # Past-due homework is intentionally still attemptable — students can
+        # complete overdue work; lateness is reflected in the submission status,
+        # not enforced as a hard block. Only the attempt cap gates access.
 
         hw_questions = list(homework.homework_questions.order_by('order'))
 
@@ -467,17 +845,35 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             })
 
         has_coding_item = any(item.get('subject_slug') == 'coding' for item in items)
+        has_maths_item = any(item.get('subject_slug') == 'mathematics' for item in items)
+
+        # If the student saved progress earlier, hand the take page their saved
+        # answers + elapsed time so it can restore them client-side. A draft is
+        # ungraded and does not consume an attempt — it's purely resume state.
+        draft = HomeworkDraft.objects.filter(
+            homework=homework, student=request.user,
+        ).first()
 
         return render(request, self.template_name, {
             'homework': homework,
             'items': items,
             'attempt_number': attempt_count + 1,
             'has_coding_item': has_coding_item,
+            'has_maths_item': has_maths_item,
+            'draft_answers': draft.answers_data if draft else {},
+            'draft_time_taken': draft.time_taken_seconds if draft else 0,
+            'draft_saved_at': draft.updated_at.isoformat() if draft else '',
         })
 
     def post(self, request, homework_id):
         homework = get_object_or_404(Homework, id=homework_id)
-        _check_student_enrolled(request, homework.classroom)
+        access_redirect = _student_enrollment_redirect(request, homework.classroom)
+        if access_redirect:
+            return access_redirect
+
+        if not homework.is_published:
+            messages.error(request, 'This homework is not available yet.')
+            return redirect('homework:student_list')
 
         attempt_count = HomeworkSubmission.get_attempt_count(homework, request.user)
         if not homework.attempts_unlimited and attempt_count >= homework.max_attempts:
@@ -590,6 +986,16 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             submission.points = pts
             submission.save(update_fields=['score', 'points'])
 
+            # The work is now a real submission — drop any saved draft so the
+            # student isn't offered a stale "resume" for finished homework.
+            HomeworkDraft.objects.filter(
+                homework=homework, student=request.user,
+            ).delete()
+
+            # Keep only the most recent attempts (with their answers) per the
+            # shared attempt-history limit.
+            HomeworkSubmission.prune_old_attempts(homework, request.user)
+
         log_event(
             user=request.user,
             school=homework.classroom.school,
@@ -617,11 +1023,142 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
         return redirect('homework:student_result', submission_id=submission.id)
 
 
+class SaveHomeworkProgressView(LoginRequiredMixin, View):
+    """AJAX endpoint: checkpoint a student's in-progress answers as a draft.
+
+    Saving progress is deliberately cheap and side-effect-free: it does NOT
+    grade anything and does NOT consume an attempt. It upserts the single
+    :class:`HomeworkDraft` for (homework, student) so the student can close the
+    page and resume later from exactly where they stopped.
+
+    The client posts the answer form fields (the ``answer_<id>`` and
+    ``code_<content_id>`` inputs) plus ``time_taken_seconds``; we persist them
+    verbatim as a flat JSON map and the take page restores them on next load.
+    """
+
+    def post(self, request, homework_id):
+        homework = get_object_or_404(Homework, id=homework_id)
+        access_redirect = _student_enrollment_redirect(request, homework.classroom)
+        if access_redirect:
+            # AJAX caller expects JSON — hand back the destination URL so the
+            # page can navigate rather than silently failing on a 302.
+            return JsonResponse(
+                {'ok': False, 'error': 'no_access', 'redirect': access_redirect.url},
+                status=403,
+            )
+
+        if not homework.is_published:
+            return JsonResponse({'ok': False, 'error': 'not_available'}, status=400)
+
+        # Saving a draft is allowed even when the attempt cap is reached — a
+        # draft never becomes a submission on its own, so it can't exceed the
+        # cap. (The final submit re-checks the cap before grading.)
+        try:
+            payload = json.loads(request.body or '{}')
+        except (ValueError, TypeError):
+            return JsonResponse({'ok': False, 'error': 'bad_json'}, status=400)
+
+        answers = payload.get('answers') or {}
+        if not isinstance(answers, dict):
+            return JsonResponse({'ok': False, 'error': 'bad_answers'}, status=400)
+
+        try:
+            time_taken = int(payload.get('time_taken_seconds', 0) or 0)
+        except (ValueError, TypeError):
+            time_taken = 0
+        time_taken = max(0, time_taken)
+
+        # Merge into (rather than replace) any existing draft. A naive overwrite
+        # is unsafe: a stray autosave/heartbeat carrying an empty or partial form
+        # — e.g. from a second tab, another device, or a freshly-(re)loaded page
+        # before the student re-enters anything — would otherwise clobber a good,
+        # fuller draft and silently wipe the student's work. Merging keeps every
+        # previously-saved answer that this payload doesn't explicitly supply, so
+        # an empty payload can never erase progress and a smaller one can only
+        # add to / update it, never shrink it. The final submit reads from POST
+        # (not the draft) and deletes the draft, so accumulated keys are harmless.
+        existing = HomeworkDraft.objects.filter(
+            homework=homework, student=request.user,
+        ).first()
+        if existing is not None:
+            merged = {**(existing.answers_data or {}), **answers}
+            # Never let a stale tab wind the timer backwards.
+            time_taken = max(time_taken, existing.time_taken_seconds)
+        else:
+            merged = answers
+
+        draft, _ = HomeworkDraft.objects.update_or_create(
+            homework=homework,
+            student=request.user,
+            defaults={
+                'answers_data': merged,
+                'time_taken_seconds': time_taken,
+            },
+        )
+
+        return JsonResponse({
+            'ok': True,
+            'saved_at': draft.updated_at.isoformat(),
+        })
+
+
+class HomeworkAttemptHistoryView(LoginRequiredMixin, View):
+    """List the saved attempts (kept to the last 10) for one homework.
+
+    A student sees their own history; a teacher who manages the class or a
+    parent with an active link to the student can view it by passing the
+    student id in the URL.
+    """
+    template_name = 'homework/attempt_history.html'
+
+    def get(self, request, homework_id, student_id=None):
+        from django.http import Http404
+        homework = get_object_or_404(
+            Homework.objects.select_related('classroom'), pk=homework_id,
+        )
+        if student_id is None:
+            student = request.user
+        else:
+            from django.contrib.auth import get_user_model
+            student = get_object_or_404(get_user_model(), pk=student_id)
+
+        if not _can_view_student_homework(request.user, student, homework):
+            raise Http404
+
+        submissions = list(
+            HomeworkSubmission.objects
+            .filter(homework=homework, student=student)
+            .order_by('-attempt_number')
+        )
+        joined_at = (
+            ClassStudent.objects
+            .filter(student=student, classroom=homework.classroom)
+            .values_list('joined_at', flat=True)
+            .first()
+        )
+        for sub in submissions:
+            sub.status_for_student = sub.submission_status_for(joined_at)
+
+        return render(request, self.template_name, {
+            'homework': homework,
+            'student': student,
+            'submissions': submissions,
+            'viewing_other': student.pk != request.user.pk,
+        })
+
+
 class StudentHomeworkResultView(LoginRequiredMixin, View):
     template_name = 'homework/student_result.html'
 
     def get(self, request, submission_id):
-        submission = get_object_or_404(HomeworkSubmission, id=submission_id, student=request.user)
+        from django.http import Http404
+        submission = get_object_or_404(
+            HomeworkSubmission.objects.select_related('homework__classroom', 'student'),
+            id=submission_id,
+        )
+        if not _can_view_student_homework(request.user, submission.student, submission.homework):
+            raise Http404
+        viewing_other = submission.student_id != request.user.pk
         answers = list(
             submission.answers
             .select_related('question', 'selected_answer')
@@ -640,9 +1177,30 @@ class StudentHomeworkResultView(LoginRequiredMixin, View):
                 'ctx': plugin.result_item_context(ans),
             })
 
+        # Lateness is judged relative to when this student joined the class, and
+        # retrying overdue homework is allowed (only the attempt cap gates it) —
+        # mirror StudentHomeworkListView so the result page stays consistent.
+        hw = submission.homework
+        joined_at = (
+            ClassStudent.objects
+            .filter(student=submission.student, classroom=hw.classroom)
+            .values_list('joined_at', flat=True)
+            .first()
+        )
+        attempt_count = HomeworkSubmission.get_attempt_count(hw, submission.student)
+        # Only the student who owns the attempt can retry from here.
+        can_retry = (not viewing_other) and (
+            hw.attempts_unlimited or attempt_count < hw.max_attempts
+        )
+
         return render(request, self.template_name, {
             'submission': submission,
+            'submission_status': submission.submission_status_for(joined_at),
+            'can_retry': can_retry,
             'review_items': review_items,
+            'viewing_other': viewing_other,
+            'student': submission.student,
+            'attempt_count': attempt_count,
             # Legacy context var kept so any consumer that still iterates
             # `answers` keeps working.
             'answers': answers,
@@ -654,35 +1212,115 @@ class StudentHomeworkResultView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 def _check_teacher_owns_class(request, classroom):
+    """Gate managing a class's homework (view, monitor, grade) to its class
+    teacher plus school admins/owner/HoI and the department head, matching the
+    :func:`_teacher_classrooms` scope.
+    """
     if request.user.is_superuser:
         return
-    if not ClassTeacher.objects.filter(teacher=request.user, classroom=classroom).exists():
+    if not _teacher_classrooms(request.user).filter(pk=classroom.pk).exists():
         from django.http import Http404
         raise Http404
 
 
-def _check_student_enrolled(request, classroom):
-    if not ClassStudent.objects.filter(student=request.user, classroom=classroom, is_active=True).exists():
-        from django.http import Http404
-        raise Http404
+# Assigning homework uses the same scope as managing it.
+def _check_can_assign_homework(request, classroom):
+    return _check_teacher_owns_class(request, classroom)
+
+
+def _student_enrollment_redirect(request, classroom):
+    """Gate a logged-in student's access to a class's homework.
+
+    Returns ``None`` when the student is actively enrolled and may proceed, or
+    an ``HttpResponseRedirect`` to the right next step otherwise. A logged-in
+    student is **never** sent a bare 404 here — that reads as a "broken link"
+    when the real problem is enrolment or a lapsed subscription.
+
+    ``ClassStudent.is_active`` is a pure enrolment flag (teacher/admin
+    controlled); it is *not* toggled by billing. Subscription expiry is normally
+    caught upstream by ``TrialExpiryMiddleware``, so the dominant reason the
+    enrolment check fails is that the student simply isn't in this class. We
+    still re-check the subscription as defence-in-depth (e.g. an individual
+    student whose trial just lapsed, or a multi-school student following a link
+    into an expired school) so those cases land on a billing page, not the list:
+
+      * actively enrolled                          → None (proceed)
+      * individual student, subscription lapsed    → ``trial_expired``
+      * school student, school subscription lapsed → ``institute_trial_expired``
+      * genuinely not enrolled                     → ``homework:student_list``
+
+    Note: a school with *no* subscription is a legacy/unbilled school and is
+    intentionally allowed (matching the middleware), so it falls through to the
+    not-enrolled branch rather than a billing page. ``module_required`` and
+    ``institute_plan_select`` are admin/owner flows that a student can't action,
+    so they are not used here.
+    """
+    from billing.entitlements import get_school_subscription
+
+    user = request.user
+
+    if ClassStudent.objects.filter(
+        student=user, classroom=classroom, is_active=True,
+    ).exists():
+        return None
+
+    # Individual B2C student — gated by their own subscription.
+    if user.is_individual_student:
+        sub = getattr(user, 'subscription', None)
+        if sub is None or not sub.is_active_or_trialing:
+            messages.warning(
+                request,
+                'Your subscription has ended. Renew it to keep accessing your '
+                'homework.',
+            )
+            return redirect('trial_expired')
+
+    # School student whose class belongs to a school with a lapsed subscription.
+    school = classroom.school
+    if school is not None and SchoolStudent.objects.filter(
+        student=user, school=school, is_active=True,
+    ).exists():
+        sub = get_school_subscription(school)
+        if sub is not None and not sub.is_active_or_trialing:
+            messages.warning(
+                request,
+                "Your institute's subscription has lapsed, so this homework is "
+                'locked. Please contact your teacher or administrator to '
+                'restore access.',
+            )
+            return redirect('institute_trial_expired')
+
+    # Genuinely not enrolled in this class.
+    messages.error(
+        request,
+        "You're not enrolled in this class, so its homework isn't available to "
+        'you. If you think this is a mistake, please contact your teacher.',
+    )
+    return redirect('homework:student_list')
+
+
+# Above this many pending AI answers, grading is pushed to a background worker
+# so the student isn't blocked while several Claude calls run. Small batches
+# (mostly cache hits) stay synchronous for an instant result.
+AI_GRADE_ASYNC_THRESHOLD = 3
 
 
 def _trigger_ai_grading_for_submission(submission, request=None):
     """
     After a submission is saved, grade any answers with review_status='pending_ai'
     using the AI grading service (with caching).
-    """
-    from worksheets.grading_service import grade_extended_answer
-    from billing.entitlements import get_school_for_user
-    from django.utils import timezone
 
-    pending = list(
+    Small batches grade inline; larger batches are enqueued on the 'high' queue
+    so the student's request returns immediately (CPP-307d).
+    """
+    from billing.entitlements import get_school_for_user
+
+    pending_count = (
         submission.answers
         .filter(review_status=HomeworkStudentAnswer.REVIEW_PENDING_AI)
-        .select_related('question')
+        .count()
     )
-
-    if not pending:
+    if not pending_count:
         return
 
     school = None
@@ -691,6 +1329,44 @@ def _trigger_ai_grading_for_submission(submission, request=None):
             school = get_school_for_user(request.user)
     except Exception:
         pass
+
+    if pending_count > AI_GRADE_ASYNC_THRESHOLD:
+        from taskqueue.services import enqueue_task
+        from .tasks import grade_submission_answers
+        try:
+            enqueue_task(
+                school=school,
+                user=submission.student,
+                task_type='ai_grade',
+                func=grade_submission_answers,
+                args=[submission.pk, school.pk if school else None],
+                queue='high',
+            )
+            return
+        except Exception:
+            # Queue unavailable — fall back to inline grading rather than
+            # 500-ing the student's submission or losing the pending answers.
+            import logging
+            logging.getLogger(__name__).exception(
+                'Failed to enqueue AI grading for submission %s; grading inline',
+                submission.pk,
+            )
+
+    grade_pending_answers(submission, school)
+
+
+def grade_pending_answers(submission, school):
+    """Grade all pending-AI answers on a submission inline (shared by sync + worker)."""
+    from worksheets.grading_service import grade_extended_answer
+    from django.utils import timezone
+
+    pending = list(
+        submission.answers
+        .filter(review_status=HomeworkStudentAnswer.REVIEW_PENDING_AI)
+        .select_related('question')
+    )
+    if not pending:
+        return
 
     for answer in pending:
         try:
@@ -739,14 +1415,13 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
     template_name = 'homework/upload.html'
 
     def get(self, request):
-        classrooms = _teacher_classrooms(request.user)
+        classrooms = _assignable_classrooms(request.user)
         error = request.GET.get('error')
         if error:
             messages.error(request, f'Error processing PDF: {error}')
         return render(request, self.template_name, {'classrooms': classrooms})
 
     def post(self, request):
-        import threading
         from billing.entitlements import get_school_for_user
         from classroom.models import Topic, Level
 
@@ -766,7 +1441,7 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
         if classroom_id:
             try:
                 classroom = ClassRoom.objects.get(id=classroom_id)
-                _check_teacher_owns_class(request, classroom)
+                _check_can_assign_homework(request, classroom)
             except (ClassRoom.DoesNotExist, Exception):
                 classroom = None
 
@@ -787,6 +1462,8 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             level_number__lte=12,
         ).values('level_number', 'display_name'))
 
+        shape_naming = request.POST.get('shape_naming') == 'on'
+
         # Create session immediately so we can redirect to the polling page
         session = HomeworkUploadSession.objects.create(
             user=request.user,
@@ -794,6 +1471,7 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             classroom=classroom,
             pdf_filename=pdf_file.name,
             homework_title=hw_title,
+            shape_naming=shape_naming,
             status=HomeworkUploadSession.STATUS_PROCESSING,
         )
         session.pdf_file.save(pdf_file.name, ContentFile(pdf_bytes), save=True)
@@ -811,33 +1489,32 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             request=request,
         )
 
-        # Run AI extraction in a background thread so the HTTP response returns immediately
-        def _process(session_id, pdf_bytes, existing_topics, existing_levels):
-            import django.db
-            from worksheets.services import extract_and_classify_worksheet
-            from io import BytesIO
-            try:
-                pdf_io = BytesIO(pdf_bytes)
-                pdf_io.name = session.pdf_filename
-                output = extract_and_classify_worksheet(pdf_io, existing_topics, existing_levels)
-                result = output['result']
-                HomeworkUploadSession.objects.filter(pk=session_id).update(
-                    extracted_data=result,
-                    extracted_images=output['extracted_images'],
-                    page_count=output['page_count'],
-                    tokens_used=result.get('usage', {}).get('total_tokens', 0),
-                    status=HomeworkUploadSession.STATUS_DONE,
-                )
-            except Exception as e:
-                HomeworkUploadSession.objects.filter(pk=session_id).update(
-                    status=HomeworkUploadSession.STATUS_ERROR,
-                    error_message=str(e),
-                )
-            finally:
-                django.db.connections.close_all()
-
-        t = threading.Thread(target=_process, args=(session.pk, pdf_bytes, existing_topics, existing_levels), daemon=True)
-        t.start()
+        # Enqueue AI extraction on the RQ queue so the response returns immediately
+        # and the job survives gunicorn worker restarts (CPP-307c). If the queue
+        # is unavailable, surface the error instead of leaving a stuck session.
+        from taskqueue.services import enqueue_task
+        from .tasks import process_homework_pdf
+        try:
+            enqueue_task(
+                school=school,
+                user=request.user,
+                task_type='homework_pdf',
+                func=process_homework_pdf,
+                args=[session.pk, existing_topics, existing_levels],
+                queue='default',
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                'Failed to enqueue homework PDF for session %s', session.pk,
+            )
+            session.delete()
+            messages.error(
+                request,
+                'The background processing service is temporarily unavailable. '
+                'Please try again in a few minutes.',
+            )
+            return redirect('homework:pdf_upload')
 
         return redirect('homework:pdf_processing', session_id=session.pk)
 
@@ -894,7 +1571,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         from classroom.models import Topic, Level
         topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
-        classrooms = _teacher_classrooms(request.user)
+        classrooms = _assignable_classrooms(request.user)
 
         for q in questions:
             q.setdefault('year_level', data.get('year_level'))
@@ -906,6 +1583,11 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             q.setdefault('grading_rubric', '')
             ref = q.get('image_ref')
             q['image_b64'] = session.extracted_images.get(ref) if ref else None
+            # Pre-format the structured-spec JSON for the editable textareas.
+            if q.get('plane_spec'):
+                q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)
+            if q.get('graph_spec'):
+                q['graph_spec_json'] = json.dumps(q['graph_spec'], indent=2)
 
         return render(request, self.template_name, {
             'session': session,
@@ -921,6 +1603,12 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                 ('fill_blank', 'Fill in the Blank'),
                 ('calculation', 'Calculation'),
                 ('extended_answer', 'Extended Answer (written)'),
+                ('long_division', 'Long Division'),
+                ('column_operation', 'Column Arithmetic'),
+                ('plot_points', 'Plot Points (Cartesian plane)'),
+                ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
+                ('identify_coords', 'Identify Coordinates (type the point)'),
+                ('read_graph', 'Read a Graph (read off a value)'),
             ],
             'validation_types': [
                 ('auto', 'Auto (system checks)'),
@@ -946,7 +1634,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         if classroom_id:
             try:
                 classroom = ClassRoom.objects.get(id=classroom_id)
-                _check_teacher_owns_class(request, classroom)
+                _check_can_assign_homework(request, classroom)
                 session.classroom = classroom
             except (ClassRoom.DoesNotExist, Exception):
                 pass
@@ -956,8 +1644,10 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         data['strand'] = request.POST.get('strand', data.get('strand', ''))
         data['subject'] = request.POST.get('subject', data.get('subject', 'Mathematics'))
 
-        questions = data.get('questions', [])
-        for idx, q in enumerate(questions):
+        original_questions = data.get('questions', [])
+
+        def _apply_question_fields(q, idx):
+            """Apply this question's posted form fields onto the dict q (in place)."""
             prefix = f'q_{idx}_'
             q['include'] = request.POST.get(f'{prefix}include') == 'on'
             q['question_text'] = request.POST.get(f'{prefix}text', q.get('question_text', ''))
@@ -974,6 +1664,57 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
 
             img_ref = request.POST.get(f'{prefix}image_ref', '')
             q['image_ref'] = img_ref if img_ref and img_ref != 'none' else None
+
+            # Long-division fields (only relevant for long_division)
+            if q['question_type'] == 'long_division':
+                for fld in ('dividend', 'divisor'):
+                    raw = request.POST.get(f'{prefix}{fld}', '').strip()
+                    if raw:
+                        try:
+                            q[fld] = int(raw)
+                        except ValueError:
+                            pass
+
+            # Column-arithmetic fields (only relevant for column_operation)
+            if q['question_type'] == 'column_operation':
+                raw_operands = request.POST.get(f'{prefix}operands', '').strip()
+                if raw_operands:
+                    try:
+                        q['operands'] = [
+                            int(tok) for tok in raw_operands.replace(',', ' ').split()
+                        ]
+                    except ValueError:
+                        pass
+                op = request.POST.get(f'{prefix}operator', '').strip()
+                if op in ('+', '-', '*'):
+                    q['operator'] = op
+
+            # Cartesian-plane spec (plot_points / plot_line / identify_coords),
+            # edited as raw JSON; a parse failure leaves the prior spec untouched
+            # so the import-time validator surfaces the issue.
+            if q['question_type'] in ('plot_points', 'plot_line', 'identify_coords'):
+                raw = request.POST.get(f'{prefix}plane_spec', '').strip()
+                if raw:
+                    try:
+                        q['plane_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
+            # Read-a-graph fields: numeric answer (+ tolerance/unit) and optional graph_spec.
+            if q['question_type'] == 'read_graph':
+                for fld in ('numeric_answer', 'answer_tolerance'):
+                    raw = request.POST.get(f'{prefix}{fld}', '').strip()
+                    if raw:
+                        q[fld] = raw
+                unit = request.POST.get(f'{prefix}answer_unit', '').strip()
+                if unit:
+                    q['answer_unit'] = unit
+                raw = request.POST.get(f'{prefix}graph_spec', '').strip()
+                if raw:
+                    try:
+                        q['graph_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
 
             # Handle image replacement / removal
             if request.POST.get(f'{prefix}remove_image') == 'on':
@@ -997,6 +1738,27 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                     })
             if answers:
                 q['answers'] = answers
+            return q
+
+        # `question_order` (CSV of indices) is present when the teacher inserted
+        # questions via "Add question below" — it carries the display order and any
+        # new indices (>= len(original)). Without it, fall back to the simple 1:1 pass.
+        order_raw = request.POST.get('question_order', '').strip()
+        if order_raw:
+            order = [int(x) for x in order_raw.split(',') if x.strip().isdigit()]
+            rebuilt = []
+            for i in order:
+                base = original_questions[i] if 0 <= i < len(original_questions) else {}
+                _apply_question_fields(base, i)
+                # Drop a newly-added question the teacher left blank.
+                if not (0 <= i < len(original_questions)) and not base.get('question_text', '').strip():
+                    continue
+                rebuilt.append(base)
+            questions = rebuilt
+        else:
+            questions = original_questions
+            for idx, q in enumerate(questions):
+                _apply_question_fields(q, idx)
 
         data['questions'] = questions
         session.extracted_data = data
@@ -1010,11 +1772,26 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
     required_roles = TEACHER_ROLES
     template_name = 'homework/upload_confirm.html'
 
-    def get(self, request, session_id):
+    def _session_or_redirect(self, request, session_id):
+        """Fetch the upload session, or redirect if it was already submitted.
+
+        Re-submitting (back button / double-click) an already-confirmed session
+        otherwise 404s on the ``is_confirmed=False`` filter. Send the user to the
+        homework that was created instead of showing a raw 404.
+        """
         from .models import HomeworkUploadSession
-        session = get_object_or_404(
-            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
-        )
+        session = get_object_or_404(HomeworkUploadSession, pk=session_id, user=request.user)
+        if session.is_confirmed:
+            messages.info(request, 'This upload has already been submitted.')
+            if session.homework_id:
+                return None, redirect('homework:teacher_detail', homework_id=session.homework_id)
+            return None, redirect('homework:teacher_monitor')
+        return session, None
+
+    def get(self, request, session_id):
+        session, redirect_response = self._session_or_redirect(request, session_id)
+        if redirect_response:
+            return redirect_response
         data = session.extracted_data
         included = [q for q in data.get('questions', []) if q.get('include', True)]
         excluded_count = len(data.get('questions', [])) - len(included)
@@ -1025,7 +1802,7 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         human_count = sum(1 for q in included if q.get('validation_type') == 'human_graded')
 
         from classroom.models import ClassRoom
-        classrooms = _teacher_classrooms(request.user)
+        classrooms = _assignable_classrooms(request.user)
 
         return render(request, self.template_name, {
             'session': session,
@@ -1039,29 +1816,46 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         })
 
     def post(self, request, session_id):
-        from .models import HomeworkUploadSession
         from billing.entitlements import get_school_for_user
 
-        session = get_object_or_404(
-            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
-        )
+        session, redirect_response = self._session_or_redirect(request, session_id)
+        if redirect_response:
+            return redirect_response
 
         hw_title = request.POST.get('homework_title', '').strip() or session.homework_title or session.pdf_filename
         due_date_str = request.POST.get('due_date', '')
         max_attempts_str = request.POST.get('max_attempts', '')
-        classroom_id = request.POST.get('classroom_id', '')
 
-        # Classroom — required
-        classroom = session.classroom
-        if classroom_id:
+        # Classroom(s) — required. The confirm step is a multi-select
+        # (name="classroom_ids"); fall back to the legacy single field and the
+        # session's pre-selected classroom so older requests still work.
+        submitted_ids = request.POST.getlist('classroom_ids')
+        if not submitted_ids:
+            single = request.POST.get('classroom_id', '')
+            if single:
+                submitted_ids = [single]
+
+        id_set = set()
+        for cid in submitted_ids:
             try:
-                classroom = ClassRoom.objects.get(id=classroom_id)
-                _check_teacher_owns_class(request, classroom)
-            except (ClassRoom.DoesNotExist, Exception):
-                pass
+                id_set.add(int(cid))
+            except (TypeError, ValueError):
+                continue
 
-        if not classroom:
-            messages.error(request, 'Please select a classroom.')
+        assignable = _assignable_classrooms(request.user)
+        if id_set:
+            # Filter to classes the user may actually assign to, so tampered or
+            # stale ids are dropped rather than trusted.
+            classrooms = list(assignable.filter(id__in=id_set))
+        elif session.classroom and assignable.filter(pk=session.classroom_id).exists():
+            # Legacy fallback — still re-checked against current scope in case the
+            # user lost access between upload and confirm.
+            classrooms = [session.classroom]
+        else:
+            classrooms = []
+
+        if not classrooms:
+            messages.error(request, 'Please select at least one classroom.')
             return redirect('homework:pdf_confirm', session_id=session.pk)
 
         if not due_date_str:
@@ -1080,6 +1874,10 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         if due_date is None:
             messages.error(request, 'Invalid due date format.')
             return redirect('homework:pdf_confirm', session_id=session.pk)
+        # datetime-local has no tz; the parse_date fallback already made its
+        # value aware, but a successful parse_datetime can still be naive.
+        if tz.is_naive(due_date):
+            due_date = tz.make_aware(due_date)
 
         max_attempts = None
         if max_attempts_str.strip():
@@ -1087,6 +1885,25 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
                 max_attempts = int(max_attempts_str)
             except ValueError:
                 pass
+
+        # Publish scheduling — blank means publish immediately; a future value
+        # schedules it (hidden + no email until the publish_scheduled_homework
+        # cron, or a manual "Publish now", flips it live).
+        publish_at_str = request.POST.get('publish_at', '').strip()
+        publish_at = None
+        if publish_at_str:
+            publish_at = parse_datetime(publish_at_str)
+            if publish_at and tz.is_naive(publish_at):
+                publish_at = tz.make_aware(publish_at)
+            if publish_at is None:
+                messages.error(request, 'Invalid publish date format.')
+                return redirect('homework:pdf_confirm', session_id=session.pk)
+            if publish_at <= tz.now():
+                messages.error(request, 'Publish date must be in the future. Leave it blank to publish now.')
+                return redirect('homework:pdf_confirm', session_id=session.pk)
+            if publish_at >= due_date:
+                messages.error(request, 'Publish date must be before the due date.')
+                return redirect('homework:pdf_confirm', session_id=session.pk)
 
         data = session.extracted_data
         questions_data = [q for q in data.get('questions', []) if q.get('include', True)]
@@ -1097,94 +1914,119 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
 
         school = get_school_for_user(request.user)
 
+        created = []  # (homework, classroom) pairs, one per selected class
         with transaction.atomic():
-            # 1. Save questions to maths.Question + maths.Answer
+            # 1. Save questions once — they are shared across every class's homework.
             saved_questions = _save_homework_pdf_questions(questions_data, data, request.user, school, session)
 
             if not saved_questions:
                 messages.error(request, 'Failed to save questions. Please try again.')
                 return redirect('homework:pdf_preview', session_id=session.pk)
 
-            # 2. Create Homework record
-            homework = Homework.objects.create(
-                classroom=classroom,
-                created_by=request.user,
-                title=hw_title,
-                homework_type='pdf_upload',
-                num_questions=len(saved_questions),
-                due_date=due_date,
-                max_attempts=max_attempts,
-            )
+            # Two extracted questions can resolve to the same maths.Question via
+            # get_or_create (identical text/topic/level). Drop duplicates so we
+            # don't insert two HomeworkQuestion rows with the same content_id,
+            # which violates the (homework, subject_slug, content_id) unique key.
+            seen_ids = set()
+            unique_questions = []
+            for q in saved_questions:
+                if q.pk not in seen_ids:
+                    seen_ids.add(q.pk)
+                    unique_questions.append(q)
+            saved_questions = unique_questions
 
-            # 3. Link HomeworkQuestions
-            # bulk_create bypasses save(), so set content_id and subject_slug explicitly
-            # — otherwise the back-compat logic in save() never fires and every row
-            # gets content_id=0, causing a unique-constraint violation on the second row.
-            HomeworkQuestion.objects.bulk_create([
-                HomeworkQuestion(
-                    homework=homework,
-                    question=q,
-                    subject_slug='mathematics',
-                    content_id=q.pk,
-                    order=i,
+            # 2. One Homework per selected class, each linking the same questions.
+            for classroom in classrooms:
+                homework = Homework.objects.create(
+                    classroom=classroom,
+                    created_by=request.user,
+                    title=hw_title,
+                    homework_type='pdf_upload',
+                    num_questions=len(saved_questions),
+                    due_date=due_date,
+                    max_attempts=max_attempts,
+                    publish_at=publish_at,  # None → auto-published by save(); future → scheduled
                 )
-                for i, q in enumerate(saved_questions, 1)
-            ])
+                # bulk_create bypasses save(), so set content_id and subject_slug
+                # explicitly — otherwise the back-compat logic never fires and every
+                # row gets content_id=0, violating the unique constraint.
+                HomeworkQuestion.objects.bulk_create([
+                    HomeworkQuestion(
+                        homework=homework,
+                        question=q,
+                        subject_slug='mathematics',
+                        content_id=q.pk,
+                        order=i,
+                    )
+                    for i, q in enumerate(saved_questions, 1)
+                ])
+                created.append((homework, classroom))
 
-            # 4. Mark session confirmed
+            # 3. Mark session confirmed, linking the first homework created.
             session.is_confirmed = True
-            session.homework = homework
+            session.homework = created[0][0]
             session.save(update_fields=['is_confirmed', 'homework'])
 
-        # Notify students
-        homework_url = reverse('homework:student_take', kwargs={'homework_id': homework.id})
-        due_str = homework.due_date.strftime('%d %b %Y')
-        active_students = (
-            ClassStudent.objects
-            .filter(classroom=classroom, is_active=True)
-            .select_related('student')
-        )
-        for cs in active_students:
-            create_notification(
-                user=cs.student,
-                message=(
-                    f'New homework "{homework.title}" has been assigned in '
-                    f'{classroom.name}. Due: {due_str}.'
-                ),
-                notification_type='homework_assigned',
-                link=homework_url,
+        # Notify students and log an audit entry, per class. Scheduled (not yet
+        # published) homework is silent until it goes live — the cron notifies then.
+        for homework, classroom in created:
+            if homework.is_published:
+                notify_students_homework_published(homework)
+
+            log_event(
+                user=request.user,
+                school=school,
+                category='data_change',
+                action='homework_pdf_created',
+                detail={
+                    'homework_id': homework.id,
+                    'title': hw_title,
+                    'session_id': session.pk,
+                    'classroom_id': classroom.id,
+                    'classroom_name': classroom.name,
+                    'question_count': len(saved_questions),
+                    'due_date': str(due_date),
+                    'publish_at': str(publish_at) if publish_at else None,
+                    'status': homework.status,
+                    'max_attempts': max_attempts,
+                },
+                request=request,
             )
 
-        log_event(
-            user=request.user,
-            school=school,
-            category='data_change',
-            action='homework_pdf_created',
-            detail={
-                'homework_id': homework.id,
-                'title': hw_title,
-                'session_id': session.pk,
-                'classroom_id': classroom.id,
-                'classroom_name': classroom.name,
-                'question_count': len(saved_questions),
-                'due_date': str(due_date),
-                'max_attempts': max_attempts,
-            },
-            request=request,
+        schedule_note = (
+            '' if publish_at is None
+            else f' Scheduled to publish on {publish_at.strftime("%d %b %Y %H:%M")}.'
         )
 
+        if len(created) == 1:
+            homework, classroom = created[0]
+            messages.success(
+                request,
+                f'Homework "{homework.title}" created with {len(saved_questions)} questions '
+                f'and assigned to {classroom.name}.{schedule_note}',
+            )
+            return redirect('homework:teacher_detail', homework_id=homework.id)
+
+        class_names = ', '.join(classroom.name for _, classroom in created)
         messages.success(
             request,
-            f'Homework "{homework.title}" created with {len(saved_questions)} questions and assigned to {classroom.name}.',
+            f'Homework "{hw_title}" created with {len(saved_questions)} questions and '
+            f'assigned to {len(created)} classes: {class_names}.{schedule_note}',
         )
-        return redirect('homework:teacher_detail', homework_id=homework.id)
+        return redirect('homework:teacher_monitor')
 
 
-def _save_homework_pdf_questions(questions_data, global_data, user, school, session):
+def _save_homework_pdf_questions(questions_data, global_data, user, school, session,
+                                 save_images=True):
     """
     Save AI-extracted homework questions as maths.Question + maths.Answer records.
 
     Returns a list of Question objects in order.
+
+    ``save_images`` (default True) gates the storage upload of question images.
+    A caller that runs inside a transaction it intends to roll back (e.g. a
+    dry-run recovery) passes False so no orphan files are written to S3/Spaces —
+    image writes are NOT transactional and would survive the rollback.
     """
     from maths.models import Question as MQ, Answer as MA
     from classroom.models import Topic, Level, Subject
@@ -1242,25 +2084,157 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             'fill_blank': MQ.FILL_BLANK,
             'calculation': MQ.CALCULATION if hasattr(MQ, 'CALCULATION') else MQ.SHORT_ANSWER,
             'extended_answer': MQ.EXTENDED_ANSWER,
+            'long_division': MQ.LONG_DIVISION,
+            'column_operation': MQ.COLUMN_OPERATION,
+            'plot_points': MQ.PLOT_POINTS,
+            'plot_line': MQ.PLOT_LINE,
+            'identify_coords': MQ.IDENTIFY_COORDS,
+            'read_graph': MQ.READ_GRAPH,
         }
         mapped_type = type_map.get(q_type, MQ.SHORT_ANSWER)
 
-        # Create or get question (avoid exact duplicates within same topic/level)
-        mq, created = MQ.objects.get_or_create(
-            question_text=q_text,
-            topic=topic,
-            level=level,
-            school_id=school_id,
-            defaults={
-                'question_type': mapped_type,
-                'validation_type': validation_type,
-                'grading_rubric': grading_rubric,
-                'difficulty': q.get('difficulty', 1),
-                'points': q.get('points', 1),
-                'explanation': q.get('explanation', ''),
-                'department_id': dept_id,
-            },
+        # Long-division: parse dividend/divisor; the answer is computed (not AI-supplied)
+        # and the layout is drawn by the app, so any attached image would be noise.
+        dividend = divisor = None
+        if mapped_type == MQ.LONG_DIVISION:
+            try:
+                dividend = int(q.get('dividend'))
+                divisor = int(q.get('divisor'))
+            except (TypeError, ValueError):
+                dividend = divisor = None
+            if not dividend or not divisor or divisor <= 0:
+                # Can't build a valid long-division question — skip it rather than
+                # import a broken one with no usable answer.
+                continue
+
+        # Column arithmetic: parse operands/operator; the answer is computed (not
+        # AI-supplied) and the stacked grid is drawn by the app, so any attached
+        # image would be noise.
+        operands = None
+        operator = ''
+        if mapped_type == MQ.COLUMN_OPERATION:
+            raw_operands = q.get('operands') or []
+            try:
+                operands = [int(o) for o in raw_operands]
+            except (TypeError, ValueError):
+                operands = None
+            operator = q.get('operator', '')
+            if not operands or len(operands) < 2 or operator not in ('+', '-', '*'):
+                # Can't build a valid column-arithmetic question — skip it rather
+                # than import a broken one with no usable answer.
+                continue
+
+        # Cartesian-plane: validate the spec; skip a malformed one rather than
+        # import a question that can never be graded. The app draws the plane.
+        plane_spec = None
+        if mapped_type in (MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS):
+            from maths.geometry_grading import validate_plane_spec
+            plane_spec = q.get('plane_spec')
+            try:
+                validate_plane_spec(plane_spec)
+            except (ValueError, TypeError):
+                continue
+
+        # Read-a-graph: numeric answer (+ tolerance/unit) and an optional clean
+        # graph_spec; keep the graph image when no spec is given.
+        graph_spec = None
+        numeric_answer = None
+        answer_tolerance = None
+        answer_unit = ''
+        if mapped_type == MQ.READ_GRAPH:
+            from decimal import Decimal, InvalidOperation
+            try:
+                numeric_answer = Decimal(str(q.get('numeric_answer')))
+            except (InvalidOperation, TypeError, ValueError):
+                numeric_answer = None
+            if numeric_answer is None:
+                # No readable value — can't grade; skip rather than import broken.
+                continue
+            raw_tol = q.get('answer_tolerance')
+            if raw_tol not in (None, ''):
+                try:
+                    answer_tolerance = Decimal(str(raw_tol))
+                except (InvalidOperation, ValueError):
+                    answer_tolerance = None
+            answer_unit = (q.get('answer_unit') or '')[:10]
+            graph_spec = q.get('graph_spec') or None
+            if graph_spec:
+                from maths.geometry_grading import validate_graph_spec
+                try:
+                    validate_graph_spec(graph_spec)
+                except (ValueError, TypeError):
+                    graph_spec = None  # fall back to the image
+
+        # Image-based questions are visually distinct even when they share a
+        # generic stem (e.g. 79 "What is the name of this shape?" questions, one
+        # per shape image). Keying dedup on text alone collapsed them all into a
+        # single row via get_or_create and the (created or not mq.image) guard
+        # then dropped every image but the first — silent data loss. So a question
+        # that carries image data is deduped on its would-be image PATH (unique
+        # per image_ref) instead of the text: re-runs stay idempotent, but
+        # distinct figures sharing a stem are never merged.
+        image_ref = q.get('image_ref')
+        image_b64 = session.extracted_images.get(image_ref) if image_ref else None
+        # Types that self-draw from structured fields never carry an image.
+        has_image = (
+            bool(image_b64)
+            and mapped_type not in (
+                MQ.LONG_DIVISION, MQ.COLUMN_OPERATION,
+                MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS,
+            )
         )
+        # read_graph carries a graph image but its IDENTITY is the numeric answer,
+        # not the picture: two questions reading different values off the same
+        # graph must stay distinct, so it dedups by text like its sibling
+        # auto-graded types. Other image questions dedup on the image PATH (one
+        # figure per question — keying on a shared stem would collapse them).
+        dedup_by_image = has_image and mapped_type != MQ.READ_GRAPH
+        topic_slug = topic.slug if getattr(topic, 'slug', '') else str(topic.id)
+        # Storage sanitises the filename on save (e.g. "q 12.jpg" -> "q_12.jpg"),
+        # so the *stored* image path uses the sanitised ref. Build the dedup
+        # target with the same sanitised name or it never matches an existing
+        # row — which would silently re-create (and on prod duplicate) every
+        # question whose image_ref contains a space or other stripped character.
+        from django.utils.text import get_valid_filename
+        safe_ref = get_valid_filename(image_ref) if image_ref else image_ref
+
+        defaults = {
+            'question_type': mapped_type,
+            'validation_type': validation_type,
+            'grading_rubric': grading_rubric,
+            'difficulty': q.get('difficulty', 1),
+            'points': q.get('points', 1),
+            'explanation': q.get('explanation', ''),
+            'department_id': dept_id,
+            'dividend': dividend,
+            'divisor': divisor,
+            'operands': operands,
+            'operator': operator,
+            'plane_spec': plane_spec,
+            'graph_spec': graph_spec,
+            'numeric_answer': numeric_answer,
+            'answer_tolerance': answer_tolerance,
+            'answer_unit': answer_unit,
+        }
+
+        if dedup_by_image:
+            target_image = f'questions/year{yl}/{topic_slug}/{safe_ref}'
+            mq = MQ.objects.filter(
+                image=target_image, level=level, school_id=school_id,
+            ).first()
+            created = mq is None
+            if created:
+                mq = MQ.objects.create(
+                    question_text=q_text, topic=topic, level=level,
+                    school_id=school_id, **defaults,
+                )
+        else:
+            # Text-only question: exact duplicates within the same topic/level
+            # genuinely are the same question, so collapse them.
+            mq, created = MQ.objects.get_or_create(
+                question_text=q_text, topic=topic, level=level,
+                school_id=school_id, defaults=defaults,
+            )
 
         if not created and validation_type != 'auto':
             # Update rubric in case teacher edited it
@@ -1268,31 +2242,48 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             mq.grading_rubric = grading_rubric
             mq.save(update_fields=['validation_type', 'grading_rubric'])
 
-        # Save image to storage (DO Spaces / S3) via Django's ImageField.save()
-        # Run when newly created OR when question exists but has no image yet
-        # (covers re-uploads after previously broken confirm attempts).
-        if (created or not mq.image):
+        # Save image to storage (DO Spaces / S3) via Django's ImageField.save().
+        # Runs when newly created OR when an existing row still lacks its image
+        # (covers re-uploads after a previously broken confirm). Long division /
+        # column arithmetic draw their own layout — never attach an image.
+        if has_image and save_images and (created or not mq.image):
             import logging as _img_log
             _img_logger = _img_log.getLogger('homework')
-            image_ref = q.get('image_ref')
-            image_b64 = session.extracted_images.get(image_ref) if image_ref else None
-            if image_b64:
-                try:
-                    import base64
-                    from django.core.files.base import ContentFile
-                    topic_slug = topic.slug if hasattr(topic, 'slug') else str(topic.id)
-                    img_bytes = base64.b64decode(image_b64)
-                    img_filename = f'year{yl}/{topic_slug}/{image_ref}'
-                    mq.image.save(img_filename, ContentFile(img_bytes), save=True)
-                    _img_logger.info('Saved question image: %s', mq.image.name)
-                except Exception as _exc:
-                    _img_logger.error(
-                        'Failed to save image for question %s (ref=%s): %s',
-                        mq.pk, image_ref, _exc, exc_info=True,
-                    )
+            try:
+                import base64
+                from django.core.files.base import ContentFile
+                img_bytes = base64.b64decode(image_b64)
+                img_filename = f'year{yl}/{topic_slug}/{safe_ref}'
+                mq.image.save(img_filename, ContentFile(img_bytes), save=True)
+                _img_logger.info('Saved question image: %s', mq.image.name)
+            except Exception as _exc:
+                _img_logger.error(
+                    'Failed to save image for question %s (ref=%s): %s',
+                    mq.pk, image_ref, _exc, exc_info=True,
+                )
 
         # Save answers (skip for extended_answer)
-        if mapped_type != MQ.EXTENDED_ANSWER:
+        if mapped_type == MQ.LONG_DIVISION:
+            # Answer is computed from dividend/divisor — ignore any AI-supplied answers.
+            if created:
+                MA.objects.create(
+                    question=mq,
+                    answer_text=mq.long_division_answer or '',
+                    is_correct=True,
+                )
+        elif mapped_type == MQ.COLUMN_OPERATION:
+            # Answer is computed from operands/operator — ignore any AI-supplied answers.
+            if created and mq.column_result is not None:
+                MA.objects.create(
+                    question=mq,
+                    answer_text=str(mq.column_result),
+                    is_correct=True,
+                )
+        elif mapped_type in (MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS, MQ.READ_GRAPH):
+            # Graded by the plane_spec set / typed coords / numeric tolerance —
+            # no Answer rows (mirrors measure / draw_on_grid / shape_select).
+            pass
+        elif mapped_type != MQ.EXTENDED_ANSWER:
             answers_data = q.get('answers', [])
             if answers_data and created:
                 MA.objects.bulk_create([

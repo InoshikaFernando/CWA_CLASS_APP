@@ -1,7 +1,10 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}{{ homework.title }}{% endblock %}
 
 {% block extra_head %}
+<!-- Draggable/rotatable protractor & ruler for `measure` questions -->
+<script defer src="{% static 'js/measure_tool.js' %}"></script>
 <style>
   .answer-option input[type="radio"]:checked + label {
     background-color: #dbeafe;
@@ -47,15 +50,28 @@
       </p>
     </div>
 
-    <!-- Timer -->
-    <div class="bg-blue-50 border border-blue-100 rounded-xl px-4 py-2 mb-6 flex items-center gap-2 text-sm text-blue-700 font-medium w-fit">
-      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
-      </svg>
-      Time: <span id="timer">00:00</span>
+    <!-- Timer + autosave status -->
+    <div class="mb-6 flex flex-wrap items-center gap-3">
+      <div class="bg-blue-50 border border-blue-100 rounded-xl px-4 py-2 flex items-center gap-2 text-sm text-blue-700 font-medium w-fit">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        Time: <span id="timer">00:00</span>
+      </div>
+      <span id="save-status" class="text-xs text-gray-400" aria-live="polite"></span>
     </div>
 
-    <form method="post" id="hw-form">
+    {% comment %}
+      Saved draft (if any), embedded as JSON for the restore/autosave script.
+      json_script HTML-escapes the values, so student-entered answer text is safe
+      to round-trip here.
+    {% endcomment %}
+    {{ draft_answers|json_script:"hw-draft-answers" }}
+
+    <form method="post" id="hw-form"
+          data-save-url="{% url 'homework:save_progress' homework_id=homework.id %}"
+          data-list-url="{% url 'homework:student_list' %}"
+          data-draft-time="{{ draft_time_taken }}">
       {% csrf_token %}
       <input type="hidden" name="time_taken_seconds" id="time_taken_seconds" value="0">
 
@@ -72,28 +88,81 @@
         {% endfor %}
       </div>
 
-      <div class="mt-8 flex gap-3">
+      <div class="mt-8 flex flex-wrap gap-3">
         <button type="submit"
                 class="px-6 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
           Submit Homework
         </button>
+        <button type="button" id="save-exit-btn"
+                class="px-6 py-2.5 bg-white text-gray-700 text-sm font-semibold rounded-lg border border-gray-300 hover:bg-gray-50 transition">
+          Save &amp; continue later
+        </button>
       </div>
+      <p class="mt-3 text-xs text-gray-400">
+        Your answers are saved automatically as you go — you can close this page and pick up where you left off.
+      </p>
     </form>
 
   </div>
 </div>
 
-<script>
-  let seconds = 0;
-  const timerEl = document.getElementById('timer');
-  const hiddenEl = document.getElementById('time_taken_seconds');
+{% if has_maths_item %}{% include "partials/_rough_work_whiteboard.html" %}{% endif %}
 
-  setInterval(() => {
-    seconds++;
-    hiddenEl.value = seconds;
+<script>
+  const form     = document.getElementById('hw-form');
+  const timerEl  = document.getElementById('timer');
+  const hiddenEl = document.getElementById('time_taken_seconds');
+  const statusEl = document.getElementById('save-status');
+
+  // ── Restore saved progress ────────────────────────────────────────────────
+  // Resume from a previously-saved draft: the timer continues from where it
+  // stopped and each answer field is repopulated by name. Standard inputs
+  // (radio, text, hidden, textarea) restore directly; coding textareas are
+  // restored here BEFORE the CodeMirror block below initialises, so the editor
+  // picks up the saved code automatically.
+  //
+  // Known limitation: the construction-style maths widgets (long division,
+  // prime factorisation, draw-on-grid) restore their final hidden answer value
+  // but not the intermediate in-cell state, and their on-submit sync rebuilds
+  // from the (empty) cells — so partial progress on THOSE question types is not
+  // preserved. Multiple-choice and text answers (the common case) restore fully.
+  let savedAnswers = {};
+  try {
+    savedAnswers = JSON.parse(document.getElementById('hw-draft-answers').textContent) || {};
+  } catch (e) { savedAnswers = {}; }
+
+  Object.entries(savedAnswers).forEach(([name, value]) => {
+    const els = form.querySelectorAll(`[name="${CSS.escape(name)}"]`);
+    if (!els.length) return;
+    if (els[0].type === 'radio') {
+      els.forEach(el => { el.checked = (el.value === value); });
+    } else {
+      els[0].value = value;
+    }
+  });
+
+  // Interactive maths widgets (long division, prime factorisation, column
+  // operations, draw-on-grid, shape-select, plot-points/line) only save their
+  // final synthesised answer, not the individual working cells. Now that the
+  // hidden answer_<id> fields above are restored, ask each widget to rebuild
+  // its on-screen working from that value. Without this the cells stay blank on
+  // resume AND the widget's on-submit rebuild would recompute the hidden field
+  // from those empty cells — silently wiping a resumed answer at submit time.
+  (window.__hwRehydrateMaths || []).forEach(fn => { try { fn(); } catch (e) {} });
+
+  // ── Timer ─────────────────────────────────────────────────────────────────
+  let seconds = parseInt(form.dataset.draftTime || '0', 10) || 0;
+  function paintTimer() {
     const m = String(Math.floor(seconds / 60)).padStart(2, '0');
     const s = String(seconds % 60).padStart(2, '0');
     timerEl.textContent = `${m}:${s}`;
+  }
+  hiddenEl.value = seconds;
+  paintTimer();
+  setInterval(() => {
+    seconds++;
+    hiddenEl.value = seconds;
+    paintTimer();
   }, 1000);
 
   // Make radio labels clickable without double-click issue
@@ -103,6 +172,118 @@
       if (input) input.checked = true;
     });
   });
+
+  // ── Autosave / save-and-exit ──────────────────────────────────────────────
+  function getCsrfToken() {
+    const m = document.cookie.match(/csrftoken=([^;]+)/);
+    return m ? m[1] : '';
+  }
+
+  // Collect the current answer fields into a flat {name: value} map. Coding
+  // editors are CodeMirror instances whose closure exposes a global sync hook
+  // (set by the coding block); call it first so the textareas hold fresh code.
+  function collectAnswers() {
+    if (window.__hwSyncEditors) window.__hwSyncEditors();
+    const data = {};
+    const fd = new FormData(form);
+    for (const [name, value] of fd.entries()) {
+      if (name === 'csrfmiddlewaretoken' || name === 'time_taken_seconds') continue;
+      if (typeof value === 'string') data[name] = value;
+    }
+    return data;
+  }
+
+  let saving = false;
+  let pendingTimer = null;
+  // Saves are serialised onto this chain (see saveProgress) so a "Save &
+  // continue later" click that lands while an autosave is in flight still runs
+  // its own save afterwards instead of being silently skipped.
+  let saveChain = Promise.resolve(true);
+
+  async function performSave({ silent }) {
+    saving = true;
+    if (!silent) statusEl.textContent = 'Saving…';
+    try {
+      const resp = await fetch(form.dataset.saveUrl, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCsrfToken(),
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({
+          answers: collectAnswers(),
+          time_taken_seconds: seconds,
+        }),
+      });
+      const out = await resp.json().catch(() => ({}));
+      if (resp.ok && out.ok) {
+        const t = new Date();
+        statusEl.className = 'text-xs text-green-600';
+        statusEl.textContent = 'Saved ' + t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return true;
+      }
+      statusEl.className = 'text-xs text-amber-600';
+      statusEl.textContent = 'Could not save — your last saved answers are kept.';
+      return false;
+    } catch (e) {
+      statusEl.className = 'text-xs text-amber-600';
+      statusEl.textContent = 'Offline — could not save right now.';
+      return false;
+    } finally {
+      saving = false;
+    }
+  }
+
+  // Queue each save after the previous one settles. This guarantees a save is
+  // never dropped just because another is in progress — critical for the
+  // save-and-exit path, which must reflect a real save attempt before leaving.
+  function saveProgress({ silent = false } = {}) {
+    saveChain = saveChain.then(
+      () => performSave({ silent }),
+      () => performSave({ silent }),
+    );
+    return saveChain;
+  }
+
+  // Debounced save shortly after the student changes any answer, plus a
+  // periodic heartbeat so long thinking pauses still get checkpointed.
+  function scheduleSave() {
+    statusEl.className = 'text-xs text-gray-400';
+    statusEl.textContent = 'Unsaved changes…';
+    clearTimeout(pendingTimer);
+    pendingTimer = setTimeout(() => saveProgress({ silent: false }), 1500);
+  }
+  form.addEventListener('input', scheduleSave);
+  form.addEventListener('change', scheduleSave);
+  setInterval(() => { if (!saving) saveProgress({ silent: true }); }, 30000);
+
+  // "Save & continue later" — checkpoint, then return to the homework list.
+  // Only leave the page once the save has ACTUALLY succeeded: navigating away
+  // on a failed save would strand the student on the list believing their work
+  // was kept when it wasn't. On failure we keep them here (answers intact) with
+  // a clear message so they can retry.
+  const saveExitBtn = document.getElementById('save-exit-btn');
+  if (saveExitBtn) {
+    saveExitBtn.addEventListener('click', async () => {
+      saveExitBtn.disabled = true;
+      clearTimeout(pendingTimer);
+      const ok = await saveProgress({ silent: false });
+      if (ok) {
+        window.location.href = form.dataset.listUrl;
+        return;
+      }
+      saveExitBtn.disabled = false;
+      statusEl.className = 'text-xs text-red-600 font-semibold';
+      statusEl.textContent =
+        'Could not save — please check your connection and try again. ' +
+        'Your answers are still on this page.';
+    });
+  }
+
+  // Don't leave a stale "resume" behind once the work is actually submitted:
+  // the server deletes the draft on submit, so no client action is needed here.
 </script>
 
 {% if has_coding_item %}
@@ -153,6 +334,12 @@
     cm.setSize('100%', 220);
     editors.set(contentId, { cm, lang, exerciseId: ta.dataset.exerciseId, ta });
   });
+
+  // Expose a sync hook so the autosave/submit serialiser can flush every
+  // CodeMirror instance back to its textarea before reading form values.
+  window.__hwSyncEditors = function () {
+    editors.forEach(entry => entry.cm.save());
+  };
 
   // ── Run button wiring ─────────────────────────────────────────────────────
   function getCsrf() {

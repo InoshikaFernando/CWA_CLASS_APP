@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+
+{% block title %}Usage Analytics{% endblock %}
+
+{% block content %}
+<style>
+  /* Desktop "fill" mode: the dashboard fills the viewport height responsively
+     when it fits; short screens fall back to a uniform down-scale (see JS). */
+  @media (min-width: 1024px) {
+    #usage-fit.fill-mode { height: 100%; }
+    #usage-fit.fill-mode .charts-grid { flex: 1 1 0%; min-height: 0; }
+  }
+</style>
+<div id="usage-frame" class="-mx-4 -my-6 md:-mx-8 px-3 py-3 bg-slate-900 text-slate-200 min-h-[calc(100vh-4rem)] flex flex-col lg:h-[calc(100vh-4rem)] lg:min-h-0 lg:overflow-hidden lg:items-center">
+<div id="usage-fit" class="w-full mx-auto flex flex-col gap-2">
+
+  {% comment %} Header {% endcomment %}
+  <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+    <div class="flex items-baseline gap-3">
+      <h1 class="text-base font-display font-bold text-white leading-none">Usage Analytics</h1>
+      <p class="text-[11px] text-slate-500 flex items-center gap-1.5 leading-none">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        updated now &middot; auto-refresh {{ refresh_seconds }}s
+        <span id="refresh-countdown" class="text-slate-600"></span>
+      </p>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="inline-flex items-center gap-1.5 text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2.5 py-0.5 leading-none">
+        <span class="relative flex h-2 w-2">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+        </span>
+        <strong class="text-sm">{{ active_now.users }}</strong> users{% if active_now.guests %} <span class="text-emerald-400/70">+ {{ active_now.guests }} guests</span>{% endif %} active now
+        <span class="text-emerald-400/60">&middot; last {{ active_now.minutes }} min</span>
+      </span>
+      <span class="text-[11px] text-slate-400 bg-slate-800 border border-slate-700 rounded-full px-2.5 py-0.5 leading-none">Page views only &middot; 90-day retention</span>
+    </div>
+  </div>
+
+  {% comment %} KPI strip with sparklines {% endcomment %}
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+    <div class="bg-slate-800 rounded-lg px-3 py-1.5 border border-slate-700">
+      <div class="flex items-baseline justify-between"><span class="text-[11px] text-slate-400">Active users today</span></div>
+      <div class="text-lg font-bold text-emerald-400 leading-tight">{{ kpi.users_today }}</div>
+      <div class="h-6"><canvas id="spkUsers" aria-hidden="true"></canvas></div>
+    </div>
+    <div class="bg-slate-800 rounded-lg px-3 py-1.5 border border-slate-700">
+      <div class="flex items-baseline justify-between"><span class="text-[11px] text-slate-400">Page views today</span></div>
+      <div class="text-lg font-bold text-indigo-400 leading-tight">{{ kpi.views_today }}</div>
+      <div class="h-6"><canvas id="spkViewsDaily" aria-hidden="true"></canvas></div>
+    </div>
+    <div class="bg-slate-800 rounded-lg px-3 py-1.5 border border-slate-700">
+      <div class="flex items-baseline justify-between"><span class="text-[11px] text-slate-400">Page views (24h)</span></div>
+      <div class="text-lg font-bold text-white leading-tight">{{ kpi.views_24h }}</div>
+      <div class="h-6"><canvas id="spkViews24" aria-hidden="true"></canvas></div>
+    </div>
+    <div class="rounded-lg px-3 py-1.5 border {% if kpi.errors_today %}bg-rose-500/10 border-rose-500/30{% else %}bg-slate-800 border-slate-700{% endif %}">
+      <div class="flex items-baseline justify-between"><span class="text-[11px] {% if kpi.errors_today %}text-rose-300{% else %}text-slate-400{% endif %}">Errors today</span><span class="text-[10px] text-slate-500">excl. bot noise</span></div>
+      <div class="text-lg font-bold {% if kpi.errors_today %}text-rose-400{% else %}text-slate-500{% endif %} leading-tight">{{ kpi.errors_today }}</div>
+      <div class="h-6"><canvas id="spkErrors" aria-hidden="true"></canvas></div>
+    </div>
+  </div>
+
+  {% comment %} Health row: error-rate gauge | status donut {% endcomment %}
+  <div class="grid grid-cols-2 gap-2">
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-1 border border-slate-700 flex flex-col">
+      <h2 class="text-xs font-semibold text-white mb-1">Error rate (30d) <span class="font-normal text-slate-500">· excl. bot noise</span></h2>
+      <div class="relative flex-1 min-h-[120px]">
+        <canvas id="chartGauge" role="img" aria-label="Error rate gauge: {{ health.error_rate }} percent"></canvas>
+        <div class="absolute inset-x-0 bottom-1 text-center">
+          <div class="text-xl font-bold leading-none {% if health.band == 'bad' %}text-rose-400{% elif health.band == 'warn' %}text-amber-400{% else %}text-emerald-400{% endif %}">{{ health.error_rate }}%</div>
+          <div class="text-[10px] text-slate-500">{{ health.errors }} errors / {{ health.total }} views{% if health.noise %} &middot; {{ health.noise }} noise hidden{% endif %}</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-1 border border-slate-700 flex flex-col">
+      <h2 class="text-xs font-semibold text-white mb-1">Traffic by status (30d)</h2>
+      <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-slate-400 mb-1">
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm" style="background:#34d399"></span>2xx {{ health.ok }}</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm" style="background:#fbbf24"></span>4xx {{ health.client_4xx }}</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm" style="background:#f43f5e"></span>5xx {{ health.server_5xx }}</span>
+      </div>
+      <div class="relative flex-1 min-h-[110px]"><canvas id="chartDonut" role="img" aria-label="Traffic by status class donut"></canvas></div>
+    </section>
+  </div>
+
+  {% comment %} Charts grid: the six time-series (2 cols × 3 rows) {% endcomment %}
+  <div class="charts-grid grid grid-cols-1 lg:grid-cols-2 gap-2 lg:min-h-0">
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-1 border border-slate-700 flex flex-col min-h-0">
+      <h2 class="text-xs font-semibold text-white mb-1">Active usage &mdash; last 24 hours (hourly)</h2>
+      <div class="flex-1 min-h-[140px]" style="position:relative"><canvas id="chartHourly24" role="img" aria-label="Hourly active users and page views, last 24 hours"></canvas></div>
+    </section>
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-1 border border-slate-700 flex flex-col min-h-0">
+      <h2 class="text-xs font-semibold text-white mb-1">Active usage &mdash; last 7 days (daily)</h2>
+      <div class="flex-1 min-h-[140px]" style="position:relative"><canvas id="chartDaily7" role="img" aria-label="Daily active users and page views, last 7 days"></canvas></div>
+    </section>
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-1 border border-slate-700 flex flex-col min-h-0">
+      <h2 class="text-xs font-semibold text-white mb-1">Active usage &mdash; last 30 days (daily)</h2>
+      <div class="flex-1 min-h-[140px]" style="position:relative"><canvas id="chartDaily30" role="img" aria-label="Daily active users and page views, last 30 days"></canvas></div>
+    </section>
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-1 border border-slate-700 flex flex-col min-h-0">
+      <h2 class="text-xs font-semibold text-white mb-1">Errors 4xx / 5xx &mdash; last 30 days <span class="font-normal text-slate-500">· dashed = threshold</span></h2>
+      <div class="flex-1 min-h-[140px]" style="position:relative"><canvas id="chartErrors30" role="img" aria-label="Daily 4xx and 5xx errors over 30 days"></canvas></div>
+    </section>
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-1 border border-slate-700 flex flex-col min-h-0">
+      <h2 class="text-xs font-semibold text-white mb-1">Most-visited pages &mdash; daily, last 7 days</h2>
+      <div class="flex-1 min-h-[140px]" style="position:relative"><canvas id="chartTop7" role="img" aria-label="Most-visited pages per day, last 7 days"></canvas></div>
+    </section>
+    <section class="bg-slate-800 rounded-lg px-3 pt-2 pb-1 border border-slate-700 flex flex-col min-h-0">
+      <h2 class="text-xs font-semibold text-white mb-1">Most-visited pages &mdash; daily, last 30 days</h2>
+      <div class="flex-1 min-h-[140px]" style="position:relative"><canvas id="chartTop30" role="img" aria-label="Most-visited pages per day, last 30 days"></canvas></div>
+    </section>
+  </div>
+</div>
+</div>
+
+{% comment %} Drill-down detail (below the one-screen fold) {% endcomment %}
+<div class="-mx-4 md:-mx-8 px-3 pb-6 bg-slate-900 text-slate-200 space-y-2">
+  <details class="bg-slate-800 rounded-lg border border-slate-700 px-3 py-1.5" open>
+    <summary class="cursor-pointer text-xs font-semibold text-white py-1">Recent errors <span class="font-normal text-slate-500">— what failed (newest first; bot/scanner probes dimmed)</span></summary>
+    <table class="w-full text-xs mt-1">
+      <thead><tr class="text-[10px] uppercase tracking-wide text-slate-500 text-left"><th class="py-1 font-medium">When</th><th class="py-1 font-medium">Status</th><th class="py-1 font-medium">Path</th><th class="py-1 font-medium">User</th></tr></thead>
+      <tbody class="divide-y divide-slate-700/60">
+        {% for e in recent_errors %}
+        <tr class="{% if e.noise %}opacity-45{% endif %}">
+          <td class="py-0.5 text-slate-400 whitespace-nowrap pr-2">{{ e.when }}</td>
+          <td class="py-0.5 pr-2 font-mono {% if e.status >= 500 %}text-rose-400{% else %}text-amber-400{% endif %}">{{ e.status }}</td>
+          <td class="py-0.5 text-slate-200 break-all">{{ e.path }}{% if e.noise %} <span class="text-[10px] text-slate-500">(noise)</span>{% endif %}</td>
+          <td class="py-0.5 text-slate-400 whitespace-nowrap">{{ e.user }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="py-2 text-center text-slate-500">No 4xx/5xx responses in the last 30 days.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+
+  <details class="bg-slate-800 rounded-lg border border-slate-700 px-3 py-1.5">
+    <summary class="cursor-pointer text-xs font-semibold text-white py-1">Top failing pages <span class="font-normal text-slate-500">(30d, excl. bot noise)</span></summary>
+    <table class="w-full text-xs mt-1">
+      <tbody class="divide-y divide-slate-700/60">
+        {% for e in errors_30.top_errors %}
+        <tr>
+          <td class="py-0.5 text-slate-200 break-all">{{ e.path }}</td>
+          <td class="py-0.5 px-2 text-right font-mono {% if e.status >= 500 %}text-rose-400{% else %}text-amber-400{% endif %}">{{ e.status }}</td>
+          <td class="py-0.5 text-right font-semibold text-white">{{ e.count }}</td>
+        </tr>
+        {% empty %}
+        <tr><td class="py-2 text-center text-slate-500">No app errors in the last 30 days.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+</div>
+
+{{ hourly_24|json_script:"data-hourly24" }}
+{{ daily_7|json_script:"data-daily7" }}
+{{ daily_30|json_script:"data-daily30" }}
+{{ top_pages_7|json_script:"data-top7" }}
+{{ top_pages_30|json_script:"data-top30" }}
+{{ errors_30|json_script:"data-errors30" }}
+{{ health|json_script:"data-health" }}
+
+<script>
+  (function () {
+    var seconds = {{ refresh_seconds }};
+    var el = document.getElementById('refresh-countdown');
+    var remaining = seconds;
+    setInterval(function () {
+      remaining -= 1;
+      if (el) { el.textContent = remaining > 0 ? '(' + remaining + 's)' : '(refreshing…)'; }
+      if (remaining <= 0) { window.location.reload(); }
+    }, 1000);
+  })();
+</script>
+<script>
+  (function () {
+    var frame = document.getElementById('usage-frame');
+    var content = document.getElementById('usage-fit');
+    if (!frame || !content) { return; }
+    var LG = 1024, raf = null;
+    function fit() {
+      if (window.innerWidth < LG) { content.classList.remove('fill-mode'); content.style.transform = ''; return; }
+      content.classList.remove('fill-mode'); content.style.transform = 'none';
+      var ch = content.offsetHeight, cw = content.offsetWidth;
+      var cs = window.getComputedStyle(frame);
+      var availH = frame.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+      if (!ch || !cw || !availH) { content.style.transform = ''; return; }
+      if (ch <= availH) { content.style.transform = ''; content.classList.add('fill-mode'); }
+      else { var s = Math.min(frame.clientWidth / cw, availH / ch); content.style.transformOrigin = 'top center'; content.style.transform = 'scale(' + s + ')'; }
+    }
+    window.fitUsage = function () { if (raf) { cancelAnimationFrame(raf); } raf = requestAnimationFrame(fit); };
+    window.addEventListener('resize', window.fitUsage);
+    // Run fit() directly (not only via rAF, which background tabs throttle) and
+    // re-run as the responsive charts settle their layout (they size async).
+    fit();
+    [150, 400, 800, 1300].forEach(function (ms) { setTimeout(fit, ms); });
+  })();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script>
+  (function () {
+    if (typeof Chart === 'undefined') { return; }
+    function read(id) { var n = document.getElementById(id); return n ? JSON.parse(n.textContent) : null; }
+    var GRID = 'rgba(148,163,184,0.15)', TICK = '#94a3b8', LEGEND = '#cbd5e1';
+
+    function baseOptions(dense, extraScales) {
+      var scales = { x: { ticks: { color: TICK, maxTicksLimit: 12, autoSkip: true, maxRotation: 0 }, grid: { display: false } } };
+      for (var k in extraScales) { scales[k] = extraScales[k]; }
+      return {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        elements: { point: { radius: dense ? 0 : 2 } }, scales: scales,
+        plugins: { legend: { position: 'top', labels: { color: LEGEND, boxWidth: 12, usePointStyle: true, font: { size: 10 } } } }
+      };
+    }
+
+    function activeUsage(id, d) {
+      var ctx = document.getElementById(id); if (!ctx || !d) { return; }
+      new Chart(ctx.getContext('2d'), { type: 'line',
+        data: { labels: d.labels, datasets: [
+          { label: 'Page views', data: d.views, yAxisID: 'y', borderColor: '#818cf8', backgroundColor: 'rgba(129,140,248,0.12)', borderWidth: 2, tension: 0.25, fill: true },
+          { label: 'Active users', data: d.users, yAxisID: 'y1', borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.12)', borderWidth: 2, tension: 0.25, fill: false } ] },
+        options: baseOptions(d.labels.length > 25, {
+          y:  { beginAtZero: true, position: 'left',  ticks: { color: '#a5b4fc', precision: 0 }, grid: { color: GRID } },
+          y1: { beginAtZero: true, position: 'right', ticks: { color: '#6ee7b7', precision: 0 }, grid: { drawOnChartArea: false } } }) });
+    }
+    activeUsage('chartHourly24', read('data-hourly24'));
+    activeUsage('chartDaily7', read('data-daily7'));
+    activeUsage('chartDaily30', read('data-daily30'));
+
+    function topPages(id, d) {
+      var ctx = document.getElementById(id); if (!ctx || !d) { return; }
+      var datasets = d.series.map(function (s) { return { label: s.path, data: s.data, borderColor: s.color, backgroundColor: s.color, borderWidth: 2, tension: 0.25, fill: false }; });
+      new Chart(ctx.getContext('2d'), { type: 'line', data: { labels: d.labels, datasets: datasets },
+        options: baseOptions(d.labels.length > 25, { y: { beginAtZero: true, ticks: { color: TICK, precision: 0 }, grid: { color: GRID } } }) });
+    }
+    topPages('chartTop7', read('data-top7'));
+    topPages('chartTop30', read('data-top30'));
+
+    // Errors over time + computed dashed alert threshold (2x avg, min 5).
+    (function () {
+      var ctx = document.getElementById('chartErrors30'); var d = read('data-errors30'); if (!ctx || !d) { return; }
+      var tot = d.client_4xx.map(function (v, i) { return v + d.server_5xx[i]; });
+      var avg = tot.reduce(function (a, b) { return a + b; }, 0) / (tot.length || 1);
+      var thr = Math.max(5, Math.round(avg * 2));
+      new Chart(ctx.getContext('2d'), { type: 'line',
+        data: { labels: d.labels, datasets: [
+          { label: '4xx (client)', data: d.client_4xx, borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,0.12)', borderWidth: 2, pointRadius: 0, tension: 0.25, fill: true },
+          { label: '5xx (server)', data: d.server_5xx, borderColor: '#f43f5e', backgroundColor: 'rgba(244,63,94,0.14)', borderWidth: 2, pointRadius: 0, tension: 0.25, fill: true },
+          { label: 'Threshold', data: d.labels.map(function () { return thr; }), borderColor: 'rgba(148,163,184,0.7)', borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false } ] },
+        options: baseOptions(true, { y: { beginAtZero: true, ticks: { color: TICK, precision: 0 }, grid: { color: GRID } } }) });
+    })();
+
+    // Error-rate gauge (scaled 0–10% so small rates read; colour by band).
+    (function () {
+      var ctx = document.getElementById('chartGauge'); var h = read('data-health'); if (!ctx || !h) { return; }
+      var SCALE = 10, val = Math.min(h.error_rate, SCALE);
+      var col = h.band === 'bad' ? '#f43f5e' : (h.band === 'warn' ? '#fbbf24' : '#34d399');
+      new Chart(ctx.getContext('2d'), { type: 'doughnut',
+        data: { datasets: [{ data: [val, SCALE - val], backgroundColor: [col, 'rgba(148,163,184,0.18)'], borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, rotation: -90, circumference: 180, cutout: '74%', plugins: { legend: { display: false }, tooltip: { enabled: false } } } });
+    })();
+
+    // Status-composition donut.
+    (function () {
+      var ctx = document.getElementById('chartDonut'); var h = read('data-health'); if (!ctx || !h) { return; }
+      new Chart(ctx.getContext('2d'), { type: 'doughnut',
+        data: { labels: ['2xx', '4xx', '5xx'], datasets: [{ data: [h.ok, h.client_4xx, h.server_5xx], backgroundColor: ['#34d399', '#fbbf24', '#f43f5e'], borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '60%', plugins: { legend: { display: false } } } });
+    })();
+
+    // Sparklines in the KPI tiles, drawn from the series already loaded.
+    function spark(id, arr, color) {
+      var ctx = document.getElementById(id); if (!ctx || !arr) { return; }
+      new Chart(ctx.getContext('2d'), { type: 'line',
+        data: { labels: arr.map(function () { return ''; }), datasets: [{ data: arr, borderColor: color, backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0, tension: 0.3 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false } } } });
+    }
+    var d30 = read('data-daily30'), h24 = read('data-hourly24'), err = read('data-errors30');
+    if (d30) { spark('spkUsers', d30.users, '#34d399'); spark('spkViewsDaily', d30.views, '#818cf8'); }
+    if (h24) { spark('spkViews24', h24.views, '#cbd5e1'); }
+    if (err) { spark('spkErrors', err.client_4xx.map(function (v, i) { return v + err.server_5xx[i]; }), '#f43f5e'); }
+    // Charts are laid out — re-fit so the one-screen scaling uses final heights.
+    if (window.fitUsage) { requestAnimationFrame(window.fitUsage); }
+  })();
+</script>
+{% endblock %}

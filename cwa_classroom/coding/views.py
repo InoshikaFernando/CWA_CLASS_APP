@@ -1,7 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
-from django.http import JsonResponse
+from django.http import JsonResponse, Http404
 from django.utils import timezone
 from django.db.models import Count, F, Q
 from django.conf import settings
@@ -1142,3 +1142,112 @@ def my_progress(request):
             {'label': 'My Progress', 'url': None},
         ],
     })
+
+
+# ---------------------------------------------------------------------------
+# Online compilers / playgrounds
+# ---------------------------------------------------------------------------
+# Free-form code editors that let students write and run code without an
+# exercise or problem attached. Three flavours:
+#   python      → executed server-side via Piston (stdout/stderr captured)
+#   javascript  → executed server-side via Piston (Node stdout/stderr)
+#   html-css    → rendered entirely client-side in a sandboxed <iframe>;
+#                 no server round-trip, so it works even without Piston.
+# These are intentionally decoupled from the CodingLanguage DB rows so the
+# tools work regardless of which languages an instructor has seeded.
+
+PLAYGROUNDS = {
+    'python': {
+        'name': 'Python',
+        'tagline': 'Run Python 3 in your browser.',
+        'mode': 'run',
+        'piston_language': 'python',
+        'cm_mode': 'python',
+        'filename': 'main.py',
+        'starter': 'print("Hello, world!")\n',
+    },
+    'javascript': {
+        'name': 'JavaScript',
+        'tagline': 'Run JavaScript with Node.js.',
+        'mode': 'run',
+        'piston_language': 'javascript',
+        'cm_mode': 'javascript',
+        'filename': 'main.js',
+        'starter': 'console.log("Hello, world!");\n',
+    },
+    'html-css': {
+        'name': 'HTML / CSS',
+        'tagline': 'Build a web page with a live preview.',
+        'mode': 'preview',
+        'piston_language': None,
+        'cm_mode': 'htmlmixed',
+        'filename': 'index.html',
+        'starter_html': (
+            '<!DOCTYPE html>\n<html>\n<head>\n  <title>My Page</title>\n'
+            '</head>\n<body>\n  <h1>Hello, world!</h1>\n'
+            '  <p>Edit the HTML and CSS, then press Run.</p>\n'
+            '</body>\n</html>\n'
+        ),
+        'starter_css': (
+            'body {\n  font-family: system-ui, sans-serif;\n'
+            '  margin: 2rem;\n  color: #1a1a18;\n}\n\n'
+            'h1 {\n  color: #1D9E75;\n}\n'
+        ),
+    },
+}
+
+
+@login_required
+def playground_index(request):
+    """Landing page listing the available online compilers. /coding/playground/"""
+    playgrounds = [{'slug': slug, **cfg} for slug, cfg in PLAYGROUNDS.items()]
+    return render(request, 'coding/playground_index.html', {
+        'playgrounds': playgrounds,
+        'subject_sidebar': 'coding',
+    })
+
+
+@login_required
+def playground(request, lang):
+    """Free-form online compiler for a single language. /coding/playground/<lang>/"""
+    cfg = PLAYGROUNDS.get(lang)
+    if not cfg:
+        raise Http404('Unknown playground language')
+    return render(request, 'coding/playground.html', {
+        'lang_slug': lang,
+        'cfg': cfg,
+        'subject_sidebar': 'coding',
+    })
+
+
+@login_required
+@require_POST
+def api_playground_run(request):
+    """Execute free-form playground code (Python / JavaScript) via Piston.
+
+    POST /coding/api/playground-run/
+    Request JSON:  { language, code, stdin (optional) }
+    Response JSON: { stdout, stderr, exit_code, run_time_seconds, error? }
+
+    HTML/CSS is rendered client-side in an iframe and never reaches this
+    endpoint.
+    """
+    import json
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    lang = (body.get('language') or '').strip()
+    code = body.get('code') or ''
+    stdin = body.get('stdin', '')
+
+    cfg = PLAYGROUNDS.get(lang)
+    if not cfg or cfg['mode'] != 'run':
+        return JsonResponse({'error': 'Unsupported playground language'}, status=400)
+    if not code.strip():
+        return JsonResponse({'error': 'code is required'}, status=400)
+
+    from .execution import run_code
+    result = run_code(cfg['piston_language'], code, stdin)
+    return JsonResponse(result)

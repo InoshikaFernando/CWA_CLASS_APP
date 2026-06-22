@@ -44,11 +44,7 @@
         {% endif %}
       </div>
 
-      {% if subscription.cancel_at_period_end %}
-      <div class="bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-amber-700">
-        Subscription will cancel on {{ subscription.current_period_end|date:"d M Y" }}.
-      </div>
-      {% endif %}
+      {% include "billing/_partials/cancel_subscription.html" with sub=subscription %}
 
     </div>
 

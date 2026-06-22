@@ -1,0 +1,120 @@
+name: Deploy to Production
+
+# Deploys `main` to prod whenever it changes. Promotion (test → main) happens
+# through a normal reviewed PR; merging that PR pushes `main`, which triggers
+# this workflow. This deliberately does NOT push to `main` itself — the old
+# in-workflow "promote test → main" step could not push a protected branch
+# (GH006) and blocked every release. Separating promote (PR) from deploy (this)
+# means a protected `main` is a feature, not a blocker.
+#
+# Triggers:
+#   - push to `main`      → deploy the merged code.
+#   - workflow_dispatch   → re-deploy current `main` on demand.
+#
+# What the deploy step does (over SSH, via scripts/deploy.sh on the droplet):
+#   reset to origin/main → install deps → migrate → collectstatic →
+#   check --deploy → restart cwa-gunicorn → deep health gate → restart RQ worker.
+# Then a public smoke test runs, and failures alert DEPLOY_ALERT_WEBHOOK.
+#
+# Until DEPLOY_HOST is set the deploy no-ops (nothing is touched).
+#
+# Required repository secrets:
+#   DEPLOY_HOST          — prod server IP / hostname
+#   DEPLOY_SSH_KEY       — private key authorised for the deploy user on prod
+#   DEPLOY_USER          — (optional) SSH user, default: cwa
+#   DEPLOY_PATH          — (optional) repo path,  default: /home/cwa/CWA_CLASS_APP
+#   SMOKE_URL            — (optional) URL to smoke, default: https://www.wizardslearninghub.co.nz
+#   DEPLOY_ALERT_WEBHOOK — (optional) Slack/Discord incoming webhook for failure alerts
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false      # never interrupt an in-flight deploy
+
+jobs:
+  deploy:
+    name: Deploy main to production
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.gate.outputs.configured }}
+    steps:
+      - name: Check deploy secrets
+        id: gate
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          if [ -z "$DEPLOY_HOST" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::DEPLOY_HOST not set — skipping prod deploy (nothing touched)."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to production
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
+            "${DEPLOY_USER:-cwa}@${DEPLOY_HOST}" \
+            "cd ${DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP} && DEPLOY_BRANCH=main SERVICE=cwa-gunicorn WORKER=cwa-rqworker-prod ENV_FILE=/etc/cwa/cwa.env HEALTH_SOCKET=/run/cwa/gunicorn.sock bash scripts/deploy.sh"
+          # Runs in the PROD checkout: resets to origin/main, migrates, collects
+          # static, restarts cwa-gunicorn, runs the deep health gate against
+          # /run/cwa/gunicorn.sock (non-zero if unhealthy), restarts the RQ worker.
+
+  smoke:
+    name: Post-deploy smoke (public)
+    needs: deploy
+    if: needs.deploy.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright + Chromium
+        run: |
+          pip install playwright==1.49.1
+          playwright install --with-deps chromium
+
+      - name: Public smoke test
+        env:
+          SMOKE_URL: ${{ secrets.SMOKE_URL }}
+        working-directory: cwa_classroom
+        run: |
+          URL="${SMOKE_URL:-https://www.wizardslearninghub.co.nz}"
+          echo "Smoke-testing ${URL} (public/liveness only)"
+          python smoke_test.py "$URL" --public-only
+
+  notify-failure:
+    name: Alert on failed deploy
+    needs: [deploy, smoke]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post failure to webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.DEPLOY_ALERT_WEBHOOK }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "::notice::DEPLOY_ALERT_WEBHOOK not set — skipping chat alert (GitHub still emails the run owner)."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          MSG="🚨 CWA PROD deploy FAILED — ${RUN_URL}"
+          printf '{"text": %s, "content": %s}' "$(jq -Rn --arg m "$MSG" '$m')" "$(jq -Rn --arg m "$MSG" '$m')" \
+            | curl -sS -X POST -H 'Content-Type: application/json' -d @- "$WEBHOOK_URL"

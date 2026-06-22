@@ -13,9 +13,18 @@ from .views import RoleRequiredMixin
 from .notifications import create_notification
 from .models import (
     School, SchoolTeacher, Subject, Level, ClassRoom, Department,
-    ClassStudent, ClassTeacher, DepartmentSubject,
+    ClassStudent, ClassTeacher, DepartmentSubject, Term, ParentStudent,
     ProgressCriteria, ProgressRecord, Notification,
+    ProgressReportComment, ProgressReport,
 )
+
+
+# Roles allowed to author/edit progress report comments and send reports.
+TEACHER_ROLES = [
+    Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+    Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
+    Role.INSTITUTE_OWNER,
+]
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +63,86 @@ def _get_school_or_redirect(request):
         return admin_school
 
     return None
+
+
+def _is_teacher(user):
+    """True if the user holds any staff/teacher role (or is a superuser)."""
+    return user.is_superuser or any(user.has_role(r) for r in TEACHER_ROLES)
+
+
+def _school_for_student(request, student):
+    """Resolve the most relevant School for a student-progress context.
+
+    Staff use their currently-selected school; students/parents fall back to
+    the student's own active enrolment.
+    """
+    if _is_teacher(request.user):
+        school = _get_school_or_redirect(request)
+        if school is not None:
+            return school
+    enrolment = (
+        ClassStudent.objects
+        .filter(student=student, is_active=True)
+        .select_related('classroom__school')
+        .first()
+    )
+    return enrolment.classroom.school if enrolment else None
+
+
+def _build_student_progress(student):
+    """Build a student's progress grouped by (subject, level) plus overall counts.
+
+    Returns ``(grouped_progress, overall)`` where ``grouped_progress`` is a
+    sorted list of group dicts and ``overall`` is a summary-counts dict. Shared
+    by the on-screen progress view and the generated report.
+    """
+    latest_ids_qs = (
+        ProgressRecord.objects
+        .filter(student=student)
+        .values('criteria_id')
+        .annotate(latest_id=Max('id'))
+    )
+    latest_ids = [r['latest_id'] for r in latest_ids_qs]
+
+    records = (
+        ProgressRecord.objects
+        .filter(id__in=latest_ids)
+        .select_related('criteria__subject', 'criteria__level', 'recorded_by')
+        .order_by(
+            'criteria__subject__name',
+            'criteria__level__level_number',
+            'criteria__order',
+        )
+    )
+
+    grouped = {}
+    for record in records:
+        key = (record.criteria.subject, record.criteria.level)
+        if key not in grouped:
+            grouped[key] = {
+                'subject': record.criteria.subject,
+                'level': record.criteria.level,
+                'records': [],
+            }
+        grouped[key]['records'].append(record)
+
+    for group_data in grouped.values():
+        recs = group_data['records']
+        group_data['total'] = len(recs)
+        group_data['achieved'] = sum(1 for r in recs if r.status == 'achieved')
+
+    grouped_progress = sorted(
+        grouped.values(),
+        key=lambda g: (g['subject'].name, g['level'].level_number),
+    )
+
+    overall = {
+        'total': len(latest_ids),
+        'achieved': sum(1 for r in records if r.status == 'achieved'),
+        'in_progress': sum(1 for r in records if r.status == 'in_progress'),
+        'not_started': sum(1 for r in records if r.status == 'not_started'),
+    }
+    return grouped_progress, overall
 
 
 def _build_hierarchical_criteria(criteria_qs):
@@ -721,64 +810,52 @@ class StudentProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
         from accounts.models import CustomUser
         student = get_object_or_404(CustomUser, pk=student_id)
 
-        # Get latest record per (student, criteria) using Max(id)
-        latest_ids_qs = (
-            ProgressRecord.objects
-            .filter(student=student)
-            .values('criteria_id')
-            .annotate(latest_id=Max('id'))
-        )
-        latest_ids = [r['latest_id'] for r in latest_ids_qs]
+        grouped_progress, overall = _build_student_progress(student)
 
-        records = (
-            ProgressRecord.objects
-            .filter(id__in=latest_ids)
-            .select_related('criteria__subject', 'criteria__level', 'recorded_by')
-            .order_by(
-                'criteria__subject__name',
-                'criteria__level__level_number',
-                'criteria__order',
-            )
-        )
+        # ── Teacher comments + report controls ──────────────────────────
+        school = _school_for_student(request, student)
+        can_comment = _is_teacher(request.user)
 
-        # Group records by (subject, level)
-        grouped = {}
-        for record in records:
-            key = (record.criteria.subject, record.criteria.level)
-            if key not in grouped:
-                grouped[key] = {
-                    'subject': record.criteria.subject,
-                    'level': record.criteria.level,
-                    'records': [],
-                }
-            grouped[key]['records'].append(record)
+        terms = []
+        selected_term = None
+        comments = ProgressReportComment.objects.none()
+        reports = ProgressReport.objects.none()
+        subjects = []
+        if school is not None:
+            terms = list(Term.objects.filter(school=school))
+            term_id = request.GET.get('term')
+            if term_id:
+                selected_term = next((t for t in terms if str(t.id) == str(term_id)), None)
 
-        # Add per-group counts and convert to a sorted list
-        for group_data in grouped.values():
-            recs = group_data['records']
-            group_data['total'] = len(recs)
-            group_data['achieved'] = sum(1 for r in recs if r.status == 'achieved')
+            comment_qs = ProgressReportComment.objects.filter(
+                student=student, school=school,
+            ).select_related('term', 'subject', 'created_by', 'updated_by')
+            if selected_term is not None:
+                comment_qs = comment_qs.filter(term=selected_term)
+            comments = comment_qs
 
-        grouped_progress = sorted(
-            grouped.values(),
-            key=lambda g: (g['subject'].name, g['level'].level_number),
-        )
-
-        # Summary counts
-        total = len(latest_ids)
-        achieved = sum(1 for r in records if r.status == 'achieved')
-        in_progress_count = sum(1 for r in records if r.status == 'in_progress')
-        not_started = sum(1 for r in records if r.status == 'not_started')
+            if can_comment:
+                reports = ProgressReport.objects.filter(
+                    student=student, school=school,
+                ).select_related('term', 'generated_by', 'sent_by')[:10]
+                subject_ids = ClassStudent.objects.filter(
+                    student=student, is_active=True, classroom__school=school,
+                ).exclude(classroom__subject__isnull=True).values_list(
+                    'classroom__subject_id', flat=True,
+                ).distinct()
+                subjects = Subject.objects.filter(id__in=subject_ids).order_by('name')
 
         return render(request, 'progress/student_progress.html', {
             'student': student,
             'grouped_progress': grouped_progress,
-            'overall': {
-                'total': total,
-                'achieved': achieved,
-                'in_progress': in_progress_count,
-                'not_started': not_started,
-            },
+            'overall': overall,
+            'school': school,
+            'can_comment': can_comment,
+            'terms': terms,
+            'selected_term': selected_term,
+            'comments': comments,
+            'reports': reports,
+            'subjects': subjects,
         })
 
 
@@ -897,3 +974,287 @@ class StudentProgressReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
             'filter_subject': filter_subject or '',
             'filter_class': filter_class or '',
         })
+
+
+# ---------------------------------------------------------------------------
+# Progress report comments (teacher add / edit / delete)
+# ---------------------------------------------------------------------------
+
+def _student_progress_redirect(student_id, term_id=None):
+    """Redirect helper that preserves the selected term in the query string."""
+    url = redirect('student_progress', student_id=student_id)
+    if term_id:
+        url['Location'] = f"{url['Location']}?term={term_id}"
+    return url
+
+
+class ProgressReportCommentCreateView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    """Teacher adds a narrative comment to a student's progress report."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, student_id):
+        from accounts.models import CustomUser
+        student = get_object_or_404(CustomUser, pk=student_id)
+        school = _school_for_student(request, student)
+        if school is None:
+            messages.error(request, 'No school context found for this student.')
+            return _student_progress_redirect(student_id)
+
+        body = request.POST.get('body', '').strip()
+        term_id = request.POST.get('term') or None
+        subject_id = request.POST.get('subject') or None
+
+        if not body:
+            messages.error(request, 'Comment cannot be empty.')
+            return _student_progress_redirect(student_id, term_id)
+
+        term = Term.objects.filter(pk=term_id, school=school).first() if term_id else None
+        subject = Subject.objects.filter(pk=subject_id).first() if subject_id else None
+
+        comment = ProgressReportComment.objects.create(
+            student=student,
+            school=school,
+            term=term,
+            subject=subject,
+            body=body,
+            created_by=request.user,
+        )
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='progress_comment_created',
+            detail={'comment_id': comment.id, 'student_id': student.id,
+                    'term': term.name if term else None,
+                    'subject': subject.name if subject else None},
+            request=request,
+        )
+        messages.success(request, 'Comment added.')
+        return _student_progress_redirect(student_id, term_id)
+
+
+class ProgressReportCommentEditView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    """Teacher edits/updates an existing progress comment."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, comment_id):
+        comment = get_object_or_404(ProgressReportComment, pk=comment_id)
+        body = request.POST.get('body', '').strip()
+        if not body:
+            messages.error(request, 'Comment cannot be empty.')
+            return _student_progress_redirect(comment.student_id, comment.term_id)
+
+        comment.body = body
+        comment.updated_by = request.user
+        comment.save(update_fields=['body', 'updated_by', 'updated_at'])
+
+        log_event(
+            user=request.user, school=comment.school, category='data_change',
+            action='progress_comment_edited',
+            detail={'comment_id': comment.id, 'student_id': comment.student_id},
+            request=request,
+        )
+        messages.success(request, 'Comment updated.')
+        return _student_progress_redirect(comment.student_id, comment.term_id)
+
+
+class ProgressReportCommentDeleteView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    """Teacher deletes a progress comment."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, comment_id):
+        comment = get_object_or_404(ProgressReportComment, pk=comment_id)
+        student_id = comment.student_id
+        term_id = comment.term_id
+        log_event(
+            user=request.user, school=comment.school, category='data_change',
+            action='progress_comment_deleted',
+            detail={'comment_id': comment.id, 'student_id': student_id},
+            request=request,
+        )
+        comment.delete()
+        messages.success(request, 'Comment deleted.')
+        return _student_progress_redirect(student_id, term_id)
+
+
+# ---------------------------------------------------------------------------
+# Progress report generate / view / send
+# ---------------------------------------------------------------------------
+
+def _report_parents(student, school):
+    """Active parent/guardian links for a student, scoped to the school."""
+    return (
+        ParentStudent.objects
+        .filter(student=student, is_active=True)
+        .filter(Q(school=school) | Q(school__isnull=True))
+        .select_related('parent')
+    )
+
+
+class ProgressReportGenerateView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    """Generate (or refresh) a draft progress report for a student + term."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, student_id):
+        from accounts.models import CustomUser
+        student = get_object_or_404(CustomUser, pk=student_id)
+        school = _school_for_student(request, student)
+        if school is None:
+            messages.error(request, 'No school context found for this student.')
+            return _student_progress_redirect(student_id)
+
+        term_id = request.POST.get('term') or None
+        term = Term.objects.filter(pk=term_id, school=school).first() if term_id else None
+
+        # Reuse an existing draft for this student/term if present, else create.
+        report = (
+            ProgressReport.objects
+            .filter(student=student, school=school, term=term, status=ProgressReport.STATUS_DRAFT)
+            .first()
+        )
+        if report is None:
+            report = ProgressReport.objects.create(
+                student=student, school=school, term=term,
+                generated_by=request.user,
+            )
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='progress_report_generated',
+            detail={'report_id': report.id, 'student_id': student.id,
+                    'term': term.name if term else None},
+            request=request,
+        )
+        return redirect('progress_report_detail', report_id=report.id)
+
+
+class ProgressReportDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    """Printable progress report with a 'Send to parents' button."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, report_id):
+        report = get_object_or_404(
+            ProgressReport.objects.select_related('student', 'school', 'term', 'sent_by'),
+            pk=report_id,
+        )
+        grouped_progress, overall = _build_student_progress(report.student)
+
+        comments = ProgressReportComment.objects.filter(
+            student=report.student, school=report.school,
+        ).select_related('term', 'subject', 'created_by')
+        if report.term_id:
+            comments = comments.filter(Q(term=report.term) | Q(term__isnull=True))
+
+        parents = _report_parents(report.student, report.school)
+
+        return render(request, 'progress/report_detail.html', {
+            'report': report,
+            'student': report.student,
+            'school': report.school,
+            'term': report.term,
+            'grouped_progress': grouped_progress,
+            'overall': overall,
+            'comments': comments,
+            'parents': parents,
+        })
+
+
+class ProgressReportSendView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    """Email the generated report to the student's linked parents/guardians."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, report_id):
+        report = get_object_or_404(
+            ProgressReport.objects.select_related('student', 'school', 'term'),
+            pk=report_id,
+        )
+        student = report.student
+        school = report.school
+
+        grouped_progress, overall = _build_student_progress(student)
+        comments = ProgressReportComment.objects.filter(
+            student=student, school=school,
+        ).select_related('term', 'subject', 'created_by')
+        if report.term_id:
+            comments = comments.filter(Q(term=report.term) | Q(term__isnull=True))
+        comments = list(comments)
+
+        parents = _report_parents(student, school)
+        if not parents.exists():
+            messages.error(
+                request,
+                'This student has no linked parents/guardians to send the report to.',
+            )
+            return redirect('progress_report_detail', report_id=report.id)
+
+        from .email_service import send_templated_email
+        report_link = f'/classroom/progress/student/{student.id}/'
+        if report.term_id:
+            report_link += f'?term={report.term_id}'
+        student_name = student.get_full_name() or student.username
+        term_label = report.term.name if report.term else 'this term'
+
+        sent_count = 0
+        seen_emails = set()
+        for link in parents:
+            parent = link.parent
+            email = (parent.email or '').strip()
+            if not email or email.lower() in seen_emails:
+                continue
+            seen_emails.add(email.lower())
+
+            ok = send_templated_email(
+                recipient_email=email,
+                subject=f'{student_name} — Progress Report ({term_label})',
+                template_name='email/transactional/progress_report.html',
+                context={
+                    'student_name': student_name,
+                    'school_name': school.name,
+                    'term_label': term_label,
+                    'overall': overall,
+                    'grouped_progress': grouped_progress,
+                    'comments': comments,
+                    'report_link': report_link,
+                },
+                recipient_user=parent,
+                notification_type='progress_report',
+                school=school,
+            )
+            if ok:
+                sent_count += 1
+
+            # In-app notification (email already sent above).
+            create_notification(
+                user=parent,
+                message=(
+                    f"A progress report for {student_name} ({term_label}) "
+                    f"has been shared with you."
+                ),
+                notification_type='progress_report',
+                link=report_link,
+                send_email=False,
+            )
+
+        report.status = ProgressReport.STATUS_SENT
+        report.sent_by = request.user
+        report.sent_at = timezone.now()
+        report.recipient_count = sent_count
+        report.save(update_fields=['status', 'sent_by', 'sent_at', 'recipient_count'])
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='progress_report_sent',
+            detail={'report_id': report.id, 'student_id': student.id,
+                    'term': report.term.name if report.term else None,
+                    'recipients': sent_count},
+            request=request,
+        )
+        messages.success(
+            request,
+            f'Progress report sent to {sent_count} parent(s)/guardian(s).',
+        )
+        return redirect('progress_report_detail', report_id=report.id)

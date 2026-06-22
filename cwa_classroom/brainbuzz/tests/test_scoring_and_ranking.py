@@ -165,13 +165,18 @@ class TestNormalizeShortAnswer(TestCase):
         assert normalize_short_answer("PyThOn") == "python"
 
     def test_whitespace_normalization(self):
-        """Multiple spaces collapsed to single space."""
-        assert normalize_short_answer("hello   world") == "hello world"
-        assert normalize_short_answer("a  b  c") == "a b c"
+        """All whitespace removed entirely (spacing never affects the match)."""
+        assert normalize_short_answer("hello   world") == "helloworld"
+        assert normalize_short_answer("a  b  c") == "abc"
+
+    def test_commas_removed(self):
+        """Commas are insignificant (digit-grouping or list commas)."""
+        assert normalize_short_answer("1,000") == "1000"
+        assert normalize_short_answer("red, green, blue") == "redgreenblue"
 
     def test_combined_normalization(self):
         """All transformations applied together."""
-        assert normalize_short_answer("  Hello   World  ") == "hello world"
+        assert normalize_short_answer("  Hello   World  ") == "helloworld"
         assert normalize_short_answer("\t\nPython\t\n") == "python"
 
     def test_numbers_preserved(self):
@@ -245,8 +250,15 @@ class TestShortAnswerMatching(TestCase):
         assert is_short_answer_correct("Three", "3|three|3.0") is True
 
     def test_whitespace_in_answer(self):
-        """Multiple spaces in answer normalized."""
+        """Internal whitespace ignored entirely when matching."""
         assert is_short_answer_correct("hello   world", "hello world") is True
+        assert is_short_answer_correct("helloworld", "hello world") is True
+
+    def test_commas_ignored_in_answer(self):
+        """Commas ignored on both sides ("1,000" == "1000")."""
+        assert is_short_answer_correct("1,000", "1000") is True
+        assert is_short_answer_correct("1000", "1,000") is True
+        assert is_short_answer_correct("red, green", "red green") is True
 
     def test_case_sensitive_flag(self):
         """case_sensitive=True enforces exact case."""

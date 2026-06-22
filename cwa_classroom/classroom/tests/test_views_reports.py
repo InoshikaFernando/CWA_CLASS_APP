@@ -57,8 +57,8 @@ def _school(admin):
     return school
 
 
-def _enrol_student(school, username='stu1'):
-    stu = _user(username, Role.STUDENT)
+def _enrol_student(school, username='stu1', **kwargs):
+    stu = _user(username, Role.STUDENT, **kwargs)
     ss = SchoolStudent.objects.create(school=school, student=stu)
     return stu, ss
 
@@ -306,6 +306,166 @@ class TestFilters(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTemplateUsed(resp, 'reports/students.html')
         self.assertTemplateUsed(resp, 'reports/_partials/student_report_table.html')
+
+
+# ---------------------------------------------------------------------------
+# CSV export (CPP-347)
+# ---------------------------------------------------------------------------
+
+class TestStudentReportCSVExport(TestCase):
+
+    def setUp(self):
+        self.client = Client()
+        self.hoi = _user('csv_hoi', Role.HEAD_OF_INSTITUTE)
+        self.school = _school(self.hoi)
+        self.client.force_login(self.hoi)
+
+        self.stu1, self.ss1 = _enrol_student(self.school, 'csv_stu1',
+                                              first_name='Alice', last_name='Anderson')
+        self.stu2, self.ss2 = _enrol_student(self.school, 'csv_stu2',
+                                              first_name='Bob', last_name='Brown')
+        self.cls = _classroom(self.school)
+
+    def _rows(self, resp):
+        import csv
+        import io
+        content = resp.content.decode('utf-8')
+        return list(csv.reader(io.StringIO(content)))
+
+    def _dicts(self, resp):
+        """Parse the CSV into header-keyed dicts (robust to column order)."""
+        import csv
+        import io
+        content = resp.content.decode('utf-8')
+        return list(csv.DictReader(io.StringIO(content)))
+
+    def test_export_returns_csv_attachment(self):
+        resp = self.client.get(URL, {'export': 'csv'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'text/csv')
+        self.assertIn('attachment', resp['Content-Disposition'])
+        self.assertIn('student_report.csv', resp['Content-Disposition'])
+
+    def test_export_has_header_and_all_rows(self):
+        rows = self._rows(self.client.get(URL, {'export': 'csv'}))
+        self.assertEqual(rows[0][0], 'Student Name')
+        for col in ('Is Subscribed', 'Parent 1 Name', 'Parent 1 Email',
+                    'Parent 1 Phone', 'Parent 1 Relationship', 'Parent 2 Name'):
+            self.assertIn(col, rows[0])
+        # header + 2 students
+        self.assertEqual(len(rows), 3)
+
+    def test_export_ignores_pagination(self):
+        # Even with a page param, export returns every matching student
+        for i in range(3, 8):
+            _enrol_student(self.school, f'csv_extra{i}')
+        rows = self._rows(self.client.get(URL, {'export': 'csv', 'page': '2'}))
+        self.assertEqual(len(rows), 1 + 7)  # header + 7 students
+
+    def test_export_respects_filters(self):
+        ClassStudent.objects.create(classroom=self.cls, student=self.stu1, is_active=True)
+        rows = self._rows(self.client.get(URL, {'export': 'csv', 'no_class': '1'}))
+        names = [r[0] for r in rows[1:]]
+        self.assertIn('Bob Brown', names)
+        self.assertNotIn('Alice Anderson', names)
+
+    def test_export_includes_parent_user_contact(self):
+        from classroom.models import ParentStudent
+        parent = _user('csv_parent1', Role.PARENT,
+                       first_name='Pat', last_name='Parent', phone='021555111')
+        ParentStudent.objects.create(
+            parent=parent, student=self.stu1, school=self.school,
+            relationship='mother', is_primary_contact=True, is_active=True,
+        )
+        alice = next(r for r in self._dicts(self.client.get(URL, {'export': 'csv'}))
+                     if r['Student Name'] == 'Alice Anderson')
+        self.assertEqual(alice['Parent 1 Name'], 'Pat Parent')
+        self.assertEqual(alice['Parent 1 Email'], parent.email)
+        self.assertEqual(alice['Parent 1 Phone'], '021555111')
+        self.assertEqual(alice['Parent 1 Relationship'], 'Mother')
+
+    def test_export_includes_guardian_contact(self):
+        from classroom.models import Guardian, StudentGuardian
+        guardian = Guardian.objects.create(
+            school=self.school, first_name='Gina', last_name='Guardian',
+            email='gina.guardian@example.com', phone='021555222',
+            relationship='guardian',
+        )
+        StudentGuardian.objects.create(student=self.stu2, guardian=guardian, is_primary=True)
+        bob = next(r for r in self._dicts(self.client.get(URL, {'export': 'csv'}))
+                   if r['Student Name'] == 'Bob Brown')
+        self.assertEqual(bob['Parent 1 Name'], 'Gina Guardian')
+        self.assertEqual(bob['Parent 1 Email'], 'gina.guardian@example.com')
+        self.assertEqual(bob['Parent 1 Phone'], '021555222')
+        self.assertEqual(bob['Parent 1 Relationship'], 'Guardian')
+
+    def test_export_lists_two_parents_with_primary_first(self):
+        from classroom.models import Guardian, ParentStudent, StudentGuardian
+        # Non-primary parent-user link + primary guardian → guardian must be Parent 1.
+        parent = _user('csv_two_parent', Role.PARENT,
+                       first_name='Sam', last_name='Secondary')
+        ParentStudent.objects.create(
+            parent=parent, student=self.stu1, school=self.school,
+            is_primary_contact=False, is_active=True,
+        )
+        guardian = Guardian.objects.create(
+            school=self.school, first_name='Prim', last_name='Primary',
+            email='prim.primary@example.com',
+        )
+        StudentGuardian.objects.create(student=self.stu1, guardian=guardian, is_primary=True)
+        alice = next(r for r in self._dicts(self.client.get(URL, {'export': 'csv'}))
+                     if r['Student Name'] == 'Alice Anderson')
+        self.assertEqual(alice['Parent 1 Name'], 'Prim Primary')   # primary first
+        self.assertEqual(alice['Parent 2 Name'], 'Sam Secondary')  # non-primary second
+
+    def test_export_is_subscribed_column(self):
+        from billing.models import Subscription
+        Subscription.objects.create(
+            user=self.stu1, status=Subscription.STATUS_ACTIVE,
+        )
+        # stu2 deliberately has no subscription.
+        dicts = self._dicts(self.client.get(URL, {'export': 'csv'}))
+        alice = next(r for r in dicts if r['Student Name'] == 'Alice Anderson')
+        bob = next(r for r in dicts if r['Student Name'] == 'Bob Brown')
+        self.assertEqual(alice['Is Subscribed'], 'Yes')
+        self.assertEqual(bob['Is Subscribed'], 'No')
+
+    def test_export_tenant_isolation(self):
+        other_hoi = _user('csv_other_hoi', Role.HEAD_OF_INSTITUTE)
+        other_school = _school(other_hoi)
+        _enrol_student(other_school, 'csv_other_stu')
+        rows = self._rows(self.client.get(URL, {'export': 'csv'}))
+        self.assertEqual(len(rows), 3)  # header + own 2 students only
+
+    def test_export_does_not_leak_other_school_guardian(self):
+        # stu1 also has a guardian belonging to a school this admin can't see.
+        from classroom.models import Guardian, StudentGuardian
+        other_hoi = _user('csv_leak_hoi', Role.HEAD_OF_INSTITUTE)
+        other_school = _school(other_hoi)
+        foreign_guardian = Guardian.objects.create(
+            school=other_school, first_name='Foreign', last_name='Guardian',
+            email='foreign.guardian@example.com',
+        )
+        StudentGuardian.objects.create(student=self.stu1, guardian=foreign_guardian)
+        alice = next(r for r in self._dicts(self.client.get(URL, {'export': 'csv'}))
+                     if r['Student Name'] == 'Alice Anderson')
+        self.assertNotEqual(alice['Parent 1 Name'], 'Foreign Guardian')
+        self.assertNotIn('foreign.guardian@example.com', alice.values())
+
+    def test_export_requires_admin_role(self):
+        stu = _user('csv_bad_stu', Role.STUDENT)
+        self.client.force_login(stu)
+        resp = self.client.get(URL, {'export': 'csv'})
+        self.assertEqual(resp.status_code, 302)
+
+    def test_export_neutralises_formula_injection(self):
+        # A student whose name starts with '=' must not be exported as a formula
+        self.stu1.first_name = '=cmd|calc'
+        self.stu1.last_name = ''
+        self.stu1.save()
+        rows = self._rows(self.client.get(URL, {'export': 'csv'}))
+        injected = next(r for r in rows[1:] if 'cmd|calc' in r[0])
+        self.assertTrue(injected[0].startswith("'="))
 
 
 # ===========================================================================

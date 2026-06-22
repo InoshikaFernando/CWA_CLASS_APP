@@ -4,6 +4,7 @@ Worksheets views: PDF upload → AI extraction → preview → confirm → assig
 import json
 import os
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,9 @@ ANSWER_PARTIAL_MAP = {
     'calculation':        _PARTIAL + '_answer_text.html',
     'extended_answer':    _PARTIAL + '_answer_extended.html',
     'long_division':      _PARTIAL + '_answer_long_division.html',
+    'column_operation':   _PARTIAL + '_answer_column_operation.html',
     'prime_factorization': _PARTIAL + '_answer_prime_factorization.html',
+    'measure':            _PARTIAL + '_answer_measure.html',
 }
 _ANSWER_PARTIAL_DEFAULT = _PARTIAL + '_answer_text.html'
 
@@ -96,47 +99,76 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             messages.error(request, 'Only PDF files are supported.')
             return redirect('worksheets:upload')
 
+        # Default worksheet name from filename (strip .pdf)
+        worksheet_name = pdf_file.name
+        if worksheet_name.lower().endswith('.pdf'):
+            worksheet_name = worksheet_name[:-4]
+
+        # Persist the upload + create a PROCESSING session, then classify in the
+        # background (CPP-327) so the request returns immediately.
+        session = WorksheetUploadSession.objects.create(
+            user=request.user,
+            school=school,
+            pdf_filename=pdf_file.name,
+            pdf_file=pdf_file,
+            worksheet_name=worksheet_name,
+            shape_naming=request.POST.get('shape_naming') == 'on',
+            status=WorksheetUploadSession.STATUS_PROCESSING,
+        )
+
+        from taskqueue.services import enqueue_task
+        from .tasks import process_worksheet_pdf
         try:
-            from classroom.models import Topic, Level
-            from .services import extract_and_classify_worksheet
-
-            existing_topics = list(Topic.objects.filter(
-                subject__slug='mathematics',
-            ).values('name', 'slug')[:100])
-            existing_levels = list(Level.objects.filter(
-                level_number__lte=12,
-            ).values('level_number', 'display_name'))
-
-            # Use worksheet-specific pipeline: extract PDF → AI classify → crop images
-            output = extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels)
-            result = output['result']
-            extracted_images = output['extracted_images']
-            page_count = output['page_count']
-
-            # Default worksheet name from filename (strip .pdf)
-            worksheet_name = pdf_file.name
-            if worksheet_name.lower().endswith('.pdf'):
-                worksheet_name = worksheet_name[:-4]
-
-            session = WorksheetUploadSession.objects.create(
-                user=request.user,
+            enqueue_task(
                 school=school,
-                pdf_filename=pdf_file.name,
-                worksheet_name=worksheet_name,
-                extracted_data=result,
-                extracted_images=extracted_images,
-                page_count=page_count,
-                tokens_used=result.get('usage', {}).get('total_tokens', 0),
+                user=request.user,
+                task_type='worksheet_pdf',
+                func=process_worksheet_pdf,
+                args=[session.pk],
+                queue='default',
             )
+        except Exception:
+            logger.exception('Failed to enqueue worksheet PDF for session %s', session.pk)
+            session.delete()
+            messages.error(
+                request,
+                'The background processing service is temporarily unavailable. '
+                'Please try again in a few minutes.',
+            )
+            return redirect('worksheets:upload')
 
+        return redirect('worksheets:processing', session_id=session.pk)
+
+
+class WorksheetProcessingView(RoleRequiredMixin, View):
+    """Interstitial page shown while the worksheet PDF is classified in the background."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        if session.status == WorksheetUploadSession.STATUS_READY:
             return redirect('worksheets:preview', session_id=session.pk)
+        return render(request, 'worksheets/processing.html', {'session': session})
 
-        except ImportError:
-            messages.error(request, 'PDF processing library not installed. Please contact the administrator.')
-            return redirect('worksheets:upload')
-        except Exception as e:
-            messages.error(request, f'Error processing PDF: {str(e)}')
-            return redirect('worksheets:upload')
+
+class WorksheetStatusView(RoleRequiredMixin, View):
+    """HTMX poll endpoint: returns the status partial for a processing session.
+
+    On READY the partial sends an HX-Redirect to the preview page; on FAILED it
+    shows the error with a retry link.
+    """
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        response = render(request, 'worksheets/_partials/status.html', {'session': session})
+        if session.status == WorksheetUploadSession.STATUS_READY:
+            response['HX-Redirect'] = reverse('worksheets:preview', args=[session.pk])
+        return response
 
 
 class WorksheetPreviewView(RoleRequiredMixin, View):
@@ -147,6 +179,12 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
         session = get_object_or_404(
             WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
         )
+        # Not finished yet — bounce back to the processing page.
+        if session.status == WorksheetUploadSession.STATUS_PROCESSING:
+            return redirect('worksheets:processing', session_id=session.pk)
+        if session.status == WorksheetUploadSession.STATUS_FAILED:
+            messages.error(request, f'PDF processing failed: {session.error_message}')
+            return redirect('worksheets:upload')
         data = session.extracted_data
         questions = data.get('questions', [])
 
@@ -373,14 +411,20 @@ class WorksheetConfirmView(RoleRequiredMixin, View):
                 ).first()
 
                 if maths_q:
-                    WorksheetQuestion.objects.create(
+                    # get_or_create (not create): several extracted questions can
+                    # resolve to the SAME saved maths.Question — e.g. when their
+                    # question_text is identical because the distinguishing part is
+                    # an image. Linking it twice violates the (worksheet, subject,
+                    # content_id) unique constraint, so dedupe here. Only advance
+                    # the order counter when a new link was actually created.
+                    _, created = WorksheetQuestion.objects.get_or_create(
                         worksheet=worksheet,
-                        question=maths_q,
-                        order=order,
                         subject_slug='mathematics',
                         content_id=maths_q.id,
+                        defaults={'question': maths_q, 'order': order},
                     )
-                    order += 1
+                    if created:
+                        order += 1
 
             worksheet.refresh_question_count()
 
@@ -672,6 +716,18 @@ def _grade_long_division(question, text_answer: str) -> bool:
         return False
 
 
+def _grade_column_operation(question, text_answer: str) -> bool:
+    """
+    Grade a column-arithmetic answer (the joined result digits) against the
+    computed column_result. Tolerant of surrounding spaces and leading zeros,
+    so it grades without needing a stored answer row.
+    """
+    if question.column_result is None:
+        return False
+    m = re.match(r'^\s*(-?\d+)\s*$', (text_answer or '').replace(' ', ''))
+    return bool(m) and int(m.group(1)) == question.column_result
+
+
 def _prime_factors(n: int):
     """Return sorted list of prime factors of n (with repetition), e.g. 12 → [2, 2, 3]."""
     factors = []
@@ -772,6 +828,19 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                 if is_correct:
                     points_earned = float(question.points)
 
+            elif question.question_type == 'measure' and question.numeric_answer is not None:
+                from maths.geometry_grading import grade_measure
+                text_answer = request.POST.get('text_answer', '').strip()
+                is_correct = grade_measure(question, text_answer)
+                if is_correct:
+                    points_earned = float(question.points)
+
+            elif question.question_type == 'column_operation':
+                text_answer = request.POST.get('text_answer', '').strip()
+                is_correct = _grade_column_operation(question, text_answer)
+                if is_correct:
+                    points_earned = float(question.points)
+
             elif question.question_type == 'extended_answer':
                 text_answer = request.POST.get('text_answer', '').strip()
                 school = get_school_for_user(request.user)
@@ -799,11 +868,9 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
 
             else:
                 text_answer = request.POST.get('text_answer', '').strip()
-                correct_answers = [
-                    a.answer_text.strip().lower()
-                    for a in question.answers.filter(is_correct=True)
-                ]
-                if text_answer.lower() in correct_answers:
+                # Routes to algebra grading when question.answer_format == 'algebra',
+                # otherwise case/space-insensitive exact match.
+                if question.grade_text_answer(text_answer):
                     is_correct = True
                     points_earned = float(question.points)
 

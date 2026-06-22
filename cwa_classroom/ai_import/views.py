@@ -160,10 +160,9 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
             remaining, limit, used = _get_remaining_pages(school) if school else (0, 0, 0)
 
         try:
-            # Step 1: Extract PDF content
-            from .services import extract_pdf_content
-            extracted = extract_pdf_content(pdf_file)
-            page_count = extracted['page_count']
+            # Step 1: Cheap page count for the quota check (no rendering).
+            from .services import get_pdf_page_count
+            page_count = get_pdf_page_count(pdf_file)
 
             if page_count > remaining:
                 if remaining == 0:
@@ -180,44 +179,49 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                     )
                 return redirect('ai_import:upload')
 
-            # Step 2: Get existing topics/levels for AI context
-            from classroom.models import Topic, Level
-            existing_topics = list(Topic.objects.filter(
-                subject__slug='mathematics',
-            ).values('name', 'slug')[:100])
-            existing_levels = list(Level.objects.filter(
-                level_number__lte=12,
-            ).values('level_number', 'display_name'))
+            # Step 2: Persist the upload + create a PROCESSING session.
+            pre_data = {}
+            classroom_id = request.POST.get('classroom_id')
+            if classroom_id:
+                pre_data['classroom_id'] = int(classroom_id)
 
-            # Step 3: Classify via AI
-            from .services import classify_questions
-            result = classify_questions(extracted, existing_topics, existing_levels)
-
-            # Step 4: Collect extracted images
-            extracted_images = {}
-            for page in extracted['pages']:
-                for img in page['images']:
-                    extracted_images[img['ref']] = img['base64']
-
-            # Step 5: Create session
             session = AIImportSession.objects.create(
                 user=request.user,
                 school=school,
                 pdf_filename=pdf_file.name,
-                extracted_data=result,
-                extracted_images=extracted_images,
+                pdf_file=pdf_file,
                 page_count=page_count,
-                tokens_used=result.get('usage', {}).get('total_tokens', 0),
+                extracted_data=pre_data,
+                status=AIImportSession.STATUS_PROCESSING,
             )
 
-            # Store classroom selection in session data if teacher
-            classroom_id = request.POST.get('classroom_id')
-            if classroom_id:
-                result['classroom_id'] = int(classroom_id)
-                session.extracted_data = result
-                session.save(update_fields=['extracted_data'])
+            # Step 3: Enqueue background classification (default queue). If the
+            # queue is unavailable, don't leave an orphaned PROCESSING session.
+            from taskqueue.services import enqueue_task
+            from .tasks import process_pdf_import
+            try:
+                enqueue_task(
+                    school=school,
+                    user=request.user,
+                    task_type='ai_import_pdf',
+                    func=process_pdf_import,
+                    args=[session.pk],
+                    queue='default',
+                )
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    'Failed to enqueue AI import for session %s', session.pk,
+                )
+                session.delete()
+                messages.error(
+                    request,
+                    'The background processing service is temporarily unavailable. '
+                    'Please try again in a few minutes.',
+                )
+                return redirect('ai_import:upload')
 
-            return redirect('ai_import:preview', session_id=session.pk)
+            return redirect('ai_import:processing', session_id=session.pk)
 
         except ImportError:
             messages.error(request, 'PDF processing library not installed. Please contact the administrator.')
@@ -225,6 +229,46 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
         except Exception as e:
             messages.error(request, f'Error processing PDF: {str(e)}')
             return redirect('ai_import:upload')
+
+
+class ProcessingView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+    """Interstitial page shown while the PDF is classified in the background."""
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
+        Role.TEACHER, Role.JUNIOR_TEACHER,
+    ]
+
+    def get(self, request, session_id):
+        session = get_object_or_404(
+            AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        # Already done — skip straight to the relevant page.
+        if session.status == AIImportSession.STATUS_READY:
+            return redirect('ai_import:preview', session_id=session.pk)
+        return render(request, 'ai_import/processing.html', {'session': session})
+
+
+class ImportStatusView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+    """HTMX poll endpoint: returns the status partial for a processing session.
+
+    When the session becomes READY the partial sends an HX-Redirect to the
+    preview page; on FAILED it shows the error with a retry link.
+    """
+    required_roles = [
+        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
+        Role.TEACHER, Role.JUNIOR_TEACHER,
+    ]
+
+    def get(self, request, session_id):
+        session = get_object_or_404(
+            AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        response = render(request, 'ai_import/_partials/status.html', {'session': session})
+        if session.status == AIImportSession.STATUS_READY:
+            response['HX-Redirect'] = reverse('ai_import:preview', args=[session.pk])
+        return response
 
 
 class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
@@ -239,6 +283,12 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
         session = get_object_or_404(
             AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
         )
+        # Not finished yet — bounce back to the processing page.
+        if session.status == AIImportSession.STATUS_PROCESSING:
+            return redirect('ai_import:processing', session_id=session.pk)
+        if session.status == AIImportSession.STATUS_FAILED:
+            messages.error(request, f'PDF processing failed: {session.error_message}')
+            return redirect('ai_import:upload')
         data = session.extracted_data
 
         # Get available topics and levels for override dropdowns
@@ -262,6 +312,11 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 q['strand'] = data.get('strand', '')
             if 'topic' not in q or not q['topic']:
                 q['topic'] = data.get('topic', '')
+            # Pre-format the structured-spec JSON for the editable textareas.
+            if q.get('plane_spec'):
+                q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)
+            if q.get('graph_spec'):
+                q['graph_spec_json'] = json.dumps(q['graph_spec'], indent=2)
 
         return render(request, 'ai_import/preview.html', {
             'session': session,
@@ -277,6 +332,13 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 ('short_answer', 'Short Answer'),
                 ('fill_blank', 'Fill in the Blank'),
                 ('calculation', 'Calculation'),
+                ('column_operation', 'Column Arithmetic'),
+                ('long_division', 'Long Division'),
+                ('extended_answer', 'Extended Answer (written)'),
+                ('plot_points', 'Plot Points (Cartesian plane)'),
+                ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
+                ('identify_coords', 'Identify Coordinates (type the point)'),
+                ('read_graph', 'Read a Graph (read off a value)'),
             ],
         })
 
@@ -318,6 +380,59 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
             # Image ref
             img_ref = request.POST.get(f'{prefix}image_ref', '')
             q['image_ref'] = img_ref if img_ref and img_ref != 'none' else None
+
+            # Column-arithmetic fields (only relevant for column_operation)
+            if q['question_type'] == 'column_operation':
+                raw_operands = request.POST.get(f'{prefix}operands', '')
+                operands = []
+                for tok in raw_operands.replace(',', ' ').split():
+                    try:
+                        operands.append(int(tok))
+                    except ValueError:
+                        pass
+                if operands:
+                    q['operands'] = operands
+                operator = request.POST.get(f'{prefix}operator', q.get('operator', ''))
+                if operator:
+                    q['operator'] = operator
+
+            # Long-division fields (only relevant for long_division)
+            if q['question_type'] == 'long_division':
+                for fld in ('dividend', 'divisor'):
+                    raw = request.POST.get(f'{prefix}{fld}', '').strip()
+                    if raw:
+                        try:
+                            q[fld] = int(raw)
+                        except ValueError:
+                            pass
+
+            # Cartesian-plane spec (plot_points / plot_line / identify_coords).
+            # Edited as raw JSON in the preview; a parse failure leaves the prior
+            # spec untouched so the import-time validator surfaces the issue.
+            if q['question_type'] in ('plot_points', 'plot_line', 'identify_coords'):
+                raw = request.POST.get(f'{prefix}plane_spec', '').strip()
+                if raw:
+                    try:
+                        q['plane_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
+            # Read-a-graph fields: numeric answer (+ tolerance/unit) and optional
+            # graph_spec JSON.
+            if q['question_type'] == 'read_graph':
+                for fld in ('numeric_answer', 'answer_tolerance'):
+                    raw = request.POST.get(f'{prefix}{fld}', '').strip()
+                    if raw:
+                        q[fld] = raw
+                unit = request.POST.get(f'{prefix}answer_unit', '').strip()
+                if unit:
+                    q['answer_unit'] = unit
+                raw = request.POST.get(f'{prefix}graph_spec', '').strip()
+                if raw:
+                    try:
+                        q['graph_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
 
             # Dynamic answers — collect all answer fields
             answers = []

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Processing PDF{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-3xl text-primary">Processing Your PDF</h1>
+    <p class="text-gray-400 text-sm mt-1">{{ session.pdf_filename }} — {{ session.page_count }} page{{ session.page_count|pluralize }}</p>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8"
+       hx-get="{% url 'ai_import:status' session.id %}"
+       hx-trigger="load, every 3s"
+       hx-swap="innerHTML">
+    {% include "ai_import/_partials/status.html" %}
+  </div>
+
+  <p class="text-center text-xs text-gray-400">
+    You can safely leave this page — the import keeps running in the background and
+    will appear in your notifications bell when it's ready.
+  </p>
+</div>
+{% endblock %}

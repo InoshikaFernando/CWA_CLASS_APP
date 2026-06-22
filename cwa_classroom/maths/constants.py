@@ -9,6 +9,8 @@ TIMES_TABLES_BY_YEAR = {
     5: list(range(1, 16)),
     7: list(range(1, 16)),
     8: list(range(1, 16)),
+    9: list(range(1, 16)),
+    10: list(range(1, 16)),
 }
 
 # Year-to-topics mapping for dashboard display and question loading.
@@ -78,4 +80,7 @@ YEAR_TOPICS_MAP = {
         ("Division", "division_selection", "Division"),
         ("Long Division", "long_division_selection", "Long Division"),
     ],
+    # Year 10 strands are seeded as placeholders (see classroom migration
+    # 0101); question-page topics are added later via the admin.
+    10: [],
 }

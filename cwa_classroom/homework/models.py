@@ -31,6 +31,10 @@ class HomeworkUploadSession(models.Model):
         help_text='Stored temporarily while AI extraction runs in the background.',
     )
     homework_title = models.CharField(max_length=200, blank=True)
+    shape_naming = models.BooleanField(
+        default=False,
+        help_text='Name-the-shape mode: AI generates one "name this shape" question per shape.',
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PROCESSING)
     error_message = models.TextField(blank=True)
     extracted_data = models.JSONField(default=dict)
@@ -51,12 +55,32 @@ class HomeworkUploadSession(models.Model):
         return f'{self.pdf_filename} — {self.user.username} — {"confirmed" if self.is_confirmed else "pending"}'
 
 
+class HomeworkManager(models.Manager):
+    """Default manager that hides soft-deleted homework everywhere.
+
+    Rows with ``deleted_at`` set are excluded from every normal query — the
+    teacher monitor/detail pages, the student list, the publish cron, the
+    sidebar badge counts and reverse relations all resolve through this
+    manager — so a deleted homework disappears from the app while its student
+    submissions and grades stay in the database. Use ``Homework.all_objects``
+    to reach soft-deleted rows (e.g. a future restore or an audit).
+    """
+
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
 class Homework(models.Model):
     HOMEWORK_TYPE_CHOICES = [
         ('topic', 'Topic Quiz'),
         ('mixed', 'Mixed Quiz'),
         ('pdf_upload', 'PDF Upload'),
     ]
+
+    # Lifecycle status (derived from publish_at / published_at / due_date).
+    STATUS_CREATED = 'created'      # saved but not yet live — hidden from students
+    STATUS_PUBLISHED = 'published'  # live and visible to students
+    STATUS_EXPIRED = 'expired'      # due date has passed
 
     classroom = models.ForeignKey(
         'classroom.ClassRoom', on_delete=models.CASCADE, related_name='homework_assignments'
@@ -90,22 +114,141 @@ class Homework(models.Model):
         null=True, blank=True,
         help_text='Leave blank for unlimited attempts.',
     )
+    publish_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text=(
+            'When this homework should automatically go live. Leave blank to '
+            'publish immediately on creation. A future value schedules it — '
+            'students see nothing and get no email until then.'
+        ),
+    )
+    published_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text=(
+            'Set when the homework actually went live. This is the single gate '
+            'for student visibility and the publish notification email.'
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Soft-delete: the creator (HoI / HoD / teacher) can remove a homework they
+    # added. We never hard-delete because HomeworkSubmission/HomeworkStudentAnswer
+    # cascade off this row — wiping the homework would erase students' grades.
+    deleted_at = models.DateTimeField(
+        null=True, blank=True, db_index=True,
+        help_text=(
+            'Soft-delete timestamp. When set, the homework is hidden from all '
+            'teacher, student and parent views but its submissions and grades '
+            'are preserved in the database.'
+        ),
+    )
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+        help_text='User who soft-deleted this homework.',
+    )
+
+    # ``objects`` (filtered) is declared first so it is the default manager used
+    # by reverse relations and get_object_or_404; ``all_objects`` sees everything.
+    objects = HomeworkManager()
+    all_objects = models.Manager()
 
     class Meta:
         ordering = ['-created_at']
+        # Keep the base manager unfiltered so following a relation to a
+        # soft-deleted homework (e.g. submission.homework on a past result page)
+        # and refresh_from_db() still resolve it. Only ``objects`` (the default
+        # manager) hides soft-deleted rows from list/detail queries.
+        base_manager_name = 'all_objects'
 
     def __str__(self):
         return f'{self.title} ({self.classroom})'
 
     @property
+    def is_deleted(self):
+        return self.deleted_at is not None
+
+    def soft_delete(self, user=None):
+        """Hide this homework while preserving its submissions and grades.
+
+        Idempotent: re-deleting an already-deleted homework leaves the original
+        ``deleted_at`` timestamp untouched.
+        """
+        if self.deleted_at is not None:
+            return
+        self.deleted_at = timezone.now()
+        self.deleted_by = user
+        self.save(update_fields=['deleted_at', 'deleted_by', 'updated_at'])
+
+    def save(self, *args, **kwargs):
+        # Default to "published immediately on creation" unless a publish time
+        # was scheduled. This preserves the pre-scheduling behaviour (homework
+        # was always live the moment it was created) so existing callers and
+        # the published_at visibility gate keep working; scheduling for later
+        # is opt-in by setting ``publish_at``.
+        if self.pk is None and self.published_at is None and self.publish_at is None:
+            self.published_at = timezone.now()
+        super().save(*args, **kwargs)
+
+    @property
     def is_past_due(self):
         return timezone.now() > self.due_date
+
+    def is_overdue_for(self, joined_at):
+        """Whether this homework is *overdue* for a specific student.
+
+        Overdue is relative to the student, not just the clock: it only
+        applies when the homework is past due AND the student was already
+        enrolled on or before the due date. A student who joined the class
+        after the due date never sees it as overdue — for them it is just a
+        normal (still attemptable) assignment.
+        """
+        if not self.is_past_due:
+            return False
+        return joined_at is None or joined_at <= self.due_date
 
     @property
     def attempts_unlimited(self):
         return self.max_attempts is None
+
+    @property
+    def is_published(self):
+        return self.published_at is not None
+
+    @property
+    def status(self):
+        """Lifecycle status for display.
+
+        The due date is the hard end of life, so an expired homework reports
+        ``expired`` regardless of whether it was ever published. Otherwise it
+        is ``published`` once it has gone live, else ``created`` (saved but not
+        yet visible to students — covers both drafts and scheduled-for-later).
+        """
+        if self.due_date and timezone.now() >= self.due_date:
+            return self.STATUS_EXPIRED
+        return self.STATUS_PUBLISHED if self.is_published else self.STATUS_CREATED
+
+    @property
+    def status_label(self):
+        return {
+            self.STATUS_CREATED: 'Created',
+            self.STATUS_PUBLISHED: 'Published',
+            self.STATUS_EXPIRED: 'Expired',
+        }[self.status]
+
+    def publish(self):
+        """Mark the homework live now and notify students.
+
+        Idempotent: a homework that is already published is left untouched so
+        the scheduled-publish cron and a manual "Publish now" click can never
+        double-send the notification email.
+        """
+        if self.published_at:
+            return
+        self.published_at = timezone.now()
+        self.save(update_fields=['published_at', 'updated_at'])
+        from .services import notify_students_homework_published
+        notify_students_homework_published(self)
 
 
 class HomeworkQuestion(models.Model):
@@ -184,6 +327,18 @@ class HomeworkSubmission(models.Model):
             return self.STATUS_ON_TIME
         return self.STATUS_LATE
 
+    def submission_status_for(self, joined_at):
+        """Submission status relative to a student's join date.
+
+        A student who joined the class after the due date can never submit
+        "late" — the deadline passed before they were a member — so their
+        submission is always reported as on time. Otherwise this falls back
+        to the plain ``submission_status`` comparison.
+        """
+        if joined_at is not None and joined_at > self.homework.due_date:
+            return self.STATUS_ON_TIME
+        return self.submission_status
+
     @property
     def percentage(self):
         if not self.total_questions:
@@ -192,7 +347,19 @@ class HomeworkSubmission(models.Model):
 
     @classmethod
     def get_attempt_count(cls, homework, student):
-        return cls.objects.filter(homework=homework, student=student).count()
+        """Number of attempts the student has *taken* for this homework.
+
+        This is the highest ``attempt_number`` assigned, not a row count: old
+        attempts beyond the retention limit are pruned, so counting rows would
+        under-report and silently defeat the ``max_attempts`` cap. Attempt
+        numbers are monotonic (``get_next_attempt_number`` uses ``Max + 1`` and
+        never reuses a number), so the max equals the true attempts taken.
+        """
+        from django.db.models import Max
+        result = cls.objects.filter(homework=homework, student=student).aggregate(
+            max_att=Max('attempt_number'),
+        )
+        return result['max_att'] or 0
 
     @classmethod
     def get_best_submission(cls, homework, student):
@@ -203,6 +370,17 @@ class HomeworkSubmission(models.Model):
         from django.db.models import Max
         result = cls.objects.filter(homework=homework, student=student).aggregate(max_att=Max('attempt_number'))
         return (result['max_att'] or 0) + 1
+
+    @classmethod
+    def prune_old_attempts(cls, homework, student):
+        """Keep only the most recent attempts for this student/homework.
+
+        Called after a new submission is saved so the stored history (and the
+        per-question answers that cascade from it) never grows past the shared
+        attempt limit.
+        """
+        from classroom.attempt_retention import prune_to_last_n
+        return prune_to_last_n(cls, {'homework': homework, 'student': student})
 
 
 class HomeworkStudentAnswer(models.Model):
@@ -355,3 +533,39 @@ class AIGradingCache(models.Model):
 
     def __str__(self):
         return f'Cache Q{self.question_id} — score={self.score_fraction:.2f} hits={self.hit_count}'
+
+
+class HomeworkDraft(models.Model):
+    """In-progress, ungraded answers a student has saved to resume later.
+
+    A draft is deliberately separate from :class:`HomeworkSubmission`: saving
+    progress neither grades the work nor consumes an attempt. There is at most
+    one draft per (homework, student) — each save overwrites the previous one,
+    and the draft is deleted once the student actually submits.
+
+    ``answers_data`` stores the raw answer form fields (the ``answer_<id>`` and
+    ``code_<content_id>`` inputs) as a flat JSON map of field-name -> value, so
+    the take page can restore them client-side without any per-subject Python.
+    """
+    homework = models.ForeignKey(
+        Homework, on_delete=models.CASCADE, related_name='drafts',
+    )
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='homework_drafts',
+    )
+    answers_data = models.JSONField(
+        default=dict,
+        help_text='Flat map of answer form field name -> saved value.',
+    )
+    time_taken_seconds = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # One live draft per student per homework — saves upsert this row.
+        unique_together = ('homework', 'student')
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return f'Draft — {self.homework.title} — {self.student.username}'

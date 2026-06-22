@@ -129,7 +129,7 @@
       {% if page_obj.has_previous %}
       <button type="button"
               class="px-4 py-2 rounded-xl border border-slate-200 text-sm text-gray-600 hover:bg-slate-50 transition"
-              hx-get="?page={{ page_obj.previous_page_number }}{% for k, v in filter_params.items %}&{{ k }}={{ v|urlencode }}{% endfor %}"
+              hx-get="{% url 'worksheets:builder_questions' %}?page={{ page_obj.previous_page_number }}{% for k, v in filter_params.items %}&{{ k }}={{ v|urlencode }}{% endfor %}"
               hx-target="#question-list"
               hx-swap="innerHTML show:top">
         ← Previous
@@ -143,7 +143,7 @@
       {% if page_obj.has_next %}
       <button type="button"
               class="px-4 py-2 rounded-xl border border-slate-200 text-sm text-gray-600 hover:bg-slate-50 transition"
-              hx-get="?page={{ page_obj.next_page_number }}{% for k, v in filter_params.items %}&{{ k }}={{ v|urlencode }}{% endfor %}"
+              hx-get="{% url 'worksheets:builder_questions' %}?page={{ page_obj.next_page_number }}{% for k, v in filter_params.items %}&{{ k }}={{ v|urlencode }}{% endfor %}"
               hx-target="#question-list"
               hx-swap="innerHTML show:top">
         Next →

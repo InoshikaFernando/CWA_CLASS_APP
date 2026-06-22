@@ -186,6 +186,7 @@ class TestBuilderViewAccess(BuilderTestBase):
         self.assertIn('levels', resp.context)
         self.assertIn('coding_languages', resp.context)
         self.assertIn('coding_levels', resp.context)
+        self.assertIn('question_types', resp.context)
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +255,26 @@ class TestBuilderQuestionsFilters(BuilderTestBase):
         content = resp.content.decode()
         self.assertIn('Global fraction question', content)
 
+    def test_filter_by_question_type(self):
+        # q_global is multiple_choice, q_school_a is short_answer.
+        resp = self.client.get(self._questions_url(question_type='multiple_choice'))
+        content = resp.content.decode()
+        self.assertIn('Global fraction question', content)
+        self.assertNotIn('School A algebra question', content)
+
+    def test_filter_by_question_type_short_answer(self):
+        resp = self.client.get(self._questions_url(question_type='short_answer'))
+        content = resp.content.decode()
+        self.assertIn('School A algebra question', content)
+        self.assertNotIn('Global fraction question', content)
+
+    def test_unknown_question_type_yields_no_results(self):
+        resp = self.client.get(self._questions_url(question_type='nonexistent'))
+        self.assertEqual(resp.status_code, 200)
+        content = resp.content.decode()
+        self.assertNotIn('Global fraction question', content)
+        self.assertNotIn('School A algebra question', content)
+
     def test_invalid_topic_id_ignored(self):
         resp = self.client.get(self._questions_url(topic='not-a-number'))
         self.assertEqual(resp.status_code, 200)
@@ -261,6 +282,30 @@ class TestBuilderQuestionsFilters(BuilderTestBase):
     def test_invalid_level_ignored(self):
         resp = self.client.get(self._questions_url(level='abc'))
         self.assertEqual(resp.status_code, 200)
+
+
+# ---------------------------------------------------------------------------
+# WorksheetBuilderCascadeView — question-type dropdown OOB swap
+# ---------------------------------------------------------------------------
+
+class TestBuilderCascadeQuestionType(BuilderTestBase):
+
+    def _cascade_url(self, **params):
+        url = reverse('worksheets:builder_cascade')
+        qs = '&'.join(f'{k}={v}' for k, v in params.items())
+        return f'{url}?{qs}'
+
+    def test_subject_cascade_renders_maths_question_types(self):
+        resp = self.client.get(self._cascade_url(subject='mathematics', step='subject'))
+        content = resp.content.decode()
+        self.assertIn('filter-qtype-wrapper', content)
+        self.assertIn('Calculation', content)  # maths-only type
+
+    def test_subject_cascade_renders_coding_question_types(self):
+        resp = self.client.get(self._cascade_url(subject='coding', step='subject'))
+        content = resp.content.decode()
+        self.assertIn('filter-qtype-wrapper', content)
+        self.assertIn('Write Code', content)  # coding-only type
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +342,23 @@ class TestBuilderQuestionsPagination(BuilderTestBase):
     def test_invalid_page_falls_back_to_last(self):
         resp = self.client.get(self._questions_url(page=9999))
         self.assertEqual(resp.status_code, 200)
+
+    def test_pagination_links_target_questions_endpoint(self):
+        # Regression: pagination must hit the questions endpoint (absolute
+        # path) rather than a relative "?page=" that resolves against the
+        # builder page URL — which returned the full page and reset filters.
+        resp = self.client.get(self._questions_url(subject='mathematics'))
+        content = resp.content.decode()
+        questions_url = reverse('worksheets:builder_questions')
+        self.assertIn(f'hx-get="{questions_url}?page=2', content)
+        self.assertNotIn('hx-get="?page=', content)
+
+    def test_pagination_links_preserve_filters(self):
+        # Active filters (e.g. subject) must be carried into the pagination
+        # link so the next page keeps the same subject/topic/subtopic.
+        resp = self.client.get(self._questions_url(subject='mathematics'))
+        content = resp.content.decode()
+        self.assertIn('subject=mathematics', content)
 
 
 # ---------------------------------------------------------------------------
