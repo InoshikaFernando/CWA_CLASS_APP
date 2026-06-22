@@ -27,13 +27,14 @@ class BurndownChartView(SuperuserRequiredMixin, View):
             or Sprint.objects.first()
         )
         series = build_burndown_series(sprint) if sprint else None
-        # "Last synced" = when the most recent snapshot for this sprint was
-        # written by the sync. The chart reads stored snapshots, so this tells
-        # the viewer how fresh the data is (vs. live Jira).
+        # "Last synced" = when a snapshot for this sprint was last written by
+        # the sync. Use updated_at (bumped on every upsert), not created_at,
+        # so intraday re-syncs are reflected. The chart reads stored snapshots,
+        # so this tells the viewer how fresh the data is (vs. live Jira).
         last_synced = None
         if sprint:
-            latest = sprint.snapshots.order_by('-created_at').first()
-            last_synced = latest.created_at if latest else None
+            latest = sprint.snapshots.order_by('-updated_at').first()
+            last_synced = latest.updated_at if latest else None
         context = {
             'sprint': sprint,
             'series': series,

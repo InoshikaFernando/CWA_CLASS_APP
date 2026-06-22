@@ -72,6 +72,10 @@ class SprintSnapshot(models.Model):
     # Sum of story points on Done issues — handy for tooltips / a burn-up view.
     completed_points = models.FloatField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Bumped every time the sync upserts this row. Because a day's snapshot is
+    # rewritten in place by each run (3x/day), this — not created_at — is the
+    # true "last synced" time the burndown page surfaces.
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['snapshot_date']

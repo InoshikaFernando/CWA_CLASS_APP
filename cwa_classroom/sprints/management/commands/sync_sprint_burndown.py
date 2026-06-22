@@ -3,10 +3,12 @@ Management command: sync_sprint_burndown
 
 Records one burndown snapshot (story points remaining) for the active Jira
 sprint on the configured board. A burndown is time-series and Jira only reports
-each issue's *current* state, so this must run once a day to build up history.
+each issue's *current* state, so this runs on a schedule to build up history.
+The snapshot is upserted per (sprint, day), so running several times a day just
+refreshes that day's point.
 
-Run via cron, e.g. every day at 23:55:
-    55 23 * * * /home/cwa/.../python manage.py sync_sprint_burndown
+Run via cron 3x/day using scripts/cron_sync_sprint_burndown.sh, e.g.:
+    0 8,14,22 * * * /home/cwa/.../scripts/cron_sync_sprint_burndown.sh
 
 No-ops (logs a warning) when the Jira env / JIRA_BOARD_ID is unconfigured.
 """
