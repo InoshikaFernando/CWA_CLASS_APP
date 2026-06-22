@@ -32,6 +32,8 @@ from .models import (
     QUESTION_TYPE_MCQ,
     QUESTION_TYPE_TRUE_FALSE,
     QUIZ_QUESTION_TYPE_CHOICES,
+    ANSWER_FORMAT_TEXT,
+    ANSWER_FORMAT_CHOICES,
 )
 from .views import _require_teacher
 
@@ -58,6 +60,7 @@ def _question_to_dict(q: BrainBuzzQuizQuestion) -> dict:
         'time_limit': q.time_limit,
         'order': q.order,
         'correct_short_answer': q.correct_short_answer or '',
+        'answer_format': q.answer_format,
         'options': options,
     }
 
@@ -308,6 +311,10 @@ def _api_create_question(request, quiz: BrainBuzzQuiz):
     if q_type not in dict(QUIZ_QUESTION_TYPE_CHOICES):
         return JsonResponse({'error': f'Invalid question_type: {q_type}'}, status=400)
 
+    answer_format = body.get('answer_format', ANSWER_FORMAT_TEXT)
+    if answer_format not in dict(ANSWER_FORMAT_CHOICES):
+        return JsonResponse({'error': f'Invalid answer_format: {answer_format}'}, status=400)
+
     try:
         time_limit = max(5, min(300, int(body.get('time_limit', 20))))
     except (ValueError, TypeError):
@@ -323,6 +330,7 @@ def _api_create_question(request, quiz: BrainBuzzQuiz):
             time_limit=time_limit,
             order=next_order,
             correct_short_answer=body.get('correct_short_answer', '') or None,
+            answer_format=answer_format,
         )
         _sync_options(question, body.get('options', []))
         quiz.save(update_fields=['updated_at'])
@@ -376,6 +384,12 @@ def _api_update_question(request, quiz: BrainBuzzQuiz, question: BrainBuzzQuizQu
     csa = body.get('correct_short_answer')
     if csa is not None:
         question.correct_short_answer = csa.strip() or None
+
+    answer_format = body.get('answer_format')
+    if answer_format is not None:
+        if answer_format not in dict(ANSWER_FORMAT_CHOICES):
+            return JsonResponse({'error': f'Invalid answer_format: {answer_format}'}, status=400)
+        question.answer_format = answer_format
 
     with transaction.atomic():
         question.save()

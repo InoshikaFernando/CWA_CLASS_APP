@@ -1,0 +1,70 @@
+{% extends "maths/base.html" %}
+{% block content %}
+<h1>Review detected shapes</h1>
+<p style="color:#555;">
+  Detected by <strong>{{ backend }}</strong>. Fix any wrong shape types below,
+  pick which shape to find, then save. Editing a type may change which shapes
+  count as the answer.
+</p>
+
+{% if messages %}
+  {% for message in messages %}
+    <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+  {% endfor %}
+{% endif %}
+
+<div style="display:flex;gap:2rem;flex-wrap:wrap;align-items:flex-start;">
+  <div style="flex:1 1 360px;max-width:520px;">
+    <svg viewBox="0 0 {{ width }} {{ height }}"
+         style="width:100%;height:auto;border:1px solid #ddd;border-radius:8px;background:#fff;--svg-stroke:#1a1a1a">
+      {{ svg|safe }}
+    </svg>
+  </div>
+
+  <form method="post" action="{% url 'maths:shape_import_save' %}" style="flex:1 1 280px;">
+    {% csrf_token %}
+    <input type="hidden" name="spec_json" value="{{ spec_json }}">
+    <input type="hidden" name="level" value="{{ level_id }}">
+
+    <div class="form-group" style="margin-bottom:1rem;">
+      <label><strong>Find this shape</strong></label><br>
+      <select name="target_type">
+        {% for t in shape_types %}
+        <option value="{{ t }}" {% if t == target_type %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group" style="margin-bottom:1rem;">
+      <label><strong>Question text</strong></label><br>
+      <input type="text" name="question_text" size="34" value="{{ question_text }}">
+    </div>
+
+    <table style="border-collapse:collapse;width:100%;font-size:.9rem;">
+      <thead><tr>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:4px;">Shape</th>
+        <th style="text-align:left;border-bottom:1px solid #ccc;padding:4px;">Detected type</th>
+      </tr></thead>
+      <tbody>
+        {% for s in shapes %}
+        <tr>
+          <td style="padding:4px;color:#888;">{{ s.id }}</td>
+          <td style="padding:4px;">
+            <select name="type_{{ s.id }}">
+              {% for t in shape_types %}
+              <option value="{{ t }}" {% if t == s.type %}selected{% endif %}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div style="margin-top:1rem;">
+      <button type="submit">Save question</button>
+      <a href="{% url 'maths:shape_import' %}" style="margin-left:1rem;">Start over</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

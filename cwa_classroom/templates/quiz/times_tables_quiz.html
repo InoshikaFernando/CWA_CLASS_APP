@@ -26,6 +26,7 @@
 <div id="question-container">
   {% include "quiz/partials/tt_question.html" %}
 </div>
+{% include "partials/_rough_work_whiteboard.html" %}
 {% endblock %}
 
 {% block extra_js %}
@@ -80,6 +81,7 @@
     .then(html => {
       document.getElementById('question-container').innerHTML = html;
       timerRunning = true;
+      if (window.RoughWork) window.RoughWork.clear();  // fresh scratchpad per question
     })
     .catch(() => {
       document.getElementById('question-container').innerHTML =

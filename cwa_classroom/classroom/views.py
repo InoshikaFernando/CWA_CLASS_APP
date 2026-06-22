@@ -28,6 +28,26 @@ def _get_user_school_ids(user):
         teacher=user, role='head_of_institute', is_active=True,
     ).values_list('school_id', flat=True))
     return list(admin_ids | hoi_ids)
+
+
+def _get_billing_classroom_or_404(request, class_id):
+    """Fetch an active classroom for a per-student billing edit (fee / billing
+    start date), scoped to a school the requesting user actually belongs to.
+
+    The role is already enforced by RoleRequiredMixin; this adds the missing
+    tenant check so a privileged user of one school cannot POST changes to
+    another school's class. Membership = school admin, or any active
+    SchoolTeacher row (HoI / accountant / owner). Superusers bypass.
+    """
+    from django.db.models import Q
+    qs = ClassRoom.objects.filter(id=class_id, is_active=True)
+    if not request.user.is_superuser:
+        qs = qs.filter(
+            Q(school__admin=request.user)
+            | Q(school__school_teachers__teacher=request.user,
+                school__school_teachers__is_active=True)
+        ).distinct()
+    return get_object_or_404(qs)
 from billing.models import ModuleSubscription
 from .models import (
     ClassRoom, Subject, Topic, Level, ClassTeacher, ClassStudent,
@@ -121,7 +141,7 @@ class HomeView(LoginRequiredMixin, View):
             # Individual students with no classroom: fall back to all year levels
             if is_individual and not classrooms.exists():
                 accessible_level_ids |= set(
-                    Level.objects.filter(level_number__lte=9).values_list('id', flat=True)
+                    Level.objects.filter(level_number__lt=100).values_list('id', flat=True)
                 )
 
             # Pre-fetch which topics have questions, keyed by (topic_id, level_id)
@@ -136,7 +156,7 @@ class HomeView(LoginRequiredMixin, View):
                 questions_exist.add((row['topic_id'], row['level_id']))
 
             year_data = []
-            for year in range(1, 10):
+            for year in range(1, 11):
                 try:
                     level = Level.objects.get(level_number=year)
                 except Level.DoesNotExist:
@@ -233,7 +253,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
             try:
                 active_class = enrolled_classes.get(id=filter_class_id)
                 enrolled_level_ids = set(
-                    active_class.levels.filter(level_number__lte=8).values_list('id', flat=True)
+                    active_class.levels.filter(level_number__lt=100).values_list('id', flat=True)
                 )
             except ClassRoom.DoesNotExist:
                 enrolled_level_ids = set()
@@ -243,24 +263,24 @@ class StudentDashboardView(LoginRequiredMixin, View):
                     classrooms__students=request.user,
                     classrooms__subject_id=filter_subject_id,
                     classrooms__is_active=True,
-                    level_number__lte=8,
+                    level_number__lt=100,
                 ).values_list('id', flat=True)
             )
         else:
             enrolled_level_ids = set(
                 Level.objects.filter(
-                    classrooms__in=enrolled_classes, level_number__lte=8,
+                    classrooms__in=enrolled_classes, level_number__lt=100,
                 ).values_list('id', flat=True)
             )
 
-        # Fall back to all Year 1-8 levels if not in any classroom yet
+        # Fall back to all year levels if not in any classroom yet
         if not enrolled_level_ids and not filter_class_id and not filter_subject_id:
             enrolled_level_ids = set(
-                Level.objects.filter(level_number__lte=8).values_list('id', flat=True)
+                Level.objects.filter(level_number__lt=100).values_list('id', flat=True)
             )
 
         progress_grid = []
-        for year in range(1, 10):
+        for year in range(1, 11):
             try:
                 level = Level.objects.get(level_number=year)
             except Level.DoesNotExist:
@@ -962,7 +982,7 @@ class EditClassView(RoleRequiredMixin, View):
                 custom_levels = []
                 for dl in dept_levels:
                     if dl.level.subject_id == ds.subject_id:
-                        if dl.level.level_number <= 9:
+                        if dl.level.level_number < 100:
                             year_levels.append(dl.level)
                         else:
                             custom_levels.append(dl.level)
@@ -974,7 +994,7 @@ class EditClassView(RoleRequiredMixin, View):
         elif classroom.subject:
             # Fallback: single subject
             year_levels = list(Level.objects.filter(
-                subject=classroom.subject, school__isnull=True, level_number__lte=9,
+                subject=classroom.subject, school__isnull=True, level_number__lt=100,
             ).exclude(
                 level_number__gte=100, level_number__lt=200,
             ).order_by('level_number'))
@@ -2542,7 +2562,7 @@ class UploadQuestionsView(RoleRequiredMixin, View):
         ctx = {
             'subjects': AVAILABLE_SUBJECTS,
             'topics': Topic.objects.filter(is_active=True).select_related('subject'),
-            'levels': Level.objects.filter(level_number__lte=8),
+            'levels': Level.objects.filter(level_number__lt=100),
         }
         # Teachers must pick a classroom when uploading maths questions
         if request.user.is_any_teacher and not (
@@ -2792,6 +2812,41 @@ def htmx_topics_for_level(request):
     return HttpResponse(html)
 
 
+def _parse_measure_post(request):
+    """Pull the measure fields from POST for a measure question.
+
+    Returns ``(numeric_answer, answer_tolerance, answer_unit, error)``. For a
+    non-measure question everything is None/'' and ``error`` is None (so callers
+    can clear the fields when a question is switched away from measure). For a
+    measure question ``numeric_answer`` is required and ``answer_tolerance`` is
+    optional (blank -> None = exact match). ``error`` is a user-facing string
+    when the input is missing/unparseable.
+    """
+    from decimal import Decimal, InvalidOperation
+
+    if request.POST.get('question_type') != 'measure':
+        return None, None, '', None
+
+    unit = (request.POST.get('answer_unit') or '').strip()
+
+    def _dec(name, required):
+        raw = (request.POST.get(name) or '').strip()
+        if not raw:
+            return None, ('Measure questions need a correct value.' if required else None)
+        try:
+            return Decimal(raw), None
+        except InvalidOperation:
+            return None, f'"{raw}" is not a valid number.'
+
+    numeric_answer, err = _dec('numeric_answer', required=True)
+    if err:
+        return None, None, unit, err
+    tolerance, err = _dec('answer_tolerance', required=False)
+    if err:
+        return None, None, unit, err
+    return numeric_answer, tolerance, unit, None
+
+
 class AddQuestionView(RoleRequiredMixin, View):
     """Create a question. Works both standalone (/create-question/) and with pre-selected level (/level/<int>/add-question/)."""
     required_roles = [
@@ -2887,6 +2942,14 @@ class AddQuestionView(RoleRequiredMixin, View):
                               self._build_context(request, level))
             selected_classroom_id = int(selected_classroom_id)
 
+        # Measure fields (numeric_answer ± tolerance, unit) — validated here
+        # because Model.create() bypasses clean(), so a measure question with no
+        # numeric_answer would otherwise save and then grade every answer wrong.
+        numeric_answer, answer_tolerance, answer_unit, measure_err = _parse_measure_post(request)
+        if measure_err:
+            messages.error(request, measure_err)
+            return render(request, 'teacher/question_form.html', self._build_context(request, level))
+
         # Auto-link topic to level
         if not classroom_topic.levels.filter(pk=level.pk).exists():
             classroom_topic.levels.add(level)
@@ -2906,6 +2969,9 @@ class AddQuestionView(RoleRequiredMixin, View):
                 explanation=request.POST.get('explanation', ''),
                 image=request.FILES.get('image'),
                 video=request.FILES.get('video'),
+                numeric_answer=numeric_answer,
+                answer_tolerance=answer_tolerance,
+                answer_unit=answer_unit,
             )
             # Dynamic answers — support up to 20
             for i in range(1, 21):
@@ -2969,6 +3035,10 @@ class EditQuestionView(RoleRequiredMixin, View):
         if not _can_edit_question(request.user, question):
             messages.error(request, 'You do not have permission to edit this question.')
             return redirect('question_list', level_number=question.level.level_number)
+        numeric_answer, answer_tolerance, answer_unit, measure_err = _parse_measure_post(request)
+        if measure_err:
+            messages.error(request, measure_err)
+            return redirect('edit_question', question_id=question.id)
         classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
         question.topic = classroom_topic
         question.question_text = request.POST.get('question_text', '').strip()
@@ -2977,6 +3047,11 @@ class EditQuestionView(RoleRequiredMixin, View):
         question.points = int(request.POST.get('points', 1))
         question.explanation = request.POST.get('explanation', '')
         if request.FILES.get('image'): question.image = request.FILES['image']
+        # Measure fields — set to the parsed values (None/'' when not a measure
+        # question, so switching a question away from measure clears them).
+        question.numeric_answer = numeric_answer
+        question.answer_tolerance = answer_tolerance
+        question.answer_unit = answer_unit
         with transaction.atomic():
             question.save()
             question.answers.all().delete()
@@ -3819,7 +3894,7 @@ class HoDReportsView(RoleRequiredMixin, View):
             departments = Department.objects.filter(id__in=all_dept_ids, is_active=True)
 
         return render(request, 'hod/reports.html', {
-            'levels': Level.objects.filter(level_number__lte=8),
+            'levels': Level.objects.filter(level_number__lt=100),
             'topics': Topic.objects.filter(is_active=True, parent__isnull=True),
             'attendance_report_url': 'hod_attendance_report',
             'is_hod_only': is_hod_only,
@@ -4353,12 +4428,9 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
     ]
 
     def post(self, request, class_id, student_id):
-        user = request.user
-        # Permission: find the classroom and ensure access (HoI/Accountant+ only)
-        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER) or user.has_role(Role.ACCOUNTANT):
-            classroom = get_object_or_404(ClassRoom, id=class_id, is_active=True)
-        else:
-            raise Http404
+        # Tenant-scoped: only a class in a school the user belongs to (the role
+        # itself is enforced by RoleRequiredMixin).
+        classroom = _get_billing_classroom_or_404(request, class_id)
 
         cs = get_object_or_404(ClassStudent, classroom=classroom, student_id=student_id)
         old_fee = cs.fee_override  # captured for action-history revert
@@ -4387,6 +4459,53 @@ class UpdateStudentFeeView(RoleRequiredMixin, View):
             request=request,
         )
         messages.success(request, 'Student fee updated.')
+        return redirect('class_detail', class_id=class_id)
+
+
+class UpdateStudentBillingStartView(RoleRequiredMixin, View):
+    """Inline update of a student's per-class billing start date (CPP-342).
+
+    Records the date from which the student is billable for this class so
+    invoicing skips sessions before it. Editable by HoI / Accountant only.
+    Empty value clears it (NULL = bill the full requested period).
+    """
+    required_roles = [
+        Role.HEAD_OF_INSTITUTE,
+        Role.INSTITUTE_OWNER,
+        Role.ADMIN,
+        Role.ACCOUNTANT,
+    ]
+
+    def post(self, request, class_id, student_id):
+        # Tenant-scoped: only a class in a school the user belongs to (the role
+        # itself is enforced by RoleRequiredMixin).
+        classroom = _get_billing_classroom_or_404(request, class_id)
+
+        cs = get_object_or_404(ClassStudent, classroom=classroom, student_id=student_id)
+        old_value = cs.billing_start_date  # captured for action-history
+        date_str = request.POST.get('billing_start_date', '').strip()
+        if date_str:
+            try:
+                cs.billing_start_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                messages.error(request, 'Invalid date. Use the date picker (YYYY-MM-DD).')
+                return redirect('class_detail', class_id=class_id)
+        else:
+            cs.billing_start_date = None  # NULL = bill the full requested period
+        cs.save(update_fields=['billing_start_date'])
+        log_event(
+            user=request.user, school=classroom.school, category='data_change',
+            action='student_billing_start_updated',
+            detail={'class_id': classroom.id, 'student_id': student_id,
+                    'class_student_id': cs.id,
+                    'old_billing_start_date': None if old_value is None else old_value.isoformat(),
+                    'billing_start_date': None if cs.billing_start_date is None else cs.billing_start_date.isoformat()},
+            request=request,
+        )
+        if cs.billing_start_date is None:
+            messages.success(request, 'Billing start date cleared — the full period will be billed.')
+        else:
+            messages.success(request, f'Billing start date set to {cs.billing_start_date.isoformat()}.')
         return redirect('class_detail', class_id=class_id)
 
 
@@ -5467,7 +5586,7 @@ class DepartmentLevelsAPIView(LoginRequiredMixin, View):
                         'display_name': dl.effective_display_name,
                         'description': dl.level.description,
                     }
-                    if dl.level.level_number <= 9:
+                    if dl.level.level_number < 100:
                         year_levels.append(entry)
                     else:
                         custom_levels.append(entry)

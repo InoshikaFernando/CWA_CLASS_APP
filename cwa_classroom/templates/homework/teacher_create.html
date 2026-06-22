@@ -146,6 +146,21 @@
           });
         </script>
 
+        <!-- Question type — constrains which questions are auto-selected -->
+        {% if question_type_choices %}
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Question Type</label>
+          <select name="question_type"
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">All types</option>
+            {% for val, label in question_type_choices %}
+            <option value="{{ val }}" {% if request.POST.question_type == val %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <p class="text-xs text-gray-400 mt-1">Only questions of this type will be picked. Leave as “All types” for a mix.</p>
+        </div>
+        {% endif %}
+
         <!-- Number of questions & Due date -->
         <div class="grid grid-cols-2 gap-4 mb-4">
           <div>
@@ -159,6 +174,49 @@
             {% if form.due_date.errors %}<p class="text-xs text-red-600 mt-1">{{ form.due_date.errors.0 }}</p>{% endif %}
           </div>
         </div>
+
+        <!-- Publish scheduling -->
+        <div class="mb-6">
+          <label class="block text-sm font-medium text-gray-700 mb-2">Publishing</label>
+          <div class="space-y-2">
+            <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="radio" name="publish_choice" value="now" id="publish-now"
+                     class="text-blue-600 focus:ring-blue-500"
+                     {% if not form.publish_at.value %}checked{% endif %}>
+              <span>Publish now — students are notified immediately</span>
+            </label>
+            <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="radio" name="publish_choice" value="later" id="publish-later"
+                     class="text-blue-600 focus:ring-blue-500"
+                     {% if form.publish_at.value %}checked{% endif %}>
+              <span>Schedule for later — hidden until the publish time, students notified then</span>
+            </label>
+          </div>
+          <div id="publish-at-wrap" class="mt-2 {% if not form.publish_at.value %}hidden{% endif %}">
+            <label class="block text-xs font-medium text-gray-500 mb-1">Publish Date &amp; Time</label>
+            {{ form.publish_at }}
+            {% if form.publish_at.errors %}<p class="text-xs text-red-600 mt-1">{{ form.publish_at.errors.0 }}</p>{% endif %}
+          </div>
+        </div>
+
+        <script>
+          (function () {
+            var nowRadio = document.getElementById('publish-now');
+            var laterRadio = document.getElementById('publish-later');
+            var wrap = document.getElementById('publish-at-wrap');
+            var input = document.querySelector('#publish-at-wrap input');
+            function sync() {
+              if (laterRadio.checked) {
+                wrap.classList.remove('hidden');
+              } else {
+                wrap.classList.add('hidden');
+                if (input) input.value = '';  // blank => publish now in the view
+              }
+            }
+            nowRadio.addEventListener('change', sync);
+            laterRadio.addEventListener('change', sync);
+          })();
+        </script>
 
         <!-- Attempts -->
         <div class="mb-6">

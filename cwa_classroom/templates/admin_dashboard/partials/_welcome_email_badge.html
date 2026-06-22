@@ -1,0 +1,23 @@
+{% comment %}
+Welcome-email delivery badge (CPP-343). Expects `state` in context:
+'delivered' | 'sent' | 'bounced' | 'failed' | None (no welcome email logged).
+Mirrors the invoice email column wording.
+{% endcomment %}
+{% if state == 'delivered' %}
+  <span class="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700"
+        title="Welcome email confirmed delivered">
+    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+    Welcome delivered
+  </span>
+{% elif state == 'sent' %}
+  <span class="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-sky-100 text-sky-700"
+        title="Welcome email accepted — awaiting delivery confirmation">Welcome sent</span>
+{% elif state == 'bounced' %}
+  <span class="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700"
+        title="Welcome email bounced — check the address and resend">Welcome bounced</span>
+{% elif state == 'failed' %}
+  <span class="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700"
+        title="Welcome email failed to send">Welcome failed</span>
+{% else %}
+  <span class="text-xs text-gray-300" title="No welcome email sent">&mdash;</span>
+{% endif %}

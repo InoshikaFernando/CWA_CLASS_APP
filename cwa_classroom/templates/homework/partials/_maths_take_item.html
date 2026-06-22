@@ -5,7 +5,8 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
 {% with q=ctx.question %}
 <p class="text-gray-900 font-medium mb-4">{{ q.question_text }}</p>
 
-{% if q.image %}
+{% comment %} measure renders its own figure inside the interactive tool stage. {% endcomment %}
+{% if q.image and q.question_type != 'measure' %}
 <img src="{{ q.image.url }}" alt="Question image" class="rounded-lg mb-4 max-h-48 object-contain">
 {% endif %}
 
@@ -95,6 +96,18 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
   }
   const form = wrap.closest('form');
   if (form) form.addEventListener('submit', refresh, true);
+  // Resume support: rebuild the quotient/remainder cells from a saved answer
+  // (e.g. "12 r 3") so a restored draft survives the on-submit rebuild above.
+  (window.__hwRehydrateMaths = window.__hwRehydrateMaths || []).push(function(){
+    var m = (h.value || '').trim().match(/^(\d+)\s*(?:r\s*(\d+))?$/i);
+    if (!m) return;
+    var digits = m[1].split('');
+    for (var i = qs.length - 1, j = digits.length - 1; i >= 0; i--, j--){
+      qs[i].value = j >= 0 ? digits[j] : '';
+    }
+    if (r) r.value = m[2] || '';
+    refresh();
+  });
 })();
 </script>
 
@@ -146,12 +159,446 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
   // even if input/change/blur didn't fire for any reason.
   const form = wrap.closest('form');
   if (form) form.addEventListener('submit', refresh, true);
+  // Resume support: refill the prime inputs from a saved answer (e.g. "2x2x3")
+  // so a restored draft survives the on-submit rebuild above.
+  (window.__hwRehydrateMaths = window.__hwRehydrateMaths || []).push(function(){
+    var v = (h.value || '').trim();
+    if (!v) return;
+    v.split('x').filter(Boolean).forEach(function(p, i){ if (primes[i]) primes[i].value = p; });
+    refresh();
+  });
 })();
 </script>
 
+{% elif q.question_type == 'measure' %}
+{% comment %}
+Measure: render the figure with an interactive protractor/ruler overlaid (a
+visual aid — see maths/partials/_measure_tool.html + static/js/measure_tool.js),
+then a numeric box with the unit as a suffix (like "a is [ ] °" on the paper).
+The grader strips the unit, so the student types just the number.
+{% endcomment %}
+{% include "maths/partials/_measure_tool.html" %}
+<div class="flex items-center gap-2">
+  <input type="text" id="answer_{{ q.id }}" name="answer_{{ q.id }}" inputmode="decimal"
+         class="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+         placeholder="Measure…" aria-label="Measured value">
+  {% if q.answer_unit %}<span class="text-gray-700 font-medium" aria-hidden="true">{{ q.answer_unit }}</span>{% endif %}
+</div>
+
+{% elif q.question_type == 'draw_on_grid' and q.draw_on_grid_data %}
+{% comment %}
+Draw-on-grid: click two dots to lay a line (e.g. a line of symmetry); click a
+drawn line to remove it. Marks serialise to JSON in the hidden answer_{id}
+input as {"segments":[{x1,y1,x2,y2}]} in grid-index coords. Mirrors the
+hidden-field-sync pattern of the long-division / prime-factorisation partials.
+{% endcomment %}
+{% with d=q.draw_on_grid_data %}
+<input type="hidden" name="answer_{{ q.id }}" data-dog-hidden="{{ q.id }}" value='{"segments":[]}' />
+<p class="text-xs text-gray-500 mb-2">Click two dots to draw a line. Click a line to remove it.</p>
+<svg data-dog-wrap="{{ q.id }}" viewBox="0 0 {{ d.width }} {{ d.height }}"
+     width="{{ d.width }}" height="{{ d.height }}"
+     class="border border-gray-200 rounded-lg bg-white touch-none select-none max-w-full">
+  {% if d.polygon %}<polygon points="{{ d.polygon }}" fill="none" stroke="#9ca3af" stroke-width="2"/>{% endif %}
+  <g data-dog-lines="{{ q.id }}"></g>
+  {% for dot in d.dots %}
+  <circle data-dog-dot="{{ q.id }}" data-gx="{{ dot.gx }}" data-gy="{{ dot.gy }}"
+          cx="{{ dot.px }}" cy="{{ dot.py }}" r="6" fill="#cbd5e1"
+          class="cursor-pointer" tabindex="0" role="button"
+          aria-label="grid dot {{ dot.gx }},{{ dot.gy }}"></circle>
+  {% endfor %}
+</svg>
+<button type="button" data-dog-clear="{{ q.id }}"
+        class="mt-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50">Clear</button>
+<script>
+(function(){
+  var id = "{{ q.id }}", pad = {{ d.pad }}, step = {{ d.step }};
+  var svg = document.querySelector('[data-dog-wrap="' + id + '"]');
+  var hidden = document.querySelector('[data-dog-hidden="' + id + '"]');
+  var lines = document.querySelector('[data-dog-lines="' + id + '"]');
+  var clearBtn = document.querySelector('[data-dog-clear="' + id + '"]');
+  if (!svg || !hidden || !lines) return;
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var segs = [];            // {x1,y1,x2,y2} in grid coords
+  var sel = null;           // first selected dot element
+
+  function px(g){ return pad + g * step; }
+  function sync(){ hidden.value = JSON.stringify({segments: segs}); }
+  function key(s){ var a=[[s.x1,s.y1],[s.x2,s.y2]].sort(); return JSON.stringify(a); }
+
+  function drawLine(s){
+    var ln = document.createElementNS(SVGNS, "line");
+    ln.setAttribute("x1", px(s.x1)); ln.setAttribute("y1", px(s.y1));
+    ln.setAttribute("x2", px(s.x2)); ln.setAttribute("y2", px(s.y2));
+    ln.setAttribute("stroke", "#2563eb"); ln.setAttribute("stroke-width", "3");
+    ln.setAttribute("stroke-linecap", "round");
+    ln.setAttribute("class", "cursor-pointer");
+    ln.dataset.k = key(s);
+    ln.addEventListener("click", function(e){ e.stopPropagation(); removeLine(s, ln); });
+    lines.appendChild(ln);
+  }
+  function removeLine(s, ln){
+    var k = key(s);
+    segs = segs.filter(function(t){ return key(t) !== k; });
+    if (ln && ln.parentNode) ln.parentNode.removeChild(ln);
+    sync();
+  }
+  function clearSel(){
+    if (sel){ sel.setAttribute("fill", "#cbd5e1"); sel.setAttribute("r", "6"); sel = null; }
+  }
+  function onDot(dot){
+    var gx = parseInt(dot.dataset.gx, 10), gy = parseInt(dot.dataset.gy, 10);
+    if (!sel){ sel = dot; dot.setAttribute("fill", "#2563eb"); dot.setAttribute("r", "8"); return; }
+    var sx = parseInt(sel.dataset.gx, 10), sy = parseInt(sel.dataset.gy, 10);
+    if (sx === gx && sy === gy){ clearSel(); return; }       // same dot → deselect
+    var s = {x1: sx, y1: sy, x2: gx, y2: gy};
+    if (!segs.some(function(t){ return key(t) === key(s); })){ segs.push(s); drawLine(s); sync(); }
+    clearSel();
+  }
+  svg.querySelectorAll('[data-dog-dot="' + id + '"]').forEach(function(dot){
+    dot.addEventListener("click", function(){ onDot(dot); });
+    dot.addEventListener("keydown", function(e){ if (e.key === "Enter" || e.key === " "){ e.preventDefault(); onDot(dot); } });
+  });
+  if (clearBtn) clearBtn.addEventListener("click", function(){
+    segs = []; while (lines.firstChild) lines.removeChild(lines.firstChild); clearSel(); sync();
+  });
+  var form = svg.closest('form');
+  if (form) form.addEventListener('submit', sync, true);
+  sync();
+  // Resume support: redraw saved segments from the hidden value so a restored
+  // draft is visible and survives the on-submit rebuild above.
+  (window.__hwRehydrateMaths = window.__hwRehydrateMaths || []).push(function(){
+    try {
+      var saved = JSON.parse(hidden.value || '{}');
+      if (saved && Array.isArray(saved.segments) && saved.segments.length){
+        segs = saved.segments.map(function(s){ return {x1:s.x1, y1:s.y1, x2:s.x2, y2:s.y2}; });
+        segs.forEach(function(s){ drawLine(s); });
+        sync();
+      }
+    } catch (e) {}
+  });
+})();
+</script>
+{% endwith %}
+
+{% elif q.question_type == 'column_operation' and q.column_arithmetic %}
+{% with ca=q.column_arithmetic %}
+<input type="hidden" name="answer_{{ q.id }}" data-ca-hidden="{{ q.id }}" />
+<p class="text-xs text-gray-500 mb-2">Use the small amber boxes to carry or borrow as you work, then write your answer in the blue boxes below the line.</p>
+<div class="font-mono text-2xl leading-none mb-2 inline-block" data-ca-wrap="{{ q.id }}">
+  <!-- Carry / borrow working row (scratch space, not marked) -->
+  <div class="flex">
+    <span class="w-10 inline-block"></span>
+    {% for c in ca.cols %}
+      <input type="text" maxlength="2" inputmode="numeric"
+             aria-label="carry or borrow column {{ c }}"
+             class="w-10 h-7 text-center bg-amber-50 border-2 border-amber-200 rounded text-amber-600 font-bold text-sm focus:border-primary focus:bg-white focus:outline-none" />
+    {% endfor %}
+  </div>
+  <!-- Operand rows (operator sign sits in the gutter on the last row) -->
+  {% for row in ca.rows %}
+  <div class="flex items-center mt-1">
+    <span class="w-10 inline-flex items-center justify-center font-bold text-gray-800">{% if forloop.last %}{{ ca.operator }}{% endif %}</span>
+    {% for d in row %}
+      <span class="w-10 h-10 inline-flex items-center justify-center font-bold text-gray-800">{{ d }}</span>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  {% if ca.partials %}
+  <!-- First rule: under the operands, above the long-multiplication working rows -->
+  <div class="flex border-t-2 border-gray-800 mt-1"><span class="w-10 inline-block"></span>{% for c in ca.cols %}<span class="w-10 inline-block"></span>{% endfor %}</div>
+  <!-- Partial-product working rows (long multiplication) — scratch space, not marked -->
+  {% for p in ca.partials %}
+  <div class="flex mt-1">
+    <span class="w-10 inline-block"></span>
+    {% for b in p.boxes %}
+      <input type="text" maxlength="1" inputmode="numeric"
+             data-ca-partial="{{ q.id }}" aria-label="partial product working digit"
+             class="w-10 h-10 text-center bg-amber-50 border-2 border-amber-200 rounded text-amber-600 font-bold focus:border-primary focus:bg-white focus:outline-none" />
+    {% endfor %}
+    {% for s in p.spacers %}<span class="w-10 h-10 inline-block"></span>{% endfor %}
+  </div>
+  {% endfor %}
+  {% endif %}
+  <!-- Rule + answer row -->
+  <div class="flex border-t-2 border-gray-800 pt-1 mt-1">
+    <span class="w-10 inline-block"></span>
+    {% for c in ca.cols %}
+      <input type="text" maxlength="1" inputmode="numeric"
+             data-ca-answer="{{ q.id }}" aria-label="answer digit column {{ c }}"
+             class="w-10 h-10 text-center bg-blue-50 border-2 border-blue-200 rounded font-bold text-blue-700 focus:border-primary focus:bg-white focus:outline-none" />
+    {% endfor %}
+  </div>
+</div>
+<script>
+(function(){
+  const id = "{{ q.id }}";
+  const wrap = document.querySelector('[data-ca-wrap="' + id + '"]');
+  const h    = document.querySelector('[data-ca-hidden="' + id + '"]');
+  if (!wrap || !h) return;
+  const cells = wrap.querySelectorAll('[data-ca-answer="' + id + '"]');
+  function refresh(){
+    // Join answer digits left→right, drop leading zeros (e.g. "08" → "8").
+    // An all-blank submission stays empty (graded wrong) — it must NOT become "0".
+    h.value = [...cells].map(c => (c.value || '').trim()).join('').replace(/^0+(?=\d)/, '');
+  }
+  cells.forEach((el,i) => {
+    el.addEventListener('input', () => { refresh(); if (el.value && i < cells.length-1) cells[i+1].focus(); });
+    el.addEventListener('change', refresh);
+    el.addEventListener('blur', refresh);
+    el.addEventListener('keydown', e => { if (e.key === 'Backspace' && !el.value && i > 0) cells[i-1].focus(); });
+  });
+  const form = wrap.closest('form');
+  if (form) form.addEventListener('submit', refresh, true);
+  // Resume support: refill the answer digits from a saved answer (e.g. "123")
+  // so a restored draft survives the on-submit rebuild above.
+  (window.__hwRehydrateMaths = window.__hwRehydrateMaths || []).push(function(){
+    var v = (h.value || '').trim();
+    if (!v) return;
+    var digits = v.split('');
+    for (var i = cells.length - 1, j = digits.length - 1; i >= 0; i--, j--){
+      cells[i].value = j >= 0 ? digits[j] : '';
+    }
+    refresh();
+  });
+})();
+</script>
+{% endwith %}
+
+{% elif q.question_type == 'shape_select' and q.shape_select_data %}
+{% comment %}
+Shape-select: tap a shape to colour it (the target type, e.g. "colour all the
+triangles"); tap again to undo. Coloured ids serialise to JSON in the hidden
+answer_{id} input as {"selected":["s0",...]}. Mirrors the hidden-field-sync
+pattern of the draw-on-grid partial; grading is server-side set comparison.
+{% endcomment %}
+{% with d=q.shape_select_data %}
+<input type="hidden" name="answer_{{ q.id }}" data-ss-hidden="{{ q.id }}" value='{"selected":[]}' />
+<p class="text-xs text-gray-500 mb-2">Tap each {{ d.target_type }} to colour it. Tap again to undo.</p>
+<svg data-ss-wrap="{{ q.id }}" viewBox="0 0 {{ d.width }} {{ d.height }}"
+     class="border border-gray-200 rounded-lg bg-white touch-none select-none max-w-full"
+     style="width:100%;height:auto">
+  {{ d.svg|safe }}
+</svg>
+<button type="button" data-ss-clear="{{ q.id }}"
+        class="mt-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50">Clear</button>
+<script>
+(function(){
+  var id = "{{ q.id }}";
+  var svg = document.querySelector('[data-ss-wrap="' + id + '"]');
+  var hidden = document.querySelector('[data-ss-hidden="' + id + '"]');
+  var clearBtn = document.querySelector('[data-ss-clear="' + id + '"]');
+  if (!svg || !hidden) return;
+  var FILL = "#f59e0b";        // amber crayon
+  var sel = new Set();
+  function sync(){ hidden.value = JSON.stringify({selected: Array.from(sel)}); }
+  function toggle(el){
+    var sid = el.getAttribute('data-shape-id');
+    if (!sid) return;
+    if (sel.has(sid)){ sel.delete(sid); el.setAttribute('fill', 'transparent'); }
+    else { sel.add(sid); el.setAttribute('fill', FILL); el.setAttribute('fill-opacity', '0.55'); }
+    sync();
+  }
+  svg.querySelectorAll('.cwa-shape').forEach(function(el){
+    el.addEventListener('click', function(){ toggle(el); });
+    el.addEventListener('keydown', function(e){
+      if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(el); }
+    });
+  });
+  if (clearBtn) clearBtn.addEventListener('click', function(){
+    sel.clear();
+    svg.querySelectorAll('.cwa-shape').forEach(function(el){ el.setAttribute('fill', 'transparent'); });
+    sync();
+  });
+  var form = svg.closest('form');
+  if (form) form.addEventListener('submit', sync, true);
+  sync();
+  // Resume support: re-colour saved shapes from the hidden value so a restored
+  // draft is visible and survives the on-submit rebuild above.
+  (window.__hwRehydrateMaths = window.__hwRehydrateMaths || []).push(function(){
+    try {
+      var saved = JSON.parse(hidden.value || '{}');
+      if (saved && Array.isArray(saved.selected)){
+        saved.selected.forEach(function(sid){
+          var el = svg.querySelector('.cwa-shape[data-shape-id="' + sid + '"]');
+          if (el){ sel.add(sid); el.setAttribute('fill', FILL); el.setAttribute('fill-opacity', '0.55'); }
+        });
+        sync();
+      }
+    } catch (e) {}
+  });
+})();
+</script>
+{% endwith %}
+
+{% elif q.question_type == 'plot_points' or q.question_type == 'plot_line' %}{% if q.plane_data %}
+{% comment %}
+Cartesian plane (signed). plot_points: tap a lattice point to plot it, tap again
+to remove. plot_line: tap points in order and they auto-connect into an open
+polyline; tap the last point again to undo it. Marks serialise to JSON in the
+hidden answer_{id} input — {"points":[[x,y],...]} or {"segments":[{x1,y1,x2,y2}]}
+(signed integer coords). A visible read-out echoes the plotted points so a
+mis-tap is never silent; each lattice point has a generous invisible hit-circle
+for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
+{% endcomment %}
+{% with d=q.plane_data %}
+<input type="hidden" name="answer_{{ q.id }}" data-pl-hidden="{{ q.id }}"
+       value='{% if d.mode == "segments" %}{"segments":[]}{% else %}{"points":[]}{% endif %}' />
+<p class="text-xs text-gray-500 mb-2">
+  {% if d.mode == 'segments' %}Tap points in order to plot and join them. Tap the last point again to undo.{% else %}Tap the grid to plot each point. Tap a point again to remove it.{% endif %}
+</p>
+<svg data-pl-wrap="{{ q.id }}" viewBox="0 0 {{ d.width }} {{ d.height }}"
+     class="border border-gray-200 rounded-lg bg-white touch-none select-none max-w-full"
+     style="width:100%;max-width:{{ d.width }}px;height:auto">
+  {{ d.svg|safe }}
+  {% for p in d.given %}
+  <circle cx="{{ p.px }}" cy="{{ p.py }}" r="5" fill="#1f6feb"/>
+  {% endfor %}
+  <polyline data-pl-line="{{ q.id }}" points="" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"></polyline>
+  <g data-pl-marks="{{ q.id }}"></g>
+  {% for dot in d.dots %}
+  <g class="cursor-pointer" data-pl-dot="{{ q.id }}" data-gx="{{ dot.gx }}" data-gy="{{ dot.gy }}"
+     tabindex="0" role="button" aria-label="plot point {{ dot.gx }}, {{ dot.gy }}">
+    <circle cx="{{ dot.px }}" cy="{{ dot.py }}" r="20" fill="transparent"/>
+    <circle cx="{{ dot.px }}" cy="{{ dot.py }}" r="2.5" fill="#94a3b8"/>
+  </g>
+  {% endfor %}
+</svg>
+<div class="mt-2 flex items-center gap-3 flex-wrap">
+  <button type="button" data-pl-clear="{{ q.id }}"
+          class="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50">Clear</button>
+  <p class="text-sm text-gray-600">You plotted: <span data-pl-readout="{{ q.id }}" class="font-medium text-gray-800">—</span></p>
+</div>
+<script>
+(function(){
+  var id = "{{ q.id }}", pad = {{ d.pad }}, step = {{ d.step }};
+  var xmin = {{ d.xmin }}, ymax = {{ d.ymax }}, mode = "{{ d.mode }}";
+  var svg = document.querySelector('[data-pl-wrap="' + id + '"]');
+  var hidden = document.querySelector('[data-pl-hidden="' + id + '"]');
+  var marks = document.querySelector('[data-pl-marks="' + id + '"]');
+  var line = document.querySelector('[data-pl-line="' + id + '"]');
+  var readout = document.querySelector('[data-pl-readout="' + id + '"]');
+  var clearBtn = document.querySelector('[data-pl-clear="' + id + '"]');
+  if (!svg || !hidden || !marks) return;
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var pts = [];  // ordered list of [x, y] (order matters only for plot_line)
+
+  function px(x){ return pad + (x - xmin) * step; }
+  function py(y){ return pad + (ymax - y) * step; }
+  function fmt(p){ return "(" + p[0] + ", " + p[1] + ")"; }
+  function eq(a, b){ return a[0] === b[0] && a[1] === b[1]; }
+
+  function sync(){
+    if (mode === "segments"){
+      var segs = [];
+      for (var i = 1; i < pts.length; i++){
+        segs.push({x1: pts[i-1][0], y1: pts[i-1][1], x2: pts[i][0], y2: pts[i][1]});
+      }
+      hidden.value = JSON.stringify({segments: segs});
+    } else {
+      hidden.value = JSON.stringify({points: pts.slice()});
+    }
+    readout.textContent = pts.length ? pts.map(fmt).join(", ") : "—";
+  }
+  function render(){
+    while (marks.firstChild) marks.removeChild(marks.firstChild);
+    pts.forEach(function(p){
+      var c = document.createElementNS(SVGNS, "circle");
+      c.setAttribute("cx", px(p[0])); c.setAttribute("cy", py(p[1]));
+      c.setAttribute("r", "5"); c.setAttribute("fill", "#dc2626");
+      marks.appendChild(c);
+    });
+    // Only plot_line (segments mode) joins the dots. plot_points must leave them
+    // unconnected — connecting them would misrepresent a "plot these points" task.
+    if (line && mode === "segments"){
+      line.setAttribute("points", pts.map(function(p){ return px(p[0]) + "," + py(p[1]); }).join(" "));
+    }
+  }
+  function onDot(g){
+    var x = parseInt(g.dataset.gx, 10), y = parseInt(g.dataset.gy, 10), p = [x, y];
+    var idx = -1;
+    for (var i = 0; i < pts.length; i++){ if (eq(pts[i], p)){ idx = i; break; } }
+    if (mode === "segments"){
+      // Auto-connect in tap order; tapping the last point again undoes it.
+      if (idx === pts.length - 1 && idx !== -1){ pts.pop(); }
+      else if (idx === -1){ pts.push(p); }
+    } else {
+      if (idx !== -1){ pts.splice(idx, 1); } else { pts.push(p); }
+    }
+    render(); sync();
+  }
+  svg.querySelectorAll('[data-pl-dot="' + id + '"]').forEach(function(g){
+    g.addEventListener("click", function(){ onDot(g); });
+    g.addEventListener("keydown", function(e){ if (e.key === "Enter" || e.key === " "){ e.preventDefault(); onDot(g); } });
+  });
+  if (clearBtn) clearBtn.addEventListener("click", function(){ pts = []; render(); sync(); });
+  var form = svg.closest('form');
+  if (form) form.addEventListener('submit', sync, true);
+  sync();
+  // Resume support: replot saved points/segments from the hidden value so a
+  // restored draft is visible and survives the on-submit rebuild above.
+  (window.__hwRehydrateMaths = window.__hwRehydrateMaths || []).push(function(){
+    try {
+      var saved = JSON.parse(hidden.value || '{}');
+      if (mode === "segments" && saved && Array.isArray(saved.segments) && saved.segments.length){
+        pts = [[saved.segments[0].x1, saved.segments[0].y1]];
+        saved.segments.forEach(function(s){ pts.push([s.x2, s.y2]); });
+        render(); sync();
+      } else if (saved && Array.isArray(saved.points) && saved.points.length){
+        pts = saved.points.map(function(p){ return [p[0], p[1]]; });
+        render(); sync();
+      }
+    } catch (e) {}
+  });
+})();
+</script>
+{% endwith %}
+{% endif %}
+
+{% elif q.question_type == 'identify_coords' %}{% if q.plane_data %}
+{% comment %}
+Identify coordinates: the plane shows the point(s) already plotted; the student
+reads them and types the coordinates. Graded server-side by parsing the typed
+string to a coordinate set (parse_coords) and comparing to target.points.
+{% endcomment %}
+{% with d=q.plane_data %}
+<svg viewBox="0 0 {{ d.width }} {{ d.height }}"
+     class="border border-gray-200 rounded-lg bg-white select-none max-w-full"
+     style="width:100%;max-width:{{ d.width }}px;height:auto">
+  {{ d.svg|safe }}
+  {% for p in d.given %}
+  <circle cx="{{ p.px }}" cy="{{ p.py }}" r="5" fill="#dc2626"/>
+  {% endfor %}
+</svg>
+<div class="mt-2">
+  <input type="text" id="answer_{{ q.id }}" name="answer_{{ q.id }}"
+         class="w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+         placeholder="e.g. (-2, 4)" aria-label="Coordinates">
+  <p class="text-xs text-gray-500 mt-1">Enter as <span class="font-mono">(x, y)</span>. Separate several points with spaces.</p>
+</div>
+{% endwith %}
+{% endif %}
+
+{% elif q.question_type == 'read_graph' %}
+{% comment %}
+Read a graph: render the line graph from graph_spec, or fall back to the uploaded
+image (PDF-extracted graphs keep the raster). Then a numeric box with the unit
+suffix — the same input as a measure question; grading reuses grade_measure.
+{% endcomment %}
+{% if q.graph_data %}
+<div class="mb-3 max-w-md">{{ q.graph_data.svg|safe }}</div>
+{% elif q.image %}
+<div class="mb-3"><img src="{{ q.image.url }}" alt="Graph to read" class="max-w-full rounded-lg border border-gray-200"></div>
+{% endif %}
+<div class="flex items-center gap-2">
+  <input type="text" id="answer_{{ q.id }}" name="answer_{{ q.id }}" inputmode="decimal"
+         class="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+         placeholder="Read off…" aria-label="Value read from graph">
+  {% if q.answer_unit %}<span class="text-gray-700 font-medium" aria-hidden="true">{{ q.answer_unit }}</span>{% endif %}
+</div>
+
 {% else %}
 <input type="text" name="answer_{{ q.id }}"
-       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+       class="cwa-exp-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
        placeholder="Type your answer...">
 {% endif %}
 {% endwith %}

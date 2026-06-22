@@ -1,0 +1,31 @@
+{% comment %}
+Status donut (Active / Free / Trial / Inactive). Inline SVG, dark, compact, thin ring.
+Usage: {% include 'admin_dashboard/billing/_donut.html' with donut=students.donut title='Student status' %}
+{% endcomment %}
+<div class="bg-slate-800 rounded-xl p-3 border border-slate-700">
+  <h3 class="font-semibold text-white text-xs mb-2">{{ title }}</h3>
+  <div class="flex items-center gap-3">
+    <svg viewBox="0 0 140 140" class="w-16 h-16 flex-shrink-0" role="img" aria-label="{{ title }} breakdown">
+      <circle cx="70" cy="70" r="{{ donut.radius }}" fill="none" stroke="#334155" stroke-width="13"/>
+      {% for seg in donut.segments %}
+        {% if seg.value %}
+        <circle cx="70" cy="70" r="{{ donut.radius }}" fill="none" stroke="{{ seg.color }}" stroke-width="13"
+                stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}"
+                transform="rotate(-90 70 70)"/>
+        {% endif %}
+      {% endfor %}
+      <text x="70" y="68" text-anchor="middle" style="fill:#f1f5f9;font-size:24px;font-weight:700">{{ donut.active_pct }}%</text>
+      <text x="70" y="90" text-anchor="middle" style="fill:#94a3b8;font-size:13px">active</text>
+    </svg>
+    <ul class="space-y-0.5 text-xs flex-1">
+      {% for seg in donut.segments %}
+      <li class="flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ seg.color }}"></span>
+        <span class="text-slate-400 flex-1">{{ seg.label }}</span>
+        <span class="font-semibold text-white">{{ seg.value }}</span>
+        <span class="text-slate-500 w-9 text-right">{{ seg.pct }}%</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>

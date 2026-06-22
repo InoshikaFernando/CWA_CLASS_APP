@@ -1,0 +1,80 @@
+{% extends "email/base_email.html" %}
+
+{% block email_title %}Progress Report{% endblock %}
+
+{% block email_content %}
+<div style="background-color:#eff6ff;border-left:4px solid #3b82f6;padding:16px;border-radius:4px;margin-bottom:24px;">
+  <p style="margin:0;color:#1d4ed8;font-weight:700;font-size:16px;">📊 Progress Report — {{ student_name }}</p>
+  <p style="margin:4px 0 0;color:#1e40af;font-size:13px;">{{ school_name }} · {{ term_label }}</p>
+</div>
+
+{% if recipient_name %}
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">Hi {{ recipient_name }},</p>
+{% endif %}
+
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">
+  Here is the latest progress report for {{ student_name }}.
+</p>
+
+<!-- Summary -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px;border-collapse:collapse;">
+  <tr>
+    <td style="padding:8px;text-align:center;border:1px solid #e2e8f0;">
+      <div style="font-size:20px;font-weight:700;color:#0f172a;">{{ overall.total }}</div>
+      <div style="font-size:11px;color:#64748b;">Total</div>
+    </td>
+    <td style="padding:8px;text-align:center;border:1px solid #e2e8f0;">
+      <div style="font-size:20px;font-weight:700;color:#059669;">{{ overall.achieved }}</div>
+      <div style="font-size:11px;color:#64748b;">Achieved</div>
+    </td>
+    <td style="padding:8px;text-align:center;border:1px solid #e2e8f0;">
+      <div style="font-size:20px;font-weight:700;color:#3b82f6;">{{ overall.in_progress }}</div>
+      <div style="font-size:11px;color:#64748b;">In Progress</div>
+    </td>
+    <td style="padding:8px;text-align:center;border:1px solid #e2e8f0;">
+      <div style="font-size:20px;font-weight:700;color:#94a3b8;">{{ overall.not_started }}</div>
+      <div style="font-size:11px;color:#64748b;">Not Started</div>
+    </td>
+  </tr>
+</table>
+
+<!-- Progress by subject & level -->
+{% for group in grouped_progress %}
+  <p style="margin:16px 0 6px;font-weight:600;color:#0f172a;font-size:14px;">
+    {{ group.subject }} — {{ group.level }}
+    <span style="font-weight:400;color:#64748b;font-size:12px;">({{ group.achieved }}/{{ group.total }} achieved)</span>
+  </p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:8px;">
+    {% for record in group.records %}
+    <tr>
+      <td style="padding:6px 8px;font-size:13px;color:#334155;border-bottom:1px solid #f1f5f9;">{{ record.criteria.name }}</td>
+      <td style="padding:6px 8px;font-size:12px;color:#64748b;text-align:right;border-bottom:1px solid #f1f5f9;white-space:nowrap;">{{ record.get_status_display }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+{% endfor %}
+
+<!-- Teacher comments -->
+{% if comments %}
+<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;">
+  <p style="margin:0 0 8px;font-weight:600;color:#0f172a;font-size:14px;">Teacher Comments</p>
+  {% for comment in comments %}
+  <div style="margin-bottom:12px;">
+    <p style="margin:0;color:#334155;font-size:14px;white-space:pre-line;">{{ comment.body }}</p>
+    <p style="margin:2px 0 0;color:#94a3b8;font-size:12px;">
+      — {{ comment.created_by.get_full_name|default:comment.created_by.username|default:"Teacher" }}{% if comment.subject %}, {{ comment.subject.name }}{% endif %}
+    </p>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if report_link %}
+<p style="margin:24px 0 0;text-align:center;">
+  <a href="{{ site_url }}{{ report_link }}"
+     style="display:inline-block;background-color:#3b82f6;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">
+    View Full Progress
+  </a>
+</p>
+{% endif %}
+{% endblock %}

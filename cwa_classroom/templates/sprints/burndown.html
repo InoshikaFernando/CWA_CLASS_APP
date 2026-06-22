@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}Sprint Burndown{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+
+  <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">Sprint Burndown</h1>
+      {% if sprint %}
+        <p class="text-sm text-gray-500">
+          {{ sprint.name }}
+          {% if sprint.start_date and sprint.end_date %}
+            &middot; {{ sprint.start_date|date:"j M" }} – {{ sprint.end_date|date:"j M Y" }}
+          {% endif %}
+          &middot; <span class="capitalize">{{ sprint.get_state_display }}</span>
+        </p>
+        <p class="text-xs text-gray-400 mt-0.5">
+          {% if last_synced %}
+            Last synced from Jira {{ last_synced|date:"j M Y, H:i" }}
+          {% else %}
+            Not yet synced from Jira
+          {% endif %}
+        </p>
+      {% endif %}
+    </div>
+    {% if sprint %}
+      <span class="text-sm text-gray-600 bg-gray-100 rounded-full px-3 py-1">
+        Committed: <strong>{{ series.committed|floatformat:"-1" }}</strong> pts
+      </span>
+    {% endif %}
+  </div>
+
+  {% if sprint and series.labels %}
+    {% if sprint.goal %}
+      <p class="text-sm text-gray-600 mb-4 italic">Goal: {{ sprint.goal }}</p>
+    {% endif %}
+
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+      <div style="position: relative; height: 420px;">
+        <canvas id="burndownChart"></canvas>
+      </div>
+    </div>
+
+    {{ series.labels|json_script:"bd-labels" }}
+    {{ series.ideal|json_script:"bd-ideal" }}
+    {{ series.actual|json_script:"bd-actual" }}
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script>
+      (function () {
+        var ctx = document.getElementById('burndownChart');
+        if (!ctx || typeof Chart === 'undefined') { return; }
+        var labels = JSON.parse(document.getElementById('bd-labels').textContent);
+        var ideal = JSON.parse(document.getElementById('bd-ideal').textContent);
+        var actual = JSON.parse(document.getElementById('bd-actual').textContent);
+        new Chart(ctx.getContext('2d'), {
+          type: 'line',
+          data: { labels: labels, datasets: [
+            { label: 'Ideal', data: ideal, borderColor: '#94a3b8',
+              borderDash: [6, 6], borderWidth: 2, pointRadius: 0, fill: false, tension: 0 },
+            { label: 'Remaining (actual)', data: actual, borderColor: '#6366f1',
+              backgroundColor: 'rgba(99,102,241,0.12)', borderWidth: 2,
+              pointRadius: 3, fill: true, tension: 0.15, spanGaps: false }
+          ] },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+              x: { title: { display: true, text: 'Sprint day' },
+                   ticks: { maxTicksLimit: 12, autoSkip: true, maxRotation: 0 },
+                   grid: { display: false } },
+              y: { beginAtZero: true, title: { display: true, text: 'Story points remaining' },
+                   ticks: { precision: 0 } }
+            },
+            plugins: { legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 12 } } }
+          }
+        });
+      })();
+    </script>
+  {% elif sprint %}
+    <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-4 text-sm">
+      No snapshots recorded for this sprint yet. The burndown builds up once the
+      daily sync (<code>manage.py sync_sprint_burndown</code>) has run at least once.
+    </div>
+  {% else %}
+    <div class="bg-gray-50 border border-gray-200 text-gray-600 rounded-xl p-6 text-sm">
+      <p class="font-medium text-gray-800 mb-1">No sprint data yet.</p>
+      <p>Configure the Jira board (<code>JIRA_BOARD_ID</code>) and run
+      <code>manage.py sync_sprint_burndown</code> to pull the active sprint and
+      start recording the burndown.</p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

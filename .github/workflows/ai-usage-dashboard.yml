@@ -1,0 +1,94 @@
+name: AI Usage Dashboard
+
+# Backstop for the per-environment AI usage dashboard. Prod / test / dev each own
+# a named section of ONE shared "🤖 AI Generation Usage" issue. The data lives in
+# each env's DB (only reachable from the droplet), so this SSHes to the box and
+# runs every env's app `update_dashboard_issue()`, which section-merges (rewrites
+# only that env's block, preserving the others).
+#
+# Reuses the deploy secrets (all envs share one droplet, so TEST_DEPLOY_HOST is
+# the box):
+#   TEST_DEPLOY_HOST     — droplet IP / hostname  (REQUIRED — until set, this no-ops)
+#   TEST_DEPLOY_SSH_KEY  — private key for the deploy user
+#   TEST_DEPLOY_USER     — (optional) SSH user, default: cwa
+#
+# Optional repo variables (Settings → Variables) override the per-env paths/window:
+#   PROD_APP_DIR / PROD_ENV_FILE   — default /home/cwa/CWA_CLASS_APP, /etc/cwa/cwa.env
+#   TEST_APP_DIR / TEST_ENV_FILE   — default /home/cwa/CWA_CLASS_APP_TEST, /etc/cwa/cwa-test.env
+#   DEV_APP_DIR  / DEV_ENV_FILE    — default /home/cwa/CWA_CLASS_APP_DEV, /etc/cwa/cwa-dev.env
+#   AI_USAGE_WINDOW_DAYS           — default 30
+#
+# Each env's section is also refreshed live after every AI call (record_ai_usage);
+# this hourly run is the backstop that corrects drift / covers idle windows. An env
+# with AI_DASHBOARD_* unconfigured simply no-ops.
+
+on:
+  schedule:
+    - cron: "23 * * * *"     # hourly, at :23 past (off the top-of-hour rush)
+  workflow_dispatch:
+
+concurrency:
+  group: ai-usage-dashboard
+  cancel-in-progress: true
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  dashboard:
+    name: AI usage → pinned issue
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check deploy secrets
+        id: gate
+        env:
+          TEST_DEPLOY_HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+        run: |
+          if [ -z "$TEST_DEPLOY_HOST" ]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::TEST_DEPLOY_HOST not set — AI usage dashboard is idle. Add the deploy secrets to enable it."
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Refresh dashboard sections (SSH → each env's app)
+        if: steps.gate.outputs.ok == 'true'
+        env:
+          HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.TEST_DEPLOY_USER }}
+          KEY: ${{ secrets.TEST_DEPLOY_SSH_KEY }}
+          WINDOW_DAYS: ${{ vars.AI_USAGE_WINDOW_DAYS }}
+          PROD_APP_DIR: ${{ vars.PROD_APP_DIR }}
+          PROD_ENV_FILE: ${{ vars.PROD_ENV_FILE }}
+          TEST_APP_DIR: ${{ vars.TEST_APP_DIR }}
+          TEST_ENV_FILE: ${{ vars.TEST_ENV_FILE }}
+          DEV_APP_DIR: ${{ vars.DEV_APP_DIR }}
+          DEV_ENV_FILE: ${{ vars.DEV_ENV_FILE }}
+        run: |
+          set -uo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          WINDOW_DAYS="${WINDOW_DAYS:-30}"
+          # Coerce to digits only — it's interpolated into a remote shell command.
+          case "$WINDOW_DAYS" in ''|*[!0-9]*) WINDOW_DAYS=30 ;; esac
+
+          # Each environment refreshes only its OWN section of the shared issue via
+          # the app's update_dashboard_issue() (which section-merges, preserving the
+          # others). A no-op where AI_DASHBOARD_* isn't configured. Best-effort per
+          # env — one failing must not fail the rest.
+          refresh () {
+            local DIR="$1" ENVF="$2" NAME="$3"
+            echo "::group::Refresh ${NAME} (${DIR})"
+            local PY="from taskqueue.dashboard import update_dashboard_issue; print(update_dashboard_issue(days=${WINDOW_DAYS}))"
+            local REMOTE="set -a; . '${ENVF}'; set +a; '${DIR}/venv/bin/python' '${DIR}/cwa_classroom/manage.py' shell -c '${PY}'"
+            ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${SSH_USER:-cwa}@${HOST}" "$REMOTE" \
+              || echo "::warning::${NAME} dashboard refresh failed (non-fatal)"
+            echo "::endgroup::"
+          }
+
+          refresh "${PROD_APP_DIR:-/home/cwa/CWA_CLASS_APP}"      "${PROD_ENV_FILE:-/etc/cwa/cwa.env}"      "Production"
+          refresh "${TEST_APP_DIR:-/home/cwa/CWA_CLASS_APP_TEST}" "${TEST_ENV_FILE:-/etc/cwa/cwa-test.env}" "Test"
+          refresh "${DEV_APP_DIR:-/home/cwa/CWA_CLASS_APP_DEV}"   "${DEV_ENV_FILE:-/etc/cwa/cwa-dev.env}"   "Others"

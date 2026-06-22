@@ -60,6 +60,7 @@ NOTIF_WELCOME = 'welcome'
 NOTIF_WELCOME_RESEND = 'welcome_resend'
 NOTIF_EMAIL_CHANGED = 'email_changed'
 NOTIF_PASSWORD_CHANGED = 'password_changed'
+NOTIF_PAYMENT_REQUIRED = 'payment_required'
 
 # ---------------------------------------------------------------------------
 # Template paths
@@ -76,6 +77,7 @@ _WELCOME_TEMPLATES = {
 
 _TEMPLATE_EMAIL_CHANGED  = 'email/lifecycle/email_changed.html'
 _TEMPLATE_PASSWORD_CHANGED = 'email/lifecycle/password_changed.html'
+_TEMPLATE_PAYMENT_REQUIRED = 'email/lifecycle/payment_required.html'
 
 
 # ---------------------------------------------------------------------------
@@ -354,5 +356,85 @@ def send_password_changed_notification(user, school=None):
         logger.info('Password-changed notification sent to user %s.', user.pk)
     else:
         logger.warning('Password-changed notification FAILED for user %s.', user.pk)
+
+    return success
+
+
+def send_payment_required_notification(
+    user,
+    school=None,
+    *,
+    plan_name='Wizard',
+    monthly_price='19.90',
+    discount_code='',
+    discount_percent=0,
+    discounted_price=None,
+    currency_symbol='$',
+    reset_url='',
+    support_email='',
+):
+    """
+    Notify a re-gated school student's guardian that they must add payment
+    (and may apply a discount code) on their next login.
+
+    Sent to ``user.email`` (the guardian's address for institute students).
+    Never raises; returns True/False.
+
+    Parameters
+    ----------
+    user : CustomUser
+        The re-gated student account.
+    school : School | None
+        Auto-resolved if not supplied (used for branding + CC).
+    plan_name, monthly_price, currency_symbol :
+        Plan label and full price shown in the email.
+    discount_code, discount_percent, discounted_price :
+        The family's discount. ``discounted_price`` is computed from
+        ``monthly_price`` and ``discount_percent`` if not supplied.
+    reset_url, support_email :
+        Optional links shown in the email.
+    """
+    if not user.email:
+        logger.warning(
+            'send_payment_required_notification: no email for user %s.', user.pk
+        )
+        return False
+
+    resolved_school = _resolve_school(user, school)
+    ctx = _build_base_context(user, resolved_school)
+
+    if discounted_price is None and discount_percent:
+        from decimal import Decimal, ROUND_HALF_UP
+        net = Decimal(str(monthly_price)) * (Decimal(100 - discount_percent) / Decimal(100))
+        discounted_price = str(net.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
+    ctx.update({
+        'plan_name': plan_name,
+        'monthly_price': monthly_price,
+        'discount_code': discount_code,
+        'discount_percent': discount_percent,
+        'discounted_price': discounted_price or monthly_price,
+        'currency_symbol': currency_symbol,
+        'reset_url': reset_url,
+        'support_email': support_email,
+    })
+
+    school_label = resolved_school.name if resolved_school else 'Wizards Learning Hub'
+    subject = f'Action needed — activate your {school_label} subscription to keep access'
+
+    success = _send(
+        recipient_email=user.email,
+        subject=subject,
+        template=_TEMPLATE_PAYMENT_REQUIRED,
+        context=ctx,
+        user=user,
+        school=resolved_school,
+        notification_type=NOTIF_PAYMENT_REQUIRED,
+    )
+
+    if success:
+        logger.info('Payment-required notification sent to user %s (%s).', user.pk, user.email)
+    else:
+        logger.warning('Payment-required notification FAILED for user %s (%s).', user.pk, user.email)
 
     return success

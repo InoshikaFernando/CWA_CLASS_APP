@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Review — {{ label }}{% endblock %}
+
+{% block content %}
+<div class="p-6">
+  <div class="max-w-3xl mx-auto">
+
+    <!-- Score card -->
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6 text-center">
+      <p class="text-sm font-medium text-gray-500 mb-1">{{ label }}</p>
+      {% if quiz_type %}
+      <p class="mb-4">
+        <span class="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">{{ quiz_type }}</span>
+      </p>
+      {% endif %}
+
+      <div class="inline-flex items-center justify-center w-24 h-24 rounded-full mb-4
+        {% if percentage >= 80 %}bg-green-100 text-green-700
+        {% elif percentage >= 50 %}bg-yellow-100 text-yellow-700
+        {% else %}bg-red-100 text-red-600{% endif %}">
+        <span class="text-3xl font-bold">{{ percentage }}%</span>
+      </div>
+
+      <p class="text-lg font-semibold text-gray-800">
+        {{ score }}{% if total is not None %} / {{ total }}{% endif %} correct
+      </p>
+
+      <div class="flex flex-wrap justify-center gap-x-8 gap-y-2 mt-3 text-sm">
+        <div>
+          <span class="text-gray-500">Points:</span>
+          <span class="font-semibold text-gray-700">{{ points|floatformat:1 }}</span>
+        </div>
+        {% if time_display %}
+        <div>
+          <span class="text-gray-500">Time:</span>
+          <span class="font-semibold text-gray-700 font-mono">{{ time_display }}</span>
+        </div>
+        {% endif %}
+        <div>
+          <span class="text-gray-500">Completed:</span>
+          <span class="font-semibold text-gray-700">{{ completed_at|date:"j M Y, H:i" }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Answer review -->
+    <h2 class="text-lg font-display font-bold text-gray-800 mb-3">Answer Review</h2>
+    {% if review %}
+    <div class="space-y-3">
+      {% for item in review %}
+      <div class="flex items-start gap-3 p-4 rounded-xl border shadow-sm
+        {% if item.is_correct %}bg-green-50 border-green-200{% else %}bg-red-50 border-red-200{% endif %}">
+        <span class="text-xl flex-shrink-0" aria-hidden="true">{% if item.is_correct %}✅{% else %}❌{% endif %}</span>
+        <div class="flex-1 text-sm min-w-0">
+          <p class="font-semibold text-gray-800">{{ item.question }}</p>
+          {% if item.is_correct %}
+            <p class="text-green-600 mt-0.5">
+              {% if item.student_answer == '' or item.student_answer is None %}
+                <span class="italic text-gray-400">No answer</span>
+              {% else %}{{ item.student_answer }}{% endif %} ✓
+            </p>
+          {% else %}
+            <p class="text-red-600 mt-0.5">
+              Your answer:
+              <strong>
+                {% if item.student_answer == '' or item.student_answer is None %}
+                  <span class="italic font-normal text-gray-400">No answer</span>
+                {% else %}{{ item.student_answer }}{% endif %}
+              </strong>
+            </p>
+            <p class="text-green-700 mt-0.5">Correct: <strong>{{ item.correct_answer }}</strong></p>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center">
+      <p class="text-gray-400 text-sm">No saved answers for this attempt.</p>
+    </div>
+    {% endif %}
+
+    <!-- Back to quiz history -->
+    <div class="mt-6">
+      {% if viewing_other %}
+        <a href="{% url 'quiz_student_attempt_history' student_id=student.id %}"
+           class="text-sm text-blue-600 hover:underline">&larr; Back to quiz history</a>
+      {% else %}
+        <a href="{% url 'quiz_attempt_history' %}"
+           class="text-sm text-blue-600 hover:underline">&larr; Back to quiz history</a>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+{% endblock %}

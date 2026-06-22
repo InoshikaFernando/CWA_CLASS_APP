@@ -71,5 +71,134 @@
     </div>
   {% endif %}
 
+  {% if school %}
+  <!-- ── Teacher comments ─────────────────────────────────────────── -->
+  <div class="mt-10">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <h2 class="text-lg font-semibold text-gray-900">Teacher Comments</h2>
+
+      {% if terms %}
+      <form method="get" class="flex items-center gap-2">
+        <label class="text-sm text-gray-500">Term</label>
+        <select name="term" onchange="this.form.submit()"
+                class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent">
+          <option value="">All terms</option>
+          {% for t in terms %}
+            <option value="{{ t.id }}" {% if selected_term and selected_term.id == t.id %}selected{% endif %}>{{ t.name }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      {% endif %}
+    </div>
+
+    <div class="space-y-3">
+      {% for comment in comments %}
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div class="text-xs text-gray-500">
+              <span class="font-medium text-gray-700">{{ comment.created_by.get_full_name|default:comment.created_by.username|default:"Teacher" }}</span>
+              {% if comment.subject %}· {{ comment.subject.name }}{% endif %}
+              {% if comment.term %}· {{ comment.term.name }}{% endif %}
+              · {{ comment.created_at|date:"j M Y, g:i a" }}
+              {% if comment.was_edited %}<span class="italic">(edited)</span>{% endif %}
+            </div>
+          </div>
+          <p class="mt-2 text-sm text-gray-800 whitespace-pre-line" id="comment-body-{{ comment.id }}">{{ comment.body }}</p>
+
+          {% if can_comment %}
+          <div class="mt-3 flex items-center gap-3">
+            <button type="button" onclick="document.getElementById('edit-comment-{{ comment.id }}').classList.toggle('hidden')"
+                    class="text-xs font-medium text-accent hover:text-accent-dark">Edit</button>
+            <form method="post" action="{% url 'progress_comment_delete' comment.id %}"
+                  onsubmit="return confirm('Delete this comment?');">
+              {% csrf_token %}
+              <button type="submit" class="text-xs font-medium text-red-500 hover:text-red-600">Delete</button>
+            </form>
+          </div>
+          <form method="post" action="{% url 'progress_comment_edit' comment.id %}" id="edit-comment-{{ comment.id }}" class="hidden mt-3">
+            {% csrf_token %}
+            <textarea name="body" rows="3" required
+                      class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent focus:border-accent">{{ comment.body }}</textarea>
+            <div class="mt-2 flex justify-end">
+              <button type="submit" class="px-4 py-1.5 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-blue-600">Save</button>
+            </div>
+          </form>
+          {% endif %}
+        </div>
+      {% empty %}
+        <div class="bg-white rounded-2xl border border-slate-200 p-6 text-center text-sm text-gray-400">
+          No comments yet.
+        </div>
+      {% endfor %}
+    </div>
+
+    {% if can_comment %}
+    <!-- Add comment -->
+    <form method="post" action="{% url 'progress_comment_add' student.id %}" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mt-4">
+      {% csrf_token %}
+      <h3 class="text-sm font-semibold text-gray-900 mb-3">Add a comment</h3>
+      <textarea name="body" rows="3" required placeholder="Write a comment about this student's progress…"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent focus:border-accent"></textarea>
+      <div class="mt-3 flex flex-wrap items-center gap-3">
+        {% if terms %}
+        <select name="term" class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-900">
+          <option value="">General (no term)</option>
+          {% for t in terms %}
+            <option value="{{ t.id }}" {% if selected_term and selected_term.id == t.id %}selected{% endif %}>{{ t.name }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+        {% if subjects %}
+        <select name="subject" class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-900">
+          <option value="">Overall (no subject)</option>
+          {% for s in subjects %}
+            <option value="{{ s.id }}">{{ s.name }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+        <button type="submit" class="ml-auto px-5 py-2 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-blue-600">Add comment</button>
+      </div>
+    </form>
+
+    <!-- ── Generate & send report ─────────────────────────────────── -->
+    <div class="bg-slate-50 rounded-2xl border border-slate-200 p-5 mt-6">
+      <h3 class="text-sm font-semibold text-gray-900">End-of-term report</h3>
+      <p class="text-xs text-gray-500 mt-1">Generate a report for the selected term, then send it to the student's parents.</p>
+      <form method="post" action="{% url 'progress_report_generate' student.id %}" class="mt-3 flex flex-wrap items-center gap-3">
+        {% csrf_token %}
+        {% if terms %}
+        <select name="term" class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm text-gray-900">
+          <option value="">All terms</option>
+          {% for t in terms %}
+            <option value="{{ t.id }}" {% if selected_term and selected_term.id == t.id %}selected{% endif %}>{{ t.name }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+        <button type="submit" class="px-5 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700">Generate report</button>
+      </form>
+
+      {% if reports %}
+      <div class="mt-4 divide-y divide-slate-200 border-t border-slate-200">
+        {% for r in reports %}
+          <div class="flex items-center justify-between py-2.5 text-sm">
+            <div class="text-gray-700">
+              {{ r.term.name|default:"All terms" }}
+              <span class="text-xs text-gray-400">· {{ r.generated_at|date:"j M Y" }}</span>
+              {% if r.is_sent %}
+                <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Sent to {{ r.recipient_count }}</span>
+              {% else %}
+                <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">Draft</span>
+              {% endif %}
+            </div>
+            <a href="{% url 'progress_report_detail' r.id %}" class="font-medium text-accent hover:text-accent-dark">Open</a>
+          </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
 </div>
 {% endblock %}

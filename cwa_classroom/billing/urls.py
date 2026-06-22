@@ -10,6 +10,7 @@ urlpatterns = [
     path('billing/apply-promo/<int:package_id>/', views.ApplyPromoCodeView.as_view(), name='apply_promo_code'),
     path('billing/success/', views.CheckoutSuccessView.as_view(), name='billing_success'),
     path('billing/cancel/', views.CheckoutCancelView.as_view(), name='billing_cancel'),
+    path('billing/cancel-subscription/', views.IndividualCancelSubscriptionView.as_view(), name='cancel_subscription'),
     path('stripe/webhook/', views.StripeWebhookView.as_view(), name='stripe_webhook'),
 
     # Institute subscription
@@ -30,6 +31,7 @@ urlpatterns = [
 
     # Super Admin Billing Management
     path('admin-dashboard/billing/', views_admin.BillingAdminDashboardView.as_view(), name='billing_admin_dashboard'),
+    path('admin-dashboard/billing/overview/', views_admin.SubscriptionOverviewView.as_view(), name='billing_admin_subscription_overview'),
 
     # Plans
     path('admin-dashboard/billing/plans/', views_admin.PlanListView.as_view(), name='billing_admin_plan_list'),

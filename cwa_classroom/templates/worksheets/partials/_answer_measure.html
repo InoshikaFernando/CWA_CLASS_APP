@@ -1,0 +1,18 @@
+{% comment %}
+CPP-335: measure partial — generated true-scale figure + a numeric box.
+The grader strips the unit, so the student types just the number.
+Context: question
+{% endcomment %}
+<div>
+  {% if question.measure_figure_svg %}
+  <div class="measure-figure mb-4 max-w-[16rem] text-gray-900">{{ question.measure_figure_svg|safe }}</div>
+  {% endif %}
+  <div class="flex items-center gap-2">
+    <input type="text" name="text_answer" inputmode="decimal" required
+           placeholder="Measure…"
+           aria-label="Measured value"
+           class="w-28 rounded-xl border border-gray-300 px-4 py-3 text-sm
+                  focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+    {% if question.answer_unit %}<span class="text-gray-700 font-medium" aria-hidden="true">{{ question.answer_unit }}</span>{% endif %}
+  </div>
+</div>

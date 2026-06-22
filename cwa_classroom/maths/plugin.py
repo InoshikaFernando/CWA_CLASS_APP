@@ -93,7 +93,11 @@ class MathsPlugin(SubjectPlugin):
         # Clear the alternate M2M so the homework only carries maths topics.
         homework.coding_topics.clear()
 
-    def pick_homework_items(self, classroom, selected_topic_ids, n):
+    def homework_question_type_choices(self):
+        from maths.models import Question
+        return Question.QUESTION_TYPES
+
+    def pick_homework_items(self, classroom, selected_topic_ids, n, question_type=None):
         from classroom.models import Topic
         from maths.models import Question
         from maths.views import select_questions_stratified
@@ -106,6 +110,8 @@ class MathsPlugin(SubjectPlugin):
         qs = Question.objects.filter(topic__in=topics).select_related('topic')
         if classroom_levels.exists():
             qs = qs.filter(level__in=classroom_levels)
+        if question_type:
+            qs = qs.filter(question_type=question_type)
         all_questions = list(qs)
 
         if not all_questions:
@@ -195,11 +201,57 @@ class MathsPlugin(SubjectPlugin):
                 got_q = int(m.group(1))
                 got_r = int(m.group(2)) if m.group(2) is not None else 0
                 is_correct = (got_q == quot and got_r == rem)
+        elif q.question_type == Question.COLUMN_OPERATION and q.column_result is not None:
+            # Answer is computed from operands/operator — compare the student's
+            # number to the computed result (tolerant of spaces / leading zeros)
+            # so manually-created questions grade without a stored answer row.
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            import re as _re
+            m = _re.match(r'^\s*(-?\d+)\s*$', text_answer.replace(' ', ''))
+            if m:
+                is_correct = (int(m.group(1)) == q.column_result)
+        elif q.question_type == Question.MEASURE and q.numeric_answer is not None:
+            # Tolerance-graded numeric answer (e.g. "measure angle a").
+            from maths.geometry_grading import grade_measure
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            is_correct = grade_measure(q, text_answer)
+        elif q.question_type == Question.DRAW_ON_GRID and q.grid_spec:
+            # Set-comparison of grid segments/points (e.g. lines of symmetry).
+            # The client serialises the drawn marks to JSON in answer_{id}.
+            from maths.geometry_grading import grade_draw_on_grid
+            text_answer = post_data.get(f'answer_{q.id}', '')
+            is_correct = grade_draw_on_grid(q.grid_spec, text_answer)
+        elif q.question_type == Question.SHAPE_SELECT and q.shape_spec:
+            # Set-comparison of coloured shapes (e.g. "colour all the triangles").
+            # The client serialises the coloured ids to JSON in answer_{id} as
+            # {"selected": [...]}; the target set is derived from the spec.
+            from maths.geometry_grading import grade_shape_select
+            text_answer = post_data.get(f'answer_{q.id}', '')
+            is_correct = grade_shape_select(q.shape_spec, text_answer)
+        elif q.question_type in (Question.PLOT_POINTS, Question.PLOT_LINE) and q.plane_spec:
+            # Set-comparison of plotted points / auto-connected segments on a
+            # signed Cartesian plane. The client serialises the marks to JSON in
+            # answer_{id} as {"points":[...]} or {"segments":[...]}.
+            from maths.geometry_grading import grade_plane
+            text_answer = post_data.get(f'answer_{q.id}', '')
+            is_correct = grade_plane(q.plane_spec, text_answer)
+        elif q.question_type == Question.IDENTIFY_COORDS and q.plane_spec:
+            # Student types the coordinates of the plotted point(s); parsed and
+            # compared as a set against the spec's target.points.
+            from maths.geometry_grading import grade_identify_coords
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            is_correct = grade_identify_coords(q.plane_spec, text_answer)
+        elif q.question_type == Question.READ_GRAPH and q.numeric_answer is not None:
+            # Read a value off a graph: tolerance-graded numeric answer, reusing
+            # the measure grader (numeric_answer + answer_tolerance).
+            from maths.geometry_grading import grade_measure
+            text_answer = post_data.get(f'answer_{q.id}', '').strip()
+            is_correct = grade_measure(q, text_answer)
         else:
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
-            correct_answer = q.answers.filter(is_correct=True).first()
-            if correct_answer and text_answer.lower() == correct_answer.answer_text.lower():
-                is_correct = True
+            # Routes to algebra grading when q.answer_format == 'algebra',
+            # otherwise case/space-insensitive exact match.
+            is_correct = q.grade_text_answer(text_answer)
 
         return {
             'question_id': q.pk,                # legacy FK (written by the view)

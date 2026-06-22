@@ -108,6 +108,7 @@
                          {% if q.question_type == 'multiple_choice' %}bg-blue-100 text-blue-700
                          {% elif q.question_type == 'true_false' %}bg-purple-100 text-purple-700
                          {% elif q.question_type == 'calculation' %}bg-amber-100 text-amber-700
+                         {% elif q.question_type == 'column_operation' %}bg-indigo-100 text-indigo-700
                          {% else %}bg-gray-100 text-gray-600{% endif %}">
               {{ q.question_type }}
             </span>
@@ -197,8 +198,91 @@
               </div>
             </div>
 
+            <!-- Column arithmetic (vertical/stacked operations) -->
+            <div id="column-section-{{ forloop.counter0 }}"
+                 class="bg-indigo-50 rounded-lg p-3 grid grid-cols-1 md:grid-cols-3 gap-3 {% if q.question_type != 'column_operation' %}hidden{% endif %}">
+              <div class="md:col-span-2">
+                <label class="block text-[10px] font-semibold text-indigo-500 mb-1">Operands (top-to-bottom, comma-separated)</label>
+                <input type="text" name="q_{{ forloop.counter0 }}_operands"
+                       value="{% if q.operands %}{{ q.operands|join:', ' }}{% endif %}"
+                       placeholder="e.g. 90, 82"
+                       class="w-full rounded border border-indigo-200 px-2 py-1.5 text-sm font-mono" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-indigo-500 mb-1">Operator</label>
+                <select name="q_{{ forloop.counter0 }}_operator"
+                        class="w-full rounded border border-indigo-200 px-2 py-1.5 text-sm">
+                  <option value="+" {% if q.operator == '+' %}selected{% endif %}>+ (add)</option>
+                  <option value="-" {% if q.operator == '-' %}selected{% endif %}>− (subtract)</option>
+                  <option value="*" {% if q.operator == '*' %}selected{% endif %}>× (multiply)</option>
+                </select>
+              </div>
+              <p class="md:col-span-3 text-[10px] text-indigo-400">The answer is calculated automatically from the operands — no need to enter it below.</p>
+            </div>
+
+            <!-- Long division (bus-stop layout) -->
+            <div id="longdiv-section-{{ forloop.counter0 }}"
+                 class="bg-indigo-50 rounded-lg p-3 grid grid-cols-1 md:grid-cols-2 gap-3 {% if q.question_type != 'long_division' %}hidden{% endif %}">
+              <div>
+                <label class="block text-[10px] font-semibold text-indigo-500 mb-1">Dividend (number being divided)</label>
+                <input type="text" name="q_{{ forloop.counter0 }}_dividend"
+                       value="{% if q.dividend %}{{ q.dividend }}{% endif %}"
+                       placeholder="e.g. 611"
+                       class="w-full rounded border border-indigo-200 px-2 py-1.5 text-sm font-mono" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-indigo-500 mb-1">Divisor (number dividing)</label>
+                <input type="text" name="q_{{ forloop.counter0 }}_divisor"
+                       value="{% if q.divisor %}{{ q.divisor }}{% endif %}"
+                       placeholder="e.g. 47"
+                       class="w-full rounded border border-indigo-200 px-2 py-1.5 text-sm font-mono" />
+              </div>
+              <p class="md:col-span-2 text-[10px] text-indigo-400">The answer is calculated automatically from the dividend and divisor — no need to enter it below.</p>
+            </div>
+
+            <!-- Cartesian plane (plot_points / plot_line / identify_coords) -->
+            <div id="plane-section-{{ forloop.counter0 }}"
+                 class="bg-sky-50 rounded-lg p-3 {% if q.question_type != 'plot_points' and q.question_type != 'plot_line' and q.question_type != 'identify_coords' %}hidden{% endif %}">
+              <label class="block text-[10px] font-semibold text-sky-600 mb-1">Plane spec (JSON)</label>
+              <textarea name="q_{{ forloop.counter0 }}_plane_spec" rows="4"
+                        placeholder='{"bounds":{"xmin":-5,"xmax":5,"ymin":-5,"ymax":5},"mode":"points","target":{"points":[[3,-2]]}}'
+                        class="w-full rounded border border-sky-200 px-2 py-1.5 text-xs font-mono">{% if q.plane_spec %}{{ q.plane_spec_json }}{% endif %}</textarea>
+              <p class="text-[10px] text-sky-500 mt-1">Signed integer coords. mode "points" (plot/identify) or "segments" (plot &amp; join). The answer is graded from this — no answers below.</p>
+            </div>
+
+            <!-- Read a graph (read_graph) -->
+            <div id="graph-section-{{ forloop.counter0 }}"
+                 class="bg-sky-50 rounded-lg p-3 space-y-3 {% if q.question_type != 'read_graph' %}hidden{% endif %}">
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-[10px] font-semibold text-sky-600 mb-1">Answer (value to read)</label>
+                  <input type="text" name="q_{{ forloop.counter0 }}_numeric_answer"
+                         value="{% if q.numeric_answer is not None %}{{ q.numeric_answer }}{% endif %}" placeholder="e.g. 130"
+                         class="w-full rounded border border-sky-200 px-2 py-1.5 text-sm font-mono" />
+                </div>
+                <div>
+                  <label class="block text-[10px] font-semibold text-sky-600 mb-1">Tolerance (±)</label>
+                  <input type="text" name="q_{{ forloop.counter0 }}_answer_tolerance"
+                         value="{% if q.answer_tolerance is not None %}{{ q.answer_tolerance }}{% endif %}" placeholder="e.g. 5"
+                         class="w-full rounded border border-sky-200 px-2 py-1.5 text-sm font-mono" />
+                </div>
+                <div>
+                  <label class="block text-[10px] font-semibold text-sky-600 mb-1">Unit</label>
+                  <input type="text" name="q_{{ forloop.counter0 }}_answer_unit"
+                         value="{{ q.answer_unit|default:'' }}" placeholder="e.g. km"
+                         class="w-full rounded border border-sky-200 px-2 py-1.5 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-sky-600 mb-1">Graph spec (JSON, optional — leave blank to keep the graph image)</label>
+                <textarea name="q_{{ forloop.counter0 }}_graph_spec" rows="3"
+                          placeholder='{"title":"Race","x_axis":{"label":"Time","unit":"min","min":0,"max":110,"step":10},"y_axis":{"label":"Distance","unit":"km","min":0,"max":320,"step":65},"series":[{"points":[[20,65],[40,130]]}]}'
+                          class="w-full rounded border border-sky-200 px-2 py-1.5 text-xs font-mono">{% if q.graph_spec %}{{ q.graph_spec_json }}{% endif %}</textarea>
+              </div>
+            </div>
+
             <!-- Answers -->
-            <div id="answers-section-{{ forloop.counter0 }}">
+            <div id="answers-section-{{ forloop.counter0 }}" {% if q.question_type == 'column_operation' or q.question_type == 'long_division' or q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' or q.question_type == 'read_graph' %}class="hidden"{% endif %}>
               <label class="block text-xs font-semibold text-gray-500 mb-1">Answers</label>
               <div class="space-y-2 answers-container" data-idx="{{ forloop.counter0 }}">
                 {% for ans in q.answers %}
@@ -345,6 +429,24 @@ function handleTypeChange(qIdx, newType) {
   var container = document.querySelector('.answers-container[data-idx="' + qIdx + '"]');
   var section = document.getElementById('answers-section-' + qIdx);
   var addBtn = section.querySelector('button[onclick*="addAnswerRow"]');
+  var columnSection = document.getElementById('column-section-' + qIdx);
+  var longdivSection = document.getElementById('longdiv-section-' + qIdx);
+  var planeSection = document.getElementById('plane-section-' + qIdx);
+  var graphSection = document.getElementById('graph-section-' + qIdx);
+  var planeTypes = ['plot_points', 'plot_line', 'identify_coords'];
+  var noAnswerTypes = ['column_operation', 'long_division', 'plot_points', 'plot_line', 'identify_coords', 'read_graph'];
+
+  // These types compute/derive their own answers — show the structured-field
+  // editor for the active one, hide the answers list.
+  if (columnSection) columnSection.classList.toggle('hidden', newType !== 'column_operation');
+  if (longdivSection) longdivSection.classList.toggle('hidden', newType !== 'long_division');
+  if (planeSection) planeSection.classList.toggle('hidden', planeTypes.indexOf(newType) === -1);
+  if (graphSection) graphSection.classList.toggle('hidden', newType !== 'read_graph');
+  if (noAnswerTypes.indexOf(newType) !== -1) {
+    section.classList.add('hidden');
+    return;
+  }
+  section.classList.remove('hidden');
 
   if (newType === 'true_false') {
     // Replace with True/False options

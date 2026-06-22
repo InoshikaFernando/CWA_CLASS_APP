@@ -499,14 +499,108 @@ class Subscription(models.Model):
     )
     cancelled_at = models.DateTimeField(null=True, blank=True)
     cancel_at_period_end = models.BooleanField(default=False)
+    # Discount snapshot — set when a code is redeemed at the CompleteProfileView
+    # gate (school students). NULL = no discount recorded. The percent is
+    # snapshotted so history survives later edits/deletion of the DiscountCode.
+    discount_code = models.ForeignKey(
+        'billing.DiscountCode', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='redeemed_subscriptions',
+        help_text='Discount code redeemed for this subscription, if any.',
+    )
+    discount_percent_snapshot = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text='Percent off at redemption (100 = fully free). Snapshot, not live.',
+    )
+    discount_cleared_at = models.DateTimeField(null=True, blank=True)
+    discount_cleared_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # discount_state values
+    DISCOUNT_NONE = 'none'
+    DISCOUNT_FREE_100 = 'free_100'
+    DISCOUNT_PARTIAL = 'partial'
+    DISCOUNT_FULL = 'full'
 
     class Meta:
         ordering = ['-created_at']
 
     def __str__(self):
         return f'{self.user.username} — {self.package} — {self.status}'
+
+    @staticmethod
+    def classify_discount(status, stripe_subscription_id, discount_percent_snapshot, has_paid):
+        """Pure discount classifier — single source of truth for the property,
+        the HoI list view, and the backfill command (CPP-XXX).
+
+        ``has_paid`` is "the user has a succeeded billing.Payment", supplied by
+        the caller so a list view can batch it (avoid an N+1). Rules:
+          * non-active/trialing                          -> none
+          * snapshot >= 100                              -> free_100
+          * 0 < snapshot < 100 AND a Stripe sub exists   -> partial
+            (a partial snapshot with no Stripe sub is an abandoned checkout)
+          * snapshot == 0                                -> full
+          * no snapshot, ACTIVE, no Stripe sub, not paid -> free_100 (legacy)
+            (TRIALING is excluded so a paid-plan trial isn't read as free; the
+            has_paid guard excludes legacy one-time-PaymentIntent payers)
+          * otherwise                                    -> full
+        """
+        if status not in (Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIALING):
+            return Subscription.DISCOUNT_NONE
+        pct = discount_percent_snapshot
+        if pct is not None:
+            if pct >= 100:
+                return Subscription.DISCOUNT_FREE_100
+            if pct > 0:
+                return (Subscription.DISCOUNT_PARTIAL if stripe_subscription_id
+                        else Subscription.DISCOUNT_NONE)
+            return Subscription.DISCOUNT_FULL
+        if (status == Subscription.STATUS_ACTIVE
+                and not stripe_subscription_id and not has_paid):
+            return Subscription.DISCOUNT_FREE_100
+        return Subscription.DISCOUNT_FULL
+
+    @property
+    def discount_state(self):
+        # Only the legacy-inference branch needs the Payment lookup.
+        has_paid = False
+        if (self.discount_percent_snapshot is None
+                and self.status == self.STATUS_ACTIVE
+                and not self.stripe_subscription_id):
+            has_paid = Payment.objects.filter(
+                user_id=self.user_id, status=Payment.STATUS_SUCCEEDED,
+            ).exists()
+        return self.classify_discount(
+            self.status, self.stripe_subscription_id,
+            self.discount_percent_snapshot, has_paid,
+        )
+
+    @property
+    def has_discount(self):
+        return self.discount_state in (self.DISCOUNT_FREE_100, self.DISCOUNT_PARTIAL)
+
+    def clear_discount(self, by_user=None):
+        """Remove the discount and cancel the discounted access (CPP-XXX).
+
+        Cancels this subscription and clears the discount snapshot so the
+        student must re-pay full at the CompleteProfileView gate. Does NOT touch
+        Stripe (the caller cancels the Stripe subscription, if any) and does NOT
+        re-gate the user (the caller sets profile_completed=False) — kept here as
+        the pure DB state change so it's easy to test.
+        """
+        self.status = self.STATUS_CANCELLED
+        self.discount_code = None
+        self.discount_percent_snapshot = None
+        self.discount_cleared_at = timezone.now()
+        self.discount_cleared_by = by_user
+        self.cancelled_at = timezone.now()
+        self.save(update_fields=[
+            'status', 'discount_code', 'discount_percent_snapshot',
+            'discount_cleared_at', 'discount_cleared_by', 'cancelled_at', 'updated_at',
+        ])
 
     @property
     def is_promo_activated(self):

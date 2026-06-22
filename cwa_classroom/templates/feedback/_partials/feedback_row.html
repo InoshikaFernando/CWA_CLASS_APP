@@ -1,0 +1,54 @@
+{% comment %}
+A single feedback row in the triage queue (CPP-323). Status and priority are
+edited inline: changing either select POSTs to feedback:update and swaps this
+row with the refreshed partial.
+{% endcomment %}
+<tr id="feedback-row-{{ item.pk }}" class="hover:bg-gray-50 align-top">
+  <td class="px-4 py-3">
+    <span class="inline-flex items-center rounded-full bg-accent-light text-accent-dark px-2 py-0.5 text-xs font-medium">
+      {{ item.get_category_display }}
+    </span>
+  </td>
+  <td class="px-4 py-3 max-w-xs">
+    <div class="font-medium text-gray-900">{{ item.title|default:"—" }}</div>
+    <div class="text-gray-500 text-xs line-clamp-2">{{ item.description }}</div>
+  </td>
+  <td class="px-4 py-3 whitespace-nowrap">
+    <div class="text-gray-900">{{ item.submitted_by.get_full_name|default:item.submitted_by.username }}</div>
+    <div class="text-gray-400 text-xs">{{ item.role|default:"—" }}</div>
+  </td>
+  <td class="px-4 py-3 whitespace-nowrap text-gray-600">{{ item.school.name|default:"—" }}</td>
+  <td class="px-4 py-3 max-w-[12rem]">
+    {% if item.page_url %}
+      <a href="{{ item.page_url }}" class="text-accent hover:underline text-xs break-all" title="{{ item.page_url }}">{{ item.page_url }}</a>
+    {% else %}<span class="text-gray-400">—</span>{% endif %}
+  </td>
+  <td class="px-4 py-3">
+    <select name="priority"
+            hx-post="{% url 'feedback:update' item.pk %}"
+            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+            hx-target="#feedback-row-{{ item.pk }}"
+            hx-swap="outerHTML"
+            aria-label="Priority for feedback {{ item.pk }}"
+            class="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-accent/40">
+      <option value="" {% if not item.priority %}selected{% endif %}>—</option>
+      {% for value, label in item.PRIORITY_CHOICES %}
+        <option value="{{ value }}" {% if value == item.priority %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td class="px-4 py-3">
+    <select name="status"
+            hx-post="{% url 'feedback:update' item.pk %}"
+            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+            hx-target="#feedback-row-{{ item.pk }}"
+            hx-swap="outerHTML"
+            aria-label="Status for feedback {{ item.pk }}"
+            class="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-accent/40">
+      {% for value, label in item.STATUS_CHOICES %}
+        <option value="{{ value }}" {% if value == item.status %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td class="px-4 py-3 whitespace-nowrap text-gray-500 text-xs">{{ item.created_at|date:"j M Y" }}</td>
+</tr>

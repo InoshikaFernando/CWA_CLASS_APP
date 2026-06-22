@@ -33,6 +33,7 @@
 <div id="question-container">
   {% include "quiz/partials/topic_question.html" %}
 </div>
+{% include "partials/_rough_work_whiteboard.html" %}
 {% endblock %}
 
 {% block extra_js %}
@@ -62,7 +63,17 @@
   // ── Shared submit helper ──────────────────────────────────────────────────
   const _csrf = document.querySelector('meta[name="csrf-token"]').content;
 
+  // Answer choices stay enabled after answering (so kids can keep tapping the
+  // 🔊 speakers to repeat), so we guard grading here instead: _submitting blocks
+  // a double-tap mid-request, _answered blocks re-grading once feedback is shown.
+  // Both reset when the next question loads.
+  let _answered = false;
+  let _submitting = false;
+  let _selectedAnswerId = null;   // which MCQ option the student tapped
+
   async function _submitAndAdvance(sessionId, payload) {
+    if (_answered || _submitting) return;
+    _submitting = true;
     try {
       const resp = await fetch('/api/submit-topic-answer/', {
         method: 'POST',
@@ -74,9 +85,12 @@
         _showError(data.error || 'Something went wrong. Please refresh and try again.');
         return;
       }
+      _answered = true;
       _showFeedback(data, sessionId);
     } catch (err) {
       _showError('Could not submit your answer. Please check your connection and try again.');
+    } finally {
+      _submitting = false;
     }
   }
 
@@ -93,8 +107,21 @@
     const card = document.getElementById('question-card');
     if (!card) return;
 
-    // Disable all interactive inputs
-    card.querySelectorAll('.answer-btn, button, input').forEach(el => el.disabled = true);
+    // Nothing is disabled — answer choices, inputs and speakers all stay live so
+    // kids can keep listening/exploring. Re-grading is prevented by _answered.
+
+    // Colour the MCQ options: green for the correct one, red for a wrong pick,
+    // so a pre-reader can SEE the result, not just hear it.
+    const correctId = data.correct_answer_id;
+    card.querySelectorAll('.answer-btn[data-answer-id]').forEach(btn => {
+      const id = parseInt(btn.dataset.answerId, 10);
+      btn.classList.remove('border-gray-200', 'hover:border-primary', 'hover:bg-primary-light');
+      if (correctId != null && id === correctId) {
+        btn.classList.add('border-green-500', 'bg-green-50', 'text-green-800');
+      } else if (id === _selectedAnswerId) {
+        btn.classList.add('border-red-400', 'bg-red-50', 'text-red-700');
+      }
+    });
 
     const fb = document.createElement('div');
     fb.className = 'mt-5 space-y-3';
@@ -105,10 +132,19 @@
           ✅ Correct!
         </div>`;
     } else {
+      const correctText = data.correct_answer_text || '';
+      // Escape for safe use inside the data-speak="" attribute.
+      const speakAttr = correctText.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                                   .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const speaker = correctText
+        ? ` <button type="button"
+              class="tts-btn shrink-0 w-8 h-8 rounded-full bg-accent-light text-accent hover:bg-accent hover:text-white transition inline-flex items-center justify-center align-middle"
+              data-speak="${speakAttr}" aria-label="Listen to the correct answer" title="Listen to the correct answer">🔊</button>`
+        : '';
       fb.innerHTML = `
         <div class="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-red-800">
           <p class="font-semibold">❌ Incorrect</p>
-          ${data.correct_answer_text ? `<p class="text-sm mt-1">Correct answer: <strong>${data.correct_answer_text}</strong></p>` : ''}
+          ${correctText ? `<p class="text-sm mt-1">Correct answer: <strong>${correctText}</strong>${speaker}</p>` : ''}
         </div>
         ${data.explanation ? `<div class="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-blue-800 text-sm">${data.explanation}</div>` : ''}`;
     }
@@ -125,6 +161,8 @@
   }
 
   async function _loadNext(sessionId, nextUrl, isLast) {
+    // Stop any read-aloud so it doesn't carry over into the next question.
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     if (isLast && nextUrl) {
       window.location.href = nextUrl;
       return;
@@ -132,13 +170,18 @@
     const nextResp = await fetch('/api/topic-next/' + sessionId + '/');
     const html = await nextResp.text();
     document.getElementById('question-container').innerHTML = html;
+    _initQuestion();  // re-bind listeners — inline <script> in the partial won't run after innerHTML
+    _answered = false;        // fresh question — allow answering again
+    _submitting = false;
+    _selectedAnswerId = null;
     currentQ++;
     _updateProgress();
+    if (window.RoughWork) window.RoughWork.clear();  // fresh scratchpad per question
   }
 
   // ── Answer submission functions ───────────────────────────────────────────
   function submitMCAnswer(sessionId, questionId, answerId) {
-    document.querySelectorAll('.answer-btn').forEach(b => b.disabled = true);
+    _selectedAnswerId = answerId;
     _submitAndAdvance(sessionId, {
       session_id: sessionId, question_id: questionId, answer_id: answerId,
     });
@@ -148,7 +191,6 @@
     const input = document.getElementById('text-answer-input');
     const val = input ? input.value.trim() : '';
     if (!val) return;
-    input.disabled = true;
     _submitAndAdvance(sessionId, {
       session_id: sessionId, question_id: questionId, text_answer: val,
     });
@@ -161,5 +203,109 @@
       session_id: sessionId, question_id: questionId, ordered_answer_ids: ids,
     });
   }
+
+  // ── Interactive grid question types ───────────────────────────────────────
+  // These live here (not in the partial) because <script> tags inserted via
+  // innerHTML during a swap do NOT execute. Their Submit buttons call these
+  // by name via inline onclick (which survives the swap); the per-cell focus
+  // wiring is (re)bound by _initQuestion() after every swap.
+
+  function submitLongDivision(sessionId, questionId) {
+    const cells = [...document.querySelectorAll('[data-ld="quotient"]')];
+    const quotient = cells.map(c => c.value.trim() || '0').join('').replace(/^0+(?=\d)/, '') || '0';
+    const remainder = (document.querySelector('[data-ld="remainder"]').value.trim() || '0');
+    const answer = remainder === '0' ? quotient : quotient + ' r ' + remainder;
+    document.getElementById('text-answer-input').value = answer;
+    _submitAndAdvance(sessionId, {
+      session_id: sessionId, question_id: questionId, text_answer: answer,
+    });
+  }
+
+  function submitPrimeFactorization(sessionId, questionId) {
+    const primes = [...document.querySelectorAll('[data-pf="prime"]')];
+    const answer = primes.map(el => el.value.trim()).filter(Boolean).join('x');
+    document.getElementById('text-answer-input').value = answer;
+    _submitAndAdvance(sessionId, {
+      session_id: sessionId, question_id: questionId, text_answer: answer,
+    });
+  }
+
+  function submitColumnOperation(sessionId, questionId) {
+    const cells = [...document.querySelectorAll('[data-ca="answer"]')];
+    // Join answer digits left→right, drop leading zeros (e.g. "08" → "8").
+    // An all-blank submission stays empty (graded wrong) — it must NOT become
+    // "0", or it would falsely match a zero-result question.
+    const answer = cells.map(c => c.value.trim()).join('').replace(/^0+(?=\d)/, '');
+    document.getElementById('text-answer-input').value = answer;
+    _submitAndAdvance(sessionId, {
+      session_id: sessionId, question_id: questionId, text_answer: answer,
+    });
+  }
+
+  // ── Post-swap init hook ───────────────────────────────────────────────────
+  // Re-binds every per-question listener that an inline <script> used to wire.
+  // Runs once on initial load and again at the end of _loadNext() after the
+  // innerHTML swap, so interactive types work no matter where they appear.
+
+  function _wireFocusAdvance(root, selector) {
+    const arr = [...root.querySelectorAll(selector)];
+    arr.forEach((el, i) => {
+      el.addEventListener('input', () => {
+        if (el.value && i < arr.length - 1) arr[i + 1].focus();
+      });
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Backspace' && !el.value && i > 0) arr[i - 1].focus();
+      });
+    });
+  }
+
+  function _initQuestion() {
+    const card = document.getElementById('question-card');
+    if (!card) return;  // error partial — nothing to wire
+    const sessionId = card.dataset.sessionId;
+    const questionId = card.dataset.questionId;
+
+    // Long-division & column-operation: auto-advance focus across digit cells.
+    _wireFocusAdvance(card, '[data-ld="quotient"]');
+    _wireFocusAdvance(card, '[data-ca="answer"]');
+
+    // Prime-factorisation: live "p×q×…" preview + tab order prime→quotient→…
+    const primes = [...card.querySelectorAll('[data-pf="prime"]')];
+    if (primes.length) {
+      const quotients = [...card.querySelectorAll('[data-pf="quotient"]')];
+      const preview = document.getElementById('pf-preview');
+      if (preview) {
+        const refresh = () =>
+          preview.value = primes.map(el => el.value.trim()).filter(Boolean).join('×');
+        primes.forEach(el => el.addEventListener('input', refresh));
+      }
+      let t = 1;
+      primes.forEach((p, i) => {
+        p.tabIndex = t++;
+        if (i < quotients.length) quotients[i].tabIndex = t++;
+      });
+    }
+
+    // Short answer: Enter submits, x² button inserts a caret. The hidden input
+    // the grid types reuse shares this id, so guard on the visible text input.
+    const textInput = document.getElementById('text-answer-input');
+    if (textInput && textInput.type !== 'hidden') {
+      textInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') submitTextAnswer(sessionId, questionId);
+      });
+      textInput.focus();  // autofocus attribute is inert on a swapped-in node
+    }
+    // The x² button is part of the symbol keypad injected by maths_exponent.js.
+
+    // Multiple choice: disable the whole set on click to block double-submit.
+    card.querySelectorAll('.answer-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        card.querySelectorAll('.answer-btn').forEach(b => b.disabled = true);
+      });
+    });
+  }
+
+  // Wire the server-rendered first question.
+  _initQuestion();
 </script>
 {% endblock %}

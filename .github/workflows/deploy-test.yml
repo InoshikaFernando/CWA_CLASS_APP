@@ -1,0 +1,110 @@
+name: Deploy to Test
+
+# Every push to `test` (i.e. every merged PR) deploys the test branch to the
+# test site by running scripts/deploy.sh over SSH, then gates on a public
+# (no-auth) smoke test. A failed deploy/smoke posts to DEPLOY_ALERT_WEBHOOK.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   TEST_DEPLOY_HOST     — test server IP / hostname
+#   TEST_DEPLOY_SSH_KEY  — private key authorised for the deploy user on test
+#   TEST_DEPLOY_USER     — (optional) SSH user, default: cwa
+#   TEST_DEPLOY_PATH     — (optional) repo path,  default: /home/cwa/CWA_CLASS_APP
+#   TEST_SMOKE_URL       — (optional) URL to smoke, default: https://test.wizardslearninghub.co.nz
+#   DEPLOY_ALERT_WEBHOOK — (optional) Slack/Discord incoming webhook for failure alerts
+#
+# Until TEST_DEPLOY_HOST is set the deploy step no-ops (keeps test green).
+
+on:
+  push:
+    branches: [test]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-test
+  cancel-in-progress: false      # never interrupt an in-flight deploy
+
+jobs:
+  deploy:
+    name: Deploy test → test site
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.gate.outputs.configured }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check deploy secrets
+        id: gate
+        env:
+          TEST_DEPLOY_HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+        run: |
+          if [ -z "$TEST_DEPLOY_HOST" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::TEST_DEPLOY_HOST not set — skipping test deploy. Add TEST_DEPLOY_HOST / TEST_DEPLOY_SSH_KEY to enable."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          TEST_DEPLOY_HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+          TEST_DEPLOY_USER: ${{ secrets.TEST_DEPLOY_USER }}
+          TEST_DEPLOY_SSH_KEY: ${{ secrets.TEST_DEPLOY_SSH_KEY }}
+          TEST_DEPLOY_PATH: ${{ secrets.TEST_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$TEST_DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$TEST_DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
+            "${TEST_DEPLOY_USER:-cwa}@${TEST_DEPLOY_HOST}" \
+            "cd ${TEST_DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP_TEST} && DEPLOY_BRANCH=test SERVICE=cwa-gunicorn-test WORKER=cwa-rqworker-test ENV_FILE=/etc/cwa/cwa-test.env HEALTH_SOCKET=/run/cwa-test.sock bash scripts/deploy.sh"
+          # Runs in the TEST checkout: resets to origin/test, migrates, collects
+          # static, restarts cwa-gunicorn-test, and runs the deep health gate
+          # against /run/cwa-test.sock — exiting non-zero if unhealthy.
+
+  smoke:
+    name: Post-deploy smoke (public)
+    needs: deploy
+    if: needs.deploy.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright + Chromium
+        run: |
+          pip install playwright==1.49.1
+          playwright install --with-deps chromium
+
+      - name: Public smoke test
+        env:
+          TEST_SMOKE_URL: ${{ secrets.TEST_SMOKE_URL }}
+        working-directory: cwa_classroom
+        run: |
+          URL="${TEST_SMOKE_URL:-https://test.wizardslearninghub.co.nz}"
+          echo "Smoke-testing ${URL} (public/liveness only)"
+          python smoke_test.py "$URL" --public-only
+
+  notify-failure:
+    name: Alert on failed deploy
+    needs: [deploy, smoke]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post failure to webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.DEPLOY_ALERT_WEBHOOK }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "::notice::DEPLOY_ALERT_WEBHOOK not set — skipping chat alert (GitHub still emails the run owner)."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          MSG="🚨 CWA TEST deploy FAILED on ${GITHUB_REF_NAME} (${GITHUB_SHA:0:7}) — ${RUN_URL}"
+          printf '{"text": %s, "content": %s}' "$(jq -Rn --arg m "$MSG" '$m')" "$(jq -Rn --arg m "$MSG" '$m')" \
+            | curl -sS -X POST -H 'Content-Type: application/json' -d @- "$WEBHOOK_URL"

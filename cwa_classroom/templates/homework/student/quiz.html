@@ -51,10 +51,10 @@
     <!-- Short answer / Calculation / Fill blank -->
     {% else %}
     <div>
-      <input type="text" x-model="textAnswer" @keyup.enter="submitTextAnswer()"
+      <input type="text" x-ref="textAns" x-model="textAnswer" @keyup.enter="submitTextAnswer()"
              :disabled="answered"
              placeholder="Type your answer..."
-             class="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+             class="cwa-exp-input w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
     </div>
     {% endif %}
 
