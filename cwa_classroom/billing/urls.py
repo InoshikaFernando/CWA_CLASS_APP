@@ -65,6 +65,17 @@ urlpatterns = [
     path('admin-dashboard/billing/student-discount-codes/<int:pk>/edit/', views_admin.StudentDiscountCodeEditView.as_view(), name='billing_admin_student_discount_edit'),
     path('admin-dashboard/billing/student-discount-codes/<int:pk>/toggle/', views_admin.StudentDiscountCodeToggleActiveView.as_view(), name='billing_admin_student_discount_toggle'),
 
+    # Income vs Expense (operating-cost dashboard + expense management)
+    path('admin-dashboard/billing/finance/', views_admin.FinanceDashboardView.as_view(), name='billing_admin_finance_dashboard'),
+    path('admin-dashboard/billing/expenses/', views_admin.ExpenseListView.as_view(), name='billing_admin_expense_list'),
+    path('admin-dashboard/billing/expenses/create/', views_admin.ExpenseCreateView.as_view(), name='billing_admin_expense_create'),
+    path('admin-dashboard/billing/expenses/<int:pk>/edit/', views_admin.ExpenseEditView.as_view(), name='billing_admin_expense_edit'),
+    path('admin-dashboard/billing/expenses/<int:pk>/delete/', views_admin.ExpenseDeleteView.as_view(), name='billing_admin_expense_delete'),
+    path('admin-dashboard/billing/recurring-expenses/', views_admin.RecurringExpenseListView.as_view(), name='billing_admin_recurring_expense_list'),
+    path('admin-dashboard/billing/recurring-expenses/create/', views_admin.RecurringExpenseCreateView.as_view(), name='billing_admin_recurring_expense_create'),
+    path('admin-dashboard/billing/recurring-expenses/<int:pk>/edit/', views_admin.RecurringExpenseEditView.as_view(), name='billing_admin_recurring_expense_edit'),
+    path('admin-dashboard/billing/recurring-expenses/<int:pk>/toggle/', views_admin.RecurringExpenseToggleView.as_view(), name='billing_admin_recurring_expense_toggle'),
+
     # Promo Codes
     path('admin-dashboard/billing/promo-codes/', views_admin.PromoCodeListView.as_view(), name='billing_admin_promo_list'),
     path('admin-dashboard/billing/promo-codes/create/', views_admin.PromoCodeCreateView.as_view(), name='billing_admin_promo_create'),

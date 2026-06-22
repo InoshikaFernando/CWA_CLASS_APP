@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}{% if expense %}Edit Expense{% else %}New Expense{% endif %} - Billing Admin{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+
+  <div class="mb-8">
+    <a href="{% url 'billing_admin_expense_list' %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">{% if expense %}Edit Expense{% else %}Record New Expense{% endif %}</h1>
+    <p class="text-gray-500 mt-1">Enter the amount in NZD — convert foreign bills before saving.</p>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+    <form method="post">
+      {% csrf_token %}
+      <div class="space-y-6">
+
+        <div>
+          <label for="category" class="block text-sm font-semibold text-gray-700 mb-1.5">Category *</label>
+          <select name="category" id="category"
+                  class="w-full px-4 py-2.5 border {% if errors.category %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+            {% for value, label in categories %}
+              <option value="{{ value }}" {% if form_data.category == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          {% if errors.category %}<p class="text-red-500 text-xs mt-1">{{ errors.category }}</p>{% endif %}
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label for="amount" class="block text-sm font-semibold text-gray-700 mb-1.5">Amount (NZD) *</label>
+            <input type="number" step="0.01" min="0.01" name="amount" id="amount" required
+                   value="{{ form_data.amount|default:'' }}"
+                   class="w-full px-4 py-2.5 border {% if errors.amount %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                   placeholder="49.00">
+            {% if errors.amount %}<p class="text-red-500 text-xs mt-1">{{ errors.amount }}</p>{% endif %}
+          </div>
+          <div>
+            <label for="incurred_on" class="block text-sm font-semibold text-gray-700 mb-1.5">Date *</label>
+            <input type="date" name="incurred_on" id="incurred_on" required
+                   value="{{ form_data.incurred_on|date:'Y-m-d' }}"
+                   class="w-full px-4 py-2.5 border {% if errors.incurred_on %}border-red-400{% else %}border-slate-300{% endif %} rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+            <p class="text-xs text-gray-400 mt-1">Use the 1st for monthly bills.</p>
+            {% if errors.incurred_on %}<p class="text-red-500 text-xs mt-1">{{ errors.incurred_on }}</p>{% endif %}
+          </div>
+        </div>
+
+        <div>
+          <label for="vendor" class="block text-sm font-semibold text-gray-700 mb-1.5">Vendor</label>
+          <input type="text" name="vendor" id="vendor"
+                 value="{{ form_data.vendor|default:'' }}"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="e.g. DigitalOcean">
+        </div>
+
+        <div>
+          <label for="description" class="block text-sm font-semibold text-gray-700 mb-1.5">Description</label>
+          <input type="text" name="description" id="description"
+                 value="{{ form_data.description|default:'' }}"
+                 class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition"
+                 placeholder="e.g. Droplet + Spaces, June">
+        </div>
+
+        <div>
+          <label for="note" class="block text-sm font-semibold text-gray-700 mb-1.5">Note</label>
+          <textarea name="note" id="note" rows="2"
+                    class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">{{ form_data.note|default:'' }}</textarea>
+        </div>
+
+      </div>
+
+      <div class="flex items-center justify-end gap-3 mt-8 pt-6 border-t border-slate-100">
+        <a href="{% url 'billing_admin_expense_list' %}"
+           class="px-5 py-2.5 text-gray-600 font-semibold rounded-xl hover:bg-gray-100 transition">Cancel</a>
+        <button type="submit"
+                class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+          {% if expense %}Save Changes{% else %}Record Expense{% endif %}
+        </button>
+      </div>
+    </form>
+  </div>
+
+</div>
+{% endblock %}

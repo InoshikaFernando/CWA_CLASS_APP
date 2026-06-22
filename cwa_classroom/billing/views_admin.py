@@ -14,16 +14,20 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from django.utils.text import slugify
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.db.models import Sum, Count, Q
 
 from .models import (
     InstitutePlan, InstituteDiscountCode, ModuleProduct,
     SchoolSubscription, ModuleSubscription, PromoCode,
     DiscountCode, Package, Subscription, DURATION_CHOICES,
+    Expense, RecurringExpense, ExpenseCategory, EXPENSE_SOURCE_MANUAL,
+    EXPENSE_SOURCE_AI_GRADING,
 )
 from .reporting import (
     get_paid_revenue, get_daily_active_series_local,
-    DAILY_WINDOWS, StripeUnavailable,
+    DAILY_WINDOWS, StripeUnavailable, get_income_expense_summary,
+    get_usd_to_nzd_rate,
 )
 from audit.services import log_event
 
@@ -1811,3 +1815,295 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
 
         messages.success(request, f'Coupon code "{code}" created.')
         return redirect('billing_admin_coupon_list')
+
+
+# ---------------------------------------------------------------------------
+# Income vs Expense (operating-cost dashboard + expense management)
+# ---------------------------------------------------------------------------
+
+class FinanceDashboardView(SuperuserRequiredMixin, View):
+    """Income (paid Stripe revenue) vs operating expenses, monthly, in NZD."""
+
+    MONTH_OPTIONS = [3, 6, 12, 24]
+
+    def get(self, request):
+        try:
+            months = int(request.GET.get('months', 6))
+        except (TypeError, ValueError):
+            months = 6
+        if months not in self.MONTH_OPTIONS:
+            months = 6
+
+        summary = get_income_expense_summary(months)
+
+        # Pre-compute bar heights (% of max) so the template stays logic-free.
+        max_value = summary['max_value'] or Decimal('1')
+        bars = []
+        for m in summary['months']:
+            bars.append({
+                'label': m['label'],
+                'income': m['income'],
+                'expense': m['expense'],
+                'net': m['net'],
+                'income_pct': int(m['income'] / max_value * 100),
+                'expense_pct': int(m['expense'] / max_value * 100),
+            })
+
+        usd_nzd_rate, fx_source = get_usd_to_nzd_rate()
+
+        return render(request, 'admin_dashboard/billing/finance_dashboard.html', {
+            'bars': bars,
+            'category_totals': summary['category_totals'],
+            'totals': summary['totals'],
+            'income_available': summary['income_available'],
+            'months': months,
+            'month_options': self.MONTH_OPTIONS,
+            'usd_nzd_rate': usd_nzd_rate,
+            'fx_source': fx_source,
+        })
+
+
+# --- Expense CRUD ----------------------------------------------------------
+
+def _parse_expense_form(data):
+    """Validate shared Expense / RecurringExpense fields. Returns (clean, errors)."""
+    errors = {}
+    clean = {}
+
+    category = (data.get('category') or '').strip()
+    valid_categories = {c[0] for c in ExpenseCategory.choices}
+    if category not in valid_categories:
+        errors['category'] = 'Choose a category.'
+    clean['category'] = category
+
+    clean['vendor'] = (data.get('vendor') or '').strip()[:120]
+    clean['description'] = (data.get('description') or '').strip()[:255]
+    clean['note'] = (data.get('note') or '').strip()
+
+    amount = (data.get('amount') or '').strip()
+    try:
+        amount_val = Decimal(amount)
+        if amount_val <= 0:
+            errors['amount'] = 'Amount must be greater than 0.'
+        clean['amount'] = amount_val
+    except (InvalidOperation, ValueError):
+        errors['amount'] = 'Enter a valid NZD amount.'
+
+    return clean, errors
+
+
+class ExpenseListView(SuperuserRequiredMixin, View):
+    def get(self, request):
+        category = (request.GET.get('category') or '').strip()
+        expenses = Expense.objects.all()
+        if category in {c[0] for c in ExpenseCategory.choices}:
+            expenses = expenses.filter(category=category)
+        return render(request, 'admin_dashboard/billing/expense_list.html', {
+            'expenses': expenses[:300],
+            'categories': ExpenseCategory.choices,
+            'selected_category': category,
+        })
+
+
+class ExpenseCreateView(SuperuserRequiredMixin, View):
+    def get(self, request):
+        return render(request, 'admin_dashboard/billing/expense_form.html', {
+            'form_data': {'incurred_on': timezone.localdate().replace(day=1)},
+            'categories': ExpenseCategory.choices,
+        })
+
+    def post(self, request):
+        clean, errors = _parse_expense_form(request.POST)
+        incurred_on = (request.POST.get('incurred_on') or '').strip()
+        date_val = parse_date(incurred_on) if incurred_on else None
+        if not date_val:
+            errors['incurred_on'] = 'Enter a valid date.'
+
+        if errors:
+            return render(request, 'admin_dashboard/billing/expense_form.html', {
+                'form_data': request.POST,
+                'errors': errors,
+                'categories': ExpenseCategory.choices,
+            })
+
+        Expense.objects.create(
+            category=clean['category'], vendor=clean['vendor'],
+            description=clean['description'], amount=clean['amount'],
+            incurred_on=date_val, note=clean['note'],
+            source=EXPENSE_SOURCE_MANUAL,
+        )
+        messages.success(request, 'Expense recorded.')
+        return redirect('billing_admin_expense_list')
+
+
+class ExpenseEditView(SuperuserRequiredMixin, View):
+    def get(self, request, pk):
+        expense = get_object_or_404(Expense, pk=pk)
+        return render(request, 'admin_dashboard/billing/expense_form.html', {
+            'form_data': {
+                'category': expense.category, 'vendor': expense.vendor,
+                'description': expense.description, 'amount': expense.amount,
+                'incurred_on': expense.incurred_on, 'note': expense.note,
+            },
+            'categories': ExpenseCategory.choices,
+            'expense': expense,
+        })
+
+    def post(self, request, pk):
+        expense = get_object_or_404(Expense, pk=pk)
+        if expense.source == EXPENSE_SOURCE_AI_GRADING:
+            messages.error(
+                request,
+                'AI-grading expenses are recomputed from usage and cannot be '
+                'edited. Recurring rows, however, can be trued-up to actuals.',
+            )
+            return redirect('billing_admin_expense_list')
+
+        clean, errors = _parse_expense_form(request.POST)
+        incurred_on = (request.POST.get('incurred_on') or '').strip()
+        date_val = parse_date(incurred_on) if incurred_on else None
+        if not date_val:
+            errors['incurred_on'] = 'Enter a valid date.'
+
+        if errors:
+            return render(request, 'admin_dashboard/billing/expense_form.html', {
+                'form_data': request.POST,
+                'errors': errors,
+                'categories': ExpenseCategory.choices,
+                'expense': expense,
+            })
+
+        expense.category = clean['category']
+        expense.vendor = clean['vendor']
+        expense.description = clean['description']
+        expense.amount = clean['amount']
+        expense.incurred_on = date_val
+        expense.note = clean['note']
+        expense.save()
+        messages.success(request, 'Expense updated.')
+        return redirect('billing_admin_expense_list')
+
+
+class ExpenseDeleteView(SuperuserRequiredMixin, View):
+    def post(self, request, pk):
+        expense = get_object_or_404(Expense, pk=pk)
+        if expense.source == EXPENSE_SOURCE_AI_GRADING:
+            messages.error(request, 'AI-grading expenses are recomputed and cannot be deleted here.')
+        else:
+            expense.delete()
+            messages.success(request, 'Expense deleted.')
+        return redirect('billing_admin_expense_list')
+
+
+# --- Recurring expense templates -------------------------------------------
+
+class RecurringExpenseListView(SuperuserRequiredMixin, View):
+    def get(self, request):
+        return render(request, 'admin_dashboard/billing/recurring_expense_list.html', {
+            'templates': RecurringExpense.objects.all(),
+        })
+
+
+class RecurringExpenseCreateView(SuperuserRequiredMixin, View):
+    def get(self, request):
+        return render(request, 'admin_dashboard/billing/recurring_expense_form.html', {
+            'form_data': {
+                'frequency': RecurringExpense.FREQUENCY_MONTHLY,
+                'start_date': timezone.localdate().replace(day=1),
+            },
+            'categories': ExpenseCategory.choices,
+            'frequencies': RecurringExpense.FREQUENCY_CHOICES,
+        })
+
+    def post(self, request):
+        clean, errors = _parse_expense_form(request.POST)
+        frequency = (request.POST.get('frequency') or '').strip()
+        if frequency not in {f[0] for f in RecurringExpense.FREQUENCY_CHOICES}:
+            errors['frequency'] = 'Choose a frequency.'
+        start = (request.POST.get('start_date') or '').strip()
+        start_val = parse_date(start) if start else None
+        if not start_val:
+            errors['start_date'] = 'Enter a valid start date.'
+        end = (request.POST.get('end_date') or '').strip()
+        end_val = parse_date(end) if end else None
+        if end and not end_val:
+            errors['end_date'] = 'Enter a valid end date (or leave blank).'
+
+        if errors:
+            return render(request, 'admin_dashboard/billing/recurring_expense_form.html', {
+                'form_data': request.POST,
+                'errors': errors,
+                'categories': ExpenseCategory.choices,
+                'frequencies': RecurringExpense.FREQUENCY_CHOICES,
+            })
+
+        RecurringExpense.objects.create(
+            category=clean['category'], vendor=clean['vendor'],
+            description=clean['description'], amount=clean['amount'],
+            frequency=frequency, start_date=start_val, end_date=end_val,
+            note=clean['note'],
+        )
+        messages.success(request, 'Recurring expense created.')
+        return redirect('billing_admin_recurring_expense_list')
+
+
+class RecurringExpenseEditView(SuperuserRequiredMixin, View):
+    def get(self, request, pk):
+        tpl = get_object_or_404(RecurringExpense, pk=pk)
+        return render(request, 'admin_dashboard/billing/recurring_expense_form.html', {
+            'form_data': {
+                'category': tpl.category, 'vendor': tpl.vendor,
+                'description': tpl.description, 'amount': tpl.amount,
+                'frequency': tpl.frequency, 'start_date': tpl.start_date,
+                'end_date': tpl.end_date or '', 'note': tpl.note,
+            },
+            'categories': ExpenseCategory.choices,
+            'frequencies': RecurringExpense.FREQUENCY_CHOICES,
+            'template': tpl,
+        })
+
+    def post(self, request, pk):
+        tpl = get_object_or_404(RecurringExpense, pk=pk)
+        clean, errors = _parse_expense_form(request.POST)
+        frequency = (request.POST.get('frequency') or '').strip()
+        if frequency not in {f[0] for f in RecurringExpense.FREQUENCY_CHOICES}:
+            errors['frequency'] = 'Choose a frequency.'
+        start = (request.POST.get('start_date') or '').strip()
+        start_val = parse_date(start) if start else None
+        if not start_val:
+            errors['start_date'] = 'Enter a valid start date.'
+        end = (request.POST.get('end_date') or '').strip()
+        end_val = parse_date(end) if end else None
+        if end and not end_val:
+            errors['end_date'] = 'Enter a valid end date (or leave blank).'
+
+        if errors:
+            return render(request, 'admin_dashboard/billing/recurring_expense_form.html', {
+                'form_data': request.POST,
+                'errors': errors,
+                'categories': ExpenseCategory.choices,
+                'frequencies': RecurringExpense.FREQUENCY_CHOICES,
+                'template': tpl,
+            })
+
+        tpl.category = clean['category']
+        tpl.vendor = clean['vendor']
+        tpl.description = clean['description']
+        tpl.amount = clean['amount']
+        tpl.frequency = frequency
+        tpl.start_date = start_val
+        tpl.end_date = end_val
+        tpl.note = clean['note']
+        tpl.save()
+        messages.success(request, 'Recurring expense updated.')
+        return redirect('billing_admin_recurring_expense_list')
+
+
+class RecurringExpenseToggleView(SuperuserRequiredMixin, View):
+    def post(self, request, pk):
+        tpl = get_object_or_404(RecurringExpense, pk=pk)
+        tpl.is_active = not tpl.is_active
+        tpl.save(update_fields=['is_active'])
+        state = 'activated' if tpl.is_active else 'deactivated'
+        messages.success(request, f'Recurring expense {state}.')
+        return redirect('billing_admin_recurring_expense_list')
