@@ -741,11 +741,17 @@ class ExpenseCategory(models.TextChoices):
 EXPENSE_SOURCE_MANUAL = 'manual'
 EXPENSE_SOURCE_RECURRING = 'recurring'
 EXPENSE_SOURCE_AI_GRADING = 'ai_grading'
+EXPENSE_SOURCE_DIGITALOCEAN = 'digitalocean_api'
 EXPENSE_SOURCE_CHOICES = [
     (EXPENSE_SOURCE_MANUAL, 'Manual entry'),
     (EXPENSE_SOURCE_RECURRING, 'Recurring template'),
-    (EXPENSE_SOURCE_AI_GRADING, 'AI grading (auto)'),
+    (EXPENSE_SOURCE_AI_GRADING, 'AI usage (auto)'),
+    (EXPENSE_SOURCE_DIGITALOCEAN, 'DigitalOcean API (auto)'),
 ]
+
+# Sources a human owns and may edit/delete in the UI. Everything else is
+# machine-synced (re-derived each run) and therefore read-only.
+EXPENSE_EDITABLE_SOURCES = {EXPENSE_SOURCE_MANUAL, EXPENSE_SOURCE_RECURRING}
 
 
 class Expense(models.Model):
@@ -819,6 +825,11 @@ class Expense(models.Model):
     @property
     def is_auto(self):
         return self.source != EXPENSE_SOURCE_MANUAL
+
+    @property
+    def is_editable(self):
+        """Manual + recurring rows can be hand-edited; synced rows can't."""
+        return self.source in EXPENSE_EDITABLE_SOURCES
 
 
 class RecurringExpense(models.Model):

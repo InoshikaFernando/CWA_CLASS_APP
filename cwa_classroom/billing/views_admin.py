@@ -22,7 +22,6 @@ from .models import (
     SchoolSubscription, ModuleSubscription, PromoCode,
     DiscountCode, Package, Subscription, DURATION_CHOICES,
     Expense, RecurringExpense, ExpenseCategory, EXPENSE_SOURCE_MANUAL,
-    EXPENSE_SOURCE_AI_GRADING,
 )
 from .reporting import (
     get_paid_revenue, get_daily_active_series_local,
@@ -1951,11 +1950,12 @@ class ExpenseEditView(SuperuserRequiredMixin, View):
 
     def post(self, request, pk):
         expense = get_object_or_404(Expense, pk=pk)
-        if expense.source == EXPENSE_SOURCE_AI_GRADING:
+        if not expense.is_editable:
             messages.error(
                 request,
-                'AI-grading expenses are recomputed from usage and cannot be '
-                'edited. Recurring rows, however, can be trued-up to actuals.',
+                'Auto-synced expenses (AI usage, DigitalOcean) are recomputed '
+                'from source data and cannot be edited. Recurring rows can be '
+                'trued-up to actuals.',
             )
             return redirect('billing_admin_expense_list')
 
@@ -1987,8 +1987,8 @@ class ExpenseEditView(SuperuserRequiredMixin, View):
 class ExpenseDeleteView(SuperuserRequiredMixin, View):
     def post(self, request, pk):
         expense = get_object_or_404(Expense, pk=pk)
-        if expense.source == EXPENSE_SOURCE_AI_GRADING:
-            messages.error(request, 'AI-grading expenses are recomputed and cannot be deleted here.')
+        if not expense.is_editable:
+            messages.error(request, 'Auto-synced expenses are recomputed and cannot be deleted here.')
         else:
             expense.delete()
             messages.success(request, 'Expense deleted.')

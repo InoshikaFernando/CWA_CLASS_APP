@@ -13,8 +13,8 @@ If Stripe is unconfigured or the API errors, callers fall back to a local
 (discount-aware) estimate and flag the figures as estimates.
 """
 import logging
-from datetime import datetime, timedelta, timezone as dt_timezone
-from decimal import Decimal
+from datetime import date, datetime, timedelta, timezone as dt_timezone
+from decimal import Decimal, InvalidOperation
 
 import requests
 import stripe
@@ -566,32 +566,38 @@ def get_usd_to_nzd_rate():
     return rate, 'live'
 
 
-def sync_ai_grading_expenses():
-    """Mirror AIGradingUsage's estimated Anthropic cost into Expense rows.
+def sync_ai_usage_expenses():
+    """Mirror the internal AI cost ledger into monthly Anthropic Expense rows.
 
-    Sums every school's `estimated_cost_usd` per billing month, converts to NZD
-    (settings.USD_TO_NZD_RATE) and upserts one `claude_api` / `ai_grading`
-    Expense row per month. Idempotent — safe to re-run; updates the amount if
-    usage for an open month grew. Returns the number of rows created/updated.
+    Sums `taskqueue.AIUsageLog.est_cost_usd` per calendar month — covering EVERY
+    AI source (ai_import PDF scan, homework marking, worksheet classification) —
+    converts USD->NZD and upserts one `claude_api` Expense row per month. Because
+    it reads the ledger, any new AI feature that logs usage is captured with no
+    config change. Idempotent; returns rows created/updated.
     """
-    from django.db.models import Sum
     from .models import (
-        AIGradingUsage, Expense, ExpenseCategory, EXPENSE_SOURCE_AI_GRADING,
+        Expense, ExpenseCategory, EXPENSE_SOURCE_AI_GRADING,
     )
+    from taskqueue.models import AIUsageLog
 
     rate, _ = get_usd_to_nzd_rate()
-    monthly = (
-        AIGradingUsage.objects
-        .values('period_start')
-        .annotate(usd=Sum('estimated_cost_usd'))
-        .order_by('period_start')
-    )
-    touched = 0
-    for row in monthly:
-        usd = row['usd'] or Decimal('0')
-        if usd <= 0:
+
+    # Bucket by calendar month in Python — avoids MySQL TruncMonth, which needs
+    # the server's timezone tables loaded when USE_TZ is on.
+    buckets = {}
+    rows = AIUsageLog.objects.values_list('created_at', 'est_cost_usd')
+    for created_at, cost in rows.iterator():
+        if not cost or cost <= 0:
             continue
-        month_start = _first_of_month(row['period_start'])
+        local = (
+            timezone.localtime(created_at)
+            if timezone.is_aware(created_at) else created_at
+        )
+        key = _first_of_month(local.date())
+        buckets[key] = buckets.get(key, Decimal('0')) + cost
+
+    touched = 0
+    for month_start, usd in sorted(buckets.items()):
         nzd = (usd * rate).quantize(Decimal('0.01'))
         Expense.objects.update_or_create(
             source=EXPENSE_SOURCE_AI_GRADING,
@@ -599,11 +605,80 @@ def sync_ai_grading_expenses():
             defaults={
                 'category': ExpenseCategory.CLAUDE_API,
                 'vendor': 'Anthropic',
-                'description': 'AI grading (auto-synced from usage)',
+                'description': 'AI usage: PDF scan + marking + worksheets (auto)',
                 'amount': nzd,
                 'original_amount': usd.quantize(Decimal('0.000001')),
                 'original_currency': 'USD',
             },
         )
+        touched += 1
+    return touched
+
+
+def sync_digitalocean_expenses():
+    """Pull real DigitalOcean monthly invoices into Expense rows (NZD).
+
+    No-op unless settings.DIGITALOCEAN_API_TOKEN is set. Reads the invoices
+    endpoint, so every line item (droplets, DBs, Spaces, bandwidth, any addon)
+    is included automatically — no manual update when infra changes. For each
+    month it writes the actual invoice, it removes any `recurring` DigitalOcean
+    estimate for that month so the two never double-count. Idempotent. Returns
+    the number of invoice rows created/updated (0 when the token is unset).
+    """
+    from .models import (
+        Expense, ExpenseCategory, RecurringExpense,
+        EXPENSE_SOURCE_DIGITALOCEAN, EXPENSE_SOURCE_RECURRING,
+    )
+
+    token = getattr(settings, 'DIGITALOCEAN_API_TOKEN', '')
+    if not token:
+        return 0
+
+    try:
+        resp = requests.get(
+            'https://api.digitalocean.com/v2/customers/my/invoices',
+            headers={'Authorization': f'Bearer {token}'},
+            params={'per_page': 50},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        invoices = resp.json().get('invoices', [])
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning('DigitalOcean invoice fetch failed: %s', exc)
+        return 0
+
+    rate, _ = get_usd_to_nzd_rate()
+    touched = 0
+    for inv in invoices:
+        # invoice_period is "YYYY-MM"; amount is a USD decimal string.
+        period = (inv.get('invoice_period') or '').strip()
+        try:
+            year, month = (int(p) for p in period.split('-')[:2])
+            month_start = date(year, month, 1)
+            usd = Decimal(str(inv.get('amount', '0')))
+        except (ValueError, TypeError, InvalidOperation) as exc:
+            logger.warning('Skipping DO invoice %r: %s', inv, exc)
+            continue
+        if usd <= 0:
+            continue
+        nzd = (usd * rate).quantize(Decimal('0.01'))
+        Expense.objects.update_or_create(
+            source=EXPENSE_SOURCE_DIGITALOCEAN,
+            incurred_on=month_start,
+            defaults={
+                'category': ExpenseCategory.DIGITALOCEAN,
+                'vendor': 'DigitalOcean',
+                'description': f'Invoice {period} (auto)',
+                'amount': nzd,
+                'original_amount': usd.quantize(Decimal('0.01')),
+                'original_currency': 'USD',
+            },
+        )
+        # Actual supersedes any recurring estimate for the same month.
+        Expense.objects.filter(
+            category=ExpenseCategory.DIGITALOCEAN,
+            source=EXPENSE_SOURCE_RECURRING,
+            incurred_on=month_start,
+        ).delete()
         touched += 1
     return touched

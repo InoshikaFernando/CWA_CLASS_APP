@@ -17,11 +17,14 @@ from django.urls import reverse
 from billing.models import (
     Expense, RecurringExpense, ExpenseCategory,
     EXPENSE_SOURCE_MANUAL, EXPENSE_SOURCE_RECURRING, EXPENSE_SOURCE_AI_GRADING,
+    EXPENSE_SOURCE_DIGITALOCEAN,
 )
 from billing.reporting import (
-    get_income_expense_summary, sync_ai_grading_expenses, StripeUnavailable,
+    get_income_expense_summary, sync_ai_usage_expenses,
+    sync_digitalocean_expenses, StripeUnavailable,
     get_usd_to_nzd_rate, FX_CACHE_KEY,
 )
+from taskqueue.models import AIUsageLog
 
 User = get_user_model()
 
@@ -82,40 +85,86 @@ class IncomeExpenseSummaryTests(TestCase):
         self.assertEqual(summary['totals']['expense'], Decimal('65.00'))
 
 
-class SyncAIGradingTests(TestCase):
-    def _usage(self, period_start, usd):
-        from billing.models import AIGradingUsage
-        from classroom.models import School
-        school = School.objects.create(name=f'S-{usd}-{period_start}')
-        return AIGradingUsage.objects.create(
-            school=school, period_start=period_start,
-            answers_graded=10, estimated_cost_usd=Decimal(usd),
+class SyncAIUsageTests(TestCase):
+    """Anthropic cost is summed from the full AIUsageLog ledger (scan + marking
+    + worksheets), not just grading — so new AI features flow in automatically."""
+
+    def _log(self, source, usd):
+        return AIUsageLog.objects.create(
+            source=source, pages=1, est_cost_usd=Decimal(usd),
         )
 
     @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('1.65'), 'live'))
     def test_converts_usd_to_nzd_and_is_idempotent(self, mock_rate):
-        self._usage(date(2026, 6, 1), '10.00')
+        self._log(AIUsageLog.SOURCE_AI_IMPORT, '10.00')
 
-        first = sync_ai_grading_expenses()
+        first = sync_ai_usage_expenses()
         self.assertEqual(first, 1)
         exp = Expense.objects.get(source=EXPENSE_SOURCE_AI_GRADING)
         self.assertEqual(exp.amount, Decimal('16.50'))  # 10 * 1.65
         self.assertEqual(exp.category, ExpenseCategory.CLAUDE_API)
         self.assertEqual(exp.original_currency, 'USD')
 
-        # Re-running upserts, does not duplicate.
-        sync_ai_grading_expenses()
+        sync_ai_usage_expenses()
         self.assertEqual(
             Expense.objects.filter(source=EXPENSE_SOURCE_AI_GRADING).count(), 1,
         )
 
     @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
-    def test_sums_multiple_schools_per_month(self, mock_rate):
-        self._usage(date(2026, 6, 1), '5.00')
-        self._usage(date(2026, 6, 1), '3.00')
-        sync_ai_grading_expenses()
+    def test_sums_every_source_in_a_month(self, mock_rate):
+        self._log(AIUsageLog.SOURCE_AI_IMPORT, '5.00')   # PDF scan
+        self._log(AIUsageLog.SOURCE_HOMEWORK, '3.00')    # marking
+        self._log(AIUsageLog.SOURCE_WORKSHEET, '2.00')   # worksheets
+        sync_ai_usage_expenses()
         exp = Expense.objects.get(source=EXPENSE_SOURCE_AI_GRADING)
-        self.assertEqual(exp.amount, Decimal('16.00'))  # (5+3) * 2.0
+        self.assertEqual(exp.amount, Decimal('20.00'))   # (5+3+2) * 2.0
+
+
+class SyncDigitalOceanTests(TestCase):
+    def _resp(self, payload):
+        from unittest.mock import MagicMock
+        m = MagicMock()
+        m.json.return_value = payload
+        m.raise_for_status.side_effect = None
+        return m
+
+    def test_noop_when_token_unset(self):
+        with self.settings(DIGITALOCEAN_API_TOKEN=''):
+            self.assertEqual(sync_digitalocean_expenses(), 0)
+        self.assertEqual(Expense.objects.count(), 0)
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_pulls_invoices_and_supersedes_recurring(self, mock_get, mock_rate):
+        # A recurring DO estimate already exists for May — should be replaced.
+        Expense.objects.create(
+            category=ExpenseCategory.DIGITALOCEAN, amount=Decimal('49.94'),
+            incurred_on=date(2026, 5, 1), source=EXPENSE_SOURCE_RECURRING,
+        )
+        mock_get.return_value = self._resp({
+            'invoices': [{'invoice_period': '2026-05', 'amount': '28.68'}],
+        })
+        with self.settings(DIGITALOCEAN_API_TOKEN='dop_v1_x'):
+            n = sync_digitalocean_expenses()
+
+        self.assertEqual(n, 1)
+        do = Expense.objects.get(source=EXPENSE_SOURCE_DIGITALOCEAN)
+        self.assertEqual(do.incurred_on, date(2026, 5, 1))
+        self.assertEqual(do.amount, Decimal('57.36'))  # 28.68 * 2.0
+        self.assertEqual(do.category, ExpenseCategory.DIGITALOCEAN)
+        # The recurring estimate for that month is gone (no double-count).
+        self.assertFalse(
+            Expense.objects.filter(
+                source=EXPENSE_SOURCE_RECURRING,
+                category=ExpenseCategory.DIGITALOCEAN,
+            ).exists(),
+        )
+
+    @patch('billing.reporting.requests.get',
+           side_effect=__import__('requests').RequestException('boom'))
+    def test_api_failure_is_noop(self, mock_get):
+        with self.settings(DIGITALOCEAN_API_TOKEN='dop_v1_x'):
+            self.assertEqual(sync_digitalocean_expenses(), 0)
 
 
 class FxRateTests(TestCase):

@@ -61,11 +61,11 @@
               {% elif e.source == 'recurring' %}
                 <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">Recurring</span>
               {% else %}
-                <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">AI auto</span>
+                <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">{{ e.get_source_display }}</span>
               {% endif %}
             </td>
             <td class="px-6 py-4">
-              {% if e.source == 'ai_grading' %}
+              {% if not e.is_editable %}
                 <span class="text-xs text-gray-400">Auto — read only</span>
               {% else %}
               <div class="flex items-center gap-2">

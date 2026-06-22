@@ -12,7 +12,7 @@ from django.utils import timezone
 from billing.models import (
     RecurringExpense, Expense, EXPENSE_SOURCE_RECURRING,
 )
-from billing.reporting import sync_ai_grading_expenses
+from billing.reporting import sync_ai_usage_expenses
 
 
 def _first_of_month(d):
@@ -88,9 +88,9 @@ class Command(BaseCommand):
         if dry:
             ai_synced = 'skipped (dry-run)'
         else:
-            ai_synced = sync_ai_grading_expenses()
+            ai_synced = sync_ai_usage_expenses()
 
         self.stdout.write(self.style.SUCCESS(
             f'Recurring expenses {"to create" if dry else "created"}: {created}. '
-            f'AI grading rows synced: {ai_synced}.'
+            f'AI usage rows synced: {ai_synced}.'
         ))

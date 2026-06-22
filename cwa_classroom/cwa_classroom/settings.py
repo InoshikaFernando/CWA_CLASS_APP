@@ -148,6 +148,11 @@ USD_TO_NZD_RATE = float(os.environ.get('USD_TO_NZD_RATE', '1.65'))
 FX_RATE_API_URL = os.environ.get(
     'FX_RATE_API_URL', 'https://api.frankfurter.dev/v1/latest')
 
+# Read-only DigitalOcean Personal Access Token. When set, sync_vendor_charges
+# pulls real monthly invoices (so droplet/DB/Spaces addons are captured with no
+# manual update). Inert when empty — dev/test stay no-op.
+DIGITALOCEAN_API_TOKEN = os.environ.get('DIGITALOCEAN_API_TOKEN', '')
+
 # Live AI usage dashboard — after each AI call the worker rewrites a pinned
 # GitHub issue with the latest usage/cost. Best-effort: stays disabled (no-op)
 # until a token + repo are configured, so dev/test/local never call out.
