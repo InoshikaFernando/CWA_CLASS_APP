@@ -45,9 +45,10 @@ EXPENSES = [
     },
     {
         'category': ExpenseCategory.CLAUDE_CODE, 'vendor': 'Anthropic',
-        'description': 'Claude Code subscription',
-        # ⚠️ CONFIRM TIER: Pro=20, Max 5x=100, Max 20x=200 (USD/mo).
-        'amount': Decimal('20.00'), 'currency': 'USD',
+        'description': 'Claude Code subscription (Max)',
+        # Max 5x assumed. ⚠️ If on Max 20x, change to Decimal('200.00').
+        # (Pro=20, Max 5x=100, Max 20x=200 USD/mo.)
+        'amount': Decimal('100.00'), 'currency': 'USD',
         'frequency': 'monthly', 'start_date': date(2026, 6, 22),
     },
 ]
