@@ -1055,13 +1055,33 @@ class SaveHomeworkProgressView(LoginRequiredMixin, View):
             time_taken = int(payload.get('time_taken_seconds', 0) or 0)
         except (ValueError, TypeError):
             time_taken = 0
+        time_taken = max(0, time_taken)
+
+        # Merge into (rather than replace) any existing draft. A naive overwrite
+        # is unsafe: a stray autosave/heartbeat carrying an empty or partial form
+        # — e.g. from a second tab, another device, or a freshly-(re)loaded page
+        # before the student re-enters anything — would otherwise clobber a good,
+        # fuller draft and silently wipe the student's work. Merging keeps every
+        # previously-saved answer that this payload doesn't explicitly supply, so
+        # an empty payload can never erase progress and a smaller one can only
+        # add to / update it, never shrink it. The final submit reads from POST
+        # (not the draft) and deletes the draft, so accumulated keys are harmless.
+        existing = HomeworkDraft.objects.filter(
+            homework=homework, student=request.user,
+        ).first()
+        if existing is not None:
+            merged = {**(existing.answers_data or {}), **answers}
+            # Never let a stale tab wind the timer backwards.
+            time_taken = max(time_taken, existing.time_taken_seconds)
+        else:
+            merged = answers
 
         draft, _ = HomeworkDraft.objects.update_or_create(
             homework=homework,
             student=request.user,
             defaults={
-                'answers_data': answers,
-                'time_taken_seconds': max(0, time_taken),
+                'answers_data': merged,
+                'time_taken_seconds': time_taken,
             },
         )
 

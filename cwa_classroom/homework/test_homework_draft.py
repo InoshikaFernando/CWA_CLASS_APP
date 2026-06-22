@@ -47,6 +47,34 @@ class SaveProgressEndpointTest(HomeworkTestBase):
         self.assertEqual(draft.answers_data, {'answer_1': 'b', 'answer_2': 'c'})
         self.assertEqual(draft.time_taken_seconds, 99)
 
+    def test_empty_save_does_not_wipe_existing_answers(self):
+        # A stray heartbeat from a second tab / freshly-reloaded page can POST an
+        # empty form; it must NOT erase a good draft.
+        self._save({'answer_1': 'a', 'answer_2': 'b'}, time_taken=120)
+        resp = self._save({}, time_taken=130)
+        self.assertEqual(resp.status_code, 200)
+
+        draft = HomeworkDraft.objects.get(homework=self.homework, student=self.student)
+        self.assertEqual(draft.answers_data, {'answer_1': 'a', 'answer_2': 'b'})
+        # The timer still advances on a no-op save.
+        self.assertEqual(draft.time_taken_seconds, 130)
+
+    def test_partial_save_merges_rather_than_replaces(self):
+        # A smaller payload (e.g. a stale tab that only knows some answers) must
+        # only add to / update the draft, never drop keys it didn't send.
+        self._save({'answer_1': 'a', 'answer_2': 'b'}, time_taken=50)
+        self._save({'answer_1': 'z'}, time_taken=60)
+
+        draft = HomeworkDraft.objects.get(homework=self.homework, student=self.student)
+        self.assertEqual(draft.answers_data, {'answer_1': 'z', 'answer_2': 'b'})
+
+    def test_stale_save_does_not_rewind_timer(self):
+        self._save({'answer_1': 'a'}, time_taken=300)
+        self._save({'answer_1': 'a'}, time_taken=10)
+
+        draft = HomeworkDraft.objects.get(homework=self.homework, student=self.student)
+        self.assertEqual(draft.time_taken_seconds, 300)
+
     def test_save_does_not_create_submission_or_consume_attempt(self):
         self._save({'answer_1': 'a'})
         self.assertEqual(
