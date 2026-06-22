@@ -101,6 +101,9 @@ INSTALLED_APPS = [
 
     # User feedback & feature requests (CPP-321)
     'feedback',
+
+    # WhatsApp parent notifications (CPP-XXX) — inert until configured
+    'whatsapp',
 ]
 
 # ---------------------------------------------------------------------------
@@ -476,6 +479,23 @@ else:
     else:
         # No credentials configured — log emails to console
         EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp parent notifications (CPP-XXX)
+# ---------------------------------------------------------------------------
+# Inert until these are set: with no access token / phone-number id, every send
+# raises a non-retriable 'no_credentials' error and WhatsAppConfig stays
+# disabled by default, so nothing leaves the system.
+WHATSAPP_PROVIDER = os.environ.get('WHATSAPP_PROVIDER', 'meta_cloud')
+WHATSAPP_ACCESS_TOKEN = os.environ.get('WHATSAPP_ACCESS_TOKEN', '')
+WHATSAPP_PHONE_NUMBER_ID = os.environ.get('WHATSAPP_PHONE_NUMBER_ID', '')
+WHATSAPP_BUSINESS_ACCOUNT_ID = os.environ.get('WHATSAPP_BUSINESS_ACCOUNT_ID', '')
+WHATSAPP_WEBHOOK_VERIFY_TOKEN = os.environ.get('WHATSAPP_WEBHOOK_VERIFY_TOKEN', '')
+WHATSAPP_APP_SECRET = os.environ.get('WHATSAPP_APP_SECRET', '')
+# Default region for parsing local phone numbers into E.164 (NZ).
+WHATSAPP_DEFAULT_REGION = os.environ.get('WHATSAPP_DEFAULT_REGION', 'NZ')
+WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', 'v19.0')
 
 
 # ---------------------------------------------------------------------------
