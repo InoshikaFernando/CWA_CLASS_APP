@@ -204,6 +204,18 @@
       <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/>
     </svg>
   </a>
+
+  <!-- Usage Analytics (superuser only) — opens in a new tab for monitoring -->
+  <a href="{% url 'usage_admin_overview' %}" target="_blank" rel="noopener"
+     class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition hover:bg-white/10 {% if '/admin-dashboard/usage/' in request.path %}bg-white/15 text-white{% endif %}">
+    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12h3l3-9 6 18 3-9h3.75"/>
+    </svg>
+    <span>Usage</span>
+    <svg class="w-3 h-3 flex-shrink-0 ml-auto opacity-60" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/>
+    </svg>
+  </a>
   {% endif %}
 
   <!-- ── System ── -->
