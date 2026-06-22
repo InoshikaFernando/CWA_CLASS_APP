@@ -9,11 +9,15 @@
 # No-ops (logs a warning, exits 0) when the Jira env / JIRA_BOARD_ID is unset,
 # so it's safe to install before Jira is configured.
 #
-# Install (crontab on the DO server) — 23:55 daily for the TEST app:
-#   55 23 * * * /home/cwa/CWA_CLASS_APP_TEST/scripts/cron_sync_sprint_burndown.sh >> /var/log/cwa/sprint_burndown.log 2>&1
+# A snapshot is upserted per (sprint, day), so running multiple times a day just
+# refreshes that day's point — the last run of the day is the one kept for the
+# date. We run 3x/day (08:00, 14:00, 22:00) to keep the chart current intraday.
+#
+# Install (crontab on the DO server) — 3x daily for the TEST app:
+#   0 8,14,22 * * * /home/cwa/CWA_CLASS_APP_TEST/scripts/cron_sync_sprint_burndown.sh >> /var/log/cwa/sprint_burndown.log 2>&1
 #
 # For PROD, pass the prod app dir + env file as args:
-#   55 23 * * * /home/cwa/CWA_CLASS_APP/scripts/cron_sync_sprint_burndown.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/sprint_burndown.log 2>&1
+#   0 8,14,22 * * * /home/cwa/CWA_CLASS_APP/scripts/cron_sync_sprint_burndown.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/sprint_burndown.log 2>&1
 #
 # Required env (in the env file): JIRA_BASE_URL, JIRA_USER_EMAIL, JIRA_API_TOKEN,
 # JIRA_BOARD_ID, and JIRA_STORY_POINTS_FIELD if your instance differs from the
