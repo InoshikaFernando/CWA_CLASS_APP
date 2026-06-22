@@ -88,12 +88,14 @@ For anything beyond a one-liner:
 ## Step 4: Implement
 
 1. Make sure you're on your assigned branch (create it from `main` if needed).
-2. **Write the test first** when the change has observable behaviour. Put it in
+2. **Set the Jira task's Start date to today** as you move it into *In Progress*
+   (see [`jira-task-dates.md`](jira-task-dates.md)).
+3. **Write the test first** when the change has observable behaviour. Put it in
    the owning app's suite (e.g. `cwa_classroom/billing/tests.py`,
    `cwa_classroom/classroom/tests/...`) or `ui_tests/` for a browser flow.
-3. Implement the change. Follow the no-silent-failure rule — no bare `except:`,
+4. Implement the change. Follow the no-silent-failure rule — no bare `except:`,
    no `?? "—"` placeholder rendered past a missing FK, no swallowed 4xx.
-4. If you changed models, generate the migration:
+5. If you changed models, generate the migration:
    ```bash
    cd cwa_classroom && python manage.py makemigrations
    ```
@@ -238,8 +240,10 @@ After your PR merges to `test`:
 
 Only after Step 9 passes:
 
-1. Close the issue (it auto-closes if the PR said `Closes #N` and merged).
-2. Add a brief closing comment (`mcp__github__add_issue_comment`): the merged
+1. **Set the Jira task's End date to today** as you move it to *Done* (see
+   [`jira-task-dates.md`](jira-task-dates.md)).
+2. Close the issue (it auto-closes if the PR said `Closes #N` and merged).
+3. Add a brief closing comment (`mcp__github__add_issue_comment`): the merged
    PR link, the deploy/verification note (what you tested, what passed).
 
 ---
