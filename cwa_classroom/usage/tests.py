@@ -231,6 +231,46 @@ class ReportingTests(TestCase):
         self.assertEqual(top[('/y/', 500)], 2)
         self.assertEqual(top[('/x/', 404)], 1)
 
+    def test_health_summary_excludes_noise(self):
+        now = timezone.now()
+        for _ in range(3):
+            _hit(status=200, when=now)                       # ok page views
+        _hit(path='/homework/13/take/', status=404, when=now)  # real 4xx
+        _hit(path='/boom/', status=500, when=now)              # real 5xx
+        _hit(path='/apple-touch-icon.png', status=404, when=now)  # noise
+        _hit(path='/.well-known/x', status=404, when=now)         # noise
+        h = reporting.health_summary(30)
+        self.assertEqual(h['ok'], 3)
+        self.assertEqual(h['client_4xx'], 1)   # /homework only; icon/.well-known excluded
+        self.assertEqual(h['server_5xx'], 1)
+        self.assertEqual(h['errors'], 2)
+        self.assertEqual(h['noise'], 2)
+        self.assertEqual(h['total'], 5)        # ok + real errors, noise excluded
+        self.assertEqual(h['error_rate'], 40.0)
+        self.assertEqual(h['band'], 'bad')
+
+    def test_error_series_excludes_noise(self):
+        now = timezone.now()
+        _hit(path='/boom/', status=500, when=now)
+        _hit(path='/favicon.ico', status=404, when=now)   # noise
+        e = reporting.error_series_daily(30)
+        self.assertEqual(e['server_5xx'][-1], 1)
+        self.assertEqual(e['client_4xx'][-1], 0)          # favicon excluded
+        paths = [t['path'] for t in e['top_errors']]
+        self.assertIn('/boom/', paths)
+        self.assertNotIn('/favicon.ico', paths)
+
+    def test_recent_errors_newest_first_with_noise_flag(self):
+        now = timezone.now()
+        _hit(path='/boom/', status=500, when=now - timedelta(minutes=2))
+        _hit(path='/apple-touch-icon.png', status=404, when=now - timedelta(minutes=1))
+        rows = reporting.recent_errors(limit=10)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]['path'], '/apple-touch-icon.png')  # newest first
+        self.assertTrue(rows[0]['noise'])
+        self.assertFalse(rows[1]['noise'])
+        self.assertEqual(rows[1]['status'], 500)
+
 
 # ---------------------------------------------------------------------------
 # View access control
@@ -255,6 +295,16 @@ class ViewAccessTests(TestCase):
         resp = self.client.get(reverse('usage_admin_overview'))
         self.assertContains(resp, 'active now')
         self.assertContains(resp, 'last 5 min')
+
+    def test_dashboard_renders_gauge_donut_and_error_drilldown(self):
+        _hit(path='/boom/', status=500, when=timezone.now())
+        self.client.login(username='super', password='pw')
+        resp = self.client.get(reverse('usage_admin_overview'))
+        self.assertContains(resp, 'Error rate')
+        self.assertContains(resp, 'chartGauge')
+        self.assertContains(resp, 'chartDonut')
+        self.assertContains(resp, 'Recent errors')
+        self.assertContains(resp, '/boom/')          # the real error is listed
 
     def test_normal_user_redirected(self):
         self.client.login(username='normal', password='pw')
