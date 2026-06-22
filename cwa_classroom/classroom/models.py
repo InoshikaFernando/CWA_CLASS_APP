@@ -826,6 +826,10 @@ class ClassRoom(models.Model):
     start_time = models.TimeField(null=True, blank=True)
     end_time = models.TimeField(null=True, blank=True)
     description = models.TextField(blank=True)
+    # Stored for a future "post to the class WhatsApp group" backend. The
+    # official WhatsApp Business API cannot post to groups, so this is unused by
+    # the current per-parent notification path (CPP-XXX).
+    whatsapp_group_id = models.CharField(max_length=64, blank=True)
     school = models.ForeignKey(
         School,
         on_delete=models.CASCADE,
