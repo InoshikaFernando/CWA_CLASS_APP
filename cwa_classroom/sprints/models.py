@@ -39,9 +39,13 @@ class Sprint(models.Model):
     goal = models.TextField(blank=True, default='')
     # Story points committed at the start of the sprint. The ideal burndown
     # line runs from this value down to zero across the sprint's days. Captured
-    # on the first sync that sees the sprint so later scope changes don't move
-    # the baseline.
+    # once (see baseline_captured) so later scope changes don't move it.
     committed_points = models.FloatField(default=0)
+    # Set True on the first sync that records a non-zero committed baseline, so
+    # the baseline locks instead of re-capturing every run. An explicit flag is
+    # used rather than a truthy check on committed_points, since 0 is a valid
+    # (not-yet-estimated) baseline.
+    baseline_captured = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -67,8 +71,6 @@ class SprintSnapshot(models.Model):
     remaining_points = models.FloatField(default=0)
     # Sum of story points on Done issues — handy for tooltips / a burn-up view.
     completed_points = models.FloatField(default=0)
-    # Total scope on this day (remaining + completed); surfaces scope creep.
-    total_points = models.FloatField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -79,6 +81,12 @@ class SprintSnapshot(models.Model):
                 name='unique_sprint_snapshot_per_day',
             ),
         ]
+
+    @property
+    def total_points(self):
+        """Total scope on this day. Derived (not stored) so the three numbers
+        can never disagree; surfaces scope creep against committed_points."""
+        return self.remaining_points + self.completed_points
 
     def __str__(self):
         return f'{self.sprint.name} @ {self.snapshot_date}: {self.remaining_points} left'

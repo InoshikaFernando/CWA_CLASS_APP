@@ -31,10 +31,10 @@ class BuildBurndownSeriesTests(TestCase):
         sprint = self._sprint()
         SprintSnapshot.objects.create(
             sprint=sprint, snapshot_date=date(2026, 6, 1),
-            remaining_points=20, total_points=20)
+            remaining_points=20, completed_points=0)
         SprintSnapshot.objects.create(
             sprint=sprint, snapshot_date=date(2026, 6, 3),
-            remaining_points=12, total_points=20)
+            remaining_points=12, completed_points=8)
 
         series = build_burndown_series(sprint)
 
@@ -48,7 +48,7 @@ class BuildBurndownSeriesTests(TestCase):
         sprint = self._sprint(start_date=None, end_date=None)
         SprintSnapshot.objects.create(
             sprint=sprint, snapshot_date=date(2026, 6, 2),
-            remaining_points=8, total_points=20)
+            remaining_points=8, completed_points=12)
 
         series = build_burndown_series(sprint)
         self.assertEqual(series['labels'], ['2026-06-02'])

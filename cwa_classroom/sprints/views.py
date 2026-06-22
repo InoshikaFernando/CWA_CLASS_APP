@@ -1,33 +1,17 @@
 """Burndown chart surface.
 
-Superuser-only, matching the rest of the platform super-admin area
-(admin-dashboard/billing/...). Renders the active sprint's burndown from
-stored snapshots; the daily sync (management command / RQ task) keeps those
-snapshots fresh.
+Superuser-only, reusing billing.views_admin.SuperuserRequiredMixin so the
+burndown sits behind the same gate as the rest of the platform super-admin area
+(admin-dashboard/billing/...). Renders the active sprint's burndown from stored
+snapshots; the daily sync (management command / RQ task) keeps them fresh.
 """
-from django.contrib import messages
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.shortcuts import redirect, render
+from django.shortcuts import render
 from django.views import View
+
+from billing.views_admin import SuperuserRequiredMixin
 
 from .burndown import build_burndown_series
 from .models import Sprint
-
-
-class SuperuserRequiredMixin(LoginRequiredMixin):
-    """Restrict access to superusers only. Redirects with an error if not.
-
-    Mirrors billing.views_admin.SuperuserRequiredMixin so the burndown sits in
-    the same super-admin surface as the billing admin pages.
-    """
-
-    def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return self.handle_no_permission()
-        if not request.user.is_superuser:
-            messages.error(request, 'You do not have permission to access this page.')
-            return redirect('subjects_hub')
-        return super().dispatch(request, *args, **kwargs)
 
 
 class BurndownChartView(SuperuserRequiredMixin, View):

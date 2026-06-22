@@ -45,7 +45,7 @@ class BurndownViewAccessTests(TestCase):
             committed_points=20)
         SprintSnapshot.objects.create(
             sprint=sprint, snapshot_date=date(2026, 6, 1),
-            remaining_points=20, total_points=20)
+            remaining_points=20, completed_points=0)
 
         self.client.force_login(self.owner)
         resp = self.client.get(self.url)

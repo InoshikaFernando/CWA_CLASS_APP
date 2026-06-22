@@ -14,8 +14,8 @@ class SprintSnapshotInline(admin.TabularInline):
 @admin.register(Sprint)
 class SprintAdmin(admin.ModelAdmin):
     list_display = ('name', 'jira_sprint_id', 'state', 'start_date', 'end_date',
-                    'committed_points')
-    list_filter = ('state',)
+                    'committed_points', 'baseline_captured')
+    list_filter = ('state', 'baseline_captured')
     search_fields = ('name', 'jira_sprint_id')
     inlines = [SprintSnapshotInline]
 

@@ -1,77 +1,61 @@
 """Jira Agile integration for the sprint burndown.
 
 Pulls the active sprint and its issues from Jira's Agile REST API
-(``/rest/agile/1.0/``) and records a daily :class:`SprintSnapshot` of story
-points remaining. Like ``feedback.services`` everything here is config-gated:
-when the Jira env (or ``JIRA_BOARD_ID``) is unset the helpers log and return
-``None``/empty rather than raising, so dev/test/local keep working untouched.
+(``/rest/agile/1.0/``) via the shared ``cwa_classroom.jira_client`` and records
+a daily :class:`SprintSnapshot` of story points remaining. Config-gated: when
+the Jira env (or ``JIRA_BOARD_ID``) is unset the helpers log and return
+``None``, so dev/test/local keep working untouched.
 
-No silent failures: every non-2xx / exception path is logged.
+No silent failures: every non-2xx / exception path is logged, and a *partial*
+fetch (a mid-pagination error) aborts the sync rather than recording a
+too-low snapshot.
 """
 import logging
 
-import requests
 from django.conf import settings
 from django.utils import timezone
 
-logger = logging.getLogger(__name__)
+from cwa_classroom import jira_client
 
-# Bound every outbound call so a hung Jira endpoint can't pin an RQ worker /
-# cron run for its full timeout.
-_HTTP_TIMEOUT = 15
+logger = logging.getLogger(__name__)
 
 # Issue statuses Jira groups under the "Done" status category. An issue counts
 # as burned-down once it reaches this category.
 _DONE_CATEGORY = 'done'
 
+_PAGE_SIZE = 50
 
-def _jira_config():
-    """Return (base_url, auth, board_id, points_field) or None if unconfigured."""
-    base_url = (settings.JIRA_BASE_URL or '').rstrip('/')
-    email = settings.JIRA_USER_EMAIL
-    token = settings.JIRA_API_TOKEN
-    board_id = getattr(settings, 'JIRA_BOARD_ID', '')
-    points_field = getattr(settings, 'JIRA_STORY_POINTS_FIELD', '') or 'customfield_10016'
 
-    if not (base_url and email and token and board_id):
+def _burndown_config():
+    """Return (board_id, points_field) or None when burndown is unconfigured.
+
+    Requires the base Jira credentials (delegated to the shared client) *and* a
+    board id to read the active sprint from.
+    """
+    if jira_client.base_config() is None:
         logger.warning(
-            'Jira burndown not configured (need JIRA_BASE_URL/JIRA_USER_EMAIL/'
-            'JIRA_API_TOKEN/JIRA_BOARD_ID); skipping sync.'
+            'Jira burndown not configured (JIRA_BASE_URL/JIRA_USER_EMAIL/'
+            'JIRA_API_TOKEN unset); skipping sync.'
         )
         return None
-    return base_url, (email, token), board_id, points_field
 
-
-def _get(base_url, path, auth, params=None):
-    """GET ``{base_url}{path}`` and return parsed JSON, or None on any failure."""
-    try:
-        resp = requests.get(
-            f'{base_url}{path}', auth=auth, params=params, timeout=_HTTP_TIMEOUT,
-        )
-    except requests.RequestException as exc:
-        logger.error('Jira GET %s failed: %s', path, exc)
+    board_id = getattr(settings, 'JIRA_BOARD_ID', '')
+    if not board_id:
+        logger.warning('Jira burndown not configured (JIRA_BOARD_ID unset); skipping sync.')
         return None
 
-    if not (200 <= resp.status_code < 300):
-        logger.error('Jira GET %s returned %s: %s', path, resp.status_code, resp.text)
-        return None
-
-    try:
-        return resp.json()
-    except ValueError as exc:
-        logger.error('Jira GET %s returned non-JSON: %s (%s)', path, resp.text, exc)
-        return None
+    points_field = getattr(settings, 'JIRA_STORY_POINTS_FIELD', '') or 'customfield_10016'
+    return board_id, points_field
 
 
-def get_active_sprint(base_url, auth, board_id):
+def get_active_sprint(board_id):
     """Return Jira's active sprint dict for ``board_id``, or None.
 
-    If a board runs more than one active sprint we take the first; the
-    burndown surface tracks a single sprint at a time.
+    If a board runs more than one active sprint we take the first; the burndown
+    surface tracks a single sprint at a time.
     """
-    data = _get(
-        base_url, f'/rest/agile/1.0/board/{board_id}/sprint', auth,
-        params={'state': 'active'},
+    data = jira_client.request(
+        'GET', f'/rest/agile/1.0/board/{board_id}/sprint', params={'state': 'active'},
     )
     if not data:
         return None
@@ -82,31 +66,42 @@ def get_active_sprint(base_url, auth, board_id):
     return values[0]
 
 
-def iter_sprint_issues(base_url, auth, sprint_id, points_field):
-    """Yield (story_points, is_done) for every issue in the sprint.
+def fetch_sprint_points(sprint_id, points_field):
+    """Return ``(remaining, completed, issue_count)`` for the sprint, or None.
 
-    Pages through ``/sprint/{id}/issue`` 50 at a time. Issues with no estimate
-    contribute 0 points (Jira returns ``None`` for an unestimated field).
+    Sums story points across every issue, paging 50 at a time. Returns ``None``
+    if any page fetch fails — the caller then skips writing a snapshot rather
+    than persisting a silently-truncated (too-low) total. Pages until a short
+    page is returned; we don't trust the response's ``total`` field (it can be
+    absent), so pagination terminates on ``len(page) < page_size`` instead.
     """
     start_at = 0
-    page_size = 50
+    remaining = 0.0
+    completed = 0.0
+    issue_count = 0
+
     while True:
-        data = _get(
-            base_url, f'/rest/agile/1.0/sprint/{sprint_id}/issue', auth,
+        data = jira_client.request(
+            'GET', f'/rest/agile/1.0/sprint/{sprint_id}/issue',
             params={
                 'startAt': start_at,
-                'maxResults': page_size,
+                'maxResults': _PAGE_SIZE,
                 'fields': f'{points_field},status',
             },
         )
-        if not data:
-            return
+        if data is None:
+            logger.error(
+                'Aborting burndown sync: issue page fetch failed at startAt=%s '
+                'for sprint %s (snapshot not recorded).', start_at, sprint_id,
+            )
+            return None
+
         issues = data.get('issues') or []
         for issue in issues:
             fields = issue.get('fields') or {}
-            points = fields.get(points_field) or 0
+            raw = fields.get(points_field)
             try:
-                points = float(points)
+                points = float(raw) if raw is not None else 0.0
             except (TypeError, ValueError):
                 points = 0.0
             category = (
@@ -114,40 +109,59 @@ def iter_sprint_issues(base_url, auth, sprint_id, points_field):
                 .get('statusCategory', {})
                 .get('key', '')
             )
-            yield points, category == _DONE_CATEGORY
+            if category == _DONE_CATEGORY:
+                completed += points
+            else:
+                remaining += points
 
+        issue_count += len(issues)
         start_at += len(issues)
-        if start_at >= (data.get('total') or 0) or not issues:
-            return
+        if len(issues) < _PAGE_SIZE:
+            break
+
+    return remaining, completed, issue_count
 
 
 def _parse_date(value):
-    """Parse a Jira ISO datetime (e.g. '2026-06-01T09:00:00.000Z') to a date."""
+    """Parse a Jira ISO datetime to a project-local date.
+
+    Jira returns UTC timestamps (e.g. '2026-06-12T22:00:00.000Z'). We convert to
+    the project timezone before taking ``.date()`` so sprint dates line up with
+    the locally-dated snapshots (``timezone.localdate()``) rather than drifting a
+    day in non-UTC deployments.
+    """
     if not value:
         return None
     try:
-        return timezone.datetime.fromisoformat(value.replace('Z', '+00:00')).date()
+        dt = timezone.datetime.fromisoformat(value.replace('Z', '+00:00'))
     except (ValueError, AttributeError):
         return None
+    return timezone.localtime(dt).date()
 
 
 def sync_active_sprint():
     """Sync the board's active sprint and record today's snapshot.
 
     Returns the created/updated :class:`SprintSnapshot`, or None when Jira is
-    unconfigured or has no active sprint. Idempotent per day: re-running
-    upserts today's snapshot rather than duplicating it.
+    unconfigured, has no active sprint, or an issue page failed to fetch.
+    Idempotent per day: re-running upserts today's snapshot.
     """
     from .models import Sprint, SprintSnapshot
 
-    config = _jira_config()
+    config = _burndown_config()
     if not config:
         return None
-    base_url, auth, board_id, points_field = config
+    board_id, points_field = config
 
-    jira_sprint = get_active_sprint(base_url, auth, board_id)
+    jira_sprint = get_active_sprint(board_id)
     if not jira_sprint:
         return None
+
+    points = fetch_sprint_points(jira_sprint['id'], points_field)
+    if points is None:
+        return None  # partial/failed fetch — don't persist a wrong snapshot
+    remaining, completed, issue_count = points
+    total = remaining + completed
 
     sprint, created = Sprint.objects.update_or_create(
         jira_sprint_id=jira_sprint['id'],
@@ -160,20 +174,24 @@ def sync_active_sprint():
         },
     )
 
-    remaining = 0.0
-    completed = 0.0
-    for points, is_done in iter_sprint_issues(base_url, auth, sprint.jira_sprint_id, points_field):
-        if is_done:
-            completed += points
-        else:
-            remaining += points
-    total = remaining + completed
-
-    # Capture the committed baseline once, on the first snapshot of the sprint,
-    # so later scope changes don't shift the ideal line.
-    if created or not sprint.committed_points:
+    # Capture the committed baseline exactly once, on the first sync that sees a
+    # non-zero total, then lock it via the explicit flag so later scope changes
+    # don't move the ideal line. (A truthy check on committed_points would treat
+    # a legitimate 0 as "unset" and re-capture forever.)
+    if not sprint.baseline_captured and total > 0:
         sprint.committed_points = total
-        sprint.save(update_fields=['committed_points', 'updated_at'])
+        sprint.baseline_captured = True
+        sprint.save(update_fields=['committed_points', 'baseline_captured', 'updated_at'])
+
+    # A sprint with issues but zero story points almost always means
+    # JIRA_STORY_POINTS_FIELD doesn't match this Jira instance — surface it
+    # rather than rendering a silent flat-zero burndown.
+    if issue_count > 0 and total == 0:
+        logger.warning(
+            'Sprint "%s" has %d issue(s) but 0 story points — check '
+            'JIRA_STORY_POINTS_FIELD (%s) matches your Jira instance.',
+            sprint.name, issue_count, points_field,
+        )
 
     snapshot, _ = SprintSnapshot.objects.update_or_create(
         sprint=sprint,
@@ -181,7 +199,6 @@ def sync_active_sprint():
         defaults={
             'remaining_points': remaining,
             'completed_points': completed,
-            'total_points': total,
         },
     )
     logger.info(
