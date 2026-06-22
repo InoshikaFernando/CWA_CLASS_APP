@@ -190,10 +190,17 @@ re-running upserts today's snapshot. No-ops (logs a warning) when the Jira env o
 ```bash
 python manage.py sync_sprint_burndown
 ```
-Intended to run as a cron job once a day. On the DigitalOcean server (`cwa` user):
+Intended to run as a cron job once a day. Use the wrapper script
+`scripts/cron_sync_sprint_burndown.sh` (loads the env file + venv, mirrors the
+other cron scripts). On the DigitalOcean server (`cwa` user):
 ```cron
-55 23 * * * cd /home/cwa/CWA_CLASS_APP && /home/cwa/CWA_CLASS_APP/venv/bin/python manage.py sync_sprint_burndown >> /var/log/cwa/sync_sprint_burndown.log 2>&1
+# TEST app
+55 23 * * * /home/cwa/CWA_CLASS_APP_TEST/scripts/cron_sync_sprint_burndown.sh >> /var/log/cwa/sprint_burndown.log 2>&1
+# PROD app (pass app dir + env file)
+55 23 * * * /home/cwa/CWA_CLASS_APP/scripts/cron_sync_sprint_burndown.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/sprint_burndown.log 2>&1
 ```
+The chart at `/sprints/burndown/` reads back the snapshots this command writes
+and shows a "Last synced from Jira" timestamp from the most recent one.
 
 ---
 

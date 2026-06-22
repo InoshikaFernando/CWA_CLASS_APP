@@ -16,6 +16,13 @@
           {% endif %}
           &middot; <span class="capitalize">{{ sprint.get_state_display }}</span>
         </p>
+        <p class="text-xs text-gray-400 mt-0.5">
+          {% if last_synced %}
+            Last synced from Jira {{ last_synced|date:"j M Y, H:i" }}
+          {% else %}
+            Not yet synced from Jira
+          {% endif %}
+        </p>
       {% endif %}
     </div>
     {% if sprint %}

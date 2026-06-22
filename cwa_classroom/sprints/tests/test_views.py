@@ -52,3 +52,5 @@ class BurndownViewAccessTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'burndownChart')
         self.assertContains(resp, 'Sprint 1')
+        # Freshness indicator reflects the latest snapshot's sync time.
+        self.assertContains(resp, 'Last synced from Jira')
