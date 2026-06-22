@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.views import View
 
 from audit.services import log_event
-from classroom.models import ClassRoom, ClassStudent, ClassTeacher, Topic
+from classroom.models import ClassRoom, ClassStudent, ClassTeacher, SchoolStudent, Topic
 from classroom.notifications import create_notification
 from classroom.subject_registry import (
     get as get_plugin,
@@ -809,7 +809,9 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
 
     def get(self, request, homework_id):
         homework = get_object_or_404(Homework, id=homework_id)
-        _check_student_enrolled(request, homework.classroom)
+        access_redirect = _student_enrollment_redirect(request, homework.classroom)
+        if access_redirect:
+            return access_redirect
 
         if not homework.is_published:
             messages.error(request, 'This homework is not available yet.')
@@ -865,7 +867,9 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
 
     def post(self, request, homework_id):
         homework = get_object_or_404(Homework, id=homework_id)
-        _check_student_enrolled(request, homework.classroom)
+        access_redirect = _student_enrollment_redirect(request, homework.classroom)
+        if access_redirect:
+            return access_redirect
 
         if not homework.is_published:
             messages.error(request, 'This homework is not available yet.')
@@ -1034,7 +1038,14 @@ class SaveHomeworkProgressView(LoginRequiredMixin, View):
 
     def post(self, request, homework_id):
         homework = get_object_or_404(Homework, id=homework_id)
-        _check_student_enrolled(request, homework.classroom)
+        access_redirect = _student_enrollment_redirect(request, homework.classroom)
+        if access_redirect:
+            # AJAX caller expects JSON — hand back the destination URL so the
+            # page can navigate rather than silently failing on a 302.
+            return JsonResponse(
+                {'ok': False, 'error': 'no_access', 'redirect': access_redirect.url},
+                status=403,
+            )
 
         if not homework.is_published:
             return JsonResponse({'ok': False, 'error': 'not_available'}, status=400)
@@ -1217,10 +1228,75 @@ def _check_can_assign_homework(request, classroom):
     return _check_teacher_owns_class(request, classroom)
 
 
-def _check_student_enrolled(request, classroom):
-    if not ClassStudent.objects.filter(student=request.user, classroom=classroom, is_active=True).exists():
-        from django.http import Http404
-        raise Http404
+def _student_enrollment_redirect(request, classroom):
+    """Gate a logged-in student's access to a class's homework.
+
+    Returns ``None`` when the student is actively enrolled and may proceed, or
+    an ``HttpResponseRedirect`` to the right next step otherwise. A logged-in
+    student is **never** sent a bare 404 here — that reads as a "broken link"
+    when the real problem is enrolment or a lapsed subscription.
+
+    ``ClassStudent.is_active`` is a pure enrolment flag (teacher/admin
+    controlled); it is *not* toggled by billing. Subscription expiry is normally
+    caught upstream by ``TrialExpiryMiddleware``, so the dominant reason the
+    enrolment check fails is that the student simply isn't in this class. We
+    still re-check the subscription as defence-in-depth (e.g. an individual
+    student whose trial just lapsed, or a multi-school student following a link
+    into an expired school) so those cases land on a billing page, not the list:
+
+      * actively enrolled                          → None (proceed)
+      * individual student, subscription lapsed    → ``trial_expired``
+      * school student, school subscription lapsed → ``institute_trial_expired``
+      * genuinely not enrolled                     → ``homework:student_list``
+
+    Note: a school with *no* subscription is a legacy/unbilled school and is
+    intentionally allowed (matching the middleware), so it falls through to the
+    not-enrolled branch rather than a billing page. ``module_required`` and
+    ``institute_plan_select`` are admin/owner flows that a student can't action,
+    so they are not used here.
+    """
+    from billing.entitlements import get_school_subscription
+
+    user = request.user
+
+    if ClassStudent.objects.filter(
+        student=user, classroom=classroom, is_active=True,
+    ).exists():
+        return None
+
+    # Individual B2C student — gated by their own subscription.
+    if user.is_individual_student:
+        sub = getattr(user, 'subscription', None)
+        if sub is None or not sub.is_active_or_trialing:
+            messages.warning(
+                request,
+                'Your subscription has ended. Renew it to keep accessing your '
+                'homework.',
+            )
+            return redirect('trial_expired')
+
+    # School student whose class belongs to a school with a lapsed subscription.
+    school = classroom.school
+    if school is not None and SchoolStudent.objects.filter(
+        student=user, school=school, is_active=True,
+    ).exists():
+        sub = get_school_subscription(school)
+        if sub is not None and not sub.is_active_or_trialing:
+            messages.warning(
+                request,
+                "Your institute's subscription has lapsed, so this homework is "
+                'locked. Please contact your teacher or administrator to '
+                'restore access.',
+            )
+            return redirect('institute_trial_expired')
+
+    # Genuinely not enrolled in this class.
+    messages.error(
+        request,
+        "You're not enrolled in this class, so its homework isn't available to "
+        'you. If you think this is a mistake, please contact your teacher.',
+    )
+    return redirect('homework:student_list')
 
 
 # Above this many pending AI answers, grading is pushed to a background worker
