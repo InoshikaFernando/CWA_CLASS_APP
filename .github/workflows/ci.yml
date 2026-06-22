@@ -306,4 +306,7 @@ jobs:
 
       - name: Run UI tests
         working-directory: cwa_classroom
-        run: pytest ui_tests/ brainbuzz/tests/test_student_playwright_mobile.py -n auto -v --tb=short
+        # --reruns retries ONLY the known SQLite "database is locked" flake from
+        # parallel Playwright workers (see cwa_classroom/conftest.py); scoped via
+        # --only-rerun so genuine assertion failures still fail on the first run.
+        run: pytest ui_tests/ brainbuzz/tests/test_student_playwright_mobile.py -n auto -v --tb=short --reruns 2 --only-rerun "database is locked"
