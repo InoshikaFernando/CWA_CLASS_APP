@@ -96,6 +96,18 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
   }
   const form = wrap.closest('form');
   if (form) form.addEventListener('submit', refresh, true);
+  // Resume support: rebuild the quotient/remainder cells from a saved answer
+  // (e.g. "12 r 3") so a restored draft survives the on-submit rebuild above.
+  (window.__hwRehydrateMaths = window.__hwRehydrateMaths || []).push(function(){
+    var m = (h.value || '').trim().match(/^(\d+)\s*(?:r\s*(\d+))?$/i);
+    if (!m) return;
+    var digits = m[1].split('');
+    for (var i = qs.length - 1, j = digits.length - 1; i >= 0; i--, j--){
+      qs[i].value = j >= 0 ? digits[j] : '';
+    }
+    if (r) r.value = m[2] || '';
+    refresh();
+  });
 })();
 </script>
 
@@ -147,6 +159,14 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
   // even if input/change/blur didn't fire for any reason.
   const form = wrap.closest('form');
   if (form) form.addEventListener('submit', refresh, true);
+  // Resume support: refill the prime inputs from a saved answer (e.g. "2x2x3")
+  // so a restored draft survives the on-submit rebuild above.
+  (window.__hwRehydrateMaths = window.__hwRehydrateMaths || []).push(function(){
+    var v = (h.value || '').trim();
+    if (!v) return;
+    v.split('x').filter(Boolean).forEach(function(p, i){ if (primes[i]) primes[i].value = p; });
+    refresh();
+  });
 })();
 </script>
 
@@ -244,6 +264,18 @@ hidden-field-sync pattern of the long-division / prime-factorisation partials.
   var form = svg.closest('form');
   if (form) form.addEventListener('submit', sync, true);
   sync();
+  // Resume support: redraw saved segments from the hidden value so a restored
+  // draft is visible and survives the on-submit rebuild above.
+  (window.__hwRehydrateMaths = window.__hwRehydrateMaths || []).push(function(){
+    try {
+      var saved = JSON.parse(hidden.value || '{}');
+      if (saved && Array.isArray(saved.segments) && saved.segments.length){
+        segs = saved.segments.map(function(s){ return {x1:s.x1, y1:s.y1, x2:s.x2, y2:s.y2}; });
+        segs.forEach(function(s){ drawLine(s); });
+        sync();
+      }
+    } catch (e) {}
+  });
 })();
 </script>
 {% endwith %}
@@ -317,6 +349,17 @@ hidden-field-sync pattern of the long-division / prime-factorisation partials.
   });
   const form = wrap.closest('form');
   if (form) form.addEventListener('submit', refresh, true);
+  // Resume support: refill the answer digits from a saved answer (e.g. "123")
+  // so a restored draft survives the on-submit rebuild above.
+  (window.__hwRehydrateMaths = window.__hwRehydrateMaths || []).push(function(){
+    var v = (h.value || '').trim();
+    if (!v) return;
+    var digits = v.split('');
+    for (var i = cells.length - 1, j = digits.length - 1; i >= 0; i--, j--){
+      cells[i].value = j >= 0 ? digits[j] : '';
+    }
+    refresh();
+  });
 })();
 </script>
 {% endwith %}
@@ -369,6 +412,20 @@ pattern of the draw-on-grid partial; grading is server-side set comparison.
   var form = svg.closest('form');
   if (form) form.addEventListener('submit', sync, true);
   sync();
+  // Resume support: re-colour saved shapes from the hidden value so a restored
+  // draft is visible and survives the on-submit rebuild above.
+  (window.__hwRehydrateMaths = window.__hwRehydrateMaths || []).push(function(){
+    try {
+      var saved = JSON.parse(hidden.value || '{}');
+      if (saved && Array.isArray(saved.selected)){
+        saved.selected.forEach(function(sid){
+          var el = svg.querySelector('.cwa-shape[data-shape-id="' + sid + '"]');
+          if (el){ sel.add(sid); el.setAttribute('fill', FILL); el.setAttribute('fill-opacity', '0.55'); }
+        });
+        sync();
+      }
+    } catch (e) {}
+  });
 })();
 </script>
 {% endwith %}
@@ -477,6 +534,21 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
   var form = svg.closest('form');
   if (form) form.addEventListener('submit', sync, true);
   sync();
+  // Resume support: replot saved points/segments from the hidden value so a
+  // restored draft is visible and survives the on-submit rebuild above.
+  (window.__hwRehydrateMaths = window.__hwRehydrateMaths || []).push(function(){
+    try {
+      var saved = JSON.parse(hidden.value || '{}');
+      if (mode === "segments" && saved && Array.isArray(saved.segments) && saved.segments.length){
+        pts = [[saved.segments[0].x1, saved.segments[0].y1]];
+        saved.segments.forEach(function(s){ pts.push([s.x2, s.y2]); });
+        render(); sync();
+      } else if (saved && Array.isArray(saved.points) && saved.points.length){
+        pts = saved.points.map(function(p){ return [p[0], p[1]]; });
+        render(); sync();
+      }
+    } catch (e) {}
+  });
 })();
 </script>
 {% endwith %}

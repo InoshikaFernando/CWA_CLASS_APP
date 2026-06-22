@@ -14,9 +14,11 @@ from usage.models import PageHit
 from usage import reporting
 
 
-def _hit(path='/dashboard/', status=200, user=None, when=None, method='GET'):
+def _hit(path='/dashboard/', status=200, user=None, when=None, method='GET',
+         client_key=''):
     """Create a PageHit, optionally back-dating created_at (auto_now_add)."""
-    h = PageHit.objects.create(path=path, status_code=status, user=user, method=method)
+    h = PageHit.objects.create(path=path, status_code=status, user=user,
+                               method=method, client_key=client_key)
     if when is not None:
         PageHit.objects.filter(pk=h.pk).update(created_at=when)
     return h
@@ -86,6 +88,22 @@ class MiddlewareTests(TestCase):
         self._run(self.factory.get('/missing/'), HttpResponse('nope', status=404))
         self._run(self.factory.get('/boom/'), HttpResponse('err', status=500))
         self.assertEqual(PageHit.objects.filter(status_code__gte=400).count(), 2)
+
+    def test_records_client_key(self):
+        # Same IP+UA -> same key (counted as one guest); different IP -> different.
+        r1 = self.factory.get('/dashboard/', REMOTE_ADDR='1.2.3.4',
+                              HTTP_USER_AGENT='UA-x')
+        r2 = self.factory.get('/dashboard/', REMOTE_ADDR='1.2.3.4',
+                              HTTP_USER_AGENT='UA-x')
+        r3 = self.factory.get('/dashboard/', REMOTE_ADDR='9.9.9.9',
+                              HTTP_USER_AGENT='UA-x')
+        for r in (r1, r2, r3):
+            self._run(r, HttpResponse('<html>ok</html>'))
+        keys = list(PageHit.objects.order_by('id').values_list('client_key', flat=True))
+        self.assertTrue(all(keys), 'client_key should be populated')
+        self.assertEqual(keys[0], keys[1])       # same IP+UA
+        self.assertNotEqual(keys[0], keys[2])    # different IP
+        self.assertEqual(len(keys[0]), 32)
 
 
 # ---------------------------------------------------------------------------
@@ -160,21 +178,46 @@ class ReportingTests(TestCase):
         _hit(user=self.user_a, when=now - timedelta(minutes=1))
         _hit(user=self.user_a, when=now - timedelta(minutes=2))
         _hit(user=self.user_b, when=now - timedelta(minutes=30))  # too old
-        # Two anonymous sessions in-window (distinct guests) + one with no
-        # session_key (not counted as a guest) + one stale guest session.
-        _g1 = PageHit.objects.create(path='/p/', session_key='sess-1')
-        _g2 = PageHit.objects.create(path='/p/', session_key='sess-2')
-        _gdup = PageHit.objects.create(path='/p/', session_key='sess-1')
-        _gnokey = PageHit.objects.create(path='/p/', session_key='')
-        PageHit.objects.filter(pk__in=[_g1.pk, _g2.pk, _gdup.pk, _gnokey.pk]).update(
-            created_at=now - timedelta(minutes=1))
-        _gold = _hit(user=None, when=now - timedelta(minutes=30))  # noqa: F841
+        # Two distinct guests in-window (one repeats), one with no client_key
+        # (not counted as a guest), and one stale guest outside the window.
+        _hit(client_key='cli-1', when=now - timedelta(minutes=1))
+        _hit(client_key='cli-2', when=now - timedelta(minutes=1))
+        _hit(client_key='cli-1', when=now - timedelta(minutes=1))   # dup guest
+        _hit(client_key='', when=now - timedelta(minutes=1))        # no key
+        _hit(client_key='cli-3', when=now - timedelta(minutes=30))  # stale
 
         result = reporting.active_now(minutes=5)
         self.assertEqual(result['users'], 1)
-        self.assertEqual(result['guests'], 2)   # sess-1 + sess-2, deduped
+        self.assertEqual(result['guests'], 2)   # cli-1 + cli-2, deduped
         self.assertEqual(result['views'], 6)    # 2 user_a + 4 in-window anon (incl. no-key)
         self.assertEqual(result['minutes'], 5)
+
+    def test_combined_active_usage_matches_single_window(self):
+        now = timezone.now()
+        _hit(user=self.user_a, when=now)
+        _hit(user=self.user_b, when=now)
+        _hit(user=self.user_a, when=now - timedelta(days=10))
+        usage = reporting.active_usage(30)
+        self.assertEqual(len(usage['daily30']['labels']), 30)
+        self.assertEqual(len(usage['daily7']['labels']), 7)
+        self.assertEqual(len(usage['hourly24']['labels']), 24)
+        # daily7 is the last 7 days of the 30-day series.
+        self.assertEqual(usage['daily7']['views'], usage['daily30']['views'][-7:])
+        self.assertEqual(usage['daily30']['views'][-1], 2)   # today
+        self.assertEqual(usage['daily30']['users'][-1], 2)
+        self.assertEqual(usage['hourly24']['views'][-1], 2)
+
+    def test_combined_top_pages_recomputes_7day_window(self):
+        now = timezone.now()
+        # /old/ is big over 30d but absent this week; /new/ dominates this week.
+        for _ in range(5):
+            _hit(path='/old/', when=now - timedelta(days=20))
+        for _ in range(3):
+            _hit(path='/new/', when=now)
+        pages = reporting.top_pages(30, top_n=2)
+        self.assertEqual(pages['d30']['series'][0]['path'], '/old/')
+        # 7-day window is recomputed, not sliced, so /new/ leads there.
+        self.assertEqual(pages['d7']['series'][0]['path'], '/new/')
 
     def test_error_series_split(self):
         now = timezone.now()
