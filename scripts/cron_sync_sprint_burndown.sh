@@ -28,11 +28,15 @@ set -euo pipefail
 APP_DIR="${1:-/home/cwa/CWA_CLASS_APP_TEST}"
 ENV_FILE="${2:-/etc/cwa/cwa-test.env}"
 
-# Load the app env (DB + Jira creds etc.), exported so manage.py's Python child
-# sees them — same vars systemd injects via EnvironmentFile.
+# Best-effort load of the app env file. The Django app loads its own config from
+# cwa_classroom/.env via python-dotenv (with override), so the sync gets its DB +
+# Jira settings regardless of the shell — this source is only for any extras.
+# It must NEVER abort the run: systemd-style env files aren't always valid bash
+# (e.g. a SECRET_KEY containing shell metacharacters), and such a parse error
+# must not stop the snapshot from being recorded. Hence `|| true` under set -e.
 if [[ -f "$ENV_FILE" ]]; then
     set -a
-    source "$ENV_FILE"
+    source "$ENV_FILE" 2>/dev/null || true
     set +a
 fi
 
