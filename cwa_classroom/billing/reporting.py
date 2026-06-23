@@ -273,8 +273,16 @@ def get_daily_active_series_local(window_days):
         window_days = 30
     from billing.models import Subscription, SchoolSubscription
     intervals = []
+    # Paying student = priced package that isn't 100%-discounted (snapshot
+    # >= 100 = comped, $0). Status drives the span via cancelled_at, so a
+    # past payer still contributes to the days it was live.
     student_qs = Subscription.objects.filter(
-        Q(package__isnull=False, package__price__gt=0) | Q(status='trialing'),
+        Q(status='trialing')
+        | (
+            Q(package__isnull=False, package__price__gt=0)
+            & (Q(discount_percent_snapshot__isnull=True)
+               | Q(discount_percent_snapshot__lt=100))
+        ),
     )
     for user_id, created, cancelled in student_qs.values_list(
             'user_id', 'created_at', 'cancelled_at'):
@@ -283,10 +291,18 @@ def get_daily_active_series_local(window_days):
             timezone.localtime(created).date() if created else None,
             timezone.localtime(cancelled).date() if cancelled else None,
         ))
+    # Paying institute = Stripe-billed, priced plan, not 100%-off. Comped
+    # schools (e.g. CWA — priced plan but no Stripe subscription) are excluded.
     institute_qs = SchoolSubscription.objects.filter(
         status__in=['active', 'trialing'],
     ).filter(
-        Q(plan__isnull=False, plan__price__gt=0) | Q(status='trialing'),
+        Q(status='trialing')
+        | (
+            Q(plan__isnull=False, plan__price__gt=0)
+            & ~Q(stripe_subscription_id='')
+            & (Q(discount_code__isnull=True)
+               | Q(discount_code__discount_percent__lt=100))
+        ),
     )
     for school_id, created in institute_qs.values_list(
             'school_id', 'created_at'):

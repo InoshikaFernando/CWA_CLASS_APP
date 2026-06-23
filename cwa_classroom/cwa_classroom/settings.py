@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     'billing',
     'progress',
     'audit',
+    'usage',
 
     # Subject apps
     'maths',
@@ -100,6 +101,9 @@ INSTALLED_APPS = [
 
     # User feedback & feature requests (CPP-321)
     'feedback',
+
+    # WhatsApp parent notifications (CPP-XXX) — inert until configured
+    'whatsapp',
 ]
 
 # ---------------------------------------------------------------------------
@@ -221,6 +225,7 @@ MIDDLEWARE = [
     'cwa_classroom.middleware.TrialExpiryMiddleware',
     'cwa_classroom.middleware.AccountBlockMiddleware',
     'cwa_classroom.middleware.ProfileCompletionMiddleware',
+    'usage.middleware.UsageTrackingMiddleware',  # last: records final page-view status
 ]
 
 AUTHENTICATION_BACKENDS = [
@@ -495,6 +500,23 @@ else:
 
 
 # ---------------------------------------------------------------------------
+# WhatsApp parent notifications (CPP-XXX)
+# ---------------------------------------------------------------------------
+# Inert until these are set: with no access token / phone-number id, every send
+# raises a non-retriable 'no_credentials' error and WhatsAppConfig stays
+# disabled by default, so nothing leaves the system.
+WHATSAPP_PROVIDER = os.environ.get('WHATSAPP_PROVIDER', 'meta_cloud')
+WHATSAPP_ACCESS_TOKEN = os.environ.get('WHATSAPP_ACCESS_TOKEN', '')
+WHATSAPP_PHONE_NUMBER_ID = os.environ.get('WHATSAPP_PHONE_NUMBER_ID', '')
+WHATSAPP_BUSINESS_ACCOUNT_ID = os.environ.get('WHATSAPP_BUSINESS_ACCOUNT_ID', '')
+WHATSAPP_WEBHOOK_VERIFY_TOKEN = os.environ.get('WHATSAPP_WEBHOOK_VERIFY_TOKEN', '')
+WHATSAPP_APP_SECRET = os.environ.get('WHATSAPP_APP_SECRET', '')
+# Default region for parsing local phone numbers into E.164 (NZ).
+WHATSAPP_DEFAULT_REGION = os.environ.get('WHATSAPP_DEFAULT_REGION', 'NZ')
+WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', 'v19.0')
+
+
+# ---------------------------------------------------------------------------
 # Stripe
 # ---------------------------------------------------------------------------
 
@@ -545,6 +567,15 @@ if REDIS_URL:
     SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 else:
     SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+    # No Redis: fall back to an explicit per-process in-memory cache. NOTE:
+    # LocMemCache is NOT shared across gunicorn workers, so short-TTL caches
+    # (e.g. the Usage dashboard's 60s reporting cache) only de-duplicate work
+    # within a single worker. Set REDIS_URL for cross-process cache sharing.
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        },
+    }
 
 # ---------------------------------------------------------------------------
 # Sessions — harden cookie & limit session size

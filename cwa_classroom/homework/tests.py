@@ -1,7 +1,9 @@
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.test import TestCase, Client, override_settings
+from django.contrib.messages.storage.fallback import FallbackStorage
+from django.contrib.sessions.middleware import SessionMiddleware
+from django.test import TestCase, Client, RequestFactory, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -14,7 +16,10 @@ from django.utils import timezone
 
 from accounts.models import CustomUser, Role
 from audit.models import AuditLog
-from classroom.models import ClassRoom, ClassStudent, ClassTeacher, Level, School, SchoolTeacher, Subject, Topic
+from classroom.models import (
+    ClassRoom, ClassStudent, ClassTeacher, Level, School, SchoolStudent,
+    SchoolTeacher, Subject, Topic,
+)
 from maths.models import Answer, Question
 
 from .models import (
@@ -548,15 +553,108 @@ class StudentHomeworkTakeTest(HomeworkTestBase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 302)
 
-    def test_non_enrolled_student_gets_404(self):
+    def test_non_enrolled_student_redirected_to_list_not_404(self):
+        # A logged-in student who isn't enrolled in the class must NOT get a bare
+        # 404 (which reads as a "broken link"). They land on their homework list
+        # with a clear explanation instead.
         self.client.login(username='student2', password='pass1234')
         # Remove student2 from classroom
         ClassStudent.objects.filter(classroom=self.classroom, student=self.student2).update(is_active=False)
         url = reverse('homework:student_take', kwargs={'homework_id': self.homework.id})
-        resp = self.client.get(url)
-        self.assertEqual(resp.status_code, 404)
+        resp = self.client.get(url, follow=True)
+        self.assertRedirects(resp, reverse('homework:student_list'))
+        msgs = [str(m) for m in resp.context['messages']]
+        self.assertTrue(any("not enrolled" in m.lower() for m in msgs))
         # Restore
         ClassStudent.objects.filter(classroom=self.classroom, student=self.student2).update(is_active=True)
+
+
+class StudentEnrollmentRedirectTest(HomeworkTestBase):
+    """Unit tests for ``_student_enrollment_redirect`` — the access gate that
+    replaced the bare ``Http404`` for logged-in students (CPP: confusing 404 on
+    a homework link for an unsubscribed/not-enrolled student).
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from accounts.models import Role
+        cls.individual_role, _ = Role.objects.get_or_create(
+            name=Role.INDIVIDUAL_STUDENT, defaults={'display_name': 'Individual Student'},
+        )
+        cls.individual = CustomUser.objects.create_user(
+            'individual1', 'individual1@test.com', 'pass1234',
+        )
+        cls.individual.roles.add(cls.individual_role)
+
+    def _request(self, user):
+        request = RequestFactory().get('/homework/1/take/')
+        request.user = user
+        SessionMiddleware(lambda r: None).process_request(request)
+        request.session.save()
+        setattr(request, '_messages', FallbackStorage(request))
+        return request
+
+    def _call(self, user, classroom=None):
+        from homework.views import _student_enrollment_redirect
+        request = self._request(user)
+        resp = _student_enrollment_redirect(request, classroom or self.classroom)
+        msgs = [m.message for m in request._messages]
+        return resp, msgs
+
+    def test_enrolled_student_proceeds(self):
+        # Actively enrolled → None (no redirect; the view proceeds to render).
+        resp, _ = self._call(self.student)
+        self.assertIsNone(resp)
+
+    def test_not_enrolled_redirects_to_list_with_message(self):
+        # student2 removed from the class, no school/subscription gating → list.
+        ClassStudent.objects.filter(
+            classroom=self.classroom, student=self.student2,
+        ).update(is_active=False)
+        resp, msgs = self._call(self.student2)
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse('homework:student_list'))
+        self.assertTrue(any('not enrolled' in m.lower() for m in msgs))
+
+    def test_unsubscribed_school_student_redirects_to_billing(self):
+        # A school member whose school subscription has lapsed is sent to the
+        # institute billing page, NOT a 404 and NOT the generic list.
+        from billing.models import SchoolSubscription
+        ClassStudent.objects.filter(
+            classroom=self.classroom, student=self.student2,
+        ).update(is_active=False)
+        SchoolStudent.objects.create(school=self.school, student=self.student2, is_active=True)
+        SchoolSubscription.objects.create(
+            school=self.school, status=SchoolSubscription.STATUS_EXPIRED,
+        )
+        resp, msgs = self._call(self.student2)
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse('institute_trial_expired'))
+        self.assertTrue(any('subscription' in m.lower() for m in msgs))
+
+    def test_subscribed_school_student_not_enrolled_goes_to_list(self):
+        # School sub is healthy but the student isn't in this class → list,
+        # never the billing page.
+        from billing.models import SchoolSubscription
+        ClassStudent.objects.filter(
+            classroom=self.classroom, student=self.student2,
+        ).update(is_active=False)
+        SchoolStudent.objects.create(school=self.school, student=self.student2, is_active=True)
+        SchoolSubscription.objects.create(
+            school=self.school, status=SchoolSubscription.STATUS_ACTIVE,
+        )
+        resp, _ = self._call(self.student2)
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse('homework:student_list'))
+
+    def test_unsubscribed_individual_student_redirects_to_trial_expired(self):
+        # Individual B2C student with no subscription, not enrolled → their own
+        # renewal page, not the institute one.
+        resp, msgs = self._call(self.individual)
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse('trial_expired'))
+        self.assertTrue(any('subscription' in m.lower() for m in msgs))
 
 
 class StudentHomeworkSubmitTest(HomeworkTestBase):
