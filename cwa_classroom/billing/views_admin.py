@@ -1850,23 +1850,21 @@ class FinanceDashboardView(SuperuserRequiredMixin, View):
 
         summary = get_income_expense_summary(months)
 
-        # Pre-compute bar heights (% of max) so the template stays logic-free.
-        max_value = summary['max_value'] or Decimal('1')
-        bars = []
-        for m in summary['months']:
-            bars.append({
-                'label': m['label'],
-                'income': m['income'],
-                'expense': m['expense'],
-                'net': m['net'],
-                'income_pct': int(m['income'] / max_value * 100),
-                'expense_pct': int(m['expense'] / max_value * 100),
-            })
+        # Per-month rows feed the table; parallel arrays feed the Chart.js
+        # panels (income/expense bars + net line, and the net P&L bars).
+        bars = summary['months']
+        chart_data = {
+            'labels': [m['label'] for m in summary['months']],
+            'income': [float(m['income']) for m in summary['months']],
+            'expense': [float(m['expense']) for m in summary['months']],
+            'net': [float(m['net']) for m in summary['months']],
+        }
 
         usd_nzd_rate, fx_source = get_usd_to_nzd_rate()
 
         return render(request, 'admin_dashboard/billing/finance_dashboard.html', {
             'bars': bars,
+            'chart_data': chart_data,
             'category_totals': summary['category_totals'],
             'totals': summary['totals'],
             'income_available': summary['income_available'],
