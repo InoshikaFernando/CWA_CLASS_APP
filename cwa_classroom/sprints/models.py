@@ -94,3 +94,37 @@ class SprintSnapshot(models.Model):
 
     def __str__(self):
         return f'{self.sprint.name} @ {self.snapshot_date}: {self.remaining_points} left'
+
+
+class ProjectSnapshot(models.Model):
+    """Whole-project story-point burndown — one row per day.
+
+    Unlike :class:`SprintSnapshot` this isn't tied to a sprint: it captures the
+    total story points remaining (not-Done) and completed across the *entire*
+    Jira project, so the chart shows the project trending toward done over time
+    rather than a single sprint. Upserted per day (``snapshot_date`` unique), so
+    re-running the sync rewrites today's row.
+    """
+
+    snapshot_date = models.DateField(
+        default=timezone.localdate, unique=True, db_index=True,
+    )
+    # Sum of story points on not-Done issues across the project — the line.
+    remaining_points = models.FloatField(default=0)
+    # Sum of story points on Done issues — total scope = remaining + completed.
+    completed_points = models.FloatField(default=0)
+    # Count of not-Done issues, for context in the tooltip / a count-based view.
+    open_issue_count = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    # Bumped on every upsert; the page's "last synced" time (see SprintSnapshot).
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['snapshot_date']
+
+    @property
+    def total_points(self):
+        return self.remaining_points + self.completed_points
+
+    def __str__(self):
+        return f'Project @ {self.snapshot_date}: {self.remaining_points} left'

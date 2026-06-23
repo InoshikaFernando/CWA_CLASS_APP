@@ -53,3 +53,23 @@ class BuildBurndownSeriesTests(TestCase):
         series = build_burndown_series(sprint)
         self.assertEqual(series['labels'], ['2026-06-02'])
         self.assertEqual(series['actual'], [8])
+
+
+class BuildProjectSeriesTests(TestCase):
+    def test_series_from_snapshots(self):
+        from sprints.burndown import build_project_series
+        from sprints.models import ProjectSnapshot
+        ProjectSnapshot.objects.create(
+            snapshot_date=date(2026, 6, 1), remaining_points=40,
+            completed_points=10, open_issue_count=12)
+        ProjectSnapshot.objects.create(
+            snapshot_date=date(2026, 6, 2), remaining_points=35,
+            completed_points=15, open_issue_count=10)
+
+        series = build_project_series(
+            ProjectSnapshot.objects.order_by('snapshot_date'))
+
+        self.assertEqual(series['labels'], ['2026-06-01', '2026-06-02'])
+        self.assertEqual(series['remaining'], [40, 35])
+        self.assertEqual(series['total'], [50, 50])  # remaining + completed
+        self.assertEqual(series['open_counts'], [12, 10])

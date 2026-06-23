@@ -64,3 +64,21 @@ def build_burndown_series(sprint):
         'actual': actual,
         'committed': committed,
     }
+
+
+def build_project_series(snapshots):
+    """Return whole-project chart data from ordered :class:`ProjectSnapshot`s.
+
+    A project has no fixed end date or committed baseline, so there's no ideal
+    line — we plot the actual *remaining* points over time (the burndown) plus
+    *total scope* (remaining + completed) so scope growth is visible.
+
+    Keys: ``labels`` (ISO dates), ``remaining``, ``total``, ``open_counts``.
+    """
+    snaps = list(snapshots)
+    return {
+        'labels': [s.snapshot_date.isoformat() for s in snaps],
+        'remaining': [s.remaining_points for s in snaps],
+        'total': [s.total_points for s in snaps],
+        'open_counts': [s.open_issue_count for s in snaps],
+    }
