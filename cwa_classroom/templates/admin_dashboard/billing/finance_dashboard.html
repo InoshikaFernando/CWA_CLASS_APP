@@ -67,19 +67,34 @@
     </div>
   </div>
 
-  <!-- Cash-flow chart: income up bars, expenses down bars, cumulative net line -->
-  <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm mb-8">
-    <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
-      <h3 class="text-lg font-semibold text-gray-900">Income, expenses &amp; net</h3>
-      <div class="flex items-center gap-3 text-xs text-gray-500">
-        <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500"></span> Income</span>
-        <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-red-500"></span> Expense</span>
-        <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-slate-700"></span> Net (running total)</span>
+  <!-- Two graphs: cash flow (income up / expenses down) + net position (running total) -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+        <h3 class="text-lg font-semibold text-gray-900">Cash flow</h3>
+        <div class="flex items-center gap-3 text-xs text-gray-500">
+          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500"></span> Income</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-red-500"></span> Expense</span>
+        </div>
+      </div>
+      <p class="text-xs text-gray-400 mb-5">Money in (up) vs money out (down), each month</p>
+      <div class="relative h-72">
+        <canvas id="financeFlowChart" role="img" aria-label="Income as bars above zero and expenses as bars below zero, per month"></canvas>
       </div>
     </div>
-    <p class="text-xs text-gray-400 mb-5">Income above the line, expenses below; the line is the running total — it starts from the balance brought forward, so it ends at the true overall position whatever period you pick</p>
-    <div class="relative h-80">
-      <canvas id="financeFlowChart" role="img" aria-label="Income as bars above zero, expenses as bars below zero, and a cumulative net profit/loss line that ends below zero"></canvas>
+
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+        <h3 class="text-lg font-semibold text-gray-900">Net position</h3>
+        <div class="flex items-center gap-3 text-xs text-gray-500">
+          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-2 rounded-sm bg-red-200 border border-red-400"></span> In the red</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-slate-700"></span> Net to date</span>
+        </div>
+      </div>
+      <p class="text-xs text-gray-400 mb-5">Running total carried forward — below the line means in the red overall</p>
+      <div class="relative h-72">
+        <canvas id="financeNetChart" role="img" aria-label="Running-total net position as a line with a shaded area; below zero is red (in the red), above zero is green"></canvas>
+      </div>
     </div>
   </div>
 
@@ -96,9 +111,11 @@
       function money(v) { return (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)); }
       function zeroGridColor(ctx) { return ctx.tick.value === 0 ? ZERO : GRID; }
       function zeroGridWidth(ctx) { return ctx.tick.value === 0 ? 1.5 : 1; }
+      var xAxis = { grid: { display: false }, ticks: { color: TICK, font: { size: 11 }, autoSkip: false } };
+      var yAxis = { grid: { color: zeroGridColor, lineWidth: zeroGridWidth, drawBorder: false },
+                    ticks: { color: TICK, font: { size: 11 }, callback: function (v) { return money(v); } } };
 
-      {% comment %} Expenses point down (negative); net line is the running total
-         starting from the brought-forward balance (net of everything before the window). {% endcomment %}
+      {% comment %} Cash flow: expenses point down. Net position: running total carried forward. {% endcomment %}
       var expenseDown = d.expense.map(function (v) { return -v; });
       var cumulative = [], run = (d.carry_forward || 0);
       for (var i = 0; i < d.net.length; i++) { run += d.net[i]; cumulative.push(Math.round(run * 100) / 100); }
@@ -107,23 +124,30 @@
         data: {
           labels: d.labels,
           datasets: [
-            { type: 'bar', label: 'Income', data: d.income, backgroundColor: GREEN, borderRadius: 3, stack: 'io', order: 2 },
-            { type: 'bar', label: 'Expense', data: expenseDown, backgroundColor: RED, borderRadius: 3, stack: 'io', order: 2 },
-            { type: 'line', label: 'Net', data: cumulative, borderColor: SLATE, backgroundColor: SLATE,
-              borderWidth: 2.5, tension: 0.3, pointRadius: 3, pointHoverRadius: 5, stack: 'net', order: 1 },
+            { type: 'bar', label: 'Income', data: d.income, backgroundColor: GREEN, borderRadius: 3, stack: 'io', maxBarThickness: 48 },
+            { type: 'bar', label: 'Expense', data: expenseDown, backgroundColor: RED, borderRadius: 3, stack: 'io', maxBarThickness: 48 },
           ],
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (c) {
-            if (c.dataset.label === 'Net') { return 'Net (running total): ' + money(c.parsed.y); }
-            return c.dataset.label + ': ' + money(c.parsed.y);
-          } } } },
-          scales: {
-            x: { stacked: true, grid: { display: false }, ticks: { color: TICK, font: { size: 11 }, autoSkip: false } },
-            y: { stacked: true, grid: { color: zeroGridColor, lineWidth: zeroGridWidth, drawBorder: false },
-                 ticks: { color: TICK, font: { size: 11 }, callback: function (v) { return money(v); } } },
-          },
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (c) { return c.dataset.label + ': ' + money(c.parsed.y); } } } },
+          scales: { x: Object.assign({ stacked: true }, xAxis), y: Object.assign({ stacked: true }, yAxis) },
+        },
+      });
+
+      new Chart(document.getElementById('financeNetChart').getContext('2d'), {
+        data: {
+          labels: d.labels,
+          datasets: [
+            { type: 'line', label: 'Net to date', data: cumulative, borderColor: SLATE,
+              borderWidth: 2.5, tension: 0.3, pointRadius: 3, pointHoverRadius: 5,
+              fill: { target: 'origin', above: 'rgba(16,185,129,0.15)', below: 'rgba(239,68,68,0.18)' } },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (c) { return 'Net to date: ' + money(c.parsed.y); } } } },
+          scales: { x: xAxis, y: yAxis },
         },
       });
     })();
