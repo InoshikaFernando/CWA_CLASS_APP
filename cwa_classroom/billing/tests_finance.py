@@ -84,6 +84,25 @@ class IncomeExpenseSummaryTests(TestCase):
         self.assertEqual(summary['totals']['income'], Decimal('0.00'))
         self.assertEqual(summary['totals']['expense'], Decimal('65.00'))
 
+    @patch('billing.reporting.get_paid_revenue', side_effect=StripeUnavailable)
+    def test_carry_forward_captures_pre_window_net(self, mock_rev):
+        # An expense well before any window — must land in carry_forward, not
+        # the period, so overall_net reflects it regardless of period length.
+        Expense.objects.create(
+            category=ExpenseCategory.GODADDY, amount=Decimal('45.99'),
+            incurred_on=date(2020, 1, 1), source=EXPENSE_SOURCE_MANUAL,
+        )
+        summary = get_income_expense_summary(months=3)
+        # Stripe unavailable -> income_before 0, so carry_forward = -(pre-window).
+        self.assertEqual(summary['carry_forward'], Decimal('-45.99'))
+        # overall = carry_forward + this-period net (the setUp's -65 expense).
+        self.assertEqual(
+            summary['overall_net'],
+            summary['carry_forward'] + summary['totals']['net'],
+        )
+        # The pre-window expense is NOT double-counted in the period total.
+        self.assertEqual(summary['totals']['expense'], Decimal('65.00'))
+
 
 class SyncAIUsageTests(TestCase):
     """Anthropic cost is summed from the full AIUsageLog ledger (scan + marking

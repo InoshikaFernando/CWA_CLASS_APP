@@ -459,6 +459,7 @@ def get_income_expense_summary(months=6):
       'max_value': Decimal,              # for chart scaling
     }
     """
+    from django.db.models import Sum
     from .models import Expense, ExpenseCategory
 
     months = max(1, min(int(months), 24))
@@ -530,14 +531,35 @@ def get_income_expense_summary(months=6):
         )
     ]
 
+    # Carry-forward (opening balance): net of EVERYTHING before this window, so
+    # the running total / overall net reflect the full picture regardless of the
+    # selected period. A shorter window just moves more into carry-forward — the
+    # end position is the same.
+    expense_before = (
+        Expense.objects.filter(incurred_on__lt=range_start)
+        .aggregate(s=Sum('amount'))['s'] or ZERO
+    )
+    income_before = ZERO
+    if income_available:
+        try:
+            early = _month_dt(range_start.replace(year=range_start.year - 10))
+            rev_before = get_paid_revenue(early, _month_dt(range_start))
+            income_before = rev_before['student'] + rev_before['institute']
+        except StripeUnavailable:
+            income_available = False
+    carry_forward = income_before - expense_before
+    period_net = total_income - total_expense
+
     return {
         'months': series,
         'category_totals': cat_list,
         'totals': {
             'income': total_income,
             'expense': total_expense,
-            'net': total_income - total_expense,
+            'net': period_net,
         },
+        'carry_forward': carry_forward,
+        'overall_net': carry_forward + period_net,
         'income_available': income_available,
         'max_value': max_value,
     }

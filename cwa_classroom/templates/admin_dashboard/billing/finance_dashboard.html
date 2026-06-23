@@ -42,20 +42,28 @@
   {% endif %}
 
   <!-- Summary tiles -->
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
     <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-      <p class="text-sm text-gray-500">Total Income</p>
+      <p class="text-sm text-gray-500">Income (this period)</p>
       <p class="text-2xl font-bold text-emerald-600 mt-1">${{ totals.income|floatformat:2 }}</p>
     </div>
     <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-      <p class="text-sm text-gray-500">Total Expenses</p>
+      <p class="text-sm text-gray-500">Expenses (this period)</p>
       <p class="text-2xl font-bold text-red-600 mt-1">${{ totals.expense|floatformat:2 }}</p>
     </div>
     <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-      <p class="text-sm text-gray-500">{% if totals.net < 0 %}Net loss{% else %}Net profit{% endif %}</p>
-      <p class="text-2xl font-bold mt-1 {% if totals.net >= 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
-        {% if totals.net < 0 %}-${{ totals.net|floatformat:2|cut:"-" }}{% else %}${{ totals.net|floatformat:2 }}{% endif %}
+      <p class="text-sm text-gray-500">Brought forward</p>
+      <p class="text-2xl font-bold mt-1 {% if carry_forward >= 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
+        {% if carry_forward < 0 %}-${{ carry_forward|floatformat:2|cut:"-" }}{% else %}${{ carry_forward|floatformat:2 }}{% endif %}
       </p>
+      <p class="text-xs text-gray-400 mt-1">net before this period</p>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border-2 {% if overall_net >= 0 %}border-emerald-200{% else %}border-red-200{% endif %} shadow-sm">
+      <p class="text-sm text-gray-500">{% if overall_net < 0 %}Net loss (overall){% else %}Net profit (overall){% endif %}</p>
+      <p class="text-2xl font-bold mt-1 {% if overall_net >= 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
+        {% if overall_net < 0 %}-${{ overall_net|floatformat:2|cut:"-" }}{% else %}${{ overall_net|floatformat:2 }}{% endif %}
+      </p>
+      <p class="text-xs text-gray-400 mt-1">incl. brought forward</p>
     </div>
   </div>
 
@@ -69,7 +77,7 @@
         <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-slate-700"></span> Net (running total)</span>
       </div>
     </div>
-    <p class="text-xs text-gray-400 mb-5">Income above the line, expenses below; the line is the cumulative net profit / loss</p>
+    <p class="text-xs text-gray-400 mb-5">Income above the line, expenses below; the line is the running total — it starts from the balance brought forward, so it ends at the true overall position whatever period you pick</p>
     <div class="relative h-80">
       <canvas id="financeFlowChart" role="img" aria-label="Income as bars above zero, expenses as bars below zero, and a cumulative net profit/loss line that ends below zero"></canvas>
     </div>
@@ -89,9 +97,10 @@
       function zeroGridColor(ctx) { return ctx.tick.value === 0 ? ZERO : GRID; }
       function zeroGridWidth(ctx) { return ctx.tick.value === 0 ? 1.5 : 1; }
 
-      {% comment %} Expenses point down (negative); net line is the cumulative carry-forward. {% endcomment %}
+      {% comment %} Expenses point down (negative); net line is the running total
+         starting from the brought-forward balance (net of everything before the window). {% endcomment %}
       var expenseDown = d.expense.map(function (v) { return -v; });
-      var cumulative = [], run = 0;
+      var cumulative = [], run = (d.carry_forward || 0);
       for (var i = 0; i < d.net.length; i++) { run += d.net[i]; cumulative.push(Math.round(run * 100) / 100); }
 
       new Chart(document.getElementById('financeFlowChart').getContext('2d'), {
