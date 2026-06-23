@@ -1,13 +1,12 @@
 """Usage Analytics dashboard (superuser only).
 
 A standalone, dark-themed monitoring page mirroring the Subscriptions Overview
-dashboard. Renders six line charts from PageHit data:
-  1. Active usage — last 24h, hourly
-  2. Active usage — last 7 days, daily
-  3. Active usage — last 30 days, daily
-  4. Most-visited pages — daily, last 7 days
-  5. Most-visited pages — daily, last 30 days
-  6. 4xx / 5xx responses — last 30 days
+dashboard. At-a-glance health + usage from PageHit data:
+  * Health banner (error-rate verdict) + KPI tiles + live "active now"
+  * One active-usage trend chart with a 24h / 7d / 30d toggle
+  * Errors 4xx/5xx (30d) with an alert threshold
+  * Most-visited pages as a ranked bar list (7d / 30d)
+  * Recent-errors + top-failing-pages drill-downs (below the fold)
 """
 from django.shortcuts import render
 from django.views import View
@@ -17,6 +16,14 @@ from billing.views_admin import SuperuserRequiredMixin
 from . import reporting
 
 REFRESH_SECONDS = 60
+
+
+def _ranked_pages(series):
+    """Collapse a top-pages multi-line series into a ranked list of
+    {path, total} (sum of each path's per-day hits), busiest first."""
+    rows = [{'path': s['path'], 'total': sum(s['data'])} for s in series]
+    rows.sort(key=lambda r: -r['total'])
+    return rows
 
 
 class UsageOverviewView(SuperuserRequiredMixin, View):
@@ -44,6 +51,11 @@ class UsageOverviewView(SuperuserRequiredMixin, View):
         )
         views_24h = sum(hourly_24['views'])
 
+        # Ranked top-pages bar lists (from the data already fetched — no query).
+        ranked_30 = _ranked_pages(top_pages_30['series'])
+        ranked_7 = _ranked_pages(top_pages_7['series'])
+        ranked_max = ranked_30[0]['total'] if ranked_30 else 0
+
         return render(request, 'admin_dashboard/usage/overview.html', {
             'hide_sidebar': True,
             'hide_footer': True,
@@ -53,6 +65,9 @@ class UsageOverviewView(SuperuserRequiredMixin, View):
             'daily_30': daily_30,
             'top_pages_7': top_pages_7,
             'top_pages_30': top_pages_30,
+            'ranked_30': ranked_30,
+            'ranked_7': ranked_7,
+            'ranked_max': ranked_max,
             'errors_30': errors_30,
             'active_now': active_now,
             'health': health,

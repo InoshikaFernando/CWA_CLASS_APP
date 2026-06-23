@@ -293,18 +293,46 @@ class ViewAccessTests(TestCase):
         _hit(user=self.superuser, when=timezone.now())
         self.client.login(username='super', password='pw')
         resp = self.client.get(reverse('usage_admin_overview'))
-        self.assertContains(resp, 'active now')
-        self.assertContains(resp, 'last 5 min')
+        self.assertContains(resp, 'active')
+        self.assertContains(resp, '5 min')
 
-    def test_dashboard_renders_gauge_donut_and_error_drilldown(self):
+    def test_dashboard_renders_health_banner_and_drilldown(self):
+        # One real 500 -> 100% error rate -> Critical banner; listed in drill-down.
         _hit(path='/boom/', status=500, when=timezone.now())
         self.client.login(username='super', password='pw')
         resp = self.client.get(reverse('usage_admin_overview'))
-        self.assertContains(resp, 'Error rate')
-        self.assertContains(resp, 'chartGauge')
-        self.assertContains(resp, 'chartDonut')
+        self.assertContains(resp, 'Critical')          # health verdict banner
+        self.assertContains(resp, 'error rate')
+        self.assertContains(resp, 'chartActive')       # single toggled trend chart
+        self.assertContains(resp, 'Most-visited pages')
         self.assertContains(resp, 'Recent errors')
-        self.assertContains(resp, '/boom/')          # the real error is listed
+        self.assertContains(resp, '/boom/')            # the real error is listed
+        self.assertNotContains(resp, 'chartGauge')     # gauge/donut removed
+        self.assertNotContains(resp, 'chartDonut')
+
+    def test_healthy_banner_and_ranked_pages(self):
+        # Mostly-2xx traffic -> Healthy banner + ranked top-pages bars.
+        now = timezone.now()
+        for _ in range(10):
+            _hit(path='/dashboard/', status=200, when=now)
+        for _ in range(4):
+            _hit(path='/maths/', status=200, when=now)
+        self.client.login(username='super', password='pw')
+        resp = self.client.get(reverse('usage_admin_overview'))
+        self.assertContains(resp, 'Healthy')
+        self.assertContains(resp, '/dashboard/')       # top ranked page
+        self.assertContains(resp, '/maths/')
+
+    def test_ranked_pages_helper(self):
+        from usage.views import _ranked_pages
+        series = [
+            {'path': '/a/', 'data': [1, 2, 3]},   # 6
+            {'path': '/b/', 'data': [5, 5]},      # 10
+            {'path': '/c/', 'data': [0, 1]},      # 1
+        ]
+        ranked = _ranked_pages(series)
+        self.assertEqual([r['path'] for r in ranked], ['/b/', '/a/', '/c/'])
+        self.assertEqual(ranked[0]['total'], 10)
 
     def test_normal_user_redirected(self):
         self.client.login(username='normal', password='pw')
