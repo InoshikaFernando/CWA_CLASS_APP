@@ -150,3 +150,49 @@ class ParseDateTests(TestCase):
     def test_none_for_blank(self):
         self.assertIsNone(services._parse_date(''))
         self.assertIsNone(services._parse_date(None))
+
+
+@override_settings(**JIRA_ENV)
+class SyncProjectBurndownTests(TestCase):
+    def _search_page(self, issues, next_token=None):
+        return {'issues': issues, 'nextPageToken': next_token,
+                'isLast': next_token is None}
+
+    @mock.patch(_REQUEST)
+    def test_records_project_snapshot(self, mock_request):
+        from sprints.models import ProjectSnapshot
+        issues = [
+            {'fields': {'customfield_10016': 5, 'status': {'statusCategory': {'key': 'done'}}}},
+            {'fields': {'customfield_10016': 8, 'status': {'statusCategory': {'key': 'new'}}}},
+            {'fields': {'customfield_10016': 3, 'status': {'statusCategory': {'key': 'indeterminate'}}}},
+        ]
+        mock_request.return_value = _resp(self._search_page(issues))
+
+        snap = services.sync_project_burndown()
+
+        self.assertIsNotNone(snap)
+        self.assertEqual(snap.completed_points, 5)
+        self.assertEqual(snap.remaining_points, 11)   # 8 + 3
+        self.assertEqual(snap.total_points, 16)
+        self.assertEqual(snap.open_issue_count, 2)
+        self.assertEqual(ProjectSnapshot.objects.count(), 1)
+
+    @mock.patch(_REQUEST)
+    def test_paginates_via_next_token(self, mock_request):
+        page1 = self._search_page(
+            [{'fields': {'customfield_10016': 4, 'status': {'statusCategory': {'key': 'new'}}}}],
+            next_token='tok2')
+        page2 = self._search_page(
+            [{'fields': {'customfield_10016': 6, 'status': {'statusCategory': {'key': 'new'}}}}])
+        mock_request.side_effect = [_resp(page1), _resp(page2)]
+
+        snap = services.sync_project_burndown()
+        self.assertEqual(snap.remaining_points, 10)   # 4 + 6 across two pages
+        self.assertEqual(mock_request.call_count, 2)
+
+    @mock.patch(_REQUEST)
+    def test_page_failure_records_nothing(self, mock_request):
+        from sprints.models import ProjectSnapshot
+        mock_request.return_value = _resp({}, status=500)
+        self.assertIsNone(services.sync_project_burndown())
+        self.assertEqual(ProjectSnapshot.objects.count(), 0)
