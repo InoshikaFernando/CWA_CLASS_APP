@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.12.3'         # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-06-21'     # ISO date of this release
+APP_VERSION       = '1.13.0'         # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-06-23'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -149,6 +149,24 @@ CLAUDE_INPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_INPUT_COST_PER_MTOK', '5.0'))
 CLAUDE_OUTPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '25.0'))
+
+# USD->NZD conversion used by the income-vs-expense dashboard to convert
+# USD-billed costs (Anthropic AI grading) into the dashboard's base currency
+# (NZD). Manual vendor bills are converted by the operator on entry; this only
+# applies to the automatic AIGradingUsage sync.
+#
+# The live rate is fetched from FX_RATE_API_URL (a free, ECB-backed,
+# key-less endpoint — frankfurter.app) and cached. USD_TO_NZD_RATE is the
+# FALLBACK used only when the API is disabled / unreachable. Set FX_RATE_API_URL
+# to '' to force the static fallback (e.g. for an air-gapped environment).
+USD_TO_NZD_RATE = float(os.environ.get('USD_TO_NZD_RATE', '1.65'))
+FX_RATE_API_URL = os.environ.get(
+    'FX_RATE_API_URL', 'https://api.frankfurter.dev/v1/latest')
+
+# Read-only DigitalOcean Personal Access Token. When set, sync_vendor_charges
+# pulls real monthly invoices (so droplet/DB/Spaces addons are captured with no
+# manual update). Inert when empty — dev/test stay no-op.
+DIGITALOCEAN_API_TOKEN = os.environ.get('DIGITALOCEAN_API_TOKEN', '')
 
 # Live AI usage dashboard — after each AI call the worker rewrites a pinned
 # GitHub issue with the latest usage/cost. Best-effort: stays disabled (no-op)

@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block title %}Income vs Expenses - Billing Admin{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <a href="{% url 'billing_admin_dashboard' %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+      <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Income vs Expenses</h1>
+      <p class="text-gray-500 mt-1">Paid Stripe revenue against operating costs (NZD)</p>
+      <p class="text-xs text-gray-400 mt-1">
+        USD costs converted at 1 USD = {{ usd_nzd_rate|floatformat:4 }} NZD
+        {% if fx_source == 'live' %}<span class="text-emerald-600">(live)</span>{% elif fx_source == 'cache' %}<span class="text-emerald-600">(live, cached)</span>{% else %}<span class="text-amber-600">(fallback — FX API unavailable)</span>{% endif %}
+      </p>
+    </div>
+    <div class="flex items-center gap-3">
+      <a href="{% url 'billing_admin_expense_list' %}"
+         class="inline-flex items-center px-4 py-2.5 bg-white border border-slate-200 text-gray-700 font-semibold rounded-xl hover:border-accent/30 hover:text-accent transition shadow-sm">Expenses</a>
+      <a href="{% url 'billing_admin_recurring_expense_list' %}"
+         class="inline-flex items-center px-4 py-2.5 bg-white border border-slate-200 text-gray-700 font-semibold rounded-xl hover:border-accent/30 hover:text-accent transition shadow-sm">Recurring</a>
+    </div>
+  </div>
+
+  <!-- Period selector -->
+  <div class="flex items-center gap-2 mb-6">
+    <span class="text-sm text-gray-500">Period:</span>
+    {% for opt in month_options %}
+      <a href="?months={{ opt }}"
+         class="px-3 py-1.5 rounded-lg text-sm font-medium transition {% if opt == months %}bg-accent text-white{% else %}bg-white border border-slate-200 text-gray-600 hover:border-accent/30{% endif %}">
+        {{ opt }}m
+      </a>
+    {% endfor %}
+  </div>
+
+  {% if not income_available %}
+  <div class="mb-6 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+    Stripe is unavailable — income figures could not be loaded and are shown as $0.
+  </div>
+  {% endif %}
+
+  <!-- Summary tiles -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <p class="text-sm text-gray-500">Total Income</p>
+      <p class="text-2xl font-bold text-emerald-600 mt-1">${{ totals.income|floatformat:2 }}</p>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <p class="text-sm text-gray-500">Total Expenses</p>
+      <p class="text-2xl font-bold text-red-600 mt-1">${{ totals.expense|floatformat:2 }}</p>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <p class="text-sm text-gray-500">Net Profit</p>
+      <p class="text-2xl font-bold mt-1 {% if totals.net >= 0 %}text-emerald-600{% else %}text-red-600{% endif %}">${{ totals.net|floatformat:2 }}</p>
+    </div>
+  </div>
+
+  <!-- Monthly chart -->
+  <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm mb-8">
+    <div class="flex items-center justify-between mb-6">
+      <h3 class="text-lg font-semibold text-gray-900">Monthly trend</h3>
+      <div class="flex items-center gap-4 text-xs text-gray-500">
+        <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500"></span> Income</span>
+        <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-red-400"></span> Expense</span>
+      </div>
+    </div>
+    <div class="flex items-end justify-between gap-4 h-56">
+      {% for bar in bars %}
+      <div class="flex-1 flex flex-col items-center justify-end h-full">
+        <div class="flex items-end justify-center gap-1 w-full h-full">
+          <div class="w-1/2 max-w-[28px] bg-emerald-500 rounded-t group relative" style="height: {{ bar.income_pct }}%">
+            <span class="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] text-gray-500 opacity-0 group-hover:opacity-100 whitespace-nowrap">${{ bar.income|floatformat:0 }}</span>
+          </div>
+          <div class="w-1/2 max-w-[28px] bg-red-400 rounded-t group relative" style="height: {{ bar.expense_pct }}%">
+            <span class="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] text-gray-500 opacity-0 group-hover:opacity-100 whitespace-nowrap">${{ bar.expense|floatformat:0 }}</span>
+          </div>
+        </div>
+        <span class="mt-2 text-[11px] text-gray-500 text-center">{{ bar.label }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Per-month table + category breakdown -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-200"><h3 class="font-semibold text-gray-900">By month</h3></div>
+      <table class="w-full text-left text-sm">
+        <thead>
+          <tr class="border-b border-slate-200 bg-slate-50">
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Month</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Income</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Expense</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Net</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for bar in bars %}
+          <tr class="hover:bg-slate-50 transition">
+            <td class="px-6 py-3 text-gray-700">{{ bar.label }}</td>
+            <td class="px-6 py-3 text-right text-emerald-600">${{ bar.income|floatformat:2 }}</td>
+            <td class="px-6 py-3 text-right text-red-600">${{ bar.expense|floatformat:2 }}</td>
+            <td class="px-6 py-3 text-right font-medium {% if bar.net >= 0 %}text-emerald-600{% else %}text-red-600{% endif %}">${{ bar.net|floatformat:2 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-200"><h3 class="font-semibold text-gray-900">Expenses by category</h3></div>
+      <table class="w-full text-left text-sm">
+        <thead>
+          <tr class="border-b border-slate-200 bg-slate-50">
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Category</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Total</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for cat in category_totals %}
+          <tr class="hover:bg-slate-50 transition">
+            <td class="px-6 py-3 text-gray-700">{{ cat.label }}</td>
+            <td class="px-6 py-3 text-right text-gray-900 font-medium">${{ cat.amount|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="2" class="px-6 py-12 text-center text-gray-500">No expenses recorded for this period.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

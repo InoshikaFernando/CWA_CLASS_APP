@@ -13,9 +13,10 @@ If Stripe is unconfigured or the API errors, callers fall back to a local
 (discount-aware) estimate and flag the figures as estimates.
 """
 import logging
-from datetime import datetime, timedelta, timezone as dt_timezone
-from decimal import Decimal
+from datetime import date, datetime, timedelta, timezone as dt_timezone
+from decimal import Decimal, InvalidOperation
 
+import requests
 import stripe
 from django.conf import settings
 from django.core.cache import cache
@@ -25,6 +26,11 @@ logger = logging.getLogger(__name__)
 
 CACHE_TTL = 300  # 5 minutes — avoid hitting Stripe on every page load
 _CENTS = Decimal('100')
+
+# FX rates move slowly; cache for 12h so the dashboard / sync never hammer the
+# free FX API. Key is provider-agnostic (USD->NZD only).
+FX_CACHE_TTL = 60 * 60 * 12
+FX_CACHE_KEY = 'fx:usd_nzd'
 
 
 class StripeUnavailable(Exception):
@@ -411,3 +417,284 @@ def get_paid_revenue(period_start, period_end):
     }
     cache.set(cache_key, result, CACHE_TTL)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Income vs Expense (operating-cost dashboard)
+# ---------------------------------------------------------------------------
+
+def _first_of_month(d):
+    """Date -> first day of its month."""
+    return d.replace(day=1)
+
+
+def _add_month(d):
+    """First-of-month date -> first day of the following month."""
+    if d.month == 12:
+        return d.replace(year=d.year + 1, month=1)
+    return d.replace(month=d.month + 1)
+
+
+def _month_dt(d):
+    """Local date -> aware datetime at 00:00 (for Stripe period bounds)."""
+    return timezone.make_aware(datetime.combine(d, datetime.min.time()))
+
+
+def get_income_expense_summary(months=6):
+    """Monthly income (paid Stripe revenue) vs operating expenses, in NZD.
+
+    Builds a `months`-long series ending with the current month. Income per
+    month is the sum of paid student + institute subscription invoices
+    (`get_paid_revenue`, Stripe-sourced, cached). Expenses per month are the
+    sum of local `Expense.amount` rows booked in that month.
+
+    Returns {
+      'months': [
+        {'label': 'Jun 2026', 'start': date, 'income': Decimal,
+         'expense': Decimal, 'net': Decimal}, ...   # oldest -> newest
+      ],
+      'category_totals': [{'category': key, 'label': str, 'amount': Decimal}, ...],
+      'totals': {'income': Decimal, 'expense': Decimal, 'net': Decimal},
+      'income_available': bool,          # False if Stripe was unreachable
+      'max_value': Decimal,              # for chart scaling
+    }
+    """
+    from .models import Expense, ExpenseCategory
+
+    months = max(1, min(int(months), 24))
+    today = timezone.localdate()
+    current = _first_of_month(today)
+
+    # Oldest-first list of month-start dates.
+    starts = []
+    m = current
+    for _ in range(months):
+        starts.append(m)
+        if m.month == 1:
+            m = m.replace(year=m.year - 1, month=12)
+        else:
+            m = m.replace(month=m.month - 1)
+    starts.reverse()
+
+    range_start = starts[0]
+    range_end = _add_month(current)
+
+    # All expenses in the window, pulled once and bucketed in Python.
+    expense_rows = (
+        Expense.objects.filter(
+            incurred_on__gte=range_start, incurred_on__lt=range_end,
+        )
+        .values('incurred_on', 'category', 'amount')
+    )
+    ZERO = Decimal('0.00')
+    expense_by_month = {}
+    category_totals = {}
+    for row in expense_rows:
+        key = _first_of_month(row['incurred_on'])
+        expense_by_month[key] = expense_by_month.get(key, ZERO) + row['amount']
+        category_totals[row['category']] = (
+            category_totals.get(row['category'], ZERO) + row['amount']
+        )
+
+    income_available = True
+    series = []
+    total_income = ZERO
+    total_expense = ZERO
+    max_value = ZERO
+    for start in starts:
+        nxt = _add_month(start)
+        income = ZERO
+        if income_available:
+            try:
+                rev = get_paid_revenue(_month_dt(start), _month_dt(nxt))
+                income = rev['student'] + rev['institute']
+            except StripeUnavailable:
+                income_available = False
+        expense = expense_by_month.get(start, ZERO)
+        series.append({
+            'label': start.strftime('%b %Y'),
+            'start': start,
+            'income': income,
+            'expense': expense,
+            'net': income - expense,
+        })
+        total_income += income
+        total_expense += expense
+        max_value = max(max_value, income, expense)
+
+    cat_labels = dict(ExpenseCategory.choices)
+    cat_list = [
+        {'category': k, 'label': cat_labels.get(k, k), 'amount': v}
+        for k, v in sorted(
+            category_totals.items(), key=lambda kv: kv[1], reverse=True,
+        )
+    ]
+
+    return {
+        'months': series,
+        'category_totals': cat_list,
+        'totals': {
+            'income': total_income,
+            'expense': total_expense,
+            'net': total_income - total_expense,
+        },
+        'income_available': income_available,
+        'max_value': max_value,
+    }
+
+
+def get_usd_to_nzd_rate():
+    """Current USD->NZD rate for converting USD-billed costs to NZD.
+
+    Fetches from a free, ECB-backed, key-less FX API (settings.FX_RATE_API_URL,
+    frankfurter.app by default), caches it for FX_CACHE_TTL, and falls back to
+    the static settings.USD_TO_NZD_RATE when the API is disabled / unreachable /
+    malformed. Always returns a positive Decimal — never raises, so callers can
+    use it inline.
+
+    Returns (Decimal rate, str source) where source is 'live' | 'cache' |
+    'fallback' so the UI can show where the number came from.
+    """
+    fallback = Decimal(str(getattr(settings, 'USD_TO_NZD_RATE', 1.65)))
+
+    cached = cache.get(FX_CACHE_KEY)
+    if cached is not None:
+        return cached, 'cache'
+
+    url = getattr(settings, 'FX_RATE_API_URL', '')
+    if not url:
+        return fallback, 'fallback'
+
+    try:
+        resp = requests.get(
+            url, params={'from': 'USD', 'to': 'NZD'}, timeout=10,
+        )
+        resp.raise_for_status()
+        rate = Decimal(str(resp.json()['rates']['NZD']))
+        if rate <= 0:
+            raise ValueError(f'non-positive FX rate {rate}')
+    except (requests.RequestException, KeyError, ValueError, TypeError) as exc:
+        logger.warning(
+            'USD->NZD FX fetch failed, using fallback %s: %s', fallback, exc)
+        return fallback, 'fallback'
+
+    cache.set(FX_CACHE_KEY, rate, FX_CACHE_TTL)
+    return rate, 'live'
+
+
+def sync_ai_usage_expenses():
+    """Mirror the internal AI cost ledger into monthly Anthropic Expense rows.
+
+    Sums `taskqueue.AIUsageLog.est_cost_usd` per calendar month — covering EVERY
+    AI source (ai_import PDF scan, homework marking, worksheet classification) —
+    converts USD->NZD and upserts one `claude_api` Expense row per month. Because
+    it reads the ledger, any new AI feature that logs usage is captured with no
+    config change. Idempotent; returns rows created/updated.
+    """
+    from .models import (
+        Expense, ExpenseCategory, EXPENSE_SOURCE_AI_GRADING,
+    )
+    from taskqueue.models import AIUsageLog
+
+    rate, _ = get_usd_to_nzd_rate()
+
+    # Bucket by calendar month in Python — avoids MySQL TruncMonth, which needs
+    # the server's timezone tables loaded when USE_TZ is on.
+    buckets = {}
+    rows = AIUsageLog.objects.values_list('created_at', 'est_cost_usd')
+    for created_at, cost in rows.iterator():
+        if not cost or cost <= 0:
+            continue
+        local = (
+            timezone.localtime(created_at)
+            if timezone.is_aware(created_at) else created_at
+        )
+        key = _first_of_month(local.date())
+        buckets[key] = buckets.get(key, Decimal('0')) + cost
+
+    touched = 0
+    for month_start, usd in sorted(buckets.items()):
+        nzd = (usd * rate).quantize(Decimal('0.01'))
+        Expense.objects.update_or_create(
+            source=EXPENSE_SOURCE_AI_GRADING,
+            incurred_on=month_start,
+            defaults={
+                'category': ExpenseCategory.CLAUDE_API,
+                'vendor': 'Anthropic',
+                'description': 'AI usage: PDF scan + marking + worksheets (auto)',
+                'amount': nzd,
+                'original_amount': usd.quantize(Decimal('0.000001')),
+                'original_currency': 'USD',
+            },
+        )
+        touched += 1
+    return touched
+
+
+def sync_digitalocean_expenses():
+    """Pull real DigitalOcean monthly invoices into Expense rows (NZD).
+
+    No-op unless settings.DIGITALOCEAN_API_TOKEN is set. Reads the invoices
+    endpoint, so every line item (droplets, DBs, Spaces, bandwidth, any addon)
+    is included automatically — no manual update when infra changes. For each
+    month it writes the actual invoice, it removes any `recurring` DigitalOcean
+    estimate for that month so the two never double-count. Idempotent. Returns
+    the number of invoice rows created/updated (0 when the token is unset).
+    """
+    from .models import (
+        Expense, ExpenseCategory, RecurringExpense,
+        EXPENSE_SOURCE_DIGITALOCEAN, EXPENSE_SOURCE_RECURRING,
+    )
+
+    token = getattr(settings, 'DIGITALOCEAN_API_TOKEN', '')
+    if not token:
+        return 0
+
+    try:
+        resp = requests.get(
+            'https://api.digitalocean.com/v2/customers/my/invoices',
+            headers={'Authorization': f'Bearer {token}'},
+            params={'per_page': 50},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        invoices = resp.json().get('invoices', [])
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning('DigitalOcean invoice fetch failed: %s', exc)
+        return 0
+
+    rate, _ = get_usd_to_nzd_rate()
+    touched = 0
+    for inv in invoices:
+        # invoice_period is "YYYY-MM"; amount is a USD decimal string.
+        period = (inv.get('invoice_period') or '').strip()
+        try:
+            year, month = (int(p) for p in period.split('-')[:2])
+            month_start = date(year, month, 1)
+            usd = Decimal(str(inv.get('amount', '0')))
+        except (ValueError, TypeError, InvalidOperation) as exc:
+            logger.warning('Skipping DO invoice %r: %s', inv, exc)
+            continue
+        if usd <= 0:
+            continue
+        nzd = (usd * rate).quantize(Decimal('0.01'))
+        Expense.objects.update_or_create(
+            source=EXPENSE_SOURCE_DIGITALOCEAN,
+            incurred_on=month_start,
+            defaults={
+                'category': ExpenseCategory.DIGITALOCEAN,
+                'vendor': 'DigitalOcean',
+                'description': f'Invoice {period} (auto)',
+                'amount': nzd,
+                'original_amount': usd.quantize(Decimal('0.01')),
+                'original_currency': 'USD',
+            },
+        )
+        # Actual supersedes any recurring estimate for the same month.
+        Expense.objects.filter(
+            category=ExpenseCategory.DIGITALOCEAN,
+            source=EXPENSE_SOURCE_RECURRING,
+            incurred_on=month_start,
+        ).delete()
+        touched += 1
+    return touched
