@@ -13,10 +13,12 @@ import logging
 import requests
 from django.conf import settings
 
+from cwa_classroom import jira_client
+
 logger = logging.getLogger(__name__)
 
-# Bound every outbound HTTP call so a hung Jira/Discord endpoint can't pin an
-# RQ worker for the full job timeout.
+# Bound the Discord call so a hung webhook can't pin an RQ worker for the full
+# job timeout. (Jira calls are bounded by jira_client.HTTP_TIMEOUT.)
 _HTTP_TIMEOUT = 10
 
 
@@ -47,12 +49,7 @@ def create_jira_bug(*, summary, description, labels=None):
     responds non-2xx. Never raises into the caller — bug filing must not be able
     to fail a feedback submission or crash the worker.
     """
-    base_url = (settings.JIRA_BASE_URL or '').rstrip('/')
-    email = settings.JIRA_USER_EMAIL
-    token = settings.JIRA_API_TOKEN
-    project_key = settings.JIRA_PROJECT_KEY
-
-    if not (base_url and email and token):
+    if jira_client.base_config() is None:
         logger.warning(
             'Jira not configured (JIRA_BASE_URL/JIRA_USER_EMAIL/'
             'JIRA_API_TOKEN); skipping bug creation for: %s', summary,
@@ -61,7 +58,7 @@ def create_jira_bug(*, summary, description, labels=None):
 
     payload = {
         'fields': {
-            'project': {'key': project_key},
+            'project': {'key': settings.JIRA_PROJECT_KEY},
             'summary': summary,
             'description': _adf_description(description),
             'issuetype': {'name': 'Bug'},
@@ -69,32 +66,14 @@ def create_jira_bug(*, summary, description, labels=None):
         }
     }
 
-    try:
-        resp = requests.post(
-            f'{base_url}/rest/api/3/issue',
-            json=payload,
-            auth=(email, token),
-            timeout=_HTTP_TIMEOUT,
-        )
-    except requests.RequestException as exc:
-        logger.error('Jira issue creation request failed: %s', exc)
+    data = jira_client.request('POST', '/rest/api/3/issue', json=payload)
+    if data is None:
+        # jira_client already logged the failure cause.
         return None
 
-    if not (200 <= resp.status_code < 300):
-        logger.error(
-            'Jira issue creation returned %s: %s',
-            resp.status_code, resp.text,
-        )
-        return None
-
-    try:
-        key = resp.json().get('key')
-    except ValueError as exc:
-        logger.error('Jira returned non-JSON success body: %s (%s)', resp.text, exc)
-        return None
-
+    key = data.get('key')
     if not key:
-        logger.error('Jira success response had no issue key: %s', resp.text)
+        logger.error('Jira success response had no issue key: %s', data)
         return None
 
     logger.info('Created Jira bug %s for: %s', key, summary)
