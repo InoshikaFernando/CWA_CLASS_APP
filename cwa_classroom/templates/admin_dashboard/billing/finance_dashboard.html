@@ -42,54 +42,44 @@
   {% endif %}
 
   <!-- Summary tiles -->
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
     <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-      <p class="text-sm text-gray-500">Total Income</p>
+      <p class="text-sm text-gray-500">Income (this period)</p>
       <p class="text-2xl font-bold text-emerald-600 mt-1">${{ totals.income|floatformat:2 }}</p>
     </div>
     <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-      <p class="text-sm text-gray-500">Total Expenses</p>
+      <p class="text-sm text-gray-500">Expenses (this period)</p>
       <p class="text-2xl font-bold text-red-600 mt-1">${{ totals.expense|floatformat:2 }}</p>
     </div>
     <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-      <p class="text-sm text-gray-500">{% if totals.net < 0 %}Net loss{% else %}Net profit{% endif %}</p>
-      <p class="text-2xl font-bold mt-1 {% if totals.net >= 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
-        {% if totals.net < 0 %}-${{ totals.net|floatformat:2|cut:"-" }}{% else %}${{ totals.net|floatformat:2 }}{% endif %}
+      <p class="text-sm text-gray-500">Brought forward</p>
+      <p class="text-2xl font-bold mt-1 {% if carry_forward >= 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
+        {% if carry_forward < 0 %}-${{ carry_forward|floatformat:2|cut:"-" }}{% else %}${{ carry_forward|floatformat:2 }}{% endif %}
       </p>
+      <p class="text-xs text-gray-400 mt-1">net before this period</p>
+    </div>
+    <div class="bg-white rounded-2xl p-6 border-2 {% if overall_net >= 0 %}border-emerald-200{% else %}border-red-200{% endif %} shadow-sm">
+      <p class="text-sm text-gray-500">{% if overall_net < 0 %}Net loss (overall){% else %}Net profit (overall){% endif %}</p>
+      <p class="text-2xl font-bold mt-1 {% if overall_net >= 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
+        {% if overall_net < 0 %}-${{ overall_net|floatformat:2|cut:"-" }}{% else %}${{ overall_net|floatformat:2 }}{% endif %}
+      </p>
+      <p class="text-xs text-gray-400 mt-1">incl. brought forward</p>
     </div>
   </div>
 
-  <!-- Charts: A income/expense + net line, B net bars + running total — side by side -->
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-    <!-- A: income/expense bars + net line -->
-    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-      <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
-        <h3 class="text-lg font-semibold text-gray-900">Monthly trend</h3>
-        <div class="flex items-center gap-3 text-xs text-gray-500">
-          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500"></span> Income</span>
-          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-red-400"></span> Expense</span>
-        </div>
-      </div>
-      <p class="text-xs text-gray-400 mb-5">Income vs expense each month</p>
-      <div class="relative h-72">
-        <canvas id="financeTrendChart" role="img" aria-label="Monthly income and expense bars with a zero baseline"></canvas>
+  <!-- Cash-flow chart: income up bars, expenses down bars, cumulative net line -->
+  <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm mb-8">
+    <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+      <h3 class="text-lg font-semibold text-gray-900">Income, expenses &amp; net</h3>
+      <div class="flex items-center gap-3 text-xs text-gray-500">
+        <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500"></span> Income</span>
+        <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-red-500"></span> Expense</span>
+        <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-slate-700"></span> Net (running total)</span>
       </div>
     </div>
-
-    <!-- B: net bars + cumulative running total -->
-    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-      <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
-        <h3 class="text-lg font-semibold text-gray-900">Net &amp; running total</h3>
-        <div class="flex items-center gap-3 text-xs text-gray-500">
-          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500"></span> Profit</span>
-          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-red-500"></span> Loss</span>
-          <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-slate-700"></span> Running total</span>
-        </div>
-      </div>
-      <p class="text-xs text-gray-400 mb-5">Line = cumulative carry-forward across months</p>
-      <div class="relative h-72">
-        <canvas id="financeNetChart" role="img" aria-label="Net profit or loss per month as bars, with a cumulative running-total line"></canvas>
-      </div>
+    <p class="text-xs text-gray-400 mb-5">Income above the line, expenses below; the line is the running total — it starts from the balance brought forward, so it ends at the true overall position whatever period you pick</p>
+    <div class="relative h-80">
+      <canvas id="financeFlowChart" role="img" aria-label="Income as bars above zero, expenses as bars below zero, and a cumulative net profit/loss line that ends below zero"></canvas>
     </div>
   </div>
 
@@ -100,55 +90,40 @@
       if (typeof Chart === 'undefined') { return; }
       var d = JSON.parse(document.getElementById('finance-chart-data').textContent);
       var GRID = 'rgba(148,163,184,0.15)', ZERO = 'rgba(100,116,139,0.55)', TICK = '#94a3b8';
-      var GREEN = '#10b981', RED = '#f87171', RED_STRONG = '#ef4444';
+      var GREEN = '#10b981', RED = '#ef4444', SLATE = '#334155';
 
       {% comment %} Sign before the symbol: -$5, not $-5. {% endcomment %}
       function money(v) { return (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)); }
       function zeroGridColor(ctx) { return ctx.tick.value === 0 ? ZERO : GRID; }
       function zeroGridWidth(ctx) { return ctx.tick.value === 0 ? 1.5 : 1; }
-      var yAxis = {
-        grid: { color: zeroGridColor, lineWidth: zeroGridWidth, drawBorder: false },
-        ticks: { color: TICK, font: { size: 11 }, callback: function (v) { return money(v); } },
-      };
-      var xAxis = { grid: { display: false }, ticks: { color: TICK, font: { size: 11 }, autoSkip: false } };
 
-      new Chart(document.getElementById('financeTrendChart').getContext('2d'), {
-        data: {
-          labels: d.labels,
-          datasets: [
-            { type: 'bar', label: 'Income', data: d.income, backgroundColor: GREEN, borderRadius: 3 },
-            { type: 'bar', label: 'Expense', data: d.expense, backgroundColor: RED, borderRadius: 3 },
-          ],
-        },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (c) { return c.dataset.label + ': ' + money(c.parsed.y); } } } },
-          scales: { x: xAxis, y: yAxis },
-        },
-      });
-
-      {% comment %} Cumulative carry-forward: running sum of net to each month. {% endcomment %}
-      var cumulative = [], run = 0;
+      {% comment %} Expenses point down (negative); net line is the running total
+         starting from the brought-forward balance (net of everything before the window). {% endcomment %}
+      var expenseDown = d.expense.map(function (v) { return -v; });
+      var cumulative = [], run = (d.carry_forward || 0);
       for (var i = 0; i < d.net.length; i++) { run += d.net[i]; cumulative.push(Math.round(run * 100) / 100); }
-      var SLATE = '#334155';
 
-      new Chart(document.getElementById('financeNetChart').getContext('2d'), {
+      new Chart(document.getElementById('financeFlowChart').getContext('2d'), {
         data: {
           labels: d.labels,
           datasets: [
-            { type: 'bar', label: 'Net', data: d.net, borderRadius: 3, order: 2,
-              backgroundColor: d.net.map(function (v) { return v >= 0 ? GREEN : RED_STRONG; }) },
-            { type: 'line', label: 'Running total', data: cumulative, borderColor: SLATE, backgroundColor: SLATE,
-              borderWidth: 2.5, tension: 0.3, pointRadius: 3, pointHoverRadius: 5, order: 1 },
+            { type: 'bar', label: 'Income', data: d.income, backgroundColor: GREEN, borderRadius: 3, stack: 'io', order: 2 },
+            { type: 'bar', label: 'Expense', data: expenseDown, backgroundColor: RED, borderRadius: 3, stack: 'io', order: 2 },
+            { type: 'line', label: 'Net', data: cumulative, borderColor: SLATE, backgroundColor: SLATE,
+              borderWidth: 2.5, tension: 0.3, pointRadius: 3, pointHoverRadius: 5, stack: 'net', order: 1 },
           ],
         },
         options: {
           responsive: true, maintainAspectRatio: false,
           plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (c) {
-            if (c.dataset.label === 'Running total') { return 'Running total: ' + money(c.parsed.y); }
-            return (c.parsed.y >= 0 ? 'Profit ' : 'Loss ') + money(c.parsed.y);
+            if (c.dataset.label === 'Net') { return 'Net (running total): ' + money(c.parsed.y); }
+            return c.dataset.label + ': ' + money(c.parsed.y);
           } } } },
-          scales: { x: xAxis, y: yAxis },
+          scales: {
+            x: { stacked: true, grid: { display: false }, ticks: { color: TICK, font: { size: 11 }, autoSkip: false } },
+            y: { stacked: true, grid: { color: zeroGridColor, lineWidth: zeroGridWidth, drawBorder: false },
+                 ticks: { color: TICK, font: { size: 11 }, callback: function (v) { return money(v); } } },
+          },
         },
       });
     })();

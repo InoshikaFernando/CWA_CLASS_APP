@@ -1858,6 +1858,7 @@ class FinanceDashboardView(SuperuserRequiredMixin, View):
             'income': [float(m['income']) for m in summary['months']],
             'expense': [float(m['expense']) for m in summary['months']],
             'net': [float(m['net']) for m in summary['months']],
+            'carry_forward': float(summary['carry_forward']),
         }
 
         usd_nzd_rate, fx_source = get_usd_to_nzd_rate()
@@ -1867,6 +1868,8 @@ class FinanceDashboardView(SuperuserRequiredMixin, View):
             'chart_data': chart_data,
             'category_totals': summary['category_totals'],
             'totals': summary['totals'],
+            'carry_forward': summary['carry_forward'],
+            'overall_net': summary['overall_net'],
             'income_available': summary['income_available'],
             'months': months,
             'month_options': self.MONTH_OPTIONS,
