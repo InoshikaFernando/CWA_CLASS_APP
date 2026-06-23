@@ -210,9 +210,10 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/toggle-active/', views_department.DepartmentToggleActiveView.as_view(), name='admin_department_toggle_active'),
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/delete/', views_department.DepartmentDeleteView.as_view(), name='admin_department_delete'),
 
-    # Messaging (email + SMS) — CPP-348
+    # Messaging (email + SMS) — CPP-348 / CPP-350
     path('admin-dashboard/messaging/', views_messaging.MessagingDashboardView.as_view(), name='messaging_dashboard'),
     path('admin-dashboard/messaging/compose/', views_messaging.MessagingComposeView.as_view(), name='messaging_compose'),
+    path('admin-dashboard/messaging/api/recipients/', views_messaging.RecipientSearchAPIView.as_view(), name='messaging_recipient_search'),
 
     # Email management (admin)
     path('admin-dashboard/email/', views_email.EmailDashboardView.as_view(), name='email_dashboard'),
