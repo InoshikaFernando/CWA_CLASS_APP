@@ -32,10 +32,15 @@ class MiddlewareTests(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
 
-    def _run(self, request, response):
+    def _run(self, request, response, routed=False):
         request.user = getattr(request, 'user', AnonymousUser())
         if not hasattr(request, 'htmx'):
             request.htmx = False
+        # Simulate whether the URL matched a route. RequestFactory leaves
+        # resolver_match unset (None) = "unrouted", as Django does for a real
+        # 404-with-no-matching-pattern.
+        if routed:
+            request.resolver_match = object()
         mw = UsageTrackingMiddleware(lambda r: response)
         return mw(request)
 
@@ -84,10 +89,19 @@ class MiddlewareTests(TestCase):
         self._run(self.factory.post('/dashboard/'), HttpResponse('<html>x</html>'))
         self.assertEqual(PageHit.objects.count(), 0)
 
-    def test_records_error_response(self):
-        self._run(self.factory.get('/missing/'), HttpResponse('nope', status=404))
-        self._run(self.factory.get('/boom/'), HttpResponse('err', status=500))
+    def test_records_routed_errors(self):
+        # A routed 4xx (real in-app "not found") and any 5xx are recorded.
+        self._run(self.factory.get('/homework/13/take/'), HttpResponse('nope', status=404), routed=True)
+        self._run(self.factory.get('/boom/'), HttpResponse('err', status=500), routed=True)
         self.assertEqual(PageHit.objects.filter(status_code__gte=400).count(), 2)
+
+    def test_skips_unrouted_4xx_noise(self):
+        # 4xx for a path that matched NO url route (resolver_match None) is a
+        # bot/scanner probe — not recorded at all.
+        self._run(self.factory.get('/wp-login.php'), HttpResponse('x', status=404))
+        self._run(self.factory.get('/random-scan-path'), HttpResponse('x', status=404))
+        self._run(self.factory.get('/.env'), HttpResponse('x', status=404))
+        self.assertEqual(PageHit.objects.count(), 0)
 
     def test_records_client_key(self):
         # Same IP+UA -> same key (counted as one guest); different IP -> different.
@@ -260,16 +274,40 @@ class ReportingTests(TestCase):
         self.assertIn('/boom/', paths)
         self.assertNotIn('/favicon.ico', paths)
 
-    def test_recent_errors_newest_first_with_noise_flag(self):
+    def test_recent_errors_excludes_noise(self):
         now = timezone.now()
-        _hit(path='/boom/', status=500, when=now - timedelta(minutes=2))
+        _hit(path='/boom/', status=500, when=now - timedelta(minutes=3))
+        _hit(path='/homework/13/take/', status=404, when=now - timedelta(minutes=2))
         _hit(path='/apple-touch-icon.png', status=404, when=now - timedelta(minutes=1))
+        _hit(path='/wp-login.php', status=404, when=now)
         rows = reporting.recent_errors(limit=10)
+        paths = [r['path'] for r in rows]
+        self.assertIn('/boom/', paths)
+        self.assertIn('/homework/13/take/', paths)   # real in-app 404 kept
+        self.assertNotIn('/apple-touch-icon.png', paths)  # noise excluded
+        self.assertNotIn('/wp-login.php', paths)          # noise excluded
         self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[0]['path'], '/apple-touch-icon.png')  # newest first
-        self.assertTrue(rows[0]['noise'])
-        self.assertFalse(rows[1]['noise'])
-        self.assertEqual(rows[1]['status'], 500)
+
+    def test_is_noise_classifier(self):
+        for p in ('/wp-login.php', '/x.php', '/a/b.aspx', '/apple-touch-icon.png',
+                  '/.env', '/favicon.ico', '/.well-known/x', '/vendor/autoload.php',
+                  '/logo.png', '/style.css?v=2'):
+            self.assertTrue(reporting._is_noise(p), p)
+        for p in ('/homework/13/take/', '/login/', '/dashboard/',
+                  '/accounts/register/school-student/', '/maths/'):
+            self.assertFalse(reporting._is_noise(p), p)
+
+    def test_prune_noise_command_clears_backlog(self):
+        from io import StringIO
+        from django.core.management import call_command
+        now = timezone.now()
+        _hit(path='/boom/', status=500, when=now)               # real error — keep
+        _hit(path='/apple-touch-icon.png', status=404, when=now)  # noise — delete
+        _hit(path='/wp-login.php', status=404, when=now)          # noise — delete
+        _hit(path='/dashboard/', status=200, when=now)            # 2xx — untouched
+        call_command('prune_usage_log', '--noise', stdout=StringIO())
+        paths = set(PageHit.objects.values_list('path', flat=True))
+        self.assertEqual(paths, {'/boom/', '/dashboard/'})
 
 
 # ---------------------------------------------------------------------------
