@@ -98,10 +98,10 @@
         data: {
           labels: d.labels,
           datasets: [
-            { type: 'bar', label: 'Income', data: d.income, backgroundColor: GREEN, borderRadius: 3, order: 2 },
-            { type: 'bar', label: 'Expense', data: expenseDown, backgroundColor: RED, borderRadius: 3, order: 2 },
+            { type: 'bar', label: 'Income', data: d.income, backgroundColor: GREEN, borderRadius: 3, stack: 'io', order: 2 },
+            { type: 'bar', label: 'Expense', data: expenseDown, backgroundColor: RED, borderRadius: 3, stack: 'io', order: 2 },
             { type: 'line', label: 'Net', data: cumulative, borderColor: SLATE, backgroundColor: SLATE,
-              borderWidth: 2.5, tension: 0.3, pointRadius: 3, pointHoverRadius: 5, order: 1 },
+              borderWidth: 2.5, tension: 0.3, pointRadius: 3, pointHoverRadius: 5, stack: 'net', order: 1 },
           ],
         },
         options: {
@@ -111,8 +111,8 @@
             return c.dataset.label + ': ' + money(c.parsed.y);
           } } } },
           scales: {
-            x: { grid: { display: false }, ticks: { color: TICK, font: { size: 11 }, autoSkip: false } },
-            y: { grid: { color: zeroGridColor, lineWidth: zeroGridWidth, drawBorder: false },
+            x: { stacked: true, grid: { display: false }, ticks: { color: TICK, font: { size: 11 }, autoSkip: false } },
+            y: { stacked: true, grid: { color: zeroGridColor, lineWidth: zeroGridWidth, drawBorder: false },
                  ticks: { color: TICK, font: { size: 11 }, callback: function (v) { return money(v); } } },
           },
         },
