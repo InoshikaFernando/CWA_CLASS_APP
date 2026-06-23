@@ -9,7 +9,8 @@ USD amounts are converted to NZD at run time via the live FX helper
 
     python manage.py seed_initial_expenses [--dry-run]
 
-Claude API cost is NOT seeded here — it auto-syncs from AIGradingUsage.
+Claude API cost is NOT seeded here — it auto-syncs from the taskqueue
+AIUsageLog ledger (PDF scan + marking + worksheets).
 """
 from datetime import date
 from decimal import Decimal
