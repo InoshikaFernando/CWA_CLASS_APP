@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.12.3'         # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-06-21'     # ISO date of this release
+APP_VERSION       = '1.13.0'         # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-06-23'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -101,6 +101,12 @@ INSTALLED_APPS = [
 
     # User feedback & feature requests (CPP-321)
     'feedback',
+
+    # Jira sprint burndown chart
+    'sprints',
+
+    # WhatsApp parent notifications (CPP-XXX) — inert until configured
+    'whatsapp',
 ]
 
 # ---------------------------------------------------------------------------
@@ -117,6 +123,14 @@ JIRA_BASE_URL = os.environ.get('JIRA_BASE_URL', '')
 JIRA_USER_EMAIL = os.environ.get('JIRA_USER_EMAIL', '')
 JIRA_API_TOKEN = os.environ.get('JIRA_API_TOKEN', '')
 JIRA_PROJECT_KEY = os.environ.get('JIRA_PROJECT_KEY', 'CPP')
+
+# Sprint burndown (sprints app). The Agile board the active sprint is read from
+# and the custom field carrying story points. Leave JIRA_BOARD_ID unset to keep
+# the burndown sync a no-op. The story-points field id is Jira-instance
+# specific — customfield_10016 is the common Jira Cloud default; check your
+# instance (Settings → Issues → Custom fields) and override via env if needed.
+JIRA_BOARD_ID = os.environ.get('JIRA_BOARD_ID', '')
+JIRA_STORY_POINTS_FIELD = os.environ.get('JIRA_STORY_POINTS_FIELD', 'customfield_10016')
 
 # Optional Discord webhook to announce newly-filed bugs. Empty = disabled.
 FEEDBACK_DISCORD_WEBHOOK = os.environ.get('FEEDBACK_DISCORD_WEBHOOK', '')
@@ -135,6 +149,24 @@ CLAUDE_INPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_INPUT_COST_PER_MTOK', '5.0'))
 CLAUDE_OUTPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '25.0'))
+
+# USD->NZD conversion used by the income-vs-expense dashboard to convert
+# USD-billed costs (Anthropic AI grading) into the dashboard's base currency
+# (NZD). Manual vendor bills are converted by the operator on entry; this only
+# applies to the automatic AIGradingUsage sync.
+#
+# The live rate is fetched from FX_RATE_API_URL (a free, ECB-backed,
+# key-less endpoint — frankfurter.app) and cached. USD_TO_NZD_RATE is the
+# FALLBACK used only when the API is disabled / unreachable. Set FX_RATE_API_URL
+# to '' to force the static fallback (e.g. for an air-gapped environment).
+USD_TO_NZD_RATE = float(os.environ.get('USD_TO_NZD_RATE', '1.65'))
+FX_RATE_API_URL = os.environ.get(
+    'FX_RATE_API_URL', 'https://api.frankfurter.dev/v1/latest')
+
+# Read-only DigitalOcean Personal Access Token. When set, sync_vendor_charges
+# pulls real monthly invoices (so droplet/DB/Spaces addons are captured with no
+# manual update). Inert when empty — dev/test stay no-op.
+DIGITALOCEAN_API_TOKEN = os.environ.get('DIGITALOCEAN_API_TOKEN', '')
 
 # Live AI usage dashboard — after each AI call the worker rewrites a pinned
 # GitHub issue with the latest usage/cost. Best-effort: stays disabled (no-op)
@@ -476,6 +508,23 @@ else:
     else:
         # No credentials configured — log emails to console
         EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp parent notifications (CPP-XXX)
+# ---------------------------------------------------------------------------
+# Inert until these are set: with no access token / phone-number id, every send
+# raises a non-retriable 'no_credentials' error and WhatsAppConfig stays
+# disabled by default, so nothing leaves the system.
+WHATSAPP_PROVIDER = os.environ.get('WHATSAPP_PROVIDER', 'meta_cloud')
+WHATSAPP_ACCESS_TOKEN = os.environ.get('WHATSAPP_ACCESS_TOKEN', '')
+WHATSAPP_PHONE_NUMBER_ID = os.environ.get('WHATSAPP_PHONE_NUMBER_ID', '')
+WHATSAPP_BUSINESS_ACCOUNT_ID = os.environ.get('WHATSAPP_BUSINESS_ACCOUNT_ID', '')
+WHATSAPP_WEBHOOK_VERIFY_TOKEN = os.environ.get('WHATSAPP_WEBHOOK_VERIFY_TOKEN', '')
+WHATSAPP_APP_SECRET = os.environ.get('WHATSAPP_APP_SECRET', '')
+# Default region for parsing local phone numbers into E.164 (NZ).
+WHATSAPP_DEFAULT_REGION = os.environ.get('WHATSAPP_DEFAULT_REGION', 'NZ')
+WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', 'v19.0')
 
 
 # ---------------------------------------------------------------------------

@@ -261,6 +261,63 @@ jobs:
         working-directory: cwa_classroom
         run: pytest taskqueue/tests/ -n auto --dist=loadscope -v --tb=short
 
+  feedback-tests:
+    name: Feedback Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run feedback tests
+        working-directory: cwa_classroom
+        run: pytest feedback/tests/ -n auto --dist=loadscope -v --tb=short
+
+  sprints-tests:
+    name: Sprints Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run sprints tests
+        working-directory: cwa_classroom
+        run: pytest sprints/tests/ -n auto --dist=loadscope -v --tb=short
+
+  whatsapp-tests:
+    name: WhatsApp Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run whatsapp tests
+        working-directory: cwa_classroom
+        run: pytest whatsapp/tests/ -n auto --dist=loadscope -v --tb=short
+
   ui-tests:
     name: UI Tests (Playwright)
     runs-on: ubuntu-latest
@@ -287,4 +344,7 @@ jobs:
 
       - name: Run UI tests
         working-directory: cwa_classroom
-        run: pytest ui_tests/ brainbuzz/tests/test_student_playwright_mobile.py -n auto -v --tb=short
+        # --reruns retries ONLY the known SQLite "database is locked" flake from
+        # parallel Playwright workers (see cwa_classroom/conftest.py); scoped via
+        # --only-rerun so genuine assertion failures still fail on the first run.
+        run: pytest ui_tests/ brainbuzz/tests/test_student_playwright_mobile.py -n auto -v --tb=short --reruns 2 --only-rerun "database is locked"

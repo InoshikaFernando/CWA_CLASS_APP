@@ -26,6 +26,33 @@ TOP_PAGES = 6
 TOP_ERRORS = 12
 ACTIVE_NOW_MINUTES = 5  # "active right now" window
 
+# Path prefixes whose 4xx/5xx are browser/scanner noise, not app errors:
+# Apple/Chrome icon + well-known probes, secret scanners, crawler files.
+# Excluded from the headline error count + gauge + error chart so a real
+# failure (e.g. /homework/12/take/) isn't buried under bot 404s. Still
+# RECORDED and visible in the recent-errors drill-down (flagged as noise).
+NOISE_PATH_PREFIXES = (
+    '/apple-touch-icon',
+    '/favicon',
+    '/.well-known/',
+    '/.env',
+    '/robots.txt',
+    '/sitemap',
+)
+
+
+def _is_noise(path):
+    return path.startswith(NOISE_PATH_PREFIXES)
+
+
+def _noise_filter():
+    """Q matching noise paths, for `.exclude(...)` on a PageHit queryset."""
+    from django.db.models import Q
+    q = Q()
+    for prefix in NOISE_PATH_PREFIXES:
+        q |= Q(path__startswith=prefix)
+    return q
+
 # Distinct, readable colours for multi-line charts (top pages).
 PAGE_COLORS = ['#34d399', '#818cf8', '#f472b6', '#fbbf24', '#22d3ee', '#a78bfa']
 
@@ -248,7 +275,7 @@ def error_series_daily(days=30):
     err_totals = defaultdict(int)
     rows = PageHit.objects.filter(
         created_at__gte=start_dt, status_code__gte=400,
-    ).values_list('created_at', 'path', 'status_code')
+    ).exclude(_noise_filter()).values_list('created_at', 'path', 'status_code')
     for created_at, path, status in rows:
         idx = (timezone.localtime(created_at).date() - start_day).days
         if not (0 <= idx < days):
@@ -273,3 +300,72 @@ def error_series_daily(days=30):
     }
     cache.set(cache_key, result, CACHE_TTL)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Health summary (gauge + donut) and error drill-down
+# ---------------------------------------------------------------------------
+
+# Error-rate gauge thresholds (percent): < OK_MAX green, < WARN_MAX amber, else red.
+ERROR_RATE_OK_MAX = 1.0
+ERROR_RATE_WARN_MAX = 5.0
+
+
+def health_summary(days=30):
+    """Single-scan status breakdown for the gauge + donut:
+      * ok / client_4xx / server_5xx — counts by status class over the window
+      * total / errors / error_rate  — for the error-rate gauge
+      * band                         — 'ok' | 'warn' | 'bad' for gauge colour
+
+    One COUNT-style scan (status_code only); cached like the other series.
+    """
+    cache_key = f'usage:health:{days}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    _start_day, start_dt = _window_bounds(days)
+    ok = client_4xx = server_5xx = noise = 0
+    for status, path in PageHit.objects.filter(
+            created_at__gte=start_dt).values_list('status_code', 'path'):
+        if status >= 400 and _is_noise(path):
+            noise += 1            # bot/scanner 404s — kept out of the gauge
+        elif status >= 500:
+            server_5xx += 1
+        elif status >= 400:
+            client_4xx += 1
+        else:
+            ok += 1
+
+    errors = client_4xx + server_5xx
+    total = ok + errors           # excludes noise from the rate denominator
+    rate = (errors / total * 100) if total else 0.0
+    band = ('ok' if rate < ERROR_RATE_OK_MAX
+            else 'warn' if rate < ERROR_RATE_WARN_MAX else 'bad')
+    result = {
+        'ok': ok, 'client_4xx': client_4xx, 'server_5xx': server_5xx,
+        'noise': noise, 'total': total, 'errors': errors,
+        'error_rate': round(rate, 2), 'band': band,
+        'warn_max': ERROR_RATE_WARN_MAX,
+    }
+    cache.set(cache_key, result, CACHE_TTL)
+    return result
+
+
+def recent_errors(limit=50, days=30):
+    """The most recent individual error hits for the drill-down: each is
+    {when (local 'MM-DD HH:MM'), status, path, user}. Newest first. Not the
+    same as error_series_daily's aggregate — this answers "what were they?"."""
+    _start_day, start_dt = _window_bounds(days)
+    rows = (PageHit.objects.filter(created_at__gte=start_dt, status_code__gte=400)
+            .select_related('user').order_by('-created_at')[:limit])
+    out = []
+    for h in rows:
+        out.append({
+            'when': timezone.localtime(h.created_at).strftime('%d %b %H:%M'),
+            'status': h.status_code,
+            'path': h.path,
+            'user': getattr(h.user, 'username', '') or '—',
+            'noise': _is_noise(h.path),
+        })
+    return out

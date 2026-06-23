@@ -32,6 +32,8 @@ class UsageOverviewView(SuperuserRequiredMixin, View):
         top_pages_30 = pages['d30']
         errors_30 = reporting.error_series_daily(30)
         active_now = reporting.active_now()
+        health = reporting.health_summary(30)
+        recent_errors = reporting.recent_errors(limit=50)
 
         # KPI tiles, derived from the series already computed (today = last bucket).
         views_today = daily_30['views'][-1] if daily_30['views'] else 0
@@ -53,6 +55,8 @@ class UsageOverviewView(SuperuserRequiredMixin, View):
             'top_pages_30': top_pages_30,
             'errors_30': errors_30,
             'active_now': active_now,
+            'health': health,
+            'recent_errors': recent_errors,
             'kpi': {
                 'views_today': views_today,
                 'users_today': users_today,
