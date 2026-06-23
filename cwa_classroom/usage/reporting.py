@@ -26,32 +26,33 @@ TOP_PAGES = 6
 TOP_ERRORS = 12
 ACTIVE_NOW_MINUTES = 5  # "active right now" window
 
-# Path prefixes whose 4xx/5xx are browser/scanner noise, not app errors:
-# Apple/Chrome icon + well-known probes, secret scanners, crawler files.
-# Excluded from the headline error count + gauge + error chart so a real
-# failure (e.g. /homework/12/take/) isn't buried under bot 404s. Still
-# RECORDED and visible in the recent-errors drill-down (flagged as noise).
+import re
+
+# Display-time backstop for classifying an error path as bot/scanner NOISE
+# rather than a real app failure. The PRIMARY defence is in the middleware,
+# which no longer records 4xx for unrouted URLs at all; this catches anything
+# already in the 30-day backlog (recorded before that change) so the dashboard
+# reads correctly straight away.
+#
+# Two signals:
+#   * known probe/scanner prefixes (well-known, secret/wp/cms scanners), and
+#   * any path with a file-ish extension (.php/.png/.env/.aspx/...). Real app
+#     pages are extensionless (Django routes end in '/'), so a 4xx on a
+#     dotted-extension path is almost always an asset/bot probe.
 NOISE_PATH_PREFIXES = (
-    '/apple-touch-icon',
-    '/favicon',
-    '/.well-known/',
-    '/.env',
-    '/robots.txt',
-    '/sitemap',
+    '/apple-touch-icon', '/favicon', '/.well-known/', '/.env', '/robots.txt',
+    '/sitemap', '/wp-', '/wordpress', '/.git', '/vendor/', '/cgi-bin',
+    '/phpmyadmin', '/.aws', '/.vscode', '/actuator', '/owa/', '/autodiscover',
+)
+NOISE_EXT_RE = re.compile(
+    r'\.(?:php|aspx?|jsp|cgi|env|git|ico|png|jpe?g|gif|svg|webp|css|js|map|txt'
+    r'|xml|json|bak|old|sql|zip|tar|gz|ya?ml|sh|do|action|cfm)(?:$|[/?])',
+    re.IGNORECASE,
 )
 
 
 def _is_noise(path):
-    return path.startswith(NOISE_PATH_PREFIXES)
-
-
-def _noise_filter():
-    """Q matching noise paths, for `.exclude(...)` on a PageHit queryset."""
-    from django.db.models import Q
-    q = Q()
-    for prefix in NOISE_PATH_PREFIXES:
-        q |= Q(path__startswith=prefix)
-    return q
+    return path.startswith(NOISE_PATH_PREFIXES) or bool(NOISE_EXT_RE.search(path))
 
 # Distinct, readable colours for multi-line charts (top pages).
 PAGE_COLORS = ['#34d399', '#818cf8', '#f472b6', '#fbbf24', '#22d3ee', '#a78bfa']
@@ -275,8 +276,10 @@ def error_series_daily(days=30):
     err_totals = defaultdict(int)
     rows = PageHit.objects.filter(
         created_at__gte=start_dt, status_code__gte=400,
-    ).exclude(_noise_filter()).values_list('created_at', 'path', 'status_code')
+    ).values_list('created_at', 'path', 'status_code')
     for created_at, path, status in rows:
+        if _is_noise(path):          # bot/scanner probes — not app errors
+            continue
         idx = (timezone.localtime(created_at).date() - start_day).days
         if not (0 <= idx < days):
             continue
@@ -353,19 +356,24 @@ def health_summary(days=30):
 
 
 def recent_errors(limit=50, days=30):
-    """The most recent individual error hits for the drill-down: each is
-    {when (local 'MM-DD HH:MM'), status, path, user}. Newest first. Not the
-    same as error_series_daily's aggregate — this answers "what were they?"."""
+    """The most recent REAL error hits for the drill-down: each is
+    {when (local 'DD Mon HH:MM'), status, path, user}. Newest first. Bot/
+    scanner noise is excluded entirely (the user doesn't want to see it). We
+    over-fetch and filter in Python because noise classification is a regex.
+    """
     _start_day, start_dt = _window_bounds(days)
     rows = (PageHit.objects.filter(created_at__gte=start_dt, status_code__gte=400)
-            .select_related('user').order_by('-created_at')[:limit])
+            .select_related('user').order_by('-created_at')[:limit * 20])
     out = []
     for h in rows:
+        if _is_noise(h.path):
+            continue
         out.append({
             'when': timezone.localtime(h.created_at).strftime('%d %b %H:%M'),
             'status': h.status_code,
             'path': h.path,
             'user': getattr(h.user, 'username', '') or '—',
-            'noise': _is_noise(h.path),
         })
+        if len(out) >= limit:
+            break
     return out
