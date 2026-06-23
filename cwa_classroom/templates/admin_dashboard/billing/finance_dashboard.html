@@ -59,33 +59,37 @@
     </div>
   </div>
 
-  <!-- Monthly chart: income/expense bars + net line -->
-  <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm mb-8">
-    <div class="flex items-center justify-between mb-6 flex-wrap gap-2">
-      <h3 class="text-lg font-semibold text-gray-900">Monthly trend</h3>
-      <div class="flex items-center gap-4 text-xs text-gray-500">
-        <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500"></span> Income</span>
-        <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-red-400"></span> Expense</span>
-        <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-blue-600"></span> Net</span>
+  <!-- Charts: A income/expense + net line, B net bars + running total — side by side -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <!-- A: income/expense bars + net line -->
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+        <h3 class="text-lg font-semibold text-gray-900">Monthly trend</h3>
+        <div class="flex items-center gap-3 text-xs text-gray-500">
+          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500"></span> Income</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-red-400"></span> Expense</span>
+        </div>
+      </div>
+      <p class="text-xs text-gray-400 mb-5">Income vs expense each month</p>
+      <div class="relative h-72">
+        <canvas id="financeTrendChart" role="img" aria-label="Monthly income and expense bars with a zero baseline"></canvas>
       </div>
     </div>
-    <div class="relative h-72">
-      <canvas id="financeTrendChart" role="img" aria-label="Monthly income and expense bars with a net profit/loss line crossing a zero baseline"></canvas>
-    </div>
-  </div>
 
-  <!-- Net profit / loss bars + cumulative running total -->
-  <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm mb-8">
-    <div class="flex items-center justify-between mb-6 flex-wrap gap-2">
-      <h3 class="text-lg font-semibold text-gray-900">Net by month &amp; running total</h3>
-      <div class="flex items-center gap-4 text-xs text-gray-500">
-        <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500"></span> Profit</span>
-        <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-red-500"></span> Loss</span>
-        <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-slate-700"></span> Running total</span>
+    <!-- B: net bars + cumulative running total -->
+    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+      <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+        <h3 class="text-lg font-semibold text-gray-900">Net &amp; running total</h3>
+        <div class="flex items-center gap-3 text-xs text-gray-500">
+          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500"></span> Profit</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-red-500"></span> Loss</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-slate-700"></span> Running total</span>
+        </div>
       </div>
-    </div>
-    <div class="relative h-60">
-      <canvas id="financeNetChart" role="img" aria-label="Net profit or loss per month as bars above or below a zero line"></canvas>
+      <p class="text-xs text-gray-400 mb-5">Line = cumulative carry-forward across months</p>
+      <div class="relative h-72">
+        <canvas id="financeNetChart" role="img" aria-label="Net profit or loss per month as bars, with a cumulative running-total line"></canvas>
+      </div>
     </div>
   </div>
 
@@ -96,7 +100,7 @@
       if (typeof Chart === 'undefined') { return; }
       var d = JSON.parse(document.getElementById('finance-chart-data').textContent);
       var GRID = 'rgba(148,163,184,0.15)', ZERO = 'rgba(100,116,139,0.55)', TICK = '#94a3b8';
-      var GREEN = '#10b981', RED = '#f87171', RED_STRONG = '#ef4444', BLUE = '#2563eb';
+      var GREEN = '#10b981', RED = '#f87171', RED_STRONG = '#ef4444';
 
       {% comment %} Sign before the symbol: -$5, not $-5. {% endcomment %}
       function money(v) { return (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)); }
@@ -112,10 +116,8 @@
         data: {
           labels: d.labels,
           datasets: [
-            { type: 'bar', label: 'Income', data: d.income, backgroundColor: GREEN, borderRadius: 3, order: 2 },
-            { type: 'bar', label: 'Expense', data: d.expense, backgroundColor: RED, borderRadius: 3, order: 2 },
-            { type: 'line', label: 'Net', data: d.net, borderColor: BLUE, backgroundColor: BLUE,
-              borderWidth: 2.5, tension: 0.3, pointRadius: 3, pointHoverRadius: 5, order: 1 },
+            { type: 'bar', label: 'Income', data: d.income, backgroundColor: GREEN, borderRadius: 3 },
+            { type: 'bar', label: 'Expense', data: d.expense, backgroundColor: RED, borderRadius: 3 },
           ],
         },
         options: {
