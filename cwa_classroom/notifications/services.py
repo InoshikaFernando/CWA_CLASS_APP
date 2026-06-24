@@ -283,13 +283,20 @@ def resend_parent_welcome_notification(parent, plain_password=None, student_cred
     students' reset credentials.
 
     Bypasses the duplicate-send guard (like ``resend_welcome_notification``).
-    ``plain_password`` is the parent's own temporary password (shown only for
-    institute accounts); ``student_credentials`` is a list of
-    ``{'name', 'username', 'password'}`` dicts rendered as per-child cards.
+    ``plain_password`` is the parent's own temporary password; ``student_credentials``
+    is a list of ``{'name', 'username', 'password'}`` dicts rendered as per-child cards.
+
+    When ``plain_password`` is supplied it is surfaced regardless of the parent's
+    creation_method — an admin who explicitly reset the password must be able to
+    communicate it, otherwise a self-registered parent would be locked out.
     """
+    extra_context = {'student_credentials': student_credentials or []}
+    if plain_password:
+        extra_context['temp_password'] = plain_password
+        extra_context['username'] = parent.username
     return _send_welcome_core(
         parent, plain_password, school, NOTIF_WELCOME_RESEND,
-        extra_context={'student_credentials': student_credentials or []},
+        extra_context=extra_context,
     )
 
 

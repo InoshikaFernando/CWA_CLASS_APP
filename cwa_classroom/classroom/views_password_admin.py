@@ -411,10 +411,20 @@ class ResendWelcomeEmailView(RoleRequiredMixin, View):
         selected linked children to a shared temporary password and including
         those credentials in the email.
 
-        Because the temporary password is a known shared value, resetting before
-        send carries no lock-out risk (unlike the random-password generic flow).
+        Passwords are persisted only AFTER the email is confirmed sent, mirroring
+        the generic resend flow: a delivery failure (or a parent with no email)
+        leaves every login untouched. Because the temporary password is a known
+        constant, it can be shown in the email before being persisted.
         """
         from notifications.services import resend_parent_welcome_notification
+
+        name = parent.get_full_name() or parent.username
+        if not parent.email:
+            messages.error(
+                request,
+                f'{name} has no email address on file. Add an email address before resending.',
+            )
+            return redirect(AdminPasswordResetView._return_url(school, role_label))
 
         links = ParentStudent.objects.filter(
             parent=parent, school=school, is_active=True,
@@ -422,49 +432,52 @@ class ResendWelcomeEmailView(RoleRequiredMixin, View):
         linked = {link.student_id: link.student for link in links}
 
         reset_parent = request.POST.get('reset_parent') == '1'
-        selected_ids = {
-            int(x) for x in request.POST.getlist('reset_student_ids') if x.isdigit()
-        } & set(linked)  # ignore anything not genuinely linked to this parent
+        selected_ids = sorted(
+            {int(x) for x in request.POST.getlist('reset_student_ids') if x.isdigit()}
+            & set(linked)  # ignore anything not genuinely linked to this parent
+        )
 
-        parent_password = None
-        if reset_parent:
-            parent.set_password(PARENT_RESET_PASSWORD)
-            parent.must_change_password = True
-            parent.save(update_fields=['password', 'must_change_password'])
-            parent_password = PARENT_RESET_PASSWORD
-
-        student_credentials = []
-        for sid in sorted(selected_ids):
-            student = linked[sid]
-            student.set_password(PARENT_RESET_PASSWORD)
-            student.must_change_password = True
-            student.save(update_fields=['password', 'must_change_password'])
-            student_credentials.append({
-                'name': student.get_full_name() or student.username,
-                'username': student.username,
+        parent_password = PARENT_RESET_PASSWORD if reset_parent else None
+        student_credentials = [
+            {
+                'name': linked[sid].get_full_name() or linked[sid].username,
+                'username': linked[sid].username,
                 'password': PARENT_RESET_PASSWORD,
-            })
+            }
+            for sid in selected_ids
+        ]
 
         sent = resend_parent_welcome_notification(
             parent=parent, plain_password=parent_password,
             student_credentials=student_credentials, school=school,
         )
 
+        # Only persist the resets once the email actually went out.
+        if sent:
+            if reset_parent:
+                parent.set_password(PARENT_RESET_PASSWORD)
+                parent.must_change_password = True
+                parent.save(update_fields=['password', 'must_change_password'])
+            for sid in selected_ids:
+                student = linked[sid]
+                student.set_password(PARENT_RESET_PASSWORD)
+                student.must_change_password = True
+                student.save(update_fields=['password', 'must_change_password'])
+
         log_event(
             user=request.user, school=school, category='communication',
             action='welcome_email_resent',
             detail={
                 'target_user_id': parent.id,
-                'target_user': parent.get_full_name() or parent.username,
+                'target_user': name,
                 'target_role': role_label,
-                'reset_parent': reset_parent,
-                'reset_student_ids': sorted(selected_ids),
+                'reset_parent': reset_parent if sent else False,
+                'reset_student_ids': selected_ids if sent else [],
                 'email_sent': sent,
             },
             request=request,
         )
 
-        name = parent.get_full_name() or parent.username
         if sent:
             if reset_parent or student_credentials:
                 messages.success(
@@ -477,7 +490,8 @@ class ResendWelcomeEmailView(RoleRequiredMixin, View):
             messages.warning(
                 request,
                 f'Welcome email for {name} could not be sent. '
-                f'Check their email address ({parent.email or "none"}) and try again.',
+                f'Check their email address ({parent.email or "none"}) and try again. '
+                f'No passwords were changed.',
             )
 
         return redirect(AdminPasswordResetView._return_url(school, role_label))

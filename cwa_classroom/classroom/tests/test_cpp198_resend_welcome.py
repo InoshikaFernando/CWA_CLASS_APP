@@ -464,3 +464,49 @@ class TestParentResendChildCredentials(ResendWelcomeBase):
         other.refresh_from_db()
         self.assertTrue(other.check_password('TestPass123!'))
         self.assertFalse(other.must_change_password)
+
+    def test_self_registered_parent_reset_includes_password_in_email(self):
+        """A self-registered parent's reset password must still reach the email."""
+        from django.core import mail
+        self.parent.creation_method = 'self_registered'
+        self.parent.save(update_fields=['creation_method'])
+
+        self.client.post(self._resend_url(self.parent.id), {'reset_parent': '1'})
+
+        self.parent.refresh_from_db()
+        self.assertTrue(self.parent.check_password(self.RESET_PW))
+        self.assertTrue(self.parent.must_change_password)
+        html_body = mail.outbox[0].alternatives[0][0]
+        self.assertIn(self.RESET_PW, html_body)
+        self.assertIn(self.parent.username, html_body)
+
+    def test_no_email_parent_changes_nothing(self):
+        """A parent with no email: no resets, no email, clear error."""
+        from django.core import mail
+        self.parent.email = ''
+        self.parent.save(update_fields=['email'])
+
+        self.client.post(
+            self._resend_url(self.parent.id),
+            {'reset_parent': '1', 'reset_student_ids': [self.child.id]},
+        )
+
+        self.parent.refresh_from_db()
+        self.child.refresh_from_db()
+        self.assertTrue(self.parent.check_password('TestPass123!'))
+        self.assertTrue(self.child.check_password('TestPass123!'))
+        self.assertEqual(len(mail.outbox), 0)
+
+    @patch('notifications.services.resend_parent_welcome_notification', return_value=False)
+    def test_email_failure_leaves_passwords_untouched(self, mock_send):
+        """If the email fails to send, no password is changed (safe to retry)."""
+        self.client.post(
+            self._resend_url(self.parent.id),
+            {'reset_parent': '1', 'reset_student_ids': [self.child.id]},
+        )
+        self.parent.refresh_from_db()
+        self.child.refresh_from_db()
+        self.assertTrue(self.parent.check_password('TestPass123!'))
+        self.assertTrue(self.child.check_password('TestPass123!'))
+        self.assertFalse(self.parent.must_change_password)
+        self.assertFalse(self.child.must_change_password)
