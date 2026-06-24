@@ -58,7 +58,7 @@
                 {{ slip.billing_period_start|date:"M d" }} – {{ slip.billing_period_end|date:"M d, Y" }}
               </td>
               <td class="px-6 py-4 text-right font-semibold text-gray-900">${{ slip.amount }}</td>
-              <td class="px-6 py-4 text-right text-emerald-600 font-semibold">${{ slip.amount_paid }}</td>
+              <td class="px-6 py-4 text-right text-emerald-600 font-semibold">${{ slip.confirmed_paid }}</td>
               <td class="px-6 py-4">
                 <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
                   {% if slip.status == 'issued' %}bg-blue-100 text-blue-700
