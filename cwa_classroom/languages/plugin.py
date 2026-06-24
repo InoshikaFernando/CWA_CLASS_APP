@@ -124,10 +124,24 @@ class LanguagesPlugin(SubjectPlugin):
         selected_answer_obj = None
         text_answer = ''
         score = 0.0
+        answer_data = {}
 
         if ex.exercise_type == LanguageExercise.LETTER_WRITING:
-            text_answer = (post_data.get(field) or '').strip()
-            is_correct = bool(text_answer)
+            # Letter-writing is a canvas exercise: the student submits stroke
+            # data, not a text field. Mirror the standalone view — any strokes
+            # drawn count as a completed attempt.
+            raw_strokes = post_data.get('stroke_data')
+            if raw_strokes is not None:
+                try:
+                    stroke = json.loads(raw_strokes) if isinstance(raw_strokes, str) else raw_strokes
+                except (ValueError, TypeError):
+                    stroke = {}
+                is_correct = bool(isinstance(stroke, dict) and stroke.get('objects'))
+                text_answer = raw_strokes if isinstance(raw_strokes, str) else json.dumps(raw_strokes)
+                answer_data = {'stroke_data': stroke}
+            else:
+                text_answer = (post_data.get(field) or '').strip()
+                is_correct = bool(text_answer)
             score = 100.0 if is_correct else 0.0
 
         elif ex.exercise_type in (
@@ -192,7 +206,7 @@ class LanguagesPlugin(SubjectPlugin):
             'text_answer': text_answer,
             'is_correct': is_correct,
             'points_earned': points_earned,
-            'answer_data': {},
+            'answer_data': answer_data,
         }
 
     def result_item_template(self) -> str:

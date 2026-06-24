@@ -78,19 +78,19 @@ class TestCanvasConfigPerScriptType:
 
     def test_latin_config(self):
         cfg = get_canvas_config('latin')
-        assert cfg['line_height'] == 60
-        assert cfg['descender'] == 20
+        assert cfg['line_height'] == 100
+        assert cfg['descender'] == 30
         assert cfg['lines'] == 4
 
     def test_sinhala_config(self):
         cfg = get_canvas_config('sinhala')
-        assert cfg['line_height'] == 80
+        assert cfg['line_height'] == 130
         assert cfg['descender'] == 0
         assert cfg['lines'] == 3
 
     def test_tamil_config(self):
         cfg = get_canvas_config('tamil')
-        assert cfg['line_height'] == 70
+        assert cfg['line_height'] == 120
         assert cfg['descender'] == 0
         assert cfg['lines'] == 3
 

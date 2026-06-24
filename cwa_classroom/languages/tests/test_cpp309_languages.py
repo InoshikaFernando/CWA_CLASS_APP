@@ -268,8 +268,9 @@ class LanguagesPluginTests(TestCase):
         lang = _make_language()
         topic = _make_topic(lang)
         level = _make_level(topic)
-        ex = _make_exercise(level, exercise_type=LanguageExercise.SPELLING_TYPE, prompt='Spell cat')
-        _make_answer(ex, 'cat', correct=True)
+        # SPELLING_TYPE grades the typed word against the exercise prompt (the
+        # word to spell) — matching the standalone view's _spelling_type.
+        ex = _make_exercise(level, exercise_type=LanguageExercise.SPELLING_TYPE, prompt='cat')
 
         plugin = self._plugin()
         result = plugin.grade_answer(ex.pk, {f'answer_{ex.id}': 'CAT'})
@@ -292,6 +293,20 @@ class LanguagesPluginTests(TestCase):
 # ---------------------------------------------------------------------------
 
 class DataMigrationTests(TestCase):
+
+    def setUp(self):
+        # On SQLite the test DB is built directly from models with migrations
+        # skipped (see conftest.django_db_use_migrations), so the data migration
+        # that seeds the Languages subject + base languages never runs. Invoke
+        # its seed function directly so these tests verify the seeding logic in
+        # any DB mode — get_or_create is idempotent, so it's a no-op when the
+        # migration already ran (MySQL).
+        from importlib import import_module
+        from django.apps import apps as global_apps
+        seed = import_module(
+            'classroom.migrations.0101_seed_languages_subject'
+        ).seed_data
+        seed(global_apps, None)
 
     def test_subject_languages_seeded(self):
         from classroom.models import Subject

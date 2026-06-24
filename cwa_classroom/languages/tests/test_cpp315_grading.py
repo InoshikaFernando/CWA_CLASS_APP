@@ -60,8 +60,10 @@ def _make_lang():
         language=lang, name='Grammar',
         defaults={'order': 0, 'is_active': True},
     )
+    # Use a beginner level so these grading tests aren't blocked by the
+    # cpp316 stage-progression gate (only beginner is unlocked by default).
     level, _ = LanguageTopicLevel.objects.get_or_create(
-        topic=topic, level_choice='intermediate',
+        topic=topic, level_choice='beginner',
     )
     return lang, level
 
