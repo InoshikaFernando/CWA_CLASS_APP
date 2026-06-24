@@ -97,6 +97,48 @@ class ExtractAndClassifyThreadsModeTests(SimpleTestCase):
         self.assertEqual(mock_classify.call_args.kwargs['shape_naming'], False)
 
 
+class IncludeDefaultByValidationTypeTests(SimpleTestCase):
+    """Teacher-graded (human_graded) questions are deselected by default; all
+    other questions are included by default. Shared by the homework and worksheet
+    PDF upload previews via extract_and_classify_worksheet."""
+
+    def _run(self, classified_questions):
+        with patch.dict('sys.modules', {'fitz': MagicMock()}), \
+             patch('worksheets.services.extract_worksheet_pages',
+                   return_value={'pages': [], 'page_count': 1}), \
+             patch('worksheets.services.classify_worksheet_questions',
+                   return_value={'questions': classified_questions,
+                                 'usage': {'total_tokens': 0}}), \
+             patch('worksheets.services.render_question_images',
+                   side_effect=lambda doc, pages, result: (result, {})):
+            output = services.extract_and_classify_worksheet(
+                MagicMock(read=lambda: b'%PDF-1.4'), [], [])
+        return output['result']['questions']
+
+    def test_human_graded_deselected_others_selected(self):
+        questions = self._run([
+            {'question_text': 'auto q', 'validation_type': 'auto'},
+            {'question_text': 'ai q', 'validation_type': 'ai_graded'},
+            {'question_text': 'teacher q', 'validation_type': 'human_graded'},
+        ])
+        by_type = {q['validation_type']: q for q in questions}
+        self.assertTrue(by_type['auto']['include'])
+        self.assertTrue(by_type['ai_graded']['include'])
+        self.assertFalse(by_type['human_graded']['include'])
+
+    def test_missing_validation_type_defaults_included(self):
+        questions = self._run([{'question_text': 'no vt'}])
+        self.assertTrue(questions[0]['include'])
+
+    def test_explicit_include_is_not_overridden(self):
+        # A pre-set include value (e.g. re-processing) wins over the default rule.
+        questions = self._run([
+            {'question_text': 'opted-in teacher q',
+             'validation_type': 'human_graded', 'include': True},
+        ])
+        self.assertTrue(questions[0]['include'])
+
+
 class WorksheetSessionModelTests(TestCase):
     @classmethod
     def setUpTestData(cls):

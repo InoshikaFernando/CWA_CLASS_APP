@@ -12,7 +12,9 @@ Kahoot-equivalent formula:
   - Late submission (past deadline + grace) → 0 points (but still marked correct)
 
 Short-answer matching:
-  - Trimmed + case-insensitive + whitespace-normalised
+  - Case-insensitive, whitespace- and comma-normalised
+  - Exponent/inequality notation folded to a canonical form (so "10²",
+    "10^2" and "10**2" all match), shared with app-wide text grading
   - Configurable per-question list of accepted answers (| separated)
 """
 import re
@@ -73,11 +75,15 @@ def normalize_short_answer(text: str) -> str:
     Normalize short answer for case-insensitive comparison.
 
     Performs:
-    1. Convert to lowercase
-    2. Remove ALL whitespace (so "py thon" == "python" and spacing never
-       affects the match)
-    3. Remove commas (digit-grouping or list commas are insignificant, so
-       "1,000" == "1000" and "red,green" == "red green")
+    1. Fold inequality spellings, then exponent notation, via the shared
+       maths helpers — unicode superscripts, ``^`` and ``**`` all collapse to
+       one marker-less form, so "10²" == "10^2" == "10**2" == "102". This is
+       the same exact-match canonicalisation used app-wide by grade_text_answer
+       and the quiz views, so a student can use the x² button anywhere.
+       (fold_exponents also lowercases and strips ALL whitespace, so
+       "py thon" == "python".)
+    2. Remove commas (digit-grouping or list commas are insignificant, so
+       "1,000" == "1000" and "red,green" == "red green").
 
     Args:
         text: Raw user answer
@@ -97,13 +103,18 @@ def normalize_short_answer(text: str) -> str:
 
         >>> normalize_short_answer("1,000")
         '1000'
-    """
-    # Convert to lowercase
-    text = text.lower()
 
-    # Drop commas, then remove all whitespace entirely.
+        >>> normalize_short_answer("3 × 10²") == normalize_short_answer("3 × 10^2")
+        True
+    """
+    # Lazy import keeps scoring.py importable without the maths app loaded.
+    from maths.algebra_grading import fold_exponents, fold_inequalities
+
+    # Fold inequalities then exponents (lowercases + strips whitespace).
+    text = fold_exponents(fold_inequalities(text))
+
+    # Commas are insignificant (digit-grouping or list commas).
     text = text.replace(',', '')
-    text = re.sub(r'\s+', '', text)
 
     return text
 

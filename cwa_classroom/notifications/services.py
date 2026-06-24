@@ -179,12 +179,15 @@ def _send(
 # Public API
 # ---------------------------------------------------------------------------
 
-def _send_welcome_core(user, plain_password, school, notification_type):
+def _send_welcome_core(user, plain_password, school, notification_type, extra_context=None):
     """
     Shared logic for sending welcome emails (first-send and resend).
 
     Builds the template context, sends the email, and updates
     ``welcome_email_sent`` on success. Returns True/False.
+
+    ``extra_context`` -- optional dict merged into the template context (e.g.
+    a parent's linked-student credentials for the resend-with-children flow).
     """
     if not user.email:
         logger.warning('Cannot send welcome to user %s: no email address.', user.pk)
@@ -208,6 +211,9 @@ def _send_welcome_core(user, plain_password, school, notification_type):
     if plain_password and creation == 'institute':
         ctx['temp_password'] = plain_password
         ctx['username'] = user.username
+
+    if extra_context:
+        ctx.update(extra_context)
 
     school_label = resolved_school.name if resolved_school else 'Wizards Learning Hub'
     subject = f'Welcome to {school_label} — Your Account is Ready'
@@ -260,15 +266,47 @@ def send_welcome_notification(user, plain_password=None, school=None):
     return _send_welcome_core(user, plain_password, school, NOTIF_WELCOME)
 
 
-def resend_welcome_notification(user, plain_password=None, school=None):
+def resend_welcome_notification(user, plain_password=None, school=None, extra_context=None):
     """
     Force-send a welcome email, bypassing the duplicate-send guard.
 
     Used by the HoI "Resend Welcome Email" action. The caller has already
     confirmed intent and optionally reset the user's password for institute
     accounts. Updates ``welcome_email_sent`` to now on success.
+
+    ``extra_context`` -- optional dict merged into the template context (e.g. a
+    subscription discount code surfaced in the welcome email).
     """
-    return _send_welcome_core(user, plain_password, school, NOTIF_WELCOME_RESEND)
+    return _send_welcome_core(
+        user, plain_password, school, NOTIF_WELCOME_RESEND, extra_context=extra_context,
+    )
+
+
+def resend_parent_welcome_notification(parent, plain_password=None, student_credentials=None,
+                                       school=None, discount_code=None, discount_percent=None):
+    """
+    Resend a parent's welcome email, optionally embedding their linked
+    students' reset credentials.
+
+    Bypasses the duplicate-send guard (like ``resend_welcome_notification``).
+    ``plain_password`` is the parent's own temporary password; ``student_credentials``
+    is a list of ``{'name', 'username', 'password'}`` dicts rendered as per-child cards.
+
+    When ``plain_password`` is supplied it is surfaced regardless of the parent's
+    creation_method — an admin who explicitly reset the password must be able to
+    communicate it, otherwise a self-registered parent would be locked out.
+    """
+    extra_context = {'student_credentials': student_credentials or []}
+    if plain_password:
+        extra_context['temp_password'] = plain_password
+        extra_context['username'] = parent.username
+    if discount_code:
+        extra_context['discount_code'] = discount_code
+        extra_context['discount_percent'] = discount_percent
+    return _send_welcome_core(
+        parent, plain_password, school, NOTIF_WELCOME_RESEND,
+        extra_context=extra_context,
+    )
 
 
 def send_email_changed_notification(user, new_email, school=None):

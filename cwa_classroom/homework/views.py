@@ -1578,8 +1578,9 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             q.setdefault('subject', data.get('subject', 'Mathematics'))
             q.setdefault('strand', data.get('strand', ''))
             q.setdefault('topic', data.get('topic', ''))
-            q.setdefault('include', True)
             q.setdefault('validation_type', 'auto')
+            # Teacher-graded (human_graded) questions are deselected by default.
+            q.setdefault('include', q.get('validation_type') != 'human_graded')
             q.setdefault('grading_rubric', '')
             ref = q.get('image_ref')
             q['image_b64'] = session.extracted_images.get(ref) if ref else None

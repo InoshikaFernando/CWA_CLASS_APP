@@ -206,3 +206,207 @@ def sync_active_sprint():
         sprint.name, remaining, total, snapshot.snapshot_date,
     )
     return snapshot
+
+
+# ---------------------------------------------------------------------------
+# Whole-project burndown (all issues, not a single sprint)
+# ---------------------------------------------------------------------------
+
+def _project_config():
+    """Return (project_key, points_field) or None when Jira is unconfigured.
+
+    Unlike the sprint sync this needs no board — a project burndown spans every
+    issue in the project — so it's gated only on the base Jira credentials.
+    """
+    if jira_client.base_config() is None:
+        logger.warning(
+            'Jira project burndown not configured (JIRA_BASE_URL/'
+            'JIRA_USER_EMAIL/JIRA_API_TOKEN unset); skipping sync.'
+        )
+        return None
+    project_key = settings.JIRA_PROJECT_KEY
+    points_field = getattr(settings, 'JIRA_STORY_POINTS_FIELD', '') or 'customfield_10016'
+    return project_key, points_field
+
+
+def fetch_project_points(project_key, points_field):
+    """Return ``(remaining, completed, open_count)`` for the whole project.
+
+    Sums story points across every non-Epic issue in the project via JQL search
+    (``/rest/api/3/search/jql``, token-paginated). Epics are excluded so their
+    roll-up estimates don't double-count their children. Returns ``None`` if any
+    page fetch fails, so the caller skips writing a partial (too-low) snapshot.
+    """
+    jql = f'project = "{project_key}" AND issuetype != Epic'
+    remaining = 0.0
+    completed = 0.0
+    open_count = 0
+    next_token = None
+
+    while True:
+        params = {
+            'jql': jql,
+            'fields': f'{points_field},status',
+            'maxResults': 100,
+        }
+        if next_token:
+            params['nextPageToken'] = next_token
+
+        data = jira_client.request('GET', '/rest/api/3/search/jql', params=params)
+        if data is None:
+            logger.error(
+                'Aborting project burndown sync: search page fetch failed for '
+                'project %s (snapshot not recorded).', project_key,
+            )
+            return None
+
+        for issue in data.get('issues') or []:
+            fields = issue.get('fields') or {}
+            raw = fields.get(points_field)
+            try:
+                points = float(raw) if raw is not None else 0.0
+            except (TypeError, ValueError):
+                points = 0.0
+            category = (
+                (fields.get('status') or {})
+                .get('statusCategory', {})
+                .get('key', '')
+            )
+            if category == _DONE_CATEGORY:
+                completed += points
+            else:
+                remaining += points
+                open_count += 1
+
+        next_token = data.get('nextPageToken')
+        if not next_token or data.get('isLast'):
+            break
+
+    return remaining, completed, open_count
+
+
+def sync_project_burndown():
+    """Record today's whole-project snapshot. Returns the snapshot or None.
+
+    None when Jira is unconfigured or a search page failed. Idempotent per day:
+    re-running upserts today's :class:`ProjectSnapshot`.
+    """
+    from .models import ProjectSnapshot
+
+    config = _project_config()
+    if not config:
+        return None
+    project_key, points_field = config
+
+    points = fetch_project_points(project_key, points_field)
+    if points is None:
+        return None
+    remaining, completed, open_count = points
+    total = remaining + completed
+
+    if total == 0:
+        logger.warning(
+            'Project %s has 0 story points across all issues — check '
+            'JIRA_STORY_POINTS_FIELD (%s) matches your Jira instance.',
+            project_key, points_field,
+        )
+
+    snapshot, _ = ProjectSnapshot.objects.update_or_create(
+        snapshot_date=timezone.localdate(),
+        defaults={
+            'remaining_points': remaining,
+            'completed_points': completed,
+            'open_issue_count': open_count,
+        },
+    )
+    logger.info(
+        'Project burndown synced: %s — %.1f remaining / %.1f total (%d open) on %s',
+        project_key, remaining, total, open_count, snapshot.snapshot_date,
+    )
+    return snapshot
+
+
+def _points(raw):
+    """Coerce a Jira story-points field value to a float (0 when blank/bad)."""
+    try:
+        return float(raw) if raw is not None else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def fetch_all_project_issues(project_key, points_field):
+    """Return [{created, resolved, points}] for every non-Epic issue, or None.
+
+    Used by the historical backfill. Pulls created + resolution dates and story
+    points across the whole project (token-paginated). Returns None if any page
+    fails, so the caller skips a partial reconstruction.
+    """
+    jql = f'project = "{project_key}" AND issuetype != Epic'
+    out = []
+    next_token = None
+    while True:
+        params = {
+            'jql': jql,
+            'fields': f'{points_field},created,resolutiondate',
+            'maxResults': 100,
+        }
+        if next_token:
+            params['nextPageToken'] = next_token
+
+        data = jira_client.request('GET', '/rest/api/3/search/jql', params=params)
+        if data is None:
+            logger.error(
+                'Aborting project burndown backfill: search page fetch failed '
+                'for project %s.', project_key,
+            )
+            return None
+
+        for issue in data.get('issues') or []:
+            fields = issue.get('fields') or {}
+            out.append({
+                'created': _parse_date(fields.get('created')),
+                'resolved': _parse_date(fields.get('resolutiondate')),
+                'points': _points(fields.get(points_field)),
+            })
+
+        next_token = data.get('nextPageToken')
+        if not next_token or data.get('isLast'):
+            break
+
+    return out
+
+
+def backfill_project_history():
+    """Reconstruct and store historical project snapshots. Returns day count.
+
+    Replays each issue's created/resolved dates into one ProjectSnapshot per
+    day from the project's first issue to today (upserted, so it's safe to
+    re-run and won't clobber today's live snapshot's value beyond recomputing
+    it). None when Jira is unconfigured or a page failed.
+    """
+    from .burndown import reconstruct_project_history
+    from .models import ProjectSnapshot
+
+    config = _project_config()
+    if not config:
+        return None
+    project_key, points_field = config
+
+    issues = fetch_all_project_issues(project_key, points_field)
+    if issues is None:
+        return None
+
+    history = reconstruct_project_history(issues, timezone.localdate())
+    for row in history:
+        ProjectSnapshot.objects.update_or_create(
+            snapshot_date=row['date'],
+            defaults={
+                'remaining_points': row['remaining'],
+                'completed_points': row['completed'],
+                'open_issue_count': row['open_count'],
+            },
+        )
+    logger.info(
+        'Project burndown backfilled %d day(s) for %s.', len(history), project_key,
+    )
+    return len(history)

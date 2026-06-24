@@ -180,13 +180,16 @@ python manage.py generate_puzzles --dry-run          # preview
 ## Jira Sprint Burndown
 
 ### `sync_sprint_burndown`
-Record one burndown snapshot (story points remaining) for the active Jira sprint
-on the configured board. A burndown is time-series and Jira only reports each
-issue's *current* state, so this must run daily to build up history. Idempotent —
-re-running upserts today's snapshot. No-ops (logs a warning) when the Jira env or
-`JIRA_BOARD_ID` is unconfigured. Requires `JIRA_BASE_URL`, `JIRA_USER_EMAIL`,
-`JIRA_API_TOKEN`, `JIRA_BOARD_ID`, and (if your instance differs from the default)
-`JIRA_STORY_POINTS_FIELD`. View the chart at `/sprints/burndown/`.
+Record burndown snapshots (story points remaining) from Jira. It records a
+**whole-project** snapshot — total points remaining across the project, which is
+what the `/sprints/burndown/` chart shows — and, if a board is configured, the
+**active-sprint** snapshot for per-sprint history. A burndown is time-series and
+Jira only reports each issue's *current* state, so this must run on a schedule to
+build up history. Idempotent — re-running upserts today's snapshot. The project
+snapshot needs only `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN` (and
+`JIRA_PROJECT_KEY`, default `CPP`); the sprint snapshot additionally needs
+`JIRA_BOARD_ID`. Override `JIRA_STORY_POINTS_FIELD` if your instance differs from
+the `customfield_10016` default. View the chart at `/sprints/burndown/`.
 ```bash
 python manage.py sync_sprint_burndown
 ```

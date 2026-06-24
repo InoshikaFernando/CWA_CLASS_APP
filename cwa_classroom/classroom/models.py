@@ -285,6 +285,13 @@ class School(models.Model):
         blank=True,
         help_text='Outgoing email address used for invoices and communications.',
     )
+    subscription_discount_code = models.CharField(
+        max_length=50, blank=True,
+        help_text=(
+            'Subscription discount code (a billing.DiscountCode) families can use '
+            'at checkout. When set, it can be included in welcome/resend emails.'
+        ),
+    )
 
     # Currency
     default_currency = models.ForeignKey(
@@ -363,7 +370,7 @@ class School(models.Model):
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
         'invoice_terms', 'invoice_due_days',
         'invoice_recipient_policy',
-        'outgoing_email',
+        'outgoing_email', 'subscription_discount_code',
         'abn', 'gst_number',
         'street_address', 'city', 'state_region', 'postal_code', 'country',
         'logo', 'timezone',
@@ -2597,3 +2604,27 @@ class Expense(models.Model):
 
     def __str__(self):
         return f'{self.get_category_display()} — ${self.amount} ({self.date})'
+
+
+class StudentCard(models.Model):
+    """Pre-issued school access card. Student claims it on first login to activate their account."""
+    school = models.ForeignKey('School', on_delete=models.CASCADE, related_name='student_cards')
+    card_number = models.CharField(max_length=50, unique=True)
+    student = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='student_card',
+    )
+    is_claimed = models.BooleanField(default=False)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['school', 'card_number']
+        indexes = [
+            models.Index(fields=['card_number']),
+            models.Index(fields=['school', 'is_claimed']),
+        ]
+
+    def __str__(self):
+        status = 'claimed' if self.is_claimed else 'unclaimed'
+        return f'{self.card_number} ({self.school.name}, {status})'
