@@ -971,7 +971,9 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
         )
 
         for q in result.get('questions', []):
-            q.setdefault('include', True)
+            # Teacher-graded (human_graded) questions are deselected by default so
+            # the teacher opts in rather than out; everything else is included.
+            q.setdefault('include', q.get('validation_type') != 'human_graded')
 
         # Step 3: render image regions from PDF vectors (not screenshot crops)
         result, extracted_images = render_question_images(doc, extracted_pages, result)
