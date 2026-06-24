@@ -87,8 +87,13 @@ class LanguagesPlugin(SubjectPlugin):
     # Homework — question selection
     # ------------------------------------------------------------------
 
-    def pick_homework_items(self, classroom, selected_topic_ids, n):
-        """Return up to n LanguageExercise pks from the selected levels."""
+    def pick_homework_items(self, classroom, selected_topic_ids, n, question_type=None):
+        """Return up to n LanguageExercise pks from the selected levels.
+
+        ``question_type`` is accepted for parity with the other subject plugins
+        (the homework auto-fill caller always passes it) but ignored — language
+        exercises are not filtered by question type.
+        """
         from .models import LanguageExercise
         pks = list(
             LanguageExercise.objects
