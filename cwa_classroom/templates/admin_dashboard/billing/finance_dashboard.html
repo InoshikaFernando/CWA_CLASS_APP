@@ -3,95 +3,96 @@
 {% block title %}Income vs Expenses - Billing Admin{% endblock %}
 
 {% block content %}
+<div class="-mx-4 -my-6 md:-mx-8 px-4 py-6 md:px-8 bg-slate-900 text-slate-200 min-h-[calc(100vh-4rem)]">
 <div class="max-w-7xl mx-auto">
 
   <!-- Header -->
   <div class="flex items-center justify-between mb-8">
     <div>
-      <a href="{% url 'billing_admin_dashboard' %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
-      <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Income vs Expenses</h1>
-      <p class="text-gray-500 mt-1">Paid Stripe revenue against operating costs (NZD)</p>
-      <p class="text-xs text-gray-400 mt-1">
+      <a href="{% url 'billing_admin_dashboard' %}" class="text-accent hover:text-white text-sm font-medium transition">&larr; Back</a>
+      <h1 class="text-2xl font-display font-bold text-white mt-2">Income vs Expenses</h1>
+      <p class="text-slate-400 mt-1">Paid Stripe revenue against operating costs (NZD)</p>
+      <p class="text-xs text-slate-500 mt-1">
         USD costs converted at 1 USD = {{ usd_nzd_rate|floatformat:4 }} NZD
-        {% if fx_source == 'live' %}<span class="text-emerald-600">(live)</span>{% elif fx_source == 'cache' %}<span class="text-emerald-600">(live, cached)</span>{% else %}<span class="text-amber-600">(fallback — FX API unavailable)</span>{% endif %}
+        {% if fx_source == 'live' %}<span class="text-emerald-400">(live)</span>{% elif fx_source == 'cache' %}<span class="text-emerald-400">(live, cached)</span>{% else %}<span class="text-amber-400">(fallback — FX API unavailable)</span>{% endif %}
       </p>
     </div>
     <div class="flex items-center gap-3">
       <a href="{% url 'billing_admin_expense_list' %}"
-         class="inline-flex items-center px-4 py-2.5 bg-white border border-slate-200 text-gray-700 font-semibold rounded-xl hover:border-accent/30 hover:text-accent transition shadow-sm">Expenses</a>
+         class="inline-flex items-center px-4 py-2.5 bg-slate-800 border border-slate-700 text-slate-200 font-semibold rounded-xl hover:border-accent/40 hover:text-white transition">Expenses</a>
       <a href="{% url 'billing_admin_recurring_expense_list' %}"
-         class="inline-flex items-center px-4 py-2.5 bg-white border border-slate-200 text-gray-700 font-semibold rounded-xl hover:border-accent/30 hover:text-accent transition shadow-sm">Recurring</a>
+         class="inline-flex items-center px-4 py-2.5 bg-slate-800 border border-slate-700 text-slate-200 font-semibold rounded-xl hover:border-accent/40 hover:text-white transition">Recurring</a>
     </div>
   </div>
 
   <!-- Period selector -->
   <div class="flex items-center gap-2 mb-6">
-    <span class="text-sm text-gray-500">Period:</span>
+    <span class="text-sm text-slate-400">Period:</span>
     {% for opt in month_options %}
       <a href="?months={{ opt }}"
-         class="px-3 py-1.5 rounded-lg text-sm font-medium transition {% if opt == months %}bg-accent text-white{% else %}bg-white border border-slate-200 text-gray-600 hover:border-accent/30{% endif %}">
+         class="px-3 py-1.5 rounded-lg text-sm font-medium transition {% if opt == months %}bg-accent text-white{% else %}bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700{% endif %}">
         {{ opt }}m
       </a>
     {% endfor %}
   </div>
 
   {% if not income_available %}
-  <div class="mb-6 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+  <div class="mb-6 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm">
     Stripe is unavailable — income figures could not be loaded and are shown as $0.
   </div>
   {% endif %}
 
   <!-- Summary tiles -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-      <p class="text-sm text-gray-500">Income (this period)</p>
-      <p class="text-2xl font-bold text-emerald-600 mt-1">${{ totals.income|floatformat:2 }}</p>
+    <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+      <p class="text-sm text-slate-400">Income (this period)</p>
+      <p class="text-2xl font-bold text-emerald-400 mt-1">${{ totals.income|floatformat:2 }}</p>
     </div>
-    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-      <p class="text-sm text-gray-500">Expenses (this period)</p>
-      <p class="text-2xl font-bold text-red-600 mt-1">${{ totals.expense|floatformat:2 }}</p>
+    <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+      <p class="text-sm text-slate-400">Expenses (this period)</p>
+      <p class="text-2xl font-bold text-red-400 mt-1">${{ totals.expense|floatformat:2 }}</p>
     </div>
-    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-      <p class="text-sm text-gray-500">Brought forward</p>
-      <p class="text-2xl font-bold mt-1 {% if carry_forward >= 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
+    <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+      <p class="text-sm text-slate-400">Brought forward</p>
+      <p class="text-2xl font-bold mt-1 {% if carry_forward >= 0 %}text-emerald-400{% else %}text-red-400{% endif %}">
         {% if carry_forward < 0 %}-${{ carry_forward|floatformat:2|cut:"-" }}{% else %}${{ carry_forward|floatformat:2 }}{% endif %}
       </p>
-      <p class="text-xs text-gray-400 mt-1">net before this period</p>
+      <p class="text-xs text-slate-500 mt-1">net before this period</p>
     </div>
-    <div class="bg-white rounded-2xl p-6 border-2 {% if overall_net >= 0 %}border-emerald-200{% else %}border-red-200{% endif %} shadow-sm">
-      <p class="text-sm text-gray-500">{% if overall_net < 0 %}Net loss (overall){% else %}Net profit (overall){% endif %}</p>
-      <p class="text-2xl font-bold mt-1 {% if overall_net >= 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
+    <div class="bg-slate-800 rounded-2xl p-6 border-2 {% if overall_net >= 0 %}border-emerald-500/40{% else %}border-red-500/40{% endif %}">
+      <p class="text-sm text-slate-400">{% if overall_net < 0 %}Net loss (overall){% else %}Net profit (overall){% endif %}</p>
+      <p class="text-2xl font-bold mt-1 {% if overall_net >= 0 %}text-emerald-400{% else %}text-red-400{% endif %}">
         {% if overall_net < 0 %}-${{ overall_net|floatformat:2|cut:"-" }}{% else %}${{ overall_net|floatformat:2 }}{% endif %}
       </p>
-      <p class="text-xs text-gray-400 mt-1">incl. brought forward</p>
+      <p class="text-xs text-slate-500 mt-1">incl. brought forward</p>
     </div>
   </div>
 
   <!-- Two graphs: cash flow (income up / expenses down) + net position (running total) -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+    <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
       <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
-        <h3 class="text-lg font-semibold text-gray-900">Cash flow</h3>
-        <div class="flex items-center gap-3 text-xs text-gray-500">
+        <h3 class="text-lg font-semibold text-white">Cash flow</h3>
+        <div class="flex items-center gap-3 text-xs text-slate-400">
           <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500"></span> Income</span>
           <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-red-500"></span> Expense</span>
         </div>
       </div>
-      <p class="text-xs text-gray-400 mb-5">Money in (up) vs money out (down), each month</p>
+      <p class="text-xs text-slate-500 mb-5">Money in (up) vs money out (down), each month</p>
       <div class="relative h-72">
         <canvas id="financeFlowChart" role="img" aria-label="Income as bars above zero and expenses as bars below zero, per month"></canvas>
       </div>
     </div>
 
-    <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+    <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
       <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
-        <h3 class="text-lg font-semibold text-gray-900">Net position</h3>
-        <div class="flex items-center gap-3 text-xs text-gray-500">
-          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-2 rounded-sm bg-red-200 border border-red-400"></span> In the red</span>
-          <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-slate-700"></span> Net to date</span>
+        <h3 class="text-lg font-semibold text-white">Net position</h3>
+        <div class="flex items-center gap-3 text-xs text-slate-400">
+          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-2 rounded-sm bg-red-500/30 border border-red-400"></span> In the red</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-slate-300"></span> Net to date</span>
         </div>
       </div>
-      <p class="text-xs text-gray-400 mb-5">Running total carried forward — below the line means in the red overall</p>
+      <p class="text-xs text-slate-500 mb-5">Running total carried forward — below the line means in the red overall</p>
       <div class="relative h-72">
         <canvas id="financeNetChart" role="img" aria-label="Running-total net position as a line with a shaded area; below zero is red (in the red), above zero is green"></canvas>
       </div>
@@ -104,8 +105,8 @@
     (function () {
       if (typeof Chart === 'undefined') { return; }
       var d = JSON.parse(document.getElementById('finance-chart-data').textContent);
-      var GRID = 'rgba(148,163,184,0.15)', ZERO = 'rgba(100,116,139,0.55)', TICK = '#94a3b8';
-      var GREEN = '#10b981', RED = '#ef4444', SLATE = '#334155';
+      var GRID = 'rgba(148,163,184,0.15)', ZERO = 'rgba(148,163,184,0.55)', TICK = '#94a3b8';
+      var GREEN = '#10b981', RED = '#ef4444', LINE = '#cbd5e1';
 
       {% comment %} Sign before the symbol: -$5, not $-5. {% endcomment %}
       function money(v) { return (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)); }
@@ -139,9 +140,9 @@
         data: {
           labels: d.labels,
           datasets: [
-            { type: 'line', label: 'Net to date', data: cumulative, borderColor: SLATE,
+            { type: 'line', label: 'Net to date', data: cumulative, borderColor: LINE,
               borderWidth: 2.5, tension: 0.3, pointRadius: 3, pointHoverRadius: 5,
-              fill: { target: 'origin', above: 'rgba(16,185,129,0.15)', below: 'rgba(239,68,68,0.18)' } },
+              fill: { target: 'origin', above: 'rgba(16,185,129,0.18)', below: 'rgba(239,68,68,0.22)' } },
           ],
         },
         options: {
@@ -155,52 +156,53 @@
 
   <!-- Per-month table + category breakdown -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div class="px-6 py-4 border-b border-slate-200"><h3 class="font-semibold text-gray-900">By month</h3></div>
+    <div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-700"><h3 class="font-semibold text-white">By month</h3></div>
       <table class="w-full text-left text-sm">
         <thead>
-          <tr class="border-b border-slate-200 bg-slate-50">
-            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Month</th>
-            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Income</th>
-            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Expense</th>
-            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Net</th>
+          <tr class="border-b border-slate-700 bg-slate-900/40">
+            <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Month</th>
+            <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Income</th>
+            <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Expense</th>
+            <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Net</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100">
+        <tbody class="divide-y divide-slate-700/60">
           {% for bar in bars %}
-          <tr class="hover:bg-slate-50 transition">
-            <td class="px-6 py-3 text-gray-700">{{ bar.label }}</td>
-            <td class="px-6 py-3 text-right text-emerald-600">${{ bar.income|floatformat:2 }}</td>
-            <td class="px-6 py-3 text-right text-red-600">${{ bar.expense|floatformat:2 }}</td>
-            <td class="px-6 py-3 text-right font-medium {% if bar.net >= 0 %}text-emerald-600{% else %}text-red-600{% endif %}">${{ bar.net|floatformat:2 }}</td>
+          <tr class="hover:bg-slate-700/40 transition">
+            <td class="px-6 py-3 text-slate-300">{{ bar.label }}</td>
+            <td class="px-6 py-3 text-right text-emerald-400">${{ bar.income|floatformat:2 }}</td>
+            <td class="px-6 py-3 text-right text-red-400">${{ bar.expense|floatformat:2 }}</td>
+            <td class="px-6 py-3 text-right font-medium {% if bar.net >= 0 %}text-emerald-400{% else %}text-red-400{% endif %}">${{ bar.net|floatformat:2 }}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
 
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div class="px-6 py-4 border-b border-slate-200"><h3 class="font-semibold text-gray-900">Expenses by category</h3></div>
+    <div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-700"><h3 class="font-semibold text-white">Expenses by category</h3></div>
       <table class="w-full text-left text-sm">
         <thead>
-          <tr class="border-b border-slate-200 bg-slate-50">
-            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Category</th>
-            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Total</th>
+          <tr class="border-b border-slate-700 bg-slate-900/40">
+            <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Category</th>
+            <th class="px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider text-right">Total</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100">
+        <tbody class="divide-y divide-slate-700/60">
           {% for cat in category_totals %}
-          <tr class="hover:bg-slate-50 transition">
-            <td class="px-6 py-3 text-gray-700">{{ cat.label }}</td>
-            <td class="px-6 py-3 text-right text-gray-900 font-medium">${{ cat.amount|floatformat:2 }}</td>
+          <tr class="hover:bg-slate-700/40 transition">
+            <td class="px-6 py-3 text-slate-300">{{ cat.label }}</td>
+            <td class="px-6 py-3 text-right text-white font-medium">${{ cat.amount|floatformat:2 }}</td>
           </tr>
           {% empty %}
-          <tr><td colspan="2" class="px-6 py-12 text-center text-gray-500">No expenses recorded for this period.</td></tr>
+          <tr><td colspan="2" class="px-6 py-12 text-center text-slate-500">No expenses recorded for this period.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   </div>
 
+</div>
 </div>
 {% endblock %}
