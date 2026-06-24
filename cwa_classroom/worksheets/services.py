@@ -374,6 +374,21 @@ IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
   student's working has has_image=false — the box holds no information.
 - When unsure, prefer has_image=false. A wrongly-attached image is worse than none.
 
+ANSWER ACCURACY — VERIFY EVERY ANSWER BEFORE RETURNING IT:
+Do NOT guess answers. Re-derive each answer from the numbers, figures and expressions
+actually shown in the question, then check it.
+- For computational questions (arithmetic, algebra, expand/simplify, fractions, etc.)
+  work the problem out fully, step by step, and confirm the final result. The answer text
+  you return MUST equal that verified result — never a hasty first pass.
+- The explanation must be a CLEAN, FINAL explanation of why the correct answer is correct.
+  Do your working silently; never put scratch work, self-corrections, or "wait, let me
+  redo this" notes into the explanation. Only the verified conclusion belongs there.
+- The answer and the explanation must describe the SAME result. Never let the answer text
+  and the explanation disagree with each other or with the figure. If they disagree,
+  recompute until they match before returning.
+- If you cannot determine the correct answer with confidence, set validation_type to
+  "human_graded" rather than inventing one.
+
 Choosing validation_type per question:
 - auto        → MCQ, T/F, short numeric answers, fill-in-the-blank. The system can check
                  the answer exactly. Most questions will be this type.
