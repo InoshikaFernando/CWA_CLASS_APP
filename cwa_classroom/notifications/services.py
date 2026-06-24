@@ -266,18 +266,24 @@ def send_welcome_notification(user, plain_password=None, school=None):
     return _send_welcome_core(user, plain_password, school, NOTIF_WELCOME)
 
 
-def resend_welcome_notification(user, plain_password=None, school=None):
+def resend_welcome_notification(user, plain_password=None, school=None, extra_context=None):
     """
     Force-send a welcome email, bypassing the duplicate-send guard.
 
     Used by the HoI "Resend Welcome Email" action. The caller has already
     confirmed intent and optionally reset the user's password for institute
     accounts. Updates ``welcome_email_sent`` to now on success.
+
+    ``extra_context`` -- optional dict merged into the template context (e.g. a
+    subscription discount code surfaced in the welcome email).
     """
-    return _send_welcome_core(user, plain_password, school, NOTIF_WELCOME_RESEND)
+    return _send_welcome_core(
+        user, plain_password, school, NOTIF_WELCOME_RESEND, extra_context=extra_context,
+    )
 
 
-def resend_parent_welcome_notification(parent, plain_password=None, student_credentials=None, school=None):
+def resend_parent_welcome_notification(parent, plain_password=None, student_credentials=None,
+                                       school=None, discount_code=None, discount_percent=None):
     """
     Resend a parent's welcome email, optionally embedding their linked
     students' reset credentials.
@@ -294,6 +300,9 @@ def resend_parent_welcome_notification(parent, plain_password=None, student_cred
     if plain_password:
         extra_context['temp_password'] = plain_password
         extra_context['username'] = parent.username
+    if discount_code:
+        extra_context['discount_code'] = discount_code
+        extra_context['discount_percent'] = discount_percent
     return _send_welcome_core(
         parent, plain_password, school, NOTIF_WELCOME_RESEND,
         extra_context=extra_context,
