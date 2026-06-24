@@ -60,6 +60,7 @@ NOTIF_WELCOME = 'welcome'
 NOTIF_WELCOME_RESEND = 'welcome_resend'
 NOTIF_EMAIL_CHANGED = 'email_changed'
 NOTIF_PASSWORD_CHANGED = 'password_changed'
+NOTIF_PAYMENT_REQUIRED = 'payment_required'
 
 # ---------------------------------------------------------------------------
 # Template paths
@@ -76,6 +77,7 @@ _WELCOME_TEMPLATES = {
 
 _TEMPLATE_EMAIL_CHANGED  = 'email/lifecycle/email_changed.html'
 _TEMPLATE_PASSWORD_CHANGED = 'email/lifecycle/password_changed.html'
+_TEMPLATE_PAYMENT_REQUIRED = 'email/lifecycle/payment_required.html'
 
 
 # ---------------------------------------------------------------------------
@@ -177,12 +179,15 @@ def _send(
 # Public API
 # ---------------------------------------------------------------------------
 
-def _send_welcome_core(user, plain_password, school, notification_type):
+def _send_welcome_core(user, plain_password, school, notification_type, extra_context=None):
     """
     Shared logic for sending welcome emails (first-send and resend).
 
     Builds the template context, sends the email, and updates
     ``welcome_email_sent`` on success. Returns True/False.
+
+    ``extra_context`` -- optional dict merged into the template context (e.g.
+    a parent's linked-student credentials for the resend-with-children flow).
     """
     if not user.email:
         logger.warning('Cannot send welcome to user %s: no email address.', user.pk)
@@ -206,6 +211,9 @@ def _send_welcome_core(user, plain_password, school, notification_type):
     if plain_password and creation == 'institute':
         ctx['temp_password'] = plain_password
         ctx['username'] = user.username
+
+    if extra_context:
+        ctx.update(extra_context)
 
     school_label = resolved_school.name if resolved_school else 'Wizards Learning Hub'
     subject = f'Welcome to {school_label} — Your Account is Ready'
@@ -258,15 +266,47 @@ def send_welcome_notification(user, plain_password=None, school=None):
     return _send_welcome_core(user, plain_password, school, NOTIF_WELCOME)
 
 
-def resend_welcome_notification(user, plain_password=None, school=None):
+def resend_welcome_notification(user, plain_password=None, school=None, extra_context=None):
     """
     Force-send a welcome email, bypassing the duplicate-send guard.
 
     Used by the HoI "Resend Welcome Email" action. The caller has already
     confirmed intent and optionally reset the user's password for institute
     accounts. Updates ``welcome_email_sent`` to now on success.
+
+    ``extra_context`` -- optional dict merged into the template context (e.g. a
+    subscription discount code surfaced in the welcome email).
     """
-    return _send_welcome_core(user, plain_password, school, NOTIF_WELCOME_RESEND)
+    return _send_welcome_core(
+        user, plain_password, school, NOTIF_WELCOME_RESEND, extra_context=extra_context,
+    )
+
+
+def resend_parent_welcome_notification(parent, plain_password=None, student_credentials=None,
+                                       school=None, discount_code=None, discount_percent=None):
+    """
+    Resend a parent's welcome email, optionally embedding their linked
+    students' reset credentials.
+
+    Bypasses the duplicate-send guard (like ``resend_welcome_notification``).
+    ``plain_password`` is the parent's own temporary password; ``student_credentials``
+    is a list of ``{'name', 'username', 'password'}`` dicts rendered as per-child cards.
+
+    When ``plain_password`` is supplied it is surfaced regardless of the parent's
+    creation_method — an admin who explicitly reset the password must be able to
+    communicate it, otherwise a self-registered parent would be locked out.
+    """
+    extra_context = {'student_credentials': student_credentials or []}
+    if plain_password:
+        extra_context['temp_password'] = plain_password
+        extra_context['username'] = parent.username
+    if discount_code:
+        extra_context['discount_code'] = discount_code
+        extra_context['discount_percent'] = discount_percent
+    return _send_welcome_core(
+        parent, plain_password, school, NOTIF_WELCOME_RESEND,
+        extra_context=extra_context,
+    )
 
 
 def send_email_changed_notification(user, new_email, school=None):
@@ -354,5 +394,85 @@ def send_password_changed_notification(user, school=None):
         logger.info('Password-changed notification sent to user %s.', user.pk)
     else:
         logger.warning('Password-changed notification FAILED for user %s.', user.pk)
+
+    return success
+
+
+def send_payment_required_notification(
+    user,
+    school=None,
+    *,
+    plan_name='Wizard',
+    monthly_price='19.90',
+    discount_code='',
+    discount_percent=0,
+    discounted_price=None,
+    currency_symbol='$',
+    reset_url='',
+    support_email='',
+):
+    """
+    Notify a re-gated school student's guardian that they must add payment
+    (and may apply a discount code) on their next login.
+
+    Sent to ``user.email`` (the guardian's address for institute students).
+    Never raises; returns True/False.
+
+    Parameters
+    ----------
+    user : CustomUser
+        The re-gated student account.
+    school : School | None
+        Auto-resolved if not supplied (used for branding + CC).
+    plan_name, monthly_price, currency_symbol :
+        Plan label and full price shown in the email.
+    discount_code, discount_percent, discounted_price :
+        The family's discount. ``discounted_price`` is computed from
+        ``monthly_price`` and ``discount_percent`` if not supplied.
+    reset_url, support_email :
+        Optional links shown in the email.
+    """
+    if not user.email:
+        logger.warning(
+            'send_payment_required_notification: no email for user %s.', user.pk
+        )
+        return False
+
+    resolved_school = _resolve_school(user, school)
+    ctx = _build_base_context(user, resolved_school)
+
+    if discounted_price is None and discount_percent:
+        from decimal import Decimal, ROUND_HALF_UP
+        net = Decimal(str(monthly_price)) * (Decimal(100 - discount_percent) / Decimal(100))
+        discounted_price = str(net.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
+    ctx.update({
+        'plan_name': plan_name,
+        'monthly_price': monthly_price,
+        'discount_code': discount_code,
+        'discount_percent': discount_percent,
+        'discounted_price': discounted_price or monthly_price,
+        'currency_symbol': currency_symbol,
+        'reset_url': reset_url,
+        'support_email': support_email,
+    })
+
+    school_label = resolved_school.name if resolved_school else 'Wizards Learning Hub'
+    subject = f'Action needed — activate your {school_label} subscription to keep access'
+
+    success = _send(
+        recipient_email=user.email,
+        subject=subject,
+        template=_TEMPLATE_PAYMENT_REQUIRED,
+        context=ctx,
+        user=user,
+        school=resolved_school,
+        notification_type=NOTIF_PAYMENT_REQUIRED,
+    )
+
+    if success:
+        logger.info('Payment-required notification sent to user %s (%s).', user.pk, user.email)
+    else:
+        logger.warning('Payment-required notification FAILED for user %s (%s).', user.pk, user.email)
 
     return success

@@ -78,6 +78,9 @@
       </div>
 
       <!-- Questions -->
+      <!-- Display order of question indices; "Add question below" appends new indices here. -->
+      <input type="hidden" name="question_order" id="question-order"
+             value="{% for q in questions %}{{ forloop.counter0 }}{% if not forloop.last %},{% endif %}{% endfor %}">
       <div class="space-y-4" id="questions-container">
         {% for q in questions %}
         {% with q_idx=forloop.counter0 %}
@@ -192,6 +195,90 @@
               </div>
             </div>
 
+            <!-- Long division (bus-stop layout) — shown only for long_division -->
+            {% if q.question_type == 'long_division' %}
+            <div class="bg-indigo-50 rounded-lg p-3 grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-indigo-500 mb-1">Dividend (number being divided)</label>
+                <input type="text" name="q_{{ q_idx }}_dividend" value="{{ q.dividend|default:'' }}"
+                       placeholder="e.g. 611"
+                       class="w-full border border-indigo-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-indigo-500 mb-1">Divisor (number dividing)</label>
+                <input type="text" name="q_{{ q_idx }}_divisor" value="{{ q.divisor|default:'' }}"
+                       placeholder="e.g. 47"
+                       class="w-full border border-indigo-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              </div>
+              <p class="col-span-2 text-[11px] text-indigo-400">The answer is calculated automatically from the dividend and divisor.</p>
+            </div>
+            {% endif %}
+
+            <!-- Column arithmetic (stacked +/−/×) — shown only for column_operation -->
+            {% if q.question_type == 'column_operation' %}
+            <div class="bg-indigo-50 rounded-lg p-3 grid grid-cols-3 gap-3">
+              <div class="col-span-2">
+                <label class="block text-xs font-medium text-indigo-500 mb-1">Operands (top-to-bottom, comma-separated)</label>
+                <input type="text" name="q_{{ q_idx }}_operands" value="{% if q.operands %}{{ q.operands|join:', ' }}{% endif %}"
+                       placeholder="e.g. 23, 25"
+                       class="w-full border border-indigo-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-indigo-500 mb-1">Operator</label>
+                <select name="q_{{ q_idx }}_operator"
+                        class="w-full border border-indigo-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="+" {% if q.operator == '+' %}selected{% endif %}>+ (add)</option>
+                  <option value="-" {% if q.operator == '-' %}selected{% endif %}>− (subtract)</option>
+                  <option value="*" {% if q.operator == '*' %}selected{% endif %}>× (multiply)</option>
+                </select>
+              </div>
+              <p class="col-span-3 text-[11px] text-indigo-400">The answer is calculated automatically from the operands and operator.</p>
+            </div>
+            {% endif %}
+
+            <!-- Cartesian plane — shown for plot_points / plot_line / identify_coords -->
+            {% if q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' %}
+            <div class="bg-sky-50 rounded-lg p-3">
+              <label class="block text-xs font-medium text-sky-600 mb-1">Plane spec (JSON)</label>
+              <textarea name="q_{{ q_idx }}_plane_spec" rows="4"
+                        placeholder='{"bounds":{"xmin":-5,"xmax":5,"ymin":-5,"ymax":5},"mode":"points","target":{"points":[[3,-2]]}}'
+                        class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 resize-y">{% if q.plane_spec %}{{ q.plane_spec_json }}{% endif %}</textarea>
+              <p class="text-[11px] text-sky-500 mt-1">Signed integer coords. mode "points" (plot / identify) or "segments" (plot &amp; join). The answer is graded from this.</p>
+            </div>
+            {% endif %}
+
+            <!-- Read a graph — shown only for read_graph -->
+            {% if q.question_type == 'read_graph' %}
+            <div class="bg-sky-50 rounded-lg p-3 space-y-3">
+              <div class="grid grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-sky-600 mb-1">Answer (value to read)</label>
+                  <input type="text" name="q_{{ q_idx }}_numeric_answer" value="{% if q.numeric_answer is not None %}{{ q.numeric_answer }}{% endif %}"
+                         placeholder="e.g. 130"
+                         class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-sky-600 mb-1">Tolerance (±)</label>
+                  <input type="text" name="q_{{ q_idx }}_answer_tolerance" value="{% if q.answer_tolerance is not None %}{{ q.answer_tolerance }}{% endif %}"
+                         placeholder="e.g. 5"
+                         class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-sky-600 mb-1">Unit</label>
+                  <input type="text" name="q_{{ q_idx }}_answer_unit" value="{{ q.answer_unit|default:'' }}"
+                         placeholder="e.g. km"
+                         class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-sky-600 mb-1">Graph spec (JSON, optional — leave blank to keep the graph image)</label>
+                <textarea name="q_{{ q_idx }}_graph_spec" rows="3"
+                          placeholder='{"title":"Race","x_axis":{"label":"Time","unit":"min","min":0,"max":110,"step":10},"y_axis":{"label":"Distance","unit":"km","min":0,"max":320,"step":65},"series":[{"points":[[20,65],[40,130]]}]}'
+                          class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 resize-y">{% if q.graph_spec %}{{ q.graph_spec_json }}{% endif %}</textarea>
+              </div>
+            </div>
+            {% endif %}
+
             <!-- Grading rubric (shown only for ai_graded / human_graded) -->
             <div id="rubric-row-{{ q_idx }}" {% if q.validation_type == 'auto' %}class="hidden"{% endif %}>
               <label class="block text-xs font-medium text-gray-500 mb-1">
@@ -202,11 +289,11 @@
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y">{{ q.grading_rubric }}</textarea>
             </div>
 
-            <!-- Answers (hidden for extended_answer) -->
-            {% if q.question_type != 'extended_answer' %}
+            <!-- Answers (hidden for types that compute/derive/skip fixed answers) -->
+            {% if q.question_type != 'extended_answer' and q.question_type != 'long_division' and q.question_type != 'column_operation' and q.question_type != 'plot_points' and q.question_type != 'plot_line' and q.question_type != 'identify_coords' and q.question_type != 'read_graph' %}
             <div id="answers-row-{{ q_idx }}">
-              <label class="block text-xs font-medium text-gray-500 mb-2">Answers</label>
-              <div class="space-y-2">
+              <label class="block text-xs font-medium text-gray-500 mb-2">Answers <span class="text-gray-400 font-normal">(tick the correct one — add alternatives that should also be accepted)</span></label>
+              <div class="space-y-2" id="answers-box-{{ q_idx }}">
                 {% for a in q.answers %}
                 <div class="flex items-center gap-2">
                   <input type="checkbox" name="q_{{ q_idx }}_answer_{{ forloop.counter0 }}_correct"
@@ -218,6 +305,7 @@
                 </div>
                 {% endfor %}
               </div>
+              <button type="button" onclick="addAnswerRowNew({{ q_idx }})" class="mt-2 text-xs text-blue-600 hover:text-blue-800">+ Add answer</button>
             </div>
             {% endif %}
 
@@ -229,6 +317,12 @@
             </div>
 
           </div>
+        </div>
+        <div class="add-after-row flex justify-center" data-after="{{ q_idx }}">
+          <button type="button" onclick="addQuestionAfter({{ q_idx }})"
+                  class="text-xs font-medium text-blue-600 hover:text-blue-800 border border-dashed border-blue-300 hover:border-blue-500 rounded-lg px-3 py-1.5 my-1 transition">
+            + Add question below
+          </button>
         </div>
         {% endwith %}
         {% endfor %}
@@ -289,6 +383,81 @@
       wrapper.classList.remove('hidden');
     };
     reader.readAsDataURL(file);
+  }
+
+  // --- Add question below ---
+  // Question type options for newly-added cards (mirrors the server list).
+  const QUESTION_TYPES = [{% for val, label in question_types %}["{{ val }}", "{{ label|escapejs }}"]{% if not forloop.last %}, {% endif %}{% endfor %}];
+  // Next free index for added questions; existing ones occupy 0..N-1.
+  let nextQIdx = {{ questions|length }};
+  // Display order of indices, kept in sync with the hidden #question-order field.
+  const orderField = document.getElementById('question-order');
+  let qOrder = (orderField.value || '').split(',').filter(s => s !== '').map(Number);
+
+  function answerRowHtml(idx, a) {
+    return '<div class="flex items-center gap-2">' +
+      '<input type="checkbox" name="q_' + idx + '_answer_' + a + '_correct" class="w-4 h-4 rounded text-green-600">' +
+      '<input type="text" name="q_' + idx + '_answer_' + a + '_text" placeholder="Answer option" ' +
+        'class="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">' +
+      '</div>';
+  }
+
+  function addAnswerRowNew(idx) {
+    const box = document.getElementById('answers-box-' + idx);
+    box.insertAdjacentHTML('beforeend', answerRowHtml(idx, box.children.length));
+  }
+
+  function newQuestionCardHtml(idx) {
+    const typeOptions = QUESTION_TYPES
+      .map(t => '<option value="' + t[0] + '">' + t[1] + '</option>').join('');
+    return '' +
+      '<div class="q-card bg-white rounded-2xl border border-blue-200 shadow-sm" id="card-' + idx + '">' +
+        '<div class="flex items-center gap-3 px-5 py-3 border-b border-gray-50">' +
+          '<input type="checkbox" name="q_' + idx + '_include" checked ' +
+            'onchange="this.closest(\'.q-card\').classList.toggle(\'excluded\', !this.checked)" ' +
+            'class="w-4 h-4 rounded text-blue-600 cursor-pointer">' +
+          '<span class="text-sm font-semibold text-gray-700 flex-1">New question</span>' +
+          '<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">added</span>' +
+        '</div>' +
+        '<div class="p-5 space-y-4">' +
+          '<div><label class="block text-xs font-medium text-gray-500 mb-1">Question Text</label>' +
+            '<textarea name="q_' + idx + '_text" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea></div>' +
+          '<div class="grid grid-cols-2 md:grid-cols-4 gap-3">' +
+            '<div><label class="block text-xs font-medium text-gray-500 mb-1">Question Type</label>' +
+              '<select name="q_' + idx + '_type" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">' + typeOptions + '</select></div>' +
+            '<div><label class="block text-xs font-medium text-gray-500 mb-1">Grading</label>' +
+              '<select name="q_' + idx + '_validation_type" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">' +
+                '<option value="auto">Auto (system checks)</option>' +
+                '<option value="ai_graded">AI Graded (Claude evaluates)</option>' +
+                '<option value="human_graded">Human Graded (teacher reviews)</option></select></div>' +
+            '<div><label class="block text-xs font-medium text-gray-500 mb-1">Difficulty</label>' +
+              '<select name="q_' + idx + '_difficulty" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm">' +
+                '<option value="1">Easy</option><option value="2" selected>Medium</option><option value="3">Hard</option></select></div>' +
+            '<div><label class="block text-xs font-medium text-gray-500 mb-1">Points</label>' +
+              '<input type="number" name="q_' + idx + '_points" value="1" min="1" max="20" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm"></div>' +
+          '</div>' +
+          '<div><label class="block text-xs font-medium text-gray-500 mb-2">Answers <span class="text-gray-400 font-normal">(tick the correct one)</span></label>' +
+            '<div class="space-y-2" id="answers-box-' + idx + '">' + answerRowHtml(idx, 0) + answerRowHtml(idx, 1) + '</div>' +
+            '<button type="button" onclick="addAnswerRowNew(' + idx + ')" class="mt-2 text-xs text-blue-600 hover:text-blue-800">+ Add answer</button></div>' +
+          '<div><label class="block text-xs font-medium text-gray-500 mb-1">Explanation (shown to students)</label>' +
+            '<textarea name="q_' + idx + '_explanation" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea></div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function addQuestionAfter(afterIdx) {
+    const idx = nextQIdx++;
+    const anchor = document.querySelector('.add-after-row[data-after="' + afterIdx + '"]');
+    if (!anchor) return;
+    const html = newQuestionCardHtml(idx) +
+      '<div class="add-after-row flex justify-center" data-after="' + idx + '">' +
+        '<button type="button" onclick="addQuestionAfter(' + idx + ')" ' +
+          'class="text-xs font-medium text-blue-600 hover:text-blue-800 border border-dashed border-blue-300 hover:border-blue-500 rounded-lg px-3 py-1.5 my-1 transition">' +
+          '+ Add question below</button></div>';
+    anchor.insertAdjacentHTML('afterend', html);
+    const pos = qOrder.indexOf(afterIdx);
+    qOrder.splice(pos < 0 ? qOrder.length : pos + 1, 0, idx);
+    orderField.value = qOrder.join(',');
   }
 
   // Show/hide rubric based on validation type

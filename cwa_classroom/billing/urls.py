@@ -10,6 +10,7 @@ urlpatterns = [
     path('billing/apply-promo/<int:package_id>/', views.ApplyPromoCodeView.as_view(), name='apply_promo_code'),
     path('billing/success/', views.CheckoutSuccessView.as_view(), name='billing_success'),
     path('billing/cancel/', views.CheckoutCancelView.as_view(), name='billing_cancel'),
+    path('billing/cancel-subscription/', views.IndividualCancelSubscriptionView.as_view(), name='cancel_subscription'),
     path('stripe/webhook/', views.StripeWebhookView.as_view(), name='stripe_webhook'),
 
     # Institute subscription
@@ -30,6 +31,7 @@ urlpatterns = [
 
     # Super Admin Billing Management
     path('admin-dashboard/billing/', views_admin.BillingAdminDashboardView.as_view(), name='billing_admin_dashboard'),
+    path('admin-dashboard/billing/overview/', views_admin.SubscriptionOverviewView.as_view(), name='billing_admin_subscription_overview'),
 
     # Plans
     path('admin-dashboard/billing/plans/', views_admin.PlanListView.as_view(), name='billing_admin_plan_list'),
@@ -62,6 +64,17 @@ urlpatterns = [
     # Student Billing Discount Codes (edit/toggle)
     path('admin-dashboard/billing/student-discount-codes/<int:pk>/edit/', views_admin.StudentDiscountCodeEditView.as_view(), name='billing_admin_student_discount_edit'),
     path('admin-dashboard/billing/student-discount-codes/<int:pk>/toggle/', views_admin.StudentDiscountCodeToggleActiveView.as_view(), name='billing_admin_student_discount_toggle'),
+
+    # Income vs Expense (operating-cost dashboard + expense management)
+    path('admin-dashboard/billing/finance/', views_admin.FinanceDashboardView.as_view(), name='billing_admin_finance_dashboard'),
+    path('admin-dashboard/billing/expenses/', views_admin.ExpenseListView.as_view(), name='billing_admin_expense_list'),
+    path('admin-dashboard/billing/expenses/create/', views_admin.ExpenseCreateView.as_view(), name='billing_admin_expense_create'),
+    path('admin-dashboard/billing/expenses/<int:pk>/edit/', views_admin.ExpenseEditView.as_view(), name='billing_admin_expense_edit'),
+    path('admin-dashboard/billing/expenses/<int:pk>/delete/', views_admin.ExpenseDeleteView.as_view(), name='billing_admin_expense_delete'),
+    path('admin-dashboard/billing/recurring-expenses/', views_admin.RecurringExpenseListView.as_view(), name='billing_admin_recurring_expense_list'),
+    path('admin-dashboard/billing/recurring-expenses/create/', views_admin.RecurringExpenseCreateView.as_view(), name='billing_admin_recurring_expense_create'),
+    path('admin-dashboard/billing/recurring-expenses/<int:pk>/edit/', views_admin.RecurringExpenseEditView.as_view(), name='billing_admin_recurring_expense_edit'),
+    path('admin-dashboard/billing/recurring-expenses/<int:pk>/toggle/', views_admin.RecurringExpenseToggleView.as_view(), name='billing_admin_recurring_expense_toggle'),
 
     # Promo Codes
     path('admin-dashboard/billing/promo-codes/', views_admin.PromoCodeListView.as_view(), name='billing_admin_promo_list'),

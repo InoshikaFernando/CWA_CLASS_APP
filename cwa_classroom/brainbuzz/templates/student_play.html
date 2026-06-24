@@ -169,8 +169,21 @@
                 <!-- Short Answer / Fill Blank: Text Input — hidden during read window -->
                 <template x-if="!readWindow && (question.question_type === 'short_answer' || question.question_type === 'fill_blank' || question.question_type === 'short' || question.question_type === 'fill')">
                     <div class="flex-1 flex flex-col gap-3">
-                        <input 
+                        <!-- Algebra helper: insert a "^" so students can type powers (e.g. 2x^2 - 7x - 15) -->
+                        <template x-if="question.answer_format === 'algebra'">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    @click="(() => { const f = $refs.saInput; const s = f.selectionStart, e = f.selectionEnd; textAnswer = (textAnswer || '').slice(0, s) + '^' + (textAnswer || '').slice(e); $nextTick(() => { f.focus(); f.selectionStart = f.selectionEnd = s + 1; }); })()"
+                                    :disabled="submitting || countdown <= 0 || alreadyAnswered"
+                                    class="px-3 py-1.5 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >x<sup>2</sup></button>
+                                <span class="text-xs text-slate-500">Type powers with <kbd class="px-1 border border-slate-300 rounded">^</kbd> — e.g. 2x^2 - 7x - 15</span>
+                            </div>
+                        </template>
+                        <input
                             type="text"
+                            x-ref="saInput"
                             x-model="textAnswer"
                             placeholder="Your answer..."
                             @keydown.enter="submitAnswer({ text: textAnswer })"

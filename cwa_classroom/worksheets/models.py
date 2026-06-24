@@ -88,6 +88,17 @@ class WorksheetQuestion(models.Model):
 
 class WorksheetUploadSession(models.Model):
     """Temporary storage for AI-extracted worksheet questions between upload and confirm."""
+
+    # Async processing status — the PDF is classified by a background worker (CPP-327).
+    STATUS_PROCESSING = 'processing'
+    STATUS_READY = 'ready'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_PROCESSING, 'Processing'),
+        (STATUS_READY, 'Ready'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
         related_name='worksheet_upload_sessions',
@@ -98,12 +109,22 @@ class WorksheetUploadSession(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     pdf_filename = models.CharField(max_length=255)
+    # Persisted upload so the background worker (separate process) can read it.
+    pdf_file = models.FileField(upload_to='worksheets/upload_pdfs/', null=True, blank=True)
     worksheet_name = models.CharField(max_length=255, blank=True)
+    shape_naming = models.BooleanField(
+        default=False,
+        help_text='Name-the-shape mode: AI generates one "name this shape" question per shape.',
+    )
     extracted_data = models.JSONField(default=dict)
     extracted_images = models.JSONField(default=dict)
     page_count = models.PositiveIntegerField(default=0)
     tokens_used = models.PositiveIntegerField(default=0)
     is_confirmed = models.BooleanField(default=False)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_READY,
+    )
+    error_message = models.TextField(blank=True)
     worksheet = models.ForeignKey(
         Worksheet, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='upload_sessions',

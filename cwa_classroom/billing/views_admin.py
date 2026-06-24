@@ -4,6 +4,8 @@ Super Admin Billing Management views.
 All views require superuser access via SuperuserRequiredMixin.
 """
 import logging
+import math
+from datetime import datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.shortcuts import render, redirect, get_object_or_404
@@ -12,12 +14,19 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 from django.utils.text import slugify
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.db.models import Sum, Count, Q
 
 from .models import (
     InstitutePlan, InstituteDiscountCode, ModuleProduct,
     SchoolSubscription, ModuleSubscription, PromoCode,
-    DiscountCode, Package, DURATION_CHOICES,
+    DiscountCode, Package, Subscription, DURATION_CHOICES,
+    Expense, RecurringExpense, ExpenseCategory, EXPENSE_SOURCE_MANUAL,
+)
+from .reporting import (
+    get_paid_revenue, get_daily_active_series_local,
+    DAILY_WINDOWS, StripeUnavailable, get_income_expense_summary,
+    get_usd_to_nzd_rate,
 )
 from audit.services import log_event
 
@@ -66,6 +75,325 @@ class BillingAdminDashboardView(SuperuserRequiredMixin, View):
             'active_discounts': active_discounts,
             'mrr': mrr,
         })
+
+
+# ---------------------------------------------------------------------------
+# Subscriptions Overview (students + institutes)
+# ---------------------------------------------------------------------------
+
+class SubscriptionOverviewView(SuperuserRequiredMixin, View):
+    """Super-admin monitoring view for student (B2C) and institute subscriptions.
+
+    Renders standalone (no sidebar, via hide_sidebar) so it can be popped into
+    its own tab and watched while working elsewhere.
+
+    Definitions
+    -----------
+    * Active   = status 'active'
+    * Trial    = status 'trialing'      (in free trial, not yet paying)
+    * Inactive = anything else          (past_due / cancelled / expired / suspended)
+    * Paying   = active subs that actually bill (real package/plan with price>0,
+      not 100%-discounted). Shown alongside Active.
+    * Earnings = ACTUAL paid Stripe invoices for this/last month (real cash,
+      post-discount/refund). If Stripe is unavailable, falls back to a local
+      discount-aware estimate, flagged in the UI.
+
+    Filters (GET params): ?country=<name>  and  ?institution=<school_id>
+    (institution applies to the institute panel only — B2C students have no
+    institution).
+    """
+
+    ACTIVE_STATES = ['active', 'trialing']
+    INACTIVE_STATES = ['past_due', 'cancelled', 'expired', 'suspended']
+    ZERO = Decimal('0.00')
+    WINDOW_LABELS = {7: '7d', 30: '30d', 90: '90d', 365: '1y', 1825: '5y'}
+
+    @staticmethod
+    def _month_dt(d):
+        """Local date -> timezone-aware datetime at 00:00 (for Stripe ranges)."""
+        return timezone.make_aware(datetime.combine(d, time.min))
+
+    def get(self, request):
+        from classroom.models import School
+
+        country = (request.GET.get('country') or '').strip()
+        institution = (request.GET.get('institution') or '').strip()
+
+        # --- period bounds --------------------------------------------------
+        today = timezone.localdate()
+        this_month_start = today.replace(day=1)
+        last_month_start = (this_month_start - timedelta(days=1)).replace(day=1)
+        if this_month_start.month == 12:
+            next_month_start = this_month_start.replace(
+                year=this_month_start.year + 1, month=1,
+            )
+        else:
+            next_month_start = this_month_start.replace(month=this_month_start.month + 1)
+
+        students = self._student_stats(country, today)
+        institutes = self._institute_stats(country, institution, today)
+        addons = self._addon_stats()
+
+        # --- earnings: actual paid revenue from Stripe (fallback: estimate) --
+        earnings_source = 'stripe'
+        earnings_currency = ''
+        try:
+            this_rev = get_paid_revenue(
+                self._month_dt(this_month_start), self._month_dt(next_month_start))
+            last_rev = get_paid_revenue(
+                self._month_dt(last_month_start), self._month_dt(this_month_start))
+            students['this_month'] = this_rev['student']
+            students['last_month'] = last_rev['student']
+            students['this_month_count'] = this_rev['student_count']
+            institutes['this_month'] = this_rev['institute']
+            institutes['last_month'] = last_rev['institute']
+            institutes['this_month_count'] = this_rev['institute_count']
+            earnings_currency = this_rev['currency'] or last_rev['currency']
+        except StripeUnavailable:
+            earnings_source = 'estimate'
+
+        # --- counts: local DB (mirrors the admin-dashboard entry card). ------
+        # The entry card counts every student/school subscription locally (incl.
+        # free / no-package accounts). Stripe only knows the paying/trialing
+        # subset, so sourcing counts from Stripe would make this panel disagree
+        # with the card. Stripe stays the source of truth for earnings $ only.
+        counts_source = 'local'
+
+        # --- daily active-subscriptions graph (selectable window) -----------
+        # Plots paying + trial subscriptions over time for both lines (free /
+        # no-package actives excluded), sourced locally to match the panel.
+        try:
+            window_days = int(request.GET.get('days', 30))
+        except (TypeError, ValueError):
+            window_days = 30
+        if window_days not in DAILY_WINDOWS:
+            window_days = 30
+        daily = get_daily_active_series_local(window_days)
+
+        # Filter option lists
+        countries = sorted({
+            c for c in (
+                list(School.objects.exclude(country='')
+                     .values_list('country', flat=True))
+                + list(self._student_subscriptions().exclude(user__country='')
+                       .values_list('user__country', flat=True))
+            ) if c
+        })
+        institutions = list(
+            School.objects.filter(is_active=True)
+            .order_by('name').values('id', 'name'),
+        )
+
+        return render(request, 'admin_dashboard/billing/subscription_overview.html', {
+            'hide_sidebar': True,
+            'hide_footer': True,
+            'students': students,
+            'institutes': institutes,
+            'earnings_source': earnings_source,
+            'earnings_currency': earnings_currency,
+            'counts_source': counts_source,
+            'daily': daily,
+            'daily_window': window_days,
+            'daily_window_options': [
+                {'days': d, 'label': self.WINDOW_LABELS.get(d, str(d))}
+                for d in DAILY_WINDOWS
+            ],
+            'combined_this_month': (
+                students.get('this_month', self.ZERO)
+                + institutes.get('this_month', self.ZERO)
+            ),
+            'combined_last_month': (
+                students.get('last_month', self.ZERO)
+                + institutes.get('last_month', self.ZERO)
+            ),
+            'combined_estimate': students['estimate'] + institutes['estimate'],
+            'addons': addons['rows'],
+            'addons_total_revenue': addons['total_revenue'],
+            'filters': {
+                'country': country,
+                'institution': institution,
+                'countries': countries,
+                'institutions': institutions,
+            },
+            'today': today,
+            'now': timezone.localtime(),
+            'refresh_seconds': 60,  # auto-refresh interval for the standalone tab
+        })
+
+    # -- students ------------------------------------------------------------
+    @staticmethod
+    def _student_subscriptions():
+        """Every student subscription, however enrolled.
+
+        Mirrors the admin-dashboard entry card, which counts all student
+        billing.Subscription rows (individual / B2C *and* institute students,
+        who also get a row via webhook / grant-access). The panel and the card
+        therefore agree on "how many students". Earnings are still real Stripe
+        cash, so institute-covered students contribute $0 there.
+        """
+        return Subscription.objects.all()
+
+    def _student_stats(self, country, today):
+        qs = self._student_subscriptions()
+        if country:
+            qs = qs.filter(user__country__iexact=country)
+
+        active = qs.filter(status='active')
+        # "Paying" = a priced package that actually bills. A priced package is
+        # NOT enough: a 100%-discounted / comped student (discount_state
+        # free_100) pays $0, so they're Free. Use the canonical discount_state
+        # (same classifier as the HoI list view) so e.g. a Wizard student on a
+        # 100% code counts as Free, while a real payer counts as Paying.
+        # "Free" = the rest of the actives (no package, $0, or fully discounted).
+        estimate = self.ZERO
+        paying_n = 0
+        for sub in active.select_related('package'):
+            if not sub.package or sub.package.price <= 0:
+                continue
+            if sub.discount_state == Subscription.DISCOUNT_FREE_100:
+                continue
+            paying_n += 1
+            pct = sub.discount_percent_snapshot or 0
+            estimate += sub.package.price * (Decimal(100 - pct) / Decimal(100))
+
+        active_n = active.count()
+        free_n = active_n - paying_n
+        trial_n = qs.filter(status='trialing').count()
+        inactive_n = qs.filter(status__in=self.INACTIVE_STATES).count()
+
+        return {
+            'total': qs.count(),
+            'trial': trial_n,
+            'active': active_n,
+            'paying': paying_n,
+            'free': free_n,
+            'inactive': inactive_n,
+            'new_today': qs.filter(created_at__date=today).count(),
+            'lost_today': qs.filter(cancelled_at__date=today).count(),
+            'estimate': estimate,
+            'by_package': list(
+                active.values('package__name').annotate(
+                    count=Count('id')).order_by('-count'),
+            ),
+            'donut': self._donut(paying_n, free_n, trial_n, inactive_n),
+        }
+
+    # -- institutes ----------------------------------------------------------
+    def _institute_stats(self, country, institution, today):
+        # Deactivated schools are excluded everywhere on this dashboard.
+        qs = SchoolSubscription.objects.filter(school__is_active=True)
+        if country:
+            qs = qs.filter(school__country__iexact=country)
+        if institution.isdigit():
+            qs = qs.filter(school_id=int(institution))
+
+        active = qs.filter(status='active')
+        # Discount-aware estimate + "paying" count. An institute is "paying"
+        # only if Stripe actually bills it: it must have a Stripe subscription,
+        # a priced plan, and not be 100%-discounted. Comped / manually granted
+        # schools (e.g. CWA — priced plan but no Stripe subscription) bill
+        # nothing, so they count as Free and add $0.
+        estimate = self.ZERO
+        paying_n = 0
+        for sub in active.select_related('plan', 'discount_code'):
+            if not sub.plan or sub.plan.price <= 0:
+                continue
+            if not sub.stripe_subscription_id:
+                continue
+            pct = sub.discount_code.discount_percent if sub.discount_code else 0
+            if pct >= 100:
+                continue
+            paying_n += 1
+            estimate += sub.plan.price * (Decimal(100 - pct) / Decimal(100))
+        estimate += self._addon_revenue_for(active)
+
+        active_n = active.count()
+        free_n = active_n - paying_n  # active but $0 (no plan / 100%-off)
+        trial_n = qs.filter(status='trialing').count()
+        inactive_n = qs.filter(status__in=self.INACTIVE_STATES).count()
+
+        return {
+            'total': qs.count(),
+            'trial': trial_n,
+            'active': active_n,
+            'paying': paying_n,
+            'free': free_n,
+            'inactive': inactive_n,
+            'new_today': qs.filter(created_at__date=today).count(),
+            # No cancelled_at on SchoolSubscription — use status + updated_at.
+            'lost_today': qs.filter(
+                status='cancelled', updated_at__date=today).count(),
+            'estimate': estimate,
+            'by_type': list(
+                active.values('plan__name').annotate(
+                    count=Count('id')).order_by('-count'),
+            ),
+            'donut': self._donut(paying_n, free_n, trial_n, inactive_n),
+        }
+
+    # Donut ring geometry (inline SVG, no JS). Returns segments with
+    # stroke-dasharray/offset so the template just renders <circle>s.
+    DONUT_RADIUS = 54
+
+    def _donut(self, active, free, trial, inactive):
+        circumference = 2 * math.pi * self.DONUT_RADIUS
+        parts = [
+            ('Paying', active, '#10b981'),    # emerald (paying / real)
+            ('Free', free, '#0ea5e9'),        # sky (active but no package / 100%-off)
+            ('Trial', trial, '#f59e0b'),      # amber
+            ('Inactive', inactive, '#94a3b8'),  # slate
+        ]
+        total = active + free + trial + inactive
+        segments = []
+        cumulative = 0.0
+        for label, value, color in parts:
+            frac = (value / total) if total else 0.0
+            seg_len = frac * circumference
+            segments.append({
+                'label': label,
+                'value': value,
+                'color': color,
+                'pct': round(frac * 100, 1),
+                'dasharray': f'{seg_len:.2f} {circumference - seg_len:.2f}',
+                'dashoffset': f'{-cumulative:.2f}',
+            })
+            cumulative += seg_len
+        return {
+            'segments': segments,
+            'total': total,
+            'radius': self.DONUT_RADIUS,
+            'active_pct': round((active / total * 100) if total else 0.0, 1),
+        }
+
+    def _addon_revenue_for(self, school_sub_qs):
+        prices = {m.module: m.price for m in ModuleProduct.objects.all()}
+        rows = (ModuleSubscription.objects
+                .filter(is_active=True, school_subscription__in=school_sub_qs)
+                .values('module').annotate(count=Count('id')))
+        return sum(
+            (prices.get(r['module'], self.ZERO) * r['count'] for r in rows),
+            self.ZERO,
+        )
+
+    def _addon_stats(self):
+        prices = {m.module: m.price for m in ModuleProduct.objects.all()}
+        labels = dict(ModuleSubscription.MODULE_CHOICES)
+        rows = (ModuleSubscription.objects
+                .filter(is_active=True, school_subscription__school__is_active=True)
+                .values('module').annotate(count=Count('id')).order_by('-count'))
+        out, total = [], self.ZERO
+        for r in rows:
+            price = prices.get(r['module'], self.ZERO)
+            revenue = price * r['count']
+            total += revenue
+            out.append({
+                'module': r['module'],
+                'name': labels.get(r['module'], r['module']),
+                'count': r['count'],
+                'price': price,
+                'revenue': revenue,
+            })
+        return {'rows': out, 'total_revenue': total}
 
 
 # ---------------------------------------------------------------------------
@@ -1501,3 +1829,297 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
 
         messages.success(request, f'Coupon code "{code}" created.')
         return redirect('billing_admin_coupon_list')
+
+
+# ---------------------------------------------------------------------------
+# Income vs Expense (operating-cost dashboard + expense management)
+# ---------------------------------------------------------------------------
+
+class FinanceDashboardView(SuperuserRequiredMixin, View):
+    """Income (paid Stripe revenue) vs operating expenses, monthly, in NZD."""
+
+    MONTH_OPTIONS = [3, 6, 12, 24]
+
+    def get(self, request):
+        try:
+            months = int(request.GET.get('months', 6))
+        except (TypeError, ValueError):
+            months = 6
+        if months not in self.MONTH_OPTIONS:
+            months = 6
+
+        summary = get_income_expense_summary(months)
+
+        # Per-month rows feed the table; parallel arrays feed the Chart.js
+        # panels (income/expense bars + net line, and the net P&L bars).
+        bars = summary['months']
+        chart_data = {
+            'labels': [m['label'] for m in summary['months']],
+            'income': [float(m['income']) for m in summary['months']],
+            'expense': [float(m['expense']) for m in summary['months']],
+            'net': [float(m['net']) for m in summary['months']],
+            'carry_forward': float(summary['carry_forward']),
+        }
+
+        usd_nzd_rate, fx_source = get_usd_to_nzd_rate()
+
+        return render(request, 'admin_dashboard/billing/finance_dashboard.html', {
+            'bars': bars,
+            'chart_data': chart_data,
+            'category_totals': summary['category_totals'],
+            'totals': summary['totals'],
+            'carry_forward': summary['carry_forward'],
+            'overall_net': summary['overall_net'],
+            'income_available': summary['income_available'],
+            'months': months,
+            'month_options': self.MONTH_OPTIONS,
+            'usd_nzd_rate': usd_nzd_rate,
+            'fx_source': fx_source,
+        })
+
+
+# --- Expense CRUD ----------------------------------------------------------
+
+def _parse_expense_form(data):
+    """Validate shared Expense / RecurringExpense fields. Returns (clean, errors)."""
+    errors = {}
+    clean = {}
+
+    category = (data.get('category') or '').strip()
+    valid_categories = {c[0] for c in ExpenseCategory.choices}
+    if category not in valid_categories:
+        errors['category'] = 'Choose a category.'
+    clean['category'] = category
+
+    clean['vendor'] = (data.get('vendor') or '').strip()[:120]
+    clean['description'] = (data.get('description') or '').strip()[:255]
+    clean['note'] = (data.get('note') or '').strip()
+
+    amount = (data.get('amount') or '').strip()
+    try:
+        amount_val = Decimal(amount)
+        if amount_val <= 0:
+            errors['amount'] = 'Amount must be greater than 0.'
+        clean['amount'] = amount_val
+    except (InvalidOperation, ValueError):
+        errors['amount'] = 'Enter a valid NZD amount.'
+
+    return clean, errors
+
+
+class ExpenseListView(SuperuserRequiredMixin, View):
+    def get(self, request):
+        category = (request.GET.get('category') or '').strip()
+        expenses = Expense.objects.all()
+        if category in {c[0] for c in ExpenseCategory.choices}:
+            expenses = expenses.filter(category=category)
+        return render(request, 'admin_dashboard/billing/expense_list.html', {
+            'expenses': expenses[:300],
+            'categories': ExpenseCategory.choices,
+            'selected_category': category,
+        })
+
+
+class ExpenseCreateView(SuperuserRequiredMixin, View):
+    def get(self, request):
+        return render(request, 'admin_dashboard/billing/expense_form.html', {
+            'form_data': {'incurred_on': timezone.localdate().replace(day=1)},
+            'categories': ExpenseCategory.choices,
+        })
+
+    def post(self, request):
+        clean, errors = _parse_expense_form(request.POST)
+        incurred_on = (request.POST.get('incurred_on') or '').strip()
+        date_val = parse_date(incurred_on) if incurred_on else None
+        if not date_val:
+            errors['incurred_on'] = 'Enter a valid date.'
+
+        if errors:
+            return render(request, 'admin_dashboard/billing/expense_form.html', {
+                'form_data': request.POST,
+                'errors': errors,
+                'categories': ExpenseCategory.choices,
+            })
+
+        Expense.objects.create(
+            category=clean['category'], vendor=clean['vendor'],
+            description=clean['description'], amount=clean['amount'],
+            incurred_on=date_val, note=clean['note'],
+            source=EXPENSE_SOURCE_MANUAL,
+        )
+        messages.success(request, 'Expense recorded.')
+        return redirect('billing_admin_expense_list')
+
+
+class ExpenseEditView(SuperuserRequiredMixin, View):
+    def get(self, request, pk):
+        expense = get_object_or_404(Expense, pk=pk)
+        return render(request, 'admin_dashboard/billing/expense_form.html', {
+            'form_data': {
+                'category': expense.category, 'vendor': expense.vendor,
+                'description': expense.description, 'amount': expense.amount,
+                'incurred_on': expense.incurred_on, 'note': expense.note,
+            },
+            'categories': ExpenseCategory.choices,
+            'expense': expense,
+        })
+
+    def post(self, request, pk):
+        expense = get_object_or_404(Expense, pk=pk)
+        if not expense.is_editable:
+            messages.error(
+                request,
+                'Auto-synced expenses (AI usage, DigitalOcean) are recomputed '
+                'from source data and cannot be edited. Recurring rows can be '
+                'trued-up to actuals.',
+            )
+            return redirect('billing_admin_expense_list')
+
+        clean, errors = _parse_expense_form(request.POST)
+        incurred_on = (request.POST.get('incurred_on') or '').strip()
+        date_val = parse_date(incurred_on) if incurred_on else None
+        if not date_val:
+            errors['incurred_on'] = 'Enter a valid date.'
+
+        if errors:
+            return render(request, 'admin_dashboard/billing/expense_form.html', {
+                'form_data': request.POST,
+                'errors': errors,
+                'categories': ExpenseCategory.choices,
+                'expense': expense,
+            })
+
+        expense.category = clean['category']
+        expense.vendor = clean['vendor']
+        expense.description = clean['description']
+        expense.amount = clean['amount']
+        expense.incurred_on = date_val
+        expense.note = clean['note']
+        expense.save()
+        messages.success(request, 'Expense updated.')
+        return redirect('billing_admin_expense_list')
+
+
+class ExpenseDeleteView(SuperuserRequiredMixin, View):
+    def post(self, request, pk):
+        expense = get_object_or_404(Expense, pk=pk)
+        if not expense.is_editable:
+            messages.error(request, 'Auto-synced expenses are recomputed and cannot be deleted here.')
+        else:
+            expense.delete()
+            messages.success(request, 'Expense deleted.')
+        return redirect('billing_admin_expense_list')
+
+
+# --- Recurring expense templates -------------------------------------------
+
+class RecurringExpenseListView(SuperuserRequiredMixin, View):
+    def get(self, request):
+        return render(request, 'admin_dashboard/billing/recurring_expense_list.html', {
+            'templates': RecurringExpense.objects.all(),
+        })
+
+
+class RecurringExpenseCreateView(SuperuserRequiredMixin, View):
+    def get(self, request):
+        return render(request, 'admin_dashboard/billing/recurring_expense_form.html', {
+            'form_data': {
+                'frequency': RecurringExpense.FREQUENCY_MONTHLY,
+                'start_date': timezone.localdate().replace(day=1),
+            },
+            'categories': ExpenseCategory.choices,
+            'frequencies': RecurringExpense.FREQUENCY_CHOICES,
+        })
+
+    def post(self, request):
+        clean, errors = _parse_expense_form(request.POST)
+        frequency = (request.POST.get('frequency') or '').strip()
+        if frequency not in {f[0] for f in RecurringExpense.FREQUENCY_CHOICES}:
+            errors['frequency'] = 'Choose a frequency.'
+        start = (request.POST.get('start_date') or '').strip()
+        start_val = parse_date(start) if start else None
+        if not start_val:
+            errors['start_date'] = 'Enter a valid start date.'
+        end = (request.POST.get('end_date') or '').strip()
+        end_val = parse_date(end) if end else None
+        if end and not end_val:
+            errors['end_date'] = 'Enter a valid end date (or leave blank).'
+
+        if errors:
+            return render(request, 'admin_dashboard/billing/recurring_expense_form.html', {
+                'form_data': request.POST,
+                'errors': errors,
+                'categories': ExpenseCategory.choices,
+                'frequencies': RecurringExpense.FREQUENCY_CHOICES,
+            })
+
+        RecurringExpense.objects.create(
+            category=clean['category'], vendor=clean['vendor'],
+            description=clean['description'], amount=clean['amount'],
+            frequency=frequency, start_date=start_val, end_date=end_val,
+            note=clean['note'],
+        )
+        messages.success(request, 'Recurring expense created.')
+        return redirect('billing_admin_recurring_expense_list')
+
+
+class RecurringExpenseEditView(SuperuserRequiredMixin, View):
+    def get(self, request, pk):
+        tpl = get_object_or_404(RecurringExpense, pk=pk)
+        return render(request, 'admin_dashboard/billing/recurring_expense_form.html', {
+            'form_data': {
+                'category': tpl.category, 'vendor': tpl.vendor,
+                'description': tpl.description, 'amount': tpl.amount,
+                'frequency': tpl.frequency, 'start_date': tpl.start_date,
+                'end_date': tpl.end_date or '', 'note': tpl.note,
+            },
+            'categories': ExpenseCategory.choices,
+            'frequencies': RecurringExpense.FREQUENCY_CHOICES,
+            'template': tpl,
+        })
+
+    def post(self, request, pk):
+        tpl = get_object_or_404(RecurringExpense, pk=pk)
+        clean, errors = _parse_expense_form(request.POST)
+        frequency = (request.POST.get('frequency') or '').strip()
+        if frequency not in {f[0] for f in RecurringExpense.FREQUENCY_CHOICES}:
+            errors['frequency'] = 'Choose a frequency.'
+        start = (request.POST.get('start_date') or '').strip()
+        start_val = parse_date(start) if start else None
+        if not start_val:
+            errors['start_date'] = 'Enter a valid start date.'
+        end = (request.POST.get('end_date') or '').strip()
+        end_val = parse_date(end) if end else None
+        if end and not end_val:
+            errors['end_date'] = 'Enter a valid end date (or leave blank).'
+
+        if errors:
+            return render(request, 'admin_dashboard/billing/recurring_expense_form.html', {
+                'form_data': request.POST,
+                'errors': errors,
+                'categories': ExpenseCategory.choices,
+                'frequencies': RecurringExpense.FREQUENCY_CHOICES,
+                'template': tpl,
+            })
+
+        tpl.category = clean['category']
+        tpl.vendor = clean['vendor']
+        tpl.description = clean['description']
+        tpl.amount = clean['amount']
+        tpl.frequency = frequency
+        tpl.start_date = start_val
+        tpl.end_date = end_val
+        tpl.note = clean['note']
+        tpl.save()
+        messages.success(request, 'Recurring expense updated.')
+        return redirect('billing_admin_recurring_expense_list')
+
+
+class RecurringExpenseToggleView(SuperuserRequiredMixin, View):
+    def post(self, request, pk):
+        tpl = get_object_or_404(RecurringExpense, pk=pk)
+        tpl.is_active = not tpl.is_active
+        tpl.save(update_fields=['is_active'])
+        state = 'activated' if tpl.is_active else 'deactivated'
+        messages.success(request, f'Recurring expense {state}.')
+        return redirect('billing_admin_recurring_expense_list')

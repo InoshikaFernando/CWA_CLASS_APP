@@ -109,7 +109,13 @@
   {# ── Recent Activity — always visible ──────────────────────────────────── #}
   {% if recent_activity %}
   <div>
-    <h2 class="font-bold text-xl text-gray-800 mb-4">🕐 Recent Activity</h2>
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-xl text-gray-800">🕐 Recent Activity</h2>
+      <a href="{% url 'quiz_attempt_history' %}"
+         class="text-sm font-semibold text-emerald-600 hover:text-emerald-700 hover:underline">
+        View full quiz history &rarr;
+      </a>
+    </div>
     <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm divide-y divide-emerald-50">
       {% for r in recent_activity %}
       <div class="flex items-center justify-between px-5 py-3">

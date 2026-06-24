@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.5.1'          # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-06-02'     # ISO date of this release
+APP_VERSION       = '1.13.5'         # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-06-24'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -59,6 +59,7 @@ INSTALLED_APPS = [
 
     # Third party
     'django_htmx',
+    'django_rq',
     'storages',
 
     # Project apps
@@ -68,6 +69,7 @@ INSTALLED_APPS = [
     'billing',
     'progress',
     'audit',
+    'usage',
 
     # Subject apps
     'maths',
@@ -93,12 +95,102 @@ INSTALLED_APPS = [
 
     # Lifecycle email notifications
     'notifications',
+
+    # Background task queue
+    'taskqueue',
+
+    # User feedback & feature requests (CPP-321)
+    'feedback',
+
+    # Jira sprint burndown chart
+    'sprints',
+
+    # WhatsApp parent notifications (CPP-XXX) — inert until configured
+    'whatsapp',
 ]
+
+# ---------------------------------------------------------------------------
+# User feedback (CPP-321)
+# ---------------------------------------------------------------------------
+# Email of the product owner who owns the feedback triage queue. New feedback
+# is assigned to this user. Falls back to the first superuser when unset.
+FEEDBACK_OWNER_EMAIL = os.environ.get('FEEDBACK_OWNER_EMAIL', '')
+
+# Jira integration for auto-filing bug-category feedback as CPP Bug issues.
+# When any of BASE_URL / USER_EMAIL / API_TOKEN is unset the integration is a
+# no-op (the service logs a warning and skips), so local/dev keeps working.
+JIRA_BASE_URL = os.environ.get('JIRA_BASE_URL', '')
+JIRA_USER_EMAIL = os.environ.get('JIRA_USER_EMAIL', '')
+JIRA_API_TOKEN = os.environ.get('JIRA_API_TOKEN', '')
+JIRA_PROJECT_KEY = os.environ.get('JIRA_PROJECT_KEY', 'CPP')
+
+# Sprint burndown (sprints app). The Agile board the active sprint is read from
+# and the custom field carrying story points. Leave JIRA_BOARD_ID unset to keep
+# the burndown sync a no-op. The story-points field id is Jira-instance
+# specific — customfield_10016 is the common Jira Cloud default; check your
+# instance (Settings → Issues → Custom fields) and override via env if needed.
+JIRA_BOARD_ID = os.environ.get('JIRA_BOARD_ID', '')
+JIRA_STORY_POINTS_FIELD = os.environ.get('JIRA_STORY_POINTS_FIELD', 'customfield_10016')
+
+# Optional Discord webhook to announce newly-filed bugs. Empty = disabled.
+FEEDBACK_DISCORD_WEBHOOK = os.environ.get('FEEDBACK_DISCORD_WEBHOOK', '')
 
 # ---------------------------------------------------------------------------
 # AI / Anthropic
 # ---------------------------------------------------------------------------
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+
+# Claude pricing (USD per 1M tokens) used to estimate per-upload AI cost in the
+# usage ledger. Defaults match Claude Opus 4.8 list price — the model both AI
+# pipelines actually run (AI_IMPORT_MODEL / WORKSHEET_MODEL). Override via env
+# when the model or list price changes. (Was $3/$15 Sonnet 4, which understated
+# true cost ~1.67x while the pipelines ran on Opus.)
+CLAUDE_INPUT_COST_PER_MTOK = float(
+    os.environ.get('CLAUDE_INPUT_COST_PER_MTOK', '5.0'))
+CLAUDE_OUTPUT_COST_PER_MTOK = float(
+    os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '25.0'))
+
+# USD->NZD conversion used by the income-vs-expense dashboard to convert
+# USD-billed costs (Anthropic AI grading) into the dashboard's base currency
+# (NZD). Manual vendor bills are converted by the operator on entry; this only
+# applies to the automatic AIGradingUsage sync.
+#
+# The live rate is fetched from FX_RATE_API_URL (a free, ECB-backed,
+# key-less endpoint — frankfurter.app) and cached. USD_TO_NZD_RATE is the
+# FALLBACK used only when the API is disabled / unreachable. Set FX_RATE_API_URL
+# to '' to force the static fallback (e.g. for an air-gapped environment).
+USD_TO_NZD_RATE = float(os.environ.get('USD_TO_NZD_RATE', '1.65'))
+FX_RATE_API_URL = os.environ.get(
+    'FX_RATE_API_URL', 'https://api.frankfurter.dev/v1/latest')
+
+# Read-only DigitalOcean Personal Access Token. When set, sync_vendor_charges
+# pulls real monthly invoices (so droplet/DB/Spaces addons are captured with no
+# manual update). Inert when empty — dev/test stay no-op.
+DIGITALOCEAN_API_TOKEN = os.environ.get('DIGITALOCEAN_API_TOKEN', '')
+
+# Live AI usage dashboard — after each AI call the worker rewrites a pinned
+# GitHub issue with the latest usage/cost. Best-effort: stays disabled (no-op)
+# until a token + repo are configured, so dev/test/local never call out.
+AI_DASHBOARD_GITHUB_TOKEN = os.environ.get('AI_DASHBOARD_GITHUB_TOKEN', '')
+AI_DASHBOARD_GITHUB_REPO = os.environ.get('AI_DASHBOARD_GITHUB_REPO', '')
+AI_DASHBOARD_ISSUE_LABEL = os.environ.get('AI_DASHBOARD_ISSUE_LABEL', 'ai-usage-dashboard')
+AI_DASHBOARD_ISSUE_NUMBER = os.environ.get('AI_DASHBOARD_ISSUE_NUMBER', '')
+AI_USAGE_WINDOW_DAYS = int(os.environ.get('AI_USAGE_WINDOW_DAYS', '30'))
+# When set (e.g. "Production" / "Test"), this environment owns one named section
+# of a shared dashboard issue and only rewrites its own block — so prod and test
+# can publish to the same issue without clobbering each other. Empty = legacy
+# whole-issue mode (the env owns the entire issue body).
+AI_DASHBOARD_ENV = os.environ.get('AI_DASHBOARD_ENV', '')
+
+# ---------------------------------------------------------------------------
+# Redis / RQ  (background task processing)
+# ---------------------------------------------------------------------------
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+RQ_QUEUES = {
+    'high':    {'URL': REDIS_URL},
+    'default': {'URL': REDIS_URL},
+    'low':     {'URL': REDIS_URL},
+}
 
 # ---------------------------------------------------------------------------
 # Coding — Piston sandboxed code execution
@@ -144,6 +236,7 @@ MIDDLEWARE = [
     'cwa_classroom.middleware.TrialExpiryMiddleware',
     'cwa_classroom.middleware.AccountBlockMiddleware',
     'cwa_classroom.middleware.ProfileCompletionMiddleware',
+    'usage.middleware.UsageTrackingMiddleware',  # last: records final page-view status
 ]
 
 AUTHENTICATION_BACKENDS = [
@@ -194,8 +287,27 @@ if _DB_ENGINE == 'sqlite':
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            # Live-server tests (Playwright UI suite) run the dev server in a
+            # thread that writes to the same SQLite file as the test, so writers
+            # contend. Wait up to 30s for the lock instead of erroring at
+            # SQLite's 5s default — fixes intermittent "database is locked".
+            'OPTIONS': {'timeout': 30},
         },
     }
+
+    # Put SQLite in WAL mode on every new connection so readers don't block the
+    # writer (the other half of the "database is locked" fix). Scoped to the
+    # sqlite vendor, so this is a no-op for MySQL/Postgres (prod is untouched).
+    from django.db.backends.signals import connection_created
+
+    def _enable_sqlite_wal(sender, connection, **kwargs):
+        if connection.vendor == 'sqlite':
+            cursor = connection.cursor()
+            cursor.execute('PRAGMA journal_mode=WAL;')
+            cursor.execute('PRAGMA synchronous=NORMAL;')
+            cursor.execute('PRAGMA busy_timeout=30000;')
+
+    connection_created.connect(_enable_sqlite_wal, dispatch_uid='sqlite_wal_pragmas')
 elif _DB_ENGINE == 'postgres':
     DATABASES = {
         'default': {
@@ -285,6 +397,18 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
+# ---------------------------------------------------------------------------
+# Login rate limiting
+# ---------------------------------------------------------------------------
+# Keyed primarily by *username* so a shared-IP site (e.g. a school behind one
+# NAT) can't be locked out collectively by a few students' typos — one
+# student's failures only lock that student. A generous per-IP cap is a
+# secondary safety net against a single host enumerating many accounts; raise
+# LOGIN_RATELIMIT_IP_MAX if a very large school ever trips it.
+LOGIN_RATELIMIT_USER_MAX = int(os.environ.get('LOGIN_RATELIMIT_USER_MAX', '10'))
+LOGIN_RATELIMIT_IP_MAX = int(os.environ.get('LOGIN_RATELIMIT_IP_MAX', '100'))
+LOGIN_RATELIMIT_WINDOW = int(os.environ.get('LOGIN_RATELIMIT_WINDOW', '900'))  # 15 min
+
 
 # ---------------------------------------------------------------------------
 # Internationalisation
@@ -357,10 +481,18 @@ else:
 # ---------------------------------------------------------------------------
 
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@wizardslearninghub.co.nz')
-DAILY_EMAIL_LIMIT = int(os.environ.get('DAILY_EMAIL_LIMIT', '90'))
+# Self-imposed daily send cap. 0 (the default) disables the cap entirely —
+# emails send directly via the backend with no queue throttling. Set a positive
+# integer to throttle (e.g. to stay under a provider's free-tier daily limit).
+DAILY_EMAIL_LIMIT = int(os.environ.get('DAILY_EMAIL_LIMIT', '0'))
 
 # Priority: Resend API (recommended) > SMTP (legacy) > Console (dev)
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
+
+# Signing secret for the Resend delivery webhook (/webhooks/resend/). Copy it
+# from the webhook's page in the Resend dashboard. Without it, the endpoint
+# rejects all events.
+RESEND_WEBHOOK_SECRET = os.environ.get('RESEND_WEBHOOK_SECRET', '')
 
 if RESEND_API_KEY:
     EMAIL_BACKEND = 'cwa_classroom.email_backends.ResendEmailBackend'
@@ -376,6 +508,23 @@ else:
     else:
         # No credentials configured — log emails to console
         EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp parent notifications (CPP-XXX)
+# ---------------------------------------------------------------------------
+# Inert until these are set: with no access token / phone-number id, every send
+# raises a non-retriable 'no_credentials' error and WhatsAppConfig stays
+# disabled by default, so nothing leaves the system.
+WHATSAPP_PROVIDER = os.environ.get('WHATSAPP_PROVIDER', 'meta_cloud')
+WHATSAPP_ACCESS_TOKEN = os.environ.get('WHATSAPP_ACCESS_TOKEN', '')
+WHATSAPP_PHONE_NUMBER_ID = os.environ.get('WHATSAPP_PHONE_NUMBER_ID', '')
+WHATSAPP_BUSINESS_ACCOUNT_ID = os.environ.get('WHATSAPP_BUSINESS_ACCOUNT_ID', '')
+WHATSAPP_WEBHOOK_VERIFY_TOKEN = os.environ.get('WHATSAPP_WEBHOOK_VERIFY_TOKEN', '')
+WHATSAPP_APP_SECRET = os.environ.get('WHATSAPP_APP_SECRET', '')
+# Default region for parsing local phone numbers into E.164 (NZ).
+WHATSAPP_DEFAULT_REGION = os.environ.get('WHATSAPP_DEFAULT_REGION', 'NZ')
+WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', 'v19.0')
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +578,15 @@ if REDIS_URL:
     SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
 else:
     SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+    # No Redis: fall back to an explicit per-process in-memory cache. NOTE:
+    # LocMemCache is NOT shared across gunicorn workers, so short-TTL caches
+    # (e.g. the Usage dashboard's 60s reporting cache) only de-duplicate work
+    # within a single worker. Set REDIS_URL for cross-process cache sharing.
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        },
+    }
 
 # ---------------------------------------------------------------------------
 # Sessions — harden cookie & limit session size
@@ -560,5 +718,8 @@ LOGGING = {
         'homework':   {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
         'billing':    {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
         'classroom':  {'handlers': _app_handlers, 'level': 'WARNING', 'propagate': False},
+        # INFO so successful logins (which clear the rate-limit counter) are
+        # visible alongside the WARNING-level failures and lockouts.
+        'accounts':   {'handlers': _app_handlers, 'level': 'INFO', 'propagate': False},
     },
 }

@@ -1,16 +1,19 @@
+import csv
 import logging
 from decimal import Decimal
 
 from django import forms
 from django.core.paginator import Paginator
 from django.db.models import Count, Q, Sum
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from accounts.models import Role
 from classroom.models import (
     ClassRoom, ClassStudent, ClassTeacher, Department, DepartmentTeacher,
     Expense, Invoice, InvoiceLineItem, InvoicePayment,
-    School, SchoolStudent, SchoolTeacher, Subject,
+    ParentStudent, School, SchoolStudent, SchoolTeacher, StudentGuardian,
+    Subject,
 )
 from classroom.views import RoleRequiredMixin, _get_user_school_ids
 
@@ -95,6 +98,31 @@ class StudentReportView(RoleRequiredMixin, View):
         if form.is_valid():
             filters = form.cleaned_data
 
+        qs = self._build_queryset(school_ids, hod_only, dept_ids, filters)
+
+        # CSV export — same filters, no pagination, with parent contact details
+        if request.GET.get('export') == 'csv':
+            return self._export_csv(qs, school_ids)
+
+        paginator = Paginator(qs, PAGE_SIZE)
+        page_obj = paginator.get_page(request.GET.get('page', 1))
+
+        context = {
+            'page_obj': page_obj,
+            'form': form,
+            'available_classes': available_classes,
+            'total_count': paginator.count,
+            'filters': filters,
+            'is_hod_only': hod_only,
+        }
+
+        if request.headers.get('HX-Request'):
+            return render(request, 'reports/_partials/student_report_table.html', context)
+
+        return render(request, 'reports/students.html', context)
+
+    @staticmethod
+    def _build_queryset(school_ids, hod_only, dept_ids, filters):
         # Base queryset — school-scoped
         qs = SchoolStudent.objects.filter(
             school_id__in=school_ids,
@@ -118,7 +146,7 @@ class StudentReportView(RoleRequiredMixin, View):
             ).values_list('student_id', flat=True).distinct()
             qs = qs.filter(student_id__in=dept_student_ids)
         elif hod_only and not dept_ids:
-            qs = qs.none()
+            return qs.none()
 
         # Apply filters
         class_id = filters.get('class_id')
@@ -145,24 +173,130 @@ class StudentReportView(RoleRequiredMixin, View):
         if filters.get('no_class'):
             qs = qs.filter(active_class_count=0)
 
-        qs = qs.order_by('student__first_name', 'student__last_name')
+        return qs.order_by('student__first_name', 'student__last_name')
 
-        paginator = Paginator(qs, PAGE_SIZE)
-        page_obj = paginator.get_page(request.GET.get('page', 1))
+    # How many parent/guardian contacts to export per student.
+    MAX_PARENTS = 2
 
-        context = {
-            'page_obj': page_obj,
-            'form': form,
-            'available_classes': available_classes,
-            'total_count': paginator.count,
-            'filters': filters,
-            'is_hod_only': hod_only,
-        }
+    @staticmethod
+    def _parents_by_student(student_ids, school_ids):
+        """Map student_id -> list of parent dicts (name/email/phone/relationship).
 
-        if request.headers.get('HX-Request'):
-            return render(request, 'reports/_partials/student_report_table.html', context)
+        Combines linked parent users (ParentStudent) and guardian records
+        (StudentGuardian), primary contacts first, de-duplicated by email.
+        """
+        contacts = {sid: [] for sid in student_ids}
 
-        return render(request, 'reports/students.html', context)
+        # Linked parent users — scoped to the accessible schools, plus
+        # individual (no-school) links which apply regardless of school.
+        parent_links = ParentStudent.objects.filter(
+            Q(school_id__in=school_ids) | Q(school__isnull=True),
+            student_id__in=student_ids,
+            is_active=True,
+        ).select_related('parent')
+        for link in parent_links:
+            p = link.parent
+            contacts.setdefault(link.student_id, []).append({
+                'primary': link.is_primary_contact,
+                'name': p.get_full_name() or p.username,
+                'email': p.email or '',
+                'phone': p.phone or '',
+                'relationship': link.get_relationship_display() if link.relationship else '',
+            })
+
+        # Guardian records — scoped to the accessible schools so a student
+        # enrolled in more than one school never leaks another school's contacts.
+        guardian_links = StudentGuardian.objects.filter(
+            student_id__in=student_ids,
+            guardian__school_id__in=school_ids,
+        ).select_related('guardian')
+        for sg in guardian_links:
+            g = sg.guardian
+            contacts.setdefault(sg.student_id, []).append({
+                'primary': sg.is_primary,
+                'name': f'{g.first_name} {g.last_name}'.strip(),
+                'email': g.email or '',
+                'phone': g.phone or '',
+                'relationship': g.get_relationship_display() if g.relationship else '',
+            })
+
+        result = {}
+        for sid, parents in contacts.items():
+            # Primary contacts first (stable sort keeps source order otherwise),
+            # then de-duplicate by email (falling back to name).
+            parents.sort(key=lambda p: not p['primary'])
+            seen = set()
+            unique = []
+            for p in parents:
+                key = p['email'].lower() if p['email'] else p['name'].lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                unique.append(p)
+            result[sid] = unique
+        return result
+
+    @staticmethod
+    def _csv_safe(value):
+        """Neutralise CSV formula injection.
+
+        Spreadsheet apps treat a leading =, +, -, @ (or tab/CR) as a formula.
+        Prefix such values with a single quote so they render as plain text.
+        """
+        text = '' if value is None else str(value)
+        if text and text[0] in ('=', '+', '-', '@', '\t', '\r'):
+            return "'" + text
+        return text
+
+    @staticmethod
+    def _subscribed_student_ids(student_ids):
+        """Set of student ids with an active or trialing subscription."""
+        from billing.models import Subscription
+        return set(
+            Subscription.objects.filter(
+                user_id__in=student_ids,
+                status__in=(Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIALING),
+            ).values_list('user_id', flat=True)
+        )
+
+    def _export_csv(self, qs, school_ids):
+        rows = list(qs)
+        student_ids = [ss.student_id for ss in rows]
+        parent_map = self._parents_by_student(student_ids, school_ids)
+        subscribed_ids = self._subscribed_student_ids(student_ids)
+
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="student_report.csv"'
+        writer = csv.writer(response)
+
+        header = [
+            'Student Name', 'Username', 'Student Email', 'Student ID',
+            'Active Classes', 'Enrollment', 'Payment', 'Is Subscribed',
+        ]
+        for i in range(1, self.MAX_PARENTS + 1):
+            header += [f'Parent {i} Name', f'Parent {i} Email',
+                       f'Parent {i} Phone', f'Parent {i} Relationship']
+        writer.writerow(header)
+
+        for ss in rows:
+            student = ss.student
+            parents = parent_map.get(ss.student_id, [])
+            row = [
+                student.get_full_name() or student.username,
+                student.username,
+                student.email or '',
+                ss.student_id_code or '',
+                ss.active_class_count,
+                'Active' if ss.is_active else 'Inactive',
+                'Blocked' if student.is_blocked else 'OK',
+                'Yes' if ss.student_id in subscribed_ids else 'No',
+            ]
+            for i in range(self.MAX_PARENTS):
+                p = parents[i] if i < len(parents) else {}
+                row += [p.get('name', ''), p.get('email', ''),
+                        p.get('phone', ''), p.get('relationship', '')]
+            writer.writerow([self._csv_safe(v) for v in row])
+        return response
 
 
 class TeacherReportFilterForm(forms.Form):

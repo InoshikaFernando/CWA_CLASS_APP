@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block title %}Usage Analytics{% endblock %}
+
+{% block content %}
+<div class="-mx-4 -my-6 md:-mx-8 px-4 py-4 bg-slate-900 text-slate-200 min-h-[calc(100vh-4rem)] flex flex-col lg:h-[calc(100vh-4rem)] lg:min-h-0 lg:overflow-hidden">
+<div class="w-full mx-auto flex flex-col gap-3 lg:flex-1 lg:min-h-0">
+
+  {% comment %} Header {% endcomment %}
+  <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+    <div class="flex items-baseline gap-3">
+      <h1 class="text-xl font-display font-bold text-white leading-none">Usage Analytics</h1>
+      <p class="text-xs text-slate-500 leading-none">updated now &middot; auto-refresh {{ refresh_seconds }}s <span id="refresh-countdown" class="text-slate-600"></span></p>
+    </div>
+    <span class="inline-flex items-center gap-2 text-xs px-3 py-1 rounded-full {% if active_now.users or active_now.guests %}text-emerald-300 bg-emerald-500/10 border border-emerald-500/25{% else %}text-slate-400 bg-slate-800 border border-slate-700{% endif %}">
+      <span class="relative flex h-2 w-2">
+        {% if active_now.users or active_now.guests %}<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>{% endif %}
+        <span class="relative inline-flex rounded-full h-2 w-2 {% if active_now.users or active_now.guests %}bg-emerald-400{% else %}bg-slate-500{% endif %}"></span>
+      </span>
+      <strong class="font-semibold text-white">{{ active_now.users }}</strong> users{% if active_now.guests %} + {{ active_now.guests }} guests{% endif %} active &middot; {{ active_now.minutes }} min
+    </span>
+  </div>
+
+  {% comment %} HERO band: health verdict banner + KPI tiles {% endcomment %}
+  <div class="grid grid-cols-1 lg:grid-cols-[1.4fr_repeat(4,1fr)] gap-3">
+    {% comment %} Health banner — colour + verdict driven by health.band {% endcomment %}
+    <div class="flex items-center gap-3 rounded-xl px-4 py-3 border border-l-[3px]
+      {% if health.band == 'bad' %}bg-rose-500/10 border-rose-500/30 border-l-rose-400
+      {% elif health.band == 'warn' %}bg-amber-500/10 border-amber-500/30 border-l-amber-400
+      {% else %}bg-emerald-500/10 border-emerald-500/30 border-l-emerald-400{% endif %}">
+      <span class="flex-shrink-0 w-3 h-3 rounded-full {% if health.band == 'bad' %}bg-rose-400 animate-pulse{% elif health.band == 'warn' %}bg-amber-400 animate-pulse{% else %}bg-emerald-400{% endif %}"></span>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-baseline gap-3 flex-wrap">
+          <span class="text-lg font-bold leading-none {% if health.band == 'bad' %}text-rose-300{% elif health.band == 'warn' %}text-amber-300{% else %}text-emerald-300{% endif %}">
+            {% if health.band == 'bad' %}Critical{% elif health.band == 'warn' %}Elevated errors{% elif health.total %}Healthy{% else %}No traffic yet{% endif %}
+          </span>
+          {% if health.total %}<span class="text-lg font-bold text-white leading-none">{{ health.error_rate }}%</span><span class="text-xs text-slate-400">error rate (30d)</span>{% endif %}
+        </div>
+        <div class="text-xs text-slate-500 mt-1">{{ health.errors }} errors / {{ health.total }} views{% if health.noise %} &middot; {{ health.noise }} bot-noise hits hidden{% endif %}</div>
+      </div>
+      <a href="#recent-errors" onclick="document.getElementById('recent-errors').open=true" class="flex-shrink-0 text-sm text-indigo-400 hover:text-indigo-300 whitespace-nowrap">Investigate &rarr;</a>
+    </div>
+
+    {% comment %} KPI tiles — neutral; only the errors tile colours, and only when non-zero {% endcomment %}
+    <div class="bg-slate-800 rounded-xl px-4 py-2.5 border border-slate-700">
+      <div class="text-[11px] uppercase tracking-wide text-slate-400">Users today</div>
+      <div class="text-2xl font-bold text-slate-100 tabular-nums leading-tight">{{ kpi.users_today }}</div>
+    </div>
+    <div class="bg-slate-800 rounded-xl px-4 py-2.5 border border-slate-700">
+      <div class="text-[11px] uppercase tracking-wide text-slate-400">Page views today</div>
+      <div class="text-2xl font-bold text-slate-100 tabular-nums leading-tight">{{ kpi.views_today }}</div>
+    </div>
+    <div class="bg-slate-800 rounded-xl px-4 py-2.5 border border-slate-700">
+      <div class="text-[11px] uppercase tracking-wide text-slate-400">Page views 24h</div>
+      <div class="text-2xl font-bold text-slate-100 tabular-nums leading-tight">{{ kpi.views_24h }}</div>
+    </div>
+    <a href="#recent-errors" onclick="document.getElementById('recent-errors').open=true" class="block rounded-xl px-4 py-2.5 border {% if kpi.errors_today %}bg-rose-500/10 border-rose-500/30{% else %}bg-slate-800 border-slate-700{% endif %}">
+      <div class="text-[11px] uppercase tracking-wide flex items-center justify-between {% if kpi.errors_today %}text-rose-300{% else %}text-slate-400{% endif %}">Errors today <span class="text-[10px] text-slate-500 normal-case tracking-normal">excl. noise</span></div>
+      <div class="text-2xl font-bold tabular-nums leading-tight {% if kpi.errors_today %}text-rose-400{% else %}text-slate-500{% endif %}">{{ kpi.errors_today }}</div>
+    </a>
+  </div>
+
+  {% comment %} TREND band: one toggled active-usage chart | errors over time {% endcomment %}
+  <div class="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-3 lg:flex-1 lg:min-h-0">
+    <section class="bg-slate-800 rounded-xl px-4 py-3 border border-slate-700 flex flex-col min-h-0">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-sm font-semibold text-slate-100">Active usage</h2>
+        <div id="range-toggle" class="inline-flex text-xs rounded-lg border border-slate-600 overflow-hidden">
+          <button type="button" data-range="24h" class="px-2.5 py-1 text-slate-400">24h</button>
+          <button type="button" data-range="7d" class="px-2.5 py-1 text-slate-400">7d</button>
+          <button type="button" data-range="30d" class="px-2.5 py-1 text-slate-400">30d</button>
+        </div>
+      </div>
+      <div class="flex-1 min-h-[180px]" style="position:relative"><canvas id="chartActive" role="img" aria-label="Active users and page views over the selected time range"></canvas></div>
+      <div class="flex gap-4 text-xs text-slate-400 mt-2">
+        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm" style="background:#818cf8"></span>Page views</span>
+        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm" style="background:#34d399"></span>Active users</span>
+      </div>
+    </section>
+
+    <section class="bg-slate-800 rounded-xl px-4 py-3 border border-slate-700 flex flex-col min-h-0">
+      <h2 class="text-sm font-semibold text-slate-100 mb-2">Errors 4xx / 5xx &mdash; 30 days <span class="font-normal text-slate-500 text-xs">· dashed = threshold</span></h2>
+      <div class="flex-1 min-h-[180px]" style="position:relative"><canvas id="chartErrors" role="img" aria-label="Daily 4xx and 5xx errors over 30 days"></canvas></div>
+      <div class="flex gap-4 text-xs text-slate-400 mt-2">
+        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm" style="background:#fbbf24"></span>4xx</span>
+        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm" style="background:#f43f5e"></span>5xx</span>
+      </div>
+    </section>
+  </div>
+
+  {% comment %} Top pages — ranked bars, 7d/30d toggle {% endcomment %}
+  <section class="bg-slate-800 rounded-xl px-4 py-3 border border-slate-700">
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="text-sm font-semibold text-slate-100">Most-visited pages</h2>
+      <div id="pages-toggle" class="inline-flex text-xs rounded-lg border border-slate-600 overflow-hidden">
+        <button type="button" data-pages="7d" class="px-2.5 py-1 text-slate-400">7d</button>
+        <button type="button" data-pages="30d" class="px-2.5 py-1 text-slate-400">30d</button>
+      </div>
+    </div>
+    <div id="pages-30" class="flex flex-col gap-1.5">
+      {% for row in ranked_30 %}
+      <div class="flex items-center gap-3 text-sm">
+        <span class="w-40 flex-shrink-0 truncate font-mono text-slate-300" title="{{ row.path }}">{{ row.path }}</span>
+        <span class="flex-1 h-3.5 bg-slate-700/60 rounded"><span class="block h-full bg-indigo-400 rounded" style="width:{% widthratio row.total ranked_max 100 %}%"></span></span>
+        <span class="w-14 text-right font-semibold text-slate-100 tabular-nums">{{ row.total }}</span>
+      </div>
+      {% empty %}<p class="text-xs text-slate-500 py-2">No page views in the last 30 days.</p>{% endfor %}
+    </div>
+    <div id="pages-7" class="hidden flex-col gap-1.5">
+      {% with rmax=ranked_7.0.total %}
+      {% for row in ranked_7 %}
+      <div class="flex items-center gap-3 text-sm">
+        <span class="w-40 flex-shrink-0 truncate font-mono text-slate-300" title="{{ row.path }}">{{ row.path }}</span>
+        <span class="flex-1 h-3.5 bg-slate-700/60 rounded"><span class="block h-full bg-indigo-400 rounded" style="width:{% widthratio row.total rmax 100 %}%"></span></span>
+        <span class="w-14 text-right font-semibold text-slate-100 tabular-nums">{{ row.total }}</span>
+      </div>
+      {% empty %}<p class="text-xs text-slate-500 py-2">No page views in the last 7 days.</p>{% endfor %}
+      {% endwith %}
+    </div>
+  </section>
+</div>
+</div>
+
+{% comment %} Drill-down detail (below the one-screen fold) {% endcomment %}
+<div class="-mx-4 md:-mx-8 px-4 pb-6 bg-slate-900 text-slate-200 space-y-2">
+  <details id="recent-errors" class="bg-slate-800 rounded-xl border border-slate-700 px-4 py-2">
+    <summary class="cursor-pointer text-sm font-semibold text-slate-100 py-1">Recent errors <span class="font-normal text-slate-500">— what failed (newest first; bot probes dimmed)</span></summary>
+    <table class="w-full text-sm mt-1">
+      <thead><tr class="text-[11px] uppercase tracking-wide text-slate-500 text-left"><th class="py-1 font-medium">When</th><th class="py-1 font-medium">Status</th><th class="py-1 font-medium">Path</th><th class="py-1 font-medium">User</th></tr></thead>
+      <tbody class="divide-y divide-slate-700/60">
+        {% for e in recent_errors %}
+        <tr class="{% if e.noise %}opacity-45{% endif %}">
+          <td class="py-1 text-slate-400 whitespace-nowrap pr-3">{{ e.when }}</td>
+          <td class="py-1 pr-3 font-mono {% if e.status >= 500 %}text-rose-400{% else %}text-amber-400{% endif %}">{{ e.status }}</td>
+          <td class="py-1 text-slate-200 break-all">{{ e.path }}{% if e.noise %} <span class="text-[11px] text-slate-500">(noise)</span>{% endif %}</td>
+          <td class="py-1 text-slate-400 whitespace-nowrap">{{ e.user }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="py-2 text-center text-slate-500">No 4xx/5xx responses in the last 30 days.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+
+  <details class="bg-slate-800 rounded-xl border border-slate-700 px-4 py-2">
+    <summary class="cursor-pointer text-sm font-semibold text-slate-100 py-1">Top failing pages <span class="font-normal text-slate-500">(30d, excl. bot noise)</span></summary>
+    <table class="w-full text-sm mt-1">
+      <tbody class="divide-y divide-slate-700/60">
+        {% for e in errors_30.top_errors %}
+        <tr>
+          <td class="py-1 text-slate-200 break-all">{{ e.path }}</td>
+          <td class="py-1 px-2 text-right font-mono {% if e.status >= 500 %}text-rose-400{% else %}text-amber-400{% endif %}">{{ e.status }}</td>
+          <td class="py-1 text-right font-semibold text-white">{{ e.count }}</td>
+        </tr>
+        {% empty %}
+        <tr><td class="py-2 text-center text-slate-500">No app errors in the last 30 days.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+</div>
+
+{{ hourly_24|json_script:"data-24h" }}
+{{ daily_7|json_script:"data-7d" }}
+{{ daily_30|json_script:"data-30d" }}
+{{ errors_30|json_script:"data-errors" }}
+
+<script>
+  (function () {
+    var seconds = {{ refresh_seconds }};
+    var el = document.getElementById('refresh-countdown');
+    var remaining = seconds;
+    setInterval(function () {
+      remaining -= 1;
+      if (el) { el.textContent = remaining > 0 ? '(' + remaining + 's)' : '(updating…)'; }
+      if (remaining <= 0) { window.location.reload(); }
+    }, 1000);
+  })();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script>
+  (function () {
+    if (typeof Chart === 'undefined') { return; }
+    function read(id) { var n = document.getElementById(id); return n ? JSON.parse(n.textContent) : null; }
+    var GRID = 'rgba(148,163,184,0.15)', TICK = '#94a3b8';
+
+    // ---- Active usage: one chart, swappable 24h / 7d / 30d ----
+    var ranges = { '24h': read('data-24h'), '7d': read('data-7d'), '30d': read('data-30d') };
+    var cur = localStorage.getItem('usageRange'); if (!ranges[cur]) { cur = '24h'; }
+    var activeChart = null;
+
+    function paintToggle(group, attr, value) {
+      group.querySelectorAll('button').forEach(function (b) {
+        var on = b.getAttribute(attr) === value;
+        b.classList.toggle('bg-slate-600', on); b.classList.toggle('text-white', on);
+        b.classList.toggle('text-slate-400', !on);
+      });
+    }
+    function buildActive() {
+      var d = ranges[cur];
+      var ctx = document.getElementById('chartActive'); if (!ctx || !d) { return; }
+      activeChart = new Chart(ctx.getContext('2d'), {
+        type: 'line',
+        data: { labels: d.labels, datasets: [
+          { label: 'Page views', data: d.views, yAxisID: 'y', borderColor: '#818cf8', backgroundColor: 'rgba(129,140,248,0.14)', borderWidth: 2, pointRadius: 0, tension: 0.25, fill: true },
+          { label: 'Active users', data: d.users, yAxisID: 'y1', borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.10)', borderWidth: 2, pointRadius: 0, tension: 0.25, fill: false } ] },
+        options: {
+          responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: { ticks: { color: TICK, maxTicksLimit: 10, autoSkip: true, maxRotation: 0, font: { size: 11 } }, grid: { display: false } },
+            y:  { beginAtZero: true, position: 'left',  ticks: { color: '#a5b4fc', precision: 0, font: { size: 11 } }, grid: { color: GRID } },
+            y1: { beginAtZero: true, position: 'right', ticks: { color: '#6ee7b7', precision: 0, font: { size: 11 } }, grid: { drawOnChartArea: false } } },
+          plugins: { legend: { display: false } }
+        }
+      });
+    }
+    function swapActive() {
+      var d = ranges[cur]; if (!activeChart || !d) { return; }
+      activeChart.data.labels = d.labels;
+      activeChart.data.datasets[0].data = d.views;
+      activeChart.data.datasets[1].data = d.users;
+      activeChart.update('none');
+    }
+    var rangeToggle = document.getElementById('range-toggle');
+    if (rangeToggle) {
+      rangeToggle.addEventListener('click', function (e) {
+        var b = e.target.closest('button'); if (!b) { return; }
+        cur = b.getAttribute('data-range'); localStorage.setItem('usageRange', cur);
+        paintToggle(rangeToggle, 'data-range', cur); swapActive();
+      });
+      paintToggle(rangeToggle, 'data-range', cur);
+    }
+    buildActive();
+
+    // ---- Errors over time + dashed alert threshold (2x avg, min 5) ----
+    (function () {
+      var ctx = document.getElementById('chartErrors'); var d = read('data-errors'); if (!ctx || !d) { return; }
+      var tot = d.client_4xx.map(function (v, i) { return v + d.server_5xx[i]; });
+      var avg = tot.reduce(function (a, b) { return a + b; }, 0) / (tot.length || 1);
+      var thr = Math.max(5, Math.round(avg * 2));
+      new Chart(ctx.getContext('2d'), {
+        type: 'line',
+        data: { labels: d.labels, datasets: [
+          { label: '4xx', data: d.client_4xx, borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,0.12)', borderWidth: 2, pointRadius: 0, tension: 0.25, fill: true },
+          { label: '5xx', data: d.server_5xx, borderColor: '#f43f5e', backgroundColor: 'rgba(244,63,94,0.14)', borderWidth: 2, pointRadius: 0, tension: 0.25, fill: true },
+          { label: 'Threshold', data: d.labels.map(function () { return thr; }), borderColor: 'rgba(148,163,184,0.7)', borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false } ] },
+        options: {
+          responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          scales: { x: { ticks: { color: TICK, maxTicksLimit: 8, autoSkip: true, maxRotation: 0, font: { size: 11 } }, grid: { display: false } },
+                    y: { beginAtZero: true, ticks: { color: TICK, precision: 0, font: { size: 11 } }, grid: { color: GRID } } },
+          plugins: { legend: { display: false } }
+        }
+      });
+    })();
+
+    // ---- Top pages 7d / 30d toggle (server-rendered lists) ----
+    var pagesToggle = document.getElementById('pages-toggle');
+    if (pagesToggle) {
+      var p30 = document.getElementById('pages-30'), p7 = document.getElementById('pages-7');
+      function showPages(v) {
+        var is7 = v === '7d';
+        p7.classList.toggle('hidden', !is7); p7.classList.toggle('flex', is7);
+        p30.classList.toggle('hidden', is7); p30.classList.toggle('flex', !is7);
+        paintToggle(pagesToggle, 'data-pages', v); localStorage.setItem('usagePages', v);
+      }
+      pagesToggle.addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) { showPages(b.getAttribute('data-pages')); } });
+      showPages(localStorage.getItem('usagePages') === '7d' ? '7d' : '30d');
+    }
+  })();
+</script>
+{% endblock %}

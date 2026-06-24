@@ -136,11 +136,17 @@ python manage.py backfill_department_levels --dry-run  # preview
 ## Homework
 
 ### `publish_scheduled_homework`
-Auto-publish homework assignments that have reached their scheduled publish time.
+Auto-publish homework whose scheduled `publish_at` time has been reached. For each
+due homework it sets `published_at` (making it visible to students/parents) and
+notifies every active student in the class (in-app notification + email). Idempotent —
+safe to re-run.
 ```bash
 python manage.py publish_scheduled_homework
 ```
-Intended to run as a cron job (e.g. every 5 minutes).
+Intended to run as a cron job every ~5 minutes. On the DigitalOcean server (`cwa` user):
+```cron
+*/5 * * * * cd /home/cwa/CWA_CLASS_APP && /home/cwa/CWA_CLASS_APP/venv/bin/python manage.py publish_scheduled_homework >> /var/log/cwa/publish_scheduled_homework.log 2>&1
+```
 
 ---
 
@@ -168,6 +174,38 @@ python manage.py generate_puzzles --count 50         # how many
 python manage.py generate_puzzles --clear            # remove existing first
 python manage.py generate_puzzles --dry-run          # preview
 ```
+
+---
+
+## Jira Sprint Burndown
+
+### `sync_sprint_burndown`
+Record burndown snapshots (story points remaining) from Jira. It records a
+**whole-project** snapshot — total points remaining across the project, which is
+what the `/sprints/burndown/` chart shows — and, if a board is configured, the
+**active-sprint** snapshot for per-sprint history. A burndown is time-series and
+Jira only reports each issue's *current* state, so this must run on a schedule to
+build up history. Idempotent — re-running upserts today's snapshot. The project
+snapshot needs only `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN` (and
+`JIRA_PROJECT_KEY`, default `CPP`); the sprint snapshot additionally needs
+`JIRA_BOARD_ID`. Override `JIRA_STORY_POINTS_FIELD` if your instance differs from
+the `customfield_10016` default. View the chart at `/sprints/burndown/`.
+```bash
+python manage.py sync_sprint_burndown
+```
+Intended to run as a cron job 3x/day. Use the wrapper script
+`scripts/cron_sync_sprint_burndown.sh` (loads the env file + venv, mirrors the
+other cron scripts). A snapshot is upserted per (sprint, day), so multiple daily
+runs just refresh that day's point — the last run wins for the date. On the
+DigitalOcean server (`cwa` user):
+```cron
+# TEST app — 08:00, 14:00, 22:00
+0 8,14,22 * * * /home/cwa/CWA_CLASS_APP_TEST/scripts/cron_sync_sprint_burndown.sh >> /var/log/cwa/sprint_burndown.log 2>&1
+# PROD app (pass app dir + env file)
+0 8,14,22 * * * /home/cwa/CWA_CLASS_APP/scripts/cron_sync_sprint_burndown.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/sprint_burndown.log 2>&1
+```
+The chart at `/sprints/burndown/` reads back the snapshots this command writes
+and shows a "Last synced from Jira" timestamp from the most recent one.
 
 ---
 

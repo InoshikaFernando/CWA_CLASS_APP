@@ -126,7 +126,8 @@ def test_compare_plans_link_navigates_to_plans_page(
     page.wait_for_load_state("domcontentloaded")
 
     expect(page).to_have_url(re.compile(r"/billing/institute/plans/"), timeout=10_000)
-    expect(page.locator("h1")).to_contain_text("Choose Your Plan")
+    # Target the specific heading — the page renders more than one <h1>.
+    expect(page.get_by_role("heading", name="Choose Your Plan")).to_be_visible()
 
 
 @pytest.mark.django_db(transaction=True)

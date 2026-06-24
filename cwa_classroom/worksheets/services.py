@@ -20,21 +20,51 @@ This avoids Pillow entirely and produces publication-quality crops.
 import base64
 import json
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-SCREENSHOT_DPI = 150  # DPI used when rendering page screenshots sent to Claude
+# DPI for the page screenshots sent to Claude. 150 is the quality sweet spot —
+# lower values make Claude miss questions (small text becomes illegible). Tune
+# down via WORKSHEET_SCREENSHOT_DPI only if memory is tight (all page screenshots
+# are held in memory at once); pixmaps are freed per page to limit the spike.
+SCREENSHOT_DPI = int(os.environ.get('WORKSHEET_SCREENSHOT_DPI', '150'))
+
+# Higher screenshot DPI used in name-the-shape mode. A shapes chart packs many small
+# figures onto one page; extra pixels give Claude finer coordinates to localise each
+# shape, so the per-shape bboxes come back tighter. Bbox *correctness* is DPI-independent
+# (coords convert via each page's stored dims) — this only improves placement precision.
+SHAPE_NAMING_DPI = int(os.environ.get('WORKSHEET_SHAPE_NAMING_DPI', '200'))
+
+# Max output tokens for the classification call. Each extracted question is a
+# sizeable structured object (text, type, answers, bbox, rubric), so a dense
+# multi-page worksheet can exceed a small cap and get its question list
+# truncated — i.e. only *some* questions come back. Keep this generous.
+WORKSHEET_MAX_TOKENS = int(os.environ.get('WORKSHEET_MAX_TOKENS', '32000'))
+
+# Parallel classification: a multi-page worksheet is split into page-chunks that
+# are classified concurrently. Each chunk generates a fraction of the output and
+# they run at the same time, so wall-clock ≈ the slowest chunk rather than the
+# sum — e.g. a 13-page worksheet drops from ~6 min to ~2 min.
+WORKSHEET_CHUNK_SIZE = int(os.environ.get('WORKSHEET_CHUNK_SIZE', '4'))   # pages per request
+WORKSHEET_MAX_PARALLEL = int(os.environ.get('WORKSHEET_MAX_PARALLEL', '4'))  # concurrent requests
+WORKSHEET_PAGE_CAP = int(os.environ.get('WORKSHEET_PAGE_CAP', '40'))      # hard ceiling on pages processed
 
 
 # ---------------------------------------------------------------------------
 # PDF page extraction (worksheet-specific — tracks screenshot dimensions)
 # ---------------------------------------------------------------------------
 
-def extract_worksheet_pages(doc):
+def extract_worksheet_pages(doc, screenshot_dpi=None):
     """
     Render each page of an open fitz.Document.
+
+    ``screenshot_dpi`` overrides the page-screenshot DPI (defaults to
+    SCREENSHOT_DPI). Name-the-shape mode passes a higher value so Claude can
+    place tighter bounding boxes around small individual shapes.
 
     Returns:
         {
@@ -52,13 +82,14 @@ def extract_worksheet_pages(doc):
             'page_count': int,
         }
     """
+    dpi = screenshot_dpi or SCREENSHOT_DPI
     pages = []
     for page_num in range(len(doc)):
         page = doc[page_num]
         text = page.get_text('text')
 
         # Render full page as JPEG screenshot for Claude
-        pix = page.get_pixmap(dpi=SCREENSHOT_DPI)
+        pix = page.get_pixmap(dpi=dpi)
         screenshot_b64 = base64.b64encode(pix.tobytes('jpeg')).decode('utf-8')
 
         pages.append({
@@ -70,6 +101,8 @@ def extract_worksheet_pages(doc):
             'pdf_w': page.rect.width,
             'pdf_h': page.rect.height,
         })
+        # Release the raw pixmap buffer promptly — the base64 is already kept.
+        pix = None
 
     return {'pages': pages, 'page_count': len(pages)}
 
@@ -108,7 +141,60 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                         "question_type": {
                             "type": "string",
                             "enum": ["multiple_choice", "true_false", "short_answer",
-                                     "fill_blank", "calculation", "extended_answer"],
+                                     "fill_blank", "calculation", "extended_answer",
+                                     "long_division", "column_operation",
+                                     "plot_points", "plot_line", "identify_coords",
+                                     "read_graph"],
+                        },
+                        "plane_spec": {
+                            "type": "object",
+                            "description": (
+                                "For plot_points / plot_line / identify_coords only — a signed Cartesian "
+                                "plane. bounds = visible axis range; mode 'points' (plot/identify dots) or "
+                                "'segments' (a line/shape to join); target = the correct answer (points OR "
+                                "segments) in SIGNED integer coords; given_points = points already drawn "
+                                "(identify_coords reads these). The app draws the blank plane, so "
+                                "set has_image=false for these types."
+                            ),
+                        },
+                        "graph_spec": {
+                            "type": "object",
+                            "description": (
+                                "For read_graph only and OPTIONAL — a clean re-draw of the line graph "
+                                "(x_axis/y_axis with label/unit/min/max/step; series with points). Only "
+                                "supply when you can read the series points confidently; otherwise omit it "
+                                "and keep the graph image (has_image=true)."
+                            ),
+                        },
+                        "numeric_answer": {
+                            "type": "number",
+                            "description": "For read_graph only: the value the student reads off the graph.",
+                        },
+                        "answer_tolerance": {
+                            "type": "number",
+                            "description": "For read_graph only: accepted ± band around numeric_answer (e.g. 5). Omit for exact.",
+                        },
+                        "answer_unit": {
+                            "type": "string",
+                            "description": "For read_graph only: unit shown after the answer box, e.g. 'km', 'min'.",
+                        },
+                        "dividend": {
+                            "type": "integer",
+                            "description": "For long_division only: the number being divided (under the bar), e.g. 611.",
+                        },
+                        "divisor": {
+                            "type": "integer",
+                            "description": "For long_division only: the number dividing (outside/left of the bar), e.g. 47.",
+                        },
+                        "operands": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "For column_operation only: the stacked numbers top-to-bottom, e.g. [23, 25].",
+                        },
+                        "operator": {
+                            "type": "string",
+                            "enum": ["+", "-", "*"],
+                            "description": "For column_operation only: the arithmetic operator ('+', '-' or '*').",
                         },
                         "validation_type": {
                             "type": "string",
@@ -205,7 +291,13 @@ WORKSHEET_SYSTEM_PROMPT = """You are an expert at reading school homework worksh
 Rules:
 1. Extract EVERY question in order. Do not skip any.
 2. question_text = the question only. Never include answer options inside question_text.
-3. For questions with a VISUAL (shape, diagram, ruler, number line, graph, table, grid,
+   question_text MUST be SELF-CONTAINED: include the full stem/context a student needs to
+   answer, even if it spans several lines above the prompt. Example: a sheet reading
+   "Cars and motorbikes are parked in a street. Stefan counts 3 motorbikes and 5 cars. He
+   counts 28 wheels altogether. Explain why Stefan cannot be correct." must keep ALL of that
+   in question_text — not just "Explain why Stefan cannot be correct." Carry numbers, names
+   and given facts into the text; do not assume the image will supply them.
+3. For questions with a VISUAL (shape, diagram, ruler, number line, graph, table,
    geometric figure, coordinate plane): set has_image=true and give image_bbox as the
    pixel bounding box of ONLY the visual in the page screenshot.
    - Do NOT include the question text in the bbox.
@@ -214,11 +306,88 @@ Rules:
    - Do NOT include question numbers (e.g. "1.", "Q2").
    - The TOP edge of the bbox must sit at or below the first pixel of the actual visual.
    - The bbox should tightly surround just the visual element with a small margin.
+   - MATCH THE IMAGE TO THIS QUESTION'S TEXT. The bbox must be the visual that THIS
+     question's text refers to. If the text says "the pictogram shows…", "from the graph…",
+     "the table below", "this diagram", "name this shape" — the bbox MUST be exactly that
+     pictogram/graph/table/diagram/shape, sitting next to this question.
+   - NEVER attach a visual that belongs to a DIFFERENT question — a neighbouring diagram,
+     another question's working grid, squared paper, or answer box. When questions sit close
+     together, double-check the region you cropped is the one this text describes.
+   - SELF-CHECK: if the text references a pictogram/graph/table but the region you would crop
+     is squared paper, a calculation, or a blank box, you have the WRONG region — find the
+     actual visual, or set has_image=false if it genuinely isn't present.
 4. For numeric/calculation questions ("What is 24 ÷ 6?"), use short_answer with only
    the correct answer — do NOT invent wrong options.
 5. For multiple choice, list ALL provided answer options including the correct one.
 6. Write explanations that help students understand why they got it wrong.
 7. Do NOT skip questions even if they look simple.
+8. MATCHING / "name each" questions: when ONE question asks the student to match or name
+   SEVERAL items (e.g. "Match each diagram to the name of the dashed line" with 3 circle
+   diagrams, or "Name each shape"), SPLIT it into ONE multiple_choice question PER item:
+   - Emit one question per individual diagram/shape/item (3 diagrams → 3 questions).
+   - Each question's image_bbox is a TIGHT crop of THAT ONE item only.
+   - question_text states what to identify, e.g. "What is the name of the dashed line shown
+     in this diagram?" or "Name the shape shown in this diagram."
+   - answers = ALL the candidate names offered by the question (the full match list), with
+     is_correct=true on the one that fits this item and the others as distractors. Example:
+     the circle question offers circumference / diameter / radius → every split question uses
+     those three as the options, with the correct one marked per diagram.
+   - validation_type = "auto". Never merge several items into one combined answer string.
+9. LONG DIVISION: if a division is drawn in the "bus stop" layout — the divisor written
+   to the LEFT of a vertical bar and the dividend UNDER a horizontal bar (e.g. "47" outside,
+   "611" under the bar) — set question_type="long_division", "dividend" to the number under
+   the bar and "divisor" to the number outside it, and question_text to
+   "Solve using long division: {dividend} ÷ {divisor}". Do NOT concatenate the digits into
+   one number (never "47611") and set has_image=false — the app draws the bracket itself.
+   The answer is computed automatically; leave answers=[].
+10. COLUMN ARITHMETIC: if numbers are stacked vertically for addition, subtraction or
+   multiplication — written one under another, right-aligned, with a +, − or × sign and a
+   rule line under which the answer goes (e.g. "23" above "+ 25" with a line below) — set
+   question_type="column_operation", "operands" to the stacked numbers top-to-bottom
+   (e.g. [23, 25]), and "operator" to "+", "-" or "*". Set question_text to the inline form,
+   e.g. "23 + 25". Do NOT concatenate the digits into one number (never "2325") and set
+   has_image=false — the app draws the stacked grid itself. The answer is computed
+   automatically; leave answers=[].
+11. CARTESIAN PLANE: if the question shows a BLANK signed coordinate plane (numbered x/y axes,
+   four quadrants) and asks the student to PLOT coordinates, use "plot_points" — put the visible
+   axis range in plane_spec.bounds, mode "points", and the coordinates to plot in
+   plane_spec.target.points (signed integers, e.g. [[3,-2]]). If it asks to plot AND JOIN points
+   into a line/shape, use "plot_line" — mode "segments" and plane_spec.target.segments as the
+   joined line ([{"x1","y1","x2","y2"}]). If a point is ALREADY PLOTTED and the student must WRITE
+   its coordinates, use "identify_coords" — mode "points", put the plotted point in BOTH
+   plane_spec.given_points and plane_spec.target.points. Set has_image=false (the app draws the
+   plane) and leave answers=[].
+12. READ A GRAPH: if a PRE-DRAWN line graph (e.g. distance-vs-time) is shown and the student must
+   READ a value off it, use "read_graph". Set numeric_answer to the value to read,
+   answer_tolerance to a sensible ± band, answer_unit to the axis unit. Keep the graph image
+   (has_image=true, image_bbox around the graph). Only add graph_spec if you can read the series
+   points confidently; otherwise omit it. Leave answers=[]; validation_type="auto".
+
+IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
+- has_image=true ONLY when the question genuinely depends on a visual that cannot be written
+  as text: a shape to identify, a diagram/figure, a graph/chart, a data table, a number line,
+  a ruler/protractor reading, a clock face, a coordinate plane, a picture to interpret.
+- has_image=false for decorative or scaffolding graphics that carry NO information — blank
+  answer boxes, working space, grid/squared paper, ruled lines, long-division brackets,
+  column/stacked-arithmetic grids, page borders. Transcribe the maths into text/fields instead.
+  Example: an "Explain why…" question followed by a big empty box or squared grid for the
+  student's working has has_image=false — the box holds no information.
+- When unsure, prefer has_image=false. A wrongly-attached image is worse than none.
+
+ANSWER ACCURACY — VERIFY EVERY ANSWER BEFORE RETURNING IT:
+Do NOT guess answers. Re-derive each answer from the numbers, figures and expressions
+actually shown in the question, then check it.
+- For computational questions (arithmetic, algebra, expand/simplify, fractions, etc.)
+  work the problem out fully, step by step, and confirm the final result. The answer text
+  you return MUST equal that verified result — never a hasty first pass.
+- The explanation must be a CLEAN, FINAL explanation of why the correct answer is correct.
+  Do your working silently; never put scratch work, self-corrections, or "wait, let me
+  redo this" notes into the explanation. Only the verified conclusion belongs there.
+- The answer and the explanation must describe the SAME result. Never let the answer text
+  and the explanation disagree with each other or with the figure. If they disagree,
+  recompute until they match before returning.
+- If you cannot determine the correct answer with confidence, set validation_type to
+  "human_graded" rather than inventing one.
 
 Choosing validation_type per question:
 - auto        → MCQ, T/F, short numeric answers, fill-in-the-blank. The system can check
@@ -239,6 +408,43 @@ For extended_answer questions (ai_graded / human_graded):
   valid reasoning chains — the rubric must accept all of them."""
 
 
+SHAPE_NAMING_SYSTEM_PROMPT = """You are building "name the shape" practice questions from a worksheet that DISPLAYS shapes.
+
+The worksheet shows one or more SHAPES — a chart, grid, row, or scattered set, possibly
+already labelled. Your job is to turn EACH INDIVIDUAL shape into its OWN question.
+
+Rules:
+1. Emit ONE question PER individual shape. If the page shows 8 shapes, return 8 questions.
+   - Never group multiple shapes into one question.
+   - Ignore any shape names already printed on the sheet — you are generating fresh
+     questions, so do not leak the answer into question_text.
+2. For EVERY shape question, set exactly:
+   - question_text = "What is the name of this shape?"
+   - question_type = "multiple_choice"
+   - validation_type = "auto"
+   - has_image = true
+   - image_bbox = a TIGHT pixel box around ONLY that ONE shape in the page screenshot.
+       * One shape per box. Never include a neighbouring shape.
+       * Do NOT include the shape's printed name/label, question numbers, or headings.
+       * Leave only a few pixels of margin around the shape itself.
+       * Coordinates are [left, top, right, bottom] in the page screenshot's pixel space.
+   - answers = the CORRECT shape name (is_correct=true) PLUS exactly 3 plausible wrong
+     shape names (is_correct=false). Distractors must be real shapes a learner might
+     confuse it with (square ↔ rectangle / rhombus; circle ↔ oval / ellipse;
+     triangle types; pentagon ↔ hexagon). Never repeat the correct name as a distractor.
+   - difficulty = 1 for common shapes (circle, square, triangle, rectangle); 2 for
+     less common ones (trapezium, parallelogram, rhombus, pentagon, hexagon, octagon);
+     3 for advanced/3-D solids.
+   - explanation = ONE short sentence on the defining property
+     (e.g. "A triangle has 3 straight sides and 3 angles.").
+3. Identify each shape yourself from the picture. Use standard names. Prefer a specific
+   name only when clearly distinguishable (e.g. "Rectangle", "Equilateral triangle");
+   otherwise use the general name ("Triangle", "Quadrilateral").
+4. Classification: subject "Mathematics", strand "Geometry", topic "2D Shapes"
+   (or "3D Shapes" for solids). Use the year level implied by the sheet, default 1.
+5. In this mode emit ONLY shape-naming questions — skip any non-shape text questions."""
+
+
 def _get_anthropic_client():
     import anthropic
     # PDF classification can take 60-90s for large worksheets — raise the
@@ -249,80 +455,104 @@ def _get_anthropic_client():
     )
 
 
-def classify_worksheet_questions(extracted_pages, existing_topics, existing_levels):
-    """
-    Send page screenshots to Claude and get structured questions with image bboxes.
-    """
-    client = _get_anthropic_client()
-
+def _build_system_prompt(existing_topics, existing_levels, shape_naming=False):
     topic_names = ', '.join(t['name'] for t in existing_topics) if existing_topics else 'None yet'
     level_names = ', '.join(
         f"Year {l['level_number']}" for l in existing_levels if l['level_number'] <= 12
     ) if existing_levels else 'Year 1–8'
-
-    system = (
-        WORKSHEET_SYSTEM_PROMPT
+    base = SHAPE_NAMING_SYSTEM_PROMPT if shape_naming else WORKSHEET_SYSTEM_PROMPT
+    return (
+        base
         + f"\n\nExisting topics in the system: {topic_names}"
         + f"\nAvailable year levels: {level_names}"
         + "\nMap to existing topics where possible."
     )
 
+
+def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=False):
+    """Classify one chunk of pages in a single streamed Claude call.
+
+    Each page carries its absolute page_num label, so the returned image_bbox
+    page numbers are absolute — chunks can be merged without remapping. Raises
+    ValueError if no structured result comes back.
+
+    ``shape_naming`` swaps the user-facing instructions for the name-the-shape
+    workflow (one question per individual shape).
+    """
+    if shape_naming:
+        intro = (
+            f"These pages are part of a {total_page_count}-page shapes worksheet. "
+            "I'm sending each page as a screenshot. Generate one 'name the shape' "
+            "question for EACH individual shape using the classify_worksheet_questions tool."
+        )
+    else:
+        intro = (
+            f"These pages are part of a {total_page_count}-page homework worksheet. "
+            "I'm sending each page as a screenshot. Extract ALL questions on these "
+            "pages using the classify_worksheet_questions tool."
+        )
     content_blocks = [{
         "type": "text",
-        "text": (
-            f"This is a {extracted_pages['page_count']}-page homework worksheet. "
-            "I'm sending each page as a screenshot. Please extract all questions "
-            "using the classify_worksheet_questions tool."
-        ),
+        "text": intro,
     }]
-
-    for page in extracted_pages['pages'][:20]:  # cap at 20 pages
-        if page.get('screenshot'):
-            content_blocks.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": "image/jpeg",
-                    "data": page['screenshot'],
-                },
-            })
-            content_blocks.append({
-                "type": "text",
-                "text": (
-                    f"[Page {page['page_num']} — {page['screenshot_w']}×{page['screenshot_h']} px. "
-                    f"image_bbox coordinates are in this pixel space. "
-                    f"Text: {page['text'][:600]}]"
-                ),
-            })
-
-    content_blocks.append({
-        "type": "text",
-        "text": (
-            "Extract ALL questions. For each question with a shape, diagram, graph, table, "
-            "ruler, or number line: set has_image=true and provide image_bbox [left, top, right, bottom] "
-            "in the page screenshot's pixel coordinates. "
+    for page in pages:
+        content_blocks.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": page['screenshot'],
+            },
+        })
+        content_blocks.append({
+            "type": "text",
+            "text": (
+                f"[Page {page['page_num']} — {page['screenshot_w']}×{page['screenshot_h']} px. "
+                f"image_bbox coordinates are in this pixel space. "
+                f"Text: {page['text'][:600]}]"
+            ),
+        })
+    if shape_naming:
+        closing = (
+            "Generate one question per INDIVIDUAL shape on these pages. For each shape: "
+            "question_text=\"What is the name of this shape?\", question_type=multiple_choice, "
+            "has_image=true, and image_bbox [left, top, right, bottom] tightly around ONLY "
+            "that single shape in the page screenshot's pixel coordinates. Provide the correct "
+            "shape name plus 3 plausible wrong shape names as answers. "
+            "Use the classify_worksheet_questions tool now."
+        )
+    else:
+        closing = (
+            "Extract ALL questions on these pages. For each question with a shape, diagram, "
+            "graph, table, ruler, or number line: set has_image=true and provide image_bbox "
+            "[left, top, right, bottom] in the page screenshot's pixel coordinates. "
             "Crop ONLY the visual — not the question text or answer options. "
             "Use the classify_worksheet_questions tool now."
-        ),
+        )
+    content_blocks.append({
+        "type": "text",
+        "text": closing,
     })
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=16384,
+    # Stream so a long generation doesn't trip the SDK read timeout.
+    # claude-sonnet-4-20250514 is deprecated; default to Opus (env-overridable via
+    # WORKSHEET_MODEL). No adaptive thinking here — it is incompatible with the
+    # forced tool_choice below.
+    with client.messages.stream(
+        model=os.environ.get('WORKSHEET_MODEL', 'claude-opus-4-8'),
+        max_tokens=WORKSHEET_MAX_TOKENS,
         system=system,
         tools=[WORKSHEET_CLASSIFICATION_TOOL],
-        # Force the model to call the tool — avoids text-only responses that
-        # bypass the tool_use block and cause "no structured data" errors.
         tool_choice={"type": "tool", "name": "classify_worksheet_questions"},
         messages=[{"role": "user", "content": content_blocks}],
-    )
+    ) as stream:
+        response = stream.get_final_message()
 
     result = None
     for block in response.content:
         if block.type == 'tool_use' and block.name == 'classify_worksheet_questions':
             result = block.input
             break
-
     if not result:
         for block in response.content:
             if block.type == 'text':
@@ -331,29 +561,92 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
                     break
                 except json.JSONDecodeError:
                     pass
-
     if not result:
         stop_reason = getattr(response, 'stop_reason', 'unknown')
-        logger.error(
-            'classify_worksheet_questions: no structured result. '
-            'stop_reason=%s content_types=%s',
-            stop_reason,
-            [b.type for b in response.content],
-        )
+        logger.error('classify chunk: no structured result. stop_reason=%s', stop_reason)
         if stop_reason == 'max_tokens':
             raise ValueError(
-                'The worksheet is too large to process in one pass. '
-                'Try splitting it into smaller sections and uploading each separately.'
+                'A section of the worksheet is too dense to process in one chunk. '
+                'Try a smaller WORKSHEET_CHUNK_SIZE.'
             )
         raise ValueError("AI did not return structured question data. Please try again.")
 
+    result.setdefault('questions', [])
     result['usage'] = {
         'input_tokens': response.usage.input_tokens,
         'output_tokens': response.usage.output_tokens,
         'total_tokens': response.usage.input_tokens + response.usage.output_tokens,
     }
-
     return result
+
+
+def _merge_chunk_results(results):
+    """Merge per-chunk results: concatenate questions (already page-ordered),
+    pick the most common worksheet-level classification, sum token usage."""
+    from collections import Counter
+
+    def pick(field, default=None):
+        vals = [r.get(field) for r in results if r.get(field)]
+        return Counter(vals).most_common(1)[0][0] if vals else default
+
+    questions = []
+    for r in results:
+        questions.extend(r.get('questions', []))
+    input_t = sum(r.get('usage', {}).get('input_tokens', 0) for r in results)
+    output_t = sum(r.get('usage', {}).get('output_tokens', 0) for r in results)
+    return {
+        'year_level': pick('year_level'),
+        'subject': pick('subject', 'Mathematics'),
+        'strand': pick('strand', ''),
+        'topic': pick('topic', ''),
+        'questions': questions,
+        'usage': {
+            'input_tokens': input_t,
+            'output_tokens': output_t,
+            'total_tokens': input_t + output_t,
+        },
+    }
+
+
+def classify_worksheet_questions(extracted_pages, existing_topics, existing_levels,
+                                 shape_naming=False):
+    """Send page screenshots to Claude and get structured questions with image bboxes.
+
+    Multi-page worksheets are split into page-chunks classified *concurrently*
+    (CPP: speed). Each chunk generates a fraction of the output and they run at
+    the same time, so wall-clock ≈ the slowest chunk rather than the sum. Single
+    short worksheets fall through to one call. Results are merged in page order.
+
+    ``shape_naming`` switches to the name-the-shape prompt: one auto-generated
+    "What is the name of this shape?" question per individual shape.
+    """
+    client = _get_anthropic_client()
+    system = _build_system_prompt(existing_topics, existing_levels, shape_naming=shape_naming)
+
+    pages = [p for p in extracted_pages['pages'][:WORKSHEET_PAGE_CAP] if p.get('screenshot')]
+    if not pages:
+        raise ValueError("No page screenshots to classify.")
+    total = extracted_pages['page_count']
+
+    chunks = [pages[i:i + WORKSHEET_CHUNK_SIZE]
+              for i in range(0, len(pages), WORKSHEET_CHUNK_SIZE)]
+
+    # One chunk → no thread-pool overhead.
+    if len(chunks) == 1:
+        return _classify_page_chunk(client, system, chunks[0], total, shape_naming=shape_naming)
+
+    ordered = [None] * len(chunks)
+    with ThreadPoolExecutor(max_workers=min(WORKSHEET_MAX_PARALLEL, len(chunks))) as pool:
+        futures = {
+            pool.submit(_classify_page_chunk, client, system, chunk, total,
+                        shape_naming=shape_naming): idx
+            for idx, chunk in enumerate(chunks)
+        }
+        for fut in as_completed(futures):
+            ordered[futures[fut]] = fut.result()  # re-raises any chunk failure
+
+    logger.info('Classified %s pages across %s parallel chunks', len(pages), len(chunks))
+    return _merge_chunk_results(ordered)
 
 
 # ---------------------------------------------------------------------------
@@ -506,13 +799,29 @@ def _trim_whitespace(pix):
     try:
         from PIL import Image
         import io
-        img = Image.frombytes('RGB', (w, h), bytes(samples))
-        img = img.crop((left, top, right + 1, bottom + 1))
+        # pix.n may include an alpha channel (RGBA, n==4) — e.g. when the
+        # diagram was rendered with header redaction. Build the image with the
+        # real channel count, then normalise to RGB. Hardcoding 'RGB' on a
+        # 4-channel pixmap mis-aligns the buffer and makes img.save() raise
+        # "tile cannot extend outside image", dropping the whole diagram. For
+        # anything other than RGB/RGBA (e.g. CMYK n==5) skip the trim rather
+        # than mis-read the buffer.
+        mode = {3: 'RGB', 4: 'RGBA'}.get(n)
+        if mode is None:
+            return pix
+        img = Image.frombytes(mode, (w, h), bytes(samples))
+        img = img.crop((left, top, right + 1, bottom + 1)).convert('RGB')
         buf = io.BytesIO()
         img.save(buf, format='PNG')
         return buf.getvalue()  # return raw bytes when Pillow is available
     except ImportError:
         return pix  # Pillow not installed — return original
+    except Exception:
+        # Any other Pillow failure (degenerate crop, odd colorspace) must never
+        # cost us the image — fall back to the untrimmed pixmap.
+        logger.warning('Q image: whitespace trim failed; using untrimmed image',
+                       exc_info=True)
+        return pix
 
 
 def render_question_images(doc, extracted_pages, classified_result):
@@ -627,12 +936,16 @@ def render_question_images(doc, extracted_pages, classified_result):
 # Full pipeline
 # ---------------------------------------------------------------------------
 
-def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels):
+def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
+                                   shape_naming=False):
     """
     Full pipeline: PDF → page screenshots → AI classify → render image regions.
 
     Keeps the fitz.Document open throughout so we can render clips from
     the original PDF vectors rather than cropping JPEG screenshots.
+
+    ``shape_naming`` enables name-the-shape mode: pages are rendered at a higher
+    DPI and Claude emits one "name this shape" question per individual shape.
 
     Returns:
         {
@@ -647,14 +960,20 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels):
     doc = fitz.open(stream=pdf_bytes, filetype='pdf')
 
     try:
-        # Step 1: render pages + collect text
-        extracted_pages = extract_worksheet_pages(doc)
+        # Step 1: render pages + collect text (higher DPI in shape mode for tighter crops)
+        extracted_pages = extract_worksheet_pages(
+            doc, screenshot_dpi=SHAPE_NAMING_DPI if shape_naming else None,
+        )
 
         # Step 2: AI classification (gets question text, type, answers, image bboxes)
-        result = classify_worksheet_questions(extracted_pages, existing_topics, existing_levels)
+        result = classify_worksheet_questions(
+            extracted_pages, existing_topics, existing_levels, shape_naming=shape_naming,
+        )
 
         for q in result.get('questions', []):
-            q.setdefault('include', True)
+            # Teacher-graded (human_graded) questions are deselected by default so
+            # the teacher opts in rather than out; everything else is included.
+            q.setdefault('include', q.get('validation_type') != 'human_graded')
 
         # Step 3: render image regions from PDF vectors (not screenshot crops)
         result, extracted_images = render_question_images(doc, extracted_pages, result)

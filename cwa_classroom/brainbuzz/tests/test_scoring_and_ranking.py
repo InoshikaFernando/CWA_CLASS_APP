@@ -165,13 +165,18 @@ class TestNormalizeShortAnswer(TestCase):
         assert normalize_short_answer("PyThOn") == "python"
 
     def test_whitespace_normalization(self):
-        """Multiple spaces collapsed to single space."""
-        assert normalize_short_answer("hello   world") == "hello world"
-        assert normalize_short_answer("a  b  c") == "a b c"
+        """All whitespace removed entirely (spacing never affects the match)."""
+        assert normalize_short_answer("hello   world") == "helloworld"
+        assert normalize_short_answer("a  b  c") == "abc"
+
+    def test_commas_removed(self):
+        """Commas are insignificant (digit-grouping or list commas)."""
+        assert normalize_short_answer("1,000") == "1000"
+        assert normalize_short_answer("red, green, blue") == "redgreenblue"
 
     def test_combined_normalization(self):
         """All transformations applied together."""
-        assert normalize_short_answer("  Hello   World  ") == "hello world"
+        assert normalize_short_answer("  Hello   World  ") == "helloworld"
         assert normalize_short_answer("\t\nPython\t\n") == "python"
 
     def test_numbers_preserved(self):
@@ -183,6 +188,16 @@ class TestNormalizeShortAnswer(TestCase):
         """Special characters preserved (except whitespace)."""
         assert normalize_short_answer("C++") == "c++"
         assert normalize_short_answer("C#") == "c#"
+
+    def test_superscript_and_caret_fold_together(self):
+        """Unicode superscript, caret and ** notation fold to one form."""
+        assert normalize_short_answer("3 × 10²") == normalize_short_answer("3 × 10^2")
+        assert normalize_short_answer("3 × 10²") == normalize_short_answer("3 × 10**2")
+        assert normalize_short_answer("3 × 10²") == "3×102"
+
+    def test_superscript_multi_digit_grouped(self):
+        """A run of superscripts folds together (x²³ == x^23 == x23)."""
+        assert normalize_short_answer("x²³") == "x23"
 
 
 class TestShortAnswerMatching(TestCase):
@@ -224,6 +239,23 @@ class TestShortAnswerMatching(TestCase):
         assert is_short_answer_correct("java", "javascript") is False
         assert is_short_answer_correct("script", "javascript") is False
 
+    def test_superscript_matches_caret_answer(self):
+        """Student superscript matches a caret-notation stored answer."""
+        assert is_short_answer_correct("3 × 10²", "3 × 10^2") is True
+
+    def test_caret_matches_superscript_answer(self):
+        """Equivalence is bidirectional: caret input vs superscript answer."""
+        assert is_short_answer_correct("3 × 10^2", "3 × 10²") is True
+
+    def test_superscript_wrong_exponent_rejected(self):
+        """Folding doesn't make a wrong exponent pass."""
+        assert is_short_answer_correct("3 × 10³", "3 × 10^2") is False
+
+    def test_markerless_exponent_matches(self):
+        """App-wide canonical form is marker-less, so "102" also matches "10^2"
+        (consistent with grade_text_answer / quiz grading)."""
+        assert is_short_answer_correct("3 × 102", "3 × 10^2") is True
+
     def test_empty_user_answer(self):
         """Empty answer treated as incorrect."""
         assert is_short_answer_correct("", "python") is False
@@ -245,8 +277,15 @@ class TestShortAnswerMatching(TestCase):
         assert is_short_answer_correct("Three", "3|three|3.0") is True
 
     def test_whitespace_in_answer(self):
-        """Multiple spaces in answer normalized."""
+        """Internal whitespace ignored entirely when matching."""
         assert is_short_answer_correct("hello   world", "hello world") is True
+        assert is_short_answer_correct("helloworld", "hello world") is True
+
+    def test_commas_ignored_in_answer(self):
+        """Commas ignored on both sides ("1,000" == "1000")."""
+        assert is_short_answer_correct("1,000", "1000") is True
+        assert is_short_answer_correct("1000", "1,000") is True
+        assert is_short_answer_correct("red, green", "red green") is True
 
     def test_case_sensitive_flag(self):
         """case_sensitive=True enforces exact case."""

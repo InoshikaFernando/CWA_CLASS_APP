@@ -27,10 +27,10 @@
 
       <!-- Submission status -->
       <div class="mt-4">
-        {% if submission.submission_status == 'on_time' %}
+        {% if submission_status == 'on_time' %}
         <span class="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">Submitted On Time</span>
         {% else %}
-        <span class="px-3 py-1 rounded-full bg-red-100 text-red-600 text-xs font-semibold">Late Submission</span>
+        <span class="px-3 py-1 rounded-full bg-red-100 text-red-600 text-xs font-semibold">Overdue Submission</span>
         {% endif %}
       </div>
     </div>
@@ -47,19 +47,28 @@
       {% endfor %}
     </div>
 
-    <div class="mt-6 flex gap-3">
-      <a href="{% url 'homework:student_list' %}"
-         class="px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
-        Back to Homework
-      </a>
+    <div class="mt-6 flex flex-wrap gap-3">
+      {% if viewing_other %}
+        <a href="{% url 'homework:student_attempt_history' homework_id=submission.homework.id student_id=student.id %}"
+           class="px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
+          All Attempts
+        </a>
+      {% else %}
+        <a href="{% url 'homework:student_list' %}"
+           class="px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
+          Back to Homework
+        </a>
+        <a href="{% url 'homework:attempt_history' homework_id=submission.homework.id %}"
+           class="px-5 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition">
+          All Attempts
+        </a>
+      {% endif %}
       {% with hw=submission.homework %}
-      {% if not hw.is_past_due %}
-        {% if hw.attempts_unlimited or submission.attempt_number < hw.max_attempts %}
+      {% if can_retry %}
         <a href="{% url 'homework:student_take' homework_id=hw.id %}"
            class="px-5 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition">
           Try Again
         </a>
-        {% endif %}
       {% endif %}
       {% endwith %}
     </div>

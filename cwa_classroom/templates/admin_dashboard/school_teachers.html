@@ -254,7 +254,12 @@
                     {% if not st.is_active %}
                     <span class="text-xs font-medium px-2 py-1 rounded-full ml-1 bg-red-100 text-red-600">Inactive</span>
                     {% endif %}
-                    {% if st.teacher.welcome_email_sent %}
+                    {% comment %}Welcome-email delivery status (CPP-343): the tracked
+                    delivery badge when we have a log, else the original "did we
+                    attempt to send" indicator.{% endcomment %}
+                    {% if st.welcome_email_state %}
+                    <span class="ml-1">{% include "admin_dashboard/partials/_welcome_email_badge.html" with state=st.welcome_email_state %}</span>
+                    {% elif st.teacher.welcome_email_sent %}
                     <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-green-100 text-green-700" title="Welcome email sent {{ st.teacher.welcome_email_sent|date:'d M Y' }}">&#10003; Welcome sent</span>
                     {% else %}
                     <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-amber-100 text-amber-700">Welcome not sent</span>

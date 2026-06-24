@@ -34,9 +34,9 @@ class DepartmentManageLevelsTestBase(TestCase):
             defaults={'name': 'Coding', 'is_active': True},
         )[0]
 
-        # Year levels 1-9 (global, subject=Mathematics)
+        # Year levels 1-10 (global, subject=Mathematics)
         cls.year_levels = []
-        for i in range(1, 10):
+        for i in range(1, 11):
             lv, _ = Level.objects.get_or_create(
                 level_number=i,
                 defaults={'display_name': f'Year {i}', 'subject': cls.maths},
@@ -84,7 +84,7 @@ class DepartmentManageLevelsViewTest(DepartmentManageLevelsTestBase):
         self.assertContains(resp, 'Manage Curriculum Levels')
 
     def test_maths_dept_shows_year_levels_only(self):
-        """Maths department should show Year 1-9, not Basic Facts."""
+        """Maths department should show Year 1-10, not Basic Facts."""
         url = reverse('admin_department_levels', args=[self.school.id, self.dept_maths.id])
         resp = self.client.get(url)
         self.assertContains(resp, 'Year 1')

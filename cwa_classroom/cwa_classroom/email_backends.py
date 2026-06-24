@@ -11,12 +11,24 @@ Usage:
 """
 
 import logging
+import time
 
 import resend
 from django.conf import settings
 from django.core.mail.backends.base import BaseEmailBackend
 
+try:  # SDK may name this differently across versions; fall back gracefully.
+    from resend.exceptions import RateLimitError
+except Exception:  # pragma: no cover
+    RateLimitError = None
+
 logger = logging.getLogger(__name__)
+
+# Resend caps at 2 requests/second. On a 429 we back off and retry rather than
+# dropping the email — bulk sends (welcome batches, payment-required notices)
+# would otherwise lose recipients mid-run.
+_RATE_LIMIT_RETRIES = 5
+_RATE_LIMIT_BACKOFF = 0.7  # seconds, multiplied by attempt number
 
 
 class ResendEmailBackend(BaseEmailBackend):
@@ -40,7 +52,7 @@ class ResendEmailBackend(BaseEmailBackend):
         sent_count = 0
         for message in email_messages:
             try:
-                self._send(message)
+                self._send_with_retry(message)
                 sent_count += 1
             except Exception as e:
                 logger.exception(
@@ -50,6 +62,22 @@ class ResendEmailBackend(BaseEmailBackend):
                 if not self.fail_silently:
                     raise
         return sent_count
+
+    def _send_with_retry(self, message):
+        """Send, retrying with backoff when Resend returns a rate-limit (429)."""
+        for attempt in range(_RATE_LIMIT_RETRIES):
+            try:
+                return self._send(message)
+            except Exception as e:
+                is_rate_limit = (
+                    (RateLimitError is not None and isinstance(e, RateLimitError))
+                    or 'Too many requests' in str(e)
+                    or 'rate limit' in str(e).lower()
+                )
+                if is_rate_limit and attempt < _RATE_LIMIT_RETRIES - 1:
+                    time.sleep(_RATE_LIMIT_BACKOFF * (attempt + 1))
+                    continue
+                raise
 
     def _send(self, message):
         """Send a single EmailMessage via Resend API."""
@@ -92,4 +120,14 @@ class ResendEmailBackend(BaseEmailBackend):
         if message.extra_headers:
             params['headers'] = message.extra_headers
 
-        resend.Emails.send(params)
+        response = resend.Emails.send(params)
+        # Surface the Resend message id back to the caller so it can be stored
+        # on the EmailLog and later correlated with delivery webhooks. The SDK
+        # returns a dict-like {'id': '...'}; tolerate other shapes defensively.
+        message_id = ''
+        if isinstance(response, dict):
+            message_id = response.get('id', '') or ''
+        else:
+            message_id = getattr(response, 'id', '') or ''
+        message.resend_message_id = message_id
+        return response

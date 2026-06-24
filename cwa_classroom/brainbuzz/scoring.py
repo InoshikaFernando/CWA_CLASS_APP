@@ -12,7 +12,9 @@ Kahoot-equivalent formula:
   - Late submission (past deadline + grace) → 0 points (but still marked correct)
 
 Short-answer matching:
-  - Trimmed + case-insensitive + whitespace-normalised
+  - Case-insensitive, whitespace- and comma-normalised
+  - Exponent/inequality notation folded to a canonical form (so "10²",
+    "10^2" and "10**2" all match), shared with app-wide text grading
   - Configurable per-question list of accepted answers (| separated)
 """
 import re
@@ -71,38 +73,49 @@ def calculate_points(
 def normalize_short_answer(text: str) -> str:
     """
     Normalize short answer for case-insensitive comparison.
-    
+
     Performs:
-    1. Strip leading/trailing whitespace
-    2. Convert to lowercase
-    3. Normalize whitespace (multiple spaces → single space)
-    4. Remove extra punctuation variations
-    
+    1. Fold inequality spellings, then exponent notation, via the shared
+       maths helpers — unicode superscripts, ``^`` and ``**`` all collapse to
+       one marker-less form, so "10²" == "10^2" == "10**2" == "102". This is
+       the same exact-match canonicalisation used app-wide by grade_text_answer
+       and the quiz views, so a student can use the x² button anywhere.
+       (fold_exponents also lowercases and strips ALL whitespace, so
+       "py thon" == "python".)
+    2. Remove commas (digit-grouping or list commas are insignificant, so
+       "1,000" == "1000" and "red,green" == "red green").
+
     Args:
         text: Raw user answer
-    
+
     Returns:
         Normalized answer
-    
+
     Examples:
         >>> normalize_short_answer("  Python  ")
         'python'
-        
+
         >>> normalize_short_answer("3.0")
         '3.0'
-        
+
         >>> normalize_short_answer("JavaScript")
         'javascript'
+
+        >>> normalize_short_answer("1,000")
+        '1000'
+
+        >>> normalize_short_answer("3 × 10²") == normalize_short_answer("3 × 10^2")
+        True
     """
-    # Strip whitespace
-    text = text.strip()
-    
-    # Convert to lowercase
-    text = text.lower()
-    
-    # Normalize whitespace: collapse multiple spaces to single
-    text = re.sub(r'\s+', ' ', text)
-    
+    # Lazy import keeps scoring.py importable without the maths app loaded.
+    from maths.algebra_grading import fold_exponents, fold_inequalities
+
+    # Fold inequalities then exponents (lowercases + strips whitespace).
+    text = fold_exponents(fold_inequalities(text))
+
+    # Commas are insignificant (digit-grouping or list commas).
+    text = text.replace(',', '')
+
     return text
 
 
@@ -110,37 +123,51 @@ def is_short_answer_correct(
     user_answer: str,
     correct_answers: str,
     case_sensitive: bool = False,
+    answer_format: str = "text",
 ) -> bool:
     """
     Check if short answer matches any of the correct answers.
-    
+
     Supports | separated alternatives in correct_answers.
     Performs normalization (trim, lowercase, whitespace) automatically.
-    
+
     Args:
         user_answer: Answer provided by student
         correct_answers: Correct answer(s), | separated (e.g., "python|py|3")
         case_sensitive: If False (default), performs case-insensitive match
-    
+        answer_format: "text" (default) for literal matching, or "algebra" to
+            grade as a simplified polynomial (e.g. expanding brackets). In
+            "algebra" mode the answer must be the fully simplified, expanded
+            form — un-combined like terms and un-expanded brackets are wrong
+            even when algebraically equal. See maths.algebra_grading.
+
     Returns:
         True if answer matches any of the accepted answers
-    
+
     Examples:
         >>> is_short_answer_correct("Python", "python")
         True
-        
+
         >>> is_short_answer_correct("  py  ", "python|py|python3")
         True
-        
+
         >>> is_short_answer_correct("ruby", "python|py")
         False
-        
+
         >>> is_short_answer_correct("Java", "javascript")
         False  # Not a substring match
+
+        >>> is_short_answer_correct("-7x + 2x^2 - 15", "2x^2 - 7x - 15", answer_format="algebra")
+        True
     """
     if not user_answer or not correct_answers:
         return False
-    
+
+    if answer_format == "algebra":
+        # Lazy import keeps scoring.py importable without the maths app loaded.
+        from maths.algebra_grading import is_algebraic_answer_correct
+        return is_algebraic_answer_correct(user_answer, correct_answers)
+
     # Normalize user answer
     if not case_sensitive:
         user_answer = normalize_short_answer(user_answer)

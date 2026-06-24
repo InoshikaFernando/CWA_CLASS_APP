@@ -59,18 +59,34 @@ def _create_package(name='Pro', price=Decimal('19.90'), is_active=True):
 # ===========================================================================
 
 class CheckoutViewTest(TestCase):
+    """CheckoutView routes through Stripe Checkout (subscription mode), never a
+    one-time PaymentIntent — so any payment creates a subscription."""
+
     def setUp(self):
         self.user = CustomUser.objects.create_user(
             username='buyer', password='testpass123', email='buyer@test.com',
         )
         self.package = _create_package()
 
-    def test_get_renders_checkout(self):
+    @patch('billing.stripe_service.create_individual_checkout_session')
+    def test_get_redirects_to_stripe_checkout(self, mock_session):
+        mock_session.return_value = MagicMock(url='https://checkout.stripe.com/test')
         self.client.login(username='buyer', password='testpass123')
         resp = self.client.get(reverse('billing_checkout', args=[self.package.id]))
-        self.assertEqual(resp.status_code, 200)
-        self.assertIn('package', resp.context)
-        self.assertEqual(resp.context['package'], self.package)
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, 'https://checkout.stripe.com/test')
+        mock_session.assert_called_once()
+
+    @patch('billing.stripe_service.create_student_checkout_session')
+    def test_school_student_uses_student_checkout(self, mock_session):
+        mock_session.return_value = MagicMock(url='https://checkout.stripe.com/student')
+        student_role = _create_role(Role.STUDENT)
+        UserRole.objects.create(user=self.user, role=student_role)
+        self.client.login(username='buyer', password='testpass123')
+        resp = self.client.get(reverse('billing_checkout', args=[self.package.id]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, 'https://checkout.stripe.com/student')
+        mock_session.assert_called_once()
 
     def test_get_404_for_inactive_package(self):
         self.package.is_active = False
@@ -85,7 +101,10 @@ class CheckoutViewTest(TestCase):
         self.assertIn('/login', resp.url)
 
 
-class CreatePaymentIntentViewTest(TestCase):
+class CreatePaymentIntentViewDisabledTest(TestCase):
+    """Legacy one-time PaymentIntent endpoint is hard-disabled (returns 410) so
+    it can never charge a card without creating a subscription."""
+
     def setUp(self):
         self.user = CustomUser.objects.create_user(
             username='buyer', password='testpass123', email='buyer@test.com',
@@ -93,58 +112,20 @@ class CreatePaymentIntentViewTest(TestCase):
         self.package = _create_package()
         self.client.login(username='buyer', password='testpass123')
 
-    def test_free_package_returns_400(self):
-        free_pkg = _create_package(name='Free', price=Decimal('0.00'))
-        resp = self.client.post(
-            reverse('create_payment_intent', args=[free_pkg.id]),
-            data=json.dumps({}), content_type='application/json',
-        )
-        self.assertEqual(resp.status_code, 400)
-        data = json.loads(resp.content)
-        self.assertIn('error', data)
-
     @patch('billing.views.stripe.PaymentIntent.create')
-    @patch('billing.views.stripe.Customer.create')
-    def test_creates_customer_and_intent(self, mock_cust, mock_intent):
-        mock_cust.return_value = MagicMock(id='cus_test123')
-        mock_intent.return_value = MagicMock(client_secret='pi_secret_test')
+    def test_returns_410_and_creates_no_intent(self, mock_intent):
         resp = self.client.post(
             reverse('create_payment_intent', args=[self.package.id]),
             data=json.dumps({}), content_type='application/json',
         )
-        self.assertEqual(resp.status_code, 200)
-        data = json.loads(resp.content)
-        self.assertEqual(data['client_secret'], 'pi_secret_test')
-        mock_cust.assert_called_once()
-
-    @patch('billing.views.stripe.PaymentIntent.create')
-    def test_uses_existing_customer_id(self, mock_intent):
-        Subscription.objects.create(
-            user=self.user, package=self.package, stripe_customer_id='cus_existing',
-        )
-        mock_intent.return_value = MagicMock(client_secret='pi_secret_existing')
-        resp = self.client.post(
-            reverse('create_payment_intent', args=[self.package.id]),
-            data=json.dumps({}), content_type='application/json',
-        )
-        self.assertEqual(resp.status_code, 200)
-        data = json.loads(resp.content)
-        self.assertEqual(data['client_secret'], 'pi_secret_existing')
-
-    @patch('billing.views.stripe.PaymentIntent.create')
-    @patch('billing.views.stripe.Customer.create')
-    def test_stripe_error_returns_400(self, mock_cust, mock_intent):
-        mock_cust.return_value = MagicMock(id='cus_test')
-        import stripe as stripe_mod
-        mock_intent.side_effect = stripe_mod.error.StripeError('fail')
-        resp = self.client.post(
-            reverse('create_payment_intent', args=[self.package.id]),
-            data=json.dumps({}), content_type='application/json',
-        )
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 410)
+        mock_intent.assert_not_called()
 
 
-class ConfirmPaymentViewTest(TestCase):
+class ConfirmPaymentViewDisabledTest(TestCase):
+    """Legacy PaymentIntent confirmation is hard-disabled (returns 410) so it can
+    no longer create a Payment + active subscription with no stripe_subscription_id."""
+
     def setUp(self):
         self.user = CustomUser.objects.create_user(
             username='buyer', password='testpass123', email='buyer@test.com',
@@ -152,49 +133,17 @@ class ConfirmPaymentViewTest(TestCase):
         self.package = _create_package()
         self.client.login(username='buyer', password='testpass123')
 
-    def test_missing_params_returns_400(self):
-        resp = self.client.post(
-            reverse('confirm_payment'),
-            data=json.dumps({}),
-            content_type='application/json',
-        )
-        self.assertEqual(resp.status_code, 400)
-
     @patch('billing.views.stripe.PaymentIntent.retrieve')
-    def test_payment_not_succeeded_returns_400(self, mock_retrieve):
-        mock_retrieve.return_value = MagicMock(status='requires_payment_method')
-        resp = self.client.post(
-            reverse('confirm_payment'),
-            data=json.dumps({'payment_intent_id': 'pi_test', 'package_id': self.package.id}),
-            content_type='application/json',
-        )
-        self.assertEqual(resp.status_code, 400)
-
-    @patch('billing.views.stripe.PaymentIntent.retrieve')
-    def test_successful_payment(self, mock_retrieve):
-        mock_retrieve.return_value = MagicMock(status='succeeded')
+    def test_returns_410_and_records_nothing(self, mock_retrieve):
         resp = self.client.post(
             reverse('confirm_payment'),
             data=json.dumps({'payment_intent_id': 'pi_ok', 'package_id': self.package.id}),
             content_type='application/json',
         )
-        self.assertEqual(resp.status_code, 200)
-        data = json.loads(resp.content)
-        self.assertTrue(data['success'])
-        self.assertTrue(Payment.objects.filter(stripe_payment_intent_id='pi_ok').exists())
-        sub = Subscription.objects.get(user=self.user)
-        self.assertEqual(sub.status, Subscription.STATUS_ACTIVE)
-
-    @patch('billing.views.stripe.PaymentIntent.retrieve')
-    def test_stripe_error_returns_400(self, mock_retrieve):
-        import stripe as stripe_mod
-        mock_retrieve.side_effect = stripe_mod.error.StripeError('bad')
-        resp = self.client.post(
-            reverse('confirm_payment'),
-            data=json.dumps({'payment_intent_id': 'pi_bad', 'package_id': self.package.id}),
-            content_type='application/json',
-        )
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 410)
+        mock_retrieve.assert_not_called()
+        self.assertFalse(Payment.objects.filter(user=self.user).exists())
+        self.assertFalse(Subscription.objects.filter(user=self.user).exists())
 
 
 class InstitutePlanSelectViewTest(TestCase):

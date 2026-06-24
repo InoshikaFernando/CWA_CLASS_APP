@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Quiz History{% if viewing_other %} — {{ student.get_full_name|default:student.username }}{% endif %}{% endblock %}
+
+{% block content %}
+<div class="p-6">
+  <div class="max-w-3xl mx-auto">
+
+    <!-- Header -->
+    <header class="mb-6">
+      <h1 class="text-2xl font-display font-bold text-gray-900">
+        {% if viewing_other %}
+          Quiz history
+        {% else %}
+          Your quiz history
+        {% endif %}
+      </h1>
+      {% if viewing_other %}
+      <p class="text-sm text-gray-500 mt-1">
+        Recent quiz attempts for
+        <span class="font-semibold text-gray-700">{{ student.get_full_name|default:student.username }}</span>
+      </p>
+      {% endif %}
+      <p class="text-xs text-gray-400 mt-1">Showing the most recent attempts (up to 10 are kept).</p>
+    </header>
+
+    {% if attempts %}
+    <ol class="space-y-3" aria-label="Quiz attempts, newest first">
+      {% for attempt in attempts %}
+      <li>
+        {% if attempt.has_review %}
+        <a href="{% url 'quiz_attempt_review' kind=attempt.kind pk=attempt.pk %}"
+           class="block bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:border-blue-300 hover:shadow-md transition focus:outline-none focus:ring-2 focus:ring-blue-200">
+        {% else %}
+        <div class="block bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+        {% endif %}
+          <div class="flex items-center justify-between gap-4">
+
+            <!-- Left: label, type badge, date -->
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <p class="text-sm font-semibold text-gray-800 truncate">{{ attempt.label }}</p>
+                {% if attempt.quiz_type %}
+                <span class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">{{ attempt.quiz_type }}</span>
+                {% endif %}
+              </div>
+              <p class="text-xs text-gray-400 mt-1">
+                {{ attempt.completed_at|date:"j M Y, H:i" }}
+                {% if not attempt.has_review %}
+                  &nbsp;·&nbsp; <span class="text-gray-400 italic">No saved answers</span>
+                {% endif %}
+              </p>
+            </div>
+
+            <!-- Right: score + percentage pill -->
+            <div class="flex items-center gap-4 shrink-0">
+              <div class="text-right">
+                <p class="text-sm font-semibold text-gray-700">{{ attempt.score }} / {{ attempt.total }}</p>
+                <p class="text-xs text-gray-400">{{ attempt.points|floatformat:1 }} pts</p>
+              </div>
+              <span class="inline-flex items-center justify-center w-14 h-14 rounded-full text-sm font-bold
+                {% if attempt.percentage >= 80 %}bg-green-100 text-green-700
+                {% elif attempt.percentage >= 50 %}bg-yellow-100 text-yellow-700
+                {% else %}bg-red-100 text-red-600{% endif %}">
+                {{ attempt.percentage }}%
+              </span>
+            </div>
+
+          </div>
+        {% if attempt.has_review %}
+        </a>
+        {% else %}
+        </div>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
+      <p class="text-gray-400 text-sm">No quiz attempts yet.</p>
+    </div>
+    {% endif %}
+
+    <!-- Back -->
+    <div class="mt-6">
+      <a href="javascript:history.back()" class="text-sm text-blue-600 hover:underline">&larr; Back</a>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

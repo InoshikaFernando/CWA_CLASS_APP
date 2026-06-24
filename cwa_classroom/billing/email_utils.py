@@ -105,6 +105,50 @@ def notify_trial_expiring(school, days_remaining):
         logger.exception('Failed to send trial expiry email for school %s', school.name)
 
 
+def send_discount_cleared_notification(student, school=None):
+    """Notify a student (and their active linked parents) that their discount
+    was removed by the institute and payment is now required on next login.
+
+    Recipients with no email are skipped. Returns the list of addresses emailed.
+    """
+    from classroom.models import ParentStudent
+
+    recipients = []
+    if getattr(student, 'email', None):
+        recipients.append(student.email)
+    for link in ParentStudent.objects.filter(
+        student=student, is_active=True,
+    ).select_related('parent'):
+        if link.parent and link.parent.email and link.parent.email not in recipients:
+            recipients.append(link.parent.email)
+
+    if not recipients:
+        logger.warning('No recipient for discount-cleared notification (student %s)', student.pk)
+        return []
+
+    name = student.get_full_name() or student.username
+    school_name = school.name if school else SITE_NAME
+    body = (
+        f'Hi,\n\n'
+        f"The discount on {name}'s account at {school_name} has been removed.\n\n"
+        f'On the next login, {name} will be asked to enter payment details and '
+        f'subscribe at the standard rate to keep access.\n\n'
+        f'If you believe this is a mistake, please contact your institute.\n\n'
+        f'Thanks,\n{SITE_NAME} Team'
+    )
+    try:
+        send_mail(
+            subject=f'[{SITE_NAME}] Action required — payment now needed for {name}',
+            message=body,
+            from_email=DEFAULT_FROM,
+            recipient_list=recipients,
+            fail_silently=True,
+        )
+    except Exception:
+        logger.exception('Failed to send discount-cleared email for student %s', student.pk)
+    return recipients
+
+
 def notify_individual_trial_expiring(user, days_remaining, is_promo=False):
     """Send trial/promo expiry warning email to an individual student."""
     if not user.email:

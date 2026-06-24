@@ -18,6 +18,34 @@ from .views import RoleRequiredMixin
 from .views_admin import _get_user_school_or_404
 
 
+def _parent_welcome_filter_state(row):
+    """Classify a parent-account row's welcome email into a single state used by
+    the ?welcome= filter and the badge (CPP-343).
+
+    Priority is the tracked EmailLog delivery state (genuine proof the email went
+    out): 'delivered' | 'sent' | 'bounced' | 'failed'. Only when there is no log
+    do we fall back to the welcome_email_sent flag (a legacy account sent before
+    delivery tracking existed) — counted as 'sent'. Otherwise 'not_sent'.
+    """
+    state = row.get('welcome_email_state')
+    if state in ('delivered', 'sent', 'bounced', 'failed'):
+        return state
+    if row.get('welcome_email_sent'):
+        return 'sent'
+    return 'not_sent'
+
+
+# ?welcome= value -> the set of filter-states it matches. "Sent" means the email
+# genuinely went out (delivered or accepted); bounced/failed are surfaced
+# separately so a bounce is never mistaken for a successful send.
+_PARENT_WELCOME_FILTERS = {
+    'sent': {'delivered', 'sent'},
+    'not_sent': {'not_sent'},
+    'bounced': {'bounced'},
+    'failed': {'failed'},
+}
+
+
 def _send_parent_setup_email(request, parent_user, school, linked_students, plain_password):
     """
     Send a parent account setup email containing their temporary password and a login link.
@@ -176,6 +204,31 @@ class SchoolParentListView(RoleRequiredMixin, View):
 
         parents.sort(key=lambda p: (p['last_name'].lower(), p['first_name'].lower()))
 
+        # Welcome-email delivery status for ALL parent accounts (CPP-343),
+        # computed before paging so the ?welcome= filter can act on every row.
+        # The state is driven by the latest welcome EmailLog (genuine evidence
+        # the email went out), falling back to the welcome_email_sent flag only
+        # for legacy accounts that predate delivery tracking.
+        from .email_service import get_welcome_email_states
+        states = get_welcome_email_states(
+            [p['parent_id'] for p in parents if p.get('parent_id')]
+        )
+        for p in parents:
+            if p.get('parent_id'):
+                p['welcome_email_state'] = states.get(p['parent_id'])
+                p['welcome_filter_state'] = _parent_welcome_filter_state(p)
+
+        # Optional filter: sent | not_sent | bounced | failed. Guardian contacts
+        # have no account/welcome email, so any welcome filter excludes them.
+        welcome_filter = request.GET.get('welcome', '')
+        if welcome_filter in _PARENT_WELCOME_FILTERS:
+            wanted = _PARENT_WELCOME_FILTERS[welcome_filter]
+            parents = [
+                p for p in parents if p.get('welcome_filter_state') in wanted
+            ]
+        else:
+            welcome_filter = ''
+
         paginator = Paginator(parents, 25)
         page = paginator.get_page(request.GET.get('page'))
 
@@ -184,6 +237,7 @@ class SchoolParentListView(RoleRequiredMixin, View):
             'parents': page,
             'page': page,
             'search': search,
+            'welcome_filter': welcome_filter,
         }
         if request.headers.get('HX-Request'):
             return render(request, 'admin_dashboard/partials/parents_table.html', ctx)
@@ -1107,3 +1161,62 @@ class ParentAccountSearchView(RoleRequiredMixin, View):
             'school': school,
             'q': q,
         })
+
+
+class MergeStudentsModalView(RoleRequiredMixin, View):
+    """HTMX modal: confirm merging a group of duplicate student accounts.
+
+    Shows each account with its data counts and lets the admin pick which one
+    survives (the most-active is pre-selected). Leadership only.
+    """
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        from .student_merge import (
+            get_group_by_ids, account_summary, suggest_keep, keep_reason,
+        )
+        raw = [i for i in request.GET.get('ids', '').split(',') if i.strip()]
+        try:
+            group = get_group_by_ids(school, raw)
+        except ValueError as exc:
+            return render(request, 'admin_dashboard/partials/merge_students_modal.html', {
+                'school': school, 'error': str(exc),
+            })
+        summaries = [account_summary(u, school) for u in group]
+        suggested = suggest_keep(group)
+        return render(request, 'admin_dashboard/partials/merge_students_modal.html', {
+            'school': school,
+            'ids': ','.join(str(u.id) for u in group),
+            'summaries': summaries,
+            'suggested_keep_id': suggested.id,
+            'suggested_reason': keep_reason(suggested),
+            'student_name': f'{group[0].first_name} {group[0].last_name}',
+        })
+
+
+class MergeStudentsView(RoleRequiredMixin, View):
+    """POST: perform the soft-merge, then return to the students list."""
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def post(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        from .student_merge import get_group_by_ids, merge_students
+        raw = [i for i in request.POST.get('ids', '').split(',') if i.strip()]
+        keep_id = request.POST.get('keep_id', '').strip()
+        try:
+            group = get_group_by_ids(school, raw)
+            keep = next((u for u in group if str(u.id) == keep_id), None)
+            if keep is None:
+                raise ValueError('Choose which account to keep.')
+            absorbed = [u for u in group if u.id != keep.id]
+            merge_students(keep, absorbed, school, actor=request.user, request=request)
+        except ValueError as exc:
+            messages.error(request, f'Merge failed: {exc}')
+            return redirect('admin_school_students', school_id=school.id)
+        messages.success(
+            request,
+            f'Merged {len(absorbed)} duplicate account(s) into '
+            f'{keep.get_full_name() or keep.username}.',
+        )
+        return redirect('admin_school_students', school_id=school.id)

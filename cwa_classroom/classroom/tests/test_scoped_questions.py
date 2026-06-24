@@ -2,6 +2,8 @@
 editing, and deletion with scope hierarchy:
   global (superuser) ⊃ school (HoI) ⊃ department (HoD) ⊃ class (teacher).
 """
+from decimal import Decimal
+
 from django.test import TestCase
 from django.urls import reverse
 
@@ -525,3 +527,87 @@ class DeleteQuestionPermissionTests(ScopedQuestionTestBase):
         resp = self.client.post(reverse('delete_question', args=[q.id]))
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(MathsQuestion.objects.filter(id=q.id).exists())
+
+
+# ─────────────────────────────────────────────────────────────
+# Measure-question authoring (numeric_answer ± tolerance + unit)
+# ─────────────────────────────────────────────────────────────
+
+class AddMeasureQuestionTests(ScopedQuestionTestBase):
+    """A teacher can author a `measure` question through the question form;
+    the measure fields persist and no Answer rows are created."""
+
+    def _measure_data(self, extra=None):
+        data = {
+            'topic': self.classroom_topic.id,
+            'question_text': 'Measure angle a.',
+            'question_type': 'measure',
+            'difficulty': '1',
+            'points': '1',
+            'explanation': '',
+            'numeric_answer': '135',
+            'answer_tolerance': '2',
+            'answer_unit': '°',
+        }
+        if extra:
+            data.update(extra)
+        return data
+
+    def test_create_measure_question_persists_fields(self):
+        self.client.login(username='hoi', password='password1!')
+        resp = self.client.post(
+            reverse('add_question', args=[self.level.level_number]),
+            self._measure_data(),
+        )
+        self.assertEqual(resp.status_code, 302)
+        q = MathsQuestion.objects.get(question_type='measure')
+        self.assertEqual(q.numeric_answer, Decimal('135'))
+        self.assertEqual(q.answer_tolerance, Decimal('2'))
+        self.assertEqual(q.answer_unit, '°')
+        # Measure is graded by numeric_answer, not Answer rows.
+        self.assertEqual(q.answers.count(), 0)
+
+    def test_blank_tolerance_saves_as_null(self):
+        self.client.login(username='hoi', password='password1!')
+        self.client.post(
+            reverse('add_question', args=[self.level.level_number]),
+            self._measure_data({'answer_tolerance': ''}),
+        )
+        q = MathsQuestion.objects.get(question_type='measure')
+        self.assertIsNone(q.answer_tolerance)   # NULL = exact match
+
+    def test_missing_value_is_rejected(self):
+        self.client.login(username='hoi', password='password1!')
+        resp = self.client.post(
+            reverse('add_question', args=[self.level.level_number]),
+            self._measure_data({'numeric_answer': ''}),
+        )
+        # Re-renders the form (no redirect) and creates nothing — the model's
+        # clean() would forbid a measure question with no value, but create()
+        # bypasses it, so the view guards instead.
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(MathsQuestion.objects.filter(question_type='measure').exists())
+
+    def test_non_numeric_value_is_rejected(self):
+        self.client.login(username='hoi', password='password1!')
+        resp = self.client.post(
+            reverse('add_question', args=[self.level.level_number]),
+            self._measure_data({'numeric_answer': 'abc'}),
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(MathsQuestion.objects.filter(question_type='measure').exists())
+
+    def test_edit_question_to_measure_sets_fields_and_clears_answers(self):
+        q = self._create_question(school=self.school, text='Was multiple choice')
+        self.assertEqual(q.answers.count(), 2)
+        self.client.login(username='hoi', password='password1!')
+        resp = self.client.post(
+            reverse('edit_question', args=[q.id]),
+            self._measure_data({'question_text': 'Now measure a.'}),
+        )
+        self.assertEqual(resp.status_code, 302)
+        q.refresh_from_db()
+        self.assertEqual(q.question_type, 'measure')
+        self.assertEqual(q.numeric_answer, Decimal('135'))
+        self.assertEqual(q.answer_unit, '°')
+        self.assertEqual(q.answers.count(), 0)

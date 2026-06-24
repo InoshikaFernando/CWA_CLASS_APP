@@ -44,6 +44,14 @@ QUIZ_QUESTION_TYPE_CHOICES = [
     (QUESTION_TYPE_FILL_BLANK, 'Fill in the Blank'),
 ]
 
+# How a typed short-answer is matched (mirrors maths.Question.answer_format).
+ANSWER_FORMAT_TEXT = 'text'
+ANSWER_FORMAT_ALGEBRA = 'algebra'
+ANSWER_FORMAT_CHOICES = [
+    (ANSWER_FORMAT_TEXT, 'Text — exact match (case/space-insensitive)'),
+    (ANSWER_FORMAT_ALGEBRA, 'Algebra — simplified polynomial (e.g. expand & simplify)'),
+]
+
 
 # ---------------------------------------------------------------------------
 # BrainBuzzSession
@@ -184,6 +192,10 @@ class BrainBuzzSessionQuestion(models.Model):
         help_text='Absolute URL of the question image, snapshotted at session creation.',
     )
     correct_short_answer = models.TextField(null=True, blank=True)
+    answer_format = models.CharField(
+        max_length=10, choices=ANSWER_FORMAT_CHOICES, default=ANSWER_FORMAT_TEXT,
+        help_text='How a typed answer is graded. "algebra" = simplified-polynomial match.',
+    )
     explanation = models.TextField(blank=True)
     time_limit_sec = models.IntegerField(default=20)
     points_base = models.IntegerField(default=1000)
@@ -367,6 +379,10 @@ class BrainBuzzQuizQuestion(models.Model):
         null=True,
         blank=True,
         help_text='Correct answer text for short-answer / fill-blank types.',
+    )
+    answer_format = models.CharField(
+        max_length=10, choices=ANSWER_FORMAT_CHOICES, default=ANSWER_FORMAT_TEXT,
+        help_text='How a typed answer is graded. "algebra" = simplified-polynomial match.',
     )
 
     class Meta:

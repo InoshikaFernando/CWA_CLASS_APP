@@ -285,6 +285,13 @@ class School(models.Model):
         blank=True,
         help_text='Outgoing email address used for invoices and communications.',
     )
+    subscription_discount_code = models.CharField(
+        max_length=50, blank=True,
+        help_text=(
+            'Subscription discount code (a billing.DiscountCode) families can use '
+            'at checkout. When set, it can be included in welcome/resend emails.'
+        ),
+    )
 
     # Currency
     default_currency = models.ForeignKey(
@@ -363,7 +370,7 @@ class School(models.Model):
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
         'invoice_terms', 'invoice_due_days',
         'invoice_recipient_policy',
-        'outgoing_email',
+        'outgoing_email', 'subscription_discount_code',
         'abn', 'gst_number',
         'street_address', 'city', 'state_region', 'postal_code', 'country',
         'logo', 'timezone',
@@ -826,6 +833,10 @@ class ClassRoom(models.Model):
     start_time = models.TimeField(null=True, blank=True)
     end_time = models.TimeField(null=True, blank=True)
     description = models.TextField(blank=True)
+    # Stored for a future "post to the class WhatsApp group" backend. The
+    # official WhatsApp Business API cannot post to groups, so this is unused by
+    # the current per-parent notification path (CPP-XXX).
+    whatsapp_group_id = models.CharField(max_length=64, blank=True)
     school = models.ForeignKey(
         School,
         on_delete=models.CASCADE,
@@ -1470,6 +1481,121 @@ class ProgressRecord(models.Model):
         return f'{self.student.username} — {self.criteria.name} ({self.status})'
 
 
+class ProgressReportComment(models.Model):
+    """A teacher's narrative comment on a student's progress for a term.
+
+    Multiple comments may exist per student / term (e.g. from different
+    teachers or subjects); each one is editable so teachers can update old
+    comments at any time.
+    """
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='progress_report_comments',
+    )
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE,
+        related_name='progress_report_comments',
+    )
+    term = models.ForeignKey(
+        Term, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='progress_report_comments',
+        help_text='Term this comment applies to. Null = general / all terms.',
+    )
+    subject = models.ForeignKey(
+        Subject, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='progress_report_comments',
+        help_text='Optional: a subject-specific comment. Null = overall comment.',
+    )
+    body = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='authored_progress_comments',
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Comment on {self.student.username} by {self.created_by.username if self.created_by else "?"}'
+
+    @property
+    def was_edited(self):
+        # auto_now / auto_now_add can differ by microseconds on creation.
+        if not self.created_at or not self.updated_at:
+            return False
+        return (self.updated_at - self.created_at).total_seconds() > 1
+
+
+class ProgressReport(models.Model):
+    """A generated end-of-term progress report for a student.
+
+    Teachers generate the report (a draft) and then send it to the student's
+    linked parents/guardians. The progress data and comments are rendered live
+    at view / send time; this model tracks the generate → send lifecycle.
+    """
+    STATUS_DRAFT = 'draft'
+    STATUS_SENT = 'sent'
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, 'Draft'),
+        (STATUS_SENT, 'Sent'),
+    ]
+
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='progress_reports',
+    )
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE,
+        related_name='progress_reports',
+    )
+    term = models.ForeignKey(
+        Term, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='progress_reports',
+    )
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    generated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='generated_progress_reports',
+    )
+    generated_at = models.DateTimeField(auto_now_add=True)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='sent_progress_reports',
+    )
+    sent_at = models.DateTimeField(null=True, blank=True)
+    recipient_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['-generated_at']
+
+    def __str__(self):
+        term_name = self.term.name if self.term else 'All terms'
+        return f'Report: {self.student.username} — {term_name} ({self.status})'
+
+    @property
+    def is_sent(self):
+        return self.status == self.STATUS_SENT
+
+
 # ---------------------------------------------------------------------------
 # Notifications
 # ---------------------------------------------------------------------------
@@ -1488,6 +1614,7 @@ class Notification(models.Model):
         ('parent_link_approved', 'Parent Link Approved'),
         ('parent_link_rejected', 'Parent Link Rejected'),
         ('homework_assigned', 'Homework Assigned'),
+        ('progress_report', 'Progress Report'),
         ('general', 'General'),
     ]
     user = models.ForeignKey(
@@ -1802,11 +1929,37 @@ class EmailCampaign(models.Model):
 
 
 class EmailLog(models.Model):
-    """Tracks every individual email sent through the system."""
+    """Tracks every individual email sent through the system.
+
+    ``status`` starts at ``sent`` (accepted by Resend) or ``failed`` (never
+    accepted), then advances as Resend webhooks report what the recipient's
+    mail server did with it (delivered/bounced/etc.) — see
+    ``apply_delivery_event``.
+    """
     STATUS_CHOICES = [
-        ('sent', 'Sent'),
-        ('failed', 'Failed'),
+        ('sent', 'Sent'),            # accepted by Resend, awaiting delivery
+        ('delivered', 'Delivered'),  # recipient server accepted it
+        ('opened', 'Opened'),
+        ('clicked', 'Clicked'),
+        ('delayed', 'Delayed'),      # transient issue, Resend retrying
+        ('bounced', 'Bounced'),
+        ('complained', 'Complained'),  # recipient marked as spam
+        ('failed', 'Failed'),        # never accepted by Resend
     ]
+
+    # Status precedence for webhook updates. A later, lower-ranked event (e.g. a
+    # delayed "opened") must not clobber a terminal outcome (e.g. "bounced").
+    STATUS_RANK = {
+        'sent': 0,
+        'delayed': 1,
+        'opened': 2,
+        'clicked': 3,
+        'delivered': 4,
+        'complained': 5,
+        'bounced': 5,
+        'failed': 5,
+    }
+
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='email_logs',
@@ -1832,11 +1985,61 @@ class EmailLog(models.Model):
     error_message = models.TextField(blank=True)
     sent_at = models.DateTimeField(auto_now_add=True)
 
+    # Delivery tracking (populated by the Resend webhook). provider_message_id
+    # is the Resend email id and the correlation key for incoming events.
+    provider_message_id = models.CharField(max_length=255, blank=True, db_index=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    opened_at = models.DateTimeField(null=True, blank=True)
+    clicked_at = models.DateTimeField(null=True, blank=True)
+    bounced_at = models.DateTimeField(null=True, blank=True)
+    complained_at = models.DateTimeField(null=True, blank=True)
+    bounce_reason = models.TextField(blank=True)
+    status_updated_at = models.DateTimeField(null=True, blank=True)
+
+    # Maps a webhook status to the timestamp field it stamps (None = no stamp).
+    _STATUS_TIMESTAMP_FIELD = {
+        'delivered': 'delivered_at',
+        'opened': 'opened_at',
+        'clicked': 'clicked_at',
+        'bounced': 'bounced_at',
+        'complained': 'complained_at',
+        'delayed': None,
+    }
+
     class Meta:
         ordering = ['-sent_at']
 
     def __str__(self):
         return f'{self.recipient_email} — {self.subject} ({self.status})'
+
+    def apply_delivery_event(self, new_status, when, reason=''):
+        """Apply a webhook delivery event, respecting status precedence.
+
+        Always stamps the event's own timestamp field (so we keep an accurate
+        record of every event), but only advances ``status`` when the new
+        event ranks at least as high as the current one — preventing a late
+        "opened" from overwriting a terminal "bounced". Returns True if the row
+        was changed. The caller is responsible for saving.
+        """
+        changed = False
+        ts_field = self._STATUS_TIMESTAMP_FIELD.get(new_status)
+        if ts_field and getattr(self, ts_field) is None:
+            setattr(self, ts_field, when)
+            changed = True
+
+        if new_status == 'bounced' and reason and not self.bounce_reason:
+            self.bounce_reason = reason
+            changed = True
+
+        current_rank = self.STATUS_RANK.get(self.status, 0)
+        new_rank = self.STATUS_RANK.get(new_status, 0)
+        if new_rank >= current_rank and new_status != self.status:
+            self.status = new_status
+            changed = True
+
+        if changed:
+            self.status_updated_at = when
+        return changed
 
 
 class EmailQueue(models.Model):
@@ -2401,3 +2604,27 @@ class Expense(models.Model):
 
     def __str__(self):
         return f'{self.get_category_display()} — ${self.amount} ({self.date})'
+
+
+class StudentCard(models.Model):
+    """Pre-issued school access card. Student claims it on first login to activate their account."""
+    school = models.ForeignKey('School', on_delete=models.CASCADE, related_name='student_cards')
+    card_number = models.CharField(max_length=50, unique=True)
+    student = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='student_card',
+    )
+    is_claimed = models.BooleanField(default=False)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['school', 'card_number']
+        indexes = [
+            models.Index(fields=['card_number']),
+            models.Index(fields=['school', 'is_claimed']),
+        ]
+
+    def __str__(self):
+        status = 'claimed' if self.is_claimed else 'unclaimed'
+        return f'{self.card_number} ({self.school.name}, {status})'

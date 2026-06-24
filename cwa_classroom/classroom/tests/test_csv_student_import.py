@@ -194,6 +194,44 @@ class ValidateAndPreviewTests(CSVImportTestBase):
         self.assertEqual(len(result['students_new']), 1)
         self.assertIn('@student.local', result['students_new'][0]['email'])
 
+    def test_repeated_child_without_email_collapses_to_one_student(self):
+        """A child listed more than once in the children column (no student
+        email) must collapse to ONE student — the placeholder-email collision
+        numbering used to mint test+name, test+name1, test+name2 and create
+        duplicate accounts for a single real child (the Kuruppuge bug)."""
+        csv = (
+            b'parent_first,parent_last,children,parent_email\n'
+            b'Ruchira,Fernando,"Dinon Kuruppuge, Dinon Kuruppuge, Dinon Kuruppuge",'
+            b'wlhtestmails+ruchira@gmail.com\n'
+        )
+        headers, rows = parse_csv_file(csv)
+        mapping = {
+            'parent1_first_name': 0, 'parent1_last_name': 1,
+            'children': 2, 'parent1_email': 3,
+        }
+        result = validate_and_preview(rows, mapping, self.school)
+        self.assertEqual(len(result['errors']), 0)
+        # One real child → exactly one student, not three numbered duplicates.
+        self.assertEqual(len(result['students_new']), 1)
+
+    def test_distinct_children_sharing_first_name_stay_separate(self):
+        """Two genuinely different children whose first names share a slug must
+        still get distinct generated emails (collision numbering preserved)."""
+        csv = (
+            b'parent_first,parent_last,children,parent_email\n'
+            b'Pat,Jones,"Sam Jones, Sam Smith",wlhtestmails+pat@gmail.com\n'
+        )
+        headers, rows = parse_csv_file(csv)
+        mapping = {
+            'parent1_first_name': 0, 'parent1_last_name': 1,
+            'children': 2, 'parent1_email': 3,
+        }
+        result = validate_and_preview(rows, mapping, self.school)
+        self.assertEqual(len(result['errors']), 0)
+        self.assertEqual(len(result['students_new']), 2)
+        emails = {s['email'] for s in result['students_new']}
+        self.assertEqual(len(emails), 2)  # distinct placeholder addresses
+
 
 # ─────────────────────────────────────────────────────────────
 # 3. execute_import
@@ -232,6 +270,51 @@ class ExecuteImportTests(CSVImportTestBase):
         self.assertEqual(results['counts']['classes_created'], 2)
         john = CustomUser.objects.get(email='john@school.nz')
         self.assertEqual(ClassStudent.objects.filter(student=john).count(), 2)
+
+    def test_emailless_child_across_class_rows_makes_one_account(self):
+        """Regression for the 2026-04-04 duplicate-account incident.
+
+        Source exports list one row per (child x class). A child with no email
+        of their own, appearing on multiple class rows, used to get a numbered
+        placeholder email per row (parent+name, parent+name1, ...), defeating
+        the email-based dedup and creating one duplicate account per row — even
+        two rows for the SAME class (the Thinuga 76/80/76 case). The importer
+        must instead make ONE student enrolled in each distinct class once.
+        """
+        csv = (
+            b'first_name,last_name,department,subject,level,class_name,class_day,parent1_first_name,parent1_last_name,parent1_email\n'
+            b'Thinuga,Dunujitha,Mathematics,Mathematics,Year 7,Year 4 Sat,Saturday,Vajira,Lakshmi,navodani.tg@gmail.com\n'
+            b'Thinuga,Dunujitha,Mathematics,Mathematics,Year 7,Junior Sat,Saturday,Vajira,Lakshmi,navodani.tg@gmail.com\n'
+            b'Thinuga,Dunujitha,Mathematics,Mathematics,Year 7,Year 4 Sat,Saturday,Vajira,Lakshmi,navodani.tg@gmail.com\n'
+        )
+        headers, rows = parse_csv_file(csv)
+        mapping = {h: i for i, h in enumerate(headers)}
+        preview = validate_and_preview(rows, mapping, self.school)
+        results = execute_import(preview, self.school, self.hoi_user)
+
+        # Exactly one student account for the one real child.
+        self.assertEqual(results['counts']['students_created'], 1)
+        thinugas = CustomUser.objects.filter(
+            first_name='Thinuga', last_name='Dunujitha',
+        )
+        self.assertEqual(thinugas.count(), 1)
+        child = thinugas.get()
+
+        # Placeholder email is the un-numbered base (no +name1 collision spawn).
+        self.assertEqual(child.email, 'navodani.tg+thinuga@gmail.com')
+
+        # Enrolled in the two DISTINCT classes once each — the repeated
+        # "Year 4 Sat" row is absorbed by get_or_create, not double-counted.
+        self.assertEqual(ClassStudent.objects.filter(student=child).count(), 2)
+
+        # And linked to the parent exactly once.
+        parent = CustomUser.objects.get(email='navodani.tg@gmail.com')
+        self.assertEqual(
+            ParentStudent.objects.filter(
+                parent=parent, student=child, school=self.school, is_active=True,
+            ).count(),
+            1,
+        )
 
     def test_guardian_creation_and_linking(self):
         """

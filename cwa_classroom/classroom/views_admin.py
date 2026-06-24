@@ -8,8 +8,10 @@ from django.contrib import messages
 from django.db import transaction
 from django.utils.text import slugify
 from django.utils import timezone
-from django.http import StreamingHttpResponse, HttpResponseForbidden
+from django.http import StreamingHttpResponse, HttpResponseForbidden, HttpResponse
 from django.conf import settings as django_settings
+import csv
+import logging
 import subprocess
 import shutil
 import os
@@ -29,6 +31,34 @@ from .email_utils import send_staff_welcome_email
 from audit.services import log_event
 
 MAX_PARENTS_PER_STUDENT = 2
+
+
+logger = logging.getLogger(__name__)
+
+
+def _subscription_or_none(user):
+    """Return the user's billing.Subscription, or None (no exception) — the
+    OneToOne reverse accessor raises DoesNotExist when there is no row."""
+    from billing.models import Subscription
+    try:
+        return user.subscription
+    except Subscription.DoesNotExist:
+        return None
+
+
+def _annotate_welcome_email_state(items, user_id_getter):
+    """Attach ``.welcome_email_state`` to each item in a page of user-wrapping
+    rows (SchoolTeacher/SchoolStudent), driven by the latest welcome EmailLog
+    for that user (CPP-343). ``user_id_getter`` maps an item to its user id.
+    State is one of 'delivered'|'sent'|'bounced'|'failed' or None when no
+    welcome email has been logged.
+    """
+    from .email_service import get_welcome_email_states
+
+    pairs = [(item, user_id_getter(item)) for item in items]
+    states = get_welcome_email_states([uid for _, uid in pairs])
+    for item, uid in pairs:
+        item.welcome_email_state = states.get(uid)
 
 
 def _get_user_school(user, school_id=None):
@@ -107,11 +137,26 @@ class AdminDashboardView(RoleRequiredMixin, View):
         } for s in schools]
         total_teachers = sum(s.teacher_count for s in schools)
         total_students = sum(s.student_count for s in schools)
+
+        # Superuser-only: platform-wide subscription counts (active or trialing)
+        subscribed_students = subscribed_institutes = None
+        if request.user.is_superuser:
+            from billing.models import Subscription, SchoolSubscription
+            active_states = ['active', 'trialing']
+            subscribed_students = Subscription.objects.filter(
+                status__in=active_states,
+            ).count()
+            subscribed_institutes = SchoolSubscription.objects.filter(
+                status__in=active_states,
+            ).count()
+
         return render(request, 'admin_dashboard/dashboard.html', {
             'school_data': school_data,
             'total_schools': len(school_data),
             'total_teachers': total_teachers,
             'total_students': total_students,
+            'subscribed_students': subscribed_students,
+            'subscribed_institutes': subscribed_institutes,
         })
 
 
@@ -317,7 +362,7 @@ class SchoolToggleActiveView(RoleRequiredMixin, View):
         status = 'activated' if school.is_active else 'deactivated'
         log_event(
             user=request.user, school=school, category='data_change',
-            action='school_toggled_active', detail={'school_name': school.name, 'is_active': school.is_active},
+            action='school_toggled_active', detail={'school_id': school.id, 'school_name': school.name, 'is_active': school.is_active},
             request=request,
         )
         messages.success(request, f'School "{school.name}" has been {status}.')
@@ -414,6 +459,8 @@ class SchoolSettingsView(RoleRequiredMixin, View):
         'postal_code', 'country', 'timezone',
         # Contact & email
         'outgoing_email',
+        # Payments
+        'subscription_discount_code',
         # Banking & invoice
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
         'invoice_terms', 'invoice_due_days', 'invoice_recipient_policy',
@@ -489,6 +536,20 @@ class SchoolSettingsView(RoleRequiredMixin, View):
             except DjangoValidationError:
                 messages.error(request, 'Please enter a valid outgoing email address.')
                 return redirect(f"{reverse('admin_school_settings', kwargs={'school_id': school.id})}?tab={tab}")
+
+        # Validate subscription discount code (must be an active DiscountCode)
+        disc_code = request.POST.get('subscription_discount_code', '').strip()
+        if disc_code:
+            from billing.models import DiscountCode
+            dc = DiscountCode.objects.filter(code__iexact=disc_code, is_active=True).first()
+            if not dc:
+                messages.error(
+                    request,
+                    f'"{disc_code}" is not an active subscription discount code.',
+                )
+                return redirect(f"{reverse('admin_school_settings', kwargs={'school_id': school.id})}?tab={tab}")
+            # Store the canonical code (preserves the DiscountCode's exact casing)
+            school.subscription_discount_code = dc.code
 
         # Handle default_currency FK (HoI-only)
         if self._is_hoi(request.user, school) and 'default_currency' in request.POST:
@@ -677,6 +738,7 @@ class SchoolTeacherManageView(RoleRequiredMixin, View):
 
         paginator = Paginator(qs, 25)
         page = paginator.get_page(request.GET.get('page'))
+        _annotate_welcome_email_state(page, lambda st: st.teacher_id)
         return render(request, 'admin_dashboard/school_teachers.html', {
             'school': school,
             'school_teachers': page,
@@ -1814,7 +1876,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
         if not show_inactive:
             qs = qs.filter(is_active=True)
         qs = (
-            qs.select_related('student')
+            qs.select_related('student', 'student__subscription')
             .prefetch_related(
                 'student__student_guardians__guardian',
                 'student__student_parent_links__parent',
@@ -1830,6 +1892,22 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             )
             .order_by('student__last_name', 'student__first_name', 'student__id')
         )
+
+        # Discount management (CPP-XXX): optional filter by discount state.
+        # DB-level on the recorded snapshot — exact once backfill has run.
+        discount_filter = request.GET.get('discount', '').strip()
+        if discount_filter == 'discounted':
+            qs = qs.filter(
+                student__subscription__status__in=['active', 'trialing'],
+                student__subscription__discount_percent_snapshot__gte=1,
+            )
+        elif discount_filter == 'paying':
+            qs = qs.filter(
+                student__subscription__status__in=['active', 'trialing'],
+            ).filter(
+                Q(student__subscription__discount_percent_snapshot__isnull=True)
+                | Q(student__subscription__discount_percent_snapshot=0)
+            )
 
         # Server-side search
         q = request.GET.get('q', '').strip()
@@ -1857,11 +1935,54 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
 
         paginator = Paginator(qs, 25)
         page = paginator.get_page(request.GET.get('page'))
+        _annotate_welcome_email_state(page, lambda ss: ss.student_id)
+        # Discount state per row (CPP-XXX). Only institute leadership manages
+        # subscriptions — HoI / Owner / Admin. HoD and teachers see it read-only.
+        can_clear_discount = (
+            request.user.is_superuser
+            or request.user.has_role(Role.ADMIN)
+            or request.user.has_role(Role.INSTITUTE_OWNER)
+            or request.user.has_role(Role.HEAD_OF_INSTITUTE)
+        )
+        from billing.models import Payment, Subscription
+        page_user_ids = [ss.student_id for ss in page]
+        paid_ids = set(
+            Payment.objects.filter(
+                user_id__in=page_user_ids, status=Payment.STATUS_SUCCEEDED,
+            ).values_list('user_id', flat=True)
+        )
+        for ss in page:
+            sub = _subscription_or_none(ss.student)
+            if sub:
+                ss.discount_state = Subscription.classify_discount(
+                    sub.status, sub.stripe_subscription_id,
+                    sub.discount_percent_snapshot, ss.student_id in paid_ids,
+                )
+                ss.discount_percent = sub.discount_percent_snapshot
+            else:
+                ss.discount_state = 'none'
+                ss.discount_percent = None
+            ss.can_clear_discount = can_clear_discount and ss.discount_state in ('free_100', 'partial')
         add_student_classes = (
             _allowed_classes_for_user(request.user, school)
             .select_related('subject', 'department')
             .order_by('name')
         ) if not request.headers.get('HX-Request') else []
+        # Possible duplicate students (same name + same parent set). Leadership
+        # only, and only on a full-page render (skip on HTMX search swaps).
+        duplicate_groups = []
+        can_merge = can_clear_discount  # HoI / Owner / Admin
+        if can_merge and not request.headers.get('HX-Request'):
+            from .student_merge import find_duplicate_groups
+            duplicate_groups = [
+                {
+                    'ids': ','.join(str(u.id) for u in g),
+                    'name': f'{g[0].first_name} {g[0].last_name}',
+                    'accounts': g,
+                    'count': len(g),
+                }
+                for g in find_duplicate_groups(school)
+            ]
         ctx = {
             'school': school,
             'school_students': page,
@@ -1869,6 +1990,7 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             'show_inactive': show_inactive,
             'q': q,
             'order_by': order_by,
+            'discount_filter': discount_filter,
             'total_count': paginator.count,
             'sort_columns': [
                 ('name', 'Name'),
@@ -1879,6 +2001,8 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             'add_student_classes': add_student_classes,
             'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
             'default_relationship': 'guardian',
+            'duplicate_groups': duplicate_groups,
+            'can_merge': can_merge,
         }
         if request.headers.get('HX-Request'):
             return render(request, 'admin_dashboard/partials/students_table.html', ctx)
@@ -2005,6 +2129,233 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             messages.error(request, f'Error creating student: {e}')
 
         return redirect('admin_school_students', school_id=school.id)
+
+
+class StudentDiscountClearView(RoleRequiredMixin, View):
+    """Clear a student's discount (CPP-XXX).
+
+    Cancels the discounted/free subscription, clears the recorded discount, and
+    re-gates the student (``profile_completed=False``) so on their next login
+    they pay the FULL amount via CompleteProfileView -> Stripe Checkout
+    (subscription mode). For a partial Stripe subscription, the Stripe sub is
+    cancelled too. Institute-leadership only (HoI / Institute Owner / Admin) —
+    HoDs and teachers cannot manage subscriptions. Audit-logged and the
+    student/parents notified.
+    """
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+    ]
+
+    def _resolve_student(self, request, school_id, student_id):
+        # Institute-leadership only (no HoD): _get_school already restricts an
+        # HoI/Owner to their own school and an Admin to any school.
+        school = SchoolStudentManageView()._get_school(request, school_id)
+        ss = get_object_or_404(
+            SchoolStudent, school=school, student_id=student_id, is_active=True,
+        )
+        return school, ss
+
+    def post(self, request, school_id, student_id):
+        from django.db import transaction
+        from billing.models import Subscription
+        school, ss = self._resolve_student(request, school_id, student_id)
+        student = ss.student
+
+        sub = _subscription_or_none(student)
+        if not sub or not sub.has_discount:
+            messages.info(request, f'{student.get_full_name() or student.username} has no discount to clear.')
+            return redirect('admin_school_students', school_id=school.id)
+
+        old_state = sub.discount_state
+        old_percent = sub.discount_percent_snapshot
+
+        # Cancel a live partial Stripe subscription, if any. Stripe-first (so we
+        # never leave a discounted sub billing the card), then the local clear.
+        # An already-cancelled/missing Stripe sub is treated as success so a
+        # retry after a transient DB failure still completes the local clear.
+        if sub.stripe_subscription_id:
+            import stripe
+            from django.conf import settings
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            try:
+                stripe.Subscription.delete(sub.stripe_subscription_id)
+            except stripe.error.InvalidRequestError:
+                logger.warning('Stripe sub %s already gone for user %s — clearing locally.',
+                               sub.stripe_subscription_id, student.id)
+            except Exception as e:
+                logger.error('Failed to cancel Stripe sub %s for user %s: %s',
+                             sub.stripe_subscription_id, student.id, e)
+                messages.error(request, 'Could not cancel the Stripe subscription — nothing was changed. Please retry.')
+                return redirect('admin_school_students', school_id=school.id)
+
+        with transaction.atomic():
+            sub.clear_discount(by_user=request.user)
+            student.profile_completed = False
+            student.save(update_fields=['profile_completed'])
+
+        log_event(
+            user=request.user, school=school, category='billing',
+            action='student_discount_cleared',
+            detail={
+                'student_id': student.id, 'student_username': student.username,
+                'old_state': old_state, 'old_percent': old_percent,
+            },
+            request=request,
+        )
+
+        try:
+            from billing.email_utils import send_discount_cleared_notification
+            send_discount_cleared_notification(student, school)
+        except Exception:
+            logger.exception('Failed to send discount-cleared email for user %s', student.id)
+
+        messages.success(
+            request,
+            f'Discount cleared for {student.get_full_name() or student.username}. '
+            f'They must pay the full amount on next login.',
+        )
+        return redirect('admin_school_students', school_id=school.id)
+
+
+class SchoolStudentExportCSVView(RoleRequiredMixin, View):
+    """Download a CSV of every student in a school.
+
+    One row per student. Because a student can be enrolled in more than one
+    class, all of their classes within this school are collected into a single
+    "Classes" column (separated by " | ") rather than producing duplicate rows.
+    A "Class Count" column is included so multi-class students are easy to spot.
+
+    Up to two parents/guardians are exported (Parent 1 / Parent 2), drawn from
+    both the parent-user links (ParentStudent) and the guardian records
+    (StudentGuardian), with primary contacts listed first.
+    """
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.TEACHER,
+    ]
+
+    # Reuse the same access rules as the student management page.
+    _get_school = SchoolStudentManageView._get_school
+
+    @staticmethod
+    def _csv_safe(value):
+        """Neutralise CSV formula injection.
+
+        Spreadsheet apps treat a leading =, +, -, @ (or tab/CR) as a formula.
+        Prefix such values with a single quote so they render as plain text.
+        """
+        text = '' if value is None else str(value)
+        if text and text[0] in ('=', '+', '-', '@', '\t', '\r'):
+            return "'" + text
+        return text
+
+    def _collect_parents(self, student, school):
+        """Return a list of parent dicts (name/email/phone/relationship).
+
+        Merges parent-user links and guardian records, putting primary
+        contacts first and de-duplicating by email.
+        """
+        parents = []
+
+        # Parent-user links (ParentStudent), scoped to this school.
+        for link in student.student_parent_links.all():
+            if link.school_id and link.school_id != school.id:
+                continue
+            if not link.is_active:
+                continue
+            p = link.parent
+            name = p.get_full_name().strip() or p.username
+            parents.append({
+                'name': name,
+                'email': p.email or '',
+                'phone': getattr(p, 'phone', '') or '',
+                'relationship': link.get_relationship_display() if link.relationship else '',
+                'primary': link.is_primary_contact,
+            })
+
+        # Guardian records (StudentGuardian).
+        for sg in student.student_guardians.all():
+            g = sg.guardian
+            if g.school_id != school.id:
+                continue
+            name = f'{g.first_name} {g.last_name}'.strip()
+            parents.append({
+                'name': name,
+                'email': g.email or '',
+                'phone': g.phone or '',
+                'relationship': g.get_relationship_display() if g.relationship else '',
+                'primary': sg.is_primary,
+            })
+
+        # Primary contacts first, then de-duplicate on email (keep first seen).
+        parents.sort(key=lambda d: not d['primary'])
+        seen = set()
+        unique = []
+        for p in parents:
+            key = p['email'].lower() if p['email'] else p['name'].lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(p)
+        return unique
+
+    def get(self, request, school_id):
+        school = self._get_school(request, school_id)
+
+        school_students = (
+            SchoolStudent.objects.filter(school=school, is_active=True)
+            .select_related('student')
+            .prefetch_related(
+                'student__student_parent_links__parent',
+                'student__student_guardians__guardian',
+                'student__class_student_entries__classroom',
+            )
+            .order_by('student__last_name', 'student__first_name', 'student__id')
+        )
+
+        response = HttpResponse(content_type='text/csv')
+        filename = f'{slugify(school.name) or "school"}_students.csv'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        writer = csv.writer(response)
+        writer.writerow([
+            'Student ID', 'First Name', 'Last Name', 'Email', 'Username',
+            'Phone', 'Date of Birth',
+            'Parent 1 Name', 'Parent 1 Email', 'Parent 1 Phone', 'Parent 1 Relationship',
+            'Parent 2 Name', 'Parent 2 Email', 'Parent 2 Phone', 'Parent 2 Relationship',
+            'Classes', 'Class Count', 'Joined',
+        ])
+
+        for ss in school_students:
+            student = ss.student
+
+            classes = [
+                cse.classroom.name
+                for cse in student.class_student_entries.all()
+                if cse.is_active and cse.classroom and cse.classroom.school_id == school.id
+            ]
+            classes.sort()
+
+            parents = self._collect_parents(student, school)
+            p1 = parents[0] if len(parents) > 0 else {}
+            p2 = parents[1] if len(parents) > 1 else {}
+
+            writer.writerow([self._csv_safe(v) for v in [
+                ss.student_id_code,
+                student.first_name,
+                student.last_name,
+                student.email,
+                student.username,
+                getattr(student, 'phone', '') or '',
+                student.date_of_birth.isoformat() if getattr(student, 'date_of_birth', None) else '',
+                p1.get('name', ''), p1.get('email', ''), p1.get('phone', ''), p1.get('relationship', ''),
+                p2.get('name', ''), p2.get('email', ''), p2.get('phone', ''), p2.get('relationship', ''),
+                ' | '.join(classes),
+                len(classes),
+                ss.joined_at.strftime('%Y-%m-%d') if ss.joined_at else '',
+            ]])
+
+        return response
 
 
 def _inline_create_parent(request, school, student_user):
@@ -2364,14 +2715,22 @@ class SchoolStudentRemoveView(RoleRequiredMixin, View):
                 # Deactivate the SchoolStudent link
                 school_student.is_active = False
                 school_student.save(update_fields=['is_active'])
-                # Cascade: deactivate all ClassStudent entries at this school
+                # Cascade: deactivate all ClassStudent entries at this school.
+                # Capture the exact ids so a revert restores precisely these
+                # links (not classes the student had already left).
+                deactivated_class_student_ids = list(
+                    ClassStudent.objects.filter(
+                        classroom__school=school, student=student_user, is_active=True
+                    ).values_list('id', flat=True)
+                )
                 ClassStudent.objects.filter(
-                    classroom__school=school, student=student_user, is_active=True
+                    id__in=deactivated_class_student_ids
                 ).update(is_active=False)
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='student_removed', detail={
                     'student_id': student_id, 'student_name': name,
+                    'class_student_ids': deactivated_class_student_ids,
                 },
                 request=request,
             )
@@ -2706,7 +3065,7 @@ class BlockUserView(RoleRequiredMixin, View):
 
         log_event(
             user=request.user, category='admin_action', action='user_blocked',
-            detail={'target_user': user.username, 'reason': reason, 'block_type': block_type},
+            detail={'user_id': user.id, 'target_user': user.username, 'reason': reason, 'block_type': block_type},
             request=request,
         )
 
@@ -2728,7 +3087,7 @@ class UnblockUserView(RoleRequiredMixin, View):
 
         log_event(
             user=request.user, category='admin_action',
-            action='user_unblocked', detail={'target_user': user.username},
+            action='user_unblocked', detail={'user_id': user.id, 'target_user': user.username},
             request=request,
         )
         messages.success(request, f'Account "{user.username}" has been unblocked.')

@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 from worksheets.grading_service import (
     _parse_cache_feedback,
     _normalise,
+    _call_claude_grade,
     grade_extended_answer,
 )
 
@@ -173,6 +174,58 @@ class TestGradeExtendedAnswer:
             topic=topic,
             level=level,
         )
+
+    @patch('anthropic.Anthropic')
+    def test_call_claude_grade_reads_text_block_past_thinking(self, mock_anthropic):
+        """_call_claude_grade picks the first TEXT block, not content[0] — so a
+        leading thinking/non-text block (possible on newer models) doesn't break
+        JSON parsing."""
+        thinking_block = MagicMock(type='thinking')   # no usable .text
+        text_block = MagicMock(type='text', text=json.dumps({
+            'score_fraction': 0.95,
+            'is_correct': True,
+            'what_was_correct': 'Everything.',
+            'what_to_add': 'Nothing.',
+            'feedback': 'Excellent and complete.',
+        }))
+        resp = MagicMock()
+        resp.content = [thinking_block, text_block]
+        resp.usage = MagicMock(input_tokens=120, output_tokens=40)
+        mock_anthropic.return_value.messages.create.return_value = resp
+
+        q = self._make_question()
+        result = _call_claude_grade(q, 'A full and correct answer.', 'a full and correct answer.')
+
+        assert result['score_fraction'] == 0.95
+        assert result['is_correct'] is True
+        assert result['feedback'] == 'Excellent and complete.'
+        assert 'error' not in result  # parsing succeeded, did not hit the except path
+
+    @patch('anthropic.Anthropic')
+    def test_call_claude_grade_tolerates_prose_before_json(self, mock_anthropic):
+        """Opus with thinking off can prepend reasoning prose; _call_claude_grade
+        still recovers the JSON object."""
+        text_block = MagicMock(type='text', text=(
+            "Let me work through this. The answer covers all key points.\n"
+            + json.dumps({
+                'score_fraction': 0.3,
+                'is_correct': False,
+                'what_was_correct': 'Partial.',
+                'what_to_add': 'More detail.',
+                'feedback': 'Some correct ideas but incomplete.',
+            })
+        ))
+        resp = MagicMock()
+        resp.content = [text_block]
+        resp.usage = MagicMock(input_tokens=100, output_tokens=50)
+        mock_anthropic.return_value.messages.create.return_value = resp
+
+        q = self._make_question()
+        result = _call_claude_grade(q, 'partial answer', 'partial answer')
+
+        assert result['score_fraction'] == 0.3
+        assert result['is_partial'] is True
+        assert 'error' not in result
 
     @patch('worksheets.grading_service._call_claude_grade')
     def test_grade_returns_is_partial_true_for_score_0_3(self, mock_claude):

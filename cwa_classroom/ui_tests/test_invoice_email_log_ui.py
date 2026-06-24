@@ -307,7 +307,7 @@ class TestInvoiceDetailEmailHistoryPanel:
         expect(page.get_by_text('Email History')).to_be_visible()
 
     @pytest.mark.django_db(transaction=True)
-    def test_sent_row_shown_with_green_dot(
+    def test_sent_row_shown_with_sky_dot(
         self, page: Page, live_server, admin_user, school, invoice_with_email_logs,
     ):
         invoice, student, sent_log, _ = invoice_with_email_logs
@@ -315,8 +315,9 @@ class TestInvoiceDetailEmailHistoryPanel:
         page.goto(f'{live_server.url}/invoicing/{invoice.id}/')
         page.wait_for_load_state('domcontentloaded')
         expect(page.get_by_text(student.email).first).to_be_visible()
-        # Sent badge
-        sent_badge = page.locator('.bg-emerald-50.text-emerald-700', has_text='Sent')
+        # 'Sent' = accepted by Resend, awaiting delivery confirmation → sky badge
+        # (emerald is now reserved for 'delivered'). See CPP-343.
+        sent_badge = page.locator('.bg-sky-50.text-sky-700', has_text='Sent')
         expect(sent_badge.first).to_be_visible()
 
     @pytest.mark.django_db(transaction=True)

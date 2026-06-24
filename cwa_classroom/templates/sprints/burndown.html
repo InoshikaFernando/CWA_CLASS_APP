@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Project Burndown{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+
+  <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">Project Burndown</h1>
+      <p class="text-sm text-gray-500">{{ project_key }} — whole project, story points remaining over time</p>
+      <p class="text-xs text-gray-400 mt-0.5">
+        {% if last_synced %}
+          Last synced from Jira {{ last_synced|date:"j M Y, H:i" }}
+        {% else %}
+          Not yet synced from Jira
+        {% endif %}
+      </p>
+    </div>
+    {% if latest %}
+      <div class="flex items-center gap-2 text-sm">
+        <span class="text-gray-600 bg-gray-100 rounded-full px-3 py-1">
+          Remaining: <strong>{{ latest.remaining_points|floatformat:"-1" }}</strong> pts
+        </span>
+        <span class="text-gray-600 bg-gray-100 rounded-full px-3 py-1">
+          Scope: <strong>{{ latest.total_points|floatformat:"-1" }}</strong> pts
+        </span>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if series.labels %}
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+      <div style="position: relative; height: 420px;">
+        <canvas id="burndownChart"></canvas>
+      </div>
+    </div>
+
+    {{ series.labels|json_script:"bd-labels" }}
+    {{ series.remaining|json_script:"bd-remaining" }}
+    {{ series.total|json_script:"bd-total" }}
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script>
+      (function () {
+        var ctx = document.getElementById('burndownChart');
+        if (!ctx || typeof Chart === 'undefined') { return; }
+        var labels = JSON.parse(document.getElementById('bd-labels').textContent);
+        var remaining = JSON.parse(document.getElementById('bd-remaining').textContent);
+        var total = JSON.parse(document.getElementById('bd-total').textContent);
+        new Chart(ctx.getContext('2d'), {
+          type: 'line',
+          data: { labels: labels, datasets: [
+            { label: 'Remaining', data: remaining, borderColor: '#6366f1',
+              backgroundColor: 'rgba(99,102,241,0.12)', borderWidth: 2,
+              pointRadius: 3, fill: true, tension: 0.15 },
+            { label: 'Total scope', data: total, borderColor: '#94a3b8',
+              borderDash: [6, 6], borderWidth: 2, pointRadius: 0, fill: false, tension: 0.15 }
+          ] },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+              x: { title: { display: true, text: 'Date' },
+                   ticks: { maxTicksLimit: 12, autoSkip: true, maxRotation: 0 },
+                   grid: { display: false } },
+              y: { beginAtZero: true, title: { display: true, text: 'Story points' },
+                   ticks: { precision: 0 } }
+            },
+            plugins: { legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 12 } } }
+          }
+        });
+      })();
+    </script>
+
+    <p class="text-xs text-gray-400 mt-3">
+      A snapshot is recorded each time the sync runs; the curve builds up from the
+      first run forward. Epics are excluded so their roll-up estimates don't
+      double-count.
+    </p>
+  {% else %}
+    <div class="bg-gray-50 border border-gray-200 text-gray-600 rounded-xl p-6 text-sm">
+      <p class="font-medium text-gray-800 mb-1">No project data yet.</p>
+      <p>Run <code>manage.py sync_sprint_burndown</code> (with the Jira env
+      configured) to record the first whole-project snapshot and start the
+      burndown.</p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

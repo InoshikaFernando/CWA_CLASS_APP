@@ -1,6 +1,7 @@
 import logging
 import re
 
+from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
@@ -37,11 +38,45 @@ class AuditLoginView(LoginView):
         from billing.rate_limiting import check_rate_limit
         from audit.services import get_client_ip
         ip = get_client_ip(request) or 'unknown'
-        if not check_rate_limit(f'login:{ip}', max_attempts=5, window_seconds=900):
+        username = request.POST.get('username', '')
+        user_key = (username or '').strip().lower()
+        window = settings.LOGIN_RATELIMIT_WINDOW
+
+        # Primary gate: per *username*. A school sits behind one NAT IP, so a
+        # purely IP-keyed limit lets a few students' typos lock out the whole
+        # site. Keying on the submitted username means one student's failures
+        # only ever lock that student — never their classmates.
+        #
+        # Secondary gate: a generous per-IP cap. It won't trip a normal class
+        # (and resets on any successful login from that IP), but still stops a
+        # single host from enumerating many accounts. Checked second so a single
+        # locked username doesn't inflate the shared IP counter.
+        blocked_scope = None
+        if not check_rate_limit(
+            f'login:user:{user_key}',
+            max_attempts=settings.LOGIN_RATELIMIT_USER_MAX,
+            window_seconds=window,
+        ):
+            blocked_scope = 'username'
+        elif not check_rate_limit(
+            f'login:ip:{ip}',
+            max_attempts=settings.LOGIN_RATELIMIT_IP_MAX,
+            window_seconds=window,
+        ):
+            blocked_scope = 'ip'
+
+        if blocked_scope:
             from audit.services import log_event
+            # Logged to the app log file (not just the audit DB) so a lockout is
+            # diagnosable straight from /var/log/cwa/django-app.log.
+            logger.warning(
+                'Login rate-limited (scope=%s): ip=%s username=%r',
+                blocked_scope, ip, username,
+            )
             log_event(
-                category='auth', action='login_rate_limited',
-                result='blocked', detail={'ip': ip}, request=request,
+                category='auth', action='login_rate_limited', result='blocked',
+                detail={'ip': ip, 'username': username, 'scope': blocked_scope},
+                request=request,
             )
             messages.error(request, 'Too many login attempts. Please try again in 15 minutes.')
             return render(request, self.template_name, self.get_context_data())
@@ -63,19 +98,38 @@ class AuditLoginView(LoginView):
         self.request.session['login_at'] = time.time()
         # Clear stale active_role from previous session
         self.request.session.pop('active_role', None)
-        # Clear rate limit on successful login
+        # Clear both rate-limit counters on success.
         ip = get_client_ip(self.request) or 'unknown'
-        reset_rate_limit(f'login:{ip}')
+        user_key = (self.request.POST.get('username', '') or '').strip().lower()
+        reset_rate_limit(f'login:user:{user_key}')
+        reset_rate_limit(f'login:ip:{ip}')
+        logger.info(
+            'Login success: username=%r ip=%s — login rate-limit counters cleared',
+            self.request.user.get_username(), ip,
+        )
         return response
 
     def form_invalid(self, form):
-        from audit.services import log_event
-        username = form.cleaned_data.get('username', '')
+        from audit.services import log_event, get_client_ip
+        from billing.rate_limiting import get_remaining_attempts
+        username = form.cleaned_data.get('username') or form.data.get('username', '')
+        user_key = (username or '').strip().lower()
+        ip = get_client_ip(self.request) or 'unknown'
+        # This failed attempt has already been counted in post(); surface how
+        # many remain on the per-username gate so an impending account lockout
+        # is visible in the log file *before* it trips.
+        remaining = get_remaining_attempts(
+            f'login:user:{user_key}', max_attempts=settings.LOGIN_RATELIMIT_USER_MAX,
+        )
+        logger.warning(
+            'Login failed: ip=%s username=%r — %s attempt(s) left before this account locks for 15 min',
+            ip, username, remaining,
+        )
         log_event(
             category='auth',
             action='login_failed',
             result='blocked',
-            detail={'username': username},
+            detail={'username': username, 'ip': ip, 'remaining_attempts': remaining},
             request=self.request,
         )
         return super().form_invalid(form)
@@ -838,8 +892,14 @@ class CompleteProfileView(LoginRequiredMixin, View):
     def get(self, request):
         if not request.user.must_change_password and request.user.profile_completed:
             return redirect('subjects_hub')
+        user = request.user
+        pre_claimed_card = None
+        if user.is_student:
+            from classroom.models import StudentCard
+            pre_claimed_card = StudentCard.objects.filter(student=user, is_claimed=True).first()
         return render(request, 'accounts/complete_profile.html', {
-            'student_package': self._get_student_package() if request.user.is_student else None,
+            'student_package': self._get_student_package() if user.is_student else None,
+            'pre_claimed_card': pre_claimed_card,
         })
 
     def post(self, request):
@@ -866,8 +926,9 @@ class CompleteProfileView(LoginRequiredMixin, View):
         city = request.POST.get('city', '').strip()
         postal_code = request.POST.get('postal_code', '').strip()
 
-        # Discount code for school students
+        # Discount code or card number for school students
         discount_code_str = request.POST.get('discount_code', '').strip().upper()
+        card_number_str = request.POST.get('card_number', '').strip()
 
         if not first_name:
             errors.append('First name is required.')
@@ -884,11 +945,40 @@ class CompleteProfileView(LoginRequiredMixin, View):
             elif not discount_obj.is_valid():
                 errors.append('This discount code has expired or reached its usage limit.')
 
+        # Validate card number if provided (StudentCard must belong to this student's school)
+        from classroom.models import StudentCard, SchoolStudent
+        card_obj = None
+        if card_number_str and user.is_student:
+            school_student = SchoolStudent.objects.filter(student=user, is_active=True).first()
+            if school_student:
+                card_obj = StudentCard.objects.filter(
+                    card_number__iexact=card_number_str,
+                    school=school_student.school,
+                ).first()
+                if not card_obj:
+                    errors.append('Card number not found for your school.')
+                elif card_obj.is_claimed and card_obj.student != user:
+                    errors.append('This card number has already been claimed by another student.')
+            else:
+                errors.append('Card number can only be used by school students.')
+        elif user.is_student:
+            # No card number typed, but a teacher may have pre-assigned a card to
+            # this student (is_claimed + student=self). Honour it so the student
+            # activates without payment — the GET view shows a "card activated
+            # automatically" banner and hides the card-number field in that case,
+            # so the POST has no card_number to resubmit.
+            card_obj = StudentCard.objects.filter(student=user, is_claimed=True).first()
+
         if errors:
             for err in errors:
                 messages.error(request, err)
             return render(request, 'accounts/complete_profile.html', {
                 'student_package': self._get_student_package() if user.is_student else None,
+                'card_number': card_number_str,
+                'pre_claimed_card': (
+                    StudentCard.objects.filter(student=user, is_claimed=True).first()
+                    if user.is_student else None
+                ),
             })
 
         # Save profile fields and password — but do NOT mark profile_completed yet for students
@@ -933,9 +1023,25 @@ class CompleteProfileView(LoginRequiredMixin, View):
             request=request,
         )
 
-        # School students need payment or a fully-free code to activate
+        # School students need payment, a fully-free code, or a valid card number to activate
         if user.is_student:
             from billing.models import Package, Subscription
+            from django.utils import timezone as _tz
+
+            # Card number path — claim card and activate without payment.
+            # Claim + activation are a single unit: a half-applied state would
+            # leave the card claimed but the profile incomplete (login loop).
+            if card_obj is not None:
+                with transaction.atomic():
+                    card_obj.student = user
+                    card_obj.is_claimed = True
+                    if card_obj.claimed_at is None:
+                        card_obj.claimed_at = _tz.now()
+                    card_obj.save(update_fields=['student', 'is_claimed', 'claimed_at'])
+                    user.profile_completed = True
+                    user.save(update_fields=['profile_completed'])
+                messages.success(request, 'Profile completed! Card activated — welcome!')
+                return redirect('subjects_hub')
 
             package = self._get_student_package()
             if package:
@@ -945,13 +1051,20 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     if discount_obj:
                         discount_obj.uses += 1
                         discount_obj.save(update_fields=['uses'])
-                    Subscription.objects.get_or_create(
+                    sub, _ = Subscription.objects.get_or_create(
                         user=user,
                         defaults={
                             'package': package,
                             'status': Subscription.STATUS_ACTIVE,
                         },
                     )
+                    # Record the discount so the HoI management view (CPP-XXX)
+                    # can show/clear it without inferring from Stripe state.
+                    sub.package = package
+                    sub.status = Subscription.STATUS_ACTIVE
+                    sub.discount_code = discount_obj
+                    sub.discount_percent_snapshot = 100
+                    sub.save()
                     user.package = package
                     user.profile_completed = True
                     user.save(update_fields=['package', 'profile_completed'])
@@ -963,6 +1076,17 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     try:
                         from billing.stripe_service import create_student_checkout_session
                         stripe_coupon = discount_obj.stripe_coupon_id if discount_obj and discount_obj.stripe_coupon_id else None
+                        # Record a partial discount on the subscription up front so
+                        # the HoI view (CPP-XXX) can show/clear it; the webhook
+                        # fills in stripe_subscription_id/status and preserves this.
+                        if discount_obj:
+                            sub, _ = Subscription.objects.get_or_create(
+                                user=user, defaults={'package': package},
+                            )
+                            sub.package = package
+                            sub.discount_code = discount_obj
+                            sub.discount_percent_snapshot = discount_obj.discount_percent
+                            sub.save()
                         session = create_student_checkout_session(
                             user, package, request,
                             stripe_coupon_id=stripe_coupon,

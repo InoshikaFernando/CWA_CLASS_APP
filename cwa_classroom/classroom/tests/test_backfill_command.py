@@ -25,7 +25,7 @@ class BackfillDepartmentLevelsTest(TestCase):
         )[0]
 
         cls.year_levels = []
-        for i in range(1, 10):
+        for i in range(1, 11):
             lv, _ = Level.objects.get_or_create(
                 level_number=i,
                 defaults={'display_name': f'Year {i}', 'subject': cls.maths},
@@ -48,13 +48,13 @@ class BackfillDepartmentLevelsTest(TestCase):
         DepartmentSubject.objects.create(department=cls.dept, subject=cls.maths)
 
     def test_backfill_creates_rows(self):
-        """Running backfill should create DepartmentLevel rows for Year 1-9."""
+        """Running backfill should create DepartmentLevel rows for Year 1-10."""
         self.assertEqual(DepartmentLevel.objects.filter(department=self.dept).count(), 0)
         out = StringIO()
         call_command('backfill_department_levels', stdout=out)
         count = DepartmentLevel.objects.filter(department=self.dept).count()
-        self.assertEqual(count, 9)
-        self.assertIn('9 levels mapped', out.getvalue())
+        self.assertEqual(count, 10)
+        self.assertIn('10 levels mapped', out.getvalue())
 
     def test_backfill_idempotent(self):
         """Running backfill twice should not create duplicates."""
@@ -79,7 +79,7 @@ class BackfillDepartmentLevelsTest(TestCase):
         count = DepartmentLevel.objects.filter(department=self.dept).count()
         self.assertEqual(count, 0)
         self.assertIn('DRY RUN', out.getvalue())
-        self.assertIn('9 levels would be mapped', out.getvalue())
+        self.assertIn('10 levels would be mapped', out.getvalue())
 
     def test_skips_dept_without_subject(self):
         """Departments without a subject should be skipped."""
