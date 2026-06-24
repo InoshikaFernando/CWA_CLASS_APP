@@ -137,6 +137,16 @@
         </select>
       </div>
       <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Period From</label>
+        <input type="date" name="period_start" value="{{ period_start_filter }}"
+          class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Period To</label>
+        <input type="date" name="period_end" value="{{ period_end_filter }}"
+          class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+      </div>
+      <div>
         <label class="block text-xs font-medium text-gray-600 mb-1">Email</label>
         <select name="email"
           class="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
@@ -150,7 +160,7 @@
         class="px-4 py-1.5 text-sm bg-slate-100 text-gray-700 rounded-lg hover:bg-slate-200 transition font-medium border border-slate-300">
         Filter
       </button>
-      {% if search or status_filter or dept_filter or classroom_filter or email_filter %}
+      {% if search or status_filter or dept_filter or classroom_filter or period_start_filter or period_end_filter or email_filter %}
         <a href="{% url 'invoice_list' %}" class="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition">Clear</a>
       {% endif %}
     </form>
@@ -270,11 +280,11 @@
           </p>
           <div class="flex gap-1">
             {% if page.has_previous %}
-              <a href="?page={{ page.previous_page_number }}{% if search %}&q={{ search }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if dept_filter %}&department={{ dept_filter }}{% endif %}{% if classroom_filter %}&classroom={{ classroom_filter }}{% endif %}{% if email_filter %}&email={{ email_filter }}{% endif %}"
+              <a href="?page={{ page.previous_page_number }}{% if search %}&q={{ search }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if dept_filter %}&department={{ dept_filter }}{% endif %}{% if classroom_filter %}&classroom={{ classroom_filter }}{% endif %}{% if period_start_filter %}&period_start={{ period_start_filter }}{% endif %}{% if period_end_filter %}&period_end={{ period_end_filter }}{% endif %}{% if email_filter %}&email={{ email_filter }}{% endif %}"
                  class="px-3 py-1 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 transition">Prev</a>
             {% endif %}
             {% if page.has_next %}
-              <a href="?page={{ page.next_page_number }}{% if search %}&q={{ search }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if dept_filter %}&department={{ dept_filter }}{% endif %}{% if classroom_filter %}&classroom={{ classroom_filter }}{% endif %}{% if email_filter %}&email={{ email_filter }}{% endif %}"
+              <a href="?page={{ page.next_page_number }}{% if search %}&q={{ search }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if dept_filter %}&department={{ dept_filter }}{% endif %}{% if classroom_filter %}&classroom={{ classroom_filter }}{% endif %}{% if period_start_filter %}&period_start={{ period_start_filter }}{% endif %}{% if period_end_filter %}&period_end={{ period_end_filter }}{% endif %}{% if email_filter %}&email={{ email_filter }}{% endif %}"
                  class="px-3 py-1 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 transition">Next</a>
             {% endif %}
           </div>
@@ -302,4 +312,19 @@
   </div>
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    var params = new URLSearchParams(window.location.search);
+    ['period_start', 'period_end'].forEach(function (name) {
+      var val = params.get(name);
+      if (val) {
+        var el = document.querySelector('input[name="' + name + '"]');
+        if (el) el.value = val;
+      }
+    });
+  });
+</script>
 {% endblock %}
