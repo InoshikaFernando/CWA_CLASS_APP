@@ -459,6 +459,8 @@ class SchoolSettingsView(RoleRequiredMixin, View):
         'postal_code', 'country', 'timezone',
         # Contact & email
         'outgoing_email',
+        # Payments
+        'subscription_discount_code',
         # Banking & invoice
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
         'invoice_terms', 'invoice_due_days', 'invoice_recipient_policy',
@@ -534,6 +536,20 @@ class SchoolSettingsView(RoleRequiredMixin, View):
             except DjangoValidationError:
                 messages.error(request, 'Please enter a valid outgoing email address.')
                 return redirect(f"{reverse('admin_school_settings', kwargs={'school_id': school.id})}?tab={tab}")
+
+        # Validate subscription discount code (must be an active DiscountCode)
+        disc_code = request.POST.get('subscription_discount_code', '').strip()
+        if disc_code:
+            from billing.models import DiscountCode
+            dc = DiscountCode.objects.filter(code__iexact=disc_code, is_active=True).first()
+            if not dc:
+                messages.error(
+                    request,
+                    f'"{disc_code}" is not an active subscription discount code.',
+                )
+                return redirect(f"{reverse('admin_school_settings', kwargs={'school_id': school.id})}?tab={tab}")
+            # Store the canonical code (preserves the DiscountCode's exact casing)
+            school.subscription_discount_code = dc.code
 
         # Handle default_currency FK (HoI-only)
         if self._is_hoi(request.user, school) and 'default_currency' in request.POST:
