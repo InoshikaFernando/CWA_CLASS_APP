@@ -363,7 +363,10 @@ class TestAttendanceScopeUI:
         page.wait_for_load_state("domcontentloaded")
 
         expect(page.get_by_text("Attendance Not Complete")).to_be_visible()
-        expect(page.get_by_text(data["scratch01"].name)).to_be_visible()
+        # Scope to the unmarked-sessions list item — the classroom name also now
+        # appears in the (preserved) class dropdown, so a bare get_by_text would
+        # match 2 elements.
+        expect(page.locator("li", has_text=data["scratch01"].name).first).to_be_visible()
 
     def test_scratch06_not_blocked_by_scratch01_unmarked(
         self, live_server, page, attendance_scope_setup,
@@ -416,4 +419,7 @@ class TestAttendanceScopeUI:
         page.wait_for_load_state("domcontentloaded")
 
         expect(page.get_by_text("Attendance Not Complete")).to_be_visible()
-        expect(page.get_by_text(data["scratch01"].name)).to_be_visible()
+        # Scope to the unmarked-sessions list item — the classroom name also now
+        # appears in the (preserved) class dropdown, so a bare get_by_text would
+        # match 2 elements.
+        expect(page.locator("li", has_text=data["scratch01"].name).first).to_be_visible()
