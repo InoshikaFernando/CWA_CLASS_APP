@@ -385,4 +385,9 @@ urlpatterns = [
     path('salaries/<int:slip_id>/cancel/', views_salaries.CancelSalarySlipView.as_view(), name='cancel_salary_slip'),
     path('salaries/<int:slip_id>/pay/', views_salaries.RecordSalaryPaymentView.as_view(), name='record_salary_payment'),
     path('salaries/api/teacher-search/', views_salaries.TeacherSearchAPIView.as_view(), name='teacher_search_api'),
+
+    # Teacher self-service salary (CPP-306)
+    path('teacher/salary/', views_salaries.TeacherSalarySlipListView.as_view(), name='teacher_salary_slip_list'),
+    path('teacher/salary/<int:slip_id>/', views_salaries.TeacherSalarySlipDetailView.as_view(), name='teacher_salary_slip_detail'),
+    path('teacher/salary/<int:slip_id>/print/', views_salaries.TeacherSalarySlipPrintView.as_view(), name='teacher_salary_slip_print'),
 ]
