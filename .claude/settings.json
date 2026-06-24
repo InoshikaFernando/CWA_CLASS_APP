@@ -3,15 +3,7 @@
     "allow": [
       "Bash(python manage.py shell -c \":*)",
       "Bash(python -m pytest brainbuzz/tests/ --tb=short -q)",
-      "Bash(python manage.py create_sample_templates)",
-      "Bash(python manage.py test classroom.tests.test_cpp198_resend_welcome -v 2)",
-      "Bash(git fetch *)",
-      "Bash(git checkout *)",
-      "mcp__claude_ai_Atlassian_Rovo__transitionJiraIssue",
-      "mcp__claude_ai_Atlassian_Rovo__getJiraIssue",
-      "PowerShell(& \"C:\\\\Users\\\\Administrator\\\\miniconda3\\\\Scripts\\\\conda.exe\" run -n cwa_env python --version 2>&1)",
-      "PowerShell($env:DB_ENGINE = \"sqlite\"; Set-Location \"c:\\\\Users\\\\Administrator\\\\Documents\\\\GitHub\\\\Code_Wizard_Source\\\\CWA_CLASS_APP\\\\cwa_classroom\"; C:\\\\Users\\\\Administrator\\\\anaconda3\\\\envs\\\\cwa-arebhy\\\\python.exe -m pytest ui_tests/test_cpp314_crossword_ui.py::TestCrosswordCheckRevealReset::test_check_all_correct_shows_result_bar_green -m cpp314 --override-ini=\"addopts=\" -v --headed 2>&1 | Select-Object -Last 40)",
-      "Bash(git push *)"
+      "Bash(python manage.py create_sample_templates)"
     ]
   },
   "hooks": {

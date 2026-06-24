@@ -1380,3 +1380,16 @@ class AttendanceScopeViewTests(TestCase):
             resp.context['unmarked_sessions'][0]['classroom'],
             self.scratch01,
         )
+
+    def test_attendance_error_preserves_classroom_selection(self):
+        """When the gate blocks, the re-rendered page must keep the selected
+        classroom (context 'classrooms' + form_data 'classroom_id') so the user
+        doesn't silently fall back to a school-wide check on resubmit."""
+        data = {**self.post_data, 'classroom_id': str(self.scratch01.id)}
+        resp = self.client.post(reverse('generate_invoices'), data)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('classrooms', resp.context)
+        self.assertEqual(
+            resp.context['form_data'].get('classroom_id'),
+            str(self.scratch01.id),
+        )

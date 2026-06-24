@@ -538,10 +538,13 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
             unmarked = svc.validate_attendance_complete(school, start, end, department, classroom_obj)
             if unmarked:
                 departments = Department.objects.filter(school=school, is_active=True)
+                classrooms = ClassRoom.objects.filter(
+                    school=school, is_active=True).order_by('name')
                 terms = Term.objects.filter(school=school).select_related('academic_year')
                 return render(request, 'invoicing/generate_invoices.html', {
                     'school': school,
                     'departments': departments,
+                    'classrooms': classrooms,
                     'terms': terms,
                     'unmarked_sessions': unmarked,
                     'form_data': {
@@ -550,6 +553,7 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                         'attendance_mode': mode,
                         'billing_type': billing_type,
                         'department_id': dept_id,
+                        'classroom_id': classroom_id,
                     },
                 })
 
