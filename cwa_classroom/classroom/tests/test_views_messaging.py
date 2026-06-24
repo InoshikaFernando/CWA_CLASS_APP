@@ -1,10 +1,12 @@
 """
-Unit tests for classroom/views_messaging.py (CPP-349 – CPP-352).
+Unit tests for classroom/views_messaging.py (CPP-349 – CPP-352, CPP-358, CPP-361).
 
 CPP-349: URL resolution, access control, redirect behaviour.
 CPP-350: RecipientSearchAPIView — scoping, search, role labels, email filter.
 CPP-351: Compose page — subject, body, attachments, toolbar.
 CPP-352: Schedule picker UI + POST handler + ScheduledMessage model.
+CPP-358: MessagingInboxView, cancel, delete, retry.
+CPP-361: MessagingRecipientGroupAPIView, compose context (user_email/user_name).
 """
 import json
 
@@ -96,6 +98,12 @@ class TestMessagingURLs(TestCase):
             '/admin-dashboard/messaging/api/recipients/',
         )
 
+    def test_messaging_recipient_group_url_reverses(self):
+        self.assertEqual(
+            reverse('messaging_recipient_group'),
+            '/admin-dashboard/messaging/api/recipients/group/',
+        )
+
     def test_messaging_dashboard_resolves_to_view(self):
         self.assertEqual(resolve('/admin-dashboard/messaging/').url_name, 'messaging_dashboard')
 
@@ -124,23 +132,23 @@ class TestMessagingDashboardView(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn('/login', response['Location'])
 
-    def test_admin_role_redirects_to_compose(self):
+    def test_admin_role_redirects_to_inbox(self):
         user, _ = _make_admin_with_school()
         self.client.force_login(user)
         response = self.client.get(self.url)
-        self.assertRedirects(response, reverse('messaging_compose'), fetch_redirect_response=False)
+        self.assertRedirects(response, reverse('messaging_inbox'), fetch_redirect_response=False)
 
-    def test_institute_owner_redirects_to_compose(self):
+    def test_institute_owner_redirects_to_inbox(self):
         user = _make_user('owner_msg', 'wlhtestmails+owner_msg@gmail.com', Role.INSTITUTE_OWNER)
         self.client.force_login(user)
         response = self.client.get(self.url)
-        self.assertRedirects(response, reverse('messaging_compose'), fetch_redirect_response=False)
+        self.assertRedirects(response, reverse('messaging_inbox'), fetch_redirect_response=False)
 
-    def test_head_of_institute_redirects_to_compose(self):
+    def test_head_of_institute_redirects_to_inbox(self):
         user = _make_user('hoi_msg', 'wlhtestmails+hoi_msg@gmail.com', Role.HEAD_OF_INSTITUTE)
         self.client.force_login(user)
         response = self.client.get(self.url)
-        self.assertRedirects(response, reverse('messaging_compose'), fetch_redirect_response=False)
+        self.assertRedirects(response, reverse('messaging_inbox'), fetch_redirect_response=False)
 
     def test_student_role_denied(self):
         user = _make_user('student_msg', 'wlhtestmails+student_msg@gmail.com', Role.STUDENT)
@@ -156,13 +164,13 @@ class TestMessagingDashboardView(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertNotIn('/messaging', response['Location'])
 
-    def test_superuser_redirects_to_compose(self):
+    def test_superuser_redirects_to_inbox(self):
         user = CustomUser.objects.create_superuser(
             username='super_msg', password='Testpass1!', email='wlhtestmails+super_msg@gmail.com',
         )
         self.client.force_login(user)
         response = self.client.get(self.url)
-        self.assertRedirects(response, reverse('messaging_compose'), fetch_redirect_response=False)
+        self.assertRedirects(response, reverse('messaging_inbox'), fetch_redirect_response=False)
 
 
 # ---------------------------------------------------------------------------
@@ -552,10 +560,10 @@ class TestMessagingComposeViewPost(TestCase):
         self.assertEqual(msg.subject, 'Hello World')
         self.assertEqual(msg.body_html, '<p>Body</p>')
 
-    def test_post_redirects_on_success(self):
+    def test_post_redirects_to_inbox_on_success(self):
         self.client.force_login(self.user)
         response = self.client.post(self.url, _post_data())
-        self.assertRedirects(response, self.url, fetch_redirect_response=False)
+        self.assertRedirects(response, reverse('messaging_inbox'), fetch_redirect_response=False)
 
     def test_post_invalid_frequency_defaults_to_now(self):
         self.client.force_login(self.user)
@@ -777,3 +785,432 @@ class TestRecipientSearchAPIView(TestCase):
         data = json.loads(self.client.get(self.url, {'q': 'Dual'}).content)
         emails = [r['email'] for r in data['results']]
         self.assertEqual(len(emails), len(set(emails)))
+
+
+# ---------------------------------------------------------------------------
+# CPP-358: MessagingInboxView
+# ---------------------------------------------------------------------------
+
+def _make_message(school, user, subject='Test', status='draft', frequency='now', **kwargs):
+    return ScheduledMessage.objects.create(
+        school=school, created_by=user, subject=subject,
+        body_html='<p>body</p>', status=status, frequency=frequency,
+        recipients_to=[{'id': 1, 'name': 'Alice Smith', 'email': 'alice@example.com', 'role': 'staff'}],
+        recipients_cc=[], recipients_bcc=[],
+        **kwargs,
+    )
+
+
+class TestMessagingInboxView(TestCase):
+    """CPP-358: Inbox list — access control, tabs, search, pagination."""
+
+    def setUp(self):
+        self.client = Client()
+        self.admin, self.school = _make_admin_with_school()
+        self.url = reverse('messaging_inbox')
+
+    def test_url_reverses(self):
+        self.assertEqual(self.url, '/admin-dashboard/messaging/inbox/')
+
+    def test_unauthenticated_redirects(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login', response['Location'])
+
+    def test_student_denied(self):
+        user = _make_user('stu_inbox', 'wlhtestmails+stu_inbox@gmail.com', Role.STUDENT)
+        self.client.force_login(user)
+        self.assertEqual(self.client.get(self.url).status_code, 302)
+
+    def test_admin_gets_200(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_hoi_gets_200(self):
+        user = _make_user('hoi_inbox', 'wlhtestmails+hoi_inbox@gmail.com', Role.HEAD_OF_INSTITUTE)
+        self.client.force_login(user)
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_lists_own_school_messages(self):
+        _make_message(self.school, self.admin, subject='Hello Inbox')
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertContains(response, 'Hello Inbox')
+
+    def test_does_not_list_other_school_messages(self):
+        other_user = _make_user('other_admin_358', 'wlhtestmails+other_admin_358@gmail.com', Role.ADMIN)
+        other_school = School.objects.create(name='Other School 358', slug='other-school-358', admin=other_user)
+        _make_message(other_school, other_user, subject='Other School Msg')
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertNotContains(response, 'Other School Msg')
+
+    def test_tab_filter_draft(self):
+        _make_message(self.school, self.admin, subject='My Draft', status='draft')
+        _make_message(self.school, self.admin, subject='My Sent', status='sent')
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url, {'tab': 'draft'})
+        self.assertContains(response, 'My Draft')
+        self.assertNotContains(response, 'My Sent')
+
+    def test_tab_filter_sent(self):
+        _make_message(self.school, self.admin, subject='Sent Msg', status='sent')
+        _make_message(self.school, self.admin, subject='Draft Msg', status='draft')
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url, {'tab': 'sent'})
+        self.assertContains(response, 'Sent Msg')
+        self.assertNotContains(response, 'Draft Msg')
+
+    def test_tab_all_shows_all_statuses(self):
+        _make_message(self.school, self.admin, subject='DraftOne', status='draft')
+        _make_message(self.school, self.admin, subject='SentOne', status='sent')
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url, {'tab': 'all'})
+        self.assertContains(response, 'DraftOne')
+        self.assertContains(response, 'SentOne')
+
+    def test_search_filters_by_subject(self):
+        _make_message(self.school, self.admin, subject='UniqueSubjectXYZ')
+        _make_message(self.school, self.admin, subject='OtherSubject')
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url, {'q': 'UniqueSubjectXYZ'})
+        self.assertContains(response, 'UniqueSubjectXYZ')
+        self.assertNotContains(response, 'OtherSubject')
+
+    def test_search_case_insensitive(self):
+        _make_message(self.school, self.admin, subject='CaseSensTest')
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url, {'q': 'casesenstest'})
+        self.assertContains(response, 'CaseSensTest')
+
+    def test_empty_state_shown_when_no_messages(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertContains(response, 'No messages found')
+
+    def test_context_contains_tabs(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertIn('tabs', response.context)
+        self.assertIn('all', response.context['tabs'])
+
+    def test_dashboard_now_redirects_to_inbox(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse('messaging_dashboard'))
+        self.assertRedirects(response, reverse('messaging_inbox'), fetch_redirect_response=False)
+
+
+class TestMessagingCancelView(TestCase):
+    """CPP-358: Cancel scheduled message."""
+
+    def setUp(self):
+        self.client = Client()
+        self.admin, self.school = _make_admin_with_school()
+
+    def _url(self, pk):
+        return reverse('messaging_cancel', args=[pk])
+
+    def test_cancel_scheduled_sets_cancelled(self):
+        msg = _make_message(self.school, self.admin, status='scheduled')
+        self.client.force_login(self.admin)
+        self.client.post(self._url(msg.pk))
+        msg.refresh_from_db()
+        self.assertEqual(msg.status, ScheduledMessage.STATUS_CANCELLED)
+
+    def test_cancel_redirects_to_inbox(self):
+        msg = _make_message(self.school, self.admin, status='scheduled')
+        self.client.force_login(self.admin)
+        response = self.client.post(self._url(msg.pk))
+        self.assertRedirects(response, reverse('messaging_inbox'), fetch_redirect_response=False)
+
+    def test_cancel_non_scheduled_does_not_change_status(self):
+        msg = _make_message(self.school, self.admin, status='sent')
+        self.client.force_login(self.admin)
+        self.client.post(self._url(msg.pk))
+        msg.refresh_from_db()
+        self.assertEqual(msg.status, 'sent')
+
+    def test_cancel_other_school_returns_404(self):
+        other_user = _make_user('oadm358c', 'wlhtestmails+oadm358c@gmail.com', Role.ADMIN)
+        other_school = School.objects.create(name='Other 358C', slug='other-358c', admin=other_user)
+        msg = _make_message(other_school, other_user, status='scheduled')
+        self.client.force_login(self.admin)
+        response = self.client.post(self._url(msg.pk))
+        self.assertEqual(response.status_code, 404)
+
+    def test_cancel_unauthenticated_redirects(self):
+        msg = _make_message(self.school, self.admin, status='scheduled')
+        response = self.client.post(self._url(msg.pk))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login', response['Location'])
+
+    def test_cancel_preserves_tab_param(self):
+        msg = _make_message(self.school, self.admin, status='scheduled')
+        self.client.force_login(self.admin)
+        response = self.client.post(self._url(msg.pk), {'tab': 'scheduled'})
+        self.assertRedirects(
+            response,
+            reverse('messaging_inbox') + '?tab=scheduled',
+            fetch_redirect_response=False,
+        )
+
+    def test_cancel_no_school_redirects_to_inbox(self):
+        msg = _make_message(self.school, self.admin, status='scheduled')
+        no_school_user = _make_user('noschl_cancel', 'wlhtestmails+noschl_cancel@gmail.com', Role.ADMIN)
+        self.client.force_login(no_school_user)
+        response = self.client.post(self._url(msg.pk))
+        self.assertRedirects(response, reverse('messaging_inbox'), fetch_redirect_response=False)
+        msg.refresh_from_db()
+        self.assertEqual(msg.status, 'scheduled')
+
+
+class TestMessagingDeleteView(TestCase):
+    """CPP-358: Hard-delete a draft message."""
+
+    def setUp(self):
+        self.client = Client()
+        self.admin, self.school = _make_admin_with_school()
+
+    def _url(self, pk):
+        return reverse('messaging_delete', args=[pk])
+
+    def test_delete_draft_removes_record(self):
+        msg = _make_message(self.school, self.admin, status='draft')
+        pk = msg.pk
+        self.client.force_login(self.admin)
+        self.client.post(self._url(pk))
+        self.assertFalse(ScheduledMessage.objects.filter(pk=pk).exists())
+
+    def test_delete_redirects_to_inbox(self):
+        msg = _make_message(self.school, self.admin, status='draft')
+        self.client.force_login(self.admin)
+        response = self.client.post(self._url(msg.pk))
+        self.assertRedirects(response, reverse('messaging_inbox'), fetch_redirect_response=False)
+
+    def test_delete_non_draft_does_not_delete(self):
+        msg = _make_message(self.school, self.admin, status='sent')
+        pk = msg.pk
+        self.client.force_login(self.admin)
+        self.client.post(self._url(pk))
+        self.assertTrue(ScheduledMessage.objects.filter(pk=pk).exists())
+
+    def test_delete_other_school_returns_404(self):
+        other_user = _make_user('oadm358d', 'wlhtestmails+oadm358d@gmail.com', Role.ADMIN)
+        other_school = School.objects.create(name='Other 358D', slug='other-358d', admin=other_user)
+        msg = _make_message(other_school, other_user, status='draft')
+        self.client.force_login(self.admin)
+        response = self.client.post(self._url(msg.pk))
+        self.assertEqual(response.status_code, 404)
+
+    def test_delete_unauthenticated_redirects(self):
+        msg = _make_message(self.school, self.admin, status='draft')
+        response = self.client.post(self._url(msg.pk))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login', response['Location'])
+
+    def test_delete_no_school_redirects_to_inbox(self):
+        msg = _make_message(self.school, self.admin, status='draft')
+        no_school_user = _make_user('noschl_delete', 'wlhtestmails+noschl_delete@gmail.com', Role.ADMIN)
+        self.client.force_login(no_school_user)
+        response = self.client.post(self._url(msg.pk))
+        self.assertRedirects(response, reverse('messaging_inbox'), fetch_redirect_response=False)
+        self.assertTrue(ScheduledMessage.objects.filter(pk=msg.pk).exists())
+
+
+class TestMessagingRetryView(TestCase):
+    """CPP-358: Re-enqueue a failed message."""
+
+    def setUp(self):
+        self.client = Client()
+        self.admin, self.school = _make_admin_with_school()
+
+    def _url(self, pk):
+        return reverse('messaging_retry', args=[pk])
+
+    def test_retry_non_failed_does_not_change_status(self):
+        msg = _make_message(self.school, self.admin, status='sent')
+        self.client.force_login(self.admin)
+        self.client.post(self._url(msg.pk))
+        msg.refresh_from_db()
+        self.assertEqual(msg.status, 'sent')
+
+    def test_retry_other_school_returns_404(self):
+        other_user = _make_user('oadm358r', 'wlhtestmails+oadm358r@gmail.com', Role.ADMIN)
+        other_school = School.objects.create(name='Other 358R', slug='other-358r', admin=other_user)
+        msg = _make_message(other_school, other_user, status='failed')
+        self.client.force_login(self.admin)
+        response = self.client.post(self._url(msg.pk))
+        self.assertEqual(response.status_code, 404)
+
+    def test_retry_unauthenticated_redirects(self):
+        msg = _make_message(self.school, self.admin, status='failed')
+        response = self.client.post(self._url(msg.pk))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login', response['Location'])
+
+    def test_retry_failed_sets_scheduled_when_rq_ok(self):
+        from unittest.mock import patch, MagicMock
+        msg = _make_message(self.school, self.admin, status='failed')
+        self.client.force_login(self.admin)
+        with patch('classroom.views_messaging.django_rq') as mock_rq:
+            mock_rq.get_queue.return_value = MagicMock()
+            self.client.post(self._url(msg.pk))
+        msg.refresh_from_db()
+        self.assertEqual(msg.status, ScheduledMessage.STATUS_SCHEDULED)
+
+    def test_retry_enqueues_dispatch_job(self):
+        from unittest.mock import patch, MagicMock
+        msg = _make_message(self.school, self.admin, status='failed')
+        self.client.force_login(self.admin)
+        mock_queue = MagicMock()
+        with patch('classroom.views_messaging.django_rq') as mock_rq:
+            mock_rq.get_queue.return_value = mock_queue
+            self.client.post(self._url(msg.pk))
+        mock_queue.enqueue.assert_called_once()
+        call_kwargs = mock_queue.enqueue.call_args
+        self.assertEqual(call_kwargs.kwargs.get('job_id'), f'dispatch-msg-{msg.pk}')
+
+    def test_retry_rq_failure_keeps_status_failed(self):
+        from unittest.mock import patch
+        msg = _make_message(self.school, self.admin, status='failed')
+        self.client.force_login(self.admin)
+        with patch('classroom.views_messaging.django_rq') as mock_rq:
+            mock_rq.get_queue.side_effect = Exception('Redis down')
+            self.client.post(self._url(msg.pk))
+        msg.refresh_from_db()
+        self.assertEqual(msg.status, ScheduledMessage.STATUS_FAILED)
+
+    def test_retry_no_school_redirects_to_inbox(self):
+        msg = _make_message(self.school, self.admin, status='failed')
+        no_school_user = _make_user('noschl_retry', 'wlhtestmails+noschl_retry@gmail.com', Role.ADMIN)
+        self.client.force_login(no_school_user)
+        response = self.client.post(self._url(msg.pk))
+        self.assertRedirects(response, reverse('messaging_inbox'), fetch_redirect_response=False)
+        msg.refresh_from_db()
+        self.assertEqual(msg.status, ScheduledMessage.STATUS_FAILED)
+
+
+# ---------------------------------------------------------------------------
+# CPP-361: MessagingRecipientGroupAPIView
+# ---------------------------------------------------------------------------
+
+class TestMessagingRecipientGroupAPIView(TestCase):
+    """CPP-361: Group bulk-add API — returns all school contacts by role."""
+
+    def setUp(self):
+        self.client = Client()
+        self.url = reverse('messaging_recipient_group')
+        self.admin, self.school = _make_admin_with_school()
+
+    def test_unauthenticated_returns_401(self):
+        response = self.client.get(self.url, {'role': 'student'})
+        self.assertEqual(response.status_code, 401)
+
+    def test_student_role_denied(self):
+        user = _make_user('grp_stu_denied', 'wlhtestmails+grp_stu_denied@gmail.com', Role.STUDENT)
+        self.client.force_login(user)
+        response = self.client.get(self.url, {'role': 'student'})
+        self.assertEqual(response.status_code, 403)
+
+    def test_invalid_role_returns_400(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url, {'role': 'bogus'})
+        self.assertEqual(response.status_code, 400)
+
+    def test_missing_role_returns_400(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 400)
+
+    def test_no_school_returns_empty(self):
+        user = _make_user('grp_noschl', 'wlhtestmails+grp_noschl@gmail.com', Role.ADMIN)
+        self.client.force_login(user)
+        data = json.loads(self.client.get(self.url, {'role': 'student'}).content)
+        self.assertEqual(data['results'], [])
+
+    def test_returns_students(self):
+        _make_admin_school_student(self.school, 'wlhtestmails+grp_s1@gmail.com', 'Alice', 'A')
+        _make_admin_school_student(self.school, 'wlhtestmails+grp_s2@gmail.com', 'Bob', 'B')
+        self.client.force_login(self.admin)
+        data = json.loads(self.client.get(self.url, {'role': 'student'}).content)
+        emails = [r['email'] for r in data['results']]
+        self.assertIn('wlhtestmails+grp_s1@gmail.com', emails)
+        self.assertIn('wlhtestmails+grp_s2@gmail.com', emails)
+        self.assertTrue(all(r['role'] == 'student' for r in data['results']))
+
+    def test_returns_staff(self):
+        _make_admin_school_teacher(self.school, 'wlhtestmails+grp_t1@gmail.com', 'Carol', 'C')
+        self.client.force_login(self.admin)
+        data = json.loads(self.client.get(self.url, {'role': 'staff'}).content)
+        emails = [r['email'] for r in data['results']]
+        self.assertIn('wlhtestmails+grp_t1@gmail.com', emails)
+        self.assertTrue(all(r['role'] == 'staff' for r in data['results']))
+
+    def test_returns_parents(self):
+        student = _make_admin_school_student(self.school, 'wlhtestmails+grp_child@gmail.com', 'Child', 'D')
+        _make_parent_linked_to_student(self.school, 'wlhtestmails+grp_par@gmail.com', student, 'Parent', 'D')
+        self.client.force_login(self.admin)
+        data = json.loads(self.client.get(self.url, {'role': 'parent'}).content)
+        emails = [r['email'] for r in data['results']]
+        self.assertIn('wlhtestmails+grp_par@gmail.com', emails)
+        self.assertTrue(all(r['role'] == 'parent' for r in data['results']))
+
+    def test_scoped_to_own_school(self):
+        other_admin = _make_user('grp_other_adm', 'wlhtestmails+grp_other_adm@gmail.com', Role.ADMIN)
+        other_school = School.objects.create(name='Other 361', slug='other-361', admin=other_admin)
+        _make_admin_school_student(other_school, 'wlhtestmails+grp_other_stu@gmail.com', 'Other', 'Stu')
+        self.client.force_login(self.admin)
+        data = json.loads(self.client.get(self.url, {'role': 'student'}).content)
+        emails = [r['email'] for r in data['results']]
+        self.assertNotIn('wlhtestmails+grp_other_stu@gmail.com', emails)
+
+    def test_no_duplicates(self):
+        """Student also linked as teacher should appear once."""
+        user = _make_admin_school_student(self.school, 'wlhtestmails+grp_dual@gmail.com', 'Dual', 'Role')
+        SchoolStudent.objects.get_or_create(school=self.school, student=user, is_active=True)
+        self.client.force_login(self.admin)
+        data = json.loads(self.client.get(self.url, {'role': 'student'}).content)
+        emails = [r['email'] for r in data['results']]
+        self.assertEqual(emails.count('wlhtestmails+grp_dual@gmail.com'), 1)
+
+    def test_result_contains_required_fields(self):
+        _make_admin_school_student(self.school, 'wlhtestmails+grp_fields@gmail.com', 'Fields', 'Test')
+        self.client.force_login(self.admin)
+        data = json.loads(self.client.get(self.url, {'role': 'student'}).content)
+        self.assertTrue(len(data['results']) >= 1)
+        r = data['results'][0]
+        for field in ('id', 'name', 'email', 'role'):
+            self.assertIn(field, r)
+
+
+# ---------------------------------------------------------------------------
+# CPP-361: MessagingComposeView — user context for "test to self"
+# ---------------------------------------------------------------------------
+
+class TestMessagingComposeViewContext(TestCase):
+    """CPP-361: compose GET passes user_email and user_name to template."""
+
+    def setUp(self):
+        self.client = Client()
+        self.url = reverse('messaging_compose')
+        self.admin, self.school = _make_admin_with_school()
+        self.admin.first_name = 'Ada'
+        self.admin.last_name = 'Lovelace'
+        self.admin.save()
+
+    def test_user_email_in_context(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertEqual(response.context['user_email'], self.admin.email)
+
+    def test_user_name_in_context(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertIn('user_name', response.context)
+        self.assertIn('Ada', response.context['user_name'])
+
+    def test_group_url_in_template(self):
+        """Compose page template contains the group API URL."""
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url)
+        self.assertContains(response, reverse('messaging_recipient_group'))

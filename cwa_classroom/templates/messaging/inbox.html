@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+
+{% block title %}Messages — {{ school.name|default:"Messaging" }}{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-display font-bold text-gray-900">Messages</h1>
+      <p class="text-gray-500 mt-1">{% if school %}{{ school.name }}{% endif %}</p>
+    </div>
+    <a href="{% url 'messaging_compose' %}"
+       class="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition shadow-sm">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      New Message
+    </a>
+  </div>
+
+  <!-- Flash messages -->
+  {% if messages %}
+  <div class="mb-4 space-y-2">
+    {% for message in messages %}
+    <div class="px-4 py-3 rounded-xl text-sm font-medium
+      {% if message.tags == 'success' %}bg-green-50 text-green-800 border border-green-100
+      {% elif message.tags == 'error' %}bg-red-50 text-red-800 border border-red-100
+      {% else %}bg-amber-50 text-amber-800 border border-amber-100{% endif %}">
+      {{ message }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Search + Tabs card -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-4">
+
+    <!-- Search bar -->
+    <div class="px-5 pt-5 pb-4 border-b border-slate-100">
+      <form method="get" action="{% url 'messaging_inbox' %}" class="flex gap-3">
+        {% if tab and tab != 'all' %}<input type="hidden" name="tab" value="{{ tab }}">{% endif %}
+        <div class="relative flex-1">
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"
+               fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803 7.5 7.5 0 0016.803 15.803z"/>
+          </svg>
+          <input type="text" name="q" value="{{ q }}" placeholder="Search by subject…"
+                 class="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300">
+        </div>
+        <button type="submit"
+                class="px-4 py-2 text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition">
+          Search
+        </button>
+        {% if q %}
+        <a href="{% url 'messaging_inbox' %}{% if tab and tab != 'all' %}?tab={{ tab }}{% endif %}"
+           class="px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 rounded-lg transition">
+          Clear
+        </a>
+        {% endif %}
+      </form>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex gap-1 px-5 pt-3 pb-0">
+      {% for t in tabs %}
+      <a href="?tab={{ t }}{% if q %}&q={{ q }}{% endif %}"
+         class="px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition
+                {% if tab == t %}border-indigo-500 text-indigo-700{% else %}border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300{% endif %}">
+        {{ t|capfirst }}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- No school -->
+  {% if not school %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+    <p class="text-slate-500">No school found for your account.</p>
+  </div>
+
+  <!-- Empty state -->
+  {% elif not page_obj or not page_obj.object_list %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center">
+    <svg class="w-12 h-12 text-slate-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"/>
+    </svg>
+    <p class="text-slate-500 font-medium">No messages found</p>
+    <p class="text-slate-400 text-sm mt-1">
+      {% if q %}Try a different search term or <a href="{% url 'messaging_inbox' %}{% if tab and tab != 'all' %}?tab={{ tab }}{% endif %}" class="text-indigo-600 hover:underline">clear the search</a>.
+      {% elif tab != 'all' %}No {{ tab }} messages yet.
+      {% else %}No messages sent yet.{% endif %}
+    </p>
+    <a href="{% url 'messaging_compose' %}"
+       class="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-sm font-medium rounded-lg transition">
+      Compose your first message
+    </a>
+  </div>
+
+  {% else %}
+
+  <!-- Message table -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-slate-200 text-sm">
+        <thead class="bg-slate-50">
+          <tr>
+            <th class="px-5 py-3 text-left font-semibold text-gray-600 w-2/5">Subject</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">Recipients</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">Schedule</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">Status</th>
+            <th class="px-4 py-3 text-left font-semibold text-gray-600">Date</th>
+            <th class="px-4 py-3 text-right font-semibold text-gray-600">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for msg in page_obj %}
+          <tr class="hover:bg-slate-50 transition">
+
+            <!-- Subject -->
+            <td class="px-5 py-3.5">
+              <div class="font-medium text-gray-900 truncate max-w-xs" title="{{ msg.subject }}">
+                {% if msg.subject %}{{ msg.subject }}{% else %}<span class="text-slate-400 italic">No subject</span>{% endif %}
+              </div>
+              <div class="text-xs text-slate-400 mt-0.5">
+                {% if msg.created_by %}{{ msg.created_by.get_full_name|default:msg.created_by.username }}{% endif %}
+              </div>
+            </td>
+
+            <!-- Recipients -->
+            <td class="px-4 py-3.5">
+              {% if msg.recipient_count %}
+              <span class="text-gray-700">{{ msg.first_recipient }}</span>
+              {% if msg.recipient_count > 1 %}
+              <span class="text-xs text-slate-400 ml-1">+{{ msg.recipient_count|add:"-1" }} more</span>
+              {% endif %}
+              {% else %}
+              <span class="text-slate-400 text-xs italic">No recipients</span>
+              {% endif %}
+            </td>
+
+            <!-- Frequency badge -->
+            <td class="px-4 py-3.5">
+              {% if msg.frequency == 'now' %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">Send Now</span>
+              {% elif msg.frequency == 'once' %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-sky-50 text-sky-700">One Time</span>
+              {% elif msg.frequency == 'weekly' %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-violet-50 text-violet-700">Weekly</span>
+              {% elif msg.frequency == 'monthly' %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">Monthly</span>
+              {% endif %}
+              {% if msg.next_run_at %}
+              <div class="text-xs text-slate-400 mt-0.5">Next: {{ msg.next_run_at|date:"d M Y H:i" }}</div>
+              {% endif %}
+            </td>
+
+            <!-- Status badge -->
+            <td class="px-4 py-3.5">
+              {% if msg.status == 'draft' %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">Draft</span>
+              {% elif msg.status == 'scheduled' %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">Scheduled</span>
+              {% elif msg.status == 'sent' %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700">Sent</span>
+              {% elif msg.status == 'failed' %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700">Failed</span>
+              {% elif msg.status == 'cancelled' %}
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">Cancelled</span>
+              {% endif %}
+            </td>
+
+            <!-- Date info -->
+            <td class="px-4 py-3.5 text-xs text-slate-500">
+              {% if msg.last_run_at %}
+              <div>Sent {{ msg.last_run_at|date:"d M Y" }}</div>
+              <div class="text-slate-400">{{ msg.last_run_at|time:"H:i" }}</div>
+              {% elif msg.scheduled_at and msg.frequency == 'once' %}
+              <div>Scheduled {{ msg.scheduled_at|date:"d M Y" }}</div>
+              <div class="text-slate-400">{{ msg.scheduled_at|time:"H:i" }}</div>
+              {% else %}
+              <div>Created {{ msg.created_at|date:"d M Y" }}</div>
+              <div class="text-slate-400">{{ msg.created_at|time:"H:i" }}</div>
+              {% endif %}
+            </td>
+
+            <!-- Actions -->
+            <td class="px-4 py-3.5 text-right whitespace-nowrap">
+              {% if msg.status == 'draft' %}
+              <a href="{% url 'messaging_compose' %}?edit={{ msg.pk }}"
+                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition mr-1">
+                Edit
+              </a>
+              <form method="post" action="{% url 'messaging_delete' msg.pk %}" class="inline"
+                    onsubmit="return confirm('Delete this draft?')">
+                {% csrf_token %}
+                <input type="hidden" name="tab" value="{{ tab }}">
+                <input type="hidden" name="q" value="{{ q }}">
+                <button type="submit"
+                        class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition">
+                  Delete
+                </button>
+              </form>
+
+              {% elif msg.status == 'scheduled' %}
+              <form method="post" action="{% url 'messaging_cancel' msg.pk %}" class="inline"
+                    onsubmit="return confirm('Cancel this scheduled message?')">
+                {% csrf_token %}
+                <input type="hidden" name="tab" value="{{ tab }}">
+                <input type="hidden" name="q" value="{{ q }}">
+                <button type="submit"
+                        class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg transition">
+                  Cancel
+                </button>
+              </form>
+
+              {% elif msg.status == 'failed' %}
+              <form method="post" action="{% url 'messaging_retry' msg.pk %}" class="inline">
+                {% csrf_token %}
+                <input type="hidden" name="tab" value="{{ tab }}">
+                <input type="hidden" name="q" value="{{ q }}">
+                <button type="submit"
+                        class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition">
+                  Retry
+                </button>
+              </form>
+
+              {% else %}
+              <span class="text-xs text-slate-300">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if page_obj.paginator.num_pages > 1 %}
+    <div class="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50">
+      <p class="text-sm text-gray-500">
+        Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ total }} message{{ total|pluralize }}
+      </p>
+      <div class="flex items-center gap-1">
+        {% if page_obj.has_previous %}
+        <a href="?tab={{ tab }}&q={{ q }}&page={{ page_obj.previous_page_number }}"
+           class="px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition">
+          Prev
+        </a>
+        {% endif %}
+        {% for num in page_obj.paginator.page_range %}
+          {% if page_obj.number == num %}
+          <span class="px-3 py-1.5 text-sm font-semibold text-white bg-indigo-600 rounded-lg">{{ num }}</span>
+          {% elif num > page_obj.number|add:"-3" and num < page_obj.number|add:"3" %}
+          <a href="?tab={{ tab }}&q={{ q }}&page={{ num }}"
+             class="px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition">
+            {{ num }}
+          </a>
+          {% endif %}
+        {% endfor %}
+        {% if page_obj.has_next %}
+        <a href="?tab={{ tab }}&q={{ q }}&page={{ page_obj.next_page_number }}"
+           class="px-3 py-1.5 text-sm font-medium text-gray-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition">
+          Next
+        </a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

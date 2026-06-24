@@ -5,16 +5,18 @@ Phase 1 (CPP-349): routing + placeholder shell.
 Phase 2 (CPP-350): recipient autocomplete API + To/CC/BCC tag fields.
 Phase 3 (CPP-351): compose form — subject, body editor, attachments.
 Phase 4 (CPP-352): schedule picker — send-now / one-time / weekly / monthly.
-Send dispatch logic comes in CPP-353.
+Phase 5 (CPP-353): RQ dispatch — dispatch_message task + check_due_messages cron.
+Phase 6 (CPP-358): Message history inbox — list, cancel, delete, retry.
 """
 import json
 from datetime import date, datetime, time as dt_time
 
 import django_rq
 from django.contrib import messages
+from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import JsonResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views import View
 
@@ -41,11 +43,11 @@ def _get_messaging_school(user):
 
 
 class MessagingDashboardView(RoleRequiredMixin, View):
-    """Redirect /messaging/ → compose page (canonical entry point)."""
+    """Redirect /messaging/ → inbox (canonical entry point)."""
     required_roles = _MESSAGING_ROLES
 
     def get(self, request):
-        return redirect('messaging_compose')
+        return redirect('messaging_inbox')
 
 
 class MessagingComposeView(RoleRequiredMixin, View):
@@ -54,7 +56,11 @@ class MessagingComposeView(RoleRequiredMixin, View):
 
     def get(self, request):
         school = _get_messaging_school(request.user)
-        return render(request, 'messaging/compose.html', {'school': school})
+        return render(request, 'messaging/compose.html', {
+            'school': school,
+            'user_email': request.user.email or '',
+            'user_name': request.user.get_full_name() or request.user.username,
+        })
 
     def post(self, request):
         school = _get_messaging_school(request.user)
@@ -155,7 +161,7 @@ class MessagingComposeView(RoleRequiredMixin, View):
         else:
             messages.success(request, 'Message scheduled.')
 
-        return redirect('messaging_compose')
+        return redirect('messaging_inbox')
 
 
 class RecipientSearchAPIView(RoleRequiredMixin, View):
@@ -263,6 +269,81 @@ class RecipientSearchAPIView(RoleRequiredMixin, View):
         return JsonResponse({'results': results})
 
 
+class MessagingRecipientGroupAPIView(RoleRequiredMixin, View):
+    """
+    GET /admin-dashboard/messaging/api/recipients/group/?role=<student|staff|parent>
+
+    Returns all school contacts of the given role — no query filter.
+    Used for "All Students / All Staff / All Parents" bulk-add chips (CPP-361).
+
+    Response: { "results": [{ "id", "name", "email", "role" }] }
+    """
+    required_roles = _MESSAGING_ROLES
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return JsonResponse({'error': 'Authentication required'}, status=401)
+        if not request.user.is_superuser:
+            has_any = any(request.user.has_role(r) for r in self.required_roles)
+            if not has_any:
+                return JsonResponse({'error': 'Permission denied'}, status=403)
+        return View.dispatch(self, request, *args, **kwargs)
+
+    def get(self, request):
+        role = request.GET.get('role', '')
+        if role not in ('student', 'staff', 'parent'):
+            return JsonResponse({'error': 'Invalid role. Use: student, staff, parent'}, status=400)
+
+        school = _get_messaging_school(request.user)
+        if not school:
+            return JsonResponse({'results': []})
+
+        results = []
+        seen = set()
+
+        if role == 'staff':
+            qs = (SchoolTeacher.objects
+                  .filter(school=school, is_active=True)
+                  .filter(teacher__email__isnull=False)
+                  .exclude(teacher__email='')
+                  .select_related('teacher')
+                  .order_by('teacher__first_name', 'teacher__last_name'))
+            for st in qs:
+                email = st.teacher.email
+                if email not in seen:
+                    seen.add(email)
+                    results.append(_recipient_result(st.teacher, 'staff'))
+
+        elif role == 'student':
+            qs = (SchoolStudent.objects
+                  .filter(school=school, is_active=True)
+                  .filter(student__email__isnull=False)
+                  .exclude(student__email='')
+                  .select_related('student')
+                  .order_by('student__first_name', 'student__last_name'))
+            for ss in qs:
+                email = ss.student.email
+                if email not in seen:
+                    seen.add(email)
+                    results.append(_recipient_result(ss.student, 'student'))
+
+        elif role == 'parent':
+            qs = (ParentStudent.objects
+                  .filter(school=school, is_active=True)
+                  .filter(parent__email__isnull=False)
+                  .exclude(parent__email='')
+                  .select_related('parent')
+                  .order_by('parent__first_name', 'parent__last_name')
+                  .distinct())
+            for ps in qs:
+                email = ps.parent.email
+                if email not in seen:
+                    seen.add(email)
+                    results.append(_recipient_result(ps.parent, 'parent'))
+
+        return JsonResponse({'results': results})
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -318,3 +399,150 @@ def _enqueue_or_schedule(sm):
             f'Cannot compute next run time for message {sm.pk} '
             f'(frequency={sm.frequency}). Check send_day and send_time.'
         )
+
+
+# ---------------------------------------------------------------------------
+# CPP-358: Message History Inbox
+# ---------------------------------------------------------------------------
+
+_INBOX_PAGE_SIZE = 20
+
+_TAB_STATUS_MAP = {
+    'draft':     ScheduledMessage.STATUS_DRAFT,
+    'scheduled': ScheduledMessage.STATUS_SCHEDULED,
+    'sent':      ScheduledMessage.STATUS_SENT,
+    'failed':    ScheduledMessage.STATUS_FAILED,
+    'cancelled': ScheduledMessage.STATUS_CANCELLED,
+}
+
+
+def _recipient_summary(msg):
+    """Return (first_name, total_count) from To/CC/BCC recipient lists."""
+    all_r = (msg.recipients_to or []) + (msg.recipients_cc or []) + (msg.recipients_bcc or [])
+    total = len(all_r)
+    first = all_r[0].get('name', '') if all_r and isinstance(all_r[0], dict) else ''
+    return first, total
+
+
+class MessagingInboxView(RoleRequiredMixin, View):
+    """Message history list — All / Draft / Scheduled / Sent / Failed tabs (CPP-358)."""
+    required_roles = _MESSAGING_ROLES
+
+    def get(self, request):
+        school = _get_messaging_school(request.user)
+        if not school:
+            return render(request, 'messaging/inbox.html', {
+                'page_obj': None, 'school': None,
+                'tab': 'all', 'q': '',
+                'tabs': ['all'] + list(_TAB_STATUS_MAP.keys()),
+                'total': 0,
+            })
+
+        tab = request.GET.get('tab', 'all')
+        q   = request.GET.get('q', '').strip()
+
+        qs = ScheduledMessage.objects.filter(school=school).select_related('created_by')
+
+        if tab in _TAB_STATUS_MAP:
+            qs = qs.filter(status=_TAB_STATUS_MAP[tab])
+
+        if q:
+            qs = qs.filter(subject__icontains=q)
+
+        paginator = Paginator(qs.order_by('-created_at'), _INBOX_PAGE_SIZE)
+        page_obj  = paginator.get_page(request.GET.get('page', 1))
+
+        # Annotate each message with recipient summary for display
+        for msg in page_obj:
+            msg.first_recipient, msg.recipient_count = _recipient_summary(msg)
+
+        return render(request, 'messaging/inbox.html', {
+            'school':   school,
+            'page_obj': page_obj,
+            'tab':      tab,
+            'q':        q,
+            'tabs':     ['all'] + list(_TAB_STATUS_MAP.keys()),
+            'total':    paginator.count,
+        })
+
+
+class MessagingCancelView(RoleRequiredMixin, View):
+    """POST /messaging/<pk>/cancel/ — cancel a scheduled message (CPP-358)."""
+    required_roles = _MESSAGING_ROLES
+
+    def post(self, request, pk):
+        school = _get_messaging_school(request.user)
+        if not school:
+            messages.error(request, 'No active school found.')
+            return redirect('messaging_inbox')
+        msg = get_object_or_404(ScheduledMessage, pk=pk, school=school)
+        if msg.status == ScheduledMessage.STATUS_SCHEDULED:
+            msg.status = ScheduledMessage.STATUS_CANCELLED
+            msg.save(update_fields=['status', 'updated_at'])
+            messages.success(request, 'Message cancelled.')
+        else:
+            messages.warning(request, 'Only scheduled messages can be cancelled.')
+        return redirect(_inbox_url(request))
+
+
+class MessagingDeleteView(RoleRequiredMixin, View):
+    """POST /messaging/<pk>/delete/ — hard-delete a draft (CPP-358)."""
+    required_roles = _MESSAGING_ROLES
+
+    def post(self, request, pk):
+        school = _get_messaging_school(request.user)
+        if not school:
+            messages.error(request, 'No active school found.')
+            return redirect('messaging_inbox')
+        msg = get_object_or_404(ScheduledMessage, pk=pk, school=school)
+        if msg.status == ScheduledMessage.STATUS_DRAFT:
+            msg.delete()
+            messages.success(request, 'Draft deleted.')
+        else:
+            messages.warning(request, 'Only draft messages can be deleted.')
+        return redirect(_inbox_url(request))
+
+
+class MessagingRetryView(RoleRequiredMixin, View):
+    """POST /messaging/<pk>/retry/ — re-enqueue a failed message (CPP-358)."""
+    required_roles = _MESSAGING_ROLES
+
+    def post(self, request, pk):
+        school = _get_messaging_school(request.user)
+        if not school:
+            messages.error(request, 'No active school found.')
+            return redirect('messaging_inbox')
+        msg = get_object_or_404(ScheduledMessage, pk=pk, school=school)
+        if msg.status != ScheduledMessage.STATUS_FAILED:
+            messages.warning(request, 'Only failed messages can be retried.')
+            return redirect(_inbox_url(request))
+        try:
+            from classroom.tasks_messaging import dispatch_message
+            msg.status = ScheduledMessage.STATUS_SCHEDULED
+            msg.save(update_fields=['status', 'updated_at'])
+            django_rq.get_queue('default').enqueue(
+                dispatch_message, msg.pk, job_id=f'dispatch-msg-{msg.pk}'
+            )
+            messages.success(request, 'Message re-queued for sending.')
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception('MessagingRetryView: failed to re-enqueue %s', pk)
+            msg.status = ScheduledMessage.STATUS_FAILED
+            msg.save(update_fields=['status', 'updated_at'])
+            messages.error(request, 'Could not re-queue message — please try again.')
+        return redirect(_inbox_url(request))
+
+
+def _inbox_url(request):
+    """Preserve tab + search params when redirecting back to inbox."""
+    from django.urls import reverse as _reverse
+    from urllib.parse import quote
+    tab = request.POST.get('tab') or request.GET.get('tab', '')
+    q   = request.POST.get('q')   or request.GET.get('q', '')
+    url = _reverse('messaging_inbox')
+    params = []
+    if tab:
+        params.append(f'tab={quote(tab, safe="")}')
+    if q:
+        params.append(f'q={quote(q, safe="")}')
+    return f'{url}?{"&".join(params)}' if params else url
