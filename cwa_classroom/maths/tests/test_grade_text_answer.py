@@ -55,6 +55,21 @@ class GradeTextAnswerRoutingTests(TestCase):
         self.assertTrue(q.grade_text_answer('x^2 - y^2'))
         self.assertTrue(q.grade_text_answer('-x^2 + y^2'))
 
+    def test_text_format_honours_multiple_correct_rows(self):
+        # A short-answer question may tick several distinct answers as correct
+        # (e.g. equivalent forms "9/4" and "2 1/4"). Typing ANY one of them is
+        # graded correct; an unticked value is not.
+        q = self._question(
+            'text', ['9/4', '2 1/4'], question_type=Question.SHORT_ANSWER,
+        )
+        self.assertTrue(q.grade_text_answer('9/4'))
+        self.assertTrue(q.grade_text_answer('2 1/4'))
+        # Whitespace folding still applies per-row.
+        self.assertTrue(q.grade_text_answer('2  1/4'))
+        # A value matching neither accepted answer is wrong.
+        self.assertFalse(q.grade_text_answer('1/4'))
+        self.assertFalse(q.grade_text_answer('wrong'))
+
     # ── Text format: legacy behaviour is preserved ──────────────────────────
     def test_text_format_is_exact_match(self):
         q = self._question('text', ['Paris'])
