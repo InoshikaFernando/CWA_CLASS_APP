@@ -306,3 +306,31 @@ class CompleteProfileCardNumberTest(TestCase):
         resp = self._post_profile(student, {'card_number': card.card_number})
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'school students')
+
+    def test_pre_assigned_card_activates_without_card_number(self):
+        """A teacher-pre-assigned card (is_claimed + student=self) must activate
+        the student on profile completion even though the form submits no
+        card_number — the banner branch hides that input."""
+        student = self._make_student()
+        card = StudentCard.objects.create(
+            school=self.school, card_number='PRE-002',
+            student=student, is_claimed=True,
+        )
+        # card_number deliberately left blank (default in _post_profile)
+        resp = self._post_profile(student)
+        self.assertRedirects(resp, reverse('subjects_hub'), fetch_redirect_response=False)
+        student.refresh_from_db()
+        self.assertTrue(student.profile_completed)
+        card.refresh_from_db()
+        self.assertTrue(card.is_claimed)
+        self.assertEqual(card.student, student)
+
+    def test_card_number_match_is_case_insensitive(self):
+        student = self._make_student()
+        card = StudentCard.objects.create(school=self.school, card_number='ACT-009')
+        resp = self._post_profile(student, {'card_number': 'act-009'})
+        self.assertRedirects(resp, reverse('subjects_hub'), fetch_redirect_response=False)
+        student.refresh_from_db()
+        self.assertTrue(student.profile_completed)
+        card.refresh_from_db()
+        self.assertTrue(card.is_claimed)

@@ -1701,11 +1701,11 @@ class TeacherAddStudentToClassView(RoleRequiredMixin, View):
         card_obj = None
         if card_number:
             card_obj = StudentCard.objects.filter(
-                card_number=card_number, school=school,
+                card_number__iexact=card_number, school=school,
             ).first()
             if not card_obj:
                 errors.append('Card number not found for this school.')
-            elif card_obj.is_claimed and card_obj.student is not None:
+            elif card_obj.is_claimed:
                 errors.append('This card number has already been claimed by another student.')
 
         if errors:

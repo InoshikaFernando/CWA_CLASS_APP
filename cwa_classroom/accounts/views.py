@@ -898,7 +898,7 @@ class CompleteProfileView(LoginRequiredMixin, View):
             school_student = SchoolStudent.objects.filter(student=user, is_active=True).first()
             if school_student:
                 card_obj = StudentCard.objects.filter(
-                    card_number=card_number_str,
+                    card_number__iexact=card_number_str,
                     school=school_student.school,
                 ).first()
                 if not card_obj:
@@ -907,6 +907,13 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     errors.append('This card number has already been claimed by another student.')
             else:
                 errors.append('Card number can only be used by school students.')
+        elif user.is_student:
+            # No card number typed, but a teacher may have pre-assigned a card to
+            # this student (is_claimed + student=self). Honour it so the student
+            # activates without payment — the GET view shows a "card activated
+            # automatically" banner and hides the card-number field in that case,
+            # so the POST has no card_number to resubmit.
+            card_obj = StudentCard.objects.filter(student=user, is_claimed=True).first()
 
         if errors:
             for err in errors:
@@ -914,6 +921,10 @@ class CompleteProfileView(LoginRequiredMixin, View):
             return render(request, 'accounts/complete_profile.html', {
                 'student_package': self._get_student_package() if user.is_student else None,
                 'card_number': card_number_str,
+                'pre_claimed_card': (
+                    StudentCard.objects.filter(student=user, is_claimed=True).first()
+                    if user.is_student else None
+                ),
             })
 
         # Save profile fields and password — but do NOT mark profile_completed yet for students
@@ -963,14 +974,18 @@ class CompleteProfileView(LoginRequiredMixin, View):
             from billing.models import Package, Subscription
             from django.utils import timezone as _tz
 
-            # Card number path — claim card and activate without payment
+            # Card number path — claim card and activate without payment.
+            # Claim + activation are a single unit: a half-applied state would
+            # leave the card claimed but the profile incomplete (login loop).
             if card_obj is not None:
-                card_obj.student = user
-                card_obj.is_claimed = True
-                card_obj.claimed_at = _tz.now()
-                card_obj.save(update_fields=['student', 'is_claimed', 'claimed_at'])
-                user.profile_completed = True
-                user.save(update_fields=['profile_completed'])
+                with transaction.atomic():
+                    card_obj.student = user
+                    card_obj.is_claimed = True
+                    if card_obj.claimed_at is None:
+                        card_obj.claimed_at = _tz.now()
+                    card_obj.save(update_fields=['student', 'is_claimed', 'claimed_at'])
+                    user.profile_completed = True
+                    user.save(update_fields=['profile_completed'])
                 messages.success(request, 'Profile completed! Card activated — welcome!')
                 return redirect('subjects_hub')
 
