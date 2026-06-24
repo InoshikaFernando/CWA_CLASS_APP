@@ -189,6 +189,16 @@ class TestNormalizeShortAnswer(TestCase):
         assert normalize_short_answer("C++") == "c++"
         assert normalize_short_answer("C#") == "c#"
 
+    def test_superscript_and_caret_fold_together(self):
+        """Unicode superscript, caret and ** notation fold to one form."""
+        assert normalize_short_answer("3 × 10²") == normalize_short_answer("3 × 10^2")
+        assert normalize_short_answer("3 × 10²") == normalize_short_answer("3 × 10**2")
+        assert normalize_short_answer("3 × 10²") == "3×102"
+
+    def test_superscript_multi_digit_grouped(self):
+        """A run of superscripts folds together (x²³ == x^23 == x23)."""
+        assert normalize_short_answer("x²³") == "x23"
+
 
 class TestShortAnswerMatching(TestCase):
     """Test short answer correctness checking."""
@@ -228,6 +238,23 @@ class TestShortAnswerMatching(TestCase):
         """Substring matches not accepted."""
         assert is_short_answer_correct("java", "javascript") is False
         assert is_short_answer_correct("script", "javascript") is False
+
+    def test_superscript_matches_caret_answer(self):
+        """Student superscript matches a caret-notation stored answer."""
+        assert is_short_answer_correct("3 × 10²", "3 × 10^2") is True
+
+    def test_caret_matches_superscript_answer(self):
+        """Equivalence is bidirectional: caret input vs superscript answer."""
+        assert is_short_answer_correct("3 × 10^2", "3 × 10²") is True
+
+    def test_superscript_wrong_exponent_rejected(self):
+        """Folding doesn't make a wrong exponent pass."""
+        assert is_short_answer_correct("3 × 10³", "3 × 10^2") is False
+
+    def test_markerless_exponent_matches(self):
+        """App-wide canonical form is marker-less, so "102" also matches "10^2"
+        (consistent with grade_text_answer / quiz grading)."""
+        assert is_short_answer_correct("3 × 102", "3 × 10^2") is True
 
     def test_empty_user_answer(self):
         """Empty answer treated as incorrect."""
