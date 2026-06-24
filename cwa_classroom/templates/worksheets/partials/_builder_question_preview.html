@@ -10,7 +10,28 @@
     </svg>
   </button>
 
-  {% if is_coding %}
+  {% if is_languages %}
+  {# ── Language exercise preview ───────────────────────────────────────── #}
+
+  <div class="flex flex-wrap gap-1.5">
+    <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
+      {{ lang_exercise.get_exercise_type_display }}
+    </span>
+    <span class="px-2 py-0.5 rounded-full text-xs font-medium
+      {% if lang_exercise.topic_level.level_choice == 'beginner' %}bg-emerald-50 text-emerald-700
+      {% elif lang_exercise.topic_level.level_choice == 'intermediate' %}bg-amber-50 text-amber-700
+      {% else %}bg-red-50 text-red-700{% endif %}">
+      {{ lang_exercise.topic_level.get_level_choice_display }}
+    </span>
+    <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+      {{ lang_exercise.topic_level.topic.language.name }}
+    </span>
+  </div>
+
+  <h3 class="text-base font-semibold text-gray-800">{{ lang_exercise.prompt }}</h3>
+  <p class="text-xs text-gray-500">{{ lang_exercise.points }} point{{ lang_exercise.points|pluralize }}</p>
+
+  {% elif is_coding %}
   {# ── Coding exercise preview ─────────────────────────────────────────── #}
 
   <!-- Badges -->

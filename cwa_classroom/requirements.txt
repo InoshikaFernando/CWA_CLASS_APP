@@ -20,5 +20,6 @@ gunicorn>=22.0.0
 resend>=2.0
 svix>=1.0
 redis>=5.0.0
+gTTS>=2.5.0
 django-rq>=2.10.0
 phonenumbers>=8.13
