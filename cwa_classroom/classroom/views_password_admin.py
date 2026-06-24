@@ -272,17 +272,34 @@ class AdminPasswordResetView(RoleRequiredMixin, View):
         return reverse('admin_school_detail', args=[school.id])
 
 
-def _send_resend_welcome_email(user, school, plain_password):
+def _resolve_school_discount(school):
+    """Return ``(code, percent)`` for the school's configured, currently-active
+    subscription discount code, or ``(None, None)`` if unset / invalid.
+    """
+    code = (getattr(school, 'subscription_discount_code', '') or '').strip()
+    if not code:
+        return None, None
+    from billing.models import DiscountCode
+    dc = DiscountCode.objects.filter(code__iexact=code, is_active=True).first()
+    if not dc:
+        return None, None
+    return dc.code, dc.discount_percent
+
+
+def _send_resend_welcome_email(user, school, plain_password, extra_context=None):
     """Delegate to resend_welcome_notification. Returns True/False, never raises."""
     try:
         from notifications.services import resend_welcome_notification
-        return resend_welcome_notification(user=user, plain_password=plain_password, school=school)
+        return resend_welcome_notification(
+            user=user, plain_password=plain_password, school=school,
+            extra_context=extra_context,
+        )
     except Exception:
         logger.exception('Unexpected error during welcome resend for %s', user.email)
         return False
 
 
-def _resend_welcome_to_user(user, school):
+def _resend_welcome_to_user(user, school, extra_context=None):
     """Resend the welcome email to a single user, regenerating credentials.
 
     For institute-created accounts a fresh temporary password is generated
@@ -303,7 +320,7 @@ def _resend_welcome_to_user(user, school):
     if user.creation_method == CustomUser.CREATION_INSTITUTE:
         new_password = _generate_random_password()
 
-    sent = _send_resend_welcome_email(user, school, new_password)
+    sent = _send_resend_welcome_email(user, school, new_password, extra_context=extra_context)
 
     # Only persist the new password if the email was actually delivered.
     if sent and new_password:
@@ -340,6 +357,12 @@ class ResendWelcomeModalView(RoleRequiredMixin, View):
             ctx['children'] = ParentStudent.objects.filter(
                 parent=target, school=school, is_active=True,
             ).select_related('student')
+        # Students & parents can optionally be sent the school's subscription
+        # discount code in the welcome email.
+        if role_label in ('student', 'parent'):
+            code, percent = _resolve_school_discount(school)
+            ctx['discount_code'] = code
+            ctx['discount_percent'] = percent
         return render(request, 'admin_dashboard/partials/resend_welcome_modal.html', ctx)
 
 
@@ -370,7 +393,14 @@ class ResendWelcomeEmailView(RoleRequiredMixin, View):
         if role_label == 'parent':
             return self._handle_parent(request, school, target, role_label)
 
-        outcome = _resend_welcome_to_user(target, school)
+        # Optionally surface the school's subscription discount code (students).
+        extra_context = None
+        if role_label == 'student' and request.POST.get('include_discount') == '1':
+            code, percent = _resolve_school_discount(school)
+            if code:
+                extra_context = {'discount_code': code, 'discount_percent': percent}
+
+        outcome = _resend_welcome_to_user(target, school, extra_context=extra_context)
         email_sent = outcome['sent']
         new_password = outcome['password_reset']
 
@@ -447,9 +477,14 @@ class ResendWelcomeEmailView(RoleRequiredMixin, View):
             for sid in selected_ids
         ]
 
+        discount_code = discount_percent = None
+        if request.POST.get('include_discount') == '1':
+            discount_code, discount_percent = _resolve_school_discount(school)
+
         sent = resend_parent_welcome_notification(
             parent=parent, plain_password=parent_password,
             student_credentials=student_credentials, school=school,
+            discount_code=discount_code, discount_percent=discount_percent,
         )
 
         # Only persist the resets once the email actually went out.

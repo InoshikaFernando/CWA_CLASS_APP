@@ -88,6 +88,18 @@
     </div>
     {% endif %}
 
+    {% if discount_code and target_user.email %}
+    <label class="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5 mb-5 cursor-pointer hover:bg-emerald-100 transition">
+      <input type="checkbox" name="include_discount" value="1"
+             class="mt-0.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+      <span class="text-sm text-emerald-900">
+        Include subscription discount
+        (<span class="font-mono font-semibold">{{ discount_code }}</span> — {{ discount_percent }}% off)
+        <span class="block text-xs text-emerald-700">The code is shown in the email for the recipient to enter at checkout.</span>
+      </span>
+    </label>
+    {% endif %}
+
     <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
       <button type="button" @click="showEditModal = false"
               class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition">Cancel</button>

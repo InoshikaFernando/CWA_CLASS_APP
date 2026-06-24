@@ -285,6 +285,13 @@ class School(models.Model):
         blank=True,
         help_text='Outgoing email address used for invoices and communications.',
     )
+    subscription_discount_code = models.CharField(
+        max_length=50, blank=True,
+        help_text=(
+            'Subscription discount code (a billing.DiscountCode) families can use '
+            'at checkout. When set, it can be included in welcome/resend emails.'
+        ),
+    )
 
     # Currency
     default_currency = models.ForeignKey(
@@ -363,7 +370,7 @@ class School(models.Model):
         'bank_name', 'bank_bsb', 'bank_account_number', 'bank_account_name',
         'invoice_terms', 'invoice_due_days',
         'invoice_recipient_policy',
-        'outgoing_email',
+        'outgoing_email', 'subscription_discount_code',
         'abn', 'gst_number',
         'street_address', 'city', 'state_region', 'postal_code', 'country',
         'logo', 'timezone',

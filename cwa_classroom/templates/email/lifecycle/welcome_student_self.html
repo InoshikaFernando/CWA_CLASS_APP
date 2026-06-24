@@ -40,6 +40,20 @@
   Log in whenever you're ready — your progress is saved automatically!
 </p>
 
+{% if discount_code %}
+<div style="background-color:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:20px;margin-bottom:24px;">
+  <p style="margin:0 0 8px;color:#065f46;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:0.5px;">
+    &#127881; Subscription Discount
+  </p>
+  <p style="margin:0 0 10px;color:#334155;font-size:14px;">
+    Use this code at checkout for <strong>{{ discount_percent }}% off</strong> your subscription:
+  </p>
+  <p style="margin:0;font-family:monospace;font-weight:700;font-size:20px;color:#065f46;letter-spacing:1px;">
+    {{ discount_code }}
+  </p>
+</div>
+{% endif %}
+
 <p style="margin:0 0 24px;text-align:center;">
   <a href="{{ login_url }}"
      style="display:inline-block;background-color:#10b981;color:#ffffff;padding:13px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;">
