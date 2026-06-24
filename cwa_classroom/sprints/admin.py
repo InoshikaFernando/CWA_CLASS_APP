@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Sprint, SprintSnapshot
+from .models import ProjectSnapshot, Sprint, SprintSnapshot
 
 
 class SprintSnapshotInline(admin.TabularInline):
@@ -25,4 +25,11 @@ class SprintSnapshotAdmin(admin.ModelAdmin):
     list_display = ('sprint', 'snapshot_date', 'remaining_points',
                     'completed_points', 'total_points')
     list_filter = ('sprint',)
+    date_hierarchy = 'snapshot_date'
+
+
+@admin.register(ProjectSnapshot)
+class ProjectSnapshotAdmin(admin.ModelAdmin):
+    list_display = ('snapshot_date', 'remaining_points', 'completed_points',
+                    'total_points', 'open_issue_count', 'updated_at')
     date_hierarchy = 'snapshot_date'

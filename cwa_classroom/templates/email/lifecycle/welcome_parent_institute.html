@@ -41,6 +41,32 @@
 </div>
 {% endif %}
 
+{% if student_credentials %}
+<p style="margin:0 0 12px;color:#334155;font-size:15px;">
+  Login credentials for your child{% if student_credentials|length > 1 %}ren{% endif %}:
+</p>
+{% for sc in student_credentials %}
+<div style="background-color:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:20px;margin-bottom:14px;">
+  <p style="margin:0 0 12px;color:#1e40af;font-weight:700;font-size:14px;">
+    &#128100; {{ sc.name }}
+  </p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#374151;">
+    <tr>
+      <td style="padding:4px 0;font-weight:600;width:110px;color:#64748b;">Username:</td>
+      <td style="padding:4px 0;font-family:monospace;font-weight:700;color:#1e293b;">{{ sc.username }}</td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;font-weight:600;color:#64748b;">Temp Password:</td>
+      <td style="padding:4px 0;font-family:monospace;font-weight:700;color:#1e293b;">{{ sc.password }}</td>
+    </tr>
+  </table>
+  <p style="margin:14px 0 0;color:#b45309;font-size:13px;font-weight:600;">
+    &#9888; Your child will be required to change this password on their first login.
+  </p>
+</div>
+{% endfor %}
+{% endif %}
+
 <p style="margin:0 0 20px;color:#334155;font-size:15px;">
   As a parent, here's what you have access to:
 </p>
