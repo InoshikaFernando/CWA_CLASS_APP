@@ -35,6 +35,14 @@
       <strong>No email address on file.</strong> Add an email address before resending.
     </p>
   </div>
+  {% elif role_label == 'parent' %}
+  <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4">
+    <p class="text-sm text-blue-900">
+      The welcome email will be resent to this parent. Tick any accounts below whose
+      password should be reset to a temporary one — those credentials are then included
+      in the email. Leave everything unticked to resend without changing any passwords.
+    </p>
+  </div>
   {% elif target_user.creation_method == 'institute' %}
   <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4">
     <p class="text-sm text-blue-900">
@@ -53,6 +61,33 @@
 
   <form method="post" action="{{ resend_url }}">
     {% csrf_token %}
+
+    {% if role_label == 'parent' and target_user.email %}
+    <p class="text-sm font-semibold text-gray-700 mb-2">Select passwords to reset <span class="text-xs text-gray-400 font-normal">(optional)</span></p>
+    <div class="space-y-2 mb-5">
+      <label class="flex items-center gap-3 bg-slate-50 rounded-lg px-3 py-2 cursor-pointer hover:bg-slate-100 transition">
+        <input type="checkbox" name="reset_parent" value="1"
+               class="rounded border-gray-300 text-accent focus:ring-accent">
+        <span class="text-sm font-medium text-gray-800">
+          {{ target_user.get_full_name|default:target_user.username }}
+          <span class="text-xs text-gray-400">(Parent)</span>
+        </span>
+      </label>
+      {% for link in children %}
+      <label class="flex items-center gap-3 bg-slate-50 rounded-lg px-3 py-2 cursor-pointer hover:bg-slate-100 transition">
+        <input type="checkbox" name="reset_student_ids" value="{{ link.student.id }}"
+               class="rounded border-gray-300 text-accent focus:ring-accent">
+        <span class="text-sm font-medium text-gray-800">
+          {{ link.student.get_full_name }}
+          <span class="text-xs text-gray-400">@{{ link.student.username }}</span>
+        </span>
+      </label>
+      {% empty %}
+      <p class="text-xs text-gray-400 px-1">No students are linked to this parent.</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+
     <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
       <button type="button" @click="showEditModal = false"
               class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition">Cancel</button>

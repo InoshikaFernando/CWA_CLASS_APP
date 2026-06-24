@@ -388,3 +388,79 @@ class TestResendWelcomeParent(ResendWelcomeBase):
             reverse('admin_school_parents', args=[self.school.id]),
             fetch_redirect_response=False,
         )
+
+
+# ---------------------------------------------------------------------------
+# Parent resend with child credential reset (calmhippo123 shared temp password)
+# ---------------------------------------------------------------------------
+
+class TestParentResendChildCredentials(ResendWelcomeBase):
+
+    RESET_PW = 'calmhippo123'
+
+    def setUp(self):
+        super().setUp()
+        self.parent = _make_user('par_cred_198', Role.PARENT, creation_method='institute')
+        self.child = _make_user('child_cred_198', Role.STUDENT, creation_method='institute')
+        SchoolStudent.objects.create(school=self.school, student=self.child, is_active=True)
+        ParentStudent.objects.create(
+            school=self.school, parent=self.parent, student=self.child, is_active=True,
+        )
+
+    def test_modal_lists_parent_and_children_with_checkboxes(self):
+        resp = self.client.get(self._modal_url(self.parent.id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Select passwords to reset')
+        self.assertContains(resp, 'reset_parent')
+        self.assertContains(resp, 'reset_student_ids')
+        self.assertContains(resp, self.child.username)
+
+    def test_reset_parent_only(self):
+        self.client.post(self._resend_url(self.parent.id), {'reset_parent': '1'})
+        self.parent.refresh_from_db()
+        self.child.refresh_from_db()
+        self.assertTrue(self.parent.check_password(self.RESET_PW))
+        self.assertTrue(self.parent.must_change_password)
+        # Child untouched
+        self.assertTrue(self.child.check_password('TestPass123!'))
+
+    def test_reset_selected_child(self):
+        self.client.post(
+            self._resend_url(self.parent.id),
+            {'reset_student_ids': [self.child.id]},
+        )
+        self.child.refresh_from_db()
+        self.parent.refresh_from_db()
+        self.assertTrue(self.child.check_password(self.RESET_PW))
+        self.assertTrue(self.child.must_change_password)
+        # Parent password untouched when only the child was selected
+        self.assertTrue(self.parent.check_password('TestPass123!'))
+
+    def test_child_credentials_included_in_email(self):
+        from django.core import mail
+        self.client.post(
+            self._resend_url(self.parent.id),
+            {'reset_parent': '1', 'reset_student_ids': [self.child.id]},
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        html_body = mail.outbox[0].alternatives[0][0]
+        self.assertIn(self.child.username, html_body)
+        self.assertIn(self.RESET_PW, html_body)
+
+    def test_no_selection_changes_no_passwords(self):
+        self.client.post(self._resend_url(self.parent.id), {})
+        self.parent.refresh_from_db()
+        self.child.refresh_from_db()
+        self.assertTrue(self.parent.check_password('TestPass123!'))
+        self.assertTrue(self.child.check_password('TestPass123!'))
+
+    def test_unlinked_student_ignored(self):
+        other = _make_user('other_cred_198', Role.STUDENT, creation_method='institute')
+        SchoolStudent.objects.create(school=self.school, student=other, is_active=True)
+        self.client.post(
+            self._resend_url(self.parent.id),
+            {'reset_student_ids': [other.id]},
+        )
+        other.refresh_from_db()
+        self.assertTrue(other.check_password('TestPass123!'))
+        self.assertFalse(other.must_change_password)
