@@ -11,13 +11,15 @@ logger = logging.getLogger(__name__)
 
 
 def sync_sprint_burndown():
-    """Record today's snapshot for the board's active sprint.
+    """Record today's whole-project snapshot (and the active-sprint one).
 
-    Safe to enqueue/run repeatedly: ``services.sync_active_sprint`` is
-    config-gated and upserts today's snapshot.
+    Safe to enqueue/run repeatedly: both services are config-gated and upsert
+    today's snapshot. The project snapshot drives the burndown page; the sprint
+    snapshot is kept for per-sprint history.
     """
-    snapshot = services.sync_active_sprint()
+    project = services.sync_project_burndown()
+    sprint = services.sync_active_sprint()
     return {
-        'sprint_id': snapshot.sprint_id if snapshot else None,
-        'snapshot_date': snapshot.snapshot_date.isoformat() if snapshot else None,
+        'project_snapshot_date': project.snapshot_date.isoformat() if project else None,
+        'sprint_id': sprint.sprint_id if sprint else None,
     }

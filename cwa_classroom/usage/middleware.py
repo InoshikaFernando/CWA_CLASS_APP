@@ -61,13 +61,26 @@ class UsageTrackingMiddleware:
 
         status = response.status_code
         content_type = response.get('Content-Type', '') or ''
-        # Count only successful HTML pages as page views. 3xx redirects also
-        # carry text/html but aren't a page the user looked at, and counting
-        # them double-counts redirect loops (expired trial, login-required).
-        # Still record every >=400 (incl. JSON 500s on page URLs) so the
-        # 4xx/5xx chart is complete.
-        is_page_view = content_type.startswith('text/html') and 200 <= status < 300
-        return is_page_view or status >= 400
+
+        # Successful HTML page view (2xx). 3xx redirects also carry text/html
+        # but aren't a page the user looked at, so they're excluded.
+        if content_type.startswith('text/html') and 200 <= status < 300:
+            return True
+
+        # Server errors (5xx) are always real app failures — always record.
+        if status >= 500:
+            return True
+
+        # Client errors (4xx): record ONLY when the URL matched a real route
+        # (a genuine in-app "not found", e.g. /homework/13/take/ for a missing
+        # object). A 4xx on a path that matched NO url pattern
+        # (request.resolver_match is None) is a bot/scanner/asset probe —
+        # /wp-login.php, *.php, /.env, apple-touch-icon, random paths — the
+        # dominant source of 404 noise. Don't record those at all.
+        if status >= 400:
+            return getattr(request, 'resolver_match', None) is not None
+
+        return False
 
     def _record(self, request, response):
         from .models import PageHit

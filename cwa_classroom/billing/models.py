@@ -718,3 +718,161 @@ class AIGradingUsage(models.Model):
 
     def __str__(self):
         return f'{self.school.name} — {self.period_start} — {self.answers_graded} answers'
+
+
+# ---------------------------------------------------------------------------
+# Operating expenses (income-vs-expense dashboard)
+# ---------------------------------------------------------------------------
+
+class ExpenseCategory(models.TextChoices):
+    """Vendor buckets for operating costs. Stripe income is the counterpart."""
+    CLAUDE_API = 'claude_api', 'Claude API (Anthropic)'
+    CLAUDE_CODE = 'claude_code', 'Claude Code'
+    DIGITALOCEAN = 'digitalocean', 'DigitalOcean'
+    RESEND = 'resend', 'Resend (email)'
+    GODADDY = 'godaddy', 'GoDaddy (domain)'
+    STRIPE_FEES = 'stripe_fees', 'Stripe fees'
+    OTHER = 'other', 'Other'
+
+
+# How an Expense row got created. Manual rows are user-owned; recurring and
+# ai_grading rows are machine-owned and re-synced idempotently by the
+# materialize_recurring_expenses command — so they must never be hand-edited.
+EXPENSE_SOURCE_MANUAL = 'manual'
+EXPENSE_SOURCE_RECURRING = 'recurring'
+EXPENSE_SOURCE_AI_GRADING = 'ai_grading'
+EXPENSE_SOURCE_DIGITALOCEAN = 'digitalocean_api'
+EXPENSE_SOURCE_CHOICES = [
+    (EXPENSE_SOURCE_MANUAL, 'Manual entry'),
+    (EXPENSE_SOURCE_RECURRING, 'Recurring template'),
+    (EXPENSE_SOURCE_AI_GRADING, 'AI usage (auto)'),
+    (EXPENSE_SOURCE_DIGITALOCEAN, 'DigitalOcean API (auto)'),
+]
+
+# Sources a human owns and may edit/delete in the UI. Everything else is
+# machine-synced (re-derived each run) and therefore read-only.
+EXPENSE_EDITABLE_SOURCES = {EXPENSE_SOURCE_MANUAL, EXPENSE_SOURCE_RECURRING}
+
+
+class Expense(models.Model):
+    """A single operating cost, recorded in NZD (the dashboard's base currency).
+
+    Vendor bills in USD (Claude, DigitalOcean, Resend …) are converted to NZD
+    when entered — `amount` is always NZD so the dashboard can sum across
+    categories without FX handling. `original_amount` / `original_currency`
+    keep the source figure for reference only; they are never summed.
+
+    Rows are grouped by `source`:
+      * manual     — typed in the admin UI by a superuser.
+      * recurring  — generated from a RecurringExpense template by the
+                     materialize_recurring_expenses command (idempotent).
+      * ai_grading — one row per month synced from AIGradingUsage's estimated
+                     Anthropic cost (USD→NZD). Covers grading API spend only;
+                     other Anthropic usage is entered manually as claude_api.
+    """
+    category = models.CharField(
+        max_length=32, choices=ExpenseCategory.choices,
+        default=ExpenseCategory.OTHER,
+    )
+    vendor = models.CharField(max_length=120, blank=True)
+    description = models.CharField(max_length=255, blank=True)
+    amount = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        help_text='Cost in NZD (convert foreign bills before entering).',
+    )
+    incurred_on = models.DateField(
+        help_text='Date the cost applies to. Use the 1st of the month for '
+                  'monthly bills so it groups cleanly.',
+    )
+    original_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text='Optional: the bill amount in its native currency, for '
+                  'reference only (not used in totals).',
+    )
+    original_currency = models.CharField(max_length=3, blank=True)
+    source = models.CharField(
+        max_length=20, choices=EXPENSE_SOURCE_CHOICES,
+        default=EXPENSE_SOURCE_MANUAL,
+    )
+    recurring = models.ForeignKey(
+        'RecurringExpense', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='generated_expenses',
+    )
+    note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-incurred_on', 'category']
+        indexes = [models.Index(fields=['incurred_on'])]
+        constraints = [
+            # One auto row per template per month, and one ai_grading row per
+            # month — makes re-running the sync command a no-op.
+            models.UniqueConstraint(
+                fields=['recurring', 'incurred_on'],
+                condition=models.Q(recurring__isnull=False),
+                name='uniq_recurring_expense_per_date',
+            ),
+            models.UniqueConstraint(
+                fields=['source', 'incurred_on'],
+                condition=models.Q(source='ai_grading'),
+                name='uniq_ai_grading_expense_per_month',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.get_category_display()} — {self.incurred_on} — ${self.amount}'
+
+    @property
+    def is_auto(self):
+        return self.source != EXPENSE_SOURCE_MANUAL
+
+    @property
+    def is_editable(self):
+        """Manual + recurring rows can be hand-edited; synced rows can't."""
+        return self.source in EXPENSE_EDITABLE_SOURCES
+
+
+class RecurringExpense(models.Model):
+    """Template for a fixed, predictable cost (domain renewal, flat sub …).
+
+    The materialize_recurring_expenses command walks active templates each run
+    and creates any missing Expense rows up to the current period, so the
+    operator records the amount once instead of re-typing it every month.
+    """
+    FREQUENCY_MONTHLY = 'monthly'
+    FREQUENCY_YEARLY = 'yearly'
+    FREQUENCY_CHOICES = [
+        (FREQUENCY_MONTHLY, 'Monthly'),
+        (FREQUENCY_YEARLY, 'Yearly'),
+    ]
+
+    category = models.CharField(
+        max_length=32, choices=ExpenseCategory.choices,
+        default=ExpenseCategory.OTHER,
+    )
+    vendor = models.CharField(max_length=120, blank=True)
+    description = models.CharField(max_length=255, blank=True)
+    amount = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        help_text='Cost in NZD per occurrence.',
+    )
+    frequency = models.CharField(
+        max_length=10, choices=FREQUENCY_CHOICES, default=FREQUENCY_MONTHLY,
+    )
+    start_date = models.DateField(
+        help_text='First period this cost applies. Day is ignored — costs are '
+                  'booked to the 1st of the month.',
+    )
+    end_date = models.DateField(
+        null=True, blank=True,
+        help_text='Optional: stop generating after this date (e.g. cancelled).',
+    )
+    is_active = models.BooleanField(default=True)
+    note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['category', 'vendor']
+
+    def __str__(self):
+        return f'{self.get_category_display()} — ${self.amount}/{self.frequency}'

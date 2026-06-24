@@ -214,18 +214,23 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             q.setdefault('strand', data.get('strand', ''))
             q.setdefault('topic', data.get('topic', ''))
             q.setdefault('subtopic', '')
-            q.setdefault('include', True)
+            # Teacher-graded (human_graded) questions are deselected by default.
+            q.setdefault('include', q.get('validation_type') != 'human_graded')
             # Attach base64 image data directly to question dict so templates
             # don't need a custom filter for dict lookups.
             ref = q.get('image_ref')
             q['image_b64'] = session.extracted_images.get(ref) if ref else None
 
         # Recovery: if every question ended up with include=False (stuck state
-        # from a previous all-uncheck submission), reset them all to True so
-        # the teacher doesn't have to manually re-tick every question.
-        if questions and not any(q.get('include') for q in questions):
+        # from a previous all-uncheck submission), re-apply the default selection
+        # rule so the teacher doesn't have to manually re-tick every question.
+        # Teacher-graded (human_graded) questions legitimately default to
+        # deselected, so a worksheet that is entirely teacher-graded is not a
+        # stuck state and is left alone.
+        all_human_graded = all(q.get('validation_type') == 'human_graded' for q in questions)
+        if questions and not all_human_graded and not any(q.get('include') for q in questions):
             for q in questions:
-                q['include'] = True
+                q['include'] = q.get('validation_type') != 'human_graded'
             # Save only the include reset — strip image_b64 first since that
             # is added in-memory for template rendering only and must not be
             # persisted (it bloats the JSONField with base64 image data).
