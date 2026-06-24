@@ -15,6 +15,11 @@ It records two things each run:
 Run via cron 3x/day using scripts/cron_sync_sprint_burndown.sh, e.g.:
     0 8,14,22 * * * /home/cwa/.../scripts/cron_sync_sprint_burndown.sh
 
+Pass --backfill once to reconstruct the project's *past* burndown from each
+issue's created/resolved dates (so the chart shows history, not just from the
+first sync forward):
+    python manage.py sync_sprint_burndown --backfill
+
 No-ops (logs a warning) when the Jira env is unconfigured.
 """
 from django.core.management.base import BaseCommand
@@ -25,7 +30,27 @@ from sprints import services
 class Command(BaseCommand):
     help = "Record today's whole-project (and active-sprint) burndown snapshots."
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--backfill', action='store_true',
+            help="Reconstruct historical project snapshots from issue "
+                 "created/resolved dates (one-time), instead of recording today.",
+        )
+
     def handle(self, *args, **options):
+        if options['backfill']:
+            days = services.backfill_project_history()
+            if days is None:
+                self.stdout.write(self.style.WARNING(
+                    'Backfill recorded nothing (Jira unconfigured or search '
+                    'failed). See logs for detail.'
+                ))
+            else:
+                self.stdout.write(self.style.SUCCESS(
+                    f'Backfilled {days} day(s) of project history.'
+                ))
+            return
+
         # Whole-project snapshot — the figure the burndown page renders.
         project = services.sync_project_burndown()
         if project is None:
