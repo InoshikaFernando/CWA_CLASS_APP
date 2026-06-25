@@ -11,17 +11,17 @@ Phase 6 (CPP-358): Message history inbox — list, cancel, delete, retry.
 import json
 from datetime import date, datetime, time as dt_time
 
-import django_rq
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.timezone import localtime
 from django.views import View
 
 from accounts.models import Role
-from .models import ParentStudent, ScheduledMessage, School, SchoolStudent, SchoolTeacher
+from .models import ParentStudent, ScheduledMessage, ScheduledMessageAttachment, School, SchoolStudent, SchoolTeacher
 from .views import RoleRequiredMixin, _get_user_school_ids
 
 _MESSAGING_ROLES = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
@@ -56,10 +56,36 @@ class MessagingComposeView(RoleRequiredMixin, View):
 
     def get(self, request):
         school = _get_messaging_school(request.user)
+        draft = None
+        draft_json = 'null'
+        edit_pk = request.GET.get('edit', '').strip()
+        if edit_pk and school:
+            draft = get_object_or_404(ScheduledMessage, pk=edit_pk, school=school)
+            draft_json = json.dumps({
+                'pk':              draft.pk,
+                'subject':         draft.subject,
+                'body_html':       draft.body_html,
+                'recipients_to':   draft.recipients_to,
+                'recipients_cc':   draft.recipients_cc,
+                'recipients_bcc':  draft.recipients_bcc,
+                'frequency':       draft.frequency,
+                'schedule_date':   localtime(draft.scheduled_at).strftime('%Y-%m-%d') if draft.scheduled_at else '',
+                'schedule_time':   draft.send_time.strftime('%H:%M') if draft.send_time else '09:00',
+                'weekly_day':      str(draft.send_day) if draft.frequency == 'weekly' and draft.send_day is not None else '1',
+                'monthly_day':     str(draft.send_day) if draft.frequency == 'monthly' and draft.send_day is not None else '1',
+                'starts_at':       draft.starts_at.isoformat() if draft.starts_at else '',
+                'ends_at':         draft.ends_at.isoformat() if draft.ends_at else '',
+            })
+        is_reschedule = draft is not None and draft.status != ScheduledMessage.STATUS_DRAFT
+        existing_attachments = list(draft.attachments.all()) if draft else []
         return render(request, 'messaging/compose.html', {
-            'school': school,
-            'user_email': request.user.email or '',
-            'user_name': request.user.get_full_name() or request.user.username,
+            'school':               school,
+            'user_email':           request.user.email or '',
+            'user_name':            request.user.get_full_name() or request.user.username,
+            'draft':                draft,
+            'draft_json':           draft_json,
+            'is_reschedule':        is_reschedule,
+            'existing_attachments': existing_attachments,
         })
 
     def post(self, request):
@@ -124,22 +150,64 @@ class MessagingComposeView(RoleRequiredMixin, View):
             except ValueError:
                 pass
 
-        sm = ScheduledMessage.objects.create(
-            school=school,
-            created_by=request.user,
-            subject=subject,
-            body_html=body_html,
-            recipients_to=to_tags,
-            recipients_cc=cc_tags,
-            recipients_bcc=bcc_tags,
-            frequency=frequency,
-            scheduled_at=scheduled_at,
-            send_time=send_time,
-            send_day=send_day,
-            starts_at=_parse_date(starts_at_str),
-            ends_at=_parse_date(ends_at_str),
-            status=status,
-        )
+        draft_pk = request.POST.get('draft_pk', '').strip()
+        if draft_pk:
+            sm = get_object_or_404(ScheduledMessage, pk=draft_pk, school=school)
+            _editable = (ScheduledMessage.STATUS_DRAFT, ScheduledMessage.STATUS_SCHEDULED,
+                         ScheduledMessage.STATUS_FAILED, ScheduledMessage.STATUS_CANCELLED)
+            if sm.status not in _editable:
+                messages.error(request, 'This message cannot be edited in its current state.')
+                return redirect('messaging_inbox')
+            sm.subject        = subject
+            sm.body_html      = body_html
+            sm.recipients_to  = to_tags
+            sm.recipients_cc  = cc_tags
+            sm.recipients_bcc = bcc_tags
+            sm.frequency      = frequency
+            sm.scheduled_at   = scheduled_at
+            sm.send_time      = send_time
+            sm.send_day       = send_day
+            sm.starts_at      = _parse_date(starts_at_str)
+            sm.ends_at        = _parse_date(ends_at_str)
+            sm.status         = status
+            sm.save()
+        else:
+            sm = ScheduledMessage.objects.create(
+                school=school,
+                created_by=request.user,
+                subject=subject,
+                body_html=body_html,
+                recipients_to=to_tags,
+                recipients_cc=cc_tags,
+                recipients_bcc=bcc_tags,
+                frequency=frequency,
+                scheduled_at=scheduled_at,
+                send_time=send_time,
+                send_day=send_day,
+                starts_at=_parse_date(starts_at_str),
+                ends_at=_parse_date(ends_at_str),
+                status=status,
+            )
+
+        # Save newly uploaded attachments
+        import logging as _logging, os as _os
+        _att_log = _logging.getLogger(__name__)
+        _ALLOWED_EXTS = {'.pdf', '.docx', '.png', '.jpg', '.jpeg'}
+        for f in request.FILES.getlist('attachments'):
+            safe_name = _os.path.basename(f.name)
+            ext = _os.path.splitext(safe_name)[1].lower()
+            if ext not in _ALLOWED_EXTS:
+                _att_log.warning('Rejected attachment with disallowed extension %s for msg %s', ext, sm.pk)
+                continue
+            try:
+                ScheduledMessageAttachment.objects.create(
+                    message=sm,
+                    file=f,
+                    filename=safe_name,
+                    filesize=f.size,
+                )
+            except Exception:
+                _att_log.exception('Failed to save attachment %s for message %s', safe_name, sm.pk)
 
         if action != 'draft':
             try:
@@ -365,11 +433,12 @@ def _recipient_result(user, role):
 
 
 def _enqueue_or_schedule(sm):
-    """Compute next_run_at and enqueue immediately for 'now' messages.
+    """Dispatch or schedule a ScheduledMessage after creation (non-draft only).
 
-    Called after ScheduledMessage creation (non-draft only).
-    tasks_messaging is imported lazily to avoid circular-import issues.
-    Raises on RQ connection errors so the caller (post()) can handle them.
+    'now'  → dispatch_message() immediately (enqueues into EmailQueue).
+    other  → compute next_run_at and save; dispatch_due_sync / send_due_messages
+             cron will pick it up when the time arrives.
+    No RQ worker or Redis required — uses the existing EmailQueue infrastructure.
     """
     import logging
     from classroom.tasks_messaging import compute_next_run_at, dispatch_message
@@ -377,9 +446,7 @@ def _enqueue_or_schedule(sm):
     _log = logging.getLogger(__name__)
 
     if sm.frequency == 'now':
-        django_rq.get_queue('default').enqueue(
-            dispatch_message, sm.pk, job_id=f'dispatch-msg-{sm.pk}'
-        )
+        dispatch_message(sm.pk)
         return
 
     next_run = compute_next_run_at(sm)
@@ -387,7 +454,6 @@ def _enqueue_or_schedule(sm):
         sm.next_run_at = next_run
         sm.save(update_fields=['next_run_at', 'updated_at'])
     else:
-        # Required schedule fields missing or all candidate dates outside range.
         _log.warning(
             '_enqueue_or_schedule: compute_next_run_at returned None for msg %s '
             '(freq=%s, send_day=%s, send_time=%s)',
@@ -402,10 +468,35 @@ def _enqueue_or_schedule(sm):
 
 
 # ---------------------------------------------------------------------------
+# Message Detail (read view)
+# ---------------------------------------------------------------------------
+
+class MessagingDetailView(RoleRequiredMixin, View):
+    """Read-only detail view for a single ScheduledMessage — Gmail-style."""
+    required_roles = _MESSAGING_ROLES
+
+    def get(self, request, pk):
+        school = _get_messaging_school(request.user)
+        msg = get_object_or_404(ScheduledMessage, pk=pk, school=school)
+        _inbox = '/admin-dashboard/messaging/inbox/'
+        referer = request.META.get('HTTP_REFERER', '')
+        # Only allow same-origin relative-path referers to prevent open-redirect.
+        if referer.startswith(request.build_absolute_uri('/')) and '/admin-dashboard/' in referer:
+            back_url = referer
+        else:
+            back_url = _inbox
+        return render(request, 'messaging/detail.html', {
+            'school': school,
+            'msg': msg,
+            'back_url': back_url,
+        })
+
+
+# ---------------------------------------------------------------------------
 # CPP-358: Message History Inbox
 # ---------------------------------------------------------------------------
 
-_INBOX_PAGE_SIZE = 20
+_INBOX_PAGE_SIZE = 10
 
 _TAB_STATUS_MAP = {
     'draft':     ScheduledMessage.STATUS_DRAFT,
@@ -422,6 +513,29 @@ def _recipient_summary(msg):
     total = len(all_r)
     first = all_r[0].get('name', '') if all_r and isinstance(all_r[0], dict) else ''
     return first, total
+
+
+def _fmt_dt(dt):
+    return localtime(dt).strftime('%d %b %Y, %H:%M') if dt else ''
+
+
+def _serialise_msg(m):
+    return {
+        'pk':            m.pk,
+        'subject':       m.subject,
+        'body_html':     m.body_html,
+        'status':        m.status,
+        'frequency':     m.frequency,
+        'recipients_to':  m.recipients_to  or [],
+        'recipients_cc':  m.recipients_cc  or [],
+        'recipients_bcc': m.recipients_bcc or [],
+        'created_by':    (m.created_by.get_full_name() or m.created_by.username) if m.created_by else '',
+        'created_at':    _fmt_dt(m.created_at),
+        'last_run_at':   _fmt_dt(m.last_run_at),
+        'scheduled_at':  _fmt_dt(m.scheduled_at),
+        'next_run_at':   _fmt_dt(m.next_run_at),
+        'attachments':   [{'filename': a.filename, 'url': a.file.url, 'filesize': a.filesize} for a in m.attachments.all()],
+    }
 
 
 class MessagingInboxView(RoleRequiredMixin, View):
@@ -441,7 +555,7 @@ class MessagingInboxView(RoleRequiredMixin, View):
         tab = request.GET.get('tab', 'all')
         q   = request.GET.get('q', '').strip()
 
-        qs = ScheduledMessage.objects.filter(school=school).select_related('created_by')
+        qs = ScheduledMessage.objects.filter(school=school).select_related('created_by').prefetch_related('attachments')
 
         if tab in _TAB_STATUS_MAP:
             qs = qs.filter(status=_TAB_STATUS_MAP[tab])
@@ -449,20 +563,39 @@ class MessagingInboxView(RoleRequiredMixin, View):
         if q:
             qs = qs.filter(subject__icontains=q)
 
+        # Dispatch any overdue scheduled messages synchronously (no worker needed)
+        try:
+            from classroom.tasks_messaging import dispatch_due_sync
+            dispatch_due_sync()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception('MessagingInboxView: dispatch_due_sync failed')
+
         paginator = Paginator(qs.order_by('-created_at'), _INBOX_PAGE_SIZE)
         page_obj  = paginator.get_page(request.GET.get('page', 1))
 
         # Annotate each message with recipient summary for display
-        for msg in page_obj:
+        page_items = list(page_obj)
+        for msg in page_items:
             msg.first_recipient, msg.recipient_count = _recipient_summary(msg)
 
+        # Counts per status (unfiltered by search/tab) for tab badges
+        from django.db.models import Count as _Count
+        raw_counts = (
+            ScheduledMessage.objects.filter(school=school)
+            .values('status').annotate(n=_Count('id'))
+        )
+        status_counts = {row['status']: row['n'] for row in raw_counts}
+
         return render(request, 'messaging/inbox.html', {
-            'school':   school,
-            'page_obj': page_obj,
-            'tab':      tab,
-            'q':        q,
-            'tabs':     ['all'] + list(_TAB_STATUS_MAP.keys()),
-            'total':    paginator.count,
+            'school':        school,
+            'page_obj':      page_obj,
+            'tab':           tab,
+            'q':             q,
+            'tabs':          ['all'] + list(_TAB_STATUS_MAP.keys()),
+            'total':         paginator.count,
+            'msgs_data':     [_serialise_msg(m) for m in page_items],
+            'status_counts': status_counts,
         })
 
 
@@ -486,7 +619,7 @@ class MessagingCancelView(RoleRequiredMixin, View):
 
 
 class MessagingDeleteView(RoleRequiredMixin, View):
-    """POST /messaging/<pk>/delete/ — hard-delete a draft (CPP-358)."""
+    """POST /messaging/<pk>/delete/ — hard-delete any message (CPP-358)."""
     required_roles = _MESSAGING_ROLES
 
     def post(self, request, pk):
@@ -495,11 +628,9 @@ class MessagingDeleteView(RoleRequiredMixin, View):
             messages.error(request, 'No active school found.')
             return redirect('messaging_inbox')
         msg = get_object_or_404(ScheduledMessage, pk=pk, school=school)
-        if msg.status == ScheduledMessage.STATUS_DRAFT:
-            msg.delete()
-            messages.success(request, 'Draft deleted.')
-        else:
-            messages.warning(request, 'Only draft messages can be deleted.')
+        subject = msg.subject or 'Message'
+        msg.delete()
+        messages.success(request, f'"{subject}" deleted.')
         return redirect(_inbox_url(request))
 
 
@@ -520,9 +651,7 @@ class MessagingRetryView(RoleRequiredMixin, View):
             from classroom.tasks_messaging import dispatch_message
             msg.status = ScheduledMessage.STATUS_SCHEDULED
             msg.save(update_fields=['status', 'updated_at'])
-            django_rq.get_queue('default').enqueue(
-                dispatch_message, msg.pk, job_id=f'dispatch-msg-{msg.pk}'
-            )
+            dispatch_message(msg.pk)
             messages.success(request, 'Message re-queued for sending.')
         except Exception:
             import logging

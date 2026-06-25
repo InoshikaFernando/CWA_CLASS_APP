@@ -107,14 +107,13 @@ class TestMessagingInbox:
         self.page.wait_for_load_state('domcontentloaded')
         expect(self.page.locator('button', has_text='Retry').first).to_be_visible()
 
-    def test_sent_shows_no_action_buttons(self, db):
-        """Sent row shows no Edit/Delete/Cancel/Retry buttons."""
+    def test_sent_shows_delete_button(self, db):
+        """Sent row shows a Delete button (delete allowed for all statuses)."""
         _make_scheduled_message(self.school, self.admin, 'Sent Msg', status='sent')
         self.page.reload()
         self.page.wait_for_load_state('domcontentloaded')
         expect(self.page.locator('body')).to_contain_text('Sent Msg')
-        # The dash (—) placeholder should appear where actions would be
-        expect(self.page.locator('body')).to_contain_text('—')
+        expect(self.page.locator('button', has_text='Delete').first).to_be_visible()
 
     def test_tab_draft_filter(self, db):
         """Clicking Draft tab filters to only draft messages."""
@@ -135,23 +134,24 @@ class TestMessagingInbox:
         expect(self.page.locator('body')).not_to_contain_text('OtherMessage')
 
     def test_delete_draft_removes_from_list(self, db):
-        """Clicking Delete on draft and confirming removes it from the list."""
+        """Clicking Delete on draft and confirming via custom modal removes it."""
         _make_scheduled_message(self.school, self.admin, 'DraftToDelete', status='draft')
         self.page.reload()
         self.page.wait_for_load_state('domcontentloaded')
-        # Accept the JS confirm dialog
-        self.page.on('dialog', lambda d: d.accept())
         self.page.locator('button', has_text='Delete').first.click()
+        # Custom confirm modal — click "Yes, delete"
+        self.page.locator('button', has_text='Yes, delete').click()
         self.page.wait_for_load_state('domcontentloaded')
         expect(self.page.locator('body')).not_to_contain_text('DraftToDelete')
 
     def test_cancel_scheduled_shows_success_toast(self, db):
-        """Cancelling a scheduled message shows a success flash message."""
+        """Cancelling a scheduled message via custom modal shows success flash."""
         _make_scheduled_message(self.school, self.admin, 'SchedToCancel', status='scheduled')
         self.page.reload()
         self.page.wait_for_load_state('domcontentloaded')
-        self.page.on('dialog', lambda d: d.accept())
         self.page.locator('button', has_text='Cancel').first.click()
+        # Custom confirm modal — click "Yes, cancel"
+        self.page.locator('button', has_text='Yes, cancel').click()
         self.page.wait_for_load_state('domcontentloaded')
         expect(self.page.locator('body')).to_contain_text('cancelled')
 
@@ -172,3 +172,61 @@ class TestMessagingInbox:
         self.page.reload()
         self.page.wait_for_load_state('domcontentloaded')
         expect(self.page.locator('text="Draft"').first).to_be_visible()
+
+    # -- CPP-348: custom confirm modal --
+
+    def test_confirm_modal_shows_on_delete(self, db):
+        """Clicking Delete opens the custom confirm modal (not browser native dialog)."""
+        _make_scheduled_message(self.school, self.admin, 'ModalTest', status='draft')
+        self.page.reload()
+        self.page.wait_for_load_state('domcontentloaded')
+        self.page.locator('button', has_text='Delete').first.click()
+        expect(self.page.locator('button', has_text='Yes, delete')).to_be_visible()
+        expect(self.page.locator('button', has_text='Keep it')).to_be_visible()
+
+    def test_confirm_modal_dismiss_keeps_message(self, db):
+        """Clicking 'Keep it' in confirm modal does NOT delete the message."""
+        _make_scheduled_message(self.school, self.admin, 'NotDeleted', status='draft')
+        self.page.reload()
+        self.page.wait_for_load_state('domcontentloaded')
+        self.page.locator('button', has_text='Delete').first.click()
+        self.page.locator('button', has_text='Keep it').click()
+        self.page.wait_for_load_state('domcontentloaded')
+        expect(self.page.locator('body')).to_contain_text('NotDeleted')
+
+    def test_delete_all_statuses_has_delete_button(self, db):
+        """Sent, failed, and cancelled messages all show a Delete action button."""
+        _make_scheduled_message(self.school, self.admin, 'SentMsg', status='sent')
+        _make_scheduled_message(self.school, self.admin, 'FailedMsg', status='failed')
+        _make_scheduled_message(self.school, self.admin, 'CancelledMsg', status='cancelled')
+        self.page.reload()
+        self.page.wait_for_load_state('domcontentloaded')
+        delete_buttons = self.page.locator('button', has_text='Delete')
+        expect(delete_buttons.first).to_be_visible()
+        assert delete_buttons.count() >= 3
+
+    # -- CPP-348: tab notification badges --
+
+    def test_tab_badges_visible_for_new_messages(self, db):
+        """Status count badges appear on inbox tabs when there are unseen messages."""
+        _make_scheduled_message(self.school, self.admin, 'SentBadge', status='sent')
+        # Clear seen state so badges show
+        self.page.evaluate("localStorage.removeItem('cwa_msg_seen_v2')")
+        self.page.reload()
+        self.page.wait_for_load_state('domcontentloaded')
+        self.page.wait_for_timeout(500)  # Alpine init
+        # Badge span with x-show="hasBadge(...)" should be visible
+        badge = self.page.locator('[x-show*="hasBadge"]').first
+        expect(badge).to_be_visible()
+
+    def test_tab_badge_updates_localStorage_on_click(self, db):
+        """Clicking a tab writes seen count to localStorage so badge disappears."""
+        _make_scheduled_message(self.school, self.admin, 'SentSeen', status='sent')
+        self.page.evaluate("localStorage.removeItem('cwa_msg_seen_v2')")
+        self.page.reload()
+        self.page.wait_for_load_state('domcontentloaded')
+        self.page.wait_for_timeout(500)  # Alpine init
+        self.page.locator('button', has_text='Sent').first.click()
+        self.page.wait_for_timeout(300)
+        seen = self.page.evaluate("localStorage.getItem('cwa_msg_seen_v2')")
+        assert seen is not None, 'localStorage key not written after tab click'

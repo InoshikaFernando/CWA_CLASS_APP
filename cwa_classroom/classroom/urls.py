@@ -216,6 +216,7 @@ urlpatterns = [
     path('admin-dashboard/messaging/compose/', views_messaging.MessagingComposeView.as_view(), name='messaging_compose'),
     path('admin-dashboard/messaging/api/recipients/', views_messaging.RecipientSearchAPIView.as_view(), name='messaging_recipient_search'),
     path('admin-dashboard/messaging/api/recipients/group/', views_messaging.MessagingRecipientGroupAPIView.as_view(), name='messaging_recipient_group'),
+    path('admin-dashboard/messaging/<int:pk>/', views_messaging.MessagingDetailView.as_view(), name='messaging_detail'),
     path('admin-dashboard/messaging/<int:pk>/cancel/', views_messaging.MessagingCancelView.as_view(), name='messaging_cancel'),
     path('admin-dashboard/messaging/<int:pk>/delete/', views_messaging.MessagingDeleteView.as_view(), name='messaging_delete'),
     path('admin-dashboard/messaging/<int:pk>/retry/', views_messaging.MessagingRetryView.as_view(), name='messaging_retry'),

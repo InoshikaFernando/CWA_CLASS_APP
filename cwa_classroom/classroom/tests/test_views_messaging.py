@@ -10,11 +10,13 @@ CPP-361: MessagingRecipientGroupAPIView, compose context (user_email/user_name).
 """
 import json
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, Client
 from django.urls import reverse, resolve
+from django.utils import timezone
 
 from accounts.models import CustomUser, Role, UserRole
-from classroom.models import ParentStudent, ScheduledMessage, School, SchoolStudent, SchoolTeacher
+from classroom.models import ParentStudent, ScheduledMessage, ScheduledMessageAttachment, School, SchoolStudent, SchoolTeacher
 
 
 # ---------------------------------------------------------------------------
@@ -491,9 +493,13 @@ class TestMessagingComposeViewPost(TestCase):
         self.url = reverse('messaging_compose')
         self.user, self.school = _make_admin_with_school()
 
-    def test_post_send_now_creates_scheduled_message(self):
-        self.client.force_login(self.user)
-        self.client.post(self.url, _post_data(frequency='now'))
+    def test_post_send_now_creates_and_dispatches_message(self):
+        """frequency='now' creates a message and dispatch_message runs immediately,
+        so the final DB status is SENT (not SCHEDULED)."""
+        from unittest.mock import patch
+        with patch('classroom.tasks_messaging.dispatch_message'):
+            self.client.force_login(self.user)
+            self.client.post(self.url, _post_data(frequency='now'))
         msg = ScheduledMessage.objects.filter(school=self.school).first()
         self.assertIsNotNone(msg)
         self.assertEqual(msg.frequency, 'now')
@@ -987,12 +993,13 @@ class TestMessagingDeleteView(TestCase):
         response = self.client.post(self._url(msg.pk))
         self.assertRedirects(response, reverse('messaging_inbox'), fetch_redirect_response=False)
 
-    def test_delete_non_draft_does_not_delete(self):
+    def test_delete_sent_message_also_removes_record(self):
+        """Delete is allowed for all statuses including sent."""
         msg = _make_message(self.school, self.admin, status='sent')
         pk = msg.pk
         self.client.force_login(self.admin)
         self.client.post(self._url(pk))
-        self.assertTrue(ScheduledMessage.objects.filter(pk=pk).exists())
+        self.assertFalse(ScheduledMessage.objects.filter(pk=pk).exists())
 
     def test_delete_other_school_returns_404(self):
         other_user = _make_user('oadm358d', 'wlhtestmails+oadm358d@gmail.com', Role.ADMIN)
@@ -1048,34 +1055,22 @@ class TestMessagingRetryView(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn('/login', response['Location'])
 
-    def test_retry_failed_sets_scheduled_when_rq_ok(self):
-        from unittest.mock import patch, MagicMock
-        msg = _make_message(self.school, self.admin, status='failed')
-        self.client.force_login(self.admin)
-        with patch('classroom.views_messaging.django_rq') as mock_rq:
-            mock_rq.get_queue.return_value = MagicMock()
-            self.client.post(self._url(msg.pk))
-        msg.refresh_from_db()
-        self.assertEqual(msg.status, ScheduledMessage.STATUS_SCHEDULED)
-
-    def test_retry_enqueues_dispatch_job(self):
-        from unittest.mock import patch, MagicMock
-        msg = _make_message(self.school, self.admin, status='failed')
-        self.client.force_login(self.admin)
-        mock_queue = MagicMock()
-        with patch('classroom.views_messaging.django_rq') as mock_rq:
-            mock_rq.get_queue.return_value = mock_queue
-            self.client.post(self._url(msg.pk))
-        mock_queue.enqueue.assert_called_once()
-        call_kwargs = mock_queue.enqueue.call_args
-        self.assertEqual(call_kwargs.kwargs.get('job_id'), f'dispatch-msg-{msg.pk}')
-
-    def test_retry_rq_failure_keeps_status_failed(self):
+    def test_retry_failed_calls_dispatch_and_sets_scheduled(self):
         from unittest.mock import patch
         msg = _make_message(self.school, self.admin, status='failed')
         self.client.force_login(self.admin)
-        with patch('classroom.views_messaging.django_rq') as mock_rq:
-            mock_rq.get_queue.side_effect = Exception('Redis down')
+        with patch('classroom.tasks_messaging.dispatch_message') as mock_dispatch:
+            self.client.post(self._url(msg.pk))
+        mock_dispatch.assert_called_once_with(msg.pk)
+        msg.refresh_from_db()
+        self.assertEqual(msg.status, ScheduledMessage.STATUS_SCHEDULED)
+
+    def test_retry_dispatch_exception_keeps_status_failed(self):
+        """If dispatch_message raises, retry view catches it and reverts to FAILED."""
+        from unittest.mock import patch
+        msg = _make_message(self.school, self.admin, status='failed')
+        self.client.force_login(self.admin)
+        with patch('classroom.tasks_messaging.dispatch_message', side_effect=Exception('boom')):
             self.client.post(self._url(msg.pk))
         msg.refresh_from_db()
         self.assertEqual(msg.status, ScheduledMessage.STATUS_FAILED)
@@ -1214,3 +1209,191 @@ class TestMessagingComposeViewContext(TestCase):
         self.client.force_login(self.admin)
         response = self.client.get(self.url)
         self.assertContains(response, reverse('messaging_recipient_group'))
+
+
+# ---------------------------------------------------------------------------
+# CPP-348: Attachment upload — compose POST saves ScheduledMessageAttachment
+# ---------------------------------------------------------------------------
+
+def _compose_url():
+    return reverse('messaging_compose')
+
+
+def _post_compose(client, school, subject='Attach Test', frequency='once',
+                  schedule_date='2027-01-01', schedule_time='09:00',
+                  files=None, extra=None):
+    data = {
+        'action': 'send',
+        'subject': subject,
+        'body': '<p>body</p>',
+        'frequency': frequency,
+        'schedule_date': schedule_date,
+        'schedule_time': schedule_time,
+        'recipients_to': json.dumps([
+            {'id': 1, 'name': 'Alice', 'email': 'alice@example.com', 'role': 'staff'}
+        ]),
+        'recipients_cc': '[]',
+        'recipients_bcc': '[]',
+    }
+    if extra:
+        data.update(extra)
+    if files:
+        data['attachments'] = files
+    return client.post(_compose_url(), data, format='multipart')
+
+
+class TestAttachmentUpload(TestCase):
+    """CPP-348: Compose POST saves ScheduledMessageAttachment rows."""
+
+    def setUp(self):
+        self.client = Client()
+        self.admin, self.school = _make_admin_with_school()
+        self.client.force_login(self.admin)
+
+    def test_pdf_attachment_saved(self):
+        pdf = SimpleUploadedFile('report.pdf', b'%PDF-1.4 content', content_type='application/pdf')
+        _post_compose(self.client, self.school, files=pdf)
+        sm = ScheduledMessage.objects.filter(school=self.school).order_by('-created_at').first()
+        self.assertIsNotNone(sm)
+        self.assertEqual(sm.attachments.count(), 1)
+        att = sm.attachments.first()
+        self.assertEqual(att.filename, 'report.pdf')
+        self.assertEqual(att.filesize, len(b'%PDF-1.4 content'))
+
+    def test_disallowed_extension_not_saved(self):
+        """Files with extensions outside the allowlist are silently rejected."""
+        exe = SimpleUploadedFile('malware.exe', b'MZ fake exe', content_type='application/octet-stream')
+        _post_compose(self.client, self.school, files=exe)
+        sm = ScheduledMessage.objects.filter(school=self.school).order_by('-created_at').first()
+        self.assertIsNotNone(sm)
+        self.assertEqual(sm.attachments.count(), 0)
+
+    def test_path_traversal_in_filename_is_sanitized(self):
+        """../../etc/passwd style names are stripped to the basename only."""
+        sneaky = SimpleUploadedFile(
+            '../../etc/passwd.pdf', b'%PDF safe', content_type='application/pdf'
+        )
+        _post_compose(self.client, self.school, files=sneaky)
+        sm = ScheduledMessage.objects.filter(school=self.school).order_by('-created_at').first()
+        if sm and sm.attachments.exists():
+            att = sm.attachments.first()
+            self.assertNotIn('/', att.filename)
+            self.assertNotIn('..', att.filename)
+
+
+# ---------------------------------------------------------------------------
+# CPP-348: Status guard — compose POST rejects editing sent/cancelled messages
+# ---------------------------------------------------------------------------
+
+class TestComposeStatusGuard(TestCase):
+    """Editing a sent/cancelled message redirects to inbox with an error."""
+
+    def setUp(self):
+        self.client = Client()
+        self.admin, self.school = _make_admin_with_school()
+        self.client.force_login(self.admin)
+
+    def test_sent_message_cannot_be_edited(self):
+        msg = _make_message(self.school, self.admin, status='sent')
+        response = self.client.post(
+            _compose_url(),
+            {
+                'draft_pk': msg.pk,
+                'action': 'send', 'subject': 'Updated', 'body': '<p>hi</p>',
+                'frequency': 'once', 'schedule_date': '2027-01-01', 'schedule_time': '09:00',
+                'recipients_to': json.dumps([{'id': 1, 'name': 'A', 'email': 'a@b.com', 'role': 'staff'}]),
+                'recipients_cc': '[]', 'recipients_bcc': '[]',
+            },
+        )
+        self.assertRedirects(response, reverse('messaging_inbox'), fetch_redirect_response=False)
+        msg.refresh_from_db()
+        self.assertEqual(msg.subject, 'Test')
+
+    def test_draft_message_can_be_edited(self):
+        msg = _make_message(self.school, self.admin, status='draft',
+                            frequency='once', scheduled_at=None)
+        self.client.post(
+            _compose_url(),
+            {
+                'draft_pk': msg.pk,
+                'action': 'draft', 'subject': 'Updated Draft', 'body': '<p>hi</p>',
+                'frequency': 'once', 'schedule_date': '2027-06-01', 'schedule_time': '10:00',
+                'recipients_to': json.dumps([{'id': 1, 'name': 'A', 'email': 'a@b.com', 'role': 'staff'}]),
+                'recipients_cc': '[]', 'recipients_bcc': '[]',
+            },
+        )
+        msg.refresh_from_db()
+        self.assertEqual(msg.subject, 'Updated Draft')
+
+
+# ---------------------------------------------------------------------------
+# CPP-348: Delete any status — MessagingDeleteView
+# ---------------------------------------------------------------------------
+
+class TestDeleteAnyStatus(TestCase):
+    """Delete view should delete messages regardless of status."""
+
+    def setUp(self):
+        self.client = Client()
+        self.admin, self.school = _make_admin_with_school()
+        self.client.force_login(self.admin)
+
+    def _delete(self, msg):
+        url = reverse('messaging_delete', args=[msg.pk])
+        return self.client.post(url)
+
+    def test_delete_sent_message(self):
+        msg = _make_message(self.school, self.admin, status='sent')
+        self._delete(msg)
+        self.assertFalse(ScheduledMessage.objects.filter(pk=msg.pk).exists())
+
+    def test_delete_scheduled_message(self):
+        msg = _make_message(self.school, self.admin, status='scheduled',
+                            frequency='once',
+                            next_run_at=timezone.now() + timezone.timedelta(days=1))
+        self._delete(msg)
+        self.assertFalse(ScheduledMessage.objects.filter(pk=msg.pk).exists())
+
+    def test_delete_failed_message(self):
+        msg = _make_message(self.school, self.admin, status='failed')
+        self._delete(msg)
+        self.assertFalse(ScheduledMessage.objects.filter(pk=msg.pk).exists())
+
+    def test_delete_cancelled_message(self):
+        msg = _make_message(self.school, self.admin, status='cancelled')
+        self._delete(msg)
+        self.assertFalse(ScheduledMessage.objects.filter(pk=msg.pk).exists())
+
+
+# ---------------------------------------------------------------------------
+# CPP-348: status_counts in inbox context
+# ---------------------------------------------------------------------------
+
+class TestInboxStatusCounts(TestCase):
+    """Inbox view passes status_counts dict for tab badges."""
+
+    def setUp(self):
+        self.client = Client()
+        self.admin, self.school = _make_admin_with_school()
+        self.client.force_login(self.admin)
+        self.url = reverse('messaging_inbox')
+
+    def test_status_counts_in_context(self):
+        _make_message(self.school, self.admin, status='sent')
+        _make_message(self.school, self.admin, status='sent')
+        _make_message(self.school, self.admin, status='failed')
+        response = self.client.get(self.url)
+        counts = response.context['status_counts']
+        self.assertIsInstance(counts, dict)
+        self.assertEqual(counts.get('sent', 0), 2)
+        self.assertEqual(counts.get('failed', 0), 1)
+
+    def test_status_counts_scoped_to_school(self):
+        other_admin = _make_user('other_sc', 'wlhtestmails+other_sc@gmail.com', Role.ADMIN)
+        other_school = School.objects.create(name='Other SC', slug='other-sc', admin=other_admin)
+        _make_message(other_school, other_admin, status='sent')
+        _make_message(self.school, self.admin, status='draft')
+        response = self.client.get(self.url)
+        counts = response.context['status_counts']
+        self.assertEqual(counts.get('sent', 0), 0)
+        self.assertEqual(counts.get('draft', 0), 1)

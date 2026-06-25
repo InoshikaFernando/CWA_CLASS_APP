@@ -2675,3 +2675,17 @@ class ScheduledMessage(models.Model):
 
     def __str__(self):
         return f'{self.subject} ({self.get_frequency_display()}, {self.status})'
+
+
+class ScheduledMessageAttachment(models.Model):
+    """File attachment for a ScheduledMessage. Stored and emailed on dispatch."""
+    message  = models.ForeignKey(
+        ScheduledMessage, on_delete=models.CASCADE, related_name='attachments',
+    )
+    file     = models.FileField(upload_to='messaging/attachments/%Y/%m/')
+    filename = models.CharField(max_length=255)
+    filesize = models.PositiveIntegerField(default=0, help_text='Bytes')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.filename

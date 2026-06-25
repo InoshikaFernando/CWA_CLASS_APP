@@ -179,21 +179,23 @@ class TestDispatchMessage(TestCase):
     def setUp(self):
         self.school = _make_school('dispatch')
 
-    @patch('classroom.tasks_messaging.EmailMultiAlternatives')
-    def test_send_success_marks_sent(self, MockEmail):
+    @patch('classroom.email_service.send_prebuilt_email', return_value=True)
+    def test_send_success_marks_sent(self, mock_send):
         msg = _make_msg(self.school, frequency='now')
         dispatch_message(msg.pk)
         msg.refresh_from_db()
         self.assertEqual(msg.status, ScheduledMessage.STATUS_SENT)
         self.assertIsNone(msg.next_run_at)
         self.assertIsNotNone(msg.last_run_at)
+        mock_send.assert_called_once()
 
-    @patch('classroom.tasks_messaging.EmailMultiAlternatives')
-    def test_send_html_attaches_alternative(self, MockEmail):
-        instance = MockEmail.return_value
+    @patch('classroom.email_service.send_prebuilt_email', return_value=True)
+    def test_send_passes_html_body(self, mock_send):
+        """HTML body is forwarded as html_content to send_prebuilt_email."""
         msg = _make_msg(self.school, frequency='now', body_html='<b>Hi</b>')
         dispatch_message(msg.pk)
-        instance.attach_alternative.assert_called_once_with('<b>Hi</b>', 'text/html')
+        pos, _ = mock_send.call_args
+        self.assertEqual(pos[2], '<b>Hi</b>')
 
     def test_no_recipients_marks_failed(self):
         msg = _make_msg(
@@ -204,16 +206,17 @@ class TestDispatchMessage(TestCase):
         msg.refresh_from_db()
         self.assertEqual(msg.status, ScheduledMessage.STATUS_FAILED)
 
-    @patch('classroom.tasks_messaging.EmailMultiAlternatives')
-    def test_email_send_exception_marks_failed(self, MockEmail):
-        MockEmail.return_value.send.side_effect = Exception('SMTP error')
+    @patch('classroom.email_service.send_prebuilt_email', return_value=False)
+    def test_send_failure_does_not_revert_status(self, mock_send):
+        """send_prebuilt_email returning False (SMTP error) does not revert
+        message to FAILED — status stays SENT; EmailQueue handles retry."""
         msg = _make_msg(self.school, frequency='now')
         dispatch_message(msg.pk)
         msg.refresh_from_db()
-        self.assertEqual(msg.status, ScheduledMessage.STATUS_FAILED)
+        self.assertEqual(msg.status, ScheduledMessage.STATUS_SENT)
 
-    @patch('classroom.tasks_messaging.EmailMultiAlternatives')
-    def test_weekly_after_send_advances_next_run_at(self, MockEmail):
+    @patch('classroom.email_service.send_prebuilt_email', return_value=True)
+    def test_weekly_after_send_advances_next_run_at(self, mock_send):
         msg = _make_msg(
             self.school, frequency='weekly', send_day=1, send_time=time(9, 0),
             next_run_at=_aware(datetime(2026, 6, 22, 9, 0)),
@@ -224,8 +227,8 @@ class TestDispatchMessage(TestCase):
         self.assertIsNotNone(msg.next_run_at)
         self.assertGreater(msg.next_run_at, _aware(datetime(2026, 6, 22, 9, 0)))
 
-    @patch('classroom.tasks_messaging.EmailMultiAlternatives')
-    def test_weekly_past_ends_at_marks_sent(self, MockEmail):
+    @patch('classroom.email_service.send_prebuilt_email', return_value=True)
+    def test_weekly_past_ends_at_marks_sent(self, mock_send):
         msg = _make_msg(
             self.school, frequency='weekly', send_day=1, send_time=time(9, 0),
             ends_at=date(2026, 6, 22),
@@ -239,9 +242,8 @@ class TestDispatchMessage(TestCase):
     def test_nonexistent_msg_id_does_not_raise(self):
         dispatch_message(999999)
 
-    @patch('classroom.tasks_messaging.EmailMultiAlternatives')
-    def test_bcc_only_recipients_sends(self, MockEmail):
-        instance = MockEmail.return_value
+    @patch('classroom.email_service.send_prebuilt_email', return_value=True)
+    def test_bcc_only_recipients_sends(self, mock_send):
         msg = _make_msg(
             self.school, frequency='now',
             recipients_to=[],
@@ -249,7 +251,7 @@ class TestDispatchMessage(TestCase):
             recipients_bcc=[{'id': 2, 'name': 'Bob', 'email': 'bob@example.com', 'role': 'staff'}],
         )
         dispatch_message(msg.pk)
-        instance.send.assert_called_once()
+        mock_send.assert_called_once()
         msg.refresh_from_db()
         self.assertEqual(msg.status, ScheduledMessage.STATUS_SENT)
 
@@ -263,52 +265,34 @@ class TestCheckDueMessages(TestCase):
     def setUp(self):
         self.school = _make_school('check')
 
-    @patch('classroom.tasks_messaging.django_rq')
-    def test_enqueues_due_messages(self, mock_rq):
-        mock_queue = MagicMock()
-        mock_rq.get_queue.return_value = mock_queue
-
+    @patch('classroom.email_service.send_prebuilt_email', return_value=True)
+    def test_dispatches_due_messages(self, mock_send):
+        """check_due_messages dispatches all SCHEDULED messages with past next_run_at."""
         past = _aware(datetime(2026, 6, 1, 9, 0))
         _make_msg(self.school, frequency='weekly', send_day=1, send_time=time(9, 0),
                   next_run_at=past)
         _make_msg(self.school, frequency='monthly', send_day=1, send_time=time(9, 0),
                   next_run_at=past)
-
         count = check_due_messages()
-
         self.assertEqual(count, 2)
-        self.assertEqual(mock_queue.enqueue.call_count, 2)
 
-    @patch('classroom.tasks_messaging.django_rq')
-    def test_does_not_enqueue_future_messages(self, mock_rq):
-        mock_queue = MagicMock()
-        mock_rq.get_queue.return_value = mock_queue
-
+    @patch('classroom.email_service.send_prebuilt_email', return_value=True)
+    def test_does_not_dispatch_future_messages(self, mock_send):
         future = timezone.now() + timedelta(hours=1)
         _make_msg(self.school, frequency='weekly', send_day=1, send_time=time(9, 0),
                   next_run_at=future)
-
         count = check_due_messages()
         self.assertEqual(count, 0)
-        mock_queue.enqueue.assert_not_called()
+        mock_send.assert_not_called()
 
-    @patch('classroom.tasks_messaging.django_rq')
-    def test_does_not_enqueue_draft_messages(self, mock_rq):
-        mock_queue = MagicMock()
-        mock_rq.get_queue.return_value = mock_queue
-
+    def test_does_not_dispatch_draft_messages(self):
         past = _aware(datetime(2026, 6, 1, 9, 0))
         _make_msg(self.school, frequency='weekly', send_day=1, send_time=time(9, 0),
                   status=ScheduledMessage.STATUS_DRAFT, next_run_at=past)
-
         count = check_due_messages()
         self.assertEqual(count, 0)
 
-    @patch('classroom.tasks_messaging.django_rq')
-    def test_returns_zero_when_nothing_due(self, mock_rq):
-        mock_queue = MagicMock()
-        mock_rq.get_queue.return_value = mock_queue
-
+    def test_returns_zero_when_nothing_due(self):
         count = check_due_messages()
         self.assertEqual(count, 0)
 
@@ -332,11 +316,8 @@ class TestViewEnqueuesOnPost(TestCase):
         self.school.admin = self.user
         self.school.save()
 
-    @patch('classroom.views_messaging.django_rq')
-    def test_frequency_now_enqueues_immediately(self, mock_rq):
-        mock_queue = MagicMock()
-        mock_rq.get_queue.return_value = mock_queue
-
+    @patch('classroom.tasks_messaging.dispatch_message')
+    def test_frequency_now_enqueues_immediately(self, mock_dispatch):
         self.client.force_login(self.user)
         self.client.post('/admin-dashboard/messaging/compose/', {
             'action': 'send',
@@ -347,7 +328,7 @@ class TestViewEnqueuesOnPost(TestCase):
             'recipients_cc': '[]',
             'recipients_bcc': '[]',
         })
-        mock_queue.enqueue.assert_called_once()
+        mock_dispatch.assert_called_once()
 
     @patch('classroom.views_messaging._enqueue_or_schedule')
     def test_draft_does_not_enqueue(self, mock_enqueue):
