@@ -83,11 +83,11 @@ class TestComposeUX:
         expect(send_btn).to_be_disabled()
 
     def test_send_button_tooltip_shown_on_hover(self):
-        """Hovering the disabled Send button reveals a tooltip with requirements."""
+        """Hovering the disabled Send button reveals a tooltip listing requirements."""
         send_wrapper = self.page.locator('button[value="send"]').locator('..')
         send_wrapper.hover()
         self.page.wait_for_timeout(200)
-        expect(self.page.locator('body')).to_contain_text('Required before sending')
+        expect(self.page.locator('body')).to_contain_text('Still needed:')
 
     # 5. Draft button disabled tooltip
     def test_draft_button_disabled_initially(self):
