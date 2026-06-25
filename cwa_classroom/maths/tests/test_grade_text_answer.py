@@ -129,6 +129,28 @@ class GradeTextAnswerRoutingTests(TestCase):
         for ans in ['red green', 'red,green', 'red, green']:
             self.assertTrue(q2.grade_text_answer(ans), ans)
 
+    def test_text_format_folds_multiplication_marks(self):
+        # Scientific-notation / "a × b" answers must accept whichever times sign
+        # the student types: the × keypad symbol, a typed "*", a middle dot, or
+        # a bare "x" between two numbers. The stored answer keeps the × symbol.
+        q = self._question(
+            'text', ['3 × 10^4'], question_type=Question.CALCULATION,
+        )
+        for ans in ['3 × 10^4', '3 * 10^4', '3*10^4', '3·10^4',
+                    '3 x 10^4', '3x10^4', '3 × 10⁴']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+        # A genuinely different value is still wrong.
+        self.assertFalse(q.grade_text_answer('3 × 10^5'))
+        self.assertFalse(q.grade_text_answer('30000'))  # expanded form is a
+        #                                                  separate stored answer
+
+    def test_text_format_multiplication_fold_spares_words(self):
+        # The "x" fold is bounded to between-digits so word answers with an "x"
+        # ("box", "six") are never mangled into a "*".
+        q = self._question('text', ['box'], question_type=Question.SHORT_ANSWER)
+        self.assertTrue(q.grade_text_answer('box'))
+        self.assertFalse(q.grade_text_answer('bo*'))
+
     def test_text_format_keeps_negative_sign_significant(self):
         # The hyphen fold must NOT strip a leading minus — "-5" != "5".
         q = self._question('text', ['-5'], question_type=Question.CALCULATION)
