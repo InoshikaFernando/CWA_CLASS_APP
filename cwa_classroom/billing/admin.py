@@ -3,7 +3,7 @@ from .models import (
     Package, DiscountCode, Payment, Subscription, PromoCode,
     InstituteDiscountCode,
     InstitutePlan, SchoolSubscription, ModuleProduct, ModuleSubscription,
-    StripeEvent,
+    StripeEvent, Expense, RecurringExpense,
 )
 
 
@@ -124,3 +124,23 @@ class StripeEventAdmin(admin.ModelAdmin):
     list_filter = ('event_type',)
     search_fields = ('event_id', 'event_type')
     readonly_fields = ('event_id', 'event_type', 'processed_at', 'payload')
+
+
+@admin.register(Expense)
+class ExpenseAdmin(admin.ModelAdmin):
+    list_display = ('incurred_on', 'category', 'vendor', 'amount', 'source')
+    list_filter = ('category', 'source')
+    search_fields = ('vendor', 'description', 'note')
+    date_hierarchy = 'incurred_on'
+    ordering = ('-incurred_on',)
+
+
+@admin.register(RecurringExpense)
+class RecurringExpenseAdmin(admin.ModelAdmin):
+    list_display = (
+        'category', 'vendor', 'amount', 'frequency', 'start_date',
+        'end_date', 'is_active',
+    )
+    list_filter = ('category', 'frequency', 'is_active')
+    list_editable = ('is_active',)
+    search_fields = ('vendor', 'description', 'note')

@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import CustomUser, Role
-from sprints.models import Sprint, SprintSnapshot
+from sprints.models import ProjectSnapshot
 
 
 class BurndownViewAccessTests(TestCase):
@@ -36,21 +36,20 @@ class BurndownViewAccessTests(TestCase):
         self.client.force_login(self.owner)
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'No sprint data yet')
+        self.assertContains(resp, 'No project data yet')
 
     def test_owner_sees_chart_with_data(self):
-        sprint = Sprint.objects.create(
-            jira_sprint_id=1, name='Sprint 1', state=Sprint.STATE_ACTIVE,
-            start_date=date(2026, 6, 1), end_date=date(2026, 6, 5),
-            committed_points=20)
-        SprintSnapshot.objects.create(
-            sprint=sprint, snapshot_date=date(2026, 6, 1),
-            remaining_points=20, completed_points=0)
+        ProjectSnapshot.objects.create(
+            snapshot_date=date(2026, 6, 1),
+            remaining_points=40, completed_points=10, open_issue_count=12)
+        ProjectSnapshot.objects.create(
+            snapshot_date=date(2026, 6, 2),
+            remaining_points=35, completed_points=15, open_issue_count=10)
 
         self.client.force_login(self.owner)
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'burndownChart')
-        self.assertContains(resp, 'Sprint 1')
+        self.assertContains(resp, 'Project Burndown')
         # Freshness indicator reflects the latest snapshot's sync time.
         self.assertContains(resp, 'Last synced from Jira')

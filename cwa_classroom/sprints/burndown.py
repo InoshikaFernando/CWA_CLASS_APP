@@ -64,3 +64,69 @@ def build_burndown_series(sprint):
         'actual': actual,
         'committed': committed,
     }
+
+
+def build_project_series(snapshots):
+    """Return whole-project chart data from ordered :class:`ProjectSnapshot`s.
+
+    A project has no fixed end date or committed baseline, so there's no ideal
+    line — we plot the actual *remaining* points over time (the burndown) plus
+    *total scope* (remaining + completed) so scope growth is visible.
+
+    Keys: ``labels`` (ISO dates), ``remaining``, ``total``, ``open_counts``.
+    """
+    snaps = list(snapshots)
+    return {
+        'labels': [s.snapshot_date.isoformat() for s in snaps],
+        'remaining': [s.remaining_points for s in snaps],
+        'total': [s.total_points for s in snaps],
+        'open_counts': [s.open_issue_count for s in snaps],
+    }
+
+
+def reconstruct_project_history(issues, today):
+    """Reconstruct daily project burndown points from issue dates.
+
+    ``issues`` is an iterable of dicts: ``created`` (date), ``resolved``
+    (date or None), ``points`` (float). Returns one dict per day from the
+    earliest created date through ``today``::
+
+        {date, remaining, completed, total, open_count}
+
+    For day D: ``total`` = points of issues created on/before D (scope as of D);
+    ``completed`` = points of issues resolved on/before D; ``remaining`` =
+    total - completed. This replays history from when issues were opened/closed,
+    so the burndown extends into the past instead of only from the first sync.
+
+    Approximation: it uses each issue's *current* story points for all of
+    history (Jira doesn't expose point-value history) and ignores reopens.
+    """
+    issues = [i for i in issues if i.get('created')]
+    if not issues:
+        return []
+
+    start = min(i['created'] for i in issues)
+    span = (today - start).days
+    rows = []
+    for n in range(span + 1):
+        d = start + timedelta(days=n)
+        total = completed = 0.0
+        open_count = 0
+        for i in issues:
+            if i['created'] > d:
+                continue
+            pts = i['points']
+            total += pts
+            resolved = i.get('resolved')
+            if resolved is not None and resolved <= d:
+                completed += pts
+            else:
+                open_count += 1
+        rows.append({
+            'date': d,
+            'remaining': total - completed,
+            'completed': completed,
+            'total': total,
+            'open_count': open_count,
+        })
+    return rows

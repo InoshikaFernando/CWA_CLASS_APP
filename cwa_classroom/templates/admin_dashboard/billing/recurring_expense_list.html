@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Recurring Expenses - Billing Admin{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <a href="{% url 'billing_admin_finance_dashboard' %}" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+      <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Recurring Expenses</h1>
+      <p class="text-gray-500 mt-1">Fixed costs that auto-generate an expense each period (NZD).</p>
+    </div>
+    <a href="{% url 'billing_admin_recurring_expense_create' %}"
+       class="inline-flex items-center gap-2 px-5 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-accent-dark transition shadow-sm">
+      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+      </svg>
+      New Template
+    </a>
+  </div>
+
+  <div class="mb-6 px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-sm">
+    Rows are materialised into expenses by the <code class="text-xs bg-white px-1.5 py-0.5 rounded border border-slate-200">materialize_recurring_expenses</code> command (run monthly via cron).
+  </div>
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left">
+        <thead>
+          <tr class="border-b border-slate-200 bg-slate-50">
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Category</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Vendor / Description</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Amount</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Frequency</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">From</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Until</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+            <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for t in templates %}
+          <tr class="hover:bg-slate-50 transition">
+            <td class="px-6 py-4 text-gray-700">{{ t.get_category_display }}</td>
+            <td class="px-6 py-4">
+              <div class="font-medium text-gray-900">{{ t.vendor|default:"—" }}</div>
+              {% if t.description %}<div class="text-xs text-gray-400">{{ t.description }}</div>{% endif %}
+            </td>
+            <td class="px-6 py-4 text-right text-gray-900 font-medium">${{ t.amount|floatformat:2 }}</td>
+            <td class="px-6 py-4 text-gray-700">{{ t.get_frequency_display }}</td>
+            <td class="px-6 py-4 text-gray-700">{{ t.start_date|date:"M Y" }}</td>
+            <td class="px-6 py-4 text-gray-700">{% if t.end_date %}{{ t.end_date|date:"M Y" }}{% else %}—{% endif %}</td>
+            <td class="px-6 py-4">
+              {% if t.is_active %}
+                <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">Active</span>
+              {% else %}
+                <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500">Inactive</span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-4">
+              <div class="flex items-center gap-2">
+                <a href="{% url 'billing_admin_recurring_expense_edit' t.pk %}" class="text-accent hover:text-accent-dark text-sm font-medium">Edit</a>
+                <form method="post" action="{% url 'billing_admin_recurring_expense_toggle' t.pk %}" class="inline">
+                  {% csrf_token %}
+                  <button type="submit" class="text-sm font-medium {% if t.is_active %}text-red-600 hover:text-red-800{% else %}text-emerald-600 hover:text-emerald-800{% endif %}">
+                    {% if t.is_active %}Deactivate{% else %}Activate{% endif %}
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="8" class="px-6 py-12 text-center text-gray-500">
+              No recurring expenses yet. <a href="{% url 'billing_admin_recurring_expense_create' %}" class="text-accent hover:text-accent-dark font-medium">Create one</a>.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
