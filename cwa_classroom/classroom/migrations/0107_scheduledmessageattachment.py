@@ -6,6 +6,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('classroom', '0106_rename_classroom_s_school__idx_classroom_s_school__f782a3_idx_and_more'),
+        ('classroom', '0105_school_subscription_discount_code'),
     ]
 
     operations = [
