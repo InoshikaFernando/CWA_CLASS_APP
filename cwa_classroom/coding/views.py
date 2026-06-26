@@ -371,7 +371,7 @@ def exercise_detail(request, lang_slug, exercise_id):
         latest = (
             StudentExerciseSubmission.objects
             .filter(student=request.user, exercise=exercise)
-            .order_by('-submitted_at')
+            .order_by('-submitted_at', '-id')
             .values_list('blocks_xml', flat=True)
             .first()
         )
