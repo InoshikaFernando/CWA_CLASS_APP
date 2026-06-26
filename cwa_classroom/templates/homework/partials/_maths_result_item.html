@@ -1,3 +1,4 @@
+{% load maths_format %}
 {% comment %}
 Renders one maths answer-review block on the homework result page.
 Receives ``ctx`` with key: ans (HomeworkStudentAnswer, question prefetched).
@@ -25,18 +26,18 @@ States:
     {% endif %}
   </div>
   <div class="flex-1">
-    <p class="text-sm font-medium text-gray-800 mb-2">{{ q.question_text }}</p>
+    <p class="text-sm font-medium text-gray-800 mb-2">{{ q.question_text|exponents }}</p>
 
     {% if ans.selected_answer %}
       <p class="text-xs text-gray-500">Your answer:
         <span class="font-medium {% if ans.is_correct %}text-green-700{% elif ans.ai_score_fraction and ans.ai_score_fraction >= 0.1 and ans.ai_score_fraction < 0.6 %}text-amber-600{% else %}text-red-600{% endif %}">
-          {{ ans.selected_answer.answer_text }}
+          {{ ans.selected_answer.answer_text|exponents }}
         </span>
       </p>
     {% elif ans.text_answer %}
       <p class="text-xs text-gray-500">Your answer:
         <span class="font-medium {% if ans.is_correct %}text-green-700{% elif ans.ai_score_fraction and ans.ai_score_fraction >= 0.1 and ans.ai_score_fraction < 0.6 %}text-amber-600{% else %}text-red-600{% endif %}">
-          {{ ans.text_answer }}
+          {{ ans.text_answer|exponents }}
         </span>
       </p>
     {% else %}
@@ -55,13 +56,13 @@ States:
       {# Wrong — show correct answer and/or explanation #}
       {% with correct=q.answers.all %}
       {% for a in correct %}{% if a.is_correct %}
-      <p class="text-xs text-green-700 mt-1">Correct answer: <span class="font-medium">{{ a.answer_text }}</span></p>
+      <p class="text-xs text-green-700 mt-1">Correct answer: <span class="font-medium">{{ a.answer_text|exponents }}</span></p>
       {% endif %}{% endfor %}
       {% endwith %}
       {% if ans.ai_feedback %}
       <p class="text-xs text-red-600 mt-1">{{ ans.ai_feedback }}</p>
       {% elif q.explanation %}
-      <p class="text-xs text-gray-400 mt-1 italic">{{ q.explanation }}</p>
+      <p class="text-xs text-gray-400 mt-1 italic">{{ q.explanation|exponents }}</p>
       {% endif %}
     {% endif %}
 

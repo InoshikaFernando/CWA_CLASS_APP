@@ -1,3 +1,4 @@
+{% load maths_format %}
 {% comment %}
 CPP-277: MCQ / true_false answer partial.
 Context: question, answers (queryset of Answer objects)
@@ -11,7 +12,7 @@ Context: question, answers (queryset of Answer objects)
       <input type="radio" name="answer_id" value="{{ ans.pk }}" required
              class="text-primary focus:ring-primary w-4 h-4" />
       <span class="text-sm text-gray-700 group-hover:text-gray-900 flex-1">
-        {{ ans.answer_text }}
+        {{ ans.answer_text|exponents }}
         {% if ans.answer_image %}
         <img src="{{ ans.answer_image.url }}" alt="Answer option"
              class="mt-1 max-h-20 rounded object-contain" />
