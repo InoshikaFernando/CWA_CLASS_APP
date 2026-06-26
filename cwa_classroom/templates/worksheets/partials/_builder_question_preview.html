@@ -1,3 +1,4 @@
+{% load maths_format %}
 {# CPP-285: Question detail preview for the builder modal. #}
 <div class="relative bg-white rounded-2xl border border-slate-200 shadow-lg max-w-lg mx-auto p-6 space-y-4">
 
@@ -84,7 +85,7 @@
   </div>
 
   <!-- Question text -->
-  <h3 class="text-base font-semibold text-gray-800">{{ question.question_text }}</h3>
+  <h3 class="text-base font-semibold text-gray-800">{{ question.question_text|exponents }}</h3>
 
   <!-- Question image -->
   {% if question.image %}
@@ -109,7 +110,7 @@
         <span class="w-4 shrink-0"></span>
         {% endif %}
         <span>
-          {{ answer.answer_text }}
+          {{ answer.answer_text|exponents }}
           {% if answer.answer_image %}
           <img src="{{ answer.answer_image.url }}" alt="Answer image" class="mt-1 rounded max-h-16 object-contain" />
           {% endif %}
@@ -124,7 +125,7 @@
   {% if question.explanation %}
   <div>
     <p class="text-xs font-medium text-gray-500 mb-1">Explanation</p>
-    <p class="text-sm text-gray-600">{{ question.explanation }}</p>
+    <p class="text-sm text-gray-600">{{ question.explanation|exponents }}</p>
   </div>
   {% endif %}
 
