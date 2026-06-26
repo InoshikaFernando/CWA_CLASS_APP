@@ -39,6 +39,14 @@ SCREENSHOT_DPI = int(os.environ.get('WORKSHEET_SCREENSHOT_DPI', '150'))
 # (coords convert via each page's stored dims) — this only improves placement precision.
 SHAPE_NAMING_DPI = int(os.environ.get('WORKSHEET_SHAPE_NAMING_DPI', '200'))
 
+# DPI for the FINAL rendered question-image crop. This is independent of the
+# page-screenshot DPI: the screenshot only needs to be legible enough for Claude
+# to place a bbox, whereas the saved crop is shown to students and benefits from
+# a much higher resolution. Bbox math is DPI-independent (coords convert via each
+# page's stored dims), so raising this is safe and only sharpens the output —
+# 300 ≈ print quality. A single small crop at 300 DPI is cheap on memory.
+IMAGE_RENDER_DPI = int(os.environ.get('WORKSHEET_IMAGE_DPI', '300'))
+
 # Max output tokens for the classification call. Each extracted question is a
 # sizeable structured object (text, type, answers, bbox, rubric), so a dense
 # multi-page worksheet can exceed a small cap and get its question list
@@ -746,6 +754,99 @@ def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
     return tight if tight.is_valid and tight.width > 10 and tight.height > 10 else None
 
 
+def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18):
+    """
+    Decide the crop rect for a diagram that lives inside *search_rect* (PDF points).
+
+    Claude's bbox is only a rough region — it routinely includes the question
+    sentence sitting below a diagram. This snaps the crop to the *actual* figure:
+
+      1. Find the tight bounds of the vector drawings (the diagram itself).
+      2. Grow that core to absorb tightly-attached *label* text — short, narrow
+         blocks (e.g. the "A B C D" under each arrow) within ``gap_tol`` points of
+         the diagram — while leaving wide running text (the question sentence)
+         outside. Width is the key discriminator: a label is short, a sentence
+         spans the page.
+
+    Returns a ``fitz.Rect``, or ``None`` when the page has no vector drawings
+    (a raster/scanned PDF) so the caller can fall back to Claude's bbox.
+    """
+    import fitz
+
+    core = _tight_drawings_rect(fitz_page, search_rect, min_area_pts=min_area_pts)
+    if core is None:
+        return None
+
+    page_rect = fitz_page.rect
+    max_label_w = 0.5 * page_rect.width  # wider than this ⇒ running text, not a label
+
+    grown = fitz.Rect(core)
+    for b in fitz_page.get_text('blocks'):
+        text = (b[4] or '').strip() if len(b) > 4 else ''
+        if not text:
+            continue
+        br = fitz.Rect(b[0], b[1], b[2], b[3])
+        if br.width > max_label_w:
+            continue                 # running text — never an attached label
+        # Gap from the diagram core (measured against the core, NOT the growing
+        # rect, so one absorbed label can't chain the crop down to the sentence).
+        # Labels above the core count too — e.g. a "North"/title/axis-max sitting
+        # just above the drawing. They must be narrow (width filter) and close
+        # (gap_tol); growing the clip up to include them also stops
+        # _render_clean_diagram from redacting them. Wide section headers are
+        # excluded by the width filter and stay out (redacted as before).
+        dx = max(core.x0 - br.x1, br.x0 - core.x1, 0.0)
+        dy = max(core.y0 - br.y1, br.y0 - core.y1, 0.0)
+        if dx <= gap_tol and dy <= gap_tol:
+            grown.include_rect(br)   # absorb the attached label
+
+    margin = 4
+    grown = fitz.Rect(
+        max(page_rect.x0, grown.x0 - margin),
+        max(page_rect.y0, grown.y0 - margin),
+        min(page_rect.x1, grown.x1 + margin),
+        min(page_rect.y1, grown.y1 + margin),
+    )
+    return grown if grown.is_valid and grown.width > 10 and grown.height > 10 else None
+
+
+def _region_has_raster_image(fitz_page, search_rect, min_overlap_frac=0.12):
+    """
+    Return True if an embedded raster image meaningfully overlaps *search_rect*.
+
+    Used to tell a genuine scanned/photo figure apart from a region that is just
+    text. On a born-digital PDF a "diagram" is vector drawings; on a scanned PDF
+    it is an embedded image. If a region has neither, Claude has flagged a figure
+    that isn't there and we should drop it rather than render text as an image.
+
+    ``min_overlap_frac`` is the fraction of *search_rect* the image must cover to
+    count — guards against an incidental clip-art or logo elsewhere on the page.
+    """
+    import fitz
+
+    search_area = abs(search_rect.get_area())
+    if search_area <= 0:
+        return False
+
+    try:
+        images = fitz_page.get_images(full=True)
+    except Exception:
+        return False
+
+    for img in images:
+        xref = img[0]
+        try:
+            rects = fitz_page.get_image_rects(xref)
+        except Exception:
+            continue
+        for r in rects:
+            inter = fitz.Rect(r)
+            inter.intersect(search_rect)
+            if inter.is_valid and abs(inter.get_area()) >= min_overlap_frac * search_area:
+                return True
+    return False
+
+
 def _trim_whitespace(pix):
     """
     Remove rows/columns of near-white pixels from all four edges of a
@@ -897,14 +998,31 @@ def render_question_images(doc, extracted_pages, classified_result):
                 continue
 
             fitz_page = doc[page_num - 1]
-            # Claude's bbox is the clip region — extend bottom a little to catch
-            # any slightly cut-off elements, but keep sides/top exact.
-            clip_rect = fitz.Rect(pt0, pt1, pt2, min(pdf_h, pt3 + 20))
+            # Claude's bbox is only a rough search region. Snap the crop to the
+            # actual vector drawing plus its attached labels (e.g. A/B/C/D) so
+            # stray question text below the diagram is excluded.
+            search_rect = fitz.Rect(pt0, pt1, pt2, pt3)
+            clip_rect = _smart_diagram_rect(fitz_page, search_rect)
+            if clip_rect is None:
+                # No vector drawing in the region. Only render if there's an
+                # embedded raster figure here (scanned/photo PDF). Otherwise
+                # Claude flagged a diagram that doesn't exist — the bbox points at
+                # plain text — so drop the image rather than save an irrelevant
+                # text crop (the "totally irrelevant image" failure mode).
+                if _region_has_raster_image(fitz_page, search_rect):
+                    clip_rect = fitz.Rect(pt0, pt1, pt2, min(pdf_h, pt3 + 20))
+                else:
+                    logger.info(
+                        f'Q{idx+1}: has_image=True but no figure (vector or raster) '
+                        f'in bbox — dropping spurious image'
+                    )
+                    q['has_image'] = False
+                    continue
 
-            # Render with any header text above the diagram redacted (whited out).
-            # This removes "Questions" / section headings while keeping angle labels
-            # and other text that sits inside the diagram itself.
-            pix = _render_clean_diagram(fitz_page, clip_rect, dpi=SCREENSHOT_DPI)
+            # Render at print-quality DPI with any header text above the crop
+            # redacted (whited out). This removes "Questions" / section headings
+            # while keeping angle labels and other text inside the diagram itself.
+            pix = _render_clean_diagram(fitz_page, clip_rect, dpi=IMAGE_RENDER_DPI)
 
             # Trim residual whitespace
             trimmed = _trim_whitespace(pix)
@@ -921,7 +1039,8 @@ def render_question_images(doc, extracted_pages, classified_result):
 
             logger.info(
                 f'Q{idx+1}: rendered from PDF — page {page_num}, '
-                f'clip=({pt0:.1f},{pt1:.1f},{pt2:.1f},{pt3:.1f}) pts, '
+                f'clip=({clip_rect.x0:.1f},{clip_rect.y0:.1f},'
+                f'{clip_rect.x1:.1f},{clip_rect.y1:.1f}) pts @ {IMAGE_RENDER_DPI}dpi, '
                 f'output={pix.width}×{pix.height}px → {ref}'
             )
 
