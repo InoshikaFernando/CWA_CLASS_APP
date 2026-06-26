@@ -282,6 +282,15 @@ class Question(models.Model):
             # "red, green" == "red green"). fold_exponents then strips all
             # whitespace, so spacing around the comma is irrelevant too.
             value = value.replace(',', '')
+            # Multiplication marks are interchangeable so a stored "3 × 10^4"
+            # matches whichever sign the student reaches for. The dedicated
+            # symbols (× ✕ ✖ · ∙ ⋅) are *always* multiplication, so fold them
+            # to "*" everywhere. A bare "x" or "*" only counts as a times sign
+            # when it sits *between two numbers* ("3x10^4", "3 * 10^4"), so an
+            # ordinary word answer ("box", "six") is left untouched. Mirrors the
+            # [x×*] split already used for prime_factorization in maths.plugin.
+            value = re.sub(r'[×✕✖·∙⋅]', '*', value)
+            value = re.sub(r'(?<=\d)\s*[x*]\s*(?=\d)', '*', value)
             return fold_exponents(fold_inequalities(value))
 
         user = _fold(text_answer)

@@ -78,3 +78,119 @@ class CropFigureBoxesTests(SimpleTestCase):
         crops = crop_figure_boxes(_extracted(page_num=1), {'questions': [q]})
         self.assertEqual(crops, {})
         self.assertNotIn('image_ref', q)
+
+
+class SpuriousImageGuardTests(SimpleTestCase):
+    """A box that overlaps no detected figure and sits on a page with no embedded
+    raster image is dropped rather than saved as an irrelevant text crop."""
+
+    def _page(self, regions, images):
+        return {'pages': [{
+            'page_num': 1,
+            'screenshot': _screenshot_b64(200, 100),
+            'figure_regions': regions,
+            'images': images,
+        }]}
+
+    def test_drops_box_over_text_when_no_figure_overlaps(self):
+        # A figure exists bottom-right; the box is top-left over plain text.
+        q = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 20, 'y2': 20}}
+        crops = crop_figure_boxes(self._page([[60, 60, 90, 90]], []), {'questions': [q]})
+        self.assertEqual(crops, {})
+        self.assertNotIn('image_ref', q)
+
+    def test_keeps_box_that_overlaps_a_figure(self):
+        q = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+        crops = crop_figure_boxes(self._page([[5, 5, 45, 95]], []), {'questions': [q]})
+        self.assertIn(q.get('image_ref'), crops)
+
+    def test_keeps_box_when_page_has_embedded_raster(self):
+        # No vector overlap, but an embedded image is present → could be a scanned
+        # figure, so we crop rather than drop.
+        q = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 20, 'y2': 20}}
+        crops = crop_figure_boxes(
+            self._page([[60, 60, 90, 90]], [{'ref': 'page1_img1.png'}]),
+            {'questions': [q]},
+        )
+        self.assertIn(q.get('image_ref'), crops)
+
+    def test_no_regions_detected_still_crops(self):
+        # When PyMuPDF detected no clusters at all we can't confirm, so the
+        # existing crop-the-box behaviour is preserved (raster/odd PDFs).
+        q = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+        crops = crop_figure_boxes(self._page([], []), {'questions': [q]})
+        self.assertIn(q.get('image_ref'), crops)
+
+    def test_keeps_large_figure_filtered_from_regions(self):
+        # A page-sized diagram (>80% area) is dropped from figure_regions, so the
+        # box overlaps no region — but it IS a real drawing. With the PDF present,
+        # confirm against actual page drawings and crop rather than drop.
+        import fitz
+
+        doc = fitz.open()
+        page = doc.new_page(width=200, height=200)
+        page.draw_rect(fitz.Rect(10, 10, 190, 190), color=(0, 0, 0), fill=(0.6, 0.6, 0.6))
+        pdf_bytes = doc.tobytes()
+        doc.close()
+
+        # figure_regions holds only a tiny surviving cluster elsewhere (not the
+        # big figure, which was filtered for being >80% of the page).
+        extracted = {'pages': [{
+            'page_num': 1, 'screenshot': _screenshot_b64(200, 200),
+            'figure_regions': [[1, 1, 5, 5]], 'images': [],
+        }]}
+        q = {'image_page': 1, 'image_box': {'x1': 5, 'y1': 5, 'x2': 95, 'y2': 95}}
+        crops = crop_figure_boxes(extracted, {'questions': [q]}, pdf_bytes=pdf_bytes)
+        self.assertIn(q.get('image_ref'), crops)
+
+    def test_drops_spurious_box_over_text_with_pdf(self):
+        # With the PDF present and no drawing under the box, a spurious text box
+        # is dropped even though a figure cluster exists elsewhere on the page.
+        import fitz
+
+        doc = fitz.open()
+        page = doc.new_page(width=200, height=200)
+        page.insert_text((20, 100), "some question text here", fontsize=12)
+        pdf_bytes = doc.tobytes()
+        doc.close()
+
+        extracted = {'pages': [{
+            'page_num': 1, 'screenshot': _screenshot_b64(200, 200),
+            'figure_regions': [[60, 60, 90, 90]], 'images': [],
+        }]}
+        q = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 40, 'y2': 40}}
+        crops = crop_figure_boxes(extracted, {'questions': [q]}, pdf_bytes=pdf_bytes)
+        self.assertEqual(crops, {})
+        self.assertNotIn('image_ref', q)
+
+
+class PdfReRenderTests(SimpleTestCase):
+    """When pdf_bytes is supplied the crop is rendered from the PDF vectors at a
+    higher DPI than the 150-DPI screenshot, yielding a sharper (larger) image."""
+
+    def test_pdf_render_is_higher_resolution_than_screenshot_crop(self):
+        import fitz
+
+        doc = fitz.open()
+        page = doc.new_page(width=200, height=100)
+        page.draw_rect(fitz.Rect(10, 10, 90, 90), color=(0, 0, 0), fill=(0.5, 0.5, 0.5))
+        pdf_bytes = doc.tobytes()
+        doc.close()
+
+        extracted = {'pages': [{
+            'page_num': 1,
+            'screenshot': _screenshot_b64(400, 200),
+            'figure_regions': [[5, 5, 45, 95]],
+            'images': [],
+        }]}
+        box = {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}
+
+        q_ss = {'image_page': 1, 'image_box': dict(box)}
+        crops_ss = crop_figure_boxes(extracted, {'questions': [q_ss]})
+        size_ss = Image.open(io.BytesIO(base64.b64decode(crops_ss[q_ss['image_ref']]))).size
+
+        q_pdf = {'image_page': 1, 'image_box': dict(box)}
+        crops_pdf = crop_figure_boxes(extracted, {'questions': [q_pdf]}, pdf_bytes=pdf_bytes)
+        size_pdf = Image.open(io.BytesIO(base64.b64decode(crops_pdf[q_pdf['image_ref']]))).size
+
+        self.assertGreater(size_pdf[0] * size_pdf[1], size_ss[0] * size_ss[1])

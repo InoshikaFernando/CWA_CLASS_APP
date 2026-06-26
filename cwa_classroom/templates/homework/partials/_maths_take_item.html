@@ -1,9 +1,10 @@
+{% load maths_format %}
 {% comment %}
 Renders one maths question on the homework take page.
 Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
 {% endcomment %}
 {% with q=ctx.question %}
-<p class="text-gray-900 font-medium mb-4">{{ q.question_text }}</p>
+<p class="text-gray-900 font-medium mb-4">{{ q.question_text|exponents }}</p>
 
 {% comment %} measure renders its own figure inside the interactive tool stage. {% endcomment %}
 {% if q.image and q.question_type != 'measure' %}
@@ -18,7 +19,7 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
            value="{{ answer.id }}" class="sr-only">
     <label for="ans_{{ q.id }}_{{ answer.id }}"
            class="block border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-700 cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition select-none">
-      {{ answer.answer_text }}
+      {{ answer.answer_text|exponents }}
     </label>
   </div>
   {% endfor %}
