@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n maths_format %}
 {# HTMX partial — replaces #answer-area after answer submission #}
 <div id="answer-area" class="space-y-4">
 
@@ -71,7 +71,7 @@
       {% if ai_feedback %}
       <p class="text-sm text-emerald-600 mt-0.5">{{ ai_feedback }}</p>
       {% elif question.explanation %}
-      <p class="text-sm text-emerald-600 mt-0.5">{{ question.explanation }}</p>
+      <p class="text-sm text-emerald-600 mt-0.5">{{ question.explanation|exponents }}</p>
       {% endif %}
     </div>
   </div>
@@ -116,7 +116,7 @@
       {% else %}
         {% if correct_answers %}
         <p class="text-sm text-red-600 mt-1 flex items-center gap-2">
-          <span>Correct answer: <strong>{% for ca in correct_answers %}{{ ca.answer_text }}{% if not forloop.last %}, {% endif %}{% endfor %}</strong></span>
+          <span>Correct answer: <strong>{% for ca in correct_answers %}{{ ca.answer_text|exponents }}{% if not forloop.last %}, {% endif %}{% endfor %}</strong></span>
           <button type="button"
                   class="tts-btn shrink-0 w-8 h-8 rounded-full bg-accent-light text-accent hover:bg-accent hover:text-white transition inline-flex items-center justify-center"
                   data-speak="{% for ca in correct_answers %}{{ ca.answer_text }}{% if not forloop.last %}, {% endif %}{% endfor %}"
@@ -124,7 +124,7 @@
         </p>
         {% endif %}
         {% if question.explanation %}
-        <p class="text-sm text-red-600 mt-1">{{ question.explanation }}</p>
+        <p class="text-sm text-red-600 mt-1">{{ question.explanation|exponents }}</p>
         {% else %}
         <p class="text-sm text-red-500 mt-1">Review this topic and try again on future questions.</p>
         {% endif %}
