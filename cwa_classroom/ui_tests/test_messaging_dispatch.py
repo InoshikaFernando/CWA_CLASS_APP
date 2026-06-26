@@ -36,66 +36,46 @@ def _fill_compose(page, *, subject='Test subject', body='Hello world',
                   frequency='now', schedule_date=None, schedule_time=None,
                   weekly_day=None, monthly_day=None, action='send',
                   to_email=None):
-    """Fill the compose form and submit via the appropriate button."""
+    """Fill the compose form via Alpine.js state and submit.
 
-    # Subject
-    subject_input = page.locator('input[name="subject"]')
-    subject_input.fill(subject)
+    Sets state directly (subject, bodyHtml, to.tags, startsAt, etc.) so that
+    canSend/canDraft become true and the submit buttons are enabled.
+    """
+    # Provide defaults so scheduleValid passes for non-'now' frequencies
+    if frequency != 'now' and not schedule_date:
+        schedule_date = str(date.today() + timedelta(days=1))
+    if frequency != 'now' and not schedule_time:
+        schedule_time = '09:00'
 
-    # Body — hidden input (Alpine.js bound); set value via JS
     page.evaluate(
-        "value => { document.querySelector('input[name=\"body\"]').value = value; }",
-        body,
+        """
+        ([sub, bod, freq, toEmail, schDate, schTime, wDay, mDay]) => {
+            const form = document.querySelector('form[x-data]');
+            const stack = form && form._x_dataStack;
+            if (!stack || !stack[0]) return;
+            const d = stack[0];
+            // Core content — drives canSend/canDraft
+            d.subject  = sub;
+            d.bodyHtml = bod;
+            const editor = form.querySelector('[contenteditable]');
+            if (editor) editor.innerHTML = bod;
+            // Frequency + schedule section visibility
+            d.frequency    = freq;
+            d.showSchedule = freq !== 'now';
+            // Schedule state — needed for scheduleValid when freq !== 'now'
+            if (schDate) { d.startsAt = schDate; d.scheduleDate = schDate; }
+            if (schTime) d.scheduleTime = schTime;
+            if (wDay != null) d.weeklyDay   = String(wDay);
+            if (mDay != null) d.monthlyDay  = String(mDay);
+            // Recipients — to.tags.length > 0 required by canSend
+            if (toEmail) d.to.tags = [{id:999, name:'Test User', email:toEmail, role:'staff'}];
+        }
+        """,
+        [subject, body, frequency, to_email, schedule_date, schedule_time, weekly_day, monthly_day],
     )
+    page.wait_for_timeout(200)  # let Alpine re-evaluate canSend/canDraft
 
-    # Frequency pill (click the label whose text matches)
-    freq_label_map = {
-        'now': 'Send Now',
-        'once': 'One Time',
-        'weekly': 'Weekly',
-        'monthly': 'Monthly',
-    }
-    pill_text = freq_label_map[frequency]
-    page.locator(f'text="{pill_text}"').first.click()
-
-    if schedule_date and frequency == 'once':
-        page.evaluate(
-            "v => { document.querySelector('input[name=\"schedule_date\"]').value = v; }",
-            schedule_date,
-        )
-    if schedule_time and frequency in ('once', 'weekly', 'monthly'):
-        page.evaluate(
-            "v => { (document.querySelector('select[name=\"schedule_time\"]') || document.querySelector('input[name=\"schedule_time\"]')).value = v; }",
-            schedule_time,
-        )
-    if weekly_day is not None and frequency == 'weekly':
-        page.evaluate(
-            "v => { document.querySelector('input[name=\"weekly_day\"]').value = v; }",
-            str(weekly_day),
-        )
-    if monthly_day is not None and frequency == 'monthly':
-        page.evaluate(
-            "v => { document.querySelector('input[name=\"monthly_day\"]').value = v; }",
-            str(monthly_day),
-        )
-
-    # Add a recipient by mutating Alpine.js state directly (bypasses tag UI)
-    if to_email:
-        page.evaluate(
-            """
-            email => {
-                const form = document.querySelector('form[x-data]');
-                const stack = form && form._x_dataStack;
-                if (stack && stack[0]) {
-                    stack[0].recipients.to = [{id:999, name:'Test User', email: email, role:'staff'}];
-                }
-            }
-            """,
-            to_email,
-        )
-        page.wait_for_timeout(100)  # let Alpine flush the :value binding
-
-    # Submit
+    # Submit (buttons are now enabled)
     if action == 'draft':
         page.locator('button[name="action"][value="draft"]').click()
     else:
@@ -126,16 +106,14 @@ class TestDispatchUIFlow:
         self.page.wait_for_load_state('domcontentloaded')
         expect(self.page.locator('body')).to_contain_text('queued for sending')
 
-    def test_send_now_redirects_back_to_compose(self):
-        """After Send Now, page redirects back to /messaging/compose/."""
+    def test_send_now_redirects_to_inbox(self):
+        """After Send Now, page redirects to the messaging inbox."""
         _fill_compose(
             self.page, frequency='now',
             to_email='alice@example.com', action='send',
         )
-        self.page.wait_for_url('**/messaging/compose/**')
-        expect(self.page).to_have_url(pytest.approx(
-            f'{self.url}/admin-dashboard/messaging/compose/', abs=1,
-        ))
+        self.page.wait_for_url('**/messaging/inbox/**')
+        expect(self.page.locator('h1')).to_contain_text('Messages')
 
     def test_save_draft_shows_draft_saved_toast(self):
         """Saving as draft shows 'Draft saved' flash message."""
@@ -176,15 +154,14 @@ class TestDispatchUIFlow:
         self.page.wait_for_load_state('domcontentloaded')
         expect(self.page.locator('body')).to_contain_text('scheduled')
 
-    def test_compose_form_resets_after_redirect(self):
-        """After redirect, subject field is empty (form reset)."""
+    def test_compose_redirects_to_inbox_on_send(self):
+        """After send, page lands on the messaging inbox (not back on compose)."""
         _fill_compose(
             self.page, subject='One-off message', frequency='now',
             to_email='alice@example.com', action='send',
         )
-        self.page.wait_for_load_state('domcontentloaded')
-        subject = self.page.locator('input[name="subject"]')
-        expect(subject).to_have_value('')
+        self.page.wait_for_url('**/messaging/inbox/**')
+        expect(self.page.locator('h1')).to_contain_text('Messages')
 
     def test_send_now_pill_selected_by_default(self):
         """'Send Now' frequency pill is active on page load."""

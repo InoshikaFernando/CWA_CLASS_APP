@@ -142,7 +142,9 @@ class TestMessagingInbox:
         # Custom confirm modal — click "Yes, delete"; wait for navigation to complete
         with self.page.expect_navigation():
             self.page.locator('button', has_text='Yes, delete').click()
-        expect(self.page.locator('body')).not_to_contain_text('DraftToDelete')
+        # Flash message includes subject: '"DraftToDelete" deleted.'
+        # Check the inbox is empty (message was removed from the list)
+        expect(self.page.locator('body')).to_contain_text('No messages found')
 
     def test_cancel_scheduled_shows_success_toast(self, db):
         """Cancelling a scheduled message via custom modal shows success flash."""
@@ -215,9 +217,14 @@ class TestMessagingInbox:
         self.page.reload()
         self.page.wait_for_load_state('domcontentloaded')
         self.page.wait_for_timeout(500)  # Alpine init
-        # Badge span with x-show="hasBadge(...)" should be visible
-        badge = self.page.locator('[x-show*="hasBadge"]').first
-        expect(badge).to_be_visible()
+        # Check via JS that at least one badge span is actually visible
+        any_visible = self.page.evaluate(
+            """() => {
+                const spans = document.querySelectorAll('[x-show*="hasBadge"]');
+                return Array.from(spans).some(el => el.style.display !== 'none' && el.offsetParent !== null);
+            }"""
+        )
+        assert any_visible, 'No tab badge is visible after unseen sent message created'
 
     def test_tab_badge_updates_localStorage_on_click(self, db):
         """Clicking a tab writes seen count to localStorage so badge disappears."""
@@ -226,7 +233,9 @@ class TestMessagingInbox:
         self.page.reload()
         self.page.wait_for_load_state('domcontentloaded')
         self.page.wait_for_timeout(500)  # Alpine init
-        self.page.locator('button', has_text='Sent').first.click()
-        self.page.wait_for_timeout(300)
+        # Tabs are <a> elements; clicking causes navigation
+        with self.page.expect_navigation(timeout=10_000):
+            self.page.locator('a', has_text='Sent').first.click()
+        self.page.wait_for_load_state('domcontentloaded')
         seen = self.page.evaluate("localStorage.getItem('cwa_msg_seen_v2')")
         assert seen is not None, 'localStorage key not written after tab click'

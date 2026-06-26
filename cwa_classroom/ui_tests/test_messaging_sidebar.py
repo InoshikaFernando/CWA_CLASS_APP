@@ -66,13 +66,13 @@ class TestMessagingSidebarLink:
         assert_sidebar_has_link(self.page, "Messaging")
 
     def test_messaging_link_navigates_to_compose(self):
-        """Clicking Messaging navigates to /messaging/compose/."""
+        """Clicking Messaging navigates to /messaging/inbox/."""
         click_sidebar_link(self.page, "Messaging")
-        expect(self.page).to_have_url(re.compile(r"/messaging/compose/"))
+        expect(self.page).to_have_url(re.compile(r"/messaging/inbox/"))
 
     def test_messaging_link_under_communication_section(self):
         """Messaging sits after Email under the COMMUNICATION heading."""
-        sidebar = self.page.locator("nav")
+        sidebar = self.page.locator("aside#sidebar")
         comm_heading = sidebar.get_by_text("Communication", exact=False)
         expect(comm_heading).to_be_visible()
         assert_sidebar_has_link(self.page, "Email")
@@ -96,21 +96,21 @@ class TestMessagingActiveState:
         """Messaging nav item has active bg class when on compose page."""
         self.page.goto(f"{self.url}/admin-dashboard/messaging/compose/")
         self.page.wait_for_load_state("domcontentloaded")
-        link = self.page.locator("nav a", has_text="Messaging")
+        link = self.page.locator("aside#sidebar a", has_text="Messaging")
         expect(link).to_have_class(re.compile(r"bg-white/15"))
 
     def test_email_link_not_active_on_messaging_page(self):
         """Email nav item does NOT have active bg class when on messaging page."""
         self.page.goto(f"{self.url}/admin-dashboard/messaging/compose/")
         self.page.wait_for_load_state("domcontentloaded")
-        email_link = self.page.locator("nav a", has_text="Email")
+        email_link = self.page.locator("aside#sidebar a", has_text="Email")
         expect(email_link).not_to_have_class(re.compile(r"bg-white/15"))
 
     def test_messaging_link_not_active_on_dashboard(self):
         """Messaging nav item NOT active when on admin dashboard."""
         self.page.goto(f"{self.url}/admin-dashboard/")
         self.page.wait_for_load_state("domcontentloaded")
-        link = self.page.locator("nav a", has_text="Messaging")
+        link = self.page.locator("aside#sidebar a", has_text="Messaging")
         expect(link).not_to_have_class(re.compile(r"bg-white/15"))
 
 
@@ -130,14 +130,16 @@ class TestMessagingComposePage:
         page.wait_for_load_state("domcontentloaded")
 
     def test_page_title_contains_messaging(self):
-        expect(self.page).to_have_title(re.compile(r"Messaging", re.IGNORECASE))
+        # Title is "New Message — CWA School"
+        expect(self.page).to_have_title(re.compile(r"Message", re.IGNORECASE))
 
     def test_page_heading_new_message(self):
         heading = self.page.get_by_role("heading", name=re.compile(r"New Message", re.IGNORECASE))
         expect(heading).to_be_visible()
 
     def test_channel_email_option_visible(self):
-        expect(self.page.get_by_text("Email").first).to_be_visible()
+        # Use border class to target channel badge, not sidebar span
+        expect(self.page.locator('.border-indigo-500', has_text='Email').first).to_be_visible()
 
     def test_channel_sms_option_visible_but_disabled(self):
         sms_el = self.page.locator("text=SMS").first
@@ -148,7 +150,7 @@ class TestMessagingComposePage:
 
     def test_to_field_input_visible(self):
         """To field has a visible search input."""
-        to_input = self.page.locator("input[placeholder*='Search name or email']").first
+        to_input = self.page.locator("input[placeholder*='Name or email']").first
         expect(to_input).to_be_visible()
 
     def test_cc_collapsed_by_default(self):
@@ -163,7 +165,7 @@ class TestMessagingComposePage:
         expect(self.page.get_by_text("Schedule", exact=True)).to_be_visible()
 
     def test_send_button_disabled(self):
-        send_btn = self.page.get_by_role("button", name=re.compile(r"Schedule.*Send|Send", re.IGNORECASE))
+        send_btn = self.page.locator('button[name="action"][value="send"]')
         expect(send_btn).to_be_disabled()
 
     def test_save_draft_button_disabled(self):
@@ -192,7 +194,7 @@ class TestRecipientToField:
 
     def test_no_dropdown_when_typing_one_char(self):
         """Dropdown does not appear for a single character."""
-        inp = self.page.locator("input[placeholder*='Search name or email']").first
+        inp = self.page.locator("input[placeholder*='Name or email']").first
         inp.type("A")
         self.page.wait_for_timeout(400)
         # dropdown container should not be visible
@@ -202,14 +204,15 @@ class TestRecipientToField:
     def test_cc_row_expands_on_plus_cc_click(self):
         """Clicking + CC shows the CC input row."""
         self.page.get_by_text("+ CC").click()
-        cc_inputs = self.page.locator("input[placeholder*='Search name or email']")
+        cc_inputs = self.page.locator("input[placeholder*='Name or email']")
         expect(cc_inputs.nth(1)).to_be_visible()
 
     def test_bcc_row_expands_on_plus_bcc_click(self):
         """Clicking + BCC shows the BCC input row."""
         self.page.get_by_text("+ BCC").click()
-        bcc_inputs = self.page.locator("input[placeholder*='Search name or email']")
-        expect(bcc_inputs.nth(1)).to_be_visible()
+        bcc_inputs = self.page.locator("input[placeholder*='Name or email']")
+        # CC input (hidden) is at nth(1); BCC input (visible) is at nth(2)
+        expect(bcc_inputs.nth(2)).to_be_visible()
 
     def test_plus_cc_button_hidden_after_expanding(self):
         """+ CC button disappears once CC row is expanded."""
@@ -219,7 +222,7 @@ class TestRecipientToField:
 
     def test_free_text_email_accepted_on_enter(self):
         """Typing a valid email and pressing Enter adds a tag pill."""
-        inp = self.page.locator("input[placeholder*='Search name or email']").first
+        inp = self.page.locator("input[placeholder*='Name or email']").first
         inp.fill("test@example.com")
         inp.press("Enter")
         self.page.wait_for_timeout(200)
@@ -228,7 +231,7 @@ class TestRecipientToField:
 
     def test_free_text_email_accepted_on_comma(self):
         """Typing a valid email and pressing comma adds a tag pill."""
-        inp = self.page.locator("input[placeholder*='Search name or email']").first
+        inp = self.page.locator("input[placeholder*='Name or email']").first
         inp.fill("another@example.com")
         inp.press(",")
         self.page.wait_for_timeout(200)
@@ -237,7 +240,7 @@ class TestRecipientToField:
 
     def test_invalid_text_not_accepted_as_tag(self):
         """Text without @ does not become a tag on Enter."""
-        inp = self.page.locator("input[placeholder*='Search name or email']").first
+        inp = self.page.locator("input[placeholder*='Name or email']").first
         inp.fill("notanemail")
         inp.press("Enter")
         self.page.wait_for_timeout(200)
@@ -246,12 +249,13 @@ class TestRecipientToField:
 
     def test_tag_removable_with_x_button(self):
         """After adding a free-text email tag, clicking × removes it."""
-        inp = self.page.locator("input[placeholder*='Search name or email']").first
+        inp = self.page.locator("input[placeholder*='Name or email']").first
         inp.fill("remove@example.com")
         inp.press("Enter")
         self.page.wait_for_timeout(200)
-        # Find and click the × button on the tag
-        tag_area = self.page.locator("span", has_text="remove@example.com")
+        # Outer tag pill span has rounded-full class; inner x-text span also matches
+        # Use rounded-full to target the outer pill container
+        tag_area = self.page.locator("span.rounded-full", has_text="remove@example.com").first
         expect(tag_area).to_be_visible()
         close_btn = tag_area.locator("button").first
         close_btn.click()
@@ -260,7 +264,7 @@ class TestRecipientToField:
 
     def test_backspace_removes_last_tag(self):
         """Pressing Backspace on empty input removes the last tag."""
-        inp = self.page.locator("input[placeholder*='Search name or email']").first
+        inp = self.page.locator("input[placeholder*='Name or email']").first
         inp.fill("back@example.com")
         inp.press("Enter")
         self.page.wait_for_timeout(200)
@@ -271,12 +275,14 @@ class TestRecipientToField:
 
     def test_escape_closes_dropdown(self):
         """Pressing Escape hides the open dropdown."""
-        inp = self.page.locator("input[placeholder*='Search name or email']").first
-        # Type enough to potentially open the dropdown
+        inp = self.page.locator("input[placeholder*='Name or email']").first
         inp.fill("te")
-        self.page.wait_for_timeout(400)
+        # Wait long enough for debounce (300ms) + XHR to fully resolve so
+        # the dropdown is open before we press Escape (avoids a race where
+        # the XHR response reopens the dropdown after Escape is handled)
+        self.page.wait_for_timeout(1000)
         inp.press("Escape")
-        self.page.wait_for_timeout(100)
+        self.page.wait_for_timeout(300)
         dropdown = self.page.locator("[x-show='to.open']").first
         expect(dropdown).not_to_be_visible()
 
@@ -307,10 +313,9 @@ class TestComposeSubjectAndBody:
         expect(subj).to_have_attribute("placeholder", re.compile(r"Subject", re.IGNORECASE))
 
     def test_subject_char_counter_hidden_initially(self):
-        """Character counter not visible before typing."""
-        # Counter only shows when subject.length > 0
+        """Character counter shows '0/255' before typing (always visible, faint)."""
         counter = self.page.locator("text=/\\d+\\/255/")
-        expect(counter).not_to_be_visible()
+        expect(counter).to_contain_text("0/255")
 
     def test_subject_char_counter_appears_on_typing(self):
         """Typing in subject shows character counter."""
@@ -351,7 +356,7 @@ class TestComposeSubjectAndBody:
 
     def test_send_button_disabled_with_empty_form(self):
         """Send button is disabled when To, Subject and Body are all empty."""
-        send_btn = self.page.get_by_role("button", name=re.compile(r"Schedule.*Send|Send", re.IGNORECASE))
+        send_btn = self.page.locator('button[name="action"][value="send"]')
         expect(send_btn).to_be_disabled()
 
     def test_draft_button_disabled_with_empty_form(self):
@@ -379,7 +384,7 @@ class TestComposeSubjectAndBody:
     def test_send_button_enabled_when_form_complete(self):
         """Send button enables when To + Subject + Body are all filled."""
         # Add a free-text recipient to To
-        inp = self.page.locator("input[placeholder*='Search name or email']").first
+        inp = self.page.locator("input[placeholder*='Name or email']").first
         inp.fill("test@example.com")
         inp.press("Enter")
         self.page.wait_for_timeout(200)
@@ -390,7 +395,7 @@ class TestComposeSubjectAndBody:
         editor.click()
         editor.type("Dear all, this is your monthly update.")
         self.page.wait_for_timeout(200)
-        send_btn = self.page.get_by_role("button", name=re.compile(r"Schedule.*Send|Send", re.IGNORECASE))
+        send_btn = self.page.locator('button[name="action"][value="send"]')
         expect(send_btn).to_be_enabled()
 
     def test_attach_file_button_visible(self):
@@ -409,7 +414,7 @@ class TestMessagingDashboardRedirect:
         do_login(page, live_server.url, admin_user)
         page.goto(f"{live_server.url}/admin-dashboard/messaging/")
         page.wait_for_load_state("domcontentloaded")
-        expect(page).to_have_url(re.compile(r"/messaging/compose/"))
+        expect(page).to_have_url(re.compile(r"/messaging/inbox/"))
 
 
 # ---------------------------------------------------------------------------
@@ -461,7 +466,10 @@ class TestSchedulePicker:
         expect(self.page.get_by_text("Schedule", exact=False).first).to_be_visible()
 
     def test_send_now_pill_present(self):
-        expect(self.page.get_by_text("Send Now")).to_be_visible()
+        # get_by_text("Immediate") matches 3 elements (x-text badge, pill span,
+        # hint paragraph containing "immediately"). Target the label wrapping the
+        # 'now' radio input instead.
+        expect(self.page.locator('label:has(input[value="now"])')).to_be_visible()
 
     def test_one_time_pill_present(self):
         expect(self.page.get_by_text("One Time")).to_be_visible()
@@ -487,25 +495,29 @@ class TestSchedulePicker:
         """Clicking Weekly reveals day-of-week selector."""
         self.page.get_by_text("Weekly").click()
         self.page.wait_for_timeout(200)
-        expect(self.page.get_by_text("Monday")).to_be_visible()
+        # <option> elements are always hidden in Playwright; check the select itself
+        expect(self.page.locator('select[x-model="weeklyDay"]')).to_be_visible()
 
     def test_click_monthly_shows_ordinal_option(self):
-        """Clicking Monthly reveals 'of each month' ordinal options."""
+        """Clicking Monthly reveals 'On the' label for ordinal day selection."""
         self.page.get_by_text("Monthly").click()
         self.page.wait_for_timeout(200)
-        expect(self.page.get_by_text(re.compile(r"of each month"))).to_be_visible()
+        # <option> elements are always hidden; check the "On the" label instead
+        expect(self.page.get_by_text("On the")).to_be_visible()
 
     def test_weekly_shows_starts_label(self):
         """Weekly panel shows a 'Starts' date label."""
         self.page.get_by_text("Weekly").click()
         self.page.wait_for_timeout(200)
-        expect(self.page.get_by_text("Starts")).to_be_visible()
+        # Both weekly and monthly panels have "Starts"; use .first
+        expect(self.page.get_by_text("Starts").first).to_be_visible()
 
     def test_click_send_now_hides_date_panel(self):
         """Switching back to Send Now hides the date/time panel."""
         self.page.get_by_text("One Time").click()
         self.page.wait_for_timeout(200)
-        self.page.get_by_text("Send Now").click()
+        # get_by_text("Immediate") matches multiple elements; click the label
+        self.page.locator('label:has(input[value="now"])').click()
         self.page.wait_for_timeout(200)
         date_inputs = self.page.locator('input[type="date"]')
         expect(date_inputs.first).to_be_hidden()
@@ -524,8 +536,9 @@ class TestSchedulePicker:
         expect(btn).to_be_visible()
 
     def test_schedule_message_button_label_for_once(self):
-        """Send button label changes to 'Schedule Message' for One Time."""
+        """Send button label changes to 'Schedule' for One Time."""
         self.page.get_by_text("One Time").click()
         self.page.wait_for_timeout(300)
-        btn = self.page.get_by_role("button", name=re.compile(r"Schedule Message", re.IGNORECASE))
-        expect(btn).to_be_visible()
+        # Button text is "Schedule" (not "Schedule Message") for non-now frequency
+        btn = self.page.locator('button[name="action"][value="send"]')
+        expect(btn).to_contain_text("Schedule")
