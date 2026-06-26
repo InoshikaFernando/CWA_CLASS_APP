@@ -139,9 +139,9 @@ class TestMessagingInbox:
         self.page.reload()
         self.page.wait_for_load_state('domcontentloaded')
         self.page.locator('button', has_text='Delete').first.click()
-        # Custom confirm modal — click "Yes, delete"
-        self.page.locator('button', has_text='Yes, delete').click()
-        self.page.wait_for_load_state('domcontentloaded')
+        # Custom confirm modal — click "Yes, delete"; wait for navigation to complete
+        with self.page.expect_navigation():
+            self.page.locator('button', has_text='Yes, delete').click()
         expect(self.page.locator('body')).not_to_contain_text('DraftToDelete')
 
     def test_cancel_scheduled_shows_success_toast(self, db):
@@ -150,9 +150,9 @@ class TestMessagingInbox:
         self.page.reload()
         self.page.wait_for_load_state('domcontentloaded')
         self.page.locator('button', has_text='Cancel').first.click()
-        # Custom confirm modal — click "Yes, cancel"
-        self.page.locator('button', has_text='Yes, cancel').click()
-        self.page.wait_for_load_state('domcontentloaded')
+        # Custom confirm modal — click "Yes, cancel"; wait for navigation to complete
+        with self.page.expect_navigation():
+            self.page.locator('button', has_text='Yes, cancel').click()
         expect(self.page.locator('body')).to_contain_text('cancelled')
 
     def test_sidebar_messaging_link_points_to_inbox(self):

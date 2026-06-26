@@ -42,9 +42,9 @@ def _fill_compose(page, *, subject='Test subject', body='Hello world',
     subject_input = page.locator('input[name="subject"]')
     subject_input.fill(subject)
 
-    # Body — hidden textarea; set value via JS (rich-text editor pattern)
+    # Body — hidden input (Alpine.js bound); set value via JS
     page.evaluate(
-        "value => { document.querySelector('textarea[name=\"body\"]').value = value; }",
+        "value => { document.querySelector('input[name=\"body\"]').value = value; }",
         body,
     )
 
@@ -60,35 +60,40 @@ def _fill_compose(page, *, subject='Test subject', body='Hello world',
 
     if schedule_date and frequency == 'once':
         page.evaluate(
-            "document.querySelector('input[name=\"schedule_date\"]').value = arguments[0]",
+            "v => { document.querySelector('input[name=\"schedule_date\"]').value = v; }",
             schedule_date,
         )
     if schedule_time and frequency in ('once', 'weekly', 'monthly'):
         page.evaluate(
-            "document.querySelector('select[name=\"schedule_time\"], input[name=\"schedule_time\"]')"
-            ".value = arguments[0]",
+            "v => { (document.querySelector('select[name=\"schedule_time\"]') || document.querySelector('input[name=\"schedule_time\"]')).value = v; }",
             schedule_time,
         )
     if weekly_day is not None and frequency == 'weekly':
         page.evaluate(
-            "document.querySelector('input[name=\"weekly_day\"]').value = arguments[0]",
+            "v => { document.querySelector('input[name=\"weekly_day\"]').value = v; }",
             str(weekly_day),
         )
     if monthly_day is not None and frequency == 'monthly':
         page.evaluate(
-            "document.querySelector('input[name=\"monthly_day\"]').value = arguments[0]",
+            "v => { document.querySelector('input[name=\"monthly_day\"]').value = v; }",
             str(monthly_day),
         )
 
-    # Add a recipient via hidden input (bypass the tag UI for speed)
+    # Add a recipient by mutating Alpine.js state directly (bypasses tag UI)
     if to_email:
         page.evaluate(
             """
-            var inp = document.querySelector('input[name="recipients_to"]');
-            inp.value = JSON.stringify([{id:999, name:'Test User', email: arguments[0], role:'staff'}]);
+            email => {
+                const form = document.querySelector('form[x-data]');
+                const stack = form && form._x_dataStack;
+                if (stack && stack[0]) {
+                    stack[0].recipients.to = [{id:999, name:'Test User', email: email, role:'staff'}];
+                }
+            }
             """,
             to_email,
         )
+        page.wait_for_timeout(100)  # let Alpine flush the :value binding
 
     # Submit
     if action == 'draft':

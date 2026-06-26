@@ -446,6 +446,15 @@ class TestSchedulePicker:
         page.goto(f"{self.url}/admin-dashboard/messaging/compose/")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(400)
+        # Schedule section is collapsed by default (showSchedule=false); expand it
+        page.evaluate("""
+            () => {
+                const form = document.querySelector('form[x-data]');
+                const stack = form && form._x_dataStack;
+                if (stack && stack[0]) stack[0].showSchedule = true;
+            }
+        """)
+        page.wait_for_timeout(200)
 
     def test_schedule_section_visible(self):
         """Schedule card is visible on the compose page."""
