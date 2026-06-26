@@ -5370,7 +5370,6 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     'school_sections': school_sections,
                     'global_subjects': global_subjects,
                     'is_school_student': True,
-                    'hide_sidebar': True,
                     'student_id_code': student_id_code,
                     **hub_extra,
                 })
@@ -5390,7 +5389,6 @@ class SubjectsHubView(LoginRequiredMixin, View):
         subjects = global_subjects
 
         return render(request, 'hub/home.html', {
-            'hide_sidebar': True,
             'greeting_tod': greeting_tod,
             'time_daily': time_daily,
             'time_weekly': time_weekly,

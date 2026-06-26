@@ -71,3 +71,32 @@ class TestSubjectSidebarContext:
     def test_current_subject_id_set_when_global_subject_exists(self, rf, coding_subject):
         ctx = subject_sidebar_context(rf.get('/coding/'))
         assert ctx['current_subject_id'] == coding_subject.pk
+
+    # ── ?subject= query-param continuity (worksheets / homework) ──────────
+    # Cross-subject pages live outside a subject URL prefix, so they keep the
+    # subject sidebar via the ?subject=<plugin-slug> convention.
+
+    def test_subject_query_param_keeps_maths_sidebar_off_subject_path(self, rf, subject):
+        ctx = subject_sidebar_context(
+            rf.get('/worksheets/', {'subject': 'mathematics'})
+        )
+        assert ctx['subject_sidebar'] == 'maths'
+        assert ctx['current_subject_slug'] == 'mathematics'
+
+    def test_subject_query_param_keeps_coding_sidebar(self, rf, coding_subject):
+        ctx = subject_sidebar_context(
+            rf.get('/worksheets/', {'subject': 'coding'})
+        )
+        assert ctx['subject_sidebar'] == 'coding'
+        assert ctx['current_subject_slug'] == 'coding'
+
+    def test_unknown_subject_query_param_is_ignored(self, rf):
+        ctx = subject_sidebar_context(rf.get('/worksheets/', {'subject': 'bogus'}))
+        assert 'subject_sidebar' not in ctx
+
+    def test_path_prefix_takes_priority_over_query_param(self, rf, subject, coding_subject):
+        """When both are present, the URL path wins over the query param."""
+        ctx = subject_sidebar_context(
+            rf.get('/coding/python/', {'subject': 'mathematics'})
+        )
+        assert ctx['subject_sidebar'] == 'coding'
