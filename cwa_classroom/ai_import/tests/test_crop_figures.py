@@ -121,6 +121,48 @@ class SpuriousImageGuardTests(SimpleTestCase):
         crops = crop_figure_boxes(self._page([], []), {'questions': [q]})
         self.assertIn(q.get('image_ref'), crops)
 
+    def test_keeps_large_figure_filtered_from_regions(self):
+        # A page-sized diagram (>80% area) is dropped from figure_regions, so the
+        # box overlaps no region — but it IS a real drawing. With the PDF present,
+        # confirm against actual page drawings and crop rather than drop.
+        import fitz
+
+        doc = fitz.open()
+        page = doc.new_page(width=200, height=200)
+        page.draw_rect(fitz.Rect(10, 10, 190, 190), color=(0, 0, 0), fill=(0.6, 0.6, 0.6))
+        pdf_bytes = doc.tobytes()
+        doc.close()
+
+        # figure_regions holds only a tiny surviving cluster elsewhere (not the
+        # big figure, which was filtered for being >80% of the page).
+        extracted = {'pages': [{
+            'page_num': 1, 'screenshot': _screenshot_b64(200, 200),
+            'figure_regions': [[1, 1, 5, 5]], 'images': [],
+        }]}
+        q = {'image_page': 1, 'image_box': {'x1': 5, 'y1': 5, 'x2': 95, 'y2': 95}}
+        crops = crop_figure_boxes(extracted, {'questions': [q]}, pdf_bytes=pdf_bytes)
+        self.assertIn(q.get('image_ref'), crops)
+
+    def test_drops_spurious_box_over_text_with_pdf(self):
+        # With the PDF present and no drawing under the box, a spurious text box
+        # is dropped even though a figure cluster exists elsewhere on the page.
+        import fitz
+
+        doc = fitz.open()
+        page = doc.new_page(width=200, height=200)
+        page.insert_text((20, 100), "some question text here", fontsize=12)
+        pdf_bytes = doc.tobytes()
+        doc.close()
+
+        extracted = {'pages': [{
+            'page_num': 1, 'screenshot': _screenshot_b64(200, 200),
+            'figure_regions': [[60, 60, 90, 90]], 'images': [],
+        }]}
+        q = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 40, 'y2': 40}}
+        crops = crop_figure_boxes(extracted, {'questions': [q]}, pdf_bytes=pdf_bytes)
+        self.assertEqual(crops, {})
+        self.assertNotIn('image_ref', q)
+
 
 class PdfReRenderTests(SimpleTestCase):
     """When pdf_bytes is supplied the crop is rendered from the PDF vectors at a

@@ -695,6 +695,34 @@ def _render_pdf_region(doc, page_num, box_pct, dpi=None):
         return None
 
 
+def _box_has_drawing(doc, page_num, box_pct):
+    """Whether any vector drawing on the page overlaps the percent-of-page box.
+
+    Unlike ``figure_regions`` (which drops page-sized clusters >80% area), this
+    sees *all* drawings, so a large diagram that was filtered out of the regions
+    list is still detected. ``box_pct`` is ``[lo_x, lo_y, hi_x, hi_y]`` in percent.
+    Returns True / False, or None when it can't be determined (no PDF / error) so
+    the caller can stay conservative and keep the crop.
+    """
+    if doc is None:
+        return None
+    try:
+        import fitz
+
+        page = doc[page_num - 1]
+        pw, ph = page.rect.width, page.rect.height
+        lo_x, lo_y, hi_x, hi_y = box_pct
+        box = fitz.Rect(lo_x / 100 * pw, lo_y / 100 * ph,
+                        hi_x / 100 * pw, hi_y / 100 * ph)
+        for d in page.get_drawings():
+            r = d.get('rect')
+            if r and fitz.Rect(r).intersects(box):
+                return True
+        return False
+    except Exception:
+        return None
+
+
 def _boxes_overlap(a, b):
     """True if two [x1, y1, x2, y2] boxes share any area."""
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
@@ -818,13 +846,23 @@ def _crop_figure_boxes_inner(result, pages, crops, decoded, doc, Image, io):
         if overlapping:
             lo_x, lo_y, hi_x, hi_y = _snap_box_to_figures(
                 [lo_x, lo_y, hi_x, hi_y], regions)
-        elif regions and not page.get('images'):
-            # Vector figures exist on this page but none overlap the box, and there
-            # is no embedded raster image either → the box points at plain text,
-            # not a figure. Drop it rather than save an irrelevant text crop
-            # (the "totally irrelevant image" failure mode). When no regions were
-            # detected at all we can't tell, so fall through and crop as before.
-            continue
+        elif not page.get('images'):
+            # No detected figure cluster overlaps the box and there's no embedded
+            # raster image. The box may still cover a real figure that was filtered
+            # out of figure_regions (e.g. a page-sized diagram >80% area), so when
+            # the PDF is available confirm against the page's actual drawings and
+            # drop only when there is genuinely nothing drawn there (the model
+            # pointed at plain text — the "totally irrelevant image" failure mode).
+            has_drawing = _box_has_drawing(doc, int(page_num),
+                                           [lo_x, lo_y, hi_x, hi_y])
+            if has_drawing is False:
+                continue            # confirmed: no figure here → spurious text crop
+            if has_drawing is None and regions:
+                # No PDF to check; fall back to the cluster heuristic — figures
+                # exist on the page but none overlap the box → treat as spurious.
+                continue
+            # else: a real drawing (incl. large filtered figures) or unknown
+            # without regions → keep cropping.
 
         if hi_x - lo_x < 1 or hi_y - lo_y < 1:
             continue  # degenerate / empty box

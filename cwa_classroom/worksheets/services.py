@@ -788,10 +788,13 @@ def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18):
         br = fitz.Rect(b[0], b[1], b[2], b[3])
         if br.width > max_label_w:
             continue                 # running text — never an attached label
-        if br.y1 <= core.y0:         # sits above the diagram — leave for header redaction
-            continue
         # Gap from the diagram core (measured against the core, NOT the growing
         # rect, so one absorbed label can't chain the crop down to the sentence).
+        # Labels above the core count too — e.g. a "North"/title/axis-max sitting
+        # just above the drawing. They must be narrow (width filter) and close
+        # (gap_tol); growing the clip up to include them also stops
+        # _render_clean_diagram from redacting them. Wide section headers are
+        # excluded by the width filter and stay out (redacted as before).
         dx = max(core.x0 - br.x1, br.x0 - core.x1, 0.0)
         dy = max(core.y0 - br.y1, br.y0 - core.y1, 0.0)
         if dx <= gap_tol and dy <= gap_tol:

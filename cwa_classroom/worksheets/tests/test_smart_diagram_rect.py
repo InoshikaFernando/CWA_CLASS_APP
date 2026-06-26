@@ -70,6 +70,42 @@ def test_keeps_attached_labels_but_drops_sentence():
     assert rect.y1 < 300, f'sentence should be outside the crop, got y1={rect.y1}'
 
 
+def test_keeps_narrow_label_above_the_diagram():
+    """A short label sitting just ABOVE the drawing (e.g. "North", a graph title,
+    an axis-max value) is absorbed, not cropped off / redacted."""
+    doc = fitz.open()
+    page = doc.new_page(width=300, height=400)
+    page.insert_text((150, 108), "N", fontsize=12)  # label baseline just above core
+    page.draw_rect(fitz.Rect(120, 120, 200, 220), color=(0, 0, 0), fill=(0.6, 0.6, 0.6))
+    try:
+        rect = _smart_diagram_rect(page, fitz.Rect(100, 80, 260, 300))
+    finally:
+        doc.close()
+
+    assert rect is not None
+    # Grew upward past the drawing core (~y114) to include the label (~y97-110).
+    assert rect.y0 < 114, f'label above diagram should be kept, got y0={rect.y0}'
+
+
+def test_wide_header_above_diagram_is_left_out():
+    """A wide running-text header above the diagram is NOT absorbed (width filter),
+    so it can still be cropped/redacted away."""
+    doc = fitz.open()
+    page = doc.new_page(width=300, height=400)
+    page.insert_text((10, 108),
+                     "Find the bearing of B from A in this question here",
+                     fontsize=12)  # wide header just above
+    page.draw_rect(fitz.Rect(120, 120, 200, 220), color=(0, 0, 0), fill=(0.6, 0.6, 0.6))
+    try:
+        rect = _smart_diagram_rect(page, fitz.Rect(0, 80, 300, 300))
+    finally:
+        doc.close()
+
+    assert rect is not None
+    # Crop top stays at the drawing core (~y114), not up at the wide header (~y97).
+    assert rect.y0 >= 108, f'wide header must stay out, got y0={rect.y0}'
+
+
 def test_wide_sentence_is_not_treated_as_a_label():
     """Even when the sentence sits within the gap tolerance, its width marks it
     as running text, so it is never absorbed."""
