@@ -44,7 +44,7 @@ def _fill_compose(page, *, subject='Test subject', body='Hello world',
 
     # Body — hidden textarea; set value via JS (rich-text editor pattern)
     page.evaluate(
-        "document.querySelector('textarea[name=\"body\"]').value = arguments[0]",
+        "value => { document.querySelector('textarea[name=\"body\"]').value = value; }",
         body,
     )
 
