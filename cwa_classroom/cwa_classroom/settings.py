@@ -26,7 +26,7 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
 APP_VERSION       = '1.14.0'         # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-06-25'     # ISO date of this release
+APP_VERSION_DATE  = '2026-06-26'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -617,6 +617,19 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = 20000
 # teacher replacing images across a big worksheet could exceed the default of 100
 # and hit the identical 400 via TooManyFilesSent. Lift it in step with the fields.
 DATA_UPLOAD_MAX_NUMBER_FILES = 1000
+
+# Third twin of the same bug. Even under the field/file ceilings, the preview form
+# is multipart/form-data and every non-file part (question text, AI-generated
+# grading rubrics, explanations, answer options) counts toward Django's
+# DATA_UPLOAD_MAX_MEMORY_SIZE — default 2.5 MB. A workbook with hundreds of
+# questions carrying long descriptive rubrics blows past 2.5 MB, so the parser
+# raises RequestDataTooBig *before the view runs* and surfaces as the *same* bare
+# "Bad Request (400)" stuck on the preview page — which raising the field count
+# alone does NOT fix (observed still 400ing on prod session 23 at v1.13.6). Lift
+# to 50 MB to cover the full 20000-field ceiling's worth of text with headroom;
+# real file bytes still spool to temp files via FILE_UPLOAD handlers and are not
+# held in memory, so this caps only buffered form text on a teacher-only endpoint.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
 # ---------------------------------------------------------------------------
