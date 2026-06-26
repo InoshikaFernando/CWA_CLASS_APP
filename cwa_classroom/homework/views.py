@@ -2285,7 +2285,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             # no Answer rows (mirrors measure / draw_on_grid / shape_select).
             pass
         elif mapped_type != MQ.EXTENDED_ANSWER:
-            answers_data = q.get('answers', [])
+            answers_data = [a for a in q.get('answers', []) if a.get('text', '').strip()]
             if answers_data and created:
                 MA.objects.bulk_create([
                     MA(
@@ -2294,8 +2294,29 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                         is_correct=a.get('is_correct', False),
                     )
                     for a in answers_data
-                    if a.get('text', '').strip()
                 ])
+            elif answers_data:
+                # Question already existed (get_or_create matched). Don't disturb
+                # its stored answer rows — MCQ selections reference them by id —
+                # but ADD any newly-typed alternatives the teacher supplied that
+                # aren't stored yet (e.g. a "60" added next to "60 months"),
+                # otherwise the extra accepted answers are silently dropped on a
+                # re-upload of the same question.
+                existing = {
+                    (a.answer_text or '').strip().casefold()
+                    for a in mq.answers.all()
+                }
+                new_rows = [
+                    MA(
+                        question=mq,
+                        answer_text=a.get('text', ''),
+                        is_correct=a.get('is_correct', False),
+                    )
+                    for a in answers_data
+                    if a['text'].strip().casefold() not in existing
+                ]
+                if new_rows:
+                    MA.objects.bulk_create(new_rows)
 
         saved.append(mq)
 

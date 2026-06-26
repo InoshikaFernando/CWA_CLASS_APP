@@ -253,7 +253,11 @@ QUESTION TYPE RULES (important):
   (e.g. never "47611"), and do NOT attach the layout image — the app draws the bracket. The answer
   is computed automatically; do not generate answers.
 - If the correct answer is a NUMBER ONLY (digits, decimals, fractions like "14" or "3.5" or "2/3"),
-  use question_type "short_answer" with just the correct answer. Do NOT generate wrong answers.
+  use question_type "short_answer". Do NOT generate wrong answers. List EVERY form a student could
+  reasonably type as a SEPARATE answer, each with is_correct=true (the auto-grader accepts any
+  ticked answer). In particular, when the answer carries a unit, include BOTH the bare number and
+  the number-with-unit, e.g. "60 months" AND "60"; "$4.50" AND "4.50"; "3/4" AND "0.75". Do NOT add
+  forms that are merely spacing/comma/hyphen variants — the grader already ignores those.
 - If the correct answer contains TEXT or WORDS (e.g. "Day 3 had the most sales", "True", "Red"),
   use question_type "multiple_choice" and generate 3-4 plausible wrong answers alongside the correct one.
 - For true/false questions, use "true_false" type.

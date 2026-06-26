@@ -324,8 +324,13 @@ Rules:
    - SELF-CHECK: if the text references a pictogram/graph/table but the region you would crop
      is squared paper, a calculation, or a blank box, you have the WRONG region — find the
      actual visual, or set has_image=false if it genuinely isn't present.
-4. For numeric/calculation questions ("What is 24 ÷ 6?"), use short_answer with only
-   the correct answer — do NOT invent wrong options.
+4. For numeric/calculation questions ("What is 24 ÷ 6?"), use short_answer. Do NOT invent
+   wrong options. Instead, list EVERY form a student could reasonably type as a SEPARATE
+   answer, each with is_correct=true (the auto-grader accepts any ticked answer). In
+   particular, when the answer carries a unit, include BOTH the bare number and the
+   number-with-unit, e.g. "How many months in 5 years?" → "60 months" AND "60"; a money
+   answer → "$4.50" AND "4.50"; "3/4" → "3/4" AND "0.75". Do NOT add forms that are merely
+   spacing/comma/hyphen variants — the grader already ignores those.
 5. For multiple choice, list ALL provided answer options including the correct one.
 6. Write explanations that help students understand why they got it wrong.
 7. Do NOT skip questions even if they look simple.
