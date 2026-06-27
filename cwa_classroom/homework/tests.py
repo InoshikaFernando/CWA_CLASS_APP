@@ -3178,6 +3178,24 @@ class HomeworkLeaderboardTest(HomeworkTestBase):
         self.assertEqual(row['percentage'], 100)
         self.assertEqual(row['attempts'], 2)
 
+    def test_higher_percentage_outranks_higher_points(self):
+        # The board ranks by displayed score (percentage) first, so a higher
+        # percentage wins even if the other student earned more points.
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            attempt_number=1, score=4, total_questions=5, points=100.0,
+        )
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student2,
+            attempt_number=1, score=5, total_questions=5, points=60.0,
+        )
+        resp = self.client.get(
+            self.url + f'?classroom={self.classroom.id}&homework={self.homework.id}'
+        )
+        ranked = resp.context['ranked_rows']
+        self.assertEqual(ranked[0]['student'], self.student2)  # 100% beats 80%
+        self.assertEqual(ranked[1]['student'], self.student)
+
     def test_fewer_attempts_breaks_score_tie(self):
         # Equal best points → the student who needed fewer attempts ranks higher.
         HomeworkSubmission.objects.create(

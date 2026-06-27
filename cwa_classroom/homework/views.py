@@ -480,14 +480,15 @@ def _student_sort_name(user):
 
 
 class HomeworkLeaderboardView(RoleRequiredMixin, View):
-    """Per-class homework progress leaderboard (CPP-348).
+    """Per-class homework progress leaderboard (CPP-363).
 
     Ranks the students of a single class by performance, highlighting the top
     three. It has two scopes, toggled in the page:
 
     * **Per homework** (default) — one assignment at a time. Rank by the best
-      attempt's points, with fewer attempts breaking ties (reaching a score in
-      one go beats grinding to it).
+      attempt's score (percentage, to match the displayed column), then by
+      points (difficulty/speed), then by fewer attempts (reaching a score in one
+      go beats grinding to it).
     * **All homework** (aggregate) — average best score across every published
       homework in the class, attempts summed. Ranks by that average, then by how
       many homework were completed, then by fewer attempts.
@@ -545,18 +546,35 @@ class HomeworkLeaderboardView(RoleRequiredMixin, View):
                 .select_related('student')
             )
 
-        # Pull every relevant submission once, then reduce in Python: best
+        # Pull the relevant submissions once, then reduce in Python: best
         # attempt (highest points) and attempts-taken (max attempt_number —
         # pruned-history-safe, mirroring HomeworkSubmission.get_attempt_count)
-        # per (student, homework).
-        hw_ids = [h.id for h in hw_list]
+        # per (student, homework). The aggregate scope needs every published
+        # homework's rows; the per-homework scope only needs the selected one,
+        # so we don't scan the class's whole homework history on the default
+        # page load.
+        if aggregate:
+            fetch_hw_ids = [h.id for h in hw_list]
+        elif selected_homework is not None:
+            fetch_hw_ids = [selected_homework.id]
+        else:
+            fetch_hw_ids = []
         student_ids = [cs.student_id for cs in students]
         best = {}
         max_attempt = {}
-        if hw_ids and student_ids:
-            for s in HomeworkSubmission.objects.filter(
-                homework_id__in=hw_ids, student_id__in=student_ids
-            ):
+        if fetch_hw_ids and student_ids:
+            # select_related('homework') avoids an N+1 when
+            # submission_status_for() reads homework.due_date. Iterating
+            # newest-first (the model default ordering) means the first row seen
+            # for a given points value is the newest attempt, matching
+            # HomeworkSubmission.get_best_submission's tie-break.
+            submissions = (
+                HomeworkSubmission.objects
+                .filter(homework_id__in=fetch_hw_ids, student_id__in=student_ids)
+                .select_related('homework')
+                .order_by('-submitted_at')
+            )
+            for s in submissions:
                 key = (s.student_id, s.homework_id)
                 current = best.get(key)
                 if current is None or s.points > current.points:
@@ -603,8 +621,12 @@ class HomeworkLeaderboardView(RoleRequiredMixin, View):
             })
 
         ranked = [r for r in rows if r['best'] is not None]
-        # Best points first; fewer attempts breaks ties; name keeps it stable.
-        ranked.sort(key=lambda r: (-r['points'], r['attempts'], _student_sort_name(r['student'])))
+        # Best score (percentage) first so the order matches the displayed
+        # column; then points (difficulty/speed) and fewer attempts break ties;
+        # name keeps it stable.
+        ranked.sort(key=lambda r: (
+            -r['percentage'], -r['points'], r['attempts'], _student_sort_name(r['student'])
+        ))
         for i, r in enumerate(ranked, 1):
             r['rank'] = i
 
@@ -625,7 +647,12 @@ class HomeworkLeaderboardView(RoleRequiredMixin, View):
                 attempts_sum += max_attempt.get((sid, hw.id), 0)
                 b = best.get((sid, hw.id))
                 if b is not None:
-                    pcts.append(b.percentage)
+                    # Average the raw ratios, not each already-rounded
+                    # percentage, so the mean isn't double-rounded.
+                    if b.total_questions:
+                        pcts.append(b.score / b.total_questions * 100)
+                    else:
+                        pcts.append(0)
                     points_sum += b.points
             rows.append({
                 'student': cs.student,
