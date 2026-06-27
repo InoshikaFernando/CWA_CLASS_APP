@@ -137,10 +137,15 @@ def _build_student_progress(student):
             }
         grouped[key]['records'].append(record)
 
+    # 'achieved' = proficient bucket (Confident + Advanced); 'in_progress' =
+    # developing bucket (Beginning + Developing). See §12.7.
+    _PROFICIENT = ProgressRecord.PROFICIENT_STATUSES
+    _DEVELOPING = ProgressRecord.DEVELOPING_STATUSES
+
     for group_data in grouped.values():
         recs = group_data['records']
         group_data['total'] = len(recs)
-        group_data['achieved'] = sum(1 for r in recs if r.status == 'achieved')
+        group_data['achieved'] = sum(1 for r in recs if r.status in _PROFICIENT)
 
     grouped_progress = sorted(
         grouped.values(),
@@ -153,8 +158,8 @@ def _build_student_progress(student):
 
     overall = {
         'total': len(latest_ids),
-        'achieved': sum(1 for r in records if r.status == 'achieved'),
-        'in_progress': sum(1 for r in records if r.status == 'in_progress'),
+        'achieved': sum(1 for r in records if r.status in _PROFICIENT),
+        'in_progress': sum(1 for r in records if r.status in _DEVELOPING),
         'not_started': sum(1 for r in records if r.status == 'not_started'),
     }
     return grouped_progress, overall
@@ -974,8 +979,10 @@ class StudentProgressReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
             latest_ids = [r['latest_id'] for r in latest_ids_qs]
             records = ProgressRecord.objects.filter(id__in=latest_ids)
             total = len(latest_ids)
-            achieved = sum(1 for r in records if r.status == 'achieved')
-            in_progress_count = sum(1 for r in records if r.status == 'in_progress')
+            # 'achieved' = proficient (Confident+Advanced); 'in_progress' =
+            # developing (Beginning+Developing). See §12.7.
+            achieved = sum(1 for r in records if r.status in ProgressRecord.PROFICIENT_STATUSES)
+            in_progress_count = sum(1 for r in records if r.status in ProgressRecord.DEVELOPING_STATUSES)
             not_started = sum(1 for r in records if r.status == 'not_started')
 
             # Get student's classes and department

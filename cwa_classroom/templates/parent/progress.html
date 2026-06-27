@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load classroom_extras %}
 {% block title %}Progress — {{ active_child.first_name }}{% endblock %}
 
 {% block content %}
@@ -48,11 +49,11 @@
       </div>
       <div class="bg-white rounded-2xl border border-emerald-100 shadow-sm p-5 flex flex-col items-center text-center">
         <p class="text-3xl font-bold text-emerald-600">{{ overall.achieved }}</p>
-        <p class="text-xs text-slate-400 font-medium mt-1">Achieved</p>
+        <p class="text-xs text-slate-400 font-medium mt-1">Proficient</p>
       </div>
       <div class="bg-white rounded-2xl border border-amber-100 shadow-sm p-5 flex flex-col items-center text-center">
         <p class="text-3xl font-bold text-amber-500">{{ overall.in_progress }}</p>
-        <p class="text-xs text-slate-400 font-medium mt-1">In Progress</p>
+        <p class="text-xs text-slate-400 font-medium mt-1">Developing</p>
       </div>
       <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col items-center text-center">
         <p class="text-3xl font-bold text-slate-400">{{ overall.not_assessed }}</p>
@@ -64,7 +65,7 @@
     {% if overall.total %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
       <div class="flex items-center justify-between mb-2">
-        <p class="text-sm font-semibold text-slate-700">Overall Achievement</p>
+        <p class="text-sm font-semibold text-slate-700">Overall Proficiency</p>
         <p class="text-sm font-bold text-emerald-600">
           {% widthratio overall.achieved overall.total 100 %}%
         </p>
@@ -78,8 +79,8 @@
         {% endif %}
       </div>
       <div class="flex gap-4 mt-2 text-xs text-slate-400">
-        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>Achieved</span>
-        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-400 inline-block"></span>In Progress</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>Proficient</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-400 inline-block"></span>Developing</span>
         <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-slate-200 inline-block"></span>Not Assessed</span>
       </div>
     </div>
@@ -97,7 +98,7 @@
             {% if group.subject %}{{ group.subject.name }}{% else %}General{% endif %}
             {% if group.level %}<span class="text-slate-400 font-normal mx-1">&middot;</span>{{ group.level.display_name }}{% endif %}
           </h2>
-          <p class="text-xs text-slate-400 mt-0.5">{{ group.achieved }} of {{ group.total }} achieved</p>
+          <p class="text-xs text-slate-400 mt-0.5">{{ group.achieved }} of {{ group.total }} proficient</p>
         </div>
         {% if group.total %}
         <div class="flex items-center gap-2">
@@ -115,13 +116,13 @@
         <div class="px-6 py-3.5 flex items-start gap-4">
           <!-- Status icon -->
           <div class="mt-0.5 shrink-0">
-            {% if entry.status == 'achieved' %}
+            {% if entry.status|progress_bucket == 'proficient' %}
               <span class="flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100">
                 <svg class="w-3.5 h-3.5 text-emerald-600" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
                 </svg>
               </span>
-            {% elif entry.status == 'in_progress' %}
+            {% elif entry.status|progress_bucket == 'developing' %}
               <span class="flex items-center justify-center w-6 h-6 rounded-full bg-amber-100">
                 <svg class="w-3.5 h-3.5 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
@@ -162,15 +163,7 @@
 
           <!-- Status badge -->
           <div class="shrink-0">
-            {% if entry.status == 'achieved' %}
-              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Achieved</span>
-            {% elif entry.status == 'in_progress' %}
-              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">In Progress</span>
-            {% elif entry.status == 'not_started' %}
-              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-500">Not Started</span>
-            {% else %}
-              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-50 text-slate-400 border border-slate-200">Not Assessed</span>
-            {% endif %}
+            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold {{ entry.status|progress_badge_classes }}">{{ entry.status|progress_status_label }}</span>
           </div>
         </div>
         {% endfor %}
