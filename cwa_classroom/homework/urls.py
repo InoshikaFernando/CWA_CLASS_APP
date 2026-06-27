@@ -6,6 +6,7 @@ app_name = 'homework'
 urlpatterns = [
     # Teacher: topic-based homework
     path('homework/monitor/', views.HomeworkMonitorView.as_view(), name='teacher_monitor'),
+    path('homework/leaderboard/', views.HomeworkLeaderboardView.as_view(), name='leaderboard'),
     path('homework/class/<int:classroom_id>/create/', views.HomeworkCreateView.as_view(), name='teacher_create'),
     path('homework/<int:homework_id>/', views.HomeworkDetailView.as_view(), name='teacher_detail'),
     path('homework/<int:homework_id>/edit/', views.HomeworkEditView.as_view(), name='teacher_edit'),
