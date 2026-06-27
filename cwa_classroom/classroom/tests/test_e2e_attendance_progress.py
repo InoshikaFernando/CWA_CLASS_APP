@@ -585,3 +585,100 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
         )
         self.assertEqual(record.status, 'achieved')
         self.assertEqual(record.recorded_by, self.teacher_user)
+
+
+# ---------------------------------------------------------------------------
+# 6. AllSubjectsCriteriaTest  (subject = null  →  applies to all subjects)
+# ---------------------------------------------------------------------------
+
+class AllSubjectsCriteriaTest(_BaseAttendanceProgressTest):
+    """Subject-agnostic criteria (subject=None): creation + surfacing everywhere.
+
+    See SPEC_TEACHER_CLASS_STUDENT_PROGRESS §12.6.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        # A second, UNRELATED subject + classroom (Coding) at the same school,
+        # so we can prove an All-Subjects criterion surfaces regardless of subject.
+        cls.coding_subject = Subject.objects.create(
+            name='Coding', slug='coding', is_active=True,
+        )
+        DepartmentSubject.objects.create(
+            department=cls.department, subject=cls.coding_subject,
+        )
+        cls.coding_level = Level.objects.create(
+            level_number=2, display_name='Beginner', subject=cls.coding_subject,
+        )
+        cls.coding_class = _create_classroom(
+            cls.school, cls.department, cls.coding_subject, 'Coding 101',
+        )
+        cls.coding_class.levels.add(cls.coding_level)
+        ClassTeacher.objects.create(classroom=cls.coding_class, teacher=cls.teacher_user)
+        ClassStudent.objects.create(
+            classroom=cls.coding_class, student=cls.student_user, is_active=True,
+        )
+
+    def _login_teacher(self):
+        self.client.force_login(self.teacher_user)
+        session = self.client.session
+        session['current_school_id'] = self.school.id
+        session.save()
+
+    def test_create_all_subjects_criteria(self):
+        """POST with subject='all' creates a criterion with subject=None (and no level)."""
+        self._login_teacher()
+        self.client.post(reverse('progress_criteria_list'), {
+            'name': 'Attendance & participation',
+            'subject': 'all',
+            'level': '',
+            'order': '0',
+        })
+        criteria = ProgressCriteria.objects.get(name='Attendance & participation')
+        self.assertIsNone(criteria.subject, 'subject=all should persist as NULL')
+        self.assertIsNone(criteria.level)
+        self.assertEqual(criteria.school, self.school)
+
+    def test_all_subjects_criteria_recordable_for_unrelated_subject(self):
+        """An approved subject=None criterion can be recorded against a class of ANY subject."""
+        all_subj = ProgressCriteria.objects.create(
+            school=self.school, subject=None, level=None,
+            name='Homework completed on time', status='approved',
+            created_by=self.teacher_user, approved_by=self.teacher_user,
+        )
+        self._login_teacher()
+        # Record it against the Coding class — different from the criterion's (null) subject.
+        self.client.post(
+            reverse('record_progress', kwargs={'class_id': self.coding_class.id}),
+            {f'status_{self.student_user.id}_{all_subj.id}': 'achieved'},
+        )
+        self.assertTrue(
+            ProgressRecord.objects.filter(
+                student=self.student_user, criteria=all_subj,
+            ).exists(),
+            'All-Subjects criterion should be recordable for a class of any subject',
+        )
+
+    def test_all_subjects_criteria_in_record_progress_context(self):
+        """GET record-progress lists the All-Subjects criterion alongside subject-specific ones."""
+        all_subj = ProgressCriteria.objects.create(
+            school=self.school, subject=None, level=None,
+            name='Class behaviour', status='approved',
+            created_by=self.teacher_user, approved_by=self.teacher_user,
+        )
+        self._login_teacher()
+        resp = self.client.get(
+            reverse('record_progress', kwargs={'class_id': self.classroom.id}),
+        )
+        self.assertEqual(resp.status_code, 200)
+        listed_ids = [h['criteria'].id for h in resp.context['hierarchical_criteria']]
+        self.assertIn(all_subj.id, listed_ids)
+
+    def test_all_subjects_criteria_str_is_null_safe(self):
+        """__str__ renders 'All Subjects' / 'All Levels' rather than crashing on null."""
+        crit = ProgressCriteria.objects.create(
+            school=self.school, subject=None, level=None, name='Curiosity',
+        )
+        self.assertIn('All Subjects', str(crit))
+        self.assertIn('All Levels', str(crit))
