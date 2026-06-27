@@ -96,10 +96,20 @@ def seed(Subject, Level, Topic, Question, Answer):
 
     shapes_topic = _get_topic(Topic, maths, '2D Shapes')
     shapes_topic.levels.add(level)
-    Question.objects.get_or_create(
+    # shape_spec was added in maths.0033, but this same seed() is run from BOTH
+    # 0032 (which predates the field) and 0034 (which follows it). RunPython
+    # executes the *current* seed() against each migration's *historical* model,
+    # so at 0032's state Question has no shape_spec and including it raises
+    # FieldError. Set it only when the field exists, and use update_or_create
+    # (not get_or_create) so the later 0034 replay backfills shape_spec onto the
+    # row 0032 already created instead of leaving it blank.
+    shape_defaults = {'difficulty': 1, 'points': 1}
+    if any(f.name == 'shape_spec' for f in Question._meta.get_fields()):
+        shape_defaults['shape_spec'] = SHAPE_SELECT_SPEC
+    Question.objects.update_or_create(
         question_text=SHAPE_SELECT_TEXT, question_type='shape_select',
         level=level, topic=shapes_topic,
-        defaults={'difficulty': 1, 'points': 1, 'shape_spec': SHAPE_SELECT_SPEC},
+        defaults=shape_defaults,
     )
 
 
