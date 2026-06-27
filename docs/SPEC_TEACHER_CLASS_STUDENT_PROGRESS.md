@@ -626,8 +626,8 @@ Criteria are learning milestones defined at the **School + Subject + Level** sco
 
 **Fields:**
 - `school` — FK to School **(per-school scoping)**
-- `subject` — FK to Subject
-- `level` — FK to Level
+- `subject` — FK to Subject **(nullable — `null` = applies to *all* subjects; see §12.6)**
+- `level` — FK to Level **(nullable — `null` = applies to all levels)**
 - `name` — Criterion description (e.g., "Can solve linear equations")
 - `description` — Detailed description (optional)
 - `order` — Suggested sequence order
@@ -715,6 +715,42 @@ Wednesday Class (Teacher Y):
   ⬜ Can plot linear graphs
   ⬜ Can interpret graph data
 ```
+
+### 12.6 All-Subjects (Subject-Agnostic) Criteria
+
+*(Added 2026-06-27.)*
+
+Some learning milestones are **not tied to a particular subject** — e.g. *"Attendance &
+participation,"* *"Homework completed on time,"* *"Class behaviour."* Rather than forcing
+teachers to re-create these for every subject, a criterion may be defined once with
+**`subject = null`**, meaning it applies to **all subjects**. This mirrors the existing
+`level = null` convention ("applies to all levels").
+
+**Behaviour:**
+
+- The create/edit forms (both the slideover modal on the criteria list and the full-page
+  form) offer an explicit **"All Subjects"** option alongside the per-subject choices.
+- When **All Subjects** is selected, the Level selector is forced to **All Levels** — a
+  specific level is meaningless without a subject (Levels are subject-scoped).
+- A `null`-subject criterion is **included in record-progress for every class**, regardless
+  of the class's subject. The record-progress querysets union the class subject with
+  null-subject criteria: `filter(Q(subject=classroom.subject) | Q(subject__isnull=True))`.
+- Sub-criteria inherit their parent's subject (including `null`).
+
+**Display:** everywhere a criterion's subject is shown (criteria list, approval queue,
+student/parent progress, progress-report email), a `null` subject renders as **"All
+Subjects."**
+
+**Seeding:** the standard Code Wizards behaviour rubric (7 categories ×
+4 sub-points) is a ready-made set of All-Subjects criteria. The idempotent
+`seed_code_wizards_criteria --school <id|slug|name>` management command creates
+them (7 top-level + 28 sub-criteria, `subject=None`, `status=approved`); pass
+`--dry-run` to preview.
+
+**Out of scope for this change:** de-duplicating per-school `Subject` rows (e.g. a
+school-scoped "Mathematics" duplicating the global one) — tracked separately; and
+the 4-level rating rubric (Beginning/Developing/Confident/Advanced), which is a
+follow-up that changes `ProgressRecord.status`.
 
 ---
 
@@ -1013,8 +1049,10 @@ class ProgressCriteria(models.Model):
     ]
 
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='progress_criteria')
-    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='progress_criteria')
-    level = models.ForeignKey(Level, on_delete=models.CASCADE, related_name='progress_criteria')
+    # subject = null → criterion applies to ALL subjects (see §12.6)
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, null=True, blank=True, related_name='progress_criteria')
+    # level = null → applies to all levels for the chosen subject
+    level = models.ForeignKey(Level, on_delete=models.CASCADE, null=True, blank=True, related_name='progress_criteria')
     name = models.CharField(max_length=300)
     description = models.TextField(blank=True)
     order = models.PositiveIntegerField(default=0)
@@ -1156,6 +1194,7 @@ class Package(models.Model):
 | PR-7 | The dashboard suggests the next unachieved criterion in order |
 | PR-8 | Progress comments are displayed in the student dashboard |
 | PR-9 | Different schools can define different criteria for the same Subject + Level |
+| PR-10 | A criterion may have `subject = null` ("All Subjects"); it surfaces in record-progress for every class regardless of subject (see §12.6) |
 
 ### 15.8 Package Rules (Global)
 

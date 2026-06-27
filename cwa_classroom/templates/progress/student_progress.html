@@ -39,7 +39,7 @@
       {% for group in grouped_progress %}
         <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
           <div class="p-5 border-b border-slate-100">
-            <h2 class="font-semibold text-gray-900">{{ group.subject }} — {{ group.level }}</h2>
+            <h2 class="font-semibold text-gray-900">{% if group.subject %}{{ group.subject }}{% else %}All Subjects{% endif %} — {% if group.level %}{{ group.level }}{% else %}All Levels{% endif %}</h2>
             <div class="flex items-center gap-4 mt-2">
               <div class="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
                 {% if group.total > 0 %}

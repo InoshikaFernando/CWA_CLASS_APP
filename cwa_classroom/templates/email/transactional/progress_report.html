@@ -41,7 +41,7 @@
 <!-- Progress by subject & level -->
 {% for group in grouped_progress %}
   <p style="margin:16px 0 6px;font-weight:600;color:#0f172a;font-size:14px;">
-    {{ group.subject }} — {{ group.level }}
+    {% if group.subject %}{{ group.subject }}{% else %}All Subjects{% endif %} — {% if group.level %}{{ group.level }}{% else %}All Levels{% endif %}
     <span style="font-weight:400;color:#64748b;font-size:12px;">({{ group.achieved }}/{{ group.total }} achieved)</span>
   </p>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:8px;">
