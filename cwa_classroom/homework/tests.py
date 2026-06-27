@@ -2789,6 +2789,98 @@ class HomeworkPreviewAddQuestionTest(HomeworkTestBase):
         self.assertEqual(texts, ['edited', '2+2?'])
 
 
+class HomeworkPreviewLargeWorksheetTest(HomeworkTestBase):
+    """A big worksheet must not 400 on submit.
+
+    The preview form posts every question back as ~15 individual fields, so a
+    several-hundred-question PDF used to cross DATA_UPLOAD_MAX_NUMBER_FIELDS and
+    Django's request parser raised TooManyFieldsSent *before the view ran*,
+    surfacing as a bare "Bad Request (400)" with the URL stuck on the preview
+    page (observed in production for session 23). The limit is now sized for
+    large workbooks; this guards against it regressing back down.
+    """
+
+    def test_large_worksheet_submit_does_not_400(self):
+        n = 400  # ~6000 fields — well past the old 5000 ceiling, under the new one.
+        session = HomeworkUploadSession.objects.create(
+            user=self.teacher, school=self.school, pdf_filename='workbook.pdf',
+            status=HomeworkUploadSession.STATUS_DONE,
+            extracted_data={
+                'year_level': 501, 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+                'questions': [
+                    {'question_text': f'Q{i}', 'include': True, 'question_type': 'short_answer'}
+                    for i in range(n)
+                ],
+            },
+            extracted_images={},
+        )
+        self.client.force_login(self.teacher)
+        url = reverse('homework:pdf_preview', kwargs={'session_id': session.pk})
+
+        payload = {'year_level': '501', 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+                   'question_order': ','.join(str(i) for i in range(n))}
+        for i in range(n):
+            pre = f'q_{i}_'
+            payload.update({
+                pre + 'include': 'on', pre + 'image_ref': '',
+                pre + 'text': f'Q{i}', pre + 'type': 'short_answer',
+                pre + 'validation_type': 'auto', pre + 'difficulty': '1', pre + 'points': '1',
+                pre + 'grading_rubric': '', pre + 'explanation': '',
+                pre + 'answer_0_text': 'a', pre + 'answer_0_correct': 'on',
+                pre + 'answer_1_text': 'b', pre + 'answer_2_text': 'c', pre + 'answer_3_text': 'd',
+            })
+
+        resp = self.client.post(url, payload)
+        self.assertEqual(resp.status_code, 302)  # would be 400 with the old limit
+        session.refresh_from_db()
+        self.assertEqual(len(session.extracted_data['questions']), n)
+
+    def test_heavy_text_worksheet_submit_does_not_400(self):
+        """Few questions, but megabytes of text — the body-size twin.
+
+        Raising DATA_UPLOAD_MAX_NUMBER_FIELDS alone did NOT fix prod session 23:
+        the preview form is multipart, so long AI-generated rubrics/explanations
+        push the non-file body past DATA_UPLOAD_MAX_MEMORY_SIZE (default 2.5 MB)
+        and Django raises RequestDataTooBig *before the view runs* — the identical
+        bare 400. This uses only ~40 questions (well under the field ceiling) but
+        ~3.5 MB of text, so it fails iff the memory-size ceiling is too low.
+        """
+        n = 40
+        big = 'x' * 90_000  # ~90 KB per question × 40 ≈ 3.5 MB > old 2.5 MB default
+        session = HomeworkUploadSession.objects.create(
+            user=self.teacher, school=self.school, pdf_filename='heavy.pdf',
+            status=HomeworkUploadSession.STATUS_DONE,
+            extracted_data={
+                'year_level': 501, 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+                'questions': [
+                    {'question_text': f'Q{i}', 'include': True, 'question_type': 'short_answer'}
+                    for i in range(n)
+                ],
+            },
+            extracted_images={},
+        )
+        self.client.force_login(self.teacher)
+        url = reverse('homework:pdf_preview', kwargs={'session_id': session.pk})
+
+        payload = {'year_level': '501', 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+                   'question_order': ','.join(str(i) for i in range(n))}
+        for i in range(n):
+            pre = f'q_{i}_'
+            payload.update({
+                pre + 'include': 'on', pre + 'image_ref': '',
+                pre + 'text': f'Q{i}', pre + 'type': 'short_answer',
+                pre + 'validation_type': 'auto', pre + 'difficulty': '1', pre + 'points': '1',
+                pre + 'grading_rubric': big, pre + 'explanation': big,
+                pre + 'answer_0_text': 'a', pre + 'answer_0_correct': 'on',
+                pre + 'answer_1_text': 'b', pre + 'answer_2_text': 'c', pre + 'answer_3_text': 'd',
+            })
+
+        resp = self.client.post(url, payload)
+        self.assertEqual(resp.status_code, 302)  # would be 400 (RequestDataTooBig) at 2.5 MB
+        session.refresh_from_db()
+        self.assertEqual(len(session.extracted_data['questions']), n)
+
+
 # ---------------------------------------------------------------------------
 # CPP-344 — Homework monitor "All" filter + back-to-All button
 # ---------------------------------------------------------------------------

@@ -1452,9 +1452,21 @@ class ParentLinkApproveView(RoleRequiredMixin, View):
     ]
 
     def post(self, request, request_id):
-        link_request = get_object_or_404(
-            ParentLinkRequest, id=request_id, status=ParentLinkRequest.STATUS_PENDING,
-        )
+        link_request = get_object_or_404(ParentLinkRequest, id=request_id)
+
+        # Idempotent: a re-submit of an already-reviewed request (double-click,
+        # browser back-then-resubmit, or a duplicated request) must not 404 — the
+        # link was already created on the first submit. Filtering on
+        # status=PENDING in the lookup turned that harmless replay into a bare
+        # "Bad Request"-style 404 even though the action had "gone through".
+        if link_request.status != ParentLinkRequest.STATUS_PENDING:
+            if link_request.status == ParentLinkRequest.STATUS_APPROVED:
+                name = link_request.parent.get_full_name() or link_request.parent.username
+                messages.info(request, f'{name} is already linked — that request was approved.')
+            else:
+                messages.info(request, 'That parent link request has already been handled.')
+            return redirect('parent_link_requests')
+
         school = link_request.school_student.school
 
         # Prevent self-approval — a teacher cannot approve their own link request
@@ -1552,9 +1564,14 @@ class ParentLinkRejectView(RoleRequiredMixin, View):
     ]
 
     def post(self, request, request_id):
-        link_request = get_object_or_404(
-            ParentLinkRequest, id=request_id, status=ParentLinkRequest.STATUS_PENDING,
-        )
+        link_request = get_object_or_404(ParentLinkRequest, id=request_id)
+
+        # Idempotent: a re-submit of an already-reviewed request must not 404
+        # (see ParentLinkApproveView for the full rationale).
+        if link_request.status != ParentLinkRequest.STATUS_PENDING:
+            messages.info(request, 'That parent link request has already been handled.')
+            return redirect('parent_link_requests')
+
         school = link_request.school_student.school
 
         is_school_member = (
