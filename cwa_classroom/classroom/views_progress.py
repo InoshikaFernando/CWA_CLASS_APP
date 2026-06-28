@@ -11,6 +11,7 @@ from billing.mixins import ModuleRequiredMixin
 from billing.models import ModuleSubscription
 from .views import RoleRequiredMixin
 from .notifications import create_notification
+from .progress_summary import build_summary
 from .models import (
     School, SchoolTeacher, Subject, Level, ClassRoom, Department,
     ClassStudent, ClassTeacher, DepartmentSubject, Term, ParentStudent,
@@ -1128,8 +1129,31 @@ def _report_parents(student, school):
     )
 
 
+def _apply_report_selection(report, request, classroom=None):
+    """Persist the staff section selection + snapshot the cross-app summary.
+
+    Reads the "include this section" checkboxes (see §12.8). The rubric defaults
+    to on; Homework/Maths/Coding are opt-in. The Homework/Maths/Coding numbers are
+    snapshotted onto the report so the report and the dashboard card stay
+    consistent even as the underlying data changes.
+    """
+    report.include_rubric = bool(request.POST.get('include_rubric'))
+    report.include_homework = bool(request.POST.get('include_homework'))
+    report.include_maths = bool(request.POST.get('include_maths'))
+    report.include_coding = bool(request.POST.get('include_coding'))
+    if classroom is not None:
+        report.classroom = classroom
+    report.summary_snapshot = build_summary(
+        report.student, report.classroom,
+        homework=report.include_homework,
+        maths=report.include_maths,
+        coding=report.include_coding,
+    )
+    report.save()
+
+
 class ProgressReportGenerateView(RoleRequiredMixin, ModuleRequiredMixin, View):
-    """Generate (or refresh) a draft progress report for a student + term."""
+    """Generate (or refresh) a draft progress report for a single student + term."""
     required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
     required_roles = TEACHER_ROLES
 
@@ -1144,6 +1168,11 @@ class ProgressReportGenerateView(RoleRequiredMixin, ModuleRequiredMixin, View):
         term_id = request.POST.get('term') or None
         term = Term.objects.filter(pk=term_id, school=school).first() if term_id else None
 
+        classroom = None
+        class_id = request.POST.get('classroom') or None
+        if class_id:
+            classroom = ClassRoom.objects.filter(pk=class_id, school=school).first()
+
         # Reuse an existing draft for this student/term if present, else create.
         report = (
             ProgressReport.objects
@@ -1155,15 +1184,86 @@ class ProgressReportGenerateView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 student=student, school=school, term=term,
                 generated_by=request.user,
             )
+        _apply_report_selection(report, request, classroom=classroom)
 
         log_event(
             user=request.user, school=school, category='data_change',
             action='progress_report_generated',
             detail={'report_id': report.id, 'student_id': student.id,
-                    'term': term.name if term else None},
+                    'term': term.name if term else None,
+                    'sections': _report_sections(report)},
             request=request,
         )
         return redirect('progress_report_detail', report_id=report.id)
+
+
+def _report_sections(report):
+    """Compact list of the sections a report includes — for logging/UI."""
+    flags = [
+        ('rubric', report.include_rubric), ('homework', report.include_homework),
+        ('maths', report.include_maths), ('coding', report.include_coding),
+    ]
+    return [name for name, on in flags if on]
+
+
+class ProgressReportClassBuilderView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    """Per-class report builder: pick sections once, generate a report per student."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
+    required_roles = TEACHER_ROLES
+
+    def _students(self, classroom):
+        from accounts.models import CustomUser
+        ids = ClassStudent.objects.filter(
+            classroom=classroom, is_active=True,
+        ).values_list('student_id', flat=True)
+        return CustomUser.objects.filter(id__in=ids).order_by(
+            'last_name', 'first_name', 'username',
+        )
+
+    def get(self, request, class_id):
+        classroom = get_object_or_404(ClassRoom, pk=class_id)
+        terms = Term.objects.filter(school=classroom.school).order_by('-start_date')
+        return render(request, 'progress/report_class_builder.html', {
+            'classroom': classroom,
+            'students': self._students(classroom),
+            'terms': terms,
+        })
+
+    def post(self, request, class_id):
+        classroom = get_object_or_404(ClassRoom, pk=class_id)
+        school = classroom.school
+        term_id = request.POST.get('term') or None
+        term = Term.objects.filter(pk=term_id, school=school).first() if term_id else None
+
+        students = self._students(classroom)
+        count = 0
+        for student in students:
+            report = (
+                ProgressReport.objects
+                .filter(student=student, school=school, term=term,
+                        status=ProgressReport.STATUS_DRAFT)
+                .first()
+            )
+            if report is None:
+                report = ProgressReport.objects.create(
+                    student=student, school=school, term=term,
+                    generated_by=request.user,
+                )
+            _apply_report_selection(report, request, classroom=classroom)
+            count += 1
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='progress_reports_class_generated',
+            detail={'classroom_id': classroom.id, 'count': count,
+                    'term': term.name if term else None},
+            request=request,
+        )
+        messages.success(
+            request,
+            f'Generated {count} draft report{"" if count == 1 else "s"} for {classroom.name}.',
+        )
+        return redirect('student_progress_report')
 
 
 class ProgressReportDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):
@@ -1251,6 +1351,7 @@ class ProgressReportSendView(RoleRequiredMixin, ModuleRequiredMixin, View):
                     'student_name': student_name,
                     'school_name': school.name,
                     'term_label': term_label,
+                    'report': report,
                     'overall': overall,
                     'grouped_progress': grouped_progress,
                     'comments': comments,

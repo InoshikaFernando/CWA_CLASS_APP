@@ -749,3 +749,73 @@ class RubricRatingTest(_BaseAttendanceProgressTest):
         self.assertEqual(overall['achieved'], 2)      # advanced + confident
         self.assertEqual(overall['in_progress'], 1)   # developing
         self.assertEqual(overall['not_started'], 1)
+
+
+# ---------------------------------------------------------------------------
+# 8. ReportBuilderTest  (per-class report builder + dashboard card — §12.8)
+# ---------------------------------------------------------------------------
+
+class ReportBuilderTest(_BaseAttendanceProgressTest):
+    """Per-class generation, section selection + snapshot, dashboard summary."""
+
+    def _login_teacher(self):
+        self.client.force_login(self.teacher_user)
+        s = self.client.session
+        s['current_school_id'] = self.school.id
+        s.save()
+
+    def test_class_builder_get_lists_students(self):
+        self._login_teacher()
+        resp = self.client.get(
+            reverse('progress_report_class_builder', kwargs={'class_id': self.classroom.id}),
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(self.student_user, list(resp.context['students']))
+
+    def test_class_builder_generates_report_per_student_with_sections(self):
+        from classroom.models import ProgressReport
+        self._login_teacher()
+        self.client.post(
+            reverse('progress_report_class_builder', kwargs={'class_id': self.classroom.id}),
+            {'include_rubric': 'on', 'include_homework': 'on'},
+        )
+        report = ProgressReport.objects.get(student=self.student_user, school=self.school)
+        self.assertEqual(report.classroom, self.classroom)
+        self.assertTrue(report.include_rubric)
+        self.assertTrue(report.include_homework)
+        self.assertFalse(report.include_maths)
+        # Homework section was ticked → snapshot carries the homework summary.
+        self.assertIn('homework', report.summary_snapshot)
+        self.assertNotIn('maths', report.summary_snapshot)
+
+    def test_per_student_generate_persists_selection(self):
+        from classroom.models import ProgressReport
+        self._login_teacher()
+        self.client.post(
+            reverse('progress_report_generate', kwargs={'student_id': self.student_user.id}),
+            {'include_rubric': 'on', 'include_maths': 'on',
+             'classroom': self.classroom.id},
+        )
+        report = ProgressReport.objects.get(student=self.student_user)
+        self.assertTrue(report.include_maths)
+        self.assertFalse(report.include_homework)
+        self.assertIn('maths', report.summary_snapshot)
+
+    def test_dashboard_shows_report_summary(self):
+        from classroom.models import ProgressReport
+        ProgressReport.objects.create(
+            student=self.student_user, school=self.school,
+            classroom=self.classroom, include_rubric=True,
+            include_homework=True,
+            summary_snapshot={'homework': {'assigned': 0, 'completed': 0,
+                                           'completion_pct': 0, 'average_pct': 0}},
+            generated_by=self.teacher_user,
+        )
+        self.client.force_login(self.student_user)
+        s = self.client.session
+        s['current_school_id'] = self.school.id
+        s.save()
+        resp = self.client.get(reverse('student_dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'My Progress Summary')
+        self.assertEqual(resp.context['progress_report'].include_homework, True)
