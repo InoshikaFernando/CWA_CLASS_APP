@@ -1,45 +1,150 @@
 {% comment %}
   Cross-app summary sections for a progress report / dashboard card (§12.8).
-  Expects `report` in context (a ProgressReport with include_* flags +
-  summary_snapshot). Renders only the sections staff ticked. Shared by
-  report_detail.html, the parent email, and the student dashboard card.
+  Expects `report` in context (a ProgressReport with a summary_snapshot). Renders
+  only the sections present in the snapshot — i.e. the ones staff ticked. Homework
+  and Worksheets each render either a "summary" or a "selected items" block per
+  their stored mode. Shared by report_detail.html, the dashboard card, the preview
+  and (a trimmed variant) the parent email.
 {% endcomment %}
 {% with s=report.summary_snapshot %}
-  {% if report.include_homework and s.homework %}
+
+  {% if s.homework %}
     <div class="border border-slate-200 rounded-xl mt-4">
-      <div class="p-4 border-b border-slate-100">
-        <h2 class="font-semibold text-gray-900">Homework</h2>
-      </div>
-      <div class="grid grid-cols-3 gap-4 p-4 text-center">
-        <div><p class="text-xl font-bold text-gray-900">{{ s.homework.completion_pct }}%</p><p class="text-xs text-gray-500">Completed</p></div>
-        <div><p class="text-xl font-bold text-gray-900">{{ s.homework.completed }}/{{ s.homework.assigned }}</p><p class="text-xs text-gray-500">Homeworks</p></div>
-        <div><p class="text-xl font-bold text-emerald-600">{{ s.homework.average_pct }}%</p><p class="text-xs text-gray-500">Avg. score</p></div>
-      </div>
+      <div class="p-4 border-b border-slate-100"><h2 class="font-semibold text-gray-900">Homework</h2></div>
+      {% if s.homework.mode == 'selected' %}
+        <div class="divide-y divide-slate-50">
+          {% for item in s.homework.items %}
+            <div class="flex items-center justify-between px-4 py-2.5">
+              <p class="text-sm text-gray-700">{{ item.title }}</p>
+              {% if item.attempted %}<span class="text-sm font-semibold text-emerald-600">{{ item.pct }}%</span>
+              {% else %}<span class="text-xs text-gray-400">Not attempted</span>{% endif %}
+            </div>
+          {% empty %}
+            <p class="px-4 py-3 text-sm text-gray-400">No homework selected.</p>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="grid grid-cols-3 gap-4 p-4 text-center">
+          <div><p class="text-xl font-bold text-gray-900">{{ s.homework.completion_pct }}%</p><p class="text-xs text-gray-500">Completed</p></div>
+          <div><p class="text-xl font-bold text-gray-900">{{ s.homework.completed }}/{{ s.homework.assigned }}</p><p class="text-xs text-gray-500">Homeworks</p></div>
+          <div><p class="text-xl font-bold text-emerald-600">{{ s.homework.average_pct }}%</p><p class="text-xs text-gray-500">Avg. score</p></div>
+        </div>
+      {% endif %}
     </div>
   {% endif %}
 
-  {% if report.include_maths and s.maths %}
+  {% if s.worksheets %}
     <div class="border border-slate-200 rounded-xl mt-4">
-      <div class="p-4 border-b border-slate-100">
-        <h2 class="font-semibold text-gray-900">Mathematics</h2>
-      </div>
+      <div class="p-4 border-b border-slate-100"><h2 class="font-semibold text-gray-900">Worksheets</h2></div>
+      {% if s.worksheets.mode == 'selected' %}
+        <div class="divide-y divide-slate-50">
+          {% for item in s.worksheets.items %}
+            <div class="flex items-center justify-between px-4 py-2.5">
+              <p class="text-sm text-gray-700">{{ item.title }}</p>
+              {% if item.attempted %}<span class="text-sm font-semibold text-emerald-600">{{ item.pct }}%</span>
+              {% else %}<span class="text-xs text-gray-400">Not attempted</span>{% endif %}
+            </div>
+          {% empty %}
+            <p class="px-4 py-3 text-sm text-gray-400">No worksheets selected.</p>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="grid grid-cols-3 gap-4 p-4 text-center">
+          <div><p class="text-xl font-bold text-gray-900">{{ s.worksheets.completion_pct }}%</p><p class="text-xs text-gray-500">Completed</p></div>
+          <div><p class="text-xl font-bold text-gray-900">{{ s.worksheets.completed }}/{{ s.worksheets.assigned }}</p><p class="text-xs text-gray-500">Worksheets</p></div>
+          <div><p class="text-xl font-bold text-emerald-600">{{ s.worksheets.average_pct }}%</p><p class="text-xs text-gray-500">Avg. score</p></div>
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if s.maths %}
+    <div class="border border-slate-200 rounded-xl mt-4">
+      <div class="p-4 border-b border-slate-100"><h2 class="font-semibold text-gray-900">Mathematics</h2></div>
       <div class="grid grid-cols-3 gap-4 p-4 text-center">
         <div><p class="text-xl font-bold text-gray-900">{{ s.maths.topics_attempted }}</p><p class="text-xs text-gray-500">Topics attempted</p></div>
         <div><p class="text-xl font-bold text-emerald-600">{{ s.maths.average_pct }}%</p><p class="text-xs text-gray-500">Avg. best score</p></div>
         <div><p class="text-xl font-bold text-gray-900">{{ s.maths.basic_facts_levels }}</p><p class="text-xs text-gray-500">Basic-facts levels</p></div>
       </div>
+
+      {% if s.maths.times_tables %}
+        <div class="px-4 pb-4">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Times tables</p>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {% for tt in s.maths.times_tables %}
+              <div class="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-1.5 text-sm">
+                <span class="font-medium text-gray-700">×/÷ {{ tt.table }}</span>
+                <span class="text-gray-500">
+                  {% if tt.multiplication_pct != None %}×{{ tt.multiplication_pct }}%{% else %}×—{% endif %}
+                  ·
+                  {% if tt.division_pct != None %}÷{{ tt.division_pct }}%{% else %}÷—{% endif %}
+                </span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
+      {% if s.maths.topics %}
+        <div class="px-4 pb-4">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Quiz topics</p>
+          <div class="divide-y divide-slate-50">
+            {% for t in s.maths.topics %}
+              <div class="flex items-center justify-between py-1.5 text-sm">
+                <span class="text-gray-700">{{ t.name }}</span>
+                <span class="font-semibold text-emerald-600">{{ t.best_pct }}%</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
+      {% if s.maths.basic_facts %}
+        <div class="px-4 pb-4">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Basic facts</p>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {% for bf in s.maths.basic_facts %}
+              <div class="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-1.5 text-sm">
+                <span class="font-medium text-gray-700">{{ bf.subtopic }}</span>
+                <span class="font-semibold text-emerald-600">{{ bf.best_pct }}%</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
     </div>
   {% endif %}
 
-  {% if report.include_coding and s.coding %}
+  {% if s.coding %}
     <div class="border border-slate-200 rounded-xl mt-4">
-      <div class="p-4 border-b border-slate-100">
-        <h2 class="font-semibold text-gray-900">Coding</h2>
-      </div>
-      <div class="grid grid-cols-2 gap-4 p-4 text-center">
-        <div><p class="text-xl font-bold text-gray-900">{{ s.coding.exercises_completed }}</p><p class="text-xs text-gray-500">Exercises completed</p></div>
-        <div><p class="text-xl font-bold text-gray-900">{{ s.coding.problems_solved }}</p><p class="text-xs text-gray-500">Problems solved</p></div>
-      </div>
+      <div class="p-4 border-b border-slate-100"><h2 class="font-semibold text-gray-900">Coding</h2></div>
+      {% if s.coding.mode == 'selected' %}
+        <div class="p-4 space-y-4">
+          {% for lang in s.coding.languages %}
+            <div>
+              <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{{ lang.name }}</p>
+              <div class="divide-y divide-slate-50">
+                {% for t in lang.topics %}
+                  <div class="flex items-center justify-between py-1.5 text-sm">
+                    <span class="text-gray-700">{{ t.name }}</span>
+                    <span class="text-gray-500">{{ t.completed }}/{{ t.total }} <span class="font-semibold text-emerald-600">({{ t.pct }}%)</span></span>
+                  </div>
+                {% empty %}
+                  <p class="py-1.5 text-xs text-gray-400">No exercises in this language.</p>
+                {% endfor %}
+              </div>
+            </div>
+          {% empty %}
+            <p class="text-sm text-gray-400">No languages selected.</p>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="grid grid-cols-2 gap-4 p-4 text-center">
+          <div><p class="text-xl font-bold text-gray-900">{{ s.coding.exercises_completed }}</p><p class="text-xs text-gray-500">Exercises completed</p></div>
+          <div><p class="text-xl font-bold text-gray-900">{{ s.coding.problems_solved }}</p><p class="text-xs text-gray-500">Problems solved</p></div>
+        </div>
+      {% endif %}
     </div>
   {% endif %}
+
 {% endwith %}

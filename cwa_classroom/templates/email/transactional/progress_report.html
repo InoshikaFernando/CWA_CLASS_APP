@@ -57,20 +57,53 @@
 {% endif %}{# include_rubric #}
 
 {% with s=report.summary_snapshot %}
-{% if report.include_homework and s.homework %}
+{% if s.homework %}
   <p style="margin:16px 0 6px;font-weight:600;color:#0f172a;font-size:14px;">Homework
-    <span style="font-weight:400;color:#64748b;font-size:12px;">({{ s.homework.completion_pct }}% completed · {{ s.homework.average_pct }}% avg.)</span>
+    {% if s.homework.mode == 'selected' %}
+      <span style="font-weight:400;color:#64748b;font-size:12px;">({{ s.homework.items|length }} selected)</span>
+    {% else %}
+      <span style="font-weight:400;color:#64748b;font-size:12px;">({{ s.homework.completion_pct }}% completed · {{ s.homework.average_pct }}% avg.)</span>
+    {% endif %}
   </p>
+  {% if s.homework.mode == 'selected' %}
+    {% for item in s.homework.items %}
+      <p style="margin:0 0 2px;color:#334155;font-size:13px;">{{ item.title }} — {% if item.attempted %}{{ item.pct }}%{% else %}Not attempted{% endif %}</p>
+    {% endfor %}
+  {% endif %}
 {% endif %}
-{% if report.include_maths and s.maths %}
+{% if s.worksheets %}
+  <p style="margin:16px 0 6px;font-weight:600;color:#0f172a;font-size:14px;">Worksheets
+    {% if s.worksheets.mode == 'selected' %}
+      <span style="font-weight:400;color:#64748b;font-size:12px;">({{ s.worksheets.items|length }} selected)</span>
+    {% else %}
+      <span style="font-weight:400;color:#64748b;font-size:12px;">({{ s.worksheets.completion_pct }}% completed · {{ s.worksheets.average_pct }}% avg.)</span>
+    {% endif %}
+  </p>
+  {% if s.worksheets.mode == 'selected' %}
+    {% for item in s.worksheets.items %}
+      <p style="margin:0 0 2px;color:#334155;font-size:13px;">{{ item.title }} — {% if item.attempted %}{{ item.pct }}%{% else %}Not attempted{% endif %}</p>
+    {% endfor %}
+  {% endif %}
+{% endif %}
+{% if s.maths %}
   <p style="margin:16px 0 6px;font-weight:600;color:#0f172a;font-size:14px;">Mathematics
     <span style="font-weight:400;color:#64748b;font-size:12px;">({{ s.maths.topics_attempted }} topics · {{ s.maths.average_pct }}% avg. best)</span>
   </p>
 {% endif %}
-{% if report.include_coding and s.coding %}
+{% if s.coding %}
   <p style="margin:16px 0 6px;font-weight:600;color:#0f172a;font-size:14px;">Coding
-    <span style="font-weight:400;color:#64748b;font-size:12px;">({{ s.coding.exercises_completed }} exercises · {{ s.coding.problems_solved }} problems solved)</span>
+    {% if s.coding.mode != 'selected' %}
+      <span style="font-weight:400;color:#64748b;font-size:12px;">({{ s.coding.exercises_completed }} exercises · {{ s.coding.problems_solved }} problems solved)</span>
+    {% endif %}
   </p>
+  {% if s.coding.mode == 'selected' %}
+    {% for lang in s.coding.languages %}
+      <p style="margin:6px 0 2px;font-weight:600;color:#334155;font-size:13px;">{{ lang.name }}</p>
+      {% for t in lang.topics %}
+        <p style="margin:0 0 2px;color:#334155;font-size:13px;">{{ t.name }} — {{ t.completed }}/{{ t.total }} ({{ t.pct }}%)</p>
+      {% endfor %}
+    {% endfor %}
+  {% endif %}
 {% endif %}
 {% endwith %}
 
