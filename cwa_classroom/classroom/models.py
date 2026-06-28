@@ -1403,7 +1403,8 @@ class ProgressCriteria(models.Model):
         ('rejected', 'Rejected'),
     ]
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='progress_criteria')
-    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='progress_criteria')
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, null=True, blank=True, related_name='progress_criteria',
+                                help_text='Null = applies to all subjects.')
     level = models.ForeignKey(Level, on_delete=models.CASCADE, null=True, blank=True, related_name='progress_criteria',
                               help_text='Null = applies to all levels for the chosen subject.')
     parent = models.ForeignKey(
@@ -1439,7 +1440,8 @@ class ProgressCriteria(models.Model):
 
     def __str__(self):
         level_name = self.level.display_name if self.level else 'All Levels'
-        return f'{self.name} ({self.subject.name} — {level_name})'
+        subject_name = self.subject.name if self.subject else 'All Subjects'
+        return f'{self.name} ({subject_name} — {level_name})'
 
 
 class ProgressRecord(models.Model):

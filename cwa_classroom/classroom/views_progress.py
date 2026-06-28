@@ -31,6 +31,17 @@ TEACHER_ROLES = [
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _criteria_scope_label(criteria):
+    """Human label for a criterion's scope, e.g. 'Mathematics - Year 5'.
+
+    A null subject renders as 'All Subjects' and a null level as 'All Levels'
+    (see §12.6), so this is safe for subject-agnostic / all-level criteria.
+    """
+    subject = criteria.subject.name if criteria.subject else 'All Subjects'
+    level = criteria.level.display_name if criteria.level else 'All Levels'
+    return f'{subject} - {level}'
+
+
 def _get_school_or_redirect(request):
     """
     Return the School for the current session, or None if missing.
@@ -133,7 +144,11 @@ def _build_student_progress(student):
 
     grouped_progress = sorted(
         grouped.values(),
-        key=lambda g: (g['subject'].name, g['level'].level_number),
+        # All-Subjects (subject=None) and All-Levels (level=None) sort first.
+        key=lambda g: (
+            g['subject'].name if g['subject'] else '',
+            g['level'].level_number if g['level'] else -1,
+        ),
     )
 
     overall = {
@@ -256,12 +271,16 @@ class ProgressCriteriaListView(RoleRequiredMixin, ModuleRequiredMixin, View):
         level_id = request.POST.get('level')  # empty = All Levels
         parent_id = request.POST.get('parent')
 
-        if not name or not subject_id:
-            messages.error(request, 'Subject and name are required.')
+        if not name:
+            messages.error(request, 'Name is required.')
             return redirect('progress_criteria_list')
 
-        subject = get_object_or_404(Subject, pk=subject_id)
-        level = get_object_or_404(Level, pk=level_id) if level_id else None
+        # subject_id empty / 'all' → All Subjects (subject=None). See §12.6.
+        subject = None
+        if subject_id and subject_id != 'all':
+            subject = get_object_or_404(Subject, pk=subject_id)
+        # A level is meaningless without a subject (levels are subject-scoped).
+        level = get_object_or_404(Level, pk=level_id) if (level_id and subject) else None
 
         try:
             order_val = int(order)
@@ -289,7 +308,7 @@ class ProgressCriteriaListView(RoleRequiredMixin, ModuleRequiredMixin, View):
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='progress_criteria_edited',
-                detail={'criteria_id': criteria.id, 'name': name, 'subject': subject.name,
+                detail={'criteria_id': criteria.id, 'name': name, 'subject': subject.name if subject else 'All Subjects',
                         'level': level.display_name if level else None},
                 request=request,
             )
@@ -313,7 +332,7 @@ class ProgressCriteriaListView(RoleRequiredMixin, ModuleRequiredMixin, View):
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='progress_criteria_created',
-                detail={'criteria_id': new_criteria.id, 'name': name, 'subject': subject.name,
+                detail={'criteria_id': new_criteria.id, 'name': name, 'subject': subject.name if subject else 'All Subjects',
                         'level': level.display_name if level else None,
                         'auto_approved': auto_approve},
                 request=request,
@@ -412,16 +431,20 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, ModuleRequiredMixin, View):
         else:
             subject_id = request.POST.get('subject')
             level_id = request.POST.get('level')  # empty string = "All Levels"
-            if not name or not subject_id:
-                return _rerender('Subject and name are required.', {
+            if not name:
+                return _rerender('Name is required.', {
                     'subject': subject_id,
                     'level': level_id,
                     'name': name,
                     'description': description,
                     'order': order,
                 })
-            subject = get_object_or_404(Subject, pk=subject_id)
-            level = get_object_or_404(Level, pk=level_id) if level_id else None
+            # subject_id empty / 'all' → All Subjects (subject=None). See §12.6.
+            subject = None
+            if subject_id and subject_id != 'all':
+                subject = get_object_or_404(Subject, pk=subject_id)
+            # A level is meaningless without a subject (levels are subject-scoped).
+            level = get_object_or_404(Level, pk=level_id) if (level_id and subject) else None
 
         if not name:
             return _rerender('Name is required.', {
@@ -459,7 +482,7 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, ModuleRequiredMixin, View):
         log_event(
             user=request.user, school=school, category='data_change',
             action='progress_criteria_created',
-            detail={'criteria_id': criteria.id, 'name': name, 'subject': subject.name,
+            detail={'criteria_id': criteria.id, 'name': name, 'subject': subject.name if subject else 'All Subjects',
                     'level': level.display_name if level else None,
                     'parent_id': parent_criteria.id if parent_criteria else None,
                     'auto_approved': auto_approve},
@@ -500,7 +523,7 @@ class ProgressCriteriaSubmitView(RoleRequiredMixin, ModuleRequiredMixin, View):
             user=request.user, school=criteria.school, category='data_change',
             action='progress_criteria_submitted',
             detail={'criteria_id': criteria.id, 'name': criteria.name,
-                    'subject': criteria.subject.name,
+                    'subject': criteria.subject.name if criteria.subject else None,
                     'level': criteria.level.display_name if criteria.level else None},
             request=request,
         )
@@ -518,7 +541,7 @@ class ProgressCriteriaSubmitView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 message=(
                     f'{request.user.get_full_name() or request.user.username} '
                     f'submitted criteria "{criteria.name}" '
-                    f'({criteria.subject.name} - {criteria.level.display_name}) '
+                    f'({_criteria_scope_label(criteria)}) '
                     f'for approval.'
                 ),
                 notification_type='criteria_approval',
@@ -581,7 +604,7 @@ class ProgressCriteriaApproveView(RoleRequiredMixin, ModuleRequiredMixin, View):
             user=request.user, school=criteria.school, category='data_change',
             action='progress_criteria_approved',
             detail={'criteria_id': criteria.id, 'name': criteria.name,
-                    'subject': criteria.subject.name,
+                    'subject': criteria.subject.name if criteria.subject else None,
                     'level': criteria.level.display_name if criteria.level else None,
                     'created_by': criteria.created_by.username if criteria.created_by else None},
             request=request,
@@ -593,7 +616,7 @@ class ProgressCriteriaApproveView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 user=criteria.created_by,
                 message=(
                     f'Your criteria "{criteria.name}" '
-                    f'({criteria.subject.name} - {criteria.level.display_name}) '
+                    f'({_criteria_scope_label(criteria)}) '
                     f'has been approved by '
                     f'{request.user.get_full_name() or request.user.username}.'
                 ),
@@ -627,7 +650,7 @@ class ProgressCriteriaRejectView(RoleRequiredMixin, ModuleRequiredMixin, View):
             user=request.user, school=criteria.school, category='data_change',
             action='progress_criteria_rejected',
             detail={'criteria_id': criteria.id, 'name': criteria.name,
-                    'subject': criteria.subject.name,
+                    'subject': criteria.subject.name if criteria.subject else None,
                     'level': criteria.level.display_name if criteria.level else None,
                     'created_by': criteria.created_by.username if criteria.created_by else None},
             request=request,
@@ -639,7 +662,7 @@ class ProgressCriteriaRejectView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 user=criteria.created_by,
                 message=(
                     f'Your criteria "{criteria.name}" '
-                    f'({criteria.subject.name} - {criteria.level.display_name}) '
+                    f'({_criteria_scope_label(criteria)}) '
                     f'has been rejected by '
                     f'{request.user.get_full_name() or request.user.username}.'
                 ),
@@ -673,7 +696,10 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
             status='approved',
         )
         if classroom.subject:
-            criteria_qs = criteria_qs.filter(subject=classroom.subject)
+            # Include All-Subjects criteria (subject=null) for every class. See §12.6.
+            criteria_qs = criteria_qs.filter(
+                Q(subject=classroom.subject) | Q(subject__isnull=True)
+            )
         if classroom.levels.exists():
             criteria_qs = criteria_qs.filter(
                 Q(level__in=classroom.levels.all()) | Q(level__isnull=True)
@@ -744,7 +770,10 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
             status='approved',
         )
         if classroom.subject:
-            criteria_qs = criteria_qs.filter(subject=classroom.subject)
+            # Include All-Subjects criteria (subject=null) for every class. See §12.6.
+            criteria_qs = criteria_qs.filter(
+                Q(subject=classroom.subject) | Q(subject__isnull=True)
+            )
         if classroom.levels.exists():
             criteria_qs = criteria_qs.filter(
                 Q(level__in=classroom.levels.all()) | Q(level__isnull=True)

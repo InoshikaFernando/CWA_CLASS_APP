@@ -71,7 +71,7 @@
         {% for group in grouped_progress %}
           <div class="border border-slate-200 rounded-xl">
             <div class="p-4 border-b border-slate-100 flex items-center justify-between">
-              <h2 class="font-semibold text-gray-900">{{ group.subject }} — {{ group.level }}</h2>
+              <h2 class="font-semibold text-gray-900">{% if group.subject %}{{ group.subject }}{% else %}All Subjects{% endif %} — {% if group.level %}{{ group.level }}{% else %}All Levels{% endif %}</h2>
               <span class="text-xs text-gray-500">{{ group.achieved }}/{{ group.total }} achieved</span>
             </div>
             <div class="divide-y divide-slate-50">
