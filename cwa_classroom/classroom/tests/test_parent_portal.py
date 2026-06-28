@@ -133,7 +133,7 @@ class ParentPortalTestBase(TestCase):
         )
         cls.progress_record = ProgressRecord.objects.create(
             student=cls.student, criteria=cls.criteria,
-            status='achieved', recorded_by=cls.admin_user,
+            status='advanced', recorded_by=cls.admin_user,
         )
 
 
@@ -306,7 +306,8 @@ class ParentProgressTest(ParentPortalTestBase):
 
     def test_progress_shows_achieved_status(self):
         resp = self.client.get(reverse('parent_progress'))
-        self.assertContains(resp, 'Achieved')
+        # Rubric label for the 'advanced' record (§12.7).
+        self.assertContains(resp, 'Advanced')
 
     def test_progress_shows_overall_stats(self):
         resp = self.client.get(reverse('parent_progress'))

@@ -11,6 +11,7 @@ from billing.mixins import ModuleRequiredMixin
 from billing.models import ModuleSubscription
 from .views import RoleRequiredMixin
 from .notifications import create_notification
+from .progress_summary import build_summary
 from .models import (
     School, SchoolTeacher, Subject, Level, ClassRoom, Department,
     ClassStudent, ClassTeacher, DepartmentSubject, Term, ParentStudent,
@@ -30,6 +31,17 @@ TEACHER_ROLES = [
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _criteria_scope_label(criteria):
+    """Human label for a criterion's scope, e.g. 'Mathematics - Year 5'.
+
+    A null subject renders as 'All Subjects' and a null level as 'All Levels'
+    (see §12.6), so this is safe for subject-agnostic / all-level criteria.
+    """
+    subject = criteria.subject.name if criteria.subject else 'All Subjects'
+    level = criteria.level.display_name if criteria.level else 'All Levels'
+    return f'{subject} - {level}'
+
 
 def _get_school_or_redirect(request):
     """
@@ -126,20 +138,29 @@ def _build_student_progress(student):
             }
         grouped[key]['records'].append(record)
 
+    # 'achieved' = proficient bucket (Confident + Advanced); 'in_progress' =
+    # developing bucket (Beginning + Developing). See §12.7.
+    _PROFICIENT = ProgressRecord.PROFICIENT_STATUSES
+    _DEVELOPING = ProgressRecord.DEVELOPING_STATUSES
+
     for group_data in grouped.values():
         recs = group_data['records']
         group_data['total'] = len(recs)
-        group_data['achieved'] = sum(1 for r in recs if r.status == 'achieved')
+        group_data['achieved'] = sum(1 for r in recs if r.status in _PROFICIENT)
 
     grouped_progress = sorted(
         grouped.values(),
-        key=lambda g: (g['subject'].name, g['level'].level_number),
+        # All-Subjects (subject=None) and All-Levels (level=None) sort first.
+        key=lambda g: (
+            g['subject'].name if g['subject'] else '',
+            g['level'].level_number if g['level'] else -1,
+        ),
     )
 
     overall = {
         'total': len(latest_ids),
-        'achieved': sum(1 for r in records if r.status == 'achieved'),
-        'in_progress': sum(1 for r in records if r.status == 'in_progress'),
+        'achieved': sum(1 for r in records if r.status in _PROFICIENT),
+        'in_progress': sum(1 for r in records if r.status in _DEVELOPING),
         'not_started': sum(1 for r in records if r.status == 'not_started'),
     }
     return grouped_progress, overall
@@ -256,12 +277,16 @@ class ProgressCriteriaListView(RoleRequiredMixin, ModuleRequiredMixin, View):
         level_id = request.POST.get('level')  # empty = All Levels
         parent_id = request.POST.get('parent')
 
-        if not name or not subject_id:
-            messages.error(request, 'Subject and name are required.')
+        if not name:
+            messages.error(request, 'Name is required.')
             return redirect('progress_criteria_list')
 
-        subject = get_object_or_404(Subject, pk=subject_id)
-        level = get_object_or_404(Level, pk=level_id) if level_id else None
+        # subject_id empty / 'all' → All Subjects (subject=None). See §12.6.
+        subject = None
+        if subject_id and subject_id != 'all':
+            subject = get_object_or_404(Subject, pk=subject_id)
+        # A level is meaningless without a subject (levels are subject-scoped).
+        level = get_object_or_404(Level, pk=level_id) if (level_id and subject) else None
 
         try:
             order_val = int(order)
@@ -289,7 +314,7 @@ class ProgressCriteriaListView(RoleRequiredMixin, ModuleRequiredMixin, View):
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='progress_criteria_edited',
-                detail={'criteria_id': criteria.id, 'name': name, 'subject': subject.name,
+                detail={'criteria_id': criteria.id, 'name': name, 'subject': subject.name if subject else 'All Subjects',
                         'level': level.display_name if level else None},
                 request=request,
             )
@@ -313,7 +338,7 @@ class ProgressCriteriaListView(RoleRequiredMixin, ModuleRequiredMixin, View):
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='progress_criteria_created',
-                detail={'criteria_id': new_criteria.id, 'name': name, 'subject': subject.name,
+                detail={'criteria_id': new_criteria.id, 'name': name, 'subject': subject.name if subject else 'All Subjects',
                         'level': level.display_name if level else None,
                         'auto_approved': auto_approve},
                 request=request,
@@ -412,16 +437,20 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, ModuleRequiredMixin, View):
         else:
             subject_id = request.POST.get('subject')
             level_id = request.POST.get('level')  # empty string = "All Levels"
-            if not name or not subject_id:
-                return _rerender('Subject and name are required.', {
+            if not name:
+                return _rerender('Name is required.', {
                     'subject': subject_id,
                     'level': level_id,
                     'name': name,
                     'description': description,
                     'order': order,
                 })
-            subject = get_object_or_404(Subject, pk=subject_id)
-            level = get_object_or_404(Level, pk=level_id) if level_id else None
+            # subject_id empty / 'all' → All Subjects (subject=None). See §12.6.
+            subject = None
+            if subject_id and subject_id != 'all':
+                subject = get_object_or_404(Subject, pk=subject_id)
+            # A level is meaningless without a subject (levels are subject-scoped).
+            level = get_object_or_404(Level, pk=level_id) if (level_id and subject) else None
 
         if not name:
             return _rerender('Name is required.', {
@@ -459,7 +488,7 @@ class ProgressCriteriaCreateView(RoleRequiredMixin, ModuleRequiredMixin, View):
         log_event(
             user=request.user, school=school, category='data_change',
             action='progress_criteria_created',
-            detail={'criteria_id': criteria.id, 'name': name, 'subject': subject.name,
+            detail={'criteria_id': criteria.id, 'name': name, 'subject': subject.name if subject else 'All Subjects',
                     'level': level.display_name if level else None,
                     'parent_id': parent_criteria.id if parent_criteria else None,
                     'auto_approved': auto_approve},
@@ -500,7 +529,7 @@ class ProgressCriteriaSubmitView(RoleRequiredMixin, ModuleRequiredMixin, View):
             user=request.user, school=criteria.school, category='data_change',
             action='progress_criteria_submitted',
             detail={'criteria_id': criteria.id, 'name': criteria.name,
-                    'subject': criteria.subject.name,
+                    'subject': criteria.subject.name if criteria.subject else None,
                     'level': criteria.level.display_name if criteria.level else None},
             request=request,
         )
@@ -518,7 +547,7 @@ class ProgressCriteriaSubmitView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 message=(
                     f'{request.user.get_full_name() or request.user.username} '
                     f'submitted criteria "{criteria.name}" '
-                    f'({criteria.subject.name} - {criteria.level.display_name}) '
+                    f'({_criteria_scope_label(criteria)}) '
                     f'for approval.'
                 ),
                 notification_type='criteria_approval',
@@ -581,7 +610,7 @@ class ProgressCriteriaApproveView(RoleRequiredMixin, ModuleRequiredMixin, View):
             user=request.user, school=criteria.school, category='data_change',
             action='progress_criteria_approved',
             detail={'criteria_id': criteria.id, 'name': criteria.name,
-                    'subject': criteria.subject.name,
+                    'subject': criteria.subject.name if criteria.subject else None,
                     'level': criteria.level.display_name if criteria.level else None,
                     'created_by': criteria.created_by.username if criteria.created_by else None},
             request=request,
@@ -593,7 +622,7 @@ class ProgressCriteriaApproveView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 user=criteria.created_by,
                 message=(
                     f'Your criteria "{criteria.name}" '
-                    f'({criteria.subject.name} - {criteria.level.display_name}) '
+                    f'({_criteria_scope_label(criteria)}) '
                     f'has been approved by '
                     f'{request.user.get_full_name() or request.user.username}.'
                 ),
@@ -627,7 +656,7 @@ class ProgressCriteriaRejectView(RoleRequiredMixin, ModuleRequiredMixin, View):
             user=request.user, school=criteria.school, category='data_change',
             action='progress_criteria_rejected',
             detail={'criteria_id': criteria.id, 'name': criteria.name,
-                    'subject': criteria.subject.name,
+                    'subject': criteria.subject.name if criteria.subject else None,
                     'level': criteria.level.display_name if criteria.level else None,
                     'created_by': criteria.created_by.username if criteria.created_by else None},
             request=request,
@@ -639,7 +668,7 @@ class ProgressCriteriaRejectView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 user=criteria.created_by,
                 message=(
                     f'Your criteria "{criteria.name}" '
-                    f'({criteria.subject.name} - {criteria.level.display_name}) '
+                    f'({_criteria_scope_label(criteria)}) '
                     f'has been rejected by '
                     f'{request.user.get_full_name() or request.user.username}.'
                 ),
@@ -673,7 +702,10 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
             status='approved',
         )
         if classroom.subject:
-            criteria_qs = criteria_qs.filter(subject=classroom.subject)
+            # Include All-Subjects criteria (subject=null) for every class. See §12.6.
+            criteria_qs = criteria_qs.filter(
+                Q(subject=classroom.subject) | Q(subject__isnull=True)
+            )
         if classroom.levels.exists():
             criteria_qs = criteria_qs.filter(
                 Q(level__in=classroom.levels.all()) | Q(level__isnull=True)
@@ -744,7 +776,10 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
             status='approved',
         )
         if classroom.subject:
-            criteria_qs = criteria_qs.filter(subject=classroom.subject)
+            # Include All-Subjects criteria (subject=null) for every class. See §12.6.
+            criteria_qs = criteria_qs.filter(
+                Q(subject=classroom.subject) | Q(subject__isnull=True)
+            )
         if classroom.levels.exists():
             criteria_qs = criteria_qs.filter(
                 Q(level__in=classroom.levels.all()) | Q(level__isnull=True)
@@ -945,8 +980,10 @@ class StudentProgressReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
             latest_ids = [r['latest_id'] for r in latest_ids_qs]
             records = ProgressRecord.objects.filter(id__in=latest_ids)
             total = len(latest_ids)
-            achieved = sum(1 for r in records if r.status == 'achieved')
-            in_progress_count = sum(1 for r in records if r.status == 'in_progress')
+            # 'achieved' = proficient (Confident+Advanced); 'in_progress' =
+            # developing (Beginning+Developing). See §12.7.
+            achieved = sum(1 for r in records if r.status in ProgressRecord.PROFICIENT_STATUSES)
+            in_progress_count = sum(1 for r in records if r.status in ProgressRecord.DEVELOPING_STATUSES)
             not_started = sum(1 for r in records if r.status == 'not_started')
 
             # Get student's classes and department
@@ -1092,8 +1129,31 @@ def _report_parents(student, school):
     )
 
 
+def _apply_report_selection(report, request, classroom=None):
+    """Persist the staff section selection + snapshot the cross-app summary.
+
+    Reads the "include this section" checkboxes (see §12.8). The rubric defaults
+    to on; Homework/Maths/Coding are opt-in. The Homework/Maths/Coding numbers are
+    snapshotted onto the report so the report and the dashboard card stay
+    consistent even as the underlying data changes.
+    """
+    report.include_rubric = bool(request.POST.get('include_rubric'))
+    report.include_homework = bool(request.POST.get('include_homework'))
+    report.include_maths = bool(request.POST.get('include_maths'))
+    report.include_coding = bool(request.POST.get('include_coding'))
+    if classroom is not None:
+        report.classroom = classroom
+    report.summary_snapshot = build_summary(
+        report.student, report.classroom,
+        homework=report.include_homework,
+        maths=report.include_maths,
+        coding=report.include_coding,
+    )
+    report.save()
+
+
 class ProgressReportGenerateView(RoleRequiredMixin, ModuleRequiredMixin, View):
-    """Generate (or refresh) a draft progress report for a student + term."""
+    """Generate (or refresh) a draft progress report for a single student + term."""
     required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
     required_roles = TEACHER_ROLES
 
@@ -1108,6 +1168,11 @@ class ProgressReportGenerateView(RoleRequiredMixin, ModuleRequiredMixin, View):
         term_id = request.POST.get('term') or None
         term = Term.objects.filter(pk=term_id, school=school).first() if term_id else None
 
+        classroom = None
+        class_id = request.POST.get('classroom') or None
+        if class_id:
+            classroom = ClassRoom.objects.filter(pk=class_id, school=school).first()
+
         # Reuse an existing draft for this student/term if present, else create.
         report = (
             ProgressReport.objects
@@ -1119,15 +1184,86 @@ class ProgressReportGenerateView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 student=student, school=school, term=term,
                 generated_by=request.user,
             )
+        _apply_report_selection(report, request, classroom=classroom)
 
         log_event(
             user=request.user, school=school, category='data_change',
             action='progress_report_generated',
             detail={'report_id': report.id, 'student_id': student.id,
-                    'term': term.name if term else None},
+                    'term': term.name if term else None,
+                    'sections': _report_sections(report)},
             request=request,
         )
         return redirect('progress_report_detail', report_id=report.id)
+
+
+def _report_sections(report):
+    """Compact list of the sections a report includes — for logging/UI."""
+    flags = [
+        ('rubric', report.include_rubric), ('homework', report.include_homework),
+        ('maths', report.include_maths), ('coding', report.include_coding),
+    ]
+    return [name for name, on in flags if on]
+
+
+class ProgressReportClassBuilderView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    """Per-class report builder: pick sections once, generate a report per student."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
+    required_roles = TEACHER_ROLES
+
+    def _students(self, classroom):
+        from accounts.models import CustomUser
+        ids = ClassStudent.objects.filter(
+            classroom=classroom, is_active=True,
+        ).values_list('student_id', flat=True)
+        return CustomUser.objects.filter(id__in=ids).order_by(
+            'last_name', 'first_name', 'username',
+        )
+
+    def get(self, request, class_id):
+        classroom = get_object_or_404(ClassRoom, pk=class_id)
+        terms = Term.objects.filter(school=classroom.school).order_by('-start_date')
+        return render(request, 'progress/report_class_builder.html', {
+            'classroom': classroom,
+            'students': self._students(classroom),
+            'terms': terms,
+        })
+
+    def post(self, request, class_id):
+        classroom = get_object_or_404(ClassRoom, pk=class_id)
+        school = classroom.school
+        term_id = request.POST.get('term') or None
+        term = Term.objects.filter(pk=term_id, school=school).first() if term_id else None
+
+        students = self._students(classroom)
+        count = 0
+        for student in students:
+            report = (
+                ProgressReport.objects
+                .filter(student=student, school=school, term=term,
+                        status=ProgressReport.STATUS_DRAFT)
+                .first()
+            )
+            if report is None:
+                report = ProgressReport.objects.create(
+                    student=student, school=school, term=term,
+                    generated_by=request.user,
+                )
+            _apply_report_selection(report, request, classroom=classroom)
+            count += 1
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='progress_reports_class_generated',
+            detail={'classroom_id': classroom.id, 'count': count,
+                    'term': term.name if term else None},
+            request=request,
+        )
+        messages.success(
+            request,
+            f'Generated {count} draft report{"" if count == 1 else "s"} for {classroom.name}.',
+        )
+        return redirect('student_progress_report')
 
 
 class ProgressReportDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):
@@ -1215,6 +1351,7 @@ class ProgressReportSendView(RoleRequiredMixin, ModuleRequiredMixin, View):
                     'student_name': student_name,
                     'school_name': school.name,
                     'term_label': term_label,
+                    'report': report,
                     'overall': overall,
                     'grouped_progress': grouped_progress,
                     'comments': comments,

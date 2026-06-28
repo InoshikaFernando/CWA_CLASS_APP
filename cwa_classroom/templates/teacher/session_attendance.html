@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load classroom_extras %}
 
 {% block title %}Mark Attendance — {{ session.classroom.name }}{% endblock %}
 
@@ -185,16 +186,10 @@
                   {% for cs in row.criteria_statuses %}
                     <td class="px-2 py-2 text-center">
                       <select name="progress_{{ row.student.id }}_{{ cs.criteria.id }}"
-                              class="text-xs w-full px-1.5 py-1 border border-slate-200 rounded-lg focus:ring-2 focus:ring-accent transition
-                                {% if cs.current_status == 'achieved' %}bg-emerald-50 text-emerald-700 border-emerald-200
-                                {% elif cs.current_status == 'in_progress' %}bg-amber-50 text-amber-700 border-amber-200
-                                {% else %}bg-white text-gray-600{% endif %}"
+                              class="text-xs w-full px-1.5 py-1 border border-slate-200 rounded-lg focus:ring-2 focus:ring-accent transition {{ cs.current_status|progress_select_classes }}"
                               onchange="
-                                this.className = this.className.replace(/bg-\S+/g, '').replace(/text-\S+/g, '').replace(/border-\S+/g, '');
-                                if (this.value === 'achieved') this.className += ' bg-emerald-50 text-emerald-700 border-emerald-200 border';
-                                else if (this.value === 'in_progress') this.className += ' bg-amber-50 text-amber-700 border-amber-200 border';
-                                else this.className += ' bg-white text-gray-600 border-slate-200 border';
-                                this.className += ' text-xs w-full px-1.5 py-1 rounded-lg focus:ring-2 focus:ring-accent transition';
+                                var M = {advanced:'bg-emerald-50 text-emerald-700', confident:'bg-teal-50 text-teal-700', developing:'bg-amber-50 text-amber-700', beginning:'bg-orange-50 text-orange-700'};
+                                this.className = 'text-xs w-full px-1.5 py-1 border border-slate-200 rounded-lg focus:ring-2 focus:ring-accent transition ' + (M[this.value] || 'bg-white text-gray-600');
                               ">
                         {% for value, label in progress_status_choices %}
                           <option value="{{ value }}" {% if cs.current_status == value %}selected{% endif %}>
