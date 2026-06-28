@@ -249,7 +249,7 @@ class TestParentProgress:
         ProgressRecord.objects.create(
             student=enrolled_student,
             criteria=criteria,
-            status='achieved',
+            status='advanced',
         )
         self.url = live_server.url
         self.page = page

@@ -16,6 +16,7 @@
   Here is the latest progress report for {{ student_name }}.
 </p>
 
+{% if report.include_rubric %}
 <!-- Summary -->
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px;border-collapse:collapse;">
   <tr>
@@ -25,11 +26,11 @@
     </td>
     <td style="padding:8px;text-align:center;border:1px solid #e2e8f0;">
       <div style="font-size:20px;font-weight:700;color:#059669;">{{ overall.achieved }}</div>
-      <div style="font-size:11px;color:#64748b;">Achieved</div>
+      <div style="font-size:11px;color:#64748b;">Proficient</div>
     </td>
     <td style="padding:8px;text-align:center;border:1px solid #e2e8f0;">
       <div style="font-size:20px;font-weight:700;color:#3b82f6;">{{ overall.in_progress }}</div>
-      <div style="font-size:11px;color:#64748b;">In Progress</div>
+      <div style="font-size:11px;color:#64748b;">Developing</div>
     </td>
     <td style="padding:8px;text-align:center;border:1px solid #e2e8f0;">
       <div style="font-size:20px;font-weight:700;color:#94a3b8;">{{ overall.not_started }}</div>
@@ -41,8 +42,8 @@
 <!-- Progress by subject & level -->
 {% for group in grouped_progress %}
   <p style="margin:16px 0 6px;font-weight:600;color:#0f172a;font-size:14px;">
-    {{ group.subject }} — {{ group.level }}
-    <span style="font-weight:400;color:#64748b;font-size:12px;">({{ group.achieved }}/{{ group.total }} achieved)</span>
+    {% if group.subject %}{{ group.subject }}{% else %}All Subjects{% endif %} — {% if group.level %}{{ group.level }}{% else %}All Levels{% endif %}
+    <span style="font-weight:400;color:#64748b;font-size:12px;">({{ group.achieved }}/{{ group.total }} proficient)</span>
   </p>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:8px;">
     {% for record in group.records %}
@@ -53,6 +54,25 @@
     {% endfor %}
   </table>
 {% endfor %}
+{% endif %}{# include_rubric #}
+
+{% with s=report.summary_snapshot %}
+{% if report.include_homework and s.homework %}
+  <p style="margin:16px 0 6px;font-weight:600;color:#0f172a;font-size:14px;">Homework
+    <span style="font-weight:400;color:#64748b;font-size:12px;">({{ s.homework.completion_pct }}% completed · {{ s.homework.average_pct }}% avg.)</span>
+  </p>
+{% endif %}
+{% if report.include_maths and s.maths %}
+  <p style="margin:16px 0 6px;font-weight:600;color:#0f172a;font-size:14px;">Mathematics
+    <span style="font-weight:400;color:#64748b;font-size:12px;">({{ s.maths.topics_attempted }} topics · {{ s.maths.average_pct }}% avg. best)</span>
+  </p>
+{% endif %}
+{% if report.include_coding and s.coding %}
+  <p style="margin:16px 0 6px;font-weight:600;color:#0f172a;font-size:14px;">Coding
+    <span style="font-weight:400;color:#64748b;font-size:12px;">({{ s.coding.exercises_completed }} exercises · {{ s.coding.problems_solved }} problems solved)</span>
+  </p>
+{% endif %}
+{% endwith %}
 
 <!-- Teacher comments -->
 {% if comments %}

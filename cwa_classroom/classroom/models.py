@@ -1403,7 +1403,8 @@ class ProgressCriteria(models.Model):
         ('rejected', 'Rejected'),
     ]
     school = models.ForeignKey(School, on_delete=models.CASCADE, related_name='progress_criteria')
-    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name='progress_criteria')
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, null=True, blank=True, related_name='progress_criteria',
+                                help_text='Null = applies to all subjects.')
     level = models.ForeignKey(Level, on_delete=models.CASCADE, null=True, blank=True, related_name='progress_criteria',
                               help_text='Null = applies to all levels for the chosen subject.')
     parent = models.ForeignKey(
@@ -1439,16 +1440,25 @@ class ProgressCriteria(models.Model):
 
     def __str__(self):
         level_name = self.level.display_name if self.level else 'All Levels'
-        return f'{self.name} ({self.subject.name} — {level_name})'
+        subject_name = self.subject.name if self.subject else 'All Subjects'
+        return f'{self.name} ({subject_name} — {level_name})'
 
 
 class ProgressRecord(models.Model):
     """Records a student's progress against a specific criteria."""
+    # Four-level developmental rubric (Beginning → Advanced) plus an unrated
+    # baseline. See SPEC_TEACHER_CLASS_STUDENT_PROGRESS §12.7.
     STATUS_CHOICES = [
         ('not_started', 'Not Started'),
-        ('in_progress', 'In Progress'),
-        ('achieved', 'Achieved'),
+        ('beginning', 'Beginning'),
+        ('developing', 'Developing'),
+        ('confident', 'Confident'),
+        ('advanced', 'Advanced'),
     ]
+    # Buckets used by the dashboards/summaries (progress bars count "proficient").
+    PROFICIENT_STATUSES = ('confident', 'advanced')
+    DEVELOPING_STATUSES = ('beginning', 'developing')
+
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -1479,6 +1489,11 @@ class ProgressRecord(models.Model):
 
     def __str__(self):
         return f'{self.student.username} — {self.criteria.name} ({self.status})'
+
+    @property
+    def is_proficient(self):
+        """True when this rating counts as proficient (Confident or Advanced)."""
+        return self.status in self.PROFICIENT_STATUSES
 
 
 class ProgressReportComment(models.Model):
@@ -1567,6 +1582,22 @@ class ProgressReport(models.Model):
         null=True, blank=True,
         related_name='progress_reports',
     )
+    # The class the report was generated from — scopes the homework summary and
+    # records which class a batch (per-class) generation belonged to.
+    classroom = models.ForeignKey(
+        'ClassRoom', on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='progress_reports',
+    )
+    # Staff "include this section" selections (see §12.8). The rubric is on by
+    # default; the cross-app summaries are opt-in.
+    include_rubric = models.BooleanField(default=True)
+    include_homework = models.BooleanField(default=False)
+    include_maths = models.BooleanField(default=False)
+    include_coding = models.BooleanField(default=False)
+    # Point-in-time snapshot of the Homework/Maths/Coding summary computed at
+    # generation, so the report and the dashboard card show consistent numbers.
+    summary_snapshot = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_DRAFT)
     generated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

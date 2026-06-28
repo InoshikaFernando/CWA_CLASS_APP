@@ -111,14 +111,14 @@ def parent_with_achieved_record(db, parent_with_progress_child, progress_school_
     ProgressRecord.objects.create(
         student=student,
         criteria=c1,
-        status="achieved",
+        status="advanced",
         recorded_by=admin_user,
         notes="Well done!",
     )
     ProgressRecord.objects.create(
         student=student,
         criteria=c2,
-        status="in_progress",
+        status="developing",
         recorded_by=admin_user,
     )
     return parent, student
@@ -192,7 +192,7 @@ class TestParentProgressStatusBadges:
         do_login(page, live_server.url, parent)
         _go_to_progress(page, live_server)
 
-        assert_page_has_text(page, "Achieved")
+        assert_page_has_text(page, "Advanced")
 
     def test_in_progress_badge_visible(self, page, live_server, parent_with_achieved_record, progress_school_setup):
         """After an 'in_progress' ProgressRecord, the 'In Progress' badge appears."""
@@ -200,7 +200,7 @@ class TestParentProgressStatusBadges:
         do_login(page, live_server.url, parent)
         _go_to_progress(page, live_server)
 
-        assert_page_has_text(page, "In Progress")
+        assert_page_has_text(page, "Developing")
 
     def test_notes_shown_on_page(self, page, live_server, parent_with_achieved_record, progress_school_setup):
         """Teacher notes from ProgressRecord appear on the page."""
@@ -228,15 +228,15 @@ class TestParentProgressSummaryStats:
         _go_to_progress(page, live_server)
 
         assert_page_has_text(page, "Total Criteria")
-        assert_page_has_text(page, "In Progress")
+        assert_page_has_text(page, "Developing")
 
     def test_overall_progress_bar_visible(self, page, live_server, parent_with_achieved_record, progress_school_setup):
-        """The 'Overall Achievement' progress bar section renders."""
+        """The 'Overall Proficiency' progress bar section renders."""
         parent, _ = parent_with_achieved_record
         do_login(page, live_server.url, parent)
         _go_to_progress(page, live_server)
 
-        assert_page_has_text(page, "Overall Achievement")
+        assert_page_has_text(page, "Overall Proficiency")
 
 
 class TestParentProgressNoChild:

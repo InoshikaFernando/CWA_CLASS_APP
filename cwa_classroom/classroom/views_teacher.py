@@ -516,7 +516,10 @@ class SessionAttendanceView(RoleRequiredMixin, ModuleRequiredMixin, View):
             status='approved',
         )
         if classroom.subject:
-            criteria_qs = criteria_qs.filter(subject=classroom.subject)
+            # Include All-Subjects criteria (subject=null) for every class. See §12.6.
+            criteria_qs = criteria_qs.filter(
+                Q(subject=classroom.subject) | Q(subject__isnull=True)
+            )
         if classroom.levels.exists():
             criteria_qs = criteria_qs.filter(
                 Q(level__in=classroom.levels.all()) | Q(level__isnull=True)
@@ -743,7 +746,10 @@ class SessionAttendanceView(RoleRequiredMixin, ModuleRequiredMixin, View):
             status='approved',
         )
         if classroom.subject:
-            criteria_qs = criteria_qs.filter(subject=classroom.subject)
+            # Include All-Subjects criteria (subject=null) for every class. See §12.6.
+            criteria_qs = criteria_qs.filter(
+                Q(subject=classroom.subject) | Q(subject__isnull=True)
+            )
         if classroom.levels.exists():
             criteria_qs = criteria_qs.filter(
                 Q(level__in=classroom.levels.all()) | Q(level__isnull=True)

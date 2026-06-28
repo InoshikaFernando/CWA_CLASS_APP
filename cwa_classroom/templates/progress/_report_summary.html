@@ -1,0 +1,45 @@
+{% comment %}
+  Cross-app summary sections for a progress report / dashboard card (§12.8).
+  Expects `report` in context (a ProgressReport with include_* flags +
+  summary_snapshot). Renders only the sections staff ticked. Shared by
+  report_detail.html, the parent email, and the student dashboard card.
+{% endcomment %}
+{% with s=report.summary_snapshot %}
+  {% if report.include_homework and s.homework %}
+    <div class="border border-slate-200 rounded-xl mt-4">
+      <div class="p-4 border-b border-slate-100">
+        <h2 class="font-semibold text-gray-900">Homework</h2>
+      </div>
+      <div class="grid grid-cols-3 gap-4 p-4 text-center">
+        <div><p class="text-xl font-bold text-gray-900">{{ s.homework.completion_pct }}%</p><p class="text-xs text-gray-500">Completed</p></div>
+        <div><p class="text-xl font-bold text-gray-900">{{ s.homework.completed }}/{{ s.homework.assigned }}</p><p class="text-xs text-gray-500">Homeworks</p></div>
+        <div><p class="text-xl font-bold text-emerald-600">{{ s.homework.average_pct }}%</p><p class="text-xs text-gray-500">Avg. score</p></div>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if report.include_maths and s.maths %}
+    <div class="border border-slate-200 rounded-xl mt-4">
+      <div class="p-4 border-b border-slate-100">
+        <h2 class="font-semibold text-gray-900">Mathematics</h2>
+      </div>
+      <div class="grid grid-cols-3 gap-4 p-4 text-center">
+        <div><p class="text-xl font-bold text-gray-900">{{ s.maths.topics_attempted }}</p><p class="text-xs text-gray-500">Topics attempted</p></div>
+        <div><p class="text-xl font-bold text-emerald-600">{{ s.maths.average_pct }}%</p><p class="text-xs text-gray-500">Avg. best score</p></div>
+        <div><p class="text-xl font-bold text-gray-900">{{ s.maths.basic_facts_levels }}</p><p class="text-xs text-gray-500">Basic-facts levels</p></div>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if report.include_coding and s.coding %}
+    <div class="border border-slate-200 rounded-xl mt-4">
+      <div class="p-4 border-b border-slate-100">
+        <h2 class="font-semibold text-gray-900">Coding</h2>
+      </div>
+      <div class="grid grid-cols-2 gap-4 p-4 text-center">
+        <div><p class="text-xl font-bold text-gray-900">{{ s.coding.exercises_completed }}</p><p class="text-xs text-gray-500">Exercises completed</p></div>
+        <div><p class="text-xl font-bold text-gray-900">{{ s.coding.problems_solved }}</p><p class="text-xs text-gray-500">Problems solved</p></div>
+      </div>
+    </div>
+  {% endif %}
+{% endwith %}
