@@ -1,0 +1,988 @@
+{% extends "base.html" %}
+
+{% block title %}{% if is_reschedule %}Reschedule Message{% elif draft %}Edit Draft{% else %}New Message{% endif %}{% endblock %}
+
+{% block extra_head %}
+<style>
+  [x-cloak] { display: none !important; }
+
+  .compose-editor { min-height: 280px; }
+  .compose-editor:empty:before {
+    content: attr(data-placeholder);
+    color: #c7d2e6;
+    pointer-events: none;
+    display: block;
+    font-style: italic;
+  }
+  .compose-editor:focus { outline: none; }
+  .compose-editor h2 { font-size: 1.2rem; font-weight: 700; margin: 0.6rem 0 0.2rem; }
+  .compose-editor h3 { font-size: 1.05rem; font-weight: 600; margin: 0.4rem 0 0.2rem; }
+  .compose-editor ul { list-style: disc; padding-left: 1.5rem; margin: 0.3rem 0; }
+  .compose-editor ol { list-style: decimal; padding-left: 1.5rem; margin: 0.3rem 0; }
+  .compose-editor a { color: #4f46e5; text-decoration: underline; }
+  .compose-editor p { margin: 0.15rem 0; }
+
+  .toolbar-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 7px; cursor: pointer;
+    color: #475569; transition: background 0.12s, color 0.12s;
+  }
+  .toolbar-btn:hover { background: #e2e8f0; color: #1e293b; }
+  .toolbar-sep { width: 1px; height: 20px; background: #e2e8f0; margin: 0 4px; flex-shrink: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto pb-28 px-2 sm:px-0">
+
+  <!-- ── Page header ── -->
+  <div class="flex items-center gap-3 mb-6">
+    <a href="{% url 'messaging_inbox' %}"
+       class="flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-indigo-600 transition group">
+      <svg class="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+      </svg>
+      Inbox
+    </a>
+    <div class="h-4 w-px bg-slate-200 flex-shrink-0"></div>
+    <div class="flex-1 min-w-0">
+      <h1 class="text-xl font-display font-bold text-gray-900 leading-tight">{% if is_reschedule %}Reschedule Message{% elif draft %}Edit Draft{% else %}New Message{% endif %}</h1>
+      {% if school %}<p class="text-xs text-gray-400 mt-0.5 truncate">{{ school.name }}</p>{% endif %}
+    </div>
+    <!-- Channel badges -->
+    <div class="flex items-center gap-2 flex-shrink-0">
+      <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 border-indigo-500 bg-indigo-50 text-indigo-700 text-xs font-semibold">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"/>
+        </svg>
+        Email
+      </div>
+      <div class="relative group">
+        <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-400 text-xs font-semibold cursor-not-allowed select-none">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/>
+          </svg>
+          SMS
+          <svg class="w-3 h-3 text-slate-300" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+          </svg>
+        </div>
+        <div class="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2.5 py-1.5 bg-slate-800 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-10">
+          SMS coming in Phase 2
+          <div class="absolute bottom-full left-1/2 -translate-x-1/2 border-4 border-transparent border-b-slate-800"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <form method="post" action="{% url 'messaging_compose' %}" enctype="multipart/form-data"
+        x-data="composeForm('{% url "messaging_recipient_search" %}', '{% url "messaging_recipient_group" %}', '{{ user_email|escapejs }}', '{{ user_name|escapejs }}', {{ draft_json|default:'null' }}, {{ is_reschedule|lower }})">
+    {% csrf_token %}
+    {% if draft %}<input type="hidden" name="draft_pk" value="{{ draft.pk }}">{% endif %}
+
+    <!-- ── Compose card ── -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-[0_2px_16px_rgba(0,0,0,0.05)] mb-4 overflow-hidden">
+
+      <!-- Duplicate warning -->
+      <template x-if="duplicates.length">
+        <div class="px-5 py-2.5 bg-amber-50 border-b border-amber-100 flex items-start gap-2">
+          <svg class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+          </svg>
+          <div class="text-xs text-amber-700 space-y-0.5">
+            <template x-for="d in duplicates" :key="d"><p x-text="d"></p></template>
+          </div>
+        </div>
+      </template>
+
+      <!-- ── To ── -->
+      <div class="px-5 pt-4 pb-3 border-b border-slate-100">
+        <div class="flex items-start gap-3">
+          <!-- Label -->
+          <span class="text-[10px] font-bold text-slate-400 tracking-widest w-16 flex-shrink-0 pt-2 uppercase">To</span>
+
+          <!-- Tags + input + group chips (all inside flex-1) -->
+          <div class="flex-1 min-w-0">
+            <div class="flex flex-wrap gap-1.5 cursor-text min-h-[32px]" @click="$refs.toInput.focus()">
+              <template x-for="tag in to.tags" :key="tag.email">
+                <span class="inline-flex items-center gap-1.5 pl-1 pr-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-sm font-medium">
+                  <span class="w-5 h-5 rounded-full bg-indigo-200 text-indigo-700 flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+                        x-text="(tag.name || tag.email).charAt(0).toUpperCase()"></span>
+                  <span x-text="tag.name || tag.email" class="max-w-[160px] truncate"></span>
+                  <button type="button" @click.stop="remove('to', tag)"
+                          class="text-indigo-300 hover:text-indigo-600 leading-none text-sm flex-shrink-0 transition">&times;</button>
+                </span>
+              </template>
+              <div class="relative flex-1 min-w-[140px]">
+                <input x-ref="toInput" x-model="to.query"
+                       @input="search('to')" @keydown="onKeydown('to', $event)" @blur="delayClose('to')"
+                       autocomplete="off" placeholder="Name or email…"
+                       class="text-sm text-slate-700 outline-none w-full py-1 bg-transparent placeholder:text-slate-300">
+                <div x-show="to.open" x-transition.opacity.duration.150ms
+                     class="absolute left-0 top-full mt-1 w-80 bg-white rounded-xl border border-slate-200 shadow-lg z-50 overflow-hidden">
+                  <template x-for="(r, i) in to.results" :key="r.email">
+                    <div @mousedown.prevent="select('to', r)"
+                         :class="i === to.activeIndex ? 'bg-indigo-50' : 'hover:bg-slate-50'"
+                         class="px-4 py-2.5 cursor-pointer flex items-center gap-3 transition-colors">
+                      <div class="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500 flex-shrink-0"
+                           x-text="(r.name || r.email).charAt(0).toUpperCase()"></div>
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                          <span class="text-sm font-medium text-slate-800 truncate" x-text="r.name"></span>
+                          <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded"
+                                :class="{'bg-blue-100 text-blue-700': r.role==='student','bg-indigo-100 text-indigo-700': r.role==='staff','bg-amber-100 text-amber-700': r.role==='parent'}"
+                                x-text="r.role"></span>
+                        </div>
+                        <div class="text-xs text-slate-400 truncate" x-text="r.email"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <!-- Group quick-add chips -->
+            <div class="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2 border-t border-slate-50">
+              <svg class="w-3.5 h-3.5 text-slate-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/>
+              </svg>
+              <template x-for="[role, label] in recipientGroups" :key="role">
+                <button type="button" :disabled="groupLoading[role]" @click="addGroup(role)"
+                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 text-[11px] font-semibold text-slate-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
+                  <template x-if="groupLoading[role]">
+                    <svg class="w-2.5 h-2.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                  </template>
+                  <template x-if="!groupLoading[role]">
+                    <span class="text-slate-400">+</span>
+                  </template>
+                  <span x-text="label"></span>
+                </button>
+              </template>
+              <template x-if="groupError">
+                <span class="text-xs text-red-500 ml-1" x-text="groupError"></span>
+              </template>
+            </div>
+          </div>
+          <input type="hidden" name="recipients_to" :value="JSON.stringify(to.tags)">
+
+          <!-- CC / BCC toggle buttons -->
+          <div class="flex items-center gap-1 flex-shrink-0 pt-1">
+            <button x-show="!showCc" type="button" @click="showCc = true; $nextTick(() => $refs.ccInput.focus())"
+                    class="px-2 py-1 text-xs font-semibold text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition">
+              + CC
+            </button>
+            <button x-show="!showBcc" type="button" @click="showBcc = true; $nextTick(() => $refs.bccInput.focus())"
+                    class="px-2 py-1 text-xs font-semibold text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition">
+              + BCC
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── CC ── -->
+      <div x-show="showCc" x-cloak x-transition.opacity.duration.150ms
+           class="px-5 py-3 border-b border-slate-100 flex items-start gap-3">
+        <span class="text-[10px] font-bold text-slate-400 tracking-widest w-16 flex-shrink-0 pt-2 uppercase">CC</span>
+        <div class="flex-1 flex flex-wrap gap-1.5 cursor-text min-h-[32px]" @click="$refs.ccInput.focus()">
+          <template x-for="tag in cc.tags" :key="tag.email">
+            <span class="inline-flex items-center gap-1.5 pl-1 pr-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-sm font-medium">
+              <span class="w-5 h-5 rounded-full bg-indigo-200 text-indigo-700 flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+                    x-text="(tag.name || tag.email).charAt(0).toUpperCase()"></span>
+              <span x-text="tag.name || tag.email" class="max-w-[160px] truncate"></span>
+              <button type="button" @click.stop="remove('cc', tag)" class="text-indigo-300 hover:text-indigo-600 leading-none text-sm flex-shrink-0 transition">&times;</button>
+            </span>
+          </template>
+          <div class="relative flex-1 min-w-[140px]">
+            <input x-ref="ccInput" x-model="cc.query" @input="search('cc')" @keydown="onKeydown('cc', $event)" @blur="delayClose('cc')"
+                   autocomplete="off" placeholder="Name or email…"
+                   class="text-sm text-slate-700 outline-none w-full py-1 bg-transparent placeholder:text-slate-300">
+            <div x-show="cc.open" x-transition.opacity.duration.150ms
+                 class="absolute left-0 top-full mt-1 w-80 bg-white rounded-xl border border-slate-200 shadow-lg z-50 overflow-hidden">
+              <template x-for="(r, i) in cc.results" :key="r.email">
+                <div @mousedown.prevent="select('cc', r)" :class="i === cc.activeIndex ? 'bg-indigo-50' : 'hover:bg-slate-50'"
+                     class="px-4 py-2.5 cursor-pointer flex items-center gap-3 transition-colors">
+                  <div class="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500 flex-shrink-0"
+                       x-text="(r.name || r.email).charAt(0).toUpperCase()"></div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-sm font-medium text-slate-800 truncate" x-text="r.name"></span>
+                      <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded"
+                            :class="{'bg-blue-100 text-blue-700': r.role==='student','bg-indigo-100 text-indigo-700': r.role==='staff','bg-amber-100 text-amber-700': r.role==='parent'}"
+                            x-text="r.role"></span>
+                    </div>
+                    <div class="text-xs text-slate-400 truncate" x-text="r.email"></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+        <input type="hidden" name="recipients_cc" :value="JSON.stringify(cc.tags)">
+      </div>
+
+      <!-- ── BCC ── -->
+      <div x-show="showBcc" x-cloak x-transition.opacity.duration.150ms
+           class="px-5 py-3 border-b border-slate-100 flex items-start gap-3">
+        <span class="text-[10px] font-bold text-slate-400 tracking-widest w-16 flex-shrink-0 pt-2 uppercase">BCC</span>
+        <div class="flex-1 flex flex-wrap gap-1.5 cursor-text min-h-[32px]" @click="$refs.bccInput.focus()">
+          <template x-for="tag in bcc.tags" :key="tag.email">
+            <span class="inline-flex items-center gap-1.5 pl-1 pr-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-sm font-medium">
+              <span class="w-5 h-5 rounded-full bg-indigo-200 text-indigo-700 flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+                    x-text="(tag.name || tag.email).charAt(0).toUpperCase()"></span>
+              <span x-text="tag.name || tag.email" class="max-w-[160px] truncate"></span>
+              <button type="button" @click.stop="remove('bcc', tag)" class="text-indigo-300 hover:text-indigo-600 leading-none text-sm flex-shrink-0 transition">&times;</button>
+            </span>
+          </template>
+          <div class="relative flex-1 min-w-[140px]">
+            <input x-ref="bccInput" x-model="bcc.query" @input="search('bcc')" @keydown="onKeydown('bcc', $event)" @blur="delayClose('bcc')"
+                   autocomplete="off" placeholder="Name or email…"
+                   class="text-sm text-slate-700 outline-none w-full py-1 bg-transparent placeholder:text-slate-300">
+            <div x-show="bcc.open" x-transition.opacity.duration.150ms
+                 class="absolute left-0 top-full mt-1 w-80 bg-white rounded-xl border border-slate-200 shadow-lg z-50 overflow-hidden">
+              <template x-for="(r, i) in bcc.results" :key="r.email">
+                <div @mousedown.prevent="select('bcc', r)" :class="i === bcc.activeIndex ? 'bg-indigo-50' : 'hover:bg-slate-50'"
+                     class="px-4 py-2.5 cursor-pointer flex items-center gap-3 transition-colors">
+                  <div class="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500 flex-shrink-0"
+                       x-text="(r.name || r.email).charAt(0).toUpperCase()"></div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-sm font-medium text-slate-800 truncate" x-text="r.name"></span>
+                      <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded"
+                            :class="{'bg-blue-100 text-blue-700': r.role==='student','bg-indigo-100 text-indigo-700': r.role==='staff','bg-amber-100 text-amber-700': r.role==='parent'}"
+                            x-text="r.role"></span>
+                    </div>
+                    <div class="text-xs text-slate-400 truncate" x-text="r.email"></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+        <input type="hidden" name="recipients_bcc" :value="JSON.stringify(bcc.tags)">
+      </div>
+
+      <!-- ── Subject ── -->
+      <div class="px-5 py-3 border-b border-slate-100 flex items-center gap-3">
+        <span class="text-[10px] font-bold text-slate-400 tracking-widest w-16 flex-shrink-0 uppercase">Subject</span>
+        <input type="text" name="subject" x-model="subject" maxlength="255" autocomplete="off"
+               placeholder="Subject…"
+               class="flex-1 text-sm text-slate-700 outline-none bg-transparent placeholder:text-slate-300">
+        <span class="text-xs flex-shrink-0 tabular-nums transition-colors"
+              :class="subject.length > 230 ? 'text-amber-500 font-semibold' : 'text-slate-300'"
+              x-text="`${subject.length}/255`"></span>
+      </div>
+
+      <!-- ── Toolbar ── -->
+      <div class="px-3 py-2 border-b border-slate-100 bg-slate-50/60 flex items-center gap-0.5 flex-wrap">
+        <button type="button" title="Bold" class="toolbar-btn" @mousedown.prevent="execFormat('bold')">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M5.5 3A1.5 1.5 0 004 4.5v11A1.5 1.5 0 005.5 17H11a4.5 4.5 0 001.58-8.73A4 4 0 0011 3H5.5zM6 8V5h5a2 2 0 010 4H6V8zm0 2h5.5a2.5 2.5 0 010 5H6v-5z"/>
+          </svg>
+        </button>
+        <button type="button" title="Italic" class="toolbar-btn" @mousedown.prevent="execFormat('italic')">
+          <span class="text-sm italic select-none" style="font-family:Georgia,serif">I</span>
+        </button>
+        <button type="button" title="Underline" class="toolbar-btn" @mousedown.prevent="execFormat('underline')">
+          <span class="text-sm font-bold underline select-none">U</span>
+        </button>
+        <button type="button" title="Strikethrough" class="toolbar-btn" @mousedown.prevent="execFormat('strikeThrough')">
+          <span class="text-sm font-bold line-through select-none">S</span>
+        </button>
+
+        <div class="toolbar-sep"></div>
+
+        <button type="button" title="Heading 2" class="toolbar-btn px-2 text-xs font-bold w-auto" @mousedown.prevent="formatBlock('h2')">H2</button>
+        <button type="button" title="Heading 3" class="toolbar-btn px-2 text-xs font-bold w-auto" @mousedown.prevent="formatBlock('h3')">H3</button>
+        <button type="button" title="Normal text" class="toolbar-btn px-2 text-xs font-semibold w-auto" @mousedown.prevent="formatBlock('p')">P</button>
+
+        <div class="toolbar-sep"></div>
+
+        <button type="button" title="Bullet list" class="toolbar-btn" @mousedown.prevent="execFormat('insertUnorderedList')">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/>
+          </svg>
+        </button>
+        <button type="button" title="Numbered list" class="toolbar-btn" @mousedown.prevent="execFormat('insertOrderedList')">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.242 5.992h12m-12 6.003H20.24m-12 5.999h12M4.117 7.496v-3.25l-1.343.719m1.343-.719a.765.765 0 010 1.357l-1.343.893m4.588 3.5H4.117m0 0v3.25m0-3.25a1.365 1.365 0 010 2.173m1.5-2.173h-1.5M4.117 17.5h1.5a1.5 1.5 0 010 3h-1.5v-3z"/>
+          </svg>
+        </button>
+
+        <div class="toolbar-sep"></div>
+
+        <button type="button" title="Undo (Ctrl+Z)" class="toolbar-btn" @mousedown.prevent="execFormat('undo')">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"/>
+          </svg>
+        </button>
+        <button type="button" title="Redo (Ctrl+Y)" class="toolbar-btn" @mousedown.prevent="execFormat('redo')">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3"/>
+          </svg>
+        </button>
+
+        <div class="toolbar-sep"></div>
+
+        <button type="button" title="Insert link" class="toolbar-btn" @mousedown.prevent="insertLink()">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"/>
+          </svg>
+        </button>
+        <button type="button" title="Remove link" class="toolbar-btn" @mousedown.prevent="execFormat('unlink')">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.181 8.68a4.503 4.503 0 011.903 6.405m-9.768-3.43a4.5 4.5 0 005.525 5.525m-.002 0l3.5 3.5m-9.5-7.5l-3.5-3.5M6 18L3 21M3 3l18 18"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- ── Editor ── -->
+      <div x-ref="editor"
+           contenteditable="true"
+           @input="onBodyInput()"
+           x-init="if (bodyHtml) { $el.innerHTML = bodyHtml; }"
+           data-placeholder="Write your message here…"
+           class="compose-editor px-5 py-4 text-sm text-slate-700 focus:outline-none">
+      </div>
+      <input type="hidden" name="body" :value="bodyHtml">
+
+      <!-- ── Attachments ── -->
+      <div class="px-5 py-3.5 border-t border-slate-100 bg-slate-50/40">
+        <template x-if="attachments.length">
+          <div class="flex flex-wrap gap-2 mb-2">
+            <template x-for="att in attachments" :key="att.name">
+              <div class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700">
+                <svg class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/>
+                </svg>
+                <span x-text="att.name" class="max-w-[140px] truncate"></span>
+                <span class="text-slate-400" x-text="formatSize(att.size)"></span>
+                <button type="button" @click="removeAttachment(att.name)"
+                        class="text-slate-400 hover:text-red-500 ml-0.5 leading-none transition">&times;</button>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <template x-if="attachError">
+          <div class="mb-2 flex items-start gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+            <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+            </svg>
+            <span x-text="attachError" class="flex-1"></span>
+            <button type="button" @click="attachError = null" class="text-red-400 hover:text-red-700 leading-none">&times;</button>
+          </div>
+        </template>
+
+        {% if existing_attachments %}
+        <div class="flex flex-wrap gap-2 mb-2">
+          {% for att in existing_attachments %}
+          <div class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
+            <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32"/>
+            </svg>
+            <span class="max-w-[140px] truncate">{{ att.filename }}</span>
+            <span class="text-blue-400">saved</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <button type="button" @click="$refs.fileInput.click()"
+                class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-dashed border-slate-300 hover:border-indigo-400 hover:bg-indigo-50 text-xs text-slate-500 hover:text-indigo-600 font-medium transition-all">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/>
+          </svg>
+          {% if existing_attachments %}Add more files{% else %}Attach file{% endif %}
+          <span class="text-slate-300 font-normal">PDF, DOCX, PNG, JPG · max 10 MB</span>
+        </button>
+        <input type="file" x-ref="fileInput" name="attachments" class="hidden" multiple accept=".pdf,.docx,.png,.jpg,.jpeg" @change="addFiles($event)">
+      </div>
+    </div>
+
+    <!-- ── Schedule card (collapsible) ── -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-[0_2px_16px_rgba(0,0,0,0.05)] mb-6 overflow-hidden">
+
+      <!-- Clickable header -->
+      <button type="button" @click="showSchedule = !showSchedule"
+              class="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-slate-50 transition">
+        <div class="flex items-center gap-2.5">
+          <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 9v7.5"/>
+          </svg>
+          <span class="text-sm font-semibold text-slate-700">Schedule</span>
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold"
+                :class="{
+                  'bg-indigo-100 text-indigo-700': frequency==='now',
+                  'bg-sky-100 text-sky-700': frequency==='once',
+                  'bg-violet-100 text-violet-700': frequency==='weekly',
+                  'bg-amber-100 text-amber-700': frequency==='monthly'
+                }"
+                x-text="frequency==='now' ? 'Immediate' : frequency==='once' ? 'One Time' : frequency==='weekly' ? 'Weekly' : 'Monthly'">
+          </span>
+        </div>
+        <svg class="w-4 h-4 text-slate-400 transition-transform duration-200"
+             :class="showSchedule ? 'rotate-180' : ''"
+             fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+        </svg>
+      </button>
+
+      <!-- Expandable body -->
+      <div x-show="showSchedule" x-cloak x-transition.opacity.duration.150ms
+           class="border-t border-slate-100 px-5 pt-4 pb-5">
+
+        <!-- Frequency pills -->
+        <div class="flex flex-wrap gap-2 mb-5" role="group" aria-label="When to send">
+          <label class="cursor-pointer">
+            <input type="radio" name="schedule_mode_display" value="now" x-model="frequency" class="sr-only">
+            <span :class="frequency==='now' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 text-xs font-semibold transition select-none">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+              </svg>
+              Immediate
+            </span>
+          </label>
+          <label class="cursor-pointer">
+            <input type="radio" name="schedule_mode_display" value="once" x-model="frequency" class="sr-only">
+            <span :class="frequency==='once' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 text-xs font-semibold transition select-none">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 9v7.5m-9-6h.008v.008H12V9z"/>
+              </svg>
+              One Time
+            </span>
+          </label>
+          <label class="cursor-pointer">
+            <input type="radio" name="schedule_mode_display" value="weekly" x-model="frequency" class="sr-only">
+            <span :class="frequency==='weekly' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 text-xs font-semibold transition select-none">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
+              </svg>
+              Weekly
+            </span>
+          </label>
+          <label class="cursor-pointer">
+            <input type="radio" name="schedule_mode_display" value="monthly" x-model="frequency" class="sr-only">
+            <span :class="frequency==='monthly' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 text-xs font-semibold transition select-none">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 9v7.5"/>
+              </svg>
+              Monthly
+            </span>
+          </label>
+        </div>
+
+        <!-- Send Now hint -->
+        <p x-show="frequency === 'now'" x-cloak class="text-xs text-slate-400 pb-1">
+          Message will be dispatched immediately when you click "Send Now" below.
+        </p>
+
+        <!-- One Time panel -->
+        <div x-show="frequency === 'once'" x-cloak class="space-y-3">
+          <div class="flex flex-wrap gap-3">
+            <div class="flex-1 min-w-[160px]">
+              <label class="block text-xs font-medium text-slate-500 mb-1">Date</label>
+              <input type="date" x-model="scheduleDate"
+                     class="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            </div>
+            <div class="w-44">
+              <label class="block text-xs font-medium text-slate-500 mb-1">Time</label>
+              <select x-model="scheduleTime" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                <template x-for="opt in timeOptions" :key="opt.val"><option :value="opt.val" x-text="opt.label"></option></template>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Weekly panel -->
+        <div x-show="frequency === 'weekly'" x-cloak class="space-y-3">
+          <div class="flex flex-wrap gap-3">
+            <div class="flex-1 min-w-[160px]">
+              <label class="block text-xs font-medium text-slate-500 mb-1">Every</label>
+              <select x-model="weeklyDay" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option>
+                <option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option>
+              </select>
+            </div>
+            <div class="w-44">
+              <label class="block text-xs font-medium text-slate-500 mb-1">At</label>
+              <select x-model="scheduleTime" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                <template x-for="opt in timeOptions" :key="opt.val"><option :value="opt.val" x-text="opt.label"></option></template>
+              </select>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-3 items-end">
+            <div class="flex-1 min-w-[160px]">
+              <label class="block text-xs font-medium text-slate-500 mb-1">Starts</label>
+              <input type="date" x-model="startsAt" :min="today" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            </div>
+            <div class="flex-1 min-w-[200px]">
+              <label class="block text-xs font-medium text-slate-500 mb-1">Ends</label>
+              <div class="flex gap-3">
+                <label class="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer"><input type="radio" x-model="endsMode" value="never" class="accent-indigo-600"> Never</label>
+                <label class="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer"><input type="radio" x-model="endsMode" value="date" class="accent-indigo-600"> On date</label>
+              </div>
+              <input x-show="endsMode === 'date'" x-cloak type="date" x-model="endsAt" :min="startsAt || today"
+                     class="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            </div>
+          </div>
+        </div>
+
+        <!-- Monthly panel -->
+        <div x-show="frequency === 'monthly'" x-cloak class="space-y-3">
+          <div class="flex flex-wrap gap-3">
+            <div class="flex-1 min-w-[160px]">
+              <label class="block text-xs font-medium text-slate-500 mb-1">On the</label>
+              <select x-model="monthlyDay" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                <template x-for="d in monthlyDays" :key="d"><option :value="String(d)" x-text="_ordinal(d) + ' of each month'"></option></template>
+              </select>
+            </div>
+            <div class="w-44">
+              <label class="block text-xs font-medium text-slate-500 mb-1">At</label>
+              <select x-model="scheduleTime" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                <template x-for="opt in timeOptions" :key="opt.val"><option :value="opt.val" x-text="opt.label"></option></template>
+              </select>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-3 items-end">
+            <div class="flex-1 min-w-[160px]">
+              <label class="block text-xs font-medium text-slate-500 mb-1">Starts</label>
+              <input type="date" x-model="startsAt" :min="today" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            </div>
+            <div class="flex-1 min-w-[200px]">
+              <label class="block text-xs font-medium text-slate-500 mb-1">Ends</label>
+              <div class="flex gap-3">
+                <label class="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer"><input type="radio" x-model="endsMode" value="never" class="accent-indigo-600"> Never</label>
+                <label class="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer"><input type="radio" x-model="endsMode" value="date" class="accent-indigo-600"> On date</label>
+              </div>
+              <input x-show="endsMode === 'date'" x-cloak type="date" x-model="endsAt" :min="startsAt || today"
+                     class="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+            </div>
+          </div>
+        </div>
+
+        <!-- Next send preview -->
+        <div x-show="nextSendLabel" x-cloak class="mt-4 flex items-center gap-2 px-3 py-2.5 bg-blue-50 rounded-xl border border-blue-100">
+          <svg class="w-4 h-4 text-blue-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <p class="text-sm text-blue-700" x-text="nextSendLabel"></p>
+        </div>
+
+      </div>
+
+      <!-- Hidden schedule inputs -->
+      <input type="hidden" name="frequency" :value="frequency">
+      <input type="hidden" name="schedule_date" :value="scheduleDate">
+      <input type="hidden" name="schedule_time" :value="frequency === 'now' ? '' : scheduleTime">
+      <input type="hidden" name="weekly_day" :value="weeklyDay">
+      <input type="hidden" name="monthly_day" :value="monthlyDay">
+      <input type="hidden" name="starts_at" :value="startsAt">
+      <input type="hidden" name="ends_at" :value="endsMode === 'date' ? endsAt : ''">
+    </div>
+
+    <!-- ── Sticky action bar ── -->
+    <div class="fixed bottom-0 left-0 md:left-64 right-0 z-40 bg-white border-t border-slate-200 shadow-[0_-4px_24px_rgba(0,0,0,0.08)]">
+      <div class="max-w-2xl mx-auto px-5 py-3 flex items-center gap-3">
+
+        <!-- Save Draft -->
+        <div class="relative group">
+          <button type="submit" name="action" value="draft"
+                  :disabled="!canDraft"
+                  class="flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed">
+            <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"/>
+            </svg>
+            Save Draft
+          </button>
+          <div x-show="!canDraft" x-cloak
+               class="absolute bottom-full left-0 mb-2 px-3 py-2 bg-slate-900 text-white text-xs rounded-xl whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-20 shadow-xl">
+            Add a subject or body first.
+            <div class="absolute top-full left-4 border-4 border-transparent border-t-slate-900"></div>
+          </div>
+        </div>
+
+        <div class="flex-1"></div>
+
+        <!-- Send test to self -->
+        <button type="button" @click="addSelfToTo()"
+                class="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 font-medium transition border border-transparent hover:border-indigo-100">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+          </svg>
+          Send test to self
+        </button>
+
+        <!-- Primary: Send / Schedule -->
+        <div class="relative group">
+          <button type="submit" name="action" value="send"
+                  :disabled="!canSend"
+                  class="flex items-center gap-2.5 px-6 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition shadow-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-600">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/>
+            </svg>
+            <span x-text="frequency === 'now' ? 'Send Now' : 'Schedule'">Send Now</span>
+          </button>
+          <div x-show="!canSend" x-cloak
+               class="absolute bottom-full right-0 mb-2 px-3.5 py-3 bg-slate-900 text-white text-xs rounded-xl opacity-0 group-hover:opacity-100 transition pointer-events-none z-20 w-52 shadow-xl">
+            <p class="font-semibold text-slate-200 mb-2">Still needed:</p>
+            <ul class="space-y-1.5 text-slate-300">
+              <li x-show="to.tags.length === 0" class="flex items-center gap-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>At least one recipient
+              </li>
+              <li x-show="!subject.trim()" class="flex items-center gap-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>Subject line
+              </li>
+              <li x-show="!_bodyText()" class="flex items-center gap-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>Message body
+              </li>
+              <li x-show="!scheduleValid" class="flex items-center gap-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>Valid send date &amp; time
+              </li>
+            </ul>
+            <div class="absolute top-full right-5 border-4 border-transparent border-t-slate-900"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </form>
+</div>
+
+<script>
+function composeForm(searchUrl, groupUrl, selfEmail, selfName, draft, isEditing) {
+  draft = draft || {};
+
+  function makeField(tags) {
+    return { tags: tags || [], query: '', results: [], activeIndex: -1, open: false, _timer: null };
+  }
+
+  const hasDraftRecipients = (draft.recipients_cc && draft.recipients_cc.length > 0);
+  const hasDraftBcc        = (draft.recipients_bcc && draft.recipients_bcc.length > 0);
+
+  return {
+    to:  makeField(draft.recipients_to),
+    cc:  makeField(draft.recipients_cc),
+    bcc: makeField(draft.recipients_bcc),
+    showCc:       hasDraftRecipients,
+    showBcc:      hasDraftBcc,
+    showSchedule: !!draft.frequency && draft.frequency !== 'now',
+    subject:      draft.subject  || '',
+    bodyHtml:     draft.body_html || '',
+    attachments: [],
+    attachError: null,
+    groupLoading: { student: false, staff: false, parent: false },
+    groupError: null,
+    recipientGroups: [['student','All Students'],['staff','All Staff'],['parent','All Parents']],
+
+    // ── Schedule state ────────────────────────────────────────────────────────
+    frequency:    draft.frequency     || 'now',
+    scheduleDate: draft.schedule_date || '',
+    scheduleTime: draft.schedule_time || '09:00',
+    weeklyDay:    draft.weekly_day    || '1',
+    monthlyDay:   draft.monthly_day   || '1',
+    startsAt:     draft.starts_at     || '',
+    endsAt:       draft.ends_at       || '',
+    endsMode:     draft.ends_at       ? 'date' : 'never',
+
+    // ── Enable state ──────────────────────────────────────────────────────────
+    _bodyText() {
+      // Strip tags then decode &nbsp; so a space-only body doesn't pass.
+      return this.bodyHtml
+        .replace(/<[^>]*>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .trim();
+    },
+    get scheduleValid() {
+      if (this.frequency === 'now') return true;
+      if (this.frequency === 'once') {
+        if (!this.scheduleDate || !this.scheduleTime) return false;
+        const d = new Date(`${this.scheduleDate}T${this.scheduleTime}`);
+        if (isNaN(d)) return false;
+        return isEditing || d > new Date();
+      }
+      // weekly / monthly: need a start date and time
+      return !!this.startsAt && !!this.scheduleTime;
+    },
+    get canSend() {
+      return this.to.tags.length > 0
+        && this.subject.trim().length > 0
+        && this._bodyText().length > 0
+        && this.scheduleValid;
+    },
+    get canDraft() {
+      return this.subject.trim().length > 0
+        || this._bodyText().length > 0;
+    },
+
+    // ── Schedule helpers ──────────────────────────────────────────────────────
+    today: new Date().toISOString().slice(0, 10),
+    timeOptions: (() => {
+      const opts = [];
+      for (let h = 7; h <= 20; h++) {
+        for (const m of [0, 30]) {
+          if (h === 20 && m === 30) break;
+          const hh = String(h).padStart(2, '0');
+          const mm = String(m).padStart(2, '0');
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          const h12 = h % 12 || 12;
+          opts.push({ val: `${hh}:${mm}`, label: `${h12}:${mm} ${ampm}` });
+        }
+      }
+      return opts;
+    })(),
+    monthlyDays: Array.from({length: 28}, (_, i) => i + 1),
+    _fmt12(t) {
+      if (!t) return '';
+      const [h, m] = t.split(':').map(Number);
+      return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+    },
+    _ordinal(n) {
+      const s = ['th', 'st', 'nd', 'rd'];
+      const v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    },
+    _daysFrom(d) {
+      const now = new Date(); now.setHours(0, 0, 0, 0);
+      const tgt = new Date(d); tgt.setHours(0, 0, 0, 0);
+      return Math.ceil((tgt - now) / 86400000);
+    },
+    get nextSendLabel() {
+      const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      const _rel   = diff => diff === 0 ? 'today' : diff === 1 ? 'tomorrow' : `in ${diff} days`;
+
+      if (this.frequency === 'now') return null;
+
+      if (this.frequency === 'once') {
+        if (!this.scheduleDate || !this.scheduleTime) return null;
+        const d = new Date(`${this.scheduleDate}T${this.scheduleTime}`);
+        if (isNaN(d)) return null;
+        if (!isEditing && d <= new Date()) return null;
+        const diff = this._daysFrom(d);
+        return `Next send: ${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} at ${this._fmt12(this.scheduleTime)} (${_rel(diff)})`;
+      }
+
+      if (this.frequency === 'weekly') {
+        if (!this.startsAt || !this.scheduleTime) return null;
+        const start = new Date(this.startsAt + 'T00:00:00');
+        if (isNaN(start)) return null;
+        const target = parseInt(this.weeklyDay);
+        const d = new Date(start);
+        d.setDate(d.getDate() + (target - d.getDay() + 7) % 7);
+        const diff = this._daysFrom(d);
+        if (diff < 0) return null;
+        return `Next send: ${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} at ${this._fmt12(this.scheduleTime)} (${_rel(diff)})`;
+      }
+
+      if (this.frequency === 'monthly') {
+        if (!this.startsAt || !this.scheduleTime) return null;
+        const start = new Date(this.startsAt + 'T00:00:00');
+        if (isNaN(start)) return null;
+        const dayNum = parseInt(this.monthlyDay);
+        let d = new Date(start.getFullYear(), start.getMonth(), dayNum);
+        if (d < start) d = new Date(start.getFullYear(), start.getMonth() + 1, dayNum);
+        const diff = this._daysFrom(d);
+        if (diff < 0) return null;
+        return `Next send: ${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()} at ${this._fmt12(this.scheduleTime)} (${_rel(diff)})`;
+      }
+
+      return null;
+    },
+
+    // ── Recipient autocomplete ────────────────────────────────────────────────
+    async search(field) {
+      const f = this[field];
+      clearTimeout(f._timer);
+      if (f.query.length < 2) { f.open = false; f.results = []; return; }
+      f._timer = setTimeout(async () => {
+        try {
+          const res = await fetch(searchUrl + '?q=' + encodeURIComponent(f.query));
+          if (!res.ok) { f.open = false; return; }
+          const data = await res.json();
+          f.results = data.results.filter(r => !f.tags.some(t => t.email === r.email));
+          f.activeIndex = -1;
+          f.open = f.results.length > 0;
+        } catch(e) { f.open = false; }
+      }, 300);
+    },
+
+    select(field, r) {
+      const f = this[field];
+      if (!f.tags.some(t => t.email === r.email)) f.tags.push(r);
+      f.query = ''; f.results = []; f.open = false;
+    },
+
+    remove(field, tag) {
+      this[field].tags = this[field].tags.filter(t => t.email !== tag.email);
+    },
+
+    tryFreeText(field) {
+      const f = this[field];
+      const q = f.query.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(q)) return false;
+      if (!f.tags.some(t => t.email === q)) {
+        f.tags.push({ id: null, name: q, email: q, role: 'email' });
+      }
+      f.query = ''; f.results = []; f.open = false;
+      return true;
+    },
+
+    onKeydown(field, e) {
+      const f = this[field];
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        f.activeIndex = Math.min(f.activeIndex + 1, f.results.length - 1);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        f.activeIndex = Math.max(f.activeIndex - 1, -1);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (f.open && f.activeIndex >= 0) this.select(field, f.results[f.activeIndex]);
+        else this.tryFreeText(field);
+      } else if (e.key === ',') {
+        e.preventDefault();
+        this.tryFreeText(field);
+      } else if (e.key === 'Escape') {
+        f.open = false; f.activeIndex = -1;
+      } else if (e.key === 'Backspace' && !f.query && f.tags.length) {
+        f.tags.pop();
+      } else if (e.key === 'Tab') {
+        if (f.open && f.activeIndex >= 0) {
+          e.preventDefault(); this.select(field, f.results[f.activeIndex]);
+        } else if (this.tryFreeText(field)) {
+          e.preventDefault();
+        }
+      }
+    },
+
+    delayClose(field) {
+      setTimeout(() => { this[field].open = false; }, 150);
+    },
+
+    get duplicates() {
+      const seen = {};
+      ['to', 'cc', 'bcc'].forEach(f => {
+        this[f].tags.forEach(t => {
+          if (!seen[t.email]) seen[t.email] = [];
+          seen[t.email].push(f.toUpperCase());
+        });
+      });
+      return Object.entries(seen)
+        .filter(([, fields]) => fields.length > 1)
+        .map(([email, fields]) => email + ' appears in ' + fields.join(' and '));
+    },
+
+    // ── Body editor ───────────────────────────────────────────────────────────
+    execFormat(cmd) {
+      this.$refs.editor.focus();
+      document.execCommand(cmd, false, null);
+    },
+
+    formatBlock(tag) {
+      this.$refs.editor.focus();
+      document.execCommand('formatBlock', false, tag);
+    },
+
+    insertLink() {
+      const url = prompt('Enter URL:');
+      if (!url) return;
+      this.$refs.editor.focus();
+      document.execCommand('createLink', false,
+        url.startsWith('http') ? url : 'https://' + url);
+    },
+
+    onBodyInput() {
+      this.bodyHtml = this.$refs.editor.innerHTML;
+    },
+
+    // ── Recipient group bulk-add (CPP-361) ───────────────────────────────────
+    async addGroup(role) {
+      this.groupLoading[role] = true;
+      this.groupError = null;
+      try {
+        const _gUrl = new URL(groupUrl, window.location.origin);
+        _gUrl.searchParams.set('role', role);
+        const res = await fetch(_gUrl.toString());
+        if (!res.ok) { this.groupError = 'Could not load group — please try again.'; return; }
+        const data = await res.json();
+        let added = 0;
+        for (const r of data.results) {
+          if (!this.to.tags.some(t => t.email === r.email)) {
+            this.to.tags.push(r);
+            added++;
+          }
+        }
+        if (added === 0 && data.results.length > 0) {
+          this.groupError = 'All members of this group are already in the To field.';
+        }
+      } catch(e) {
+        this.groupError = 'Network error loading group.';
+      } finally {
+        this.groupLoading[role] = false;
+      }
+    },
+
+    // ── Send test to self (CPP-361) ──────────────────────────────────────────
+    addSelfToTo() {
+      if (!selfEmail) return;
+      if (!this.to.tags.some(t => t.email === selfEmail)) {
+        this.to.tags.push({ id: null, name: selfName || selfEmail, email: selfEmail, role: 'staff' });
+      }
+    },
+
+    // ── Attachments ───────────────────────────────────────────────────────────
+    addFiles(e) {
+      const MAX = 10 * 1024 * 1024;
+      const OK_TYPES = new Set([
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/png',
+        'image/jpeg',
+      ]);
+      // Extension fallback for browsers that return empty MIME type (e.g. DOCX on some OS).
+      const OK_EXTS = new Set(['.pdf', '.docx', '.png', '.jpg', '.jpeg']);
+      const errors = [];
+      const dt = new DataTransfer();
+      // Keep previously accepted files
+      for (const f of (this._files || [])) dt.items.add(f);
+      for (const f of Array.from(e.target.files)) {
+        const ext = f.name.slice(f.name.lastIndexOf('.')).toLowerCase();
+        if (f.size > MAX) { errors.push(`${f.name} exceeds the 10 MB limit.`); continue; }
+        if (!OK_TYPES.has(f.type) && !OK_EXTS.has(ext)) {
+          errors.push(`${f.name}: only PDF, DOCX, PNG, and JPG files are supported.`);
+          continue;
+        }
+        if (!this.attachments.find(a => a.name === f.name)) {
+          this.attachments.push({ name: f.name, size: f.size });
+          dt.items.add(f);
+        }
+      }
+      this._files = Array.from(dt.files);
+      e.target.files = dt.files;
+      this.attachError = errors.length ? errors.join(' ') : null;
+    },
+
+    removeAttachment(name) {
+      this.attachments = this.attachments.filter(a => a.name !== name);
+      this._files = (this._files || []).filter(f => f.name !== name);
+      const dt = new DataTransfer();
+      for (const f of this._files) dt.items.add(f);
+      this.$refs.fileInput.files = dt.files;
+    },
+
+    formatSize(bytes) {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / 1048576).toFixed(1)} MB`;
+    },
+  };
+}
+</script>
+{% endblock %}

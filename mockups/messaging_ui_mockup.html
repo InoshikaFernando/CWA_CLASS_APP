@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Messaging — CWA Classroom Mockup</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { display: ['Inter','sans-serif'], body: ['Nunito','sans-serif'] },
+          colors: {
+            accent: '#6366f1',
+            primary: '#1e1b4b',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Nunito', sans-serif; }
+    h1,h2,h3,label,.font-display { font-family: 'Inter', sans-serif; }
+    .sidebar-bg { background: linear-gradient(160deg, #1e1b4b 0%, #312e81 100%); }
+    .tag { display:inline-flex;align-items:center;gap:4px;background:#e0e7ff;color:#3730a3;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600; }
+    .tag .x { cursor:pointer;opacity:.6;font-size:14px;line-height:1; }
+    .dropdown-item:hover { background:#f5f3ff; }
+    .channel-active { background:#6366f1;color:#fff;border-color:#6366f1; }
+    .channel-disabled { background:#f8fafc;color:#94a3b8;border-color:#e2e8f0;cursor:not-allowed; }
+    .schedule-radio:checked + label { border-color:#6366f1;background:#f5f3ff;color:#4338ca; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen flex" style="font-family:'Nunito',sans-serif">
+
+  <!-- ══════════════ SIDEBAR ══════════════ -->
+  <aside class="sidebar-bg w-56 flex-shrink-0 flex flex-col h-screen sticky top-0 overflow-y-auto">
+
+    <!-- Logo -->
+    <div class="flex items-center gap-2.5 px-4 py-4 border-b border-white/10">
+      <div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center text-white font-bold text-xs">CW</div>
+      <span class="text-white font-display font-bold text-base">Classroom</span>
+    </div>
+
+    <nav class="flex flex-col px-3 py-3 gap-0.5 flex-1">
+
+      <!-- Dashboard -->
+      <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/70 font-medium hover:bg-white/10 transition">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/></svg>
+        <span>Dashboard</span>
+      </a>
+
+      <!-- PEOPLE -->
+      <div class="mt-4 mb-1 px-3"><span class="text-[10px] font-semibold uppercase tracking-widest text-white/40">People</span></div>
+      <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/70 font-medium hover:bg-white/10 transition">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
+        <span>Schools</span>
+      </a>
+      <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/70 font-medium hover:bg-white/10 transition">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>
+        <span>Students</span>
+      </a>
+      <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/70 font-medium hover:bg-white/10 transition">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5"/></svg>
+        <span>Teachers</span>
+      </a>
+
+      <!-- CONTENT -->
+      <div class="mt-4 mb-1 px-3"><span class="text-[10px] font-semibold uppercase tracking-widest text-white/40">Content</span></div>
+      <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/70 font-medium hover:bg-white/10 transition">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/></svg>
+        <span>Browse Topics</span>
+      </a>
+      <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/70 font-medium hover:bg-white/10 transition">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+        <span>Create Questions</span>
+      </a>
+
+      <!-- FINANCE -->
+      <div class="mt-4 mb-1 px-3"><span class="text-[10px] font-semibold uppercase tracking-widest text-white/40">Finance</span></div>
+      <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/70 font-medium hover:bg-white/10 transition">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/></svg>
+        <span>Billing</span>
+      </a>
+      <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/70 font-medium hover:bg-white/10 transition">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
+        <span>Subscriptions</span>
+      </a>
+
+      <!-- COMMUNICATION -->
+      <div class="mt-4 mb-1 px-3"><span class="text-[10px] font-semibold uppercase tracking-widest text-white/40">Communication</span></div>
+      <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/70 font-medium hover:bg-white/10 transition">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"/></svg>
+        <span>Email</span>
+      </a>
+
+      <!-- ★ MESSAGING — ACTIVE (new item) -->
+      <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white font-semibold bg-white/15 border-l-2 border-indigo-300 transition relative">
+        <svg class="w-4 h-4 flex-shrink-0 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"/></svg>
+        <span>Messaging</span>
+        <span class="ml-auto bg-indigo-400/30 text-indigo-200 text-[10px] font-bold px-1.5 py-0.5 rounded-full">NEW</span>
+      </a>
+
+      <!-- SYSTEM -->
+      <div class="mt-4 mb-1 px-3"><span class="text-[10px] font-semibold uppercase tracking-widest text-white/40">System</span></div>
+      <a href="#" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/70 font-medium hover:bg-white/10 transition">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        <span>Settings</span>
+      </a>
+
+    </nav>
+
+    <!-- Admin badge -->
+    <div class="px-4 py-3 border-t border-white/10 flex items-center gap-2.5">
+      <div class="w-7 h-7 rounded-full bg-indigo-400 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">AD</div>
+      <div class="min-w-0">
+        <p class="text-white text-xs font-semibold truncate">Admin</p>
+        <p class="text-white/40 text-[10px] truncate">admin@cwa.nz</p>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ══════════════ MAIN CONTENT ══════════════ -->
+  <main class="flex-1 overflow-y-auto bg-slate-50">
+
+    <!-- Top bar -->
+    <header class="bg-white border-b border-slate-200 px-8 py-3.5 flex items-center justify-between sticky top-0 z-10">
+      <div class="flex items-center gap-2 text-sm text-slate-500">
+        <span>Communication</span>
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+        <span class="text-slate-800 font-semibold">Messaging</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <button class="text-slate-400 hover:text-slate-600">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>
+        </button>
+        <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-xs">AD</div>
+      </div>
+    </header>
+
+    <div class="max-w-3xl mx-auto px-6 py-8">
+
+      <!-- Page header -->
+      <div class="flex items-center gap-4 mb-8">
+        <button class="w-9 h-9 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-slate-400 hover:text-slate-600 shadow-sm transition">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/></svg>
+        </button>
+        <div>
+          <h1 class="text-2xl font-display font-bold text-slate-900">New Message</h1>
+          <p class="text-slate-500 text-sm mt-0.5">Compose and schedule email communications</p>
+        </div>
+      </div>
+
+      <!-- ── CHANNEL SELECTOR ── -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-4">
+        <p class="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Send Via</p>
+        <div class="flex gap-3">
+          <!-- Email — active -->
+          <button class="flex items-center gap-2.5 px-5 py-2.5 rounded-xl border-2 border-indigo-500 bg-indigo-50 text-indigo-700 font-semibold text-sm transition">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"/></svg>
+            Email
+            <span class="w-2 h-2 rounded-full bg-indigo-500 ml-0.5"></span>
+          </button>
+          <!-- SMS — disabled -->
+          <div class="relative group">
+            <button disabled class="flex items-center gap-2.5 px-5 py-2.5 rounded-xl border-2 border-slate-200 bg-slate-50 text-slate-400 font-semibold text-sm cursor-not-allowed">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"/></svg>
+              SMS
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>
+            </button>
+            <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-slate-800 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none">
+              SMS coming in Phase 2
+              <div class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── RECIPIENTS + SUBJECT ── -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-4 overflow-visible">
+
+        <!-- TO field -->
+        <div class="relative px-5 py-3.5 border-b border-slate-100">
+          <div class="flex items-start gap-3">
+            <span class="text-xs font-semibold text-slate-400 w-8 pt-1.5 flex-shrink-0">To</span>
+            <div class="flex-1">
+              <div class="flex flex-wrap gap-1.5 items-center">
+                <span class="tag">John Doe <span class="x">×</span></span>
+                <span class="tag">jane.smith@cwa.nz <span class="x">×</span></span>
+                <input type="text" value="sara" class="outline-none text-sm text-slate-700 placeholder-slate-300 min-w-[80px] flex-1" placeholder="Add recipient...">
+              </div>
+              <!-- AUTOCOMPLETE DROPDOWN -->
+              <div class="absolute left-12 right-4 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
+                <div class="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
+                  <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+                  <span class="text-xs text-slate-400">Searching for "sara"…</span>
+                </div>
+                <!-- Result 1 — highlighted -->
+                <div class="flex items-center gap-3 px-4 py-3 bg-indigo-50 cursor-pointer border-l-2 border-indigo-500">
+                  <div class="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs flex-shrink-0">SA</div>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold text-slate-800">Sara Adams</p>
+                    <p class="text-xs text-slate-400 truncate">sara.adams@cwa.nz</p>
+                  </div>
+                  <span class="text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex-shrink-0">Student</span>
+                </div>
+                <!-- Result 2 -->
+                <div class="dropdown-item flex items-center gap-3 px-4 py-3 cursor-pointer">
+                  <div class="w-8 h-8 rounded-full bg-violet-100 flex items-center justify-center text-violet-600 font-bold text-xs flex-shrink-0">SR</div>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold text-slate-800">Sarah Robinson</p>
+                    <p class="text-xs text-slate-400 truncate">s.robinson@cwa.nz</p>
+                  </div>
+                  <span class="text-[10px] font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full flex-shrink-0">Staff</span>
+                </div>
+                <!-- Result 3 — parent -->
+                <div class="dropdown-item flex items-center gap-3 px-4 py-3 cursor-pointer">
+                  <div class="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-bold text-xs flex-shrink-0">SM</div>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold text-slate-800">Sara Mitchell</p>
+                    <p class="text-xs text-slate-400 truncate">sara.mitchell@gmail.com</p>
+                  </div>
+                  <span class="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full flex-shrink-0">Parent</span>
+                </div>
+                <div class="px-4 py-2 border-t border-slate-100">
+                  <p class="text-xs text-slate-400">Or press <kbd class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 font-mono text-[10px]">Enter</kbd> to add sara as free-text email</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CC field -->
+        <div class="px-5 py-3 border-b border-slate-100">
+          <div class="flex items-center gap-3">
+            <span class="text-xs font-semibold text-slate-400 w-8 flex-shrink-0">CC</span>
+            <div class="flex-1 flex items-center gap-1.5">
+              <span class="tag">billing@cwa.nz <span class="x">×</span></span>
+              <input type="text" class="outline-none text-sm text-slate-400 placeholder-slate-300 flex-1" placeholder="Add CC recipients...">
+            </div>
+          </div>
+        </div>
+
+        <!-- BCC field -->
+        <div class="px-5 py-3 border-b border-slate-100">
+          <div class="flex items-center gap-3">
+            <span class="text-xs font-semibold text-slate-400 w-8 flex-shrink-0">BCC</span>
+            <input type="text" class="outline-none text-sm text-slate-400 placeholder-slate-300 flex-1" placeholder="Add BCC recipients...">
+          </div>
+        </div>
+
+        <!-- Subject -->
+        <div class="px-5 py-3">
+          <div class="flex items-center gap-3">
+            <span class="text-xs font-semibold text-slate-400 w-8 flex-shrink-0">Sub</span>
+            <input type="text" value="Your July 2026 Invoice is Ready" class="outline-none text-sm font-semibold text-slate-800 flex-1">
+          </div>
+        </div>
+      </div>
+
+      <!-- ── RICH TEXT EDITOR ── -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-4 overflow-hidden">
+        <!-- Toolbar -->
+        <div class="px-4 py-2.5 border-b border-slate-100 flex items-center gap-1 flex-wrap">
+          <button class="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-sm">B</button>
+          <button class="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600 italic text-sm">I</button>
+          <button class="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600 underline text-sm">U</button>
+          <div class="w-px h-5 bg-slate-200 mx-1"></div>
+          <button class="px-2 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600 text-xs font-bold">H1</button>
+          <button class="px-2 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-600 text-xs font-bold">H2</button>
+          <div class="w-px h-5 bg-slate-200 mx-1"></div>
+          <button class="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
+          </button>
+          <button class="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"/></svg>
+          </button>
+          <button class="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
+          </button>
+          <div class="flex-1"></div>
+          <span class="text-xs text-slate-300">246 / 5000</span>
+        </div>
+        <!-- Body text -->
+        <div class="px-6 py-5 min-h-[180px] text-sm text-slate-700 leading-relaxed">
+          <p>Dear <span class="bg-indigo-100 text-indigo-700 px-1 rounded font-mono text-xs">{first_name}</span>,</p>
+          <br>
+          <p>Your invoice for the month of <strong>July 2026</strong> is now ready and available in your parent portal.</p>
+          <br>
+          <p>Please log in at your earliest convenience to review and make payment. If you have any questions, feel free to reply to this email.</p>
+          <br>
+          <p>Kind regards,<br><strong>Code Wizards Aotearoa</strong></p>
+        </div>
+        <!-- Attachment bar -->
+        <div class="px-5 py-3 border-t border-slate-100 bg-slate-50/60 flex items-center gap-3">
+          <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
+            <svg class="w-4 h-4 text-red-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
+            <span class="text-xs text-slate-600 font-medium">invoice_july_2026.pdf</span>
+            <button class="text-slate-300 hover:text-slate-500 text-sm ml-1">×</button>
+          </div>
+          <button class="flex items-center gap-1.5 text-xs text-indigo-600 font-semibold hover:text-indigo-800 transition">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
+            Attach file
+          </button>
+        </div>
+      </div>
+
+      <!-- ── SCHEDULE ── -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6 p-6">
+        <p class="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-4">Schedule</p>
+
+        <!-- Frequency radio row -->
+        <div class="grid grid-cols-4 gap-2 mb-5">
+          <!-- Send Now -->
+          <label class="flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-indigo-200 transition text-center">
+            <svg class="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
+            <span class="text-xs font-semibold text-slate-500">Send Now</span>
+            <input type="radio" name="freq" value="now" class="sr-only">
+          </label>
+          <!-- One Time -->
+          <label class="flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-indigo-200 transition text-center">
+            <svg class="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span class="text-xs font-semibold text-slate-500">One Time</span>
+            <input type="radio" name="freq" value="once" class="sr-only">
+          </label>
+          <!-- Weekly — ACTIVE -->
+          <label class="flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 border-indigo-500 bg-indigo-50 cursor-pointer transition text-center">
+            <svg class="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z"/></svg>
+            <span class="text-xs font-semibold text-indigo-700">Weekly</span>
+            <input type="radio" name="freq" value="weekly" checked class="sr-only">
+          </label>
+          <!-- Monthly -->
+          <label class="flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 border-slate-200 cursor-pointer hover:border-indigo-200 transition text-center">
+            <svg class="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/></svg>
+            <span class="text-xs font-semibold text-slate-500">Monthly</span>
+            <input type="radio" name="freq" value="monthly" class="sr-only">
+          </label>
+        </div>
+
+        <!-- Weekly options (shown because Weekly is selected) -->
+        <div class="bg-indigo-50/60 rounded-xl border border-indigo-100 p-4 mb-4">
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1.5">Day of Week</label>
+              <select class="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none">
+                <option>Monday</option>
+                <option>Tuesday</option>
+                <option>Wednesday</option>
+                <option selected>Friday</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1.5">Time</label>
+              <select class="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none">
+                <option>08:00 AM</option>
+                <option selected>09:00 AM</option>
+                <option>10:00 AM</option>
+                <option>12:00 PM</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1.5">Starts</label>
+              <input type="text" value="16/06/2026" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-indigo-200 outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1.5">Ends</label>
+              <select class="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none">
+                <option selected>Never</option>
+                <option>On date…</option>
+                <option>After N sends</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Next send preview -->
+        <div class="flex items-center gap-2 px-4 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl">
+          <svg class="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <p class="text-xs text-emerald-700 font-medium">Next send: <strong>Friday 20 June 2026 at 9:00 AM</strong> — then every Friday</p>
+        </div>
+      </div>
+
+      <!-- ── ACTION BUTTONS ── -->
+      <div class="flex items-center justify-between">
+        <button class="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-600 text-sm font-semibold hover:bg-slate-50 transition shadow-sm">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"/></svg>
+          Save Draft
+        </button>
+        <button class="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition shadow-sm">
+          Schedule Message
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+        </button>
+      </div>
+
+    </div>
+  </main>
+
+</body>
+</html>

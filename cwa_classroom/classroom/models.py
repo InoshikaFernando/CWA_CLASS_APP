@@ -2635,3 +2635,88 @@ class Expense(models.Model):
 
     def __str__(self):
         return f'{self.get_category_display()} — ${self.amount} ({self.date})'
+
+
+# ---------------------------------------------------------------------------
+# Messaging Centre (CPP-348)
+# ---------------------------------------------------------------------------
+
+class ScheduledMessage(models.Model):
+    FREQUENCY_NOW     = 'now'
+    FREQUENCY_ONCE    = 'once'
+    FREQUENCY_WEEKLY  = 'weekly'
+    FREQUENCY_MONTHLY = 'monthly'
+    FREQUENCY_CHOICES = [
+        ('now',     'Send Now'),
+        ('once',    'One Time'),
+        ('weekly',  'Weekly'),
+        ('monthly', 'Monthly'),
+    ]
+
+    STATUS_DRAFT     = 'draft'
+    STATUS_SCHEDULED = 'scheduled'
+    STATUS_SENT      = 'sent'
+    STATUS_FAILED    = 'failed'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = [
+        ('draft',     'Draft'),
+        ('scheduled', 'Scheduled'),
+        ('sent',      'Sent'),
+        ('failed',    'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    school      = models.ForeignKey('School', on_delete=models.CASCADE, related_name='scheduled_messages')
+    created_by  = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                     null=True, blank=True, related_name='scheduled_messages')
+    subject     = models.CharField(max_length=255)
+    body_html   = models.TextField(blank=True)
+    channel     = models.CharField(max_length=10, default='email')
+
+    # Recipients stored as JSON arrays of {id, name, email, role}
+    recipients_to  = models.JSONField(default=list)
+    recipients_cc  = models.JSONField(default=list)
+    recipients_bcc = models.JSONField(default=list)
+
+    frequency   = models.CharField(max_length=10, choices=FREQUENCY_CHOICES, default='now')
+
+    # One-time: exact aware datetime to send
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+
+    # Recurring: time of day, day within frequency cycle, date range
+    send_time   = models.TimeField(null=True, blank=True)
+    send_day    = models.SmallIntegerField(null=True, blank=True,
+                                            help_text='0–6 for weekly (Sun=0), 1–28 for monthly')
+    starts_at   = models.DateField(null=True, blank=True)
+    ends_at     = models.DateField(null=True, blank=True)
+
+    status      = models.CharField(max_length=12, choices=STATUS_CHOICES, default='draft')
+    next_run_at = models.DateTimeField(null=True, blank=True)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['school', 'status']),
+            models.Index(fields=['next_run_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.subject} ({self.get_frequency_display()}, {self.status})'
+
+
+class ScheduledMessageAttachment(models.Model):
+    """File attachment for a ScheduledMessage. Stored and emailed on dispatch."""
+    message  = models.ForeignKey(
+        ScheduledMessage, on_delete=models.CASCADE, related_name='attachments',
+    )
+    file     = models.FileField(upload_to='messaging/attachments/%Y/%m/')
+    filename = models.CharField(max_length=255)
+    filesize = models.PositiveIntegerField(default=0, help_text='Bytes')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.filename

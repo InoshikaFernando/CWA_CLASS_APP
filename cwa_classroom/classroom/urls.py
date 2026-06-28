@@ -3,6 +3,7 @@ from . import views
 from . import views_admin
 from . import views_department
 from . import views_email
+from . import views_messaging
 from . import views_teacher
 from . import views_student
 from . import views_progress
@@ -208,6 +209,17 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/update-fee/', views_department.DepartmentUpdateFeeView.as_view(), name='admin_department_update_fee'),
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/toggle-active/', views_department.DepartmentToggleActiveView.as_view(), name='admin_department_toggle_active'),
     path('admin-dashboard/schools/<int:school_id>/departments/<int:dept_id>/delete/', views_department.DepartmentDeleteView.as_view(), name='admin_department_delete'),
+
+    # Messaging (email + SMS) — CPP-348 / CPP-350 / CPP-358
+    path('admin-dashboard/messaging/', views_messaging.MessagingDashboardView.as_view(), name='messaging_dashboard'),
+    path('admin-dashboard/messaging/inbox/', views_messaging.MessagingInboxView.as_view(), name='messaging_inbox'),
+    path('admin-dashboard/messaging/compose/', views_messaging.MessagingComposeView.as_view(), name='messaging_compose'),
+    path('admin-dashboard/messaging/api/recipients/', views_messaging.RecipientSearchAPIView.as_view(), name='messaging_recipient_search'),
+    path('admin-dashboard/messaging/api/recipients/group/', views_messaging.MessagingRecipientGroupAPIView.as_view(), name='messaging_recipient_group'),
+    path('admin-dashboard/messaging/<int:pk>/', views_messaging.MessagingDetailView.as_view(), name='messaging_detail'),
+    path('admin-dashboard/messaging/<int:pk>/cancel/', views_messaging.MessagingCancelView.as_view(), name='messaging_cancel'),
+    path('admin-dashboard/messaging/<int:pk>/delete/', views_messaging.MessagingDeleteView.as_view(), name='messaging_delete'),
+    path('admin-dashboard/messaging/<int:pk>/retry/', views_messaging.MessagingRetryView.as_view(), name='messaging_retry'),
 
     # Email management (admin)
     path('admin-dashboard/email/', views_email.EmailDashboardView.as_view(), name='email_dashboard'),

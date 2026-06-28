@@ -1,4 +1,5 @@
 import logging
+import mimetypes
 import time
 
 from django.conf import settings
@@ -217,6 +218,92 @@ def send_templated_email(
         )
         if not fail_silently:
             raise
+        return False
+
+
+def send_prebuilt_email(
+    recipient_email,
+    subject,
+    html_content,
+    from_email=None,
+    cc=None,
+    notification_type='scheduled_message',
+    school=None,
+    attachments=None,   # list of ScheduledMessageAttachment (legacy — avoid: reads files per call)
+    att_data=None,      # list of (filename, bytes) — preferred; pre-read once by caller
+):
+    """Send a pre-built HTML email immediately, without template rendering.
+
+    Mirrors send_templated_email behaviour:
+      - Respects the daily limit (falls back to EmailQueue if over limit)
+      - Logs every attempt to EmailLog
+      - Works with whichever EMAIL_BACKEND is active (Resend / SMTP / console)
+
+    Used by dispatch_message so messaging emails go through the same pipeline
+    as every other email in the app — no separate cron or worker needed.
+    """
+    from .models import EmailLog, EmailQueue
+
+    text_content = strip_tags(html_content or '')
+    from_email = from_email or getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@wizardslearninghub.co.nz')
+    cc = cc or []
+
+    over_limit = False
+    if DAILY_EMAIL_LIMIT > 0:
+        today = timezone.now().date()
+        sent_today = EmailLog.objects.filter(status='sent', sent_at__date=today).count()
+        over_limit = sent_today >= DAILY_EMAIL_LIMIT
+
+    if over_limit:
+        EmailQueue.objects.create(
+            recipient_email=recipient_email,
+            subject=subject,
+            from_email=from_email,
+            html_content=html_content or '',
+            text_content=text_content,
+            cc=cc,
+            notification_type=notification_type,
+        )
+        logger.info('send_prebuilt_email: daily limit reached, queued to %s', recipient_email)
+        return True
+
+    try:
+        msg = EmailMultiAlternatives(subject, text_content, from_email, [recipient_email], cc=cc)
+        if html_content:
+            msg.attach_alternative(html_content, 'text/html')
+        # Prefer pre-read att_data (list of (filename, bytes)); fall back to model objects.
+        combined = list(att_data or [])
+        for att in (attachments or []):
+            try:
+                with att.file.open('rb') as fh:
+                    combined.append((att.filename, fh.read()))
+            except Exception:
+                logger.warning('send_prebuilt_email: could not read attachment %s', att.filename)
+        for filename, data in combined:
+            mime, _ = mimetypes.guess_type(filename)
+            msg.attach(filename, data, mime or 'application/octet-stream')
+        msg.send(fail_silently=False)
+
+        EmailLog.objects.create(
+            recipient_email=recipient_email,
+            subject=subject,
+            notification_type=notification_type,
+            school=school,
+            status='sent',
+            provider_message_id=getattr(msg, 'resend_message_id', ''),
+        )
+        return True
+
+    except Exception as exc:
+        logger.exception('send_prebuilt_email: failed to send to %s: %s', recipient_email, exc)
+        EmailLog.objects.create(
+            recipient_email=recipient_email,
+            subject=subject,
+            notification_type=notification_type,
+            school=school,
+            status='failed',
+            error_message=str(exc),
+        )
         return False
 
 
