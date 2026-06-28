@@ -479,6 +479,45 @@ def _student_sort_name(user):
     return (user.get_full_name() or user.username).lower()
 
 
+_DAY_TO_WEEKDAY = {
+    'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+    'friday': 4, 'saturday': 5, 'sunday': 6,
+}
+
+
+def _current_or_next_classroom(classrooms):
+    """The classroom whose weekly session is on now or is soonest upcoming.
+
+    Ranks by the recurring schedule (``day`` + ``start_time``/``end_time``): a
+    class in session right now wins, then the one starting soonest. Classes with
+    no scheduled day/time sort last. Returns ``None`` for an empty input.
+    """
+    now = timezone.localtime()
+    today_wd = now.weekday()
+    now_t = now.time()
+    best = None
+    best_key = None
+    for c in classrooms:
+        wd = _DAY_TO_WEEKDAY.get(c.day)
+        if wd is None or c.start_time is None:
+            key = (2, 0.0)  # unscheduled → last
+        else:
+            end_t = c.end_time or c.start_time
+            days_ahead = (wd - today_wd) % 7
+            if days_ahead == 0 and c.start_time <= now_t <= end_t:
+                key = (0, 0.0)  # in session right now
+            else:
+                if days_ahead == 0 and now_t > end_t:
+                    days_ahead = 7  # today's class already finished → next week
+                start_dt = timezone.make_aware(
+                    datetime.combine(now.date() + timedelta(days=days_ahead), c.start_time)
+                )
+                key = (1, (start_dt - now).total_seconds())
+        if best_key is None or key < best_key:
+            best_key, best = key, c
+    return best
+
+
 class HomeworkLeaderboardView(RoleRequiredMixin, View):
     """Per-class homework progress leaderboard (CPP-363).
 
@@ -506,17 +545,22 @@ class HomeworkLeaderboardView(RoleRequiredMixin, View):
         classrooms = _teacher_classrooms(request.user)
 
         # A leaderboard ranks students *within one class*, so — unlike the
-        # monitor — there is no "all classes" option. Resolve to a real class,
-        # falling back to the teacher's first class.
+        # monitor — there is no "all classes" option. An explicit ?classroom
+        # wins; otherwise default to the current/next upcoming class. Pick that
+        # among the classes the user personally teaches if they have any, else
+        # across the whole institute's classes (e.g. an owner/admin who teaches
+        # none). The dropdown still lists every class the user can see.
         selected_classroom = None
         cid = request.GET.get('classroom')
         if cid:
             try:
                 selected_classroom = classrooms.get(id=cid)
             except (ClassRoom.DoesNotExist, ValueError, TypeError):
-                selected_classroom = classrooms.first()
-        else:
-            selected_classroom = classrooms.first()
+                selected_classroom = None
+        if selected_classroom is None:
+            own = classrooms.filter(teachers=request.user)
+            pool = own if own.exists() else classrooms
+            selected_classroom = _current_or_next_classroom(pool) or pool.first()
 
         # --- Week selection (Mon–Sun, by due date) ----------------------
         # The board is scoped to one week. By default it lands on the week of

@@ -25,10 +25,11 @@
   .lb-weeklabel { color:#e5e7eb; font-size:13px; white-space:nowrap; padding:0 4px; }
   .lb-empty { background:#0d0d0d; border:1px solid #1f1f1f; border-radius:16px; color:#9ca3af; }
 
-  .lb-card { background:#161616; border:1px solid #2a2a2a; border-radius:18px; text-align:center; }
-  .lb-card--win   { border:1.5px solid #34d399; }
-  .lb-card--second{ border:1px solid #3f4651; }
-  .lb-card--third { border:1px solid #b3283a; }
+  .lb-card { background:#161616; border:1px solid #2a2a2a; border-radius:18px; text-align:center;
+             transform-origin:bottom center; animation: lb-grow .55s cubic-bezier(.2,.7,.2,1) both; }
+  .lb-card--win   { border:1.5px solid #34d399; animation-delay:.2s; }
+  .lb-card--second{ border:1px solid #3f4651; animation-delay:.06s; }
+  .lb-card--third { border:1px solid #b3283a; animation-delay:.34s; }
 
   .lb-badge { width:36px; height:36px; border-radius:9999px; display:flex; align-items:center;
               justify-content:center; font-weight:500; margin:0 auto 8px; }
@@ -50,6 +51,8 @@
   .lb-cell { color:#e5e7eb; }
   .lb-muted { color:#6b7280; }
 
+  /* Podium cards grow up from the floor on load (transform-origin: bottom). */
+  @keyframes lb-grow { from { opacity:0; transform:translateY(26px) scaleY(.55); } to { opacity:1; transform:translateY(0) scaleY(1); } }
   @keyframes lb-float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-7px); } }
   @keyframes lb-glow {
     0%,100% { box-shadow:0 0 14px 3px rgba(52,211,153,.35); }
@@ -60,7 +63,7 @@
   .lb-badge--third { animation-delay:.4s; }
 
   @media (prefers-reduced-motion: reduce) {
-    .lb-trophy, .lb-badge--second, .lb-badge--third { animation:none; }
+    .lb-card, .lb-trophy, .lb-badge--second, .lb-badge--third { animation:none; }
     .lb-trophy { box-shadow:0 0 20px 5px rgba(52,211,153,.5); }
   }
 </style>
@@ -147,7 +150,7 @@
   <div class="grid grid-cols-3 gap-4 items-end mb-8 max-w-3xl mx-auto">
     {% for r in podium %}
     {% if forloop.counter == 1 %}
-    <div class="lb-card lb-card--win order-2 px-4 pt-6 pb-7 -translate-y-2">
+    <div class="lb-card lb-card--win order-2 px-4 pt-6 pb-7">
       <div class="lb-trophy">
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>

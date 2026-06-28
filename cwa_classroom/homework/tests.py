@@ -3291,6 +3291,42 @@ class HomeworkLeaderboardTest(HomeworkTestBase):
         self.assertEqual(ranked[1]['student'], self.student2)
         self.assertEqual(ranked[1]['avg_percentage'], 70)
 
+    # -- default class (current / next upcoming) -------------------------
+
+    def test_current_or_next_classroom_picks_in_session(self):
+        from datetime import time as dtime
+        from django.utils import timezone
+        from homework.views import _current_or_next_classroom
+        now = timezone.localtime()
+        days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        in_session = ClassRoom.objects.create(
+            name='In Session', code='LBINSES1', school=self.school,
+            day=days[now.weekday()], start_time=dtime(0, 0, 0), end_time=dtime(23, 59, 59),
+        )
+        tomorrow = ClassRoom.objects.create(
+            name='Tomorrow', code='LBTMRW1', school=self.school,
+            day=days[(now.weekday() + 1) % 7], start_time=dtime(9, 0), end_time=dtime(10, 0),
+        )
+        picked = _current_or_next_classroom(
+            ClassRoom.objects.filter(id__in=[tomorrow.id, in_session.id])
+        )
+        self.assertEqual(picked, in_session)
+
+    def test_defaults_to_current_class_for_teacher(self):
+        # With no ?classroom, default to the teacher's in-session / next class,
+        # not just the first one.
+        from datetime import time as dtime
+        from django.utils import timezone
+        now = timezone.localtime()
+        days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        current = ClassRoom.objects.create(
+            name='Now Class', code='LBNOW1', school=self.school,
+            day=days[now.weekday()], start_time=dtime(0, 0, 0), end_time=dtime(23, 59, 59),
+        )
+        ClassTeacher.objects.create(classroom=current, teacher=self.teacher)
+        resp = self.client.get(self.url)  # no ?classroom
+        self.assertEqual(resp.context['selected_classroom'], current)
+
     # -- access scoping & navigation -------------------------------------
 
     def test_other_teacher_sees_no_class(self):
