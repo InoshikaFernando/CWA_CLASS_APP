@@ -739,6 +739,15 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
         for rec in existing_records:
             record_map[(rec.student_id, rec.criteria_id)] = rec
 
+        # Prefill each student's general comment for this class's subject (latest one),
+        # so teachers can add/update a comment right here while recording progress.
+        comment_map = {}
+        for c in ProgressReportComment.objects.filter(
+            student__in=students, school=classroom.school,
+            subject=classroom.subject, term__isnull=True,
+        ).order_by('student_id', '-created_at'):
+            comment_map.setdefault(c.student_id, c.body)
+
         # Build per-student rows for the template
         student_rows = []
         for student in students:
@@ -754,6 +763,7 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
             student_rows.append({
                 'student': student,
                 'criteria_statuses': row_criteria,
+                'comment': comment_map.get(student.id, ''),
             })
 
         return render(request, 'progress/record_progress.html', {
@@ -813,14 +823,43 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
                 updated += 1
 
+        # Save per-student comments (general comment scoped to the class subject).
+        # Update the latest existing one if the text changed, else create; blank is
+        # left untouched so clearing a box never deletes history.
+        comments_saved = 0
+        for student in students:
+            body = request.POST.get(f'comment_{student.id}', '').strip()
+            if not body:
+                continue
+            existing = (
+                ProgressReportComment.objects
+                .filter(student=student, school=classroom.school,
+                        subject=classroom.subject, term__isnull=True)
+                .order_by('-created_at').first()
+            )
+            if existing is None:
+                ProgressReportComment.objects.create(
+                    student=student, school=classroom.school,
+                    subject=classroom.subject, body=body, created_by=request.user,
+                )
+                comments_saved += 1
+            elif existing.body != body:
+                existing.body = body
+                existing.updated_by = request.user
+                existing.save(update_fields=['body', 'updated_by', 'updated_at'])
+                comments_saved += 1
+
         log_event(
             user=request.user, school=classroom.school, category='data_change',
             action='student_progress_recorded',
             detail={'classroom_id': classroom.id, 'classroom_name': classroom.name,
-                    'records_updated': updated},
+                    'records_updated': updated, 'comments_saved': comments_saved},
             request=request,
         )
-        messages.success(request, f'Progress updated for {updated} record(s).')
+        msg = f'Progress updated for {updated} record(s).'
+        if comments_saved:
+            msg += f' {comments_saved} comment(s) saved.'
+        messages.success(request, msg)
         return redirect('record_progress', class_id=class_id)
 
 
