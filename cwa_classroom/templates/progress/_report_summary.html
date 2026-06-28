@@ -60,24 +60,24 @@
   {% if s.maths %}
     <div class="border border-slate-200 rounded-xl mt-4">
       <div class="p-4 border-b border-slate-100"><h2 class="font-semibold text-gray-900">Mathematics</h2></div>
-      <div class="grid grid-cols-3 gap-4 p-4 text-center">
-        <div><p class="text-xl font-bold text-gray-900">{{ s.maths.topics_attempted }}</p><p class="text-xs text-gray-500">Topics attempted</p></div>
-        <div><p class="text-xl font-bold {{ s.maths.average_pct|pct_text }}">{{ s.maths.average_pct }}%</p><p class="text-xs text-gray-500">Avg. best score</p></div>
-        <div><p class="text-xl font-bold text-gray-900">{{ s.maths.basic_facts_levels }}</p><p class="text-xs text-gray-500">Basic-facts levels</p></div>
-      </div>
 
       {% if s.maths.times_tables %}
-        <div class="px-4 pb-4">
-          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Times tables</p>
+        <div class="px-4 pt-4 pb-2">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Times tables <span class="font-normal normal-case text-gray-400">— best multiplication / division score</span></p>
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {% for tt in s.maths.times_tables %}
-              <div class="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-1.5 text-sm">
-                <span class="font-medium text-gray-700">×/÷ {{ tt.table }}</span>
-                <span>
-                  {% if tt.multiplication_pct != None %}<span class="font-semibold {{ tt.multiplication_pct|pct_text }}">×{{ tt.multiplication_pct }}%</span>{% else %}<span class="text-gray-300">×—</span>{% endif %}
-                  <span class="text-gray-300">·</span>
-                  {% if tt.division_pct != None %}<span class="font-semibold {{ tt.division_pct|pct_text }}">÷{{ tt.division_pct }}%</span>{% else %}<span class="text-gray-300">÷—</span>{% endif %}
-                </span>
+              <div class="rounded-lg border border-slate-100 px-3 py-2">
+                <p class="text-xs font-semibold text-gray-600 mb-1">{{ tt.table }} times table</p>
+                <div class="flex items-center gap-3 text-sm">
+                  <span class="inline-flex items-center gap-1">
+                    <span class="text-gray-400">×</span>
+                    {% if tt.multiplication_pct != None %}<span class="font-semibold {{ tt.multiplication_pct|pct_text }}">{{ tt.multiplication_pct }}%</span>{% else %}<span class="text-xs text-gray-300">not done</span>{% endif %}
+                  </span>
+                  <span class="inline-flex items-center gap-1">
+                    <span class="text-gray-400">÷</span>
+                    {% if tt.division_pct != None %}<span class="font-semibold {{ tt.division_pct|pct_text }}">{{ tt.division_pct }}%</span>{% else %}<span class="text-xs text-gray-300">not done</span>{% endif %}
+                  </span>
+                </div>
               </div>
             {% endfor %}
           </div>
@@ -103,11 +103,14 @@
 
       {% if s.maths.basic_facts %}
         <div class="px-4 pb-4">
-          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Basic facts</p>
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Basic facts <span class="font-normal normal-case text-gray-400">— best score and the level reached</span></p>
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {% for bf in s.maths.basic_facts %}
               <div class="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-1.5 text-sm">
-                <span class="font-medium {% if bf.best_pct %}text-gray-700{% else %}text-gray-400{% endif %}">{{ bf.subtopic }}</span>
+                <span class="{% if bf.best_pct %}text-gray-700{% else %}text-gray-400{% endif %}">
+                  <span class="font-medium">{{ bf.subtopic }}</span>
+                  <span class="text-xs text-gray-400">· Level {{ bf.level }}</span>
+                </span>
                 <span class="font-semibold {{ bf.best_pct|pct_text }}">{{ bf.best_pct }}%</span>
               </div>
             {% endfor %}
