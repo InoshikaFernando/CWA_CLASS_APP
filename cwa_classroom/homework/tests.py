@@ -3233,22 +3233,52 @@ class HomeworkLeaderboardTest(HomeworkTestBase):
 
     # -- week scoping ----------------------------------------------------
 
-    def test_defaults_to_last_expired_week(self):
-        # With no week param the board lands on the week of the most recently
-        # expired homework (past_homework, due yesterday), not the future one.
+    def test_defaults_to_last_completed_week_not_current(self):
+        # With no week param the board lands on the most recent *completed* week
+        # with homework due — never the current week (which may be in progress).
         from django.utils import timezone
+        now = timezone.now()
+        today = timezone.localdate()
+        # Homework due last week, mid-week (away from week boundaries).
+        last_week_due = (now - timedelta(days=now.weekday() + 7)).replace(
+            hour=12, minute=0, second=0, microsecond=0,
+        ) + timedelta(days=2)
+        hw = Homework.objects.create(
+            classroom=self.classroom, created_by=self.teacher, title='Last Week HW',
+            homework_type='topic', num_questions=5, due_date=last_week_due, max_attempts=3,
+        )
         HomeworkSubmission.objects.create(
-            homework=self.past_homework, student=self.student,
+            homework=hw, student=self.student,
             attempt_number=1, score=4, total_questions=5, points=80.0,
         )
         resp = self.client.get(self.url + f'?classroom={self.classroom.id}')
-        due = timezone.localtime(self.past_homework.due_date).date()
-        expected_monday = due - timedelta(days=due.weekday())
+        due_local = timezone.localtime(hw.due_date).date()
+        expected_monday = due_local - timedelta(days=due_local.weekday())
         self.assertEqual(resp.context['week_start'], expected_monday)
-        # The expired homework's submitter is ranked; the future homework's week
-        # is not what we're showing.
-        ranked_students = [r['student'] for r in resp.context['ranked_rows']]
-        self.assertIn(self.student, ranked_students)
+        # Not the current week.
+        current_monday = today - timedelta(days=today.weekday())
+        self.assertNotEqual(resp.context['week_start'], current_monday)
+        self.assertIn(self.student, [r['student'] for r in resp.context['ranked_rows']])
+
+    def test_dropdown_lists_all_homework_across_weeks(self):
+        # The homework dropdown lists every published homework, not just the
+        # selected week's (filter by name vs filter by week).
+        resp = self.client.get(self.url + f'?classroom={self.classroom.id}')
+        ids = {h.id for h in resp.context['all_homework']}
+        self.assertIn(self.homework.id, ids)       # due next week
+        self.assertIn(self.past_homework.id, ids)  # due this week
+
+    def test_selecting_homework_snaps_to_its_week(self):
+        # Picking a homework by name moves the board to that homework's week and
+        # ranks just that assignment.
+        from django.utils import timezone
+        resp = self.client.get(
+            self.url + f'?classroom={self.classroom.id}&homework={self.homework.id}'
+        )
+        self.assertFalse(resp.context['aggregate'])
+        self.assertEqual(resp.context['selected_homework'], self.homework)
+        due = timezone.localtime(self.homework.due_date).date()
+        self.assertEqual(resp.context['week_start'], due - timedelta(days=due.weekday()))
 
     # -- aggregate ("all homework this week") ----------------------------
 

@@ -115,9 +115,9 @@
       <label class="block text-sm font-medium lb-field-label mb-1">Homework:</label>
       <select name="homework" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
         <option value="all" {% if aggregate %}selected{% endif %}>All homework (this week)</option>
-        {% for hw in hw_list %}
+        {% for hw in all_homework %}
         <option value="{{ hw.id }}" {% if not aggregate and selected_homework.id == hw.id %}selected{% endif %}>
-          {{ hw.title }}
+          {{ hw.title }} — {{ hw.due_date|date:"d M Y" }}
         </option>
         {% endfor %}
       </select>
