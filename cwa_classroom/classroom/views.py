@@ -516,6 +516,24 @@ class StudentDashboardView(LoginRequiredMixin, View):
             coding_progress = _build_coding_progress(request.user)
             has_coding = coding_progress is not None
 
+        # ── "Back to where you were" ──────────────────────────────────────
+        # My Progress is a top-level sidebar destination, so a student who
+        # opens it mid-quiz/lesson needs a one-tap way back. Remember the last
+        # non-progress page they arrived from and offer it as a Back link. We
+        # skip referrers from this page itself, so clicking the in-page filter
+        # tabs never overwrites the real return target.
+        from urllib.parse import urlparse
+        _ref = request.META.get('HTTP_REFERER', '')
+        if _ref:
+            _p = urlparse(_ref)
+            _same_site = (not _p.netloc) or (_p.netloc == request.get_host())
+            _is_progress = 'student-dashboard' in _p.path
+            if _same_site and not _is_progress and 'login' not in _p.path:
+                request.session['progress_back_url'] = (
+                    _p.path + (f'?{_p.query}' if _p.query else '')
+                )
+        progress_back_url = request.session.get('progress_back_url')
+
         return render(request, 'student/dashboard.html', {
             'progress_grid': progress_grid,
             'bf_grid': bf_grid,
@@ -533,6 +551,8 @@ class StudentDashboardView(LoginRequiredMixin, View):
             'subject_filter': subject_filter,
             'has_coding': has_coding,
             'coding_progress': coding_progress,
+            # Navigation
+            'progress_back_url': progress_back_url,
         })
 
 
