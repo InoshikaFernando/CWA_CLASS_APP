@@ -101,6 +101,38 @@ def _school_for_student(request, student):
     return enrolment.classroom.school if enrolment else None
 
 
+def _order_records_hierarchically(recs):
+    """Return ``recs`` ordered parent-then-children, tagging each ProgressRecord
+    with a transient ``is_child`` flag for template indentation. Children whose
+    parent isn't in this group fall back to top-level."""
+    def sort_key(r):
+        return (r.criteria.order, r.criteria.name)
+
+    children = {}
+    for r in recs:
+        if r.criteria.parent_id is not None:
+            children.setdefault(r.criteria.parent_id, []).append(r)
+    parents = sorted(
+        (r for r in recs if r.criteria.parent_id is None), key=sort_key,
+    )
+
+    ordered, seen = [], set()
+    for p in parents:
+        p.is_child = False
+        ordered.append(p)
+        seen.add(p.criteria_id)
+        for c in sorted(children.get(p.criteria_id, []), key=sort_key):
+            c.is_child = True
+            ordered.append(c)
+            seen.add(c.criteria_id)
+    # Orphan sub-criteria (parent not recorded in this group) — show top-level.
+    for r in recs:
+        if r.criteria_id not in seen:
+            r.is_child = False
+            ordered.append(r)
+    return ordered
+
+
 def _build_student_progress(student):
     """Build a student's progress grouped by (subject, level) plus overall counts.
 
@@ -147,6 +179,9 @@ def _build_student_progress(student):
         recs = group_data['records']
         group_data['total'] = len(recs)
         group_data['achieved'] = sum(1 for r in recs if r.status in _PROFICIENT)
+        # Reorder so each parent criterion is followed by its own sub-criteria
+        # (indented via record.is_child), instead of a flat interleaved list.
+        group_data['records'] = _order_records_hierarchically(recs)
 
     grouped_progress = sorted(
         grouped.values(),
