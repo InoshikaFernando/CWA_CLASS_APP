@@ -112,3 +112,11 @@ class TestHomeworkLeaderboard:
         assert_page_has_text(self.page, "Avg best score")
         assert_page_has_text(self.page, "Homework done")
         assert_page_has_text(self.page, "Ada Topscorer")
+
+    def test_week_navigator_present(self):
+        # The board carries a week calendar: a label, prev/next arrows and a
+        # date picker to jump weeks.
+        self._goto(f"?classroom={self.classroom.id}")
+        assert_page_has_text(self.page, "Week:")
+        expect(self.page.locator("input[type='date'][name='week']")).to_have_count(1)
+        expect(self.page.locator("a.lb-weekbtn")).to_have_count(2)

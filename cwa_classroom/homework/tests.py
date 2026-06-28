@@ -3231,28 +3231,58 @@ class HomeworkLeaderboardTest(HomeworkTestBase):
         self.assertNotIn(self.student2, ranked_students)
         self.assertIn(self.student2, unranked_students)
 
-    # -- aggregate ("all homework") --------------------------------------
+    # -- week scoping ----------------------------------------------------
 
-    def test_aggregate_scope_averages_best_scores(self):
-        # student: 80% + 100% → avg 90.  student2: 60% + 80% → avg 70.
-        HomeworkSubmission.objects.create(
-            homework=self.homework, student=self.student,
-            attempt_number=1, score=4, total_questions=5, points=80.0,
-        )
+    def test_defaults_to_last_expired_week(self):
+        # With no week param the board lands on the week of the most recently
+        # expired homework (past_homework, due yesterday), not the future one.
+        from django.utils import timezone
         HomeworkSubmission.objects.create(
             homework=self.past_homework, student=self.student,
-            attempt_number=1, score=5, total_questions=5, points=100.0,
-        )
-        HomeworkSubmission.objects.create(
-            homework=self.homework, student=self.student2,
-            attempt_number=1, score=3, total_questions=5, points=60.0,
-        )
-        HomeworkSubmission.objects.create(
-            homework=self.past_homework, student=self.student2,
             attempt_number=1, score=4, total_questions=5, points=80.0,
         )
+        resp = self.client.get(self.url + f'?classroom={self.classroom.id}')
+        due = timezone.localtime(self.past_homework.due_date).date()
+        expected_monday = due - timedelta(days=due.weekday())
+        self.assertEqual(resp.context['week_start'], expected_monday)
+        # The expired homework's submitter is ranked; the future homework's week
+        # is not what we're showing.
+        ranked_students = [r['student'] for r in resp.context['ranked_rows']]
+        self.assertIn(self.student, ranked_students)
+
+    # -- aggregate ("all homework this week") ----------------------------
+
+    def test_aggregate_scope_averages_best_scores(self):
+        # Two homeworks in the SAME week so the week aggregate spans both.
+        # student: 80% + 100% → avg 90.  student2: 60% + 80% → avg 70.
+        from django.utils import timezone
+        now = timezone.now()
+        # Mid-week of last week, away from Mon/Sun boundaries (timezone-safe).
+        monday = (now - timedelta(days=now.weekday() + 7)).replace(
+            hour=12, minute=0, second=0, microsecond=0,
+        )
+        hw_a = Homework.objects.create(
+            classroom=self.classroom, created_by=self.teacher, title='Week HW A',
+            homework_type='topic', num_questions=5,
+            due_date=monday + timedelta(days=1), max_attempts=3,
+        )
+        hw_b = Homework.objects.create(
+            classroom=self.classroom, created_by=self.teacher, title='Week HW B',
+            homework_type='topic', num_questions=5,
+            due_date=monday + timedelta(days=2), max_attempts=3,
+        )
+        HomeworkSubmission.objects.create(homework=hw_a, student=self.student,
+            attempt_number=1, score=4, total_questions=5, points=80.0)
+        HomeworkSubmission.objects.create(homework=hw_b, student=self.student,
+            attempt_number=1, score=5, total_questions=5, points=100.0)
+        HomeworkSubmission.objects.create(homework=hw_a, student=self.student2,
+            attempt_number=1, score=3, total_questions=5, points=60.0)
+        HomeworkSubmission.objects.create(homework=hw_b, student=self.student2,
+            attempt_number=1, score=4, total_questions=5, points=80.0)
+
+        week_iso = monday.date().isoformat()
         resp = self.client.get(
-            self.url + f'?classroom={self.classroom.id}&homework=all'
+            self.url + f'?classroom={self.classroom.id}&homework=all&week={week_iso}'
         )
         self.assertTrue(resp.context['aggregate'])
         ranked = resp.context['ranked_rows']
@@ -3260,6 +3290,42 @@ class HomeworkLeaderboardTest(HomeworkTestBase):
         self.assertEqual(ranked[0]['avg_percentage'], 90)
         self.assertEqual(ranked[1]['student'], self.student2)
         self.assertEqual(ranked[1]['avg_percentage'], 70)
+
+    # -- default class (current / next upcoming) -------------------------
+
+    def test_current_or_next_classroom_picks_in_session(self):
+        from datetime import time as dtime
+        from django.utils import timezone
+        from homework.views import _current_or_next_classroom
+        now = timezone.localtime()
+        days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        in_session = ClassRoom.objects.create(
+            name='In Session', code='LBINSES1', school=self.school,
+            day=days[now.weekday()], start_time=dtime(0, 0, 0), end_time=dtime(23, 59, 59),
+        )
+        tomorrow = ClassRoom.objects.create(
+            name='Tomorrow', code='LBTMRW1', school=self.school,
+            day=days[(now.weekday() + 1) % 7], start_time=dtime(9, 0), end_time=dtime(10, 0),
+        )
+        picked = _current_or_next_classroom(
+            ClassRoom.objects.filter(id__in=[tomorrow.id, in_session.id])
+        )
+        self.assertEqual(picked, in_session)
+
+    def test_defaults_to_current_class_for_teacher(self):
+        # With no ?classroom, default to the teacher's in-session / next class,
+        # not just the first one.
+        from datetime import time as dtime
+        from django.utils import timezone
+        now = timezone.localtime()
+        days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        current = ClassRoom.objects.create(
+            name='Now Class', code='LBNOW1', school=self.school,
+            day=days[now.weekday()], start_time=dtime(0, 0, 0), end_time=dtime(23, 59, 59),
+        )
+        ClassTeacher.objects.create(classroom=current, teacher=self.teacher)
+        resp = self.client.get(self.url)  # no ?classroom
+        self.assertEqual(resp.context['selected_classroom'], current)
 
     # -- access scoping & navigation -------------------------------------
 
