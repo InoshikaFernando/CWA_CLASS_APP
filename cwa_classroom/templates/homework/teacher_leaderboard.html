@@ -17,8 +17,12 @@
   .lb-tab:hover { color:#d1d5db; }
   .lb-tab-active { color:#7df2b6; border-bottom:2px solid #4ade80; }
   .lb-field-label { color:#9ca3af; }
-  .lb-select { background:#161b22; color:#e5e7eb; border:1px solid #2d333b; border-radius:10px; }
+  .lb-select { background:#161b22; color:#e5e7eb; border:1px solid #2d333b; border-radius:10px; color-scheme:dark; }
   .lb-select:focus { outline:none; box-shadow:0 0 0 2px rgba(74,222,128,.5); }
+  .lb-weekbtn { background:#161b22; border:1px solid #2d333b; border-radius:8px; color:#e5e7eb;
+                padding:6px 11px; font-weight:600; line-height:1; }
+  .lb-weekbtn:hover { background:#1f262e; }
+  .lb-weeklabel { color:#e5e7eb; font-size:13px; white-space:nowrap; padding:0 4px; }
   .lb-empty { background:#0d0d0d; border:1px solid #1f1f1f; border-radius:16px; color:#9ca3af; }
 
   .lb-card { background:#161616; border:1px solid #2a2a2a; border-radius:18px; text-align:center; }
@@ -88,8 +92,13 @@
   </div>
   {% else %}
 
-  <!-- Filters: class + scope -->
-  <form method="get" class="mb-8 flex flex-wrap items-end gap-4">
+  {% comment %}
+    Filters: class + scope share one form (a hidden week input keeps the
+    selected week when either changes). The week navigator is its own block —
+    prev/next links and a date picker that snap to the Mon–Sun week.
+  {% endcomment %}
+  <form method="get" class="mb-3 flex flex-wrap items-end gap-4">
+    <input type="hidden" name="week" value="{{ week_start_iso }}">
     <div>
       <label class="block text-sm font-medium lb-field-label mb-1">Class:</label>
       <select name="classroom" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
@@ -101,7 +110,7 @@
     <div>
       <label class="block text-sm font-medium lb-field-label mb-1">Homework:</label>
       <select name="homework" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
-        <option value="all" {% if aggregate %}selected{% endif %}>All homework (overall)</option>
+        <option value="all" {% if aggregate %}selected{% endif %}>All homework (this week)</option>
         {% for hw in hw_list %}
         <option value="{{ hw.id }}" {% if not aggregate and selected_homework.id == hw.id %}selected{% endif %}>
           {{ hw.title }}
@@ -111,14 +120,25 @@
     </div>
   </form>
 
+  <div class="mb-8 flex items-center gap-2 flex-wrap">
+    <span class="text-sm font-medium lb-field-label">Week:</span>
+    <a href="?classroom={{ selected_classroom.id }}&amp;week={{ prev_week }}" class="lb-weekbtn" title="Previous week">‹</a>
+    <span class="lb-weeklabel">{{ week_start|date:"d M" }} – {{ week_end|date:"d M Y" }}</span>
+    <a href="?classroom={{ selected_classroom.id }}&amp;week={{ next_week }}" class="lb-weekbtn" title="Next week">›</a>
+    <form method="get" class="flex items-center">
+      <input type="hidden" name="classroom" value="{{ selected_classroom.id }}">
+      <input type="date" name="week" value="{{ week_start_iso }}" onchange="this.form.submit()" class="lb-select px-2 py-2 text-sm ml-1">
+    </form>
+  </div>
+
   {% if not hw_list %}
   <div class="lb-empty p-10 text-center text-sm">
-    No published homework in this class yet — there's nothing to rank.
+    No homework due in this week — pick another week above.
   </div>
   {% elif not ranked_rows %}
   <div class="lb-empty p-10 text-center text-sm">
     No student has attempted
-    {% if aggregate %}any homework in this class{% else %}“{{ selected_homework.title }}”{% endif %}
+    {% if aggregate %}any homework this week{% else %}“{{ selected_homework.title }}”{% endif %}
     yet.
   </div>
   {% else %}
