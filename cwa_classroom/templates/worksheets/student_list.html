@@ -53,12 +53,12 @@
 
         <div class="shrink-0">
           {% if row.is_complete %}
-          <a href="{% url 'worksheets:results' pk=row.assignment.pk %}"
+          <a href="{% url 'worksheets:results' pk=row.assignment.pk %}{% if subject_filter %}?subject={{ subject_filter }}{% endif %}"
              class="inline-block px-4 py-2 rounded-xl bg-emerald-100 text-emerald-700 text-sm font-semibold hover:bg-emerald-200 transition">
             View Results
           </a>
           {% else %}
-          <a href="{% url 'worksheets:session' pk=row.assignment.pk %}"
+          <a href="{% url 'worksheets:session' pk=row.assignment.pk %}{% if subject_filter %}?subject={{ subject_filter }}{% endif %}"
              class="inline-block px-4 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition">
             {% if row.answered > 0 %}Continue{% else %}Start{% endif %}
           </a>
