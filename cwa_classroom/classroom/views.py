@@ -534,7 +534,22 @@ class StudentDashboardView(LoginRequiredMixin, View):
                 )
         progress_back_url = request.session.get('progress_back_url')
 
+        # ── Progress report summary card (§12.8) ─────────────────────────────
+        # Surface the latest staff-generated report's selected sections.
+        from .models import ProgressReport
+        progress_report = (
+            ProgressReport.objects.filter(student=request.user)
+            .order_by('-generated_at')
+            .first()
+        )
+        report_overall = None
+        if progress_report and progress_report.include_rubric:
+            from .views_progress import _build_student_progress
+            _, report_overall = _build_student_progress(request.user)
+
         return render(request, 'student/dashboard.html', {
+            'progress_report': progress_report,
+            'report_overall': report_overall,
             'progress_grid': progress_grid,
             'bf_grid': bf_grid,
             'np_grid': np_grid,

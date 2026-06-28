@@ -29,6 +29,30 @@
     </div>
   </div>
 
+  <!-- ── Progress report summary (latest staff-generated report) ────────── -->
+  {% if progress_report %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <h2 class="font-display text-xl text-gray-800 mb-4">My Progress Summary</h2>
+    {% if progress_report.include_rubric and report_overall %}
+      <div class="grid grid-cols-3 gap-4 text-center">
+        <div class="rounded-xl p-4 border border-slate-200">
+          <p class="text-xl font-bold text-emerald-600">{{ report_overall.achieved }}</p>
+          <p class="text-xs text-gray-500">Proficient</p>
+        </div>
+        <div class="rounded-xl p-4 border border-slate-200">
+          <p class="text-xl font-bold text-accent">{{ report_overall.in_progress }}</p>
+          <p class="text-xs text-gray-500">Developing</p>
+        </div>
+        <div class="rounded-xl p-4 border border-slate-200">
+          <p class="text-xl font-bold text-gray-400">{{ report_overall.not_started }}</p>
+          <p class="text-xs text-gray-500">Not Started</p>
+        </div>
+      </div>
+    {% endif %}
+    {% include "progress/_report_summary.html" with report=progress_report %}
+  </div>
+  {% endif %}
+
   <!-- ── Subject / Class filter bar ─────────────────────────────────────── -->
   {% if enrolled_subjects|length > 0 or enrolled_classes|length > 1 or has_coding %}
   <div class="flex flex-wrap items-center gap-2">
