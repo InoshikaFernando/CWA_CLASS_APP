@@ -474,6 +474,210 @@ class HomeworkDetailView(RoleRequiredMixin, View):
         })
 
 
+def _student_sort_name(user):
+    """Lowercased display name for stable alphabetical tie-breaking."""
+    return (user.get_full_name() or user.username).lower()
+
+
+class HomeworkLeaderboardView(RoleRequiredMixin, View):
+    """Per-class homework progress leaderboard (CPP-363).
+
+    Ranks the students of a single class by performance, highlighting the top
+    three. It has two scopes, toggled in the page:
+
+    * **Per homework** (default) — one assignment at a time. Rank by the best
+      attempt's score (percentage, to match the displayed column), then by
+      points (difficulty/speed), then by fewer attempts (reaching a score in one
+      go beats grinding to it).
+    * **All homework** (aggregate) — average best score across every published
+      homework in the class, attempts summed. Ranks by that average, then by how
+      many homework were completed, then by fewer attempts.
+
+    Students with no submission are never ranked — they sink below the board as
+    "not started" so the podium stays meaningful.
+    """
+    required_roles = ['teacher', 'senior_teacher', 'junior_teacher']
+    template_name = 'homework/teacher_leaderboard.html'
+
+    def get(self, request):
+        classrooms = _teacher_classrooms(request.user)
+
+        # A leaderboard ranks students *within one class*, so — unlike the
+        # monitor — there is no "all classes" option. Resolve to a real class,
+        # falling back to the teacher's first class.
+        selected_classroom = None
+        cid = request.GET.get('classroom')
+        if cid:
+            try:
+                selected_classroom = classrooms.get(id=cid)
+            except (ClassRoom.DoesNotExist, ValueError, TypeError):
+                selected_classroom = classrooms.first()
+        else:
+            selected_classroom = classrooms.first()
+
+        # Only published homework can be attempted, so only those can be ranked.
+        hw_list = []
+        if selected_classroom:
+            hw_list = list(
+                Homework.objects
+                .filter(classroom=selected_classroom, published_at__isnull=False)
+                .order_by('-published_at')
+            )
+
+        # Scope: a specific homework id, or the 'all' aggregate. Default to the
+        # newest homework (per-homework view); fall back to aggregate only when
+        # the class has no single homework to show.
+        scope = request.GET.get('homework')
+        selected_homework = None
+        aggregate = scope == 'all'
+        if not aggregate and scope:
+            selected_homework = next((h for h in hw_list if str(h.id) == scope), None)
+        if not aggregate and selected_homework is None:
+            if hw_list:
+                selected_homework = hw_list[0]
+            else:
+                aggregate = True
+
+        students = []
+        if selected_classroom:
+            students = list(
+                ClassStudent.objects
+                .filter(classroom=selected_classroom, is_active=True)
+                .select_related('student')
+            )
+
+        # Pull the relevant submissions once, then reduce in Python: best
+        # attempt (highest points) and attempts-taken (max attempt_number —
+        # pruned-history-safe, mirroring HomeworkSubmission.get_attempt_count)
+        # per (student, homework). The aggregate scope needs every published
+        # homework's rows; the per-homework scope only needs the selected one,
+        # so we don't scan the class's whole homework history on the default
+        # page load.
+        if aggregate:
+            fetch_hw_ids = [h.id for h in hw_list]
+        elif selected_homework is not None:
+            fetch_hw_ids = [selected_homework.id]
+        else:
+            fetch_hw_ids = []
+        student_ids = [cs.student_id for cs in students]
+        best = {}
+        max_attempt = {}
+        if fetch_hw_ids and student_ids:
+            # select_related('homework') avoids an N+1 when
+            # submission_status_for() reads homework.due_date. Iterating
+            # newest-first (the model default ordering) means the first row seen
+            # for a given points value is the newest attempt, matching
+            # HomeworkSubmission.get_best_submission's tie-break.
+            submissions = (
+                HomeworkSubmission.objects
+                .filter(homework_id__in=fetch_hw_ids, student_id__in=student_ids)
+                .select_related('homework')
+                .order_by('-submitted_at')
+            )
+            for s in submissions:
+                key = (s.student_id, s.homework_id)
+                current = best.get(key)
+                if current is None or s.points > current.points:
+                    best[key] = s
+                if s.attempt_number > max_attempt.get(key, 0):
+                    max_attempt[key] = s.attempt_number
+
+        if aggregate:
+            ranked, unranked = self._build_aggregate(students, hw_list, best, max_attempt)
+        else:
+            ranked, unranked = self._build_per_homework(
+                students, selected_homework, best, max_attempt,
+            )
+
+        return render(request, self.template_name, {
+            'classrooms': classrooms,
+            'selected_classroom': selected_classroom,
+            'hw_list': hw_list,
+            'selected_homework': selected_homework,
+            'aggregate': aggregate,
+            'ranked_rows': ranked,
+            'unranked_rows': unranked,
+            'podium': ranked[:3],
+        })
+
+    @staticmethod
+    def _build_per_homework(students, homework, best, max_attempt):
+        rows = []
+        for cs in students:
+            b = best.get((cs.student_id, homework.id)) if homework else None
+            if b is not None:
+                status = b.submission_status_for(cs.joined_at)
+            elif homework and homework.is_overdue_for(cs.joined_at):
+                status = HomeworkSubmission.STATUS_NOT_SUBMITTED
+            else:
+                status = 'pending'
+            rows.append({
+                'student': cs.student,
+                'best': b,
+                'percentage': b.percentage if b else None,
+                'points': b.points if b else None,
+                'attempts': max_attempt.get((cs.student_id, homework.id), 0) if homework else 0,
+                'status': status,
+            })
+
+        ranked = [r for r in rows if r['best'] is not None]
+        # Best score (percentage) first so the order matches the displayed
+        # column; then points (difficulty/speed) and fewer attempts break ties;
+        # name keeps it stable.
+        ranked.sort(key=lambda r: (
+            -r['percentage'], -r['points'], r['attempts'], _student_sort_name(r['student'])
+        ))
+        for i, r in enumerate(ranked, 1):
+            r['rank'] = i
+
+        unranked = [r for r in rows if r['best'] is None]
+        unranked.sort(key=lambda r: _student_sort_name(r['student']))
+        return ranked, unranked
+
+    @staticmethod
+    def _build_aggregate(students, hw_list, best, max_attempt):
+        total_homework = len(hw_list)
+        rows = []
+        for cs in students:
+            sid = cs.student_id
+            pcts = []
+            points_sum = 0.0
+            attempts_sum = 0
+            for hw in hw_list:
+                attempts_sum += max_attempt.get((sid, hw.id), 0)
+                b = best.get((sid, hw.id))
+                if b is not None:
+                    # Average the raw ratios, not each already-rounded
+                    # percentage, so the mean isn't double-rounded.
+                    if b.total_questions:
+                        pcts.append(b.score / b.total_questions * 100)
+                    else:
+                        pcts.append(0)
+                    points_sum += b.points
+            rows.append({
+                'student': cs.student,
+                'avg_percentage': round(sum(pcts) / len(pcts)) if pcts else None,
+                'points': round(points_sum, 1),
+                'attempts': attempts_sum,
+                'completed': len(pcts),
+                'total_homework': total_homework,
+            })
+
+        ranked = [r for r in rows if r['completed'] > 0]
+        # Average best score first; then more homework completed (a higher
+        # average over more work outranks a lucky single result); then fewer
+        # attempts; then name.
+        ranked.sort(key=lambda r: (
+            -r['avg_percentage'], -r['completed'], r['attempts'], _student_sort_name(r['student'])
+        ))
+        for i, r in enumerate(ranked, 1):
+            r['rank'] = i
+
+        unranked = [r for r in rows if r['completed'] == 0]
+        unranked.sort(key=lambda r: _student_sort_name(r['student']))
+        return ranked, unranked
+
+
 class HomeworkPublishView(RoleRequiredMixin, View):
     """Teacher action to publish a Created/scheduled homework immediately.
 
