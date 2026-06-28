@@ -781,6 +781,45 @@ this shipped). Surfaces: `record_progress.html`, `session_attendance.html`,
 `student_progress.html`, `report_detail.html`, `student_progress_report.html`,
 `parent/progress.html`, and the progress-report email.
 
+### 12.8 Configurable progress reports + dashboard summary
+
+*(Added 2026-06-27.)*
+
+A progress report can bundle, alongside the rubric, **cross-app performance
+summaries** the student already earns elsewhere — Homework, Maths and Coding — and
+staff choose per report which sections to include.
+
+**Aggregation** (`classroom/progress_summary.py`): read-only, no-data-tolerant
+helpers return plain dicts —
+  * `homework_summary(student, classroom)` — class-scoped completion % + average of
+    best-attempt scores over *published* homeworks.
+  * `maths_summary(student)` / `coding_summary(student)` — platform-wide (these
+    quizzes/exercises aren't class-bound).
+  * `build_summary(student, classroom, homework=…, maths=…, coding=…)` — bundles the
+    ticked sections.
+
+**Selection + snapshot** (`ProgressReport`): new fields `include_rubric` (default
+on), `include_homework` / `include_maths` / `include_coding` (opt-in), `classroom`
+(scopes the homework summary), and `summary_snapshot` (JSON). The Homework/Maths/
+Coding numbers are **snapshotted at generation** so the report and the dashboard
+card stay consistent as underlying data changes; the rubric ratings still render
+live.
+
+**Generation — both flows:**
+  * *Per class* — `ProgressReportClassBuilderView`
+    (`/progress/class/<id>/reports/`): tick sections once → a draft report per
+    active student. Entry point: the "Generate reports" link on Class Progress.
+  * *Per student* — `ProgressReportGenerateView` carries the same section
+    checkboxes.
+
+**Display:** `report_detail.html`, the parent email, and the **student dashboard**
+(`/student-dashboard/`, a "My Progress Summary" card showing the latest report's
+selected sections) all render via the shared `progress/_report_summary.html`
+partial. Each section is gated by its `include_*` flag.
+
+*Follow-up (not in this change):* per-criterion selection within the rubric (today
+the rubric is included/excluded as a whole).
+
 ---
 
 ## 13. Packages & Billing (Global)

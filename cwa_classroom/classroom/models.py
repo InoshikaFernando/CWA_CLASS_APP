@@ -1582,6 +1582,22 @@ class ProgressReport(models.Model):
         null=True, blank=True,
         related_name='progress_reports',
     )
+    # The class the report was generated from — scopes the homework summary and
+    # records which class a batch (per-class) generation belonged to.
+    classroom = models.ForeignKey(
+        'ClassRoom', on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='progress_reports',
+    )
+    # Staff "include this section" selections (see §12.8). The rubric is on by
+    # default; the cross-app summaries are opt-in.
+    include_rubric = models.BooleanField(default=True)
+    include_homework = models.BooleanField(default=False)
+    include_maths = models.BooleanField(default=False)
+    include_coding = models.BooleanField(default=False)
+    # Point-in-time snapshot of the Homework/Maths/Coding summary computed at
+    # generation, so the report and the dashboard card show consistent numbers.
+    summary_snapshot = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_DRAFT)
     generated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
