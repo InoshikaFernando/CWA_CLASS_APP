@@ -207,9 +207,9 @@
   {% endif %}
 
   <!-- ── Upcoming Sessions (next 7 days) ─────────────────────── -->
-  {% if upcoming_sessions %}
   <div>
     <h2 class="font-semibold text-base text-gray-900 mb-3">Upcoming Sessions</h2>
+    {% if upcoming_sessions %}
     <div class="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 snap-x">
       {% for session in upcoming_sessions %}
       <a href="{% url 'session_attendance' session.id %}"
@@ -228,8 +228,12 @@
       </a>
       {% endfor %}
     </div>
+    {% else %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center">
+      <p class="text-sm text-gray-400">No upcoming sessions.</p>
+    </div>
+    {% endif %}
   </div>
-  {% endif %}
 
   <!-- ── My Classes ──────────────────────────────────────────── -->
   <div>
