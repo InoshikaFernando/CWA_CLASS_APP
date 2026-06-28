@@ -791,6 +791,33 @@ class RubricRatingTest(_BaseAttendanceProgressTest):
         self.assertEqual(overall['in_progress'], 1)   # developing
         self.assertEqual(overall['not_started'], 1)
 
+    def test_records_grouped_under_parent_criteria(self):
+        """In a report group, each sub-criterion follows its parent (is_child)."""
+        from classroom.views_progress import _build_student_progress
+
+        def crit(name, order, parent=None):
+            return ProgressCriteria.objects.create(
+                school=self.school, subject=self.subject, level=self.level,
+                name=name, order=order, parent=parent, status='approved',
+                created_by=self.teacher_user, approved_by=self.teacher_user,
+            )
+        focus = crit('Focus', 0)
+        c1 = crit('Pays attention', 0, parent=focus)
+        c2 = crit('Stays on task', 1, parent=focus)
+        solving = crit('Problem Solving', 1)
+        for c in (focus, c1, c2, solving):
+            ProgressRecord.objects.create(
+                student=self.student_user, criteria=c, status='confident',
+                recorded_by=self.teacher_user,
+            )
+        grouped, _ = _build_student_progress(self.student_user)
+        recs = grouped[0]['records']
+        self.assertEqual(
+            [r.criteria.name for r in recs],
+            ['Focus', 'Pays attention', 'Stays on task', 'Problem Solving'],
+        )
+        self.assertEqual([r.is_child for r in recs], [False, True, True, False])
+
 
 # ---------------------------------------------------------------------------
 # 8. ReportBuilderTest  (per-class report builder + dashboard card — §12.8)
