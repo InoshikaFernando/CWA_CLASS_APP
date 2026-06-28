@@ -3129,7 +3129,7 @@ class HomeworkLeaderboardTest(HomeworkTestBase):
     def test_page_renders(self):
         resp = self.client.get(self.url + f'?classroom={self.classroom.id}')
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'Homework Progress')
+        self.assertContains(resp, 'Homework progress')
 
     def test_no_submissions_shows_empty_state(self):
         resp = self.client.get(
