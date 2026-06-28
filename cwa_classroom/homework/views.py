@@ -562,76 +562,79 @@ class HomeworkLeaderboardView(RoleRequiredMixin, View):
             pool = own if own.exists() else classrooms
             selected_classroom = _current_or_next_classroom(pool) or pool.first()
 
-        # --- Week selection (Mon–Sun, by due date) ----------------------
-        # The board is scoped to one week. By default it lands on the week of
-        # the most recently *expired* homework — the last finished week that has
-        # content — rather than the current week, which may have nothing due
-        # yet. An explicit ?week=YYYY-MM-DD (any day in the week) overrides;
-        # selecting a specific homework snaps to that homework's week.
-        now = timezone.now()
+        # Every published homework in the class — the dropdown lists them all,
+        # across weeks (newest first), so a teacher can jump straight to any one.
+        all_homework = []
+        if selected_classroom:
+            all_homework = list(
+                Homework.objects
+                .filter(classroom=selected_classroom, published_at__isnull=False)
+                .order_by('-due_date')
+            )
+
+        # --- Scope + week selection (Mon–Sun, by due date) --------------
+        # The two controls are alternative filters: pick a week (aggregate) OR a
+        # homework by name (single assignment). A specific homework anchors
+        # everything — it snaps the board to that homework's week. Otherwise the
+        # board aggregates a whole week; by default the most recent *completed*
+        # week with homework due (we skip the current week, which may still be in
+        # progress). An explicit ?week=YYYY-MM-DD overrides.
         today = timezone.localdate()
         scope = request.GET.get('homework')
 
         def _monday(d):
             return d - timedelta(days=d.weekday())
 
+        selected_homework = None
+        if scope and scope != 'all':
+            selected_homework = next((h for h in all_homework if str(h.id) == scope), None)
+
         week_start = None
-        week_param = request.GET.get('week')
-        if week_param:
-            try:
-                week_start = _monday(datetime.strptime(week_param, '%Y-%m-%d').date())
-            except (ValueError, TypeError):
-                week_start = None
-
-        if week_start is None and selected_classroom and scope and scope != 'all':
-            try:
-                hw = Homework.objects.get(
-                    id=scope, classroom=selected_classroom, published_at__isnull=False,
-                )
-                week_start = _monday(timezone.localtime(hw.due_date).date())
-            except (Homework.DoesNotExist, ValueError, TypeError):
-                week_start = None
-
+        if selected_homework is not None:
+            week_start = _monday(timezone.localtime(selected_homework.due_date).date())
+        if week_start is None:
+            week_param = request.GET.get('week')
+            if week_param:
+                try:
+                    week_start = _monday(datetime.strptime(week_param, '%Y-%m-%d').date())
+                except (ValueError, TypeError):
+                    week_start = None
         if week_start is None and selected_classroom:
+            # Last *completed* week with content: the most recent homework due
+            # before the current week began. Deliberately skips the current week.
+            current_week_start = timezone.make_aware(
+                datetime.combine(_monday(today), datetime_time.min)
+            )
             anchor = (
                 Homework.objects
-                .filter(classroom=selected_classroom, published_at__isnull=False, due_date__lt=now)
-                .order_by('-due_date')
-                .first()
-                or Homework.objects
-                .filter(classroom=selected_classroom, published_at__isnull=False)
+                .filter(
+                    classroom=selected_classroom, published_at__isnull=False,
+                    due_date__lt=current_week_start,
+                )
                 .order_by('-due_date')
                 .first()
             )
             if anchor:
                 week_start = _monday(timezone.localtime(anchor.due_date).date())
         if week_start is None:
-            week_start = _monday(today)
+            # No past homework at all → default to last week (never the current).
+            week_start = _monday(today) - timedelta(days=7)
 
         week_end = week_start + timedelta(days=6)
+        aggregate = selected_homework is None
 
-        # Published homework due within the selected week.
+        # Published homework due within the selected week — the aggregate ranks
+        # over these.
         hw_list = []
         if selected_classroom:
             start_dt = timezone.make_aware(datetime.combine(week_start, datetime_time.min))
             end_dt = timezone.make_aware(
                 datetime.combine(week_start + timedelta(days=7), datetime_time.min)
             )
-            hw_list = list(
-                Homework.objects
-                .filter(
-                    classroom=selected_classroom, published_at__isnull=False,
-                    due_date__gte=start_dt, due_date__lt=end_dt,
-                )
-                .order_by('-due_date')
-            )
-
-        # Scope within the week: a specific homework, else the week aggregate
-        # (the default "this week's leaderboard").
-        selected_homework = None
-        if scope and scope != 'all':
-            selected_homework = next((h for h in hw_list if str(h.id) == scope), None)
-        aggregate = selected_homework is None
+            hw_list = [
+                h for h in all_homework
+                if start_dt <= h.due_date < end_dt
+            ]
 
         students = []
         if selected_classroom:
@@ -688,6 +691,7 @@ class HomeworkLeaderboardView(RoleRequiredMixin, View):
             'classrooms': classrooms,
             'selected_classroom': selected_classroom,
             'hw_list': hw_list,
+            'all_homework': all_homework,
             'selected_homework': selected_homework,
             'aggregate': aggregate,
             'ranked_rows': ranked,

@@ -19,11 +19,15 @@ pytestmark = pytest.mark.invoice
 def _make_homework(classroom, teacher, title):
     from django.utils import timezone
     from homework.models import Homework
+    now = timezone.now()
+    # Due last week (mid-week) so the leaderboard's default "last completed week"
+    # lands on it without needing an explicit ?week.
+    due = (now - timedelta(days=now.weekday() + 7)).replace(
+        hour=12, minute=0, second=0, microsecond=0) + timedelta(days=2)
     return Homework.objects.create(
         classroom=classroom, created_by=teacher, title=title,
         homework_type='topic', num_questions=5,
-        due_date=timezone.now() + timedelta(days=7), max_attempts=3,
-        published_at=timezone.now(),
+        due_date=due, max_attempts=3, published_at=now,
     )
 
 
