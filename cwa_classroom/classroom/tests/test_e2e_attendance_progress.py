@@ -519,7 +519,7 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
 
         url = reverse('record_progress', kwargs={'class_id': self.classroom.id})
         data = {
-            f'status_{self.student_user.id}_{self.criteria.id}': 'in_progress',
+            f'status_{self.student_user.id}_{self.criteria.id}': 'developing',
         }
         self.client.post(url, data)
 
@@ -532,7 +532,7 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
         record = ProgressRecord.objects.get(
             student=self.student_user, criteria=self.criteria,
         )
-        self.assertEqual(record.status, 'in_progress')
+        self.assertEqual(record.status, 'developing')
         self.assertEqual(record.recorded_by, self.teacher_user)
 
     def test_student_can_view_own_progress(self):
@@ -541,7 +541,7 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
         ProgressRecord.objects.create(
             student=self.student_user,
             criteria=self.criteria,
-            status='achieved',
+            status='advanced',
             recorded_by=self.teacher_user,
         )
 
@@ -567,7 +567,7 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
         # Mark student attendance AND progress in a single POST
         data = {
             f'status_{self.student_user.id}': 'present',
-            f'progress_{self.student_user.id}_{self.criteria.id}': 'achieved',
+            f'progress_{self.student_user.id}_{self.criteria.id}': 'advanced',
         }
         self.client.post(url, data)
 
@@ -583,7 +583,7 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
             criteria=self.criteria,
             session=self.session,
         )
-        self.assertEqual(record.status, 'achieved')
+        self.assertEqual(record.status, 'advanced')
         self.assertEqual(record.recorded_by, self.teacher_user)
 
 
@@ -651,7 +651,7 @@ class AllSubjectsCriteriaTest(_BaseAttendanceProgressTest):
         # Record it against the Coding class — different from the criterion's (null) subject.
         self.client.post(
             reverse('record_progress', kwargs={'class_id': self.coding_class.id}),
-            {f'status_{self.student_user.id}_{all_subj.id}': 'achieved'},
+            {f'status_{self.student_user.id}_{all_subj.id}': 'advanced'},
         )
         self.assertTrue(
             ProgressRecord.objects.filter(
@@ -682,3 +682,70 @@ class AllSubjectsCriteriaTest(_BaseAttendanceProgressTest):
         )
         self.assertIn('All Subjects', str(crit))
         self.assertIn('All Levels', str(crit))
+
+
+# ---------------------------------------------------------------------------
+# 7. RubricRatingTest  (4-level rating scale — §12.7)
+# ---------------------------------------------------------------------------
+
+class RubricRatingTest(_BaseAttendanceProgressTest):
+    """The Beginning/Developing/Confident/Advanced rubric + proficiency buckets."""
+
+    def _approved_criterion(self, name, order=0):
+        return ProgressCriteria.objects.create(
+            school=self.school, subject=self.subject, level=self.level,
+            name=name, order=order, status='approved',
+            created_by=self.teacher_user, approved_by=self.teacher_user,
+        )
+
+    def test_is_proficient_property(self):
+        crit = self._approved_criterion('Crit')
+        cases = {
+            'not_started': False, 'beginning': False, 'developing': False,
+            'confident': True, 'advanced': True,
+        }
+        for status, expected in cases.items():
+            rec = ProgressRecord.objects.create(
+                student=self.student_user, criteria=crit, status=status,
+                recorded_by=self.teacher_user,
+            )
+            self.assertEqual(rec.is_proficient, expected, status)
+            rec.delete()
+
+    def test_record_progress_accepts_rubric_status(self):
+        """The record-progress view stores a 4-level rubric value."""
+        crit = self._approved_criterion('Solves problems')
+        self.client.force_login(self.teacher_user)
+        s = self.client.session
+        s['current_school_id'] = self.school.id
+        s.save()
+        self.client.post(
+            reverse('record_progress', kwargs={'class_id': self.classroom.id}),
+            {f'status_{self.student_user.id}_{crit.id}': 'confident'},
+        )
+        rec = ProgressRecord.objects.get(student=self.student_user, criteria=crit)
+        self.assertEqual(rec.status, 'confident')
+
+    def test_summary_buckets(self):
+        """overall.achieved = proficient (Confident+Advanced); in_progress = developing."""
+        c1 = self._approved_criterion('A', 1)
+        c2 = self._approved_criterion('B', 2)
+        c3 = self._approved_criterion('C', 3)
+        c4 = self._approved_criterion('D', 4)
+        for crit, status in [(c1, 'advanced'), (c2, 'confident'),
+                             (c3, 'developing'), (c4, 'not_started')]:
+            ProgressRecord.objects.create(
+                student=self.student_user, criteria=crit, status=status,
+                recorded_by=self.teacher_user,
+            )
+        self.client.force_login(self.teacher_user)
+        s = self.client.session
+        s['current_school_id'] = self.school.id
+        s.save()
+        resp = self.client.get(
+            reverse('student_progress', kwargs={'student_id': self.student_user.id}),
+        )
+        overall = resp.context['overall']
+        self.assertEqual(overall['achieved'], 2)      # advanced + confident
+        self.assertEqual(overall['in_progress'], 1)   # developing
+        self.assertEqual(overall['not_started'], 1)

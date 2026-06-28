@@ -752,6 +752,35 @@ school-scoped "Mathematics" duplicating the global one) — tracked separately; 
 the 4-level rating rubric (Beginning/Developing/Confident/Advanced), which is a
 follow-up that changes `ProgressRecord.status`.
 
+### 12.7 Progress rating scale (4-level rubric)
+
+*(Added 2026-06-27.)*
+
+A `ProgressRecord` is rated on a **four-level developmental rubric** plus an unrated
+baseline:
+
+| Stored value | Label | Bucket |
+|--------------|-------|--------|
+| `not_started` | Not Started | — (baseline) |
+| `beginning` | Beginning | Developing |
+| `developing` | Developing | Developing |
+| `confident` | Confident | **Proficient** |
+| `advanced` | Advanced | **Proficient** |
+
+`ProgressRecord.PROFICIENT_STATUSES` = (`confident`, `advanced`) and
+`DEVELOPING_STATUSES` = (`beginning`, `developing`). Dashboards/reports summarise
+using these buckets: the "Proficient" stat card and every progress bar count
+proficient records (`overall.achieved`), and "Developing" counts the developing
+bucket (`overall.in_progress`). Per-criterion pills show the exact level via the
+`progress_badge_classes` / `progress_status_label` template filters
+(`classroom_extras`); the record-progress grid and the session-attendance form use
+`progress_select_classes`.
+
+The migration is a no-op on existing data (there were no `ProgressRecord` rows when
+this shipped). Surfaces: `record_progress.html`, `session_attendance.html`,
+`student_progress.html`, `report_detail.html`, `student_progress_report.html`,
+`parent/progress.html`, and the progress-report email.
+
 ---
 
 ## 13. Packages & Billing (Global)

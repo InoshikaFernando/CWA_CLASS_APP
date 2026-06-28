@@ -598,8 +598,10 @@ class ParentProgressView(RoleRequiredMixin, View):
         )):
             entries = group['entries']
             total = len(entries)
-            achieved = sum(1 for e in entries if e['status'] == 'achieved')
-            in_progress = sum(1 for e in entries if e['status'] == 'in_progress')
+            # 'achieved' = proficient (Confident+Advanced); 'in_progress' =
+            # developing (Beginning+Developing). See §12.7.
+            achieved = sum(1 for e in entries if e['status'] in ProgressRecord.PROFICIENT_STATUSES)
+            in_progress = sum(1 for e in entries if e['status'] in ProgressRecord.DEVELOPING_STATUSES)
             not_assessed = sum(1 for e in entries if e['status'] == 'not_assessed')
             not_started = total - achieved - in_progress - not_assessed
             group['total'] = total

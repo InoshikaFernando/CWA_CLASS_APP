@@ -1446,11 +1446,19 @@ class ProgressCriteria(models.Model):
 
 class ProgressRecord(models.Model):
     """Records a student's progress against a specific criteria."""
+    # Four-level developmental rubric (Beginning → Advanced) plus an unrated
+    # baseline. See SPEC_TEACHER_CLASS_STUDENT_PROGRESS §12.7.
     STATUS_CHOICES = [
         ('not_started', 'Not Started'),
-        ('in_progress', 'In Progress'),
-        ('achieved', 'Achieved'),
+        ('beginning', 'Beginning'),
+        ('developing', 'Developing'),
+        ('confident', 'Confident'),
+        ('advanced', 'Advanced'),
     ]
+    # Buckets used by the dashboards/summaries (progress bars count "proficient").
+    PROFICIENT_STATUSES = ('confident', 'advanced')
+    DEVELOPING_STATUSES = ('beginning', 'developing')
+
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -1481,6 +1489,11 @@ class ProgressRecord(models.Model):
 
     def __str__(self):
         return f'{self.student.username} — {self.criteria.name} ({self.status})'
+
+    @property
+    def is_proficient(self):
+        """True when this rating counts as proficient (Confident or Advanced)."""
+        return self.status in self.PROFICIENT_STATUSES
 
 
 class ProgressReportComment(models.Model):
