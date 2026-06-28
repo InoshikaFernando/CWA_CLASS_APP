@@ -17,14 +17,19 @@
   .lb-tab:hover { color:#d1d5db; }
   .lb-tab-active { color:#7df2b6; border-bottom:2px solid #4ade80; }
   .lb-field-label { color:#9ca3af; }
-  .lb-select { background:#161b22; color:#e5e7eb; border:1px solid #2d333b; border-radius:10px; }
+  .lb-select { background:#161b22; color:#e5e7eb; border:1px solid #2d333b; border-radius:10px; color-scheme:dark; }
   .lb-select:focus { outline:none; box-shadow:0 0 0 2px rgba(74,222,128,.5); }
+  .lb-weekbtn { background:#161b22; border:1px solid #2d333b; border-radius:8px; color:#e5e7eb;
+                padding:6px 11px; font-weight:600; line-height:1; }
+  .lb-weekbtn:hover { background:#1f262e; }
+  .lb-weeklabel { color:#e5e7eb; font-size:13px; white-space:nowrap; padding:0 4px; }
   .lb-empty { background:#0d0d0d; border:1px solid #1f1f1f; border-radius:16px; color:#9ca3af; }
 
-  .lb-card { background:#161616; border:1px solid #2a2a2a; border-radius:18px; text-align:center; }
-  .lb-card--win   { border:1.5px solid #34d399; }
-  .lb-card--second{ border:1px solid #3f4651; }
-  .lb-card--third { border:1px solid #b3283a; }
+  .lb-card { background:#161616; border:1px solid #2a2a2a; border-radius:18px; text-align:center;
+             transform-origin:bottom center; animation: lb-grow .6s cubic-bezier(.2,.7,.2,1) both; }
+  .lb-card--win   { border:1.5px solid #34d399; animation-delay:.2s; }
+  .lb-card--second{ border:1px solid #3f4651; animation-delay:.06s; }
+  .lb-card--third { border:1px solid #b3283a; animation-delay:.34s; }
 
   .lb-badge { width:36px; height:36px; border-radius:9999px; display:flex; align-items:center;
               justify-content:center; font-weight:500; margin:0 auto 8px; }
@@ -33,7 +38,8 @@
 
   .lb-trophy { width:60px; height:60px; border-radius:9999px; margin:0 auto 10px;
                background:#6ee7b7; color:#062b1c; display:flex; align-items:center; justify-content:center;
-               animation: lb-float 2.6s ease-in-out infinite, lb-glow 2s ease-in-out infinite; }
+               animation: lb-float 2.6s ease-in-out infinite, lb-glow 2s ease-in-out infinite;
+               animation-delay:.9s, .9s; }
   .lb-name { color:#fff; font-weight:500; }
   .lb-score { color:#fff; font-weight:600; }
   .lb-meta { color:#9ca3af; }
@@ -46,6 +52,8 @@
   .lb-cell { color:#e5e7eb; }
   .lb-muted { color:#6b7280; }
 
+  /* Podium bars grow from zero height up to full (transform-origin: bottom). */
+  @keyframes lb-grow { from { transform:scaleY(0); } to { transform:scaleY(1); } }
   @keyframes lb-float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-7px); } }
   @keyframes lb-glow {
     0%,100% { box-shadow:0 0 14px 3px rgba(52,211,153,.35); }
@@ -56,7 +64,7 @@
   .lb-badge--third { animation-delay:.4s; }
 
   @media (prefers-reduced-motion: reduce) {
-    .lb-trophy, .lb-badge--second, .lb-badge--third { animation:none; }
+    .lb-card, .lb-trophy, .lb-badge--second, .lb-badge--third { animation:none; }
     .lb-trophy { box-shadow:0 0 20px 5px rgba(52,211,153,.5); }
   }
 </style>
@@ -88,37 +96,56 @@
   </div>
   {% else %}
 
-  <!-- Filters: class + scope -->
-  <form method="get" class="mb-8 flex flex-wrap items-end gap-4">
+  {% comment %}
+    Filters on one row: Class + Homework share a form (a hidden week input keeps
+    the selected week when either changes); the Week navigator sits alongside.
+  {% endcomment %}
+  <div class="mb-8 flex flex-wrap items-end gap-4">
+    <form method="get" class="flex flex-wrap items-end gap-4">
+      <input type="hidden" name="week" value="{{ week_start_iso }}">
+      <div>
+        <label class="block text-sm font-medium lb-field-label mb-1">Class:</label>
+        <select name="classroom" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
+          {% for cls in classrooms %}
+          <option value="{{ cls.id }}" {% if selected_classroom.id == cls.id %}selected{% endif %}>{{ cls }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium lb-field-label mb-1">Homework:</label>
+        <select name="homework" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
+          <option value="all" {% if aggregate %}selected{% endif %}>All homework (this week)</option>
+          {% for hw in all_homework %}
+          <option value="{{ hw.id }}" {% if not aggregate and selected_homework.id == hw.id %}selected{% endif %}>
+            {{ hw.title }} — {{ hw.due_date|date:"d M Y" }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </form>
+
     <div>
-      <label class="block text-sm font-medium lb-field-label mb-1">Class:</label>
-      <select name="classroom" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
-        {% for cls in classrooms %}
-        <option value="{{ cls.id }}" {% if selected_classroom.id == cls.id %}selected{% endif %}>{{ cls }}</option>
-        {% endfor %}
-      </select>
+      <label class="block text-sm font-medium lb-field-label mb-1">Week:</label>
+      <div class="flex items-center gap-2">
+        <a href="?classroom={{ selected_classroom.id }}&amp;week={{ prev_week }}" class="lb-weekbtn" title="Previous week">‹</a>
+        <span class="lb-weeklabel">{{ week_start|date:"d M" }} – {{ week_end|date:"d M Y" }}</span>
+        <a href="?classroom={{ selected_classroom.id }}&amp;week={{ next_week }}" class="lb-weekbtn" title="Next week">›</a>
+        <form method="get" class="flex items-center">
+          <input type="hidden" name="classroom" value="{{ selected_classroom.id }}">
+          <input type="date" name="week" value="{{ week_start_iso }}" onchange="this.form.submit()" class="lb-select px-2 py-2 text-sm ml-1">
+        </form>
+      </div>
     </div>
-    <div>
-      <label class="block text-sm font-medium lb-field-label mb-1">Homework:</label>
-      <select name="homework" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
-        <option value="all" {% if aggregate %}selected{% endif %}>All homework (overall)</option>
-        {% for hw in hw_list %}
-        <option value="{{ hw.id }}" {% if not aggregate and selected_homework.id == hw.id %}selected{% endif %}>
-          {{ hw.title }}
-        </option>
-        {% endfor %}
-      </select>
-    </div>
-  </form>
+  </div>
 
   {% if not hw_list %}
   <div class="lb-empty p-10 text-center text-sm">
-    No published homework in this class yet — there's nothing to rank.
+    No homework due in this week — pick another week above.
   </div>
   {% elif not ranked_rows %}
   <div class="lb-empty p-10 text-center text-sm">
     No student has attempted
-    {% if aggregate %}any homework in this class{% else %}“{{ selected_homework.title }}”{% endif %}
+    {% if aggregate %}any homework this week{% else %}“{{ selected_homework.title }}”{% endif %}
     yet.
   </div>
   {% else %}
@@ -127,7 +154,7 @@
   <div class="grid grid-cols-3 gap-4 items-end mb-8 max-w-3xl mx-auto">
     {% for r in podium %}
     {% if forloop.counter == 1 %}
-    <div class="lb-card lb-card--win order-2 px-4 pt-6 pb-7 -translate-y-2">
+    <div class="lb-card lb-card--win order-2 px-4 pt-6 pb-7">
       <div class="lb-trophy">
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
