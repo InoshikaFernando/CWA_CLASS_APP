@@ -20,6 +20,14 @@ on these dates being present and truthful — Jira's API only reports an issue's
 Full convention + the one-time historical backfill procedure:
 [`Runbooks/jira-task-dates.md`](Runbooks/jira-task-dates.md).
 
+**Always estimate Jira issues with the standard story-point scheme** so the
+burndown can trend down: **Story = 3, Task = 2, Bug = 3 if High/Highest priority
+else 2, Subtask = skip** (subtasks stay empty so they don't double-count their
+parent Story; Epics never carry points).
+These are default baselines — re-estimate to a truer value when you know it, and
+keep the points on an issue when you close it. Convention + the idempotent
+bulk-fill script: [`Runbooks/jira-story-points.md`](Runbooks/jira-story-points.md).
+
 ## Conventions & layout
 
 - `manage.py` lives at `cwa_classroom/manage.py`; run Django commands from there.

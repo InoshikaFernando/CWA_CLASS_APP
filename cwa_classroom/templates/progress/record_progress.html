@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load classroom_extras %}
 
 {% block title %}Record Progress — {{ classroom.name }}{% endblock %}
 
@@ -40,10 +41,7 @@
                   {% for cs in row.criteria_statuses %}
                     <td class="px-4 py-3 text-center">
                       <select name="status_{{ row.student.id }}_{{ cs.criteria.id }}"
-                              class="text-xs px-2 py-1 border border-slate-200 rounded-lg focus:ring-2 focus:ring-accent
-                                {% if cs.current_status == 'achieved' %}bg-emerald-50 text-emerald-700
-                                {% elif cs.current_status == 'in_progress' %}bg-amber-50 text-amber-700
-                                {% else %}bg-white{% endif %}">
+                              class="text-xs px-2 py-1 border border-slate-200 rounded-lg focus:ring-2 focus:ring-accent {{ cs.current_status|progress_select_classes }}">
                         {% for value, label in status_choices %}
                           <option value="{{ value }}" {% if cs.current_status == value %}selected{% endif %}>{{ label }}</option>
                         {% endfor %}

@@ -3,9 +3,17 @@
   "configurations": [
     {
       "name": "CWA Class App",
-      "runtimeExecutable": "C:/Source/CWA_CLASS_APP/cwa_classroom/venv/Scripts/python.exe",
+      "runtimeExecutable": "C:/Users/inosh/AppData/Local/Programs/Python/Python311/python.exe",
       "runtimeArgs": ["C:/Source/CWA_SCHOOL_APP_2/cwa_classroom/manage.py", "runserver", "8000"],
-      "port": 8000
+      "port": 8000,
+      "env": {
+        "DB_ENGINE": "mysql",
+        "DB_NAME": "cwa_classroom",
+        "DB_USER": "root",
+        "DB_PASSWORD": "root",
+        "DB_HOST": "127.0.0.1",
+        "DB_PORT": "3306"
+      }
     }
   ]
 }

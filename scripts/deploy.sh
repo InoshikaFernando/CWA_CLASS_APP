@@ -41,6 +41,39 @@ HEALTH_SOCKET="${HEALTH_SOCKET:-}"
 WORKER="${WORKER:-}"
 
 cd "$REPO_DIR"
+
+# --- Safety guards -----------------------------------------------------------
+# These exist because a manual run once reset the PROD checkout to origin/dev
+# (run as root, from the prod dir, with DEPLOY_BRANCH=dev) — taking the whole
+# site down with NoReverseMatch errors and poisoning .git ownership for the
+# cwa user. Both guards below would have blocked it; neither affects the
+# automated deploys (they run as cwa, from the matching dir, with the matching
+# branch — see .github/workflows/deploy-*.yml).
+
+# 1) Never deploy as root. git-as-root rewrites .git ownership so the cwa user
+#    can no longer fetch/reset, silently breaking every subsequent deploy.
+if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    echo "ERROR: refusing to deploy as root — run as the app user instead:" >&2
+    echo "       sudo -u cwa DEPLOY_BRANCH=${BRANCH} bash scripts/deploy.sh" >&2
+    exit 1
+fi
+
+# 2) Bind each checkout to the one branch it is allowed to deploy, derived from
+#    the directory itself — so "deploy dev from the prod dir" is impossible.
+#    A DEPLOY_BRANCH that disagrees is a hard error, never a silent reset.
+case "$REPO_DIR" in
+    */CWA_CLASS_APP)      EXPECTED_BRANCH=main ;;
+    */CWA_CLASS_APP_TEST) EXPECTED_BRANCH=test ;;
+    */CWA_CLASS_APP_DEV)  EXPECTED_BRANCH=dev  ;;
+    *)                    EXPECTED_BRANCH=""   ;;  # unknown dir: no binding
+esac
+if [[ -n "$EXPECTED_BRANCH" && "$BRANCH" != "$EXPECTED_BRANCH" ]]; then
+    echo "ERROR: ${REPO_DIR} only deploys '${EXPECTED_BRANCH}', not '${BRANCH}'." >&2
+    echo "       Refusing to reset this checkout to origin/${BRANCH}." >&2
+    exit 1
+fi
+# -----------------------------------------------------------------------------
+
 echo "==> Deploying ${REPO_DIR} (branch ${BRANCH}, service ${SERVICE})"
 
 echo "==> Pulling latest from ${BRANCH}..."
