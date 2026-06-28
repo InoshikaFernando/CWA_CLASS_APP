@@ -22,11 +22,11 @@
               <tr class="bg-slate-50 text-left text-gray-500">
                 <th class="px-4 py-3 font-medium sticky left-0 bg-slate-50 z-10">Student</th>
                 {% for h_item in hierarchical_criteria %}
-                  <th class="px-4 py-3 font-medium text-center min-w-[140px]">
+                  <th class="px-4 py-3 font-medium text-center align-bottom min-w-[140px] max-w-[180px]">
                     {% if h_item.is_child %}
-                      <span class="text-xs text-gray-400">&#8627; {{ h_item.criteria.name|truncatechars:25 }}</span>
+                      <span class="block text-xs text-gray-400 whitespace-normal break-words leading-tight" title="{{ h_item.criteria.name }}">&#8627; {{ h_item.criteria.name }}</span>
                     {% else %}
-                      <span class="text-xs font-bold">{{ h_item.criteria.name|truncatechars:25 }}</span>
+                      <span class="block text-xs font-bold whitespace-normal break-words leading-tight" title="{{ h_item.criteria.name }}">{{ h_item.criteria.name }}</span>
                     {% endif %}
                   </th>
                 {% endfor %}
