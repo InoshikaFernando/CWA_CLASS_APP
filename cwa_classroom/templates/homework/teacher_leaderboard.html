@@ -97,42 +97,45 @@
   {% else %}
 
   {% comment %}
-    Filters: class + scope share one form (a hidden week input keeps the
-    selected week when either changes). The week navigator is its own block —
-    prev/next links and a date picker that snap to the Mon–Sun week.
+    Filters on one row: Class + Homework share a form (a hidden week input keeps
+    the selected week when either changes); the Week navigator sits alongside.
   {% endcomment %}
-  <form method="get" class="mb-3 flex flex-wrap items-end gap-4">
-    <input type="hidden" name="week" value="{{ week_start_iso }}">
-    <div>
-      <label class="block text-sm font-medium lb-field-label mb-1">Class:</label>
-      <select name="classroom" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
-        {% for cls in classrooms %}
-        <option value="{{ cls.id }}" {% if selected_classroom.id == cls.id %}selected{% endif %}>{{ cls }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="block text-sm font-medium lb-field-label mb-1">Homework:</label>
-      <select name="homework" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
-        <option value="all" {% if aggregate %}selected{% endif %}>All homework (this week)</option>
-        {% for hw in all_homework %}
-        <option value="{{ hw.id }}" {% if not aggregate and selected_homework.id == hw.id %}selected{% endif %}>
-          {{ hw.title }} — {{ hw.due_date|date:"d M Y" }}
-        </option>
-        {% endfor %}
-      </select>
-    </div>
-  </form>
-
-  <div class="mb-8 flex items-center gap-2 flex-wrap">
-    <span class="text-sm font-medium lb-field-label">Week:</span>
-    <a href="?classroom={{ selected_classroom.id }}&amp;week={{ prev_week }}" class="lb-weekbtn" title="Previous week">‹</a>
-    <span class="lb-weeklabel">{{ week_start|date:"d M" }} – {{ week_end|date:"d M Y" }}</span>
-    <a href="?classroom={{ selected_classroom.id }}&amp;week={{ next_week }}" class="lb-weekbtn" title="Next week">›</a>
-    <form method="get" class="flex items-center">
-      <input type="hidden" name="classroom" value="{{ selected_classroom.id }}">
-      <input type="date" name="week" value="{{ week_start_iso }}" onchange="this.form.submit()" class="lb-select px-2 py-2 text-sm ml-1">
+  <div class="mb-8 flex flex-wrap items-end gap-4">
+    <form method="get" class="flex flex-wrap items-end gap-4">
+      <input type="hidden" name="week" value="{{ week_start_iso }}">
+      <div>
+        <label class="block text-sm font-medium lb-field-label mb-1">Class:</label>
+        <select name="classroom" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
+          {% for cls in classrooms %}
+          <option value="{{ cls.id }}" {% if selected_classroom.id == cls.id %}selected{% endif %}>{{ cls }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium lb-field-label mb-1">Homework:</label>
+        <select name="homework" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
+          <option value="all" {% if aggregate %}selected{% endif %}>All homework (this week)</option>
+          {% for hw in all_homework %}
+          <option value="{{ hw.id }}" {% if not aggregate and selected_homework.id == hw.id %}selected{% endif %}>
+            {{ hw.title }} — {{ hw.due_date|date:"d M Y" }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
     </form>
+
+    <div>
+      <label class="block text-sm font-medium lb-field-label mb-1">Week:</label>
+      <div class="flex items-center gap-2">
+        <a href="?classroom={{ selected_classroom.id }}&amp;week={{ prev_week }}" class="lb-weekbtn" title="Previous week">‹</a>
+        <span class="lb-weeklabel">{{ week_start|date:"d M" }} – {{ week_end|date:"d M Y" }}</span>
+        <a href="?classroom={{ selected_classroom.id }}&amp;week={{ next_week }}" class="lb-weekbtn" title="Next week">›</a>
+        <form method="get" class="flex items-center">
+          <input type="hidden" name="classroom" value="{{ selected_classroom.id }}">
+          <input type="date" name="week" value="{{ week_start_iso }}" onchange="this.form.submit()" class="lb-select px-2 py-2 text-sm ml-1">
+        </form>
+      </div>
+    </div>
   </div>
 
   {% if not hw_list %}
