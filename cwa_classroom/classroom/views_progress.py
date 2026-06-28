@@ -1129,26 +1129,46 @@ def _report_parents(student, school):
     )
 
 
+def _summary_selection_kwargs(params):
+    """Translate the builder's section checkboxes (POST or GET) into
+    build_summary() kwargs. Homework/Worksheets each carry a mode and, for
+    'selected', the list of item ids picked for the class (see §12.8)."""
+    def ids(name):
+        return [int(i) for i in params.getlist(name) if str(i).isdigit()]
+    return dict(
+        homework=bool(params.get('include_homework')),
+        homework_mode=params.get('homework_mode') or 'summary',
+        homework_ids=ids('homework_ids'),
+        worksheets=bool(params.get('include_worksheets')),
+        worksheet_mode=params.get('worksheet_mode') or 'summary',
+        worksheet_ids=ids('worksheet_ids'),
+        maths=bool(params.get('include_maths')),
+        maths_times_tables=bool(params.get('include_maths_times_tables')),
+        maths_topics=bool(params.get('include_maths_topics')),
+        maths_basic_facts=bool(params.get('include_maths_basic_facts')),
+        coding=bool(params.get('include_coding')),
+        coding_mode=params.get('coding_mode') or 'summary',
+        coding_language_ids=ids('coding_language_ids'),
+    )
+
+
 def _apply_report_selection(report, request, classroom=None):
     """Persist the staff section selection + snapshot the cross-app summary.
 
     Reads the "include this section" checkboxes (see §12.8). The rubric defaults
-    to on; Homework/Maths/Coding are opt-in. The Homework/Maths/Coding numbers are
-    snapshotted onto the report so the report and the dashboard card stay
-    consistent even as the underlying data changes.
+    to on; the other sections are opt-in. The cross-app numbers are snapshotted
+    onto the report so the report and the dashboard card stay consistent even as
+    the underlying data changes. The snapshot is the single source of truth the
+    templates render (a section appears iff its key is present).
     """
+    sel = _summary_selection_kwargs(request.POST)
     report.include_rubric = bool(request.POST.get('include_rubric'))
-    report.include_homework = bool(request.POST.get('include_homework'))
-    report.include_maths = bool(request.POST.get('include_maths'))
-    report.include_coding = bool(request.POST.get('include_coding'))
+    report.include_homework = sel['homework']
+    report.include_maths = sel['maths']
+    report.include_coding = sel['coding']
     if classroom is not None:
         report.classroom = classroom
-    report.summary_snapshot = build_summary(
-        report.student, report.classroom,
-        homework=report.include_homework,
-        maths=report.include_maths,
-        coding=report.include_coding,
-    )
+    report.summary_snapshot = build_summary(report.student, report.classroom, **sel)
     report.save()
 
 
@@ -1198,10 +1218,16 @@ class ProgressReportGenerateView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
 
 def _report_sections(report):
-    """Compact list of the sections a report includes — for logging/UI."""
+    """Compact list of the sections a report includes — for logging/UI.
+
+    Reads the snapshot (the source of truth) so it covers worksheets and any
+    section without a dedicated model flag.
+    """
+    snap = report.summary_snapshot or {}
     flags = [
-        ('rubric', report.include_rubric), ('homework', report.include_homework),
-        ('maths', report.include_maths), ('coding', report.include_coding),
+        ('rubric', report.include_rubric),
+        ('homework', 'homework' in snap), ('worksheets', 'worksheets' in snap),
+        ('maths', 'maths' in snap), ('coding', 'coding' in snap),
     ]
     return [name for name, on in flags if on]
 
@@ -1221,12 +1247,27 @@ class ProgressReportClassBuilderView(RoleRequiredMixin, ModuleRequiredMixin, Vie
         )
 
     def get(self, request, class_id):
+        from homework.models import Homework
+        from worksheets.models import WorksheetAssignment
+        from coding.models import CodingLanguage
         classroom = get_object_or_404(ClassRoom, pk=class_id)
         terms = Term.objects.filter(school=classroom.school).order_by('-start_date')
+        coding_languages = CodingLanguage.objects.order_by('order', 'name').values('id', 'name')
+        homeworks = Homework.objects.filter(
+            classroom=classroom, published_at__isnull=False,
+        ).order_by('-due_date').values('id', 'title')
+        worksheets = WorksheetAssignment.objects.filter(
+            classroom=classroom, is_active=True,
+        ).select_related('worksheet').order_by('-assigned_at')
         return render(request, 'progress/report_class_builder.html', {
             'classroom': classroom,
             'students': self._students(classroom),
             'terms': terms,
+            'homeworks': homeworks,
+            'worksheets': [
+                {'id': a.id, 'title': a.worksheet.name} for a in worksheets
+            ],
+            'coding_languages': coding_languages,
         })
 
     def post(self, request, class_id):
@@ -1264,6 +1305,36 @@ class ProgressReportClassBuilderView(RoleRequiredMixin, ModuleRequiredMixin, Vie
             f'Generated {count} draft report{"" if count == 1 else "s"} for {classroom.name}.',
         )
         return redirect('student_progress_report')
+
+
+class ProgressReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    """Live, unsaved preview of one student's report for the builder's current
+    section selection (passed as GET params). Nothing is persisted — staff use it
+    to check each student before generating drafts (§12.8)."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, student_id):
+        from accounts.models import CustomUser
+        student = get_object_or_404(CustomUser, pk=student_id)
+        school = _school_for_student(request, student)
+
+        class_id = request.GET.get('classroom') or None
+        classroom = ClassRoom.objects.filter(pk=class_id).first() if class_id else None
+
+        sel = _summary_selection_kwargs(request.GET)
+        report = ProgressReport(
+            student=student, school=school, classroom=classroom,
+            include_rubric=bool(request.GET.get('include_rubric')),
+            include_homework=sel['homework'], include_maths=sel['maths'],
+            include_coding=sel['coding'],
+            summary_snapshot=build_summary(student, classroom, **sel),
+        )
+        grouped_progress, overall = _build_student_progress(student)
+        return render(request, 'progress/report_preview.html', {
+            'report': report, 'student': student, 'school': school,
+            'grouped_progress': grouped_progress, 'overall': overall,
+        })
 
 
 class ProgressReportDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% load classroom_extras %}
+
+{% block title %}Report Preview — {{ student.get_full_name|default:student.username }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+
+  <div class="mb-4 rounded-lg bg-blue-50 border border-blue-200 px-4 py-2.5 text-sm text-blue-800">
+    Preview only — nothing has been saved or sent. Close this tab and adjust the
+    sections, or generate drafts from the builder when you're happy.
+  </div>
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+    <div class="border-b border-slate-100 pb-5 mb-6">
+      <p class="text-sm text-gray-500">{{ school.name }}</p>
+      <h1 class="text-2xl font-display font-bold text-gray-900 mt-1">Progress Report</h1>
+      <p class="text-gray-600 mt-2">
+        <span class="font-medium">{{ student.get_full_name|default:student.username }}</span>
+      </p>
+    </div>
+
+    {% if report.include_rubric %}
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div class="rounded-xl p-4 border border-slate-200 text-center"><p class="text-xl font-bold text-gray-900">{{ overall.total }}</p><p class="text-xs text-gray-500">Total Criteria</p></div>
+        <div class="rounded-xl p-4 border border-slate-200 text-center"><p class="text-xl font-bold text-emerald-600">{{ overall.achieved }}</p><p class="text-xs text-gray-500">Proficient</p></div>
+        <div class="rounded-xl p-4 border border-slate-200 text-center"><p class="text-xl font-bold text-accent">{{ overall.in_progress }}</p><p class="text-xs text-gray-500">Developing</p></div>
+        <div class="rounded-xl p-4 border border-slate-200 text-center"><p class="text-xl font-bold text-gray-400">{{ overall.not_started }}</p><p class="text-xs text-gray-500">Not Started</p></div>
+      </div>
+      {% if grouped_progress %}
+        <div class="space-y-6">
+          {% for group in grouped_progress %}
+            <div class="border border-slate-200 rounded-xl">
+              <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+                <h2 class="font-semibold text-gray-900">{% if group.subject %}{{ group.subject }}{% else %}All Subjects{% endif %} — {% if group.level %}{{ group.level }}{% else %}All Levels{% endif %}</h2>
+                <span class="text-xs text-gray-500">{{ group.achieved }}/{{ group.total }}</span>
+              </div>
+              <div class="divide-y divide-slate-50">
+                {% for record in group.records %}
+                  <div class="flex items-center justify-between px-4 py-2.5">
+                    <p class="text-sm text-gray-700">{{ record.criteria.name }}</p>
+                    <span class="text-xs font-medium px-2.5 py-1 rounded-full {{ record.status|progress_badge_classes }}">{{ record.get_status_display }}</span>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endif %}
+
+    {% include "progress/_report_summary.html" %}
+  </div>
+
+</div>
+{% endblock %}
