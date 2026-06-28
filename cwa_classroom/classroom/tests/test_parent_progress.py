@@ -216,50 +216,50 @@ class ParentProgressViewStatusTest(ParentProgressTestBase):
         ProgressRecord.objects.create(
             student=self.student,
             criteria=self.criteria_approved,
-            status='achieved',
+            status='advanced',
             recorded_by=self.teacher,
         )
         resp = self.client.get(reverse('parent_progress'))
         group = resp.context['grouped_progress'][0]
         entries_by_criteria = {e['criteria'].id: e for e in group['entries']}
-        self.assertEqual(entries_by_criteria[self.criteria_approved.id]['status'], 'achieved')
+        self.assertEqual(entries_by_criteria[self.criteria_approved.id]['status'], 'advanced')
 
     def test_in_progress_record_shows_in_progress(self):
         ProgressRecord.objects.create(
             student=self.student,
             criteria=self.criteria_approved,
-            status='in_progress',
+            status='developing',
             recorded_by=self.teacher,
         )
         resp = self.client.get(reverse('parent_progress'))
         group = resp.context['grouped_progress'][0]
         entries_by_criteria = {e['criteria'].id: e for e in group['entries']}
-        self.assertEqual(entries_by_criteria[self.criteria_approved.id]['status'], 'in_progress')
+        self.assertEqual(entries_by_criteria[self.criteria_approved.id]['status'], 'developing')
 
     def test_latest_record_used_when_multiple_exist(self):
         """When multiple records exist for the same criteria, the latest (highest ID) is used."""
         ProgressRecord.objects.create(
             student=self.student,
             criteria=self.criteria_approved,
-            status='in_progress',
+            status='developing',
             recorded_by=self.teacher,
         )
         ProgressRecord.objects.create(
             student=self.student,
             criteria=self.criteria_approved,
-            status='achieved',
+            status='advanced',
             recorded_by=self.teacher,
         )
         resp = self.client.get(reverse('parent_progress'))
         group = resp.context['grouped_progress'][0]
         entries_by_criteria = {e['criteria'].id: e for e in group['entries']}
-        self.assertEqual(entries_by_criteria[self.criteria_approved.id]['status'], 'achieved')
+        self.assertEqual(entries_by_criteria[self.criteria_approved.id]['status'], 'advanced')
 
     def test_overall_counts_match_entries(self):
         ProgressRecord.objects.create(
             student=self.student,
             criteria=self.criteria_approved,
-            status='achieved',
+            status='advanced',
             recorded_by=self.teacher,
         )
         # criteria_approved2 has no record → not_assessed
@@ -274,7 +274,7 @@ class ParentProgressViewStatusTest(ParentProgressTestBase):
         ProgressRecord.objects.create(
             student=self.student,
             criteria=self.criteria_approved,
-            status='achieved',
+            status='advanced',
             notes='Great work counting!',
             recorded_by=self.teacher,
         )
@@ -287,7 +287,7 @@ class ParentProgressViewStatusTest(ParentProgressTestBase):
         ProgressRecord.objects.create(
             student=self.student,
             criteria=self.criteria_approved,
-            status='achieved',
+            status='advanced',
             recorded_by=self.teacher,
         )
         resp = self.client.get(reverse('parent_progress'))

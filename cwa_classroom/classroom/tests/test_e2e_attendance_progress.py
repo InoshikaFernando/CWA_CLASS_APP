@@ -519,7 +519,7 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
 
         url = reverse('record_progress', kwargs={'class_id': self.classroom.id})
         data = {
-            f'status_{self.student_user.id}_{self.criteria.id}': 'in_progress',
+            f'status_{self.student_user.id}_{self.criteria.id}': 'developing',
         }
         self.client.post(url, data)
 
@@ -532,8 +532,49 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
         record = ProgressRecord.objects.get(
             student=self.student_user, criteria=self.criteria,
         )
-        self.assertEqual(record.status, 'in_progress')
+        self.assertEqual(record.status, 'developing')
         self.assertEqual(record.recorded_by, self.teacher_user)
+
+    def test_record_progress_saves_and_updates_comment(self):
+        """The record-progress form saves a per-student comment, and re-posting
+        updates the same comment rather than creating a duplicate."""
+        from classroom.models import ProgressReportComment
+        self.client.force_login(self.teacher_user)
+        sess = self.client.session
+        sess['current_school_id'] = self.school.id
+        sess.save()
+        url = reverse('record_progress', kwargs={'class_id': self.classroom.id})
+
+        self.client.post(url, {f'comment_{self.student_user.id}': 'Great improvement!'})
+        c = ProgressReportComment.objects.get(student=self.student_user)
+        self.assertEqual(c.body, 'Great improvement!')
+        self.assertEqual(c.subject, self.classroom.subject)
+        self.assertEqual(c.created_by, self.teacher_user)
+
+        self.client.post(url, {f'comment_{self.student_user.id}': 'Even better now.'})
+        self.assertEqual(
+            ProgressReportComment.objects.filter(student=self.student_user).count(), 1,
+        )
+        c.refresh_from_db()
+        self.assertEqual(c.body, 'Even better now.')
+
+    def test_record_progress_prefills_existing_comment(self):
+        """The form GET prefills each student's latest subject comment."""
+        from classroom.models import ProgressReportComment
+        ProgressReportComment.objects.create(
+            student=self.student_user, school=self.school,
+            subject=self.classroom.subject, body='Prior note.',
+            created_by=self.teacher_user,
+        )
+        self.client.force_login(self.teacher_user)
+        sess = self.client.session
+        sess['current_school_id'] = self.school.id
+        sess.save()
+        resp = self.client.get(
+            reverse('record_progress', kwargs={'class_id': self.classroom.id}),
+        )
+        rows = {r['student'].id: r for r in resp.context['student_rows']}
+        self.assertEqual(rows[self.student_user.id]['comment'], 'Prior note.')
 
     def test_student_can_view_own_progress(self):
         """A student can view their own progress page."""
@@ -541,7 +582,7 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
         ProgressRecord.objects.create(
             student=self.student_user,
             criteria=self.criteria,
-            status='achieved',
+            status='advanced',
             recorded_by=self.teacher_user,
         )
 
@@ -567,7 +608,7 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
         # Mark student attendance AND progress in a single POST
         data = {
             f'status_{self.student_user.id}': 'present',
-            f'progress_{self.student_user.id}_{self.criteria.id}': 'achieved',
+            f'progress_{self.student_user.id}_{self.criteria.id}': 'advanced',
         }
         self.client.post(url, data)
 
@@ -583,5 +624,239 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
             criteria=self.criteria,
             session=self.session,
         )
-        self.assertEqual(record.status, 'achieved')
+        self.assertEqual(record.status, 'advanced')
         self.assertEqual(record.recorded_by, self.teacher_user)
+
+
+# ---------------------------------------------------------------------------
+# 6. AllSubjectsCriteriaTest  (subject = null  →  applies to all subjects)
+# ---------------------------------------------------------------------------
+
+class AllSubjectsCriteriaTest(_BaseAttendanceProgressTest):
+    """Subject-agnostic criteria (subject=None): creation + surfacing everywhere.
+
+    See SPEC_TEACHER_CLASS_STUDENT_PROGRESS §12.6.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        # A second, UNRELATED subject + classroom (Coding) at the same school,
+        # so we can prove an All-Subjects criterion surfaces regardless of subject.
+        cls.coding_subject = Subject.objects.create(
+            name='Coding', slug='coding', is_active=True,
+        )
+        DepartmentSubject.objects.create(
+            department=cls.department, subject=cls.coding_subject,
+        )
+        cls.coding_level = Level.objects.create(
+            level_number=2, display_name='Beginner', subject=cls.coding_subject,
+        )
+        cls.coding_class = _create_classroom(
+            cls.school, cls.department, cls.coding_subject, 'Coding 101',
+        )
+        cls.coding_class.levels.add(cls.coding_level)
+        ClassTeacher.objects.create(classroom=cls.coding_class, teacher=cls.teacher_user)
+        ClassStudent.objects.create(
+            classroom=cls.coding_class, student=cls.student_user, is_active=True,
+        )
+
+    def _login_teacher(self):
+        self.client.force_login(self.teacher_user)
+        session = self.client.session
+        session['current_school_id'] = self.school.id
+        session.save()
+
+    def test_create_all_subjects_criteria(self):
+        """POST with subject='all' creates a criterion with subject=None (and no level)."""
+        self._login_teacher()
+        self.client.post(reverse('progress_criteria_list'), {
+            'name': 'Attendance & participation',
+            'subject': 'all',
+            'level': '',
+            'order': '0',
+        })
+        criteria = ProgressCriteria.objects.get(name='Attendance & participation')
+        self.assertIsNone(criteria.subject, 'subject=all should persist as NULL')
+        self.assertIsNone(criteria.level)
+        self.assertEqual(criteria.school, self.school)
+
+    def test_all_subjects_criteria_recordable_for_unrelated_subject(self):
+        """An approved subject=None criterion can be recorded against a class of ANY subject."""
+        all_subj = ProgressCriteria.objects.create(
+            school=self.school, subject=None, level=None,
+            name='Homework completed on time', status='approved',
+            created_by=self.teacher_user, approved_by=self.teacher_user,
+        )
+        self._login_teacher()
+        # Record it against the Coding class — different from the criterion's (null) subject.
+        self.client.post(
+            reverse('record_progress', kwargs={'class_id': self.coding_class.id}),
+            {f'status_{self.student_user.id}_{all_subj.id}': 'advanced'},
+        )
+        self.assertTrue(
+            ProgressRecord.objects.filter(
+                student=self.student_user, criteria=all_subj,
+            ).exists(),
+            'All-Subjects criterion should be recordable for a class of any subject',
+        )
+
+    def test_all_subjects_criteria_in_record_progress_context(self):
+        """GET record-progress lists the All-Subjects criterion alongside subject-specific ones."""
+        all_subj = ProgressCriteria.objects.create(
+            school=self.school, subject=None, level=None,
+            name='Class behaviour', status='approved',
+            created_by=self.teacher_user, approved_by=self.teacher_user,
+        )
+        self._login_teacher()
+        resp = self.client.get(
+            reverse('record_progress', kwargs={'class_id': self.classroom.id}),
+        )
+        self.assertEqual(resp.status_code, 200)
+        listed_ids = [h['criteria'].id for h in resp.context['hierarchical_criteria']]
+        self.assertIn(all_subj.id, listed_ids)
+
+    def test_all_subjects_criteria_str_is_null_safe(self):
+        """__str__ renders 'All Subjects' / 'All Levels' rather than crashing on null."""
+        crit = ProgressCriteria.objects.create(
+            school=self.school, subject=None, level=None, name='Curiosity',
+        )
+        self.assertIn('All Subjects', str(crit))
+        self.assertIn('All Levels', str(crit))
+
+
+# ---------------------------------------------------------------------------
+# 7. RubricRatingTest  (4-level rating scale — §12.7)
+# ---------------------------------------------------------------------------
+
+class RubricRatingTest(_BaseAttendanceProgressTest):
+    """The Beginning/Developing/Confident/Advanced rubric + proficiency buckets."""
+
+    def _approved_criterion(self, name, order=0):
+        return ProgressCriteria.objects.create(
+            school=self.school, subject=self.subject, level=self.level,
+            name=name, order=order, status='approved',
+            created_by=self.teacher_user, approved_by=self.teacher_user,
+        )
+
+    def test_is_proficient_property(self):
+        crit = self._approved_criterion('Crit')
+        cases = {
+            'not_started': False, 'beginning': False, 'developing': False,
+            'confident': True, 'advanced': True,
+        }
+        for status, expected in cases.items():
+            rec = ProgressRecord.objects.create(
+                student=self.student_user, criteria=crit, status=status,
+                recorded_by=self.teacher_user,
+            )
+            self.assertEqual(rec.is_proficient, expected, status)
+            rec.delete()
+
+    def test_record_progress_accepts_rubric_status(self):
+        """The record-progress view stores a 4-level rubric value."""
+        crit = self._approved_criterion('Solves problems')
+        self.client.force_login(self.teacher_user)
+        s = self.client.session
+        s['current_school_id'] = self.school.id
+        s.save()
+        self.client.post(
+            reverse('record_progress', kwargs={'class_id': self.classroom.id}),
+            {f'status_{self.student_user.id}_{crit.id}': 'confident'},
+        )
+        rec = ProgressRecord.objects.get(student=self.student_user, criteria=crit)
+        self.assertEqual(rec.status, 'confident')
+
+    def test_summary_buckets(self):
+        """overall.achieved = proficient (Confident+Advanced); in_progress = developing."""
+        c1 = self._approved_criterion('A', 1)
+        c2 = self._approved_criterion('B', 2)
+        c3 = self._approved_criterion('C', 3)
+        c4 = self._approved_criterion('D', 4)
+        for crit, status in [(c1, 'advanced'), (c2, 'confident'),
+                             (c3, 'developing'), (c4, 'not_started')]:
+            ProgressRecord.objects.create(
+                student=self.student_user, criteria=crit, status=status,
+                recorded_by=self.teacher_user,
+            )
+        self.client.force_login(self.teacher_user)
+        s = self.client.session
+        s['current_school_id'] = self.school.id
+        s.save()
+        resp = self.client.get(
+            reverse('student_progress', kwargs={'student_id': self.student_user.id}),
+        )
+        overall = resp.context['overall']
+        self.assertEqual(overall['achieved'], 2)      # advanced + confident
+        self.assertEqual(overall['in_progress'], 1)   # developing
+        self.assertEqual(overall['not_started'], 1)
+
+
+# ---------------------------------------------------------------------------
+# 8. ReportBuilderTest  (per-class report builder + dashboard card — §12.8)
+# ---------------------------------------------------------------------------
+
+class ReportBuilderTest(_BaseAttendanceProgressTest):
+    """Per-class generation, section selection + snapshot, dashboard summary."""
+
+    def _login_teacher(self):
+        self.client.force_login(self.teacher_user)
+        s = self.client.session
+        s['current_school_id'] = self.school.id
+        s.save()
+
+    def test_class_builder_get_lists_students(self):
+        self._login_teacher()
+        resp = self.client.get(
+            reverse('progress_report_class_builder', kwargs={'class_id': self.classroom.id}),
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(self.student_user, list(resp.context['students']))
+
+    def test_class_builder_generates_report_per_student_with_sections(self):
+        from classroom.models import ProgressReport
+        self._login_teacher()
+        self.client.post(
+            reverse('progress_report_class_builder', kwargs={'class_id': self.classroom.id}),
+            {'include_rubric': 'on', 'include_homework': 'on'},
+        )
+        report = ProgressReport.objects.get(student=self.student_user, school=self.school)
+        self.assertEqual(report.classroom, self.classroom)
+        self.assertTrue(report.include_rubric)
+        self.assertTrue(report.include_homework)
+        self.assertFalse(report.include_maths)
+        # Homework section was ticked → snapshot carries the homework summary.
+        self.assertIn('homework', report.summary_snapshot)
+        self.assertNotIn('maths', report.summary_snapshot)
+
+    def test_per_student_generate_persists_selection(self):
+        from classroom.models import ProgressReport
+        self._login_teacher()
+        self.client.post(
+            reverse('progress_report_generate', kwargs={'student_id': self.student_user.id}),
+            {'include_rubric': 'on', 'include_maths': 'on',
+             'classroom': self.classroom.id},
+        )
+        report = ProgressReport.objects.get(student=self.student_user)
+        self.assertTrue(report.include_maths)
+        self.assertFalse(report.include_homework)
+        self.assertIn('maths', report.summary_snapshot)
+
+    def test_dashboard_shows_report_summary(self):
+        from classroom.models import ProgressReport
+        ProgressReport.objects.create(
+            student=self.student_user, school=self.school,
+            classroom=self.classroom, include_rubric=True,
+            include_homework=True,
+            summary_snapshot={'homework': {'assigned': 0, 'completed': 0,
+                                           'completion_pct': 0, 'average_pct': 0}},
+            generated_by=self.teacher_user,
+        )
+        self.client.force_login(self.student_user)
+        s = self.client.session
+        s['current_school_id'] = self.school.id
+        s.save()
+        resp = self.client.get(reverse('student_dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'My Progress Summary')
+        self.assertEqual(resp.context['progress_report'].include_homework, True)

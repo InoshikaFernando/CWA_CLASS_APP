@@ -292,7 +292,9 @@ urlpatterns = [
     path('progress/comment/<int:comment_id>/delete/', views_progress.ProgressReportCommentDeleteView.as_view(), name='progress_comment_delete'),
 
     # Progress report generate / view / send to parents
+    path('progress/class/<int:class_id>/reports/', views_progress.ProgressReportClassBuilderView.as_view(), name='progress_report_class_builder'),
     path('progress/student/<int:student_id>/report/generate/', views_progress.ProgressReportGenerateView.as_view(), name='progress_report_generate'),
+    path('progress/student/<int:student_id>/report/preview/', views_progress.ProgressReportPreviewView.as_view(), name='progress_report_preview'),
     path('progress/report/<int:report_id>/', views_progress.ProgressReportDetailView.as_view(), name='progress_report_detail'),
     path('progress/report/<int:report_id>/send/', views_progress.ProgressReportSendView.as_view(), name='progress_report_send'),
 
