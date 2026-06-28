@@ -32,7 +32,7 @@ class _CommentBase(_BaseAttendanceProgressTest):
         )
         ProgressRecord.objects.create(
             student=cls.student_user, criteria=cls.criteria,
-            status='achieved', recorded_by=cls.teacher_user,
+            status='advanced', recorded_by=cls.teacher_user,
         )
         cls.term = Term.objects.create(
             school=cls.school, name='Term 1',

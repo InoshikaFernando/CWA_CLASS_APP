@@ -6,17 +6,22 @@
   {% if classes %}
   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
     {% for classroom in classes %}
-    <a href="{% url 'record_progress' class_id=classroom.id %}"
-       class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 hover:shadow-md hover:border-primary transition block">
-      <h3 class="font-bold text-gray-800 text-lg mb-1">{{ classroom.name }}</h3>
-      {% if classroom.subject %}
-        <p class="text-sm text-emerald-600 font-semibold mb-2">{{ classroom.subject.name }}</p>
-      {% endif %}
-      <div class="flex gap-3 text-sm text-gray-500">
-        <span>{{ classroom.active_student_count }} student{{ classroom.active_student_count|pluralize }}</span>
-        <span>{{ classroom.levels.count }} level{{ classroom.levels.count|pluralize }}</span>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 hover:shadow-md transition">
+      <a href="{% url 'record_progress' class_id=classroom.id %}" class="block hover:text-primary transition">
+        <h3 class="font-bold text-gray-800 text-lg mb-1">{{ classroom.name }}</h3>
+        {% if classroom.subject %}
+          <p class="text-sm text-emerald-600 font-semibold mb-2">{{ classroom.subject.name }}</p>
+        {% endif %}
+        <div class="flex gap-3 text-sm text-gray-500">
+          <span>{{ classroom.active_student_count }} student{{ classroom.active_student_count|pluralize }}</span>
+          <span>{{ classroom.levels.count }} level{{ classroom.levels.count|pluralize }}</span>
+        </div>
+      </a>
+      <div class="flex gap-4 mt-4 pt-3 border-t border-slate-100 text-sm font-semibold">
+        <a href="{% url 'record_progress' class_id=classroom.id %}" class="text-primary hover:underline">Record progress</a>
+        <a href="{% url 'progress_report_class_builder' class_id=classroom.id %}" class="text-accent hover:underline">Generate reports</a>
       </div>
-    </a>
+    </div>
     {% endfor %}
   </div>
   {% else %}

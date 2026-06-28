@@ -710,52 +710,68 @@ def _render_clean_diagram(fitz_page, clip_rect, dpi=150):
 
 def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
     """
-    Return the tight bounding rect of all vector drawing elements on *fitz_page*
-    that fall within *search_rect* (in PDF points).
+    Return the tight bounding rect of the vector drawing elements that BELONG to
+    *search_rect* (in PDF points) — i.e. whose centre lies inside it.
 
-    Vector drawings (lines, curves, filled shapes) are the diagram itself.
-    Text is never a drawing, so headers / labels outside the actual visual
-    are excluded automatically.
+    Vector drawings (lines, curves, filled shapes) are the diagram itself; text
+    is never a drawing, so headers / labels are excluded automatically.
+
+    Two safeguards keep multi-figure pages (a grid/row of diagrams) from merging:
+      * the centre-inside test ignores a NEIGHBOURING figure whose edge merely
+        pokes into the padded search box, and
+      * the result is clamped to *search_rect*, so the crop can never extend
+        beyond Claude's region onto an adjacent figure.
 
     Returns a fitz.Rect, or None if no qualifying drawings were found.
-    The returned rect is expanded by a small margin and clamped to *search_rect*.
     """
     import fitz
 
-    drawings = fitz_page.get_drawings()
-    if not drawings:
+    # Use clustered drawings, not raw paths: PyMuPDF groups the strokes of one
+    # figure into a single rect. Raw get_drawings() rects for axis-aligned lines
+    # (number lines, grids, geometry) are zero-area, so an area filter on them
+    # would discard line-art figures entirely. cluster_drawings() bounds them
+    # correctly.
+    try:
+        clusters = fitz_page.cluster_drawings()
+    except Exception:
+        return None
+    if not clusters:
         return None
 
-    xs0, ys0, xs1, ys1 = [], [], [], []
-    for d in drawings:
-        r = d.get('rect')
-        if not r:
-            continue
+    page_rect = fitz_page.rect
+    page_area = page_rect.width * page_rect.height
+
+    picked = []
+    for r in clusters:
         r = fitz.Rect(r)
-        # Must overlap the search region
-        if not r.intersects(search_rect):
+        if r.is_empty or r.is_infinite:
             continue
-        # Skip tiny artefacts (e.g. single-pixel rules)
+        # Skip page-border / full-page decoration and tiny specks.
+        if page_area > 0 and (r.width * r.height) / page_area > 0.80:
+            continue
         if r.width * r.height < min_area_pts:
             continue
-        xs0.append(r.x0)
-        ys0.append(r.y0)
-        xs1.append(r.x1)
-        ys1.append(r.y1)
+        # Belongs to this region only if its centre is inside — excludes a
+        # neighbouring figure whose edge pokes into the padded search box.
+        cx, cy = (r.x0 + r.x1) / 2.0, (r.y0 + r.y1) / 2.0
+        if not (search_rect.x0 <= cx <= search_rect.x1 and
+                search_rect.y0 <= cy <= search_rect.y1):
+            continue
+        picked.append(r)
 
-    if not xs0:
+    if not picked:
         return None
 
     margin = 6  # pts — small whitespace around the diagram
-    page_rect = fitz_page.rect
     tight = fitz.Rect(
-        max(search_rect.x0, min(xs0) - margin),
-        max(search_rect.y0, min(ys0) - margin),
-        # Right / bottom: clamp to page bounds only — drawings may legitimately
-        # extend beyond the search_rect if Claude's bbox was too tight.
-        min(page_rect.x1, max(xs1) + margin),
-        min(page_rect.y1, max(ys1) + margin),
+        min(r.x0 for r in picked) - margin,
+        min(r.y0 for r in picked) - margin,
+        max(r.x1 for r in picked) + margin,
+        max(r.y1 for r in picked) + margin,
     )
+    # Never extend beyond the search region — prevents the crop from bleeding
+    # onto adjacent figures on a multi-figure page.
+    tight.intersect(search_rect)
     return tight if tight.is_valid and tight.width > 10 and tight.height > 10 else None
 
 
@@ -806,12 +822,11 @@ def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18):
             grown.include_rect(br)   # absorb the attached label
 
     margin = 4
-    grown = fitz.Rect(
-        max(page_rect.x0, grown.x0 - margin),
-        max(page_rect.y0, grown.y0 - margin),
-        min(page_rect.x1, grown.x1 + margin),
-        min(page_rect.y1, grown.y1 + margin),
-    )
+    grown = fitz.Rect(grown.x0 - margin, grown.y0 - margin,
+                      grown.x1 + margin, grown.y1 + margin)
+    # Clamp to the search region so absorbing a label can't pull the crop onto a
+    # neighbouring figure on a multi-figure page.
+    grown.intersect(search_rect)
     return grown if grown.is_valid and grown.width > 10 and grown.height > 10 else None
 
 
@@ -849,6 +864,35 @@ def _region_has_raster_image(fitz_page, search_rect, min_overlap_frac=0.12):
             inter.intersect(search_rect)
             if inter.is_valid and abs(inter.get_area()) >= min_overlap_frac * search_area:
                 return True
+    return False
+
+
+def _region_has_drawing(fitz_page, search_rect, min_area_pts=50):
+    """
+    Return True if a (non page-border) vector figure cluster overlaps *search_rect*.
+
+    Used as a fallback signal: if the crop couldn't be snapped tightly but a real
+    drawing overlaps the region, render Claude's bbox as-is rather than dropping a
+    genuine figure as "spurious".
+    """
+    import fitz
+
+    try:
+        clusters = fitz_page.cluster_drawings()
+    except Exception:
+        return False
+    page_rect = fitz_page.rect
+    page_area = page_rect.width * page_rect.height
+    for r in clusters:
+        r = fitz.Rect(r)
+        if r.is_empty or r.is_infinite:
+            continue
+        if page_area > 0 and (r.width * r.height) / page_area > 0.80:
+            continue
+        if r.width * r.height < min_area_pts:
+            continue
+        if r.intersects(search_rect):
+            return True
     return False
 
 
@@ -1009,12 +1053,13 @@ def render_question_images(doc, extracted_pages, classified_result):
             search_rect = fitz.Rect(pt0, pt1, pt2, pt3)
             clip_rect = _smart_diagram_rect(fitz_page, search_rect)
             if clip_rect is None:
-                # No vector drawing in the region. Only render if there's an
-                # embedded raster figure here (scanned/photo PDF). Otherwise
-                # Claude flagged a diagram that doesn't exist — the bbox points at
-                # plain text — so drop the image rather than save an irrelevant
-                # text crop (the "totally irrelevant image" failure mode).
-                if _region_has_raster_image(fitz_page, search_rect):
+                # Couldn't snap to a tight figure. Render Claude's bbox as-is when
+                # there's a real figure here — an embedded raster (scanned/photo
+                # PDF) or a vector cluster that overlaps the region. Only when
+                # there is neither do we treat the bbox as spurious (it points at
+                # plain text) and drop it — the "totally irrelevant image" case.
+                if (_region_has_raster_image(fitz_page, search_rect)
+                        or _region_has_drawing(fitz_page, search_rect)):
                     clip_rect = fitz.Rect(pt0, pt1, pt2, min(pdf_h, pt3 + 20))
                 else:
                     logger.info(

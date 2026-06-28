@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Homework Leaderboard{% endblock %}
+
+{% block content %}
+{% comment %}
+  Black-themed leaderboard (atoms.dev design). Self-contained dark surface with
+  a green accent and traffic-light medals (1st green, 2nd grey, 3rd red). The
+  winner's trophy floats and its glow breathes — both pure-CSS idle loops, no JS
+  (framer-motion in the source is re-expressed as @keyframes here). Motion is
+  disabled under prefers-reduced-motion.
+{% endcomment %}
+<style>
+  .lb-panel { background:#000; color:#e5e7eb; border:1px solid #1f1f1f; border-radius:16px; padding:24px; }
+  .lb-sub { color:#9ca3af; }
+  .lb-tabs { border-bottom:1px solid #262626; }
+  .lb-tab { color:#9ca3af; border-bottom:2px solid transparent; }
+  .lb-tab:hover { color:#d1d5db; }
+  .lb-tab-active { color:#7df2b6; border-bottom:2px solid #4ade80; }
+  .lb-field-label { color:#9ca3af; }
+  .lb-select { background:#161b22; color:#e5e7eb; border:1px solid #2d333b; border-radius:10px; }
+  .lb-select:focus { outline:none; box-shadow:0 0 0 2px rgba(74,222,128,.5); }
+  .lb-empty { background:#0d0d0d; border:1px solid #1f1f1f; border-radius:16px; color:#9ca3af; }
+
+  .lb-card { background:#161616; border:1px solid #2a2a2a; border-radius:18px; text-align:center; }
+  .lb-card--win   { border:1.5px solid #34d399; }
+  .lb-card--second{ border:1px solid #3f4651; }
+  .lb-card--third { border:1px solid #b3283a; }
+
+  .lb-badge { width:36px; height:36px; border-radius:9999px; display:flex; align-items:center;
+              justify-content:center; font-weight:500; margin:0 auto 8px; }
+  .lb-badge--second { background:#a6abb5; color:#1f2937; }
+  .lb-badge--third  { background:#dc3245; color:#fff; }
+
+  .lb-trophy { width:60px; height:60px; border-radius:9999px; margin:0 auto 10px;
+               background:#6ee7b7; color:#062b1c; display:flex; align-items:center; justify-content:center;
+               animation: lb-float 2.6s ease-in-out infinite, lb-glow 2s ease-in-out infinite; }
+  .lb-name { color:#fff; font-weight:500; }
+  .lb-score { color:#fff; font-weight:600; }
+  .lb-meta { color:#9ca3af; }
+  .lb-meta--win { color:#86efac; }
+
+  .lb-table-wrap { background:#0a0a0a; border:1px solid #1f1f1f; border-radius:16px; overflow:hidden; }
+  .lb-th { color:#6b7280; }
+  .lb-tr { border-top:1px solid #1a1a1a; }
+  .lb-rank { color:#9ca3af; }
+  .lb-cell { color:#e5e7eb; }
+  .lb-muted { color:#6b7280; }
+
+  @keyframes lb-float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-7px); } }
+  @keyframes lb-glow {
+    0%,100% { box-shadow:0 0 14px 3px rgba(52,211,153,.35); }
+    50%     { box-shadow:0 0 30px 9px rgba(52,211,153,.65); }
+  }
+  /* Subtle float on the runner-up / third badges too. */
+  .lb-badge--second, .lb-badge--third { animation: lb-float 3s ease-in-out infinite; }
+  .lb-badge--third { animation-delay:.4s; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lb-trophy, .lb-badge--second, .lb-badge--third { animation:none; }
+    .lb-trophy { box-shadow:0 0 20px 5px rgba(52,211,153,.5); }
+  }
+</style>
+
+<div class="p-6">
+  <div class="lb-panel">
+
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-display font-bold text-white">Homework progress</h1>
+      <p class="text-sm lb-sub mt-0.5">See who's leading on attempts and best score.</p>
+    </div>
+  </div>
+
+  <!-- View tabs: homework list vs this leaderboard -->
+  <div class="flex items-center gap-1 lb-tabs mb-6">
+    <a href="{% url 'homework:teacher_monitor' %}{% if selected_classroom %}?classroom={{ selected_classroom.id }}{% endif %}"
+       class="lb-tab px-4 py-2 -mb-px text-sm font-semibold transition">
+      Homework list
+    </a>
+    <span class="lb-tab-active px-4 py-2 -mb-px text-sm font-semibold">
+      Leaderboard
+    </span>
+  </div>
+
+  {% if not classrooms %}
+  <div class="lb-empty p-10 text-center text-sm">
+    You are not assigned to any classes yet.
+  </div>
+  {% else %}
+
+  <!-- Filters: class + scope -->
+  <form method="get" class="mb-8 flex flex-wrap items-end gap-4">
+    <div>
+      <label class="block text-sm font-medium lb-field-label mb-1">Class:</label>
+      <select name="classroom" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
+        {% for cls in classrooms %}
+        <option value="{{ cls.id }}" {% if selected_classroom.id == cls.id %}selected{% endif %}>{{ cls }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-sm font-medium lb-field-label mb-1">Homework:</label>
+      <select name="homework" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
+        <option value="all" {% if aggregate %}selected{% endif %}>All homework (overall)</option>
+        {% for hw in hw_list %}
+        <option value="{{ hw.id }}" {% if not aggregate and selected_homework.id == hw.id %}selected{% endif %}>
+          {{ hw.title }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+  </form>
+
+  {% if not hw_list %}
+  <div class="lb-empty p-10 text-center text-sm">
+    No published homework in this class yet — there's nothing to rank.
+  </div>
+  {% elif not ranked_rows %}
+  <div class="lb-empty p-10 text-center text-sm">
+    No student has attempted
+    {% if aggregate %}any homework in this class{% else %}“{{ selected_homework.title }}”{% endif %}
+    yet.
+  </div>
+  {% else %}
+
+  <!-- Podium: top three (2nd | 1st | 3rd) -->
+  <div class="grid grid-cols-3 gap-4 items-end mb-8 max-w-3xl mx-auto">
+    {% for r in podium %}
+    {% if forloop.counter == 1 %}
+    <div class="lb-card lb-card--win order-2 px-4 pt-6 pb-7 -translate-y-2">
+      <div class="lb-trophy">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
+          <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
+          <path d="M4 22h16"/>
+          <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/>
+          <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/>
+          <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
+        </svg>
+      </div>
+      <div class="lb-name truncate">{{ r.student.get_full_name|default:r.student.username }}</div>
+      <div class="lb-score text-3xl mt-1">
+        {% if aggregate %}{{ r.avg_percentage }}%{% else %}{{ r.percentage }}%{% endif %}
+      </div>
+      <div class="text-xs lb-meta--win mt-1">
+        {% if aggregate %}{{ r.attempts }} attempt{{ r.attempts|pluralize }} · {{ r.completed }}/{{ r.total_homework }} done
+        {% else %}{{ r.attempts }} attempt{{ r.attempts|pluralize }}{% endif %}
+      </div>
+    </div>
+    {% elif forloop.counter == 2 %}
+    <div class="lb-card lb-card--second order-1 px-4 pt-5 pb-6">
+      <div class="lb-badge lb-badge--second">2</div>
+      <div class="lb-name truncate">{{ r.student.get_full_name|default:r.student.username }}</div>
+      <div class="lb-score text-2xl mt-1">
+        {% if aggregate %}{{ r.avg_percentage }}%{% else %}{{ r.percentage }}%{% endif %}
+      </div>
+      <div class="text-xs lb-meta mt-1">
+        {% if aggregate %}{{ r.attempts }} attempt{{ r.attempts|pluralize }} · {{ r.completed }}/{{ r.total_homework }} done
+        {% else %}{{ r.attempts }} attempt{{ r.attempts|pluralize }}{% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="lb-card lb-card--third order-3 px-4 pt-4 pb-5">
+      <div class="lb-badge lb-badge--third">3</div>
+      <div class="lb-name truncate">{{ r.student.get_full_name|default:r.student.username }}</div>
+      <div class="lb-score text-2xl mt-1">
+        {% if aggregate %}{{ r.avg_percentage }}%{% else %}{{ r.percentage }}%{% endif %}
+      </div>
+      <div class="text-xs lb-meta mt-1">
+        {% if aggregate %}{{ r.attempts }} attempt{{ r.attempts|pluralize }} · {{ r.completed }}/{{ r.total_homework }} done
+        {% else %}{{ r.attempts }} attempt{{ r.attempts|pluralize }}{% endif %}
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  <!-- Full ranking: everyone from 4th down, then not-started -->
+  <div class="lb-table-wrap">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left text-xs lb-th">
+          <th class="px-4 py-3 font-semibold w-16">Rank</th>
+          <th class="px-4 py-3 font-semibold">Student</th>
+          <th class="px-4 py-3 font-semibold text-center">{% if aggregate %}Homework done{% else %}Attempts{% endif %}</th>
+          {% if aggregate %}<th class="px-4 py-3 font-semibold text-center">Attempts</th>{% endif %}
+          <th class="px-4 py-3 font-semibold text-right">{% if aggregate %}Avg best score{% else %}Best score{% endif %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in ranked_rows|slice:"3:" %}
+        <tr class="lb-tr">
+          <td class="px-4 py-3 font-semibold lb-rank">{{ r.rank }}</td>
+          <td class="px-4 py-3 font-medium lb-cell">{{ r.student.get_full_name|default:r.student.username }}</td>
+          <td class="px-4 py-3 text-center lb-cell">
+            {% if aggregate %}{{ r.completed }}/{{ r.total_homework }}{% else %}{{ r.attempts }}{% endif %}
+          </td>
+          {% if aggregate %}<td class="px-4 py-3 text-center lb-cell">{{ r.attempts }}</td>{% endif %}
+          <td class="px-4 py-3 text-right font-semibold lb-cell">
+            {% if aggregate %}{{ r.avg_percentage }}%{% else %}{{ r.percentage }}%{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+
+        {% for r in unranked_rows %}
+        <tr class="lb-tr lb-muted">
+          <td class="px-4 py-3">—</td>
+          <td class="px-4 py-3">{{ r.student.get_full_name|default:r.student.username }}</td>
+          <td class="px-4 py-3 text-center">{% if aggregate %}0/{{ r.total_homework }}{% else %}0{% endif %}</td>
+          {% if aggregate %}<td class="px-4 py-3 text-center">0</td>{% endif %}
+          <td class="px-4 py-3 text-right">Not started</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% endif %}
+  {% endif %}
+
+  </div>
+</div>
+{% endblock %}

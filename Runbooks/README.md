@@ -25,6 +25,7 @@ CWA Classroom is a Django 4.2 monolith:
 | [`test-env-db-refresh.md`](test-env-db-refresh.md) | Refresh the test/dev database from a prod snapshot and **sanitise** it (scramble PII, reset passwords) before anyone touches it. |
 | [`github-ticket-implementation.md`](github-ticket-implementation.md) | Agent workflow for taking one issue/ticket from "assigned" to merged-and-verified: implement, test, PR, watch CI, deploy-verify, close. |
 | [`jira-task-dates.md`](jira-task-dates.md) | Convention for setting a Jira task's Start date when you begin and End date when you finish, plus the one-time backfill rule for historical *Done* tasks (start = first comment date, end = done date). |
+| [`jira-story-points.md`](jira-story-points.md) | Standard story-point estimation scheme (Story=3, Task=2, Subtask=skip) so the burndown trends down, plus the idempotent bulk-fill script for unestimated issues. |
 
 ## Conventions used across these runbooks
 

@@ -27,6 +27,17 @@
     </div>
   </div>
 
+  <!-- View tabs: homework list (here) vs the per-class progress leaderboard -->
+  <div class="flex items-center gap-1 border-b border-gray-200 mb-6">
+    <span class="px-4 py-2 -mb-px border-b-2 border-blue-600 text-blue-700 text-sm font-semibold">
+      Homework list
+    </span>
+    <a href="{% url 'homework:leaderboard' %}{% if selected_classroom and not show_all %}?classroom={{ selected_classroom.id }}{% endif %}"
+       class="px-4 py-2 -mb-px border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 text-sm font-semibold transition">
+      Leaderboard
+    </a>
+  </div>
+
   <!-- Filters: class + week -->
   <div class="mb-6 flex flex-wrap items-end gap-4">
     <!-- Class selector -->
