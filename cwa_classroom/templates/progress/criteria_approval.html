@@ -18,9 +18,9 @@
             <div class="flex-1">
               <h3 class="font-semibold text-gray-900">{{ item.name }}</h3>
               <div class="flex items-center gap-3 mt-1.5 text-sm text-gray-500">
-                <span>{{ item.subject.name }}</span>
+                <span>{% if item.subject %}{{ item.subject.name }}{% else %}All Subjects{% endif %}</span>
                 <span>&middot;</span>
-                <span>{{ item.level.display_name }}</span>
+                <span>{% if item.level %}{{ item.level.display_name }}{% else %}All Levels{% endif %}</span>
                 <span>&middot;</span>
                 <span>by {{ item.created_by.username|default:"Unknown" }}</span>
               </div>
