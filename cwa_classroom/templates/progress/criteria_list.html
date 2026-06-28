@@ -59,7 +59,7 @@
                     <span class="font-bold">{{ item.criteria.name }}</span>
                   {% endif %}
                 </td>
-                <td class="px-6 py-3 text-gray-600">{{ item.criteria.subject.name }}</td>
+                <td class="px-6 py-3 text-gray-600">{% if item.criteria.subject %}{{ item.criteria.subject.name }}{% else %}<span class="text-gray-400">All Subjects</span>{% endif %}</td>
                 <td class="px-6 py-3 text-gray-600">{% if item.criteria.level %}{{ item.criteria.level.display_name }}{% else %}<span class="text-gray-400">All Levels</span>{% endif %}</td>
                 <td class="px-6 py-3">
                   <span class="text-xs font-medium px-2 py-1 rounded-full
@@ -147,6 +147,7 @@
             <select name="subject" id="panel-subject" required
                     class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
               <option value="">Select subject...</option>
+              <option value="all" {% if edit_criteria and not edit_criteria.subject_id %}selected{% endif %}>All Subjects</option>
               {% for s in subjects %}
                 <option value="{{ s.id }}" {% if edit_criteria and edit_criteria.subject_id == s.id %}selected{% endif %}>{{ s.name }}</option>
               {% endfor %}

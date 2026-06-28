@@ -680,7 +680,7 @@ class ParentPortalTest(TestCase):
         ProgressRecord.objects.create(
             student=cls.student,
             criteria=cls.criteria,
-            status='achieved',
+            status='advanced',
             recorded_by=cls.teacher,
         )
 

@@ -1537,11 +1537,11 @@ class RecordProgressViewTests(TestCase):
         url = reverse('record_progress', args=[self.data['classroom'].id])
         student = self.data['student']
         resp = self.client.post(url, {
-            f'status_{student.id}_{self.criteria.id}': 'achieved',
+            f'status_{student.id}_{self.criteria.id}': 'advanced',
         })
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(ProgressRecord.objects.filter(
-            student=student, criteria=self.criteria, status='achieved',
+            student=student, criteria=self.criteria, status='advanced',
         ).exists())
 
 
@@ -1562,7 +1562,7 @@ class StudentProgressViewTests(TestCase):
         ProgressRecord.objects.create(
             student=self.data['student'],
             criteria=self.criteria,
-            status='achieved',
+            status='advanced',
             recorded_by=self.data['teacher'],
         )
 
