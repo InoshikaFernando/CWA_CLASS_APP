@@ -26,10 +26,12 @@
   .lb-empty { background:#0d0d0d; border:1px solid #1f1f1f; border-radius:16px; color:#9ca3af; }
 
   .lb-card { background:#161616; border:1px solid #2a2a2a; border-radius:18px; text-align:center;
-             transform-origin:bottom center; animation: lb-grow .9s cubic-bezier(.16,.84,.3,1) both; }
-  .lb-card--win   { border:1.5px solid #34d399; animation-delay:.3s; }
-  .lb-card--second{ border:1px solid #3f4651; animation-delay:.08s; }
-  .lb-card--third { border:1px solid #b3283a; animation-delay:.52s; }
+             transform-origin:bottom center; }
+  /* Looping podium reveal over a 14s cycle: 3rd grows, then 2nd (+2s), then
+     1st (+2s), all hold ~10s, then snap down and repeat. */
+  .lb-card--third { border:1px solid #b3283a;   animation: lb-grow-3rd 14s ease-out infinite; }
+  .lb-card--second{ border:1px solid #3f4651;   animation: lb-grow-2nd 14s ease-out infinite; }
+  .lb-card--win   { border:1.5px solid #34d399; animation: lb-grow-1st 14s ease-out infinite; }
 
   .lb-badge { width:30px; height:30px; border-radius:9999px; display:flex; align-items:center;
               justify-content:center; font-weight:500; font-size:13px; margin:0 auto 6px; }
@@ -52,8 +54,10 @@
   .lb-cell { color:#e5e7eb; }
   .lb-muted { color:#6b7280; }
 
-  /* Podium bars grow from zero height up to full (transform-origin: bottom). */
-  @keyframes lb-grow { from { transform:scaleY(0); } to { transform:scaleY(1); } }
+  /* Podium bars grow from zero, sequenced 3rd→2nd→1st (~2s apart), hold, loop. */
+  @keyframes lb-grow-3rd { 0% { transform:scaleY(0); } 4% { transform:scaleY(1); } 100% { transform:scaleY(1); } }
+  @keyframes lb-grow-2nd { 0%,14% { transform:scaleY(0); } 18% { transform:scaleY(1); } 100% { transform:scaleY(1); } }
+  @keyframes lb-grow-1st { 0%,29% { transform:scaleY(0); } 33% { transform:scaleY(1); } 100% { transform:scaleY(1); } }
   @keyframes lb-float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-7px); } }
   @keyframes lb-glow {
     0%,100% { box-shadow:0 0 11px 2px rgba(52,211,153,.35); }
@@ -64,8 +68,8 @@
   .lb-badge--third { animation-delay:.4s; }
 
   @media (prefers-reduced-motion: reduce) {
-    /* Keep the one-shot podium grow (a quick entrance), but stop the
-       continuous float/glow loops that are the real motion-sensitivity risk. */
+    /* Stop the continuous trophy/badge fidget; the podium reveal is the
+       requested centrepiece so it keeps looping. */
     .lb-trophy, .lb-badge--second, .lb-badge--third { animation:none; }
     .lb-trophy { box-shadow:0 0 20px 5px rgba(52,211,153,.5); }
   }
@@ -107,7 +111,7 @@
       <input type="hidden" name="week" value="{{ week_start_iso }}">
       <div>
         <label class="block text-sm font-medium lb-field-label mb-1">Class:</label>
-        <select name="classroom" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
+        <select name="classroom" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm" style="width:300px;max-width:100%">
           {% for cls in classrooms %}
           <option value="{{ cls.id }}" {% if selected_classroom.id == cls.id %}selected{% endif %}>{{ cls }}</option>
           {% endfor %}
@@ -115,7 +119,7 @@
       </div>
       <div>
         <label class="block text-sm font-medium lb-field-label mb-1">Homework:</label>
-        <select name="homework" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm">
+        <select name="homework" onchange="this.form.submit()" class="lb-select px-3 py-2 text-sm" style="width:230px;max-width:100%">
           <option value="all" {% if aggregate %}selected{% endif %}>All homework (this week)</option>
           {% for hw in all_homework %}
           <option value="{{ hw.id }}" {% if not aggregate and selected_homework.id == hw.id %}selected{% endif %}>
