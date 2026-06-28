@@ -85,7 +85,7 @@ class TestHomeworkLeaderboard:
         tab.click()
         self.page.wait_for_load_state("domcontentloaded")
         assert "/homework/leaderboard/" in self.page.url
-        assert_page_has_text(self.page, "Homework Progress")
+        assert_page_has_text(self.page, "Homework progress")
 
     def test_per_homework_podium_and_ranking(self):
         self._goto(f"?classroom={self.classroom.id}&homework={self.hw.id}")
