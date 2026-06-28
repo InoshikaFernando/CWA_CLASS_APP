@@ -2789,6 +2789,98 @@ class HomeworkPreviewAddQuestionTest(HomeworkTestBase):
         self.assertEqual(texts, ['edited', '2+2?'])
 
 
+class HomeworkPreviewLargeWorksheetTest(HomeworkTestBase):
+    """A big worksheet must not 400 on submit.
+
+    The preview form posts every question back as ~15 individual fields, so a
+    several-hundred-question PDF used to cross DATA_UPLOAD_MAX_NUMBER_FIELDS and
+    Django's request parser raised TooManyFieldsSent *before the view ran*,
+    surfacing as a bare "Bad Request (400)" with the URL stuck on the preview
+    page (observed in production for session 23). The limit is now sized for
+    large workbooks; this guards against it regressing back down.
+    """
+
+    def test_large_worksheet_submit_does_not_400(self):
+        n = 400  # ~6000 fields — well past the old 5000 ceiling, under the new one.
+        session = HomeworkUploadSession.objects.create(
+            user=self.teacher, school=self.school, pdf_filename='workbook.pdf',
+            status=HomeworkUploadSession.STATUS_DONE,
+            extracted_data={
+                'year_level': 501, 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+                'questions': [
+                    {'question_text': f'Q{i}', 'include': True, 'question_type': 'short_answer'}
+                    for i in range(n)
+                ],
+            },
+            extracted_images={},
+        )
+        self.client.force_login(self.teacher)
+        url = reverse('homework:pdf_preview', kwargs={'session_id': session.pk})
+
+        payload = {'year_level': '501', 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+                   'question_order': ','.join(str(i) for i in range(n))}
+        for i in range(n):
+            pre = f'q_{i}_'
+            payload.update({
+                pre + 'include': 'on', pre + 'image_ref': '',
+                pre + 'text': f'Q{i}', pre + 'type': 'short_answer',
+                pre + 'validation_type': 'auto', pre + 'difficulty': '1', pre + 'points': '1',
+                pre + 'grading_rubric': '', pre + 'explanation': '',
+                pre + 'answer_0_text': 'a', pre + 'answer_0_correct': 'on',
+                pre + 'answer_1_text': 'b', pre + 'answer_2_text': 'c', pre + 'answer_3_text': 'd',
+            })
+
+        resp = self.client.post(url, payload)
+        self.assertEqual(resp.status_code, 302)  # would be 400 with the old limit
+        session.refresh_from_db()
+        self.assertEqual(len(session.extracted_data['questions']), n)
+
+    def test_heavy_text_worksheet_submit_does_not_400(self):
+        """Few questions, but megabytes of text — the body-size twin.
+
+        Raising DATA_UPLOAD_MAX_NUMBER_FIELDS alone did NOT fix prod session 23:
+        the preview form is multipart, so long AI-generated rubrics/explanations
+        push the non-file body past DATA_UPLOAD_MAX_MEMORY_SIZE (default 2.5 MB)
+        and Django raises RequestDataTooBig *before the view runs* — the identical
+        bare 400. This uses only ~40 questions (well under the field ceiling) but
+        ~3.5 MB of text, so it fails iff the memory-size ceiling is too low.
+        """
+        n = 40
+        big = 'x' * 90_000  # ~90 KB per question × 40 ≈ 3.5 MB > old 2.5 MB default
+        session = HomeworkUploadSession.objects.create(
+            user=self.teacher, school=self.school, pdf_filename='heavy.pdf',
+            status=HomeworkUploadSession.STATUS_DONE,
+            extracted_data={
+                'year_level': 501, 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+                'questions': [
+                    {'question_text': f'Q{i}', 'include': True, 'question_type': 'short_answer'}
+                    for i in range(n)
+                ],
+            },
+            extracted_images={},
+        )
+        self.client.force_login(self.teacher)
+        url = reverse('homework:pdf_preview', kwargs={'session_id': session.pk})
+
+        payload = {'year_level': '501', 'subject': 'Maths HW Test', 'topic': 'Fractions HW',
+                   'question_order': ','.join(str(i) for i in range(n))}
+        for i in range(n):
+            pre = f'q_{i}_'
+            payload.update({
+                pre + 'include': 'on', pre + 'image_ref': '',
+                pre + 'text': f'Q{i}', pre + 'type': 'short_answer',
+                pre + 'validation_type': 'auto', pre + 'difficulty': '1', pre + 'points': '1',
+                pre + 'grading_rubric': big, pre + 'explanation': big,
+                pre + 'answer_0_text': 'a', pre + 'answer_0_correct': 'on',
+                pre + 'answer_1_text': 'b', pre + 'answer_2_text': 'c', pre + 'answer_3_text': 'd',
+            })
+
+        resp = self.client.post(url, payload)
+        self.assertEqual(resp.status_code, 302)  # would be 400 (RequestDataTooBig) at 2.5 MB
+        session.refresh_from_db()
+        self.assertEqual(len(session.extracted_data['questions']), n)
+
+
 # ---------------------------------------------------------------------------
 # CPP-344 — Homework monitor "All" filter + back-to-All button
 # ---------------------------------------------------------------------------
@@ -3010,3 +3102,176 @@ class HomeworkDeleteTest(HomeworkTestBase):
         resp = self.client.post(self._delete_url(self.homework))
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(Homework.all_objects.get(pk=self.homework.pk).deleted_at, first)
+
+
+# ---------------------------------------------------------------------------
+# Per-class homework progress leaderboard (CPP-348)
+# ---------------------------------------------------------------------------
+# Ranks a class's students by best score, highlighting the top three. Covers
+# per-homework ranking, the fewer-attempts tie-break, the not-started fallback,
+# the all-homework aggregate scope, access scoping and the tab wiring.
+# ---------------------------------------------------------------------------
+
+class HomeworkLeaderboardTest(HomeworkTestBase):
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='teacher1', password='pass1234')
+        self.url = reverse('homework:leaderboard')
+
+    # -- basics -----------------------------------------------------------
+
+    def test_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(self.url)
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_page_renders(self):
+        resp = self.client.get(self.url + f'?classroom={self.classroom.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Homework Progress')
+
+    def test_no_submissions_shows_empty_state(self):
+        resp = self.client.get(
+            self.url + f'?classroom={self.classroom.id}&homework={self.homework.id}'
+        )
+        self.assertEqual(resp.context['ranked_rows'], [])
+        self.assertContains(resp, 'No student has attempted')
+
+    # -- per-homework ranking --------------------------------------------
+
+    def test_ranks_by_best_points_and_marks_first(self):
+        # student2 outscores student → ranks first.
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            attempt_number=1, score=4, total_questions=5, points=80.0,
+        )
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student2,
+            attempt_number=1, score=5, total_questions=5, points=95.0,
+        )
+        resp = self.client.get(
+            self.url + f'?classroom={self.classroom.id}&homework={self.homework.id}'
+        )
+        ranked = resp.context['ranked_rows']
+        self.assertEqual(ranked[0]['student'], self.student2)
+        self.assertEqual(ranked[0]['rank'], 1)
+        self.assertEqual(ranked[1]['student'], self.student)
+        self.assertEqual(ranked[1]['rank'], 2)
+        # Top three is exposed for the podium.
+        self.assertEqual(resp.context['podium'][0]['student'], self.student2)
+
+    def test_best_attempt_wins_over_later_lower_one(self):
+        # A strong first attempt is the student's score even if they retry worse.
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            attempt_number=1, score=5, total_questions=5, points=90.0,
+        )
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            attempt_number=2, score=2, total_questions=5, points=40.0,
+        )
+        resp = self.client.get(
+            self.url + f'?classroom={self.classroom.id}&homework={self.homework.id}'
+        )
+        row = resp.context['ranked_rows'][0]
+        self.assertEqual(row['percentage'], 100)
+        self.assertEqual(row['attempts'], 2)
+
+    def test_higher_percentage_outranks_higher_points(self):
+        # The board ranks by displayed score (percentage) first, so a higher
+        # percentage wins even if the other student earned more points.
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            attempt_number=1, score=4, total_questions=5, points=100.0,
+        )
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student2,
+            attempt_number=1, score=5, total_questions=5, points=60.0,
+        )
+        resp = self.client.get(
+            self.url + f'?classroom={self.classroom.id}&homework={self.homework.id}'
+        )
+        ranked = resp.context['ranked_rows']
+        self.assertEqual(ranked[0]['student'], self.student2)  # 100% beats 80%
+        self.assertEqual(ranked[1]['student'], self.student)
+
+    def test_fewer_attempts_breaks_score_tie(self):
+        # Equal best points → the student who needed fewer attempts ranks higher.
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            attempt_number=1, score=4, total_questions=5, points=80.0,
+        )
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            attempt_number=2, score=4, total_questions=5, points=80.0,
+        )
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student2,
+            attempt_number=1, score=4, total_questions=5, points=80.0,
+        )
+        resp = self.client.get(
+            self.url + f'?classroom={self.classroom.id}&homework={self.homework.id}'
+        )
+        ranked = resp.context['ranked_rows']
+        self.assertEqual(ranked[0]['student'], self.student2)  # 1 attempt
+        self.assertEqual(ranked[1]['student'], self.student)   # 2 attempts
+
+    def test_student_without_submission_is_unranked(self):
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            attempt_number=1, score=4, total_questions=5, points=80.0,
+        )
+        resp = self.client.get(
+            self.url + f'?classroom={self.classroom.id}&homework={self.homework.id}'
+        )
+        ranked_students = [r['student'] for r in resp.context['ranked_rows']]
+        unranked_students = [r['student'] for r in resp.context['unranked_rows']]
+        self.assertIn(self.student, ranked_students)
+        self.assertNotIn(self.student2, ranked_students)
+        self.assertIn(self.student2, unranked_students)
+
+    # -- aggregate ("all homework") --------------------------------------
+
+    def test_aggregate_scope_averages_best_scores(self):
+        # student: 80% + 100% → avg 90.  student2: 60% + 80% → avg 70.
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            attempt_number=1, score=4, total_questions=5, points=80.0,
+        )
+        HomeworkSubmission.objects.create(
+            homework=self.past_homework, student=self.student,
+            attempt_number=1, score=5, total_questions=5, points=100.0,
+        )
+        HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student2,
+            attempt_number=1, score=3, total_questions=5, points=60.0,
+        )
+        HomeworkSubmission.objects.create(
+            homework=self.past_homework, student=self.student2,
+            attempt_number=1, score=4, total_questions=5, points=80.0,
+        )
+        resp = self.client.get(
+            self.url + f'?classroom={self.classroom.id}&homework=all'
+        )
+        self.assertTrue(resp.context['aggregate'])
+        ranked = resp.context['ranked_rows']
+        self.assertEqual(ranked[0]['student'], self.student)
+        self.assertEqual(ranked[0]['avg_percentage'], 90)
+        self.assertEqual(ranked[1]['student'], self.student2)
+        self.assertEqual(ranked[1]['avg_percentage'], 70)
+
+    # -- access scoping & navigation -------------------------------------
+
+    def test_other_teacher_sees_no_class(self):
+        # teacher2 manages no classes → can't reach this class's board.
+        self.client.login(username='teacher2', password='pass1234')
+        resp = self.client.get(self.url + f'?classroom={self.classroom.id}')
+        self.assertIsNone(resp.context['selected_classroom'])
+        self.assertContains(resp, 'not assigned to any classes')
+
+    def test_monitor_links_to_leaderboard(self):
+        resp = self.client.get(
+            reverse('homework:teacher_monitor') + f'?classroom={self.classroom.id}'
+        )
+        self.assertContains(resp, reverse('homework:leaderboard'))

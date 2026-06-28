@@ -281,12 +281,45 @@ class ParentLinkApproveViewTest(ParentLinkRequestTestBase):
         resp = self.client.post(reverse('parent_link_approve', args=[self.req.id]))
         self.assertRedirects(resp, reverse('parent_link_requests'), fetch_redirect_response=False)
 
-    def test_cannot_approve_already_approved_request(self):
-        """get_object_or_404 requires status=pending, so approved returns 404."""
+    def test_reapprove_already_approved_is_idempotent(self):
+        """A re-submit of an already-approved request must NOT 404 (the link was
+        already created on the first submit). It should redirect to the list with
+        an info message and leave exactly one link in place — not raise 404 as the
+        old status=pending lookup did."""
         self.req.status = ParentLinkRequest.STATUS_APPROVED
         self.req.save()
         self.client.login(username='teacher1', password='password1!')
         resp = self.client.post(reverse('parent_link_approve', args=[self.req.id]))
+        self.assertRedirects(
+            resp, reverse('parent_link_requests'), fetch_redirect_response=False,
+        )
+        self.assertEqual(
+            ParentStudent.objects.filter(
+                parent=self.parent, student=self.student, school=self.school,
+            ).count(),
+            0,  # status was flipped directly in the test, so no link was ever made
+        )
+        self.req.refresh_from_db()
+        self.assertEqual(self.req.status, ParentLinkRequest.STATUS_APPROVED)
+
+    def test_double_approve_creates_single_link(self):
+        """Submitting approve twice (double-click) links once and never 404s."""
+        self.client.login(username='teacher1', password='password1!')
+        first = self.client.post(reverse('parent_link_approve', args=[self.req.id]))
+        second = self.client.post(reverse('parent_link_approve', args=[self.req.id]))
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 302)  # was 404 before the idempotent fix
+        self.assertEqual(
+            ParentStudent.objects.filter(
+                parent=self.parent, student=self.student, school=self.school,
+            ).count(),
+            1,
+        )
+
+    def test_approve_missing_request_still_404s(self):
+        """A genuinely non-existent request id must still 404 (not silently pass)."""
+        self.client.login(username='teacher1', password='password1!')
+        resp = self.client.post(reverse('parent_link_approve', args=[999999]))
         self.assertEqual(resp.status_code, 404)
 
     def test_requires_login(self):
@@ -346,6 +379,21 @@ class ParentLinkRejectViewTest(ParentLinkRequestTestBase):
         self.client.login(username='teacher1', password='password1!')
         resp = self.client.post(reverse('parent_link_reject', args=[self.req.id]), {})
         self.assertRedirects(resp, reverse('parent_link_requests'), fetch_redirect_response=False)
+
+    def test_rereject_already_handled_is_idempotent(self):
+        """Re-submitting reject on an already-reviewed request redirects, not 404."""
+        self.req.status = ParentLinkRequest.STATUS_REJECTED
+        self.req.save()
+        self.client.login(username='teacher1', password='password1!')
+        resp = self.client.post(reverse('parent_link_reject', args=[self.req.id]), {})
+        self.assertRedirects(
+            resp, reverse('parent_link_requests'), fetch_redirect_response=False,
+        )
+
+    def test_reject_missing_request_still_404s(self):
+        self.client.login(username='teacher1', password='password1!')
+        resp = self.client.post(reverse('parent_link_reject', args=[999999]), {})
+        self.assertEqual(resp.status_code, 404)
 
     def test_requires_login(self):
         resp = self.client.post(reverse('parent_link_reject', args=[self.req.id]))

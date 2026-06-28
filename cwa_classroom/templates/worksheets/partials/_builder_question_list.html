@@ -1,3 +1,4 @@
+{% load maths_format %}
 {% if page_obj.object_list %}
 <div class="space-y-3">
 
@@ -112,7 +113,7 @@
         {% endif %}
       </div>
       <!-- Question text -->
-      <p class="text-sm text-gray-800 line-clamp-2">{{ question.question_text }}</p>
+      <p class="text-sm text-gray-800 line-clamp-2">{{ question.question_text|exponents }}</p>
     </div>
     <button type="button"
             class="add-question-btn shrink-0 px-3 py-1.5 rounded-lg border border-primary text-xs font-medium text-primary bg-white hover:bg-primary hover:text-white transition">

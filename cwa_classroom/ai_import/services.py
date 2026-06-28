@@ -253,7 +253,11 @@ QUESTION TYPE RULES (important):
   (e.g. never "47611"), and do NOT attach the layout image — the app draws the bracket. The answer
   is computed automatically; do not generate answers.
 - If the correct answer is a NUMBER ONLY (digits, decimals, fractions like "14" or "3.5" or "2/3"),
-  use question_type "short_answer" with just the correct answer. Do NOT generate wrong answers.
+  use question_type "short_answer". Do NOT generate wrong answers. List EVERY form a student could
+  reasonably type as a SEPARATE answer, each with is_correct=true (the auto-grader accepts any
+  ticked answer). In particular, when the answer carries a unit, include BOTH the bare number and
+  the number-with-unit, e.g. "60 months" AND "60"; "$4.50" AND "4.50"; "3/4" AND "0.75". Do NOT add
+  forms that are merely spacing/comma/hyphen variants — the grader already ignores those.
 - If the correct answer contains TEXT or WORDS (e.g. "Day 3 had the most sales", "True", "Red"),
   use question_type "multiple_choice" and generate 3-4 plausible wrong answers alongside the correct one.
 - For true/false questions, use "true_false" type.
@@ -665,6 +669,63 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
 # labels / numbers sitting just outside the vector drawing aren't clipped.
 FIGURE_CROP_PAD_PCT = float(os.environ.get('AI_IMPORT_FIGURE_CROP_PAD', '2.0'))
 
+# DPI for re-rendering a figure crop straight from the PDF vectors. The page
+# screenshot is only 150 DPI (kept small for the vision request); rendering the
+# final crop from the PDF at a higher DPI gives a noticeably sharper image. Tune
+# via AI_IMPORT_FIGURE_DPI. A single small region at 300 DPI is cheap on memory.
+FIGURE_RENDER_DPI = int(os.environ.get('AI_IMPORT_FIGURE_DPI', '300'))
+
+
+def _render_pdf_region(doc, page_num, box_pct, dpi=None):
+    """Render a percent-of-page region straight from the PDF vectors as PNG bytes.
+
+    Sharper than cropping the 150-DPI screenshot. ``box_pct`` is
+    ``[lo_x, lo_y, hi_x, hi_y]`` in percent of the page. Returns PNG bytes, or
+    ``None`` on any failure so the caller can fall back to the screenshot crop.
+    """
+    try:
+        import fitz
+
+        page = doc[page_num - 1]
+        pw, ph = page.rect.width, page.rect.height
+        lo_x, lo_y, hi_x, hi_y = box_pct
+        clip = fitz.Rect(lo_x / 100 * pw, lo_y / 100 * ph,
+                         hi_x / 100 * pw, hi_y / 100 * ph)
+        if clip.width < 1 or clip.height < 1:
+            return None
+        pix = page.get_pixmap(clip=clip, dpi=dpi or FIGURE_RENDER_DPI)
+        return pix.tobytes('png')
+    except Exception:
+        return None
+
+
+def _box_has_drawing(doc, page_num, box_pct):
+    """Whether any vector drawing on the page overlaps the percent-of-page box.
+
+    Unlike ``figure_regions`` (which drops page-sized clusters >80% area), this
+    sees *all* drawings, so a large diagram that was filtered out of the regions
+    list is still detected. ``box_pct`` is ``[lo_x, lo_y, hi_x, hi_y]`` in percent.
+    Returns True / False, or None when it can't be determined (no PDF / error) so
+    the caller can stay conservative and keep the crop.
+    """
+    if doc is None:
+        return None
+    try:
+        import fitz
+
+        page = doc[page_num - 1]
+        pw, ph = page.rect.width, page.rect.height
+        lo_x, lo_y, hi_x, hi_y = box_pct
+        box = fitz.Rect(lo_x / 100 * pw, lo_y / 100 * ph,
+                        hi_x / 100 * pw, hi_y / 100 * ph)
+        for d in page.get_drawings():
+            r = d.get('rect')
+            if r and fitz.Rect(r).intersects(box):
+                return True
+        return False
+    except Exception:
+        return None
+
 
 def _boxes_overlap(a, b):
     """True if two [x1, y1, x2, y2] boxes share any area."""
@@ -703,15 +764,20 @@ def _snap_box_to_figures(box, regions):
     return snapped
 
 
-def crop_figure_boxes(extracted_content, result):
-    """Crop drawn figures from page screenshots and register them as images.
+def crop_figure_boxes(extracted_content, result, pdf_bytes=None):
+    """Crop drawn figures and register them as images.
 
     The classifier returns image_page + image_box (percentages of the page) for
     questions whose visual is drawn into the page rather than an embedded raster
-    image. For each such question we crop the box out of that page's rendered
-    screenshot, rewrite the question's image_ref to a generated filename, and
-    return {ref: base64_png} so the crops join the embedded-image pool and save
-    through the normal image path.
+    image. For each such question we render the box — preferably straight from the
+    PDF vectors at high DPI when ``pdf_bytes`` is supplied, otherwise cropped from
+    that page's 150-DPI screenshot — rewrite the question's image_ref to a
+    generated filename, and return {ref: base64_png} so the crops join the
+    embedded-image pool and save through the normal image path.
+
+    A box that overlaps no detected vector figure and sits on a page with no
+    embedded raster image is treated as spurious (the model pointed at plain
+    text) and dropped rather than saved as an irrelevant text crop.
 
     Questions that already point at a real embedded image_ref are left untouched.
     Mutates the question dicts in `result` in place.
@@ -728,6 +794,22 @@ def crop_figure_boxes(extracted_content, result):
     crops = {}
     decoded = {}  # page_num -> PIL Image, so each screenshot is decoded only once
 
+    doc = None
+    if pdf_bytes:
+        try:
+            import fitz
+            doc = fitz.open(stream=pdf_bytes, filetype='pdf')
+        except Exception:
+            doc = None
+
+    try:
+        return _crop_figure_boxes_inner(result, pages, crops, decoded, doc, Image, io)
+    finally:
+        if doc is not None:
+            doc.close()
+
+
+def _crop_figure_boxes_inner(result, pages, crops, decoded, doc, Image, io):
     for idx, q in enumerate(result.get('questions', []), 1):
         # An embedded image already covers this question — prefer it (raster
         # fidelity beats a screenshot crop).
@@ -762,32 +844,60 @@ def crop_figure_boxes(extracted_content, result):
 
         # Snap to the actual drawn-figure bounds when we detected vector clusters
         # on the page — corrects boxes that clip the figure or grab adjacent text.
-        regions = page.get('figure_regions')
-        if regions:
+        regions = page.get('figure_regions') or []
+        overlapping = [r for r in regions
+                       if _boxes_overlap([lo_x, lo_y, hi_x, hi_y], r)]
+        if overlapping:
             lo_x, lo_y, hi_x, hi_y = _snap_box_to_figures(
                 [lo_x, lo_y, hi_x, hi_y], regions)
+        elif not page.get('images'):
+            # No detected figure cluster overlaps the box and there's no embedded
+            # raster image. The box may still cover a real figure that was filtered
+            # out of figure_regions (e.g. a page-sized diagram >80% area), so when
+            # the PDF is available confirm against the page's actual drawings and
+            # drop only when there is genuinely nothing drawn there (the model
+            # pointed at plain text — the "totally irrelevant image" failure mode).
+            has_drawing = _box_has_drawing(doc, int(page_num),
+                                           [lo_x, lo_y, hi_x, hi_y])
+            if has_drawing is False:
+                continue            # confirmed: no figure here → spurious text crop
+            if has_drawing is None and regions:
+                # No PDF to check; fall back to the cluster heuristic — figures
+                # exist on the page but none overlap the box → treat as spurious.
+                continue
+            # else: a real drawing (incl. large filtered figures) or unknown
+            # without regions → keep cropping.
 
         if hi_x - lo_x < 1 or hi_y - lo_y < 1:
             continue  # degenerate / empty box
 
-        try:
-            img = decoded.get(int(page_num))
-            if img is None:
-                img = Image.open(io.BytesIO(base64.b64decode(page['screenshot'])))
-                decoded[int(page_num)] = img
-            w, h = img.size
-            crop = img.crop((
-                int(lo_x / 100 * w), int(lo_y / 100 * h),
-                int(hi_x / 100 * w), int(hi_y / 100 * h),
-            ))
-            buf = io.BytesIO()
-            crop.save(buf, format='PNG')
-        except Exception:
-            # A bad box / unreadable screenshot shouldn't sink the whole import.
-            continue
+        img_bytes = None
+        # Prefer a crisp re-render straight from the PDF vectors at high DPI;
+        # falls back to cropping the 150-DPI screenshot when the PDF isn't
+        # available or the render fails.
+        if doc is not None:
+            img_bytes = _render_pdf_region(doc, int(page_num),
+                                           [lo_x, lo_y, hi_x, hi_y])
+        if img_bytes is None:
+            try:
+                img = decoded.get(int(page_num))
+                if img is None:
+                    img = Image.open(io.BytesIO(base64.b64decode(page['screenshot'])))
+                    decoded[int(page_num)] = img
+                w, h = img.size
+                crop = img.crop((
+                    int(lo_x / 100 * w), int(lo_y / 100 * h),
+                    int(hi_x / 100 * w), int(hi_y / 100 * h),
+                ))
+                buf = io.BytesIO()
+                crop.save(buf, format='PNG')
+                img_bytes = buf.getvalue()
+            except Exception:
+                # A bad box / unreadable screenshot shouldn't sink the whole import.
+                continue
 
         ref = f'page{int(page_num)}_figure{idx}.png'
-        crops[ref] = base64.b64encode(buf.getvalue()).decode('utf-8')
+        crops[ref] = base64.b64encode(img_bytes).decode('utf-8')
         q['image_ref'] = ref
 
     return crops

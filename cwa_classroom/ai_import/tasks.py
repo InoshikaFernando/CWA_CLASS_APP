@@ -27,12 +27,15 @@ def process_pdf_import(session_id):
         if not session.pdf_file:
             raise ValueError('Session has no stored PDF file to process.')
 
-        # Re-open the persisted upload from storage (S3 / local).
+        # Re-open the persisted upload from storage (S3 / local). Read the bytes
+        # once so they can feed both extraction and the high-DPI figure re-render.
+        from io import BytesIO
         session.pdf_file.open('rb')
         try:
-            extracted = extract_pdf_content(session.pdf_file)
+            pdf_bytes = session.pdf_file.read()
         finally:
             session.pdf_file.close()
+        extracted = extract_pdf_content(BytesIO(pdf_bytes))
 
         from classroom.models import Level, Topic
         existing_topics = list(Topic.objects.filter(
@@ -50,9 +53,10 @@ def process_pdf_import(session_id):
             for img in page['images']:
                 extracted_images[img['ref']] = img['base64']
 
-        # Crop drawn figures (shapes/diagrams with no embedded raster) out of the
-        # page screenshots; these join the image pool and save like any other.
-        extracted_images.update(crop_figure_boxes(extracted, result))
+        # Crop drawn figures (shapes/diagrams with no embedded raster); rendered
+        # straight from the PDF vectors at high DPI when possible. These join the
+        # image pool and save like any other.
+        extracted_images.update(crop_figure_boxes(extracted, result, pdf_bytes=pdf_bytes))
 
         # Preserve any pre-set classroom selection stored at enqueue time.
         existing = session.extracted_data or {}

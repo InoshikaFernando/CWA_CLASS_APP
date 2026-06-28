@@ -413,24 +413,24 @@ class SubmitHomeworkAnswerView(LoginRequiredMixin, View):
             correct_ans = question.answers.filter(is_correct=True).first()
             if correct_ans:
                 correct_answer_text = correct_ans.answer_text
-        elif question.answer_format == 'algebra':
-            raw = (data.get('text_answer') or '').strip()
-            is_correct = question.grade_text_answer(raw)
-            correct_ans = question.answers.filter(is_correct=True).first()
-            correct_answer_text = correct_ans.answer_text if correct_ans else ''
         else:
-            from maths.algebra_grading import fold_exponents
             raw = (data.get('text_answer') or '').strip()
             correct_ans = question.answers.filter(is_correct=True).first()
             if correct_ans:
                 correct_answer_text = correct_ans.answer_text
-                alts = [a.strip() for a in correct_ans.answer_text.split(',')]
-                is_correct = fold_exponents(raw) in [fold_exponents(a) for a in alts]
-                if not is_correct:
+            # grade_text_answer routes algebra vs text and checks the typed value
+            # against EVERY ticked correct answer (so "60 months" and "60" both
+            # match) — same folding used everywhere else.
+            is_correct = question.grade_text_answer(raw)
+            if not is_correct and question.answer_format != 'algebra':
+                # Numeric tolerance fallback against any correct answer (0.5 vs 0.50).
+                for c in question.answers.filter(is_correct=True):
                     try:
-                        is_correct = abs(float(raw) - float(alts[0])) <= 0.05
-                    except (ValueError, IndexError):
-                        pass
+                        if abs(float(raw) - float(c.answer_text)) <= 0.05:
+                            is_correct = True
+                            break
+                    except (ValueError, TypeError):
+                        continue
 
         if is_correct:
             session_data['correct'] += 1
