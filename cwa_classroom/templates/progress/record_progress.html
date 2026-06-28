@@ -10,6 +10,7 @@
     <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
     <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Record Progress</h1>
     <p class="text-gray-500 mt-1">{{ classroom.name }}</p>
+    <p class="text-gray-400 text-sm mt-1">Tip: click a student's name to open their progress page and add comments.</p>
   </div>
 
   {% if hierarchical_criteria and student_rows %}
@@ -22,11 +23,11 @@
               <tr class="bg-slate-50 text-left text-gray-500">
                 <th class="px-4 py-3 font-medium sticky left-0 bg-slate-50 z-10">Student</th>
                 {% for h_item in hierarchical_criteria %}
-                  <th class="px-4 py-3 font-medium text-center min-w-[140px]">
+                  <th class="px-4 py-3 font-medium text-center align-bottom min-w-[140px] max-w-[180px]">
                     {% if h_item.is_child %}
-                      <span class="text-xs text-gray-400">&#8627; {{ h_item.criteria.name|truncatechars:25 }}</span>
+                      <span class="block text-xs text-gray-400 whitespace-normal break-words leading-tight" title="{{ h_item.criteria.name }}">&#8627; {{ h_item.criteria.name }}</span>
                     {% else %}
-                      <span class="text-xs font-bold">{{ h_item.criteria.name|truncatechars:25 }}</span>
+                      <span class="block text-xs font-bold whitespace-normal break-words leading-tight" title="{{ h_item.criteria.name }}">{{ h_item.criteria.name }}</span>
                     {% endif %}
                   </th>
                 {% endfor %}
@@ -35,8 +36,12 @@
             <tbody class="divide-y divide-slate-50">
               {% for row in student_rows %}
                 <tr>
-                  <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white z-10 whitespace-nowrap">
-                    {{ row.student.get_full_name|default:row.student.username }}
+                  <td class="px-4 py-3 font-medium sticky left-0 bg-white z-10 whitespace-nowrap">
+                    <a href="{% url 'student_progress' row.student.id %}"
+                       class="text-gray-900 hover:text-accent hover:underline"
+                       title="View progress &amp; add comments">
+                      {{ row.student.get_full_name|default:row.student.username }}
+                    </a>
                   </td>
                   {% for cs in row.criteria_statuses %}
                     <td class="px-4 py-3 text-center">
