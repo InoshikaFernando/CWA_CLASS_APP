@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     # Subject apps
     'maths',
     'coding',
+    'languages',
     'music',
     'science',
 
