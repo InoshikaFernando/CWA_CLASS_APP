@@ -26,10 +26,10 @@
   .lb-empty { background:#0d0d0d; border:1px solid #1f1f1f; border-radius:16px; color:#9ca3af; }
 
   .lb-card { background:#161616; border:1px solid #2a2a2a; border-radius:18px; text-align:center;
-             transform-origin:bottom center; animation: lb-grow .6s cubic-bezier(.2,.7,.2,1) both; }
-  .lb-card--win   { border:1.5px solid #34d399; animation-delay:.2s; }
-  .lb-card--second{ border:1px solid #3f4651; animation-delay:.06s; }
-  .lb-card--third { border:1px solid #b3283a; animation-delay:.34s; }
+             transform-origin:bottom center; animation: lb-grow .9s cubic-bezier(.16,.84,.3,1) both; }
+  .lb-card--win   { border:1.5px solid #34d399; animation-delay:.3s; }
+  .lb-card--second{ border:1px solid #3f4651; animation-delay:.08s; }
+  .lb-card--third { border:1px solid #b3283a; animation-delay:.52s; }
 
   .lb-badge { width:30px; height:30px; border-radius:9999px; display:flex; align-items:center;
               justify-content:center; font-weight:500; font-size:13px; margin:0 auto 6px; }
@@ -64,7 +64,9 @@
   .lb-badge--third { animation-delay:.4s; }
 
   @media (prefers-reduced-motion: reduce) {
-    .lb-card, .lb-trophy, .lb-badge--second, .lb-badge--third { animation:none; }
+    /* Keep the one-shot podium grow (a quick entrance), but stop the
+       continuous float/glow loops that are the real motion-sensitivity risk. */
+    .lb-trophy, .lb-badge--second, .lb-badge--third { animation:none; }
     .lb-trophy { box-shadow:0 0 20px 5px rgba(52,211,153,.5); }
   }
 </style>
