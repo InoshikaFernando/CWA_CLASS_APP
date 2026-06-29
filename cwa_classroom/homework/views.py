@@ -1733,6 +1733,12 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
         from billing.entitlements import get_school_for_user
         from classroom.models import Topic, Level
 
+        # Authored JSON/ZIP upload — skips AI extraction + preview, goes straight
+        # to a lightweight confirm step (CPP JSON-assignment upload).
+        json_file = request.FILES.get('json_file')
+        if json_file:
+            return self._handle_json_upload(request, json_file)
+
         pdf_file = request.FILES.get('pdf_file')
         classroom_id = request.POST.get('classroom_id')
 
@@ -1825,6 +1831,76 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             return redirect('homework:pdf_upload')
 
         return redirect('homework:pdf_processing', session_id=session.pk)
+
+    def _handle_json_upload(self, request, json_file):
+        """Import an authored JSON/ZIP question file and stage a confirm step.
+
+        Unlike the PDF flow there is no AI extraction or editable preview —
+        the questions are authored, so they are parsed + saved immediately and
+        the teacher only chooses the class(es) and due date on the next page.
+        """
+        from billing.entitlements import get_school_for_user
+        from classroom.upload_services import import_assignment_questions
+        from .models import HomeworkUploadSession
+
+        if not json_file.name.lower().endswith(('.json', '.zip')):
+            messages.error(request, 'Only .json or .zip files are supported.')
+            return redirect('homework:pdf_upload')
+
+        result = import_assignment_questions(json_file, request.user)
+        saved = result.get('saved', [])
+        if not saved:
+            errs = result.get('errors') or ['No questions could be imported from the file.']
+            messages.error(request, 'Could not import questions: ' + ' '.join(errs[:5]))
+            return redirect('homework:pdf_upload')
+
+        school = get_school_for_user(request.user)
+        classroom = None
+        classroom_id = request.POST.get('classroom_id')
+        if classroom_id:
+            try:
+                classroom = ClassRoom.objects.get(id=classroom_id)
+                _check_can_assign_homework(request, classroom)
+            except (ClassRoom.DoesNotExist, Exception):
+                classroom = None
+
+        hw_title = json_file.name.rsplit('.', 1)[0]
+
+        session = HomeworkUploadSession.objects.create(
+            user=request.user,
+            school=school,
+            classroom=classroom,
+            pdf_filename=json_file.name,
+            homework_title=hw_title,
+            status=HomeworkUploadSession.STATUS_DONE,
+            extracted_data={
+                'source': 'json_upload',
+                'subject': result.get('subject'),
+                'saved': saved,
+            },
+        )
+
+        log_event(
+            user=request.user,
+            school=school,
+            category='data_change',
+            action='homework_json_upload',
+            detail={
+                'session_id': session.pk,
+                'filename': json_file.name,
+                'subject': result.get('subject'),
+                'inserted': result.get('inserted'),
+                'updated': result.get('updated'),
+                'question_count': len(saved),
+            },
+            request=request,
+        )
+
+        messages.success(
+            request,
+            f'Imported {len(saved)} question(s). Choose a class and due date to finish.',
+        )
+        return redirect('homework:json_confirm', session_id=session.pk)
 
 
 class HomeworkPDFProcessingView(RoleRequiredMixin, View):
@@ -2320,6 +2396,203 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         messages.success(
             request,
             f'Homework "{hw_title}" created with {len(saved_questions)} questions and '
+            f'assigned to {len(created)} classes: {class_names}.{schedule_note}',
+        )
+        return redirect('homework:teacher_monitor')
+
+
+class HomeworkJSONConfirmView(RoleRequiredMixin, View):
+    """Confirm step for an authored JSON/ZIP homework upload.
+
+    The questions are already parsed + saved (refs live in
+    ``session.extracted_data['saved']``); this step only collects the target
+    class(es) and due date, then creates the Homework + HomeworkQuestion rows.
+    Mirrors :class:`HomeworkPDFConfirmView` but skips question saving.
+    """
+    required_roles = TEACHER_ROLES
+    template_name = 'homework/json_confirm.html'
+
+    def _session_or_redirect(self, request, session_id):
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(HomeworkUploadSession, pk=session_id, user=request.user)
+        if session.is_confirmed:
+            messages.info(request, 'This upload has already been submitted.')
+            if session.homework_id:
+                return None, redirect('homework:teacher_detail', homework_id=session.homework_id)
+            return None, redirect('homework:teacher_monitor')
+        return session, None
+
+    def get(self, request, session_id):
+        session, redirect_response = self._session_or_redirect(request, session_id)
+        if redirect_response:
+            return redirect_response
+        saved = session.extracted_data.get('saved', [])
+        return render(request, self.template_name, {
+            'session': session,
+            'question_count': len(saved),
+            'subject': session.extracted_data.get('subject'),
+            'classrooms': _assignable_classrooms(request.user),
+        })
+
+    def post(self, request, session_id):
+        from billing.entitlements import get_school_for_user
+        from django.utils.dateparse import parse_datetime, parse_date
+        from django.utils import timezone as tz
+
+        session, redirect_response = self._session_or_redirect(request, session_id)
+        if redirect_response:
+            return redirect_response
+
+        saved = session.extracted_data.get('saved', [])
+        if not saved:
+            messages.error(request, 'This upload has no questions to assign.')
+            return redirect('homework:pdf_upload')
+
+        hw_title = (
+            request.POST.get('homework_title', '').strip()
+            or session.homework_title or session.pdf_filename
+        )
+
+        # Classroom(s) — required (multi-select with legacy single + session fallback).
+        submitted_ids = request.POST.getlist('classroom_ids')
+        if not submitted_ids:
+            single = request.POST.get('classroom_id', '')
+            if single:
+                submitted_ids = [single]
+        id_set = set()
+        for cid in submitted_ids:
+            try:
+                id_set.add(int(cid))
+            except (TypeError, ValueError):
+                continue
+
+        assignable = _assignable_classrooms(request.user)
+        if id_set:
+            classrooms = list(assignable.filter(id__in=id_set))
+        elif session.classroom and assignable.filter(pk=session.classroom_id).exists():
+            classrooms = [session.classroom]
+        else:
+            classrooms = []
+
+        if not classrooms:
+            messages.error(request, 'Please select at least one classroom.')
+            return redirect('homework:json_confirm', session_id=session.pk)
+
+        due_date_str = request.POST.get('due_date', '')
+        if not due_date_str:
+            messages.error(request, 'Please enter a due date.')
+            return redirect('homework:json_confirm', session_id=session.pk)
+        due_date = parse_datetime(due_date_str)
+        if due_date is None:
+            d = parse_date(due_date_str)
+            if d:
+                from datetime import datetime
+                due_date = datetime.combine(d, datetime.max.time().replace(hour=23, minute=59))
+                due_date = tz.make_aware(due_date)
+        if due_date is None:
+            messages.error(request, 'Invalid due date format.')
+            return redirect('homework:json_confirm', session_id=session.pk)
+        if tz.is_naive(due_date):
+            due_date = tz.make_aware(due_date)
+
+        max_attempts = None
+        max_attempts_str = request.POST.get('max_attempts', '')
+        if max_attempts_str.strip():
+            try:
+                max_attempts = int(max_attempts_str)
+            except ValueError:
+                pass
+
+        publish_at = None
+        publish_at_str = request.POST.get('publish_at', '').strip()
+        if publish_at_str:
+            publish_at = parse_datetime(publish_at_str)
+            if publish_at and tz.is_naive(publish_at):
+                publish_at = tz.make_aware(publish_at)
+            if publish_at is None:
+                messages.error(request, 'Invalid publish date format.')
+                return redirect('homework:json_confirm', session_id=session.pk)
+            if publish_at <= tz.now():
+                messages.error(request, 'Publish date must be in the future. Leave it blank to publish now.')
+                return redirect('homework:json_confirm', session_id=session.pk)
+            if publish_at >= due_date:
+                messages.error(request, 'Publish date must be before the due date.')
+                return redirect('homework:json_confirm', session_id=session.pk)
+
+        school = get_school_for_user(request.user)
+
+        created = []
+        with transaction.atomic():
+            for classroom in classrooms:
+                homework = Homework.objects.create(
+                    classroom=classroom,
+                    created_by=request.user,
+                    title=hw_title,
+                    homework_type='json_upload',
+                    num_questions=len(saved),
+                    due_date=due_date,
+                    max_attempts=max_attempts,
+                    publish_at=publish_at,
+                )
+                # bulk_create bypasses save(), so set subject_slug + content_id
+                # explicitly. Populate the maths FK too so existing joins resolve;
+                # coding rows leave it null and rely on content_id.
+                HomeworkQuestion.objects.bulk_create([
+                    HomeworkQuestion(
+                        homework=homework,
+                        question_id=(ref['content_id'] if ref['subject_slug'] == 'mathematics' else None),
+                        subject_slug=ref['subject_slug'],
+                        content_id=ref['content_id'],
+                        order=i,
+                    )
+                    for i, ref in enumerate(saved, 1)
+                ])
+                created.append((homework, classroom))
+
+            session.is_confirmed = True
+            session.homework = created[0][0]
+            session.save(update_fields=['is_confirmed', 'homework'])
+
+        for homework, classroom in created:
+            if homework.is_published:
+                notify_students_homework_published(homework)
+            log_event(
+                user=request.user,
+                school=school,
+                category='data_change',
+                action='homework_json_created',
+                detail={
+                    'homework_id': homework.id,
+                    'title': hw_title,
+                    'session_id': session.pk,
+                    'classroom_id': classroom.id,
+                    'classroom_name': classroom.name,
+                    'question_count': len(saved),
+                    'due_date': str(due_date),
+                    'publish_at': str(publish_at) if publish_at else None,
+                    'status': homework.status,
+                    'max_attempts': max_attempts,
+                },
+                request=request,
+            )
+
+        schedule_note = (
+            '' if publish_at is None
+            else f' Scheduled to publish on {publish_at.strftime("%d %b %Y %H:%M")}.'
+        )
+        if len(created) == 1:
+            homework, classroom = created[0]
+            messages.success(
+                request,
+                f'Homework "{homework.title}" created with {len(saved)} questions '
+                f'and assigned to {classroom.name}.{schedule_note}',
+            )
+            return redirect('homework:teacher_detail', homework_id=homework.id)
+
+        class_names = ', '.join(classroom.name for _, classroom in created)
+        messages.success(
+            request,
+            f'Homework "{hw_title}" created with {len(saved)} questions and '
             f'assigned to {len(created)} classes: {class_names}.{schedule_note}',
         )
         return redirect('homework:teacher_monitor')

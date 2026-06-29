@@ -75,6 +75,7 @@ class Homework(models.Model):
         ('topic', 'Topic Quiz'),
         ('mixed', 'Mixed Quiz'),
         ('pdf_upload', 'PDF Upload'),
+        ('json_upload', 'JSON Upload'),
     ]
 
     # Lifecycle status (derived from publish_at / published_at / due_date).
