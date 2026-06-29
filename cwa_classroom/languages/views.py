@@ -167,6 +167,7 @@ _LEVEL_SORT = Case(
 
 
 @login_required
+@student_required
 def languages_index(request):
     levels_qs = LanguageTopicLevel.objects.annotate(
         _sort=_LEVEL_SORT
@@ -308,14 +309,15 @@ def _letter_writing(request, exercise, language):
         except (ValueError, TypeError):
             stroke_data = {}
 
+        has_strokes = bool(stroke_data.get('objects'))
         raw_score = request.POST.get('score')
-        if raw_score is not None:
+        if raw_score is not None and has_strokes:
             try:
                 score = max(0.0, min(100.0, float(raw_score)))
             except (ValueError, TypeError):
                 score = 0.0
         else:
-            score = 100.0 if bool(stroke_data.get('objects')) else 0.0
+            score = 100.0 if has_strokes else 0.0
 
         is_correct = score >= 50.0
         stars = _stars_from_score(score)
@@ -396,7 +398,7 @@ def _mcq_handler(request, exercise, language, template_name):
                 'points_earned': exercise.points if is_correct else 0,
             },
         )
-        if not created:
+        if not created and score > obj.score:
             obj.selected_answer = selected
             obj.is_correct = is_correct
             obj.score = score
@@ -508,10 +510,13 @@ def _build_crossword_grid(puzzle_data):
         return []
     grid = [[None] * width for _ in range(height)]
     for word in puzzle_data.get('words', []):
-        answer   = unicodedata.normalize('NFC', word['answer'])
-        row, col = word['row'], word['col']
-        direction = word['direction']
-        number    = word.get('number')
+        try:
+            answer    = unicodedata.normalize('NFC', word['answer'])
+            row, col  = word['row'], word['col']
+            direction = word['direction']
+            number    = word.get('number')
+        except (KeyError, TypeError):
+            continue
         for i, ch in enumerate(answer):
             r = row + (i if direction == 'down' else 0)
             c = col + (i if direction == 'across' else 0)
@@ -531,8 +536,12 @@ def _crossword(request, exercise, language):
     words       = puzzle_data.get('words', [])
 
     if request.method == 'POST':
-        raw_answers  = request.POST.get('word_answers', '{}')
-        raw_hints    = request.POST.get('hints_used', '[]')
+        raw_answers = request.POST.get('word_answers', '{}')
+        raw_hints   = request.POST.get('hints_used', '[]')
+        if len(raw_answers) > 500_000:
+            raw_answers = '{}'
+        if len(raw_hints) > 10_000:
+            raw_hints = '[]'
         try:
             word_answers = json.loads(raw_answers)
             hints_used   = json.loads(raw_hints)
@@ -563,7 +572,7 @@ def _crossword(request, exercise, language):
 
         total = len(words)
         base_score = (correct_count / total * 100) if total else 0
-        hint_penalty = len([h for h in hints_used if isinstance(h, int)]) * 10
+        hint_penalty = len([h for h in hints_used if isinstance(h, (int, float)) and not isinstance(h, bool)]) * 10
         score = max(0.0, round(base_score - hint_penalty, 1))
         is_correct_overall = score >= 50
 
@@ -629,7 +638,7 @@ def _grammar_fill_blank(request, exercise, language):
 
         correct_answer = exercise.answers.filter(is_correct=True).first()
         score = 100.0 if is_correct else 0.0
-        grammar_explanation = exercise.puzzle_data.get('grammar_explanation', '')
+        grammar_explanation = (exercise.puzzle_data or {}).get('grammar_explanation', '')
         points_earned = Decimal(str(exercise.points)) if is_correct else Decimal('0')
 
         obj, created = LanguageStudentAnswer.objects.get_or_create(
@@ -642,7 +651,7 @@ def _grammar_fill_blank(request, exercise, language):
                 'points_earned': points_earned,
             },
         )
-        if not created:
+        if not created and score > obj.score:
             obj.selected_answer = selected
             obj.is_correct = is_correct
             obj.score = score
@@ -664,7 +673,7 @@ def _grammar_fill_blank(request, exercise, language):
     parts = exercise.prompt.split('___')
     sentence_before = parts[0] if len(parts) > 0 else exercise.prompt
     sentence_after  = parts[1] if len(parts) > 1 else ''
-    grammar_explanation = exercise.puzzle_data.get('grammar_explanation', '')
+    grammar_explanation = (exercise.puzzle_data or {}).get('grammar_explanation', '')
 
     answers = list(exercise.answers.order_by('display_order', 'pk'))
 
@@ -689,7 +698,7 @@ def _grammar_fill_blank(request, exercise, language):
 def _sentence_order(request, exercise, language):
     font_query, font_family = get_font_info(language.script_type)
 
-    word_order = exercise.puzzle_data.get('word_order', [])
+    word_order = (exercise.puzzle_data or {}).get('word_order', [])
 
     if request.method == 'POST':
         raw = request.POST.get('submitted_order', '[]')

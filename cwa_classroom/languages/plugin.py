@@ -116,9 +116,9 @@ class LanguagesPlugin(SubjectPlugin):
         return {'exercise': ex, 'answers': list(ex.answers.order_by('display_order'))}
 
     def grade_answer(self, content_id, post_data):
-        from .models import LanguageAnswer, LanguageExercise
+        from .models import Language, LanguageAnswer, LanguageExercise
 
-        ex = LanguageExercise.objects.get(pk=content_id)
+        ex = LanguageExercise.objects.select_related('topic_level__topic__language').get(pk=content_id)
         field = f'answer_{ex.id}'
         is_correct = False
         selected_answer_obj = None
@@ -161,7 +161,10 @@ class LanguagesPlugin(SubjectPlugin):
         elif ex.exercise_type == LanguageExercise.SPELLING_TYPE:
             text_answer = unicodedata.normalize('NFC', (post_data.get(field) or '').strip())
             expected = unicodedata.normalize('NFC', ex.prompt.strip())
-            is_correct = text_answer.lower() == expected.lower()
+            if ex.topic_level.topic.language.script_type == Language.SCRIPT_LATIN:
+                is_correct = text_answer.lower() == expected.lower()
+            else:
+                is_correct = text_answer == expected
             score = 100.0 if is_correct else 0.0
 
         elif ex.exercise_type == LanguageExercise.SENTENCE_ORDER:
