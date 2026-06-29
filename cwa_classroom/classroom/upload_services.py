@@ -37,6 +37,10 @@ class UploadResult:
         self.subject: str = ''
         self.detail: dict = {}
         self.errors: list[str] = []
+        # Every created/updated content row, as {subject_slug, content_id, order}.
+        # Lets a caller (e.g. the homework/worksheet JSON-upload flow) link the
+        # saved questions into an assignment without re-querying by text.
+        self.saved: list[dict] = []
 
     def to_dict(self) -> dict:
         return {
@@ -48,6 +52,7 @@ class UploadResult:
             'subject': self.subject,
             'detail': self.detail,
             'errors': self.errors,
+            'saved': self.saved,
         }
 
 
@@ -326,6 +331,12 @@ class MathsQuestionParser(BaseQuestionParser):
                             is_correct=a.get('is_correct', False),
                             order=a.get('order') or a.get('display_order', 1),
                         )
+
+                    result.saved.append({
+                        'subject_slug': 'mathematics',
+                        'content_id': question.pk,
+                        'order': i,
+                    })
             except Exception as exc:
                 result.errors.append(f'Q{i}: {exc}')
                 result.failed += 1
@@ -507,16 +518,23 @@ class CodingExerciseParser(BaseQuestionParser):
                         for k, v in fields.items():
                             setattr(existing, k, v)
                         existing.save()
+                        obj = existing
                         result.updated += 1
                         status = 'updated'
                     else:
-                        CodingExercise.objects.create(
+                        obj = CodingExercise.objects.create(
                             topic_level=topic_level,
                             title=title,
                             **fields,
                         )
                         result.inserted += 1
                         status = 'new'
+
+                    result.saved.append({
+                        'subject_slug': 'coding',
+                        'content_id': obj.pk,
+                        'order': fields['order'],
+                    })
             except Exception as exc:
                 result.errors.append(f'Exercise {i} ({title!r}): {exc}')
                 result.failed += 1
@@ -809,3 +827,94 @@ class _AvailableSubjectsProxy:
 
 
 AVAILABLE_SUBJECTS = _AvailableSubjectsProxy()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Assignment (homework / worksheet) JSON-upload helpers
+#
+# These let a teacher attach an *authored* JSON/ZIP question file directly to a
+# homework or worksheet — skipping AI extraction and the editable preview. They
+# reuse the same parsers as the global question-bank upload above; the only extra
+# job is to auto-detect the subject and hand back the saved content refs so the
+# caller can build the assignment's question rows.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def detect_assignment_subject(uploaded_file) -> str:
+    """Peek at an authored JSON/ZIP upload and return its subject slug.
+
+    ``subject: "coding"`` → ``'coding'``; ``subject: "coding_problem"`` →
+    ``'coding_problem'`` (rejected by :func:`import_assignment_questions` — it
+    has no homework/worksheet plugin); anything else (or unreadable) →
+    ``'mathematics'``. The file pointer is rewound so the real parser can
+    re-read the same upload.
+    """
+    try:
+        data, _ = BaseQuestionParser()._read_file(uploaded_file)
+    except Exception:
+        data = {}
+    finally:
+        try:
+            uploaded_file.seek(0)
+        except Exception:
+            pass
+
+    subject = ''
+    if isinstance(data, dict):
+        subject = (data.get('subject') or '').strip().lower()
+    if subject in ('coding', 'coding_problem'):
+        return subject
+    return 'mathematics'
+
+
+def import_assignment_questions(uploaded_file, user) -> dict:
+    """Parse an authored JSON/ZIP question file for a homework/worksheet.
+
+    Auto-detects the subject, scopes Maths questions to the uploader's school
+    (mirroring the PDF homework path), leaves Coding exercises global, and
+    rejects ``coding_problem`` (no assignment plugin). Returns the parser's
+    result dict augmented with a de-duplicated ``saved`` list of
+    ``{subject_slug, content_id, order}`` refs the caller links into the
+    assignment.
+    """
+    subject_slug = detect_assignment_subject(uploaded_file)
+
+    if subject_slug == 'coding_problem':
+        return {
+            'inserted': 0, 'updated': 0, 'failed': 1, 'images_saved': 0,
+            'image_dir': '', 'subject': 'coding_problem', 'detail': {},
+            'errors': ['Coding-problem files cannot be attached to a homework '
+                       'or worksheet. Upload them via the question bank.'],
+            'saved': [],
+        }
+
+    parser = get_upload_parser(subject_slug)
+    if parser is None:
+        return {
+            'inserted': 0, 'updated': 0, 'failed': 1, 'images_saved': 0,
+            'image_dir': '', 'subject': subject_slug, 'detail': {},
+            'errors': [f'Unknown subject "{subject_slug}".'], 'saved': [],
+        }
+
+    process_kwargs = {}
+    # Maths questions are school-scoped exactly like PDF homework; coding
+    # exercises stay global (the parser upserts by topic_level + title).
+    if subject_slug == 'mathematics':
+        from .views import _get_question_scope
+        school_id, dept_id, _classroom_ids = _get_question_scope(user)
+        process_kwargs = {'school_id': school_id, 'dept_id': dept_id}
+
+    result = parser.process(uploaded_file, user, {}, **process_kwargs)
+
+    # De-dup saved refs by (subject_slug, content_id) — two authored questions
+    # can upsert onto the same row, and a duplicate ref would violate the
+    # assignment's (… , subject_slug, content_id) unique constraint downstream.
+    seen = set()
+    deduped = []
+    for ref in result.get('saved', []):
+        key = (ref['subject_slug'], ref['content_id'])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(ref)
+    result['saved'] = deduped
+    return result

@@ -19,6 +19,8 @@ urlpatterns = [
     path('upload/<int:session_id>/status/', views.WorksheetStatusView.as_view(), name='status'),
     path('upload/<int:session_id>/preview/', views.WorksheetPreviewView.as_view(), name='preview'),
     path('upload/<int:session_id>/confirm/', views.WorksheetConfirmView.as_view(), name='confirm'),
+    # Teacher: authored JSON/ZIP upload (skips AI extraction + preview)
+    path('upload/json/<int:session_id>/confirm/', views.WorksheetJSONConfirmView.as_view(), name='json_confirm'),
     path('<int:pk>/', views.WorksheetDetailView.as_view(), name='detail'),
     path('<int:pk>/delete/', views.WorksheetDeleteView.as_view(), name='delete'),
     path('<int:pk>/assign/', views.WorksheetAssignView.as_view(), name='assign'),
