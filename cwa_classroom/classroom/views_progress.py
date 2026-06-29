@@ -1011,19 +1011,35 @@ class StudentProgressReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
     def get(self, request):
         accessible_classes = self._get_accessible_classes(request.user)
 
+        # Read filters first so the option lists can reflect the selection.
+        filter_dept = request.GET.get('department')
+        filter_subject = request.GET.get('subject')
+        filter_class = request.GET.get('classroom')
+
         # Build filter options
         dept_ids = accessible_classes.values_list('department_id', flat=True).distinct()
         departments = Department.objects.filter(id__in=dept_ids, is_active=True).order_by('name')
 
-        subject_ids = accessible_classes.exclude(subject__isnull=True).values_list('subject_id', flat=True).distinct()
+        # Subjects: when a department is chosen, show that department's subjects
+        # (its DepartmentSubject links) — relevant even before any class exists;
+        # otherwise all subjects across the user's accessible classes.
+        if filter_dept:
+            subject_ids = DepartmentSubject.objects.filter(
+                department_id=filter_dept,
+            ).values_list('subject_id', flat=True)
+        else:
+            subject_ids = accessible_classes.exclude(
+                subject__isnull=True,
+            ).values_list('subject_id', flat=True).distinct()
         subjects = Subject.objects.filter(id__in=subject_ids, is_active=True).order_by('name')
 
-        classes = accessible_classes.select_related('department', 'subject').order_by('name')
-
-        # Apply filters
-        filter_dept = request.GET.get('department')
-        filter_subject = request.GET.get('subject')
-        filter_class = request.GET.get('classroom')
+        # Class dropdown options: narrow to the chosen department / subject.
+        class_options = accessible_classes
+        if filter_dept:
+            class_options = class_options.filter(department_id=filter_dept)
+        if filter_subject:
+            class_options = class_options.filter(subject_id=filter_subject)
+        classes = class_options.select_related('department', 'subject').order_by('name')
 
         filtered_classes = accessible_classes
         if filter_dept:
