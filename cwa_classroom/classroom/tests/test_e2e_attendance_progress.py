@@ -887,3 +887,75 @@ class ReportBuilderTest(_BaseAttendanceProgressTest):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'My Progress Summary')
         self.assertEqual(resp.context['progress_report'].include_homework, True)
+
+
+# ---------------------------------------------------------------------------
+# 8. ReportFilterDeptScopeTest  (department-scoped Subject/Class filter, v2)
+# ---------------------------------------------------------------------------
+
+class ReportFilterDeptScopeTest(_BaseAttendanceProgressTest):
+    """Subject list scoped to the chosen department; Class list scoped to the
+    department only; a stale cross-department subject is ignored."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from classroom.models import DepartmentSubject
+        # IT department with a Coding class (subject linked AND a class) + a student.
+        cls.it_dept = Department.objects.create(
+            name='Information Technology', slug='it', school=cls.school,
+            head=cls.admin_user, is_active=True,
+        )
+        cls.coding = Subject.objects.create(name='Coding', slug='coding', is_active=True)
+        DepartmentSubject.objects.create(department=cls.it_dept, subject=cls.coding)
+        cls.coding_class = _create_classroom(cls.school, cls.it_dept, cls.coding, 'Web Prog')
+        ClassStudent.objects.create(
+            classroom=cls.coding_class, student=cls.student_user, is_active=True,
+        )
+        # Science department whose subject comes ONLY from a class (no DepartmentSubject).
+        cls.sci_dept = Department.objects.create(
+            name='Science', slug='science', school=cls.school,
+            head=cls.admin_user, is_active=True,
+        )
+        cls.physics = Subject.objects.create(name='Physics', slug='physics', is_active=True)
+        _create_classroom(cls.school, cls.sci_dept, cls.physics, 'Physics 1')
+
+    def _login(self):
+        self.client.force_login(self.admin_user)  # Head of Institute
+        s = self.client.session
+        s['current_school_id'] = self.school.id
+        s.save()
+
+    def _url(self, **params):
+        from urllib.parse import urlencode
+        return f'{reverse("student_progress_report")}?{urlencode(params)}'
+
+    def test_subjects_scoped_to_department_via_mapping(self):
+        self._login()
+        names = [s.name for s in self.client.get(
+            self._url(department=self.it_dept.id)).context['subjects']]
+        self.assertIn('Coding', names)
+        self.assertNotIn('Mathematics', names)
+
+    def test_subjects_scoped_via_class_subject_without_mapping(self):
+        self._login()
+        names = [s.name for s in self.client.get(
+            self._url(department=self.sci_dept.id)).context['subjects']]
+        self.assertIn('Physics', names)
+
+    def test_class_dropdown_scoped_to_department_not_subject(self):
+        # Even with a subject selected, the IT class is still listed (dept-only scope).
+        self._login()
+        resp = self.client.get(self._url(department=self.it_dept.id, subject=self.coding.id))
+        class_names = [c.name for c in resp.context['classes']]
+        self.assertIn('Web Prog', class_names)
+
+    def test_stale_cross_department_subject_is_ignored(self):
+        # Maths (from another dept) selected under IT → ignored, students still shown.
+        self._login()
+        resp = self.client.get(
+            self._url(department=self.it_dept.id, subject=self.subject.id),  # Mathematics
+        )
+        self.assertEqual(resp.context['filter_subject'], '')  # cleared
+        student_ids = [d['student'].id for d in resp.context['student_data']]
+        self.assertIn(self.student_user.id, student_ids)
