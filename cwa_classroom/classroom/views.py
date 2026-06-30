@@ -5337,10 +5337,15 @@ class SubjectsHubView(LoginRequiredMixin, View):
                                 covered_app_ids.add(matching_app.id)
 
                             # Determine link:
-                            #   • matching app with external_url → link only when questions exist
-                            #   • no external_url (session-based subject) → non-clickable (link=None)
+                            #   • matching app with external_url → always clickable; the
+                            #     linked app (e.g. /maths/, /coding/) manages its own
+                            #     "no content yet" state. This matches how GLOBAL cards
+                            #     behave (_annotate_apps_with_questions), so a subject like
+                            #     Coding stays clickable once it's mapped to a department
+                            #     (which moves it from a global card to a school card).
+                            #   • no external_url (session-based subject) → non-clickable.
                             if matching_app and matching_app.external_url:
-                                link = matching_app.external_url if _subject_has_questions(subj, school) else None
+                                link = matching_app.external_url
                             else:
                                 link = None
 

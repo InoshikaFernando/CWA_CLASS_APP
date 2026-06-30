@@ -512,6 +512,24 @@ class HubViewMultiSchoolTests(HubProgressBase):
             for card in section['subjects']:
                 self.assertFalse(card['is_enrolled'])
 
+    def test_external_url_app_card_clickable_without_questions(self):
+        """A school subject card whose app has an external_url stays clickable even
+        with no (maths) questions — e.g. Coding — matching global-card behaviour.
+        Regression: mapping such a subject to a department used to drop its link."""
+        from classroom.models import SubjectApp, Subject, DepartmentSubject
+        subj = Subject.objects.create(name='Zebra', slug='zebra-hub', is_active=True)
+        SubjectApp.objects.create(
+            name='Zebra', slug='zebra-app', subject=subj,
+            external_url='/zebra/', is_active=True, is_coming_soon=False,
+        )
+        DepartmentSubject.objects.create(department=self.dept_a, subject=subj)
+        resp = self._get_hub()
+        card = next(
+            c for section in resp.context['school_sections']
+            for c in section['subjects'] if c['name'] == 'Zebra'
+        )
+        self.assertEqual(card['link'], '/zebra/')
+
     # ── Progress on cards ────────────────────────────────────────────────
 
     def test_school_subject_cards_have_progress_key(self):
