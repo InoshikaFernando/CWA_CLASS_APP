@@ -65,6 +65,26 @@ def progress_select_classes(status):
 
 
 @register.filter
+def pct_text(value):
+    """Text colour for a score %: green when done (>0), ash-grey when 0/none."""
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        v = 0
+    return 'text-emerald-600' if v > 0 else 'text-gray-400'
+
+
+@register.filter
+def pct_bar(value):
+    """Bar-fill colour matching :func:`pct_text` (green when done, grey when 0)."""
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        v = 0
+    return 'bg-emerald-500' if v > 0 else 'bg-slate-200'
+
+
+@register.filter
 def get_item(dictionary, key):
     """Look up a dictionary value by key in a template."""
     if dictionary is None:

@@ -101,6 +101,38 @@ def _school_for_student(request, student):
     return enrolment.classroom.school if enrolment else None
 
 
+def _order_records_hierarchically(recs):
+    """Return ``recs`` ordered parent-then-children, tagging each ProgressRecord
+    with a transient ``is_child`` flag for template indentation. Children whose
+    parent isn't in this group fall back to top-level."""
+    def sort_key(r):
+        return (r.criteria.order, r.criteria.name)
+
+    children = {}
+    for r in recs:
+        if r.criteria.parent_id is not None:
+            children.setdefault(r.criteria.parent_id, []).append(r)
+    parents = sorted(
+        (r for r in recs if r.criteria.parent_id is None), key=sort_key,
+    )
+
+    ordered, seen = [], set()
+    for p in parents:
+        p.is_child = False
+        ordered.append(p)
+        seen.add(p.criteria_id)
+        for c in sorted(children.get(p.criteria_id, []), key=sort_key):
+            c.is_child = True
+            ordered.append(c)
+            seen.add(c.criteria_id)
+    # Orphan sub-criteria (parent not recorded in this group) — show top-level.
+    for r in recs:
+        if r.criteria_id not in seen:
+            r.is_child = False
+            ordered.append(r)
+    return ordered
+
+
 def _build_student_progress(student):
     """Build a student's progress grouped by (subject, level) plus overall counts.
 
@@ -147,6 +179,9 @@ def _build_student_progress(student):
         recs = group_data['records']
         group_data['total'] = len(recs)
         group_data['achieved'] = sum(1 for r in recs if r.status in _PROFICIENT)
+        # Reorder so each parent criterion is followed by its own sub-criteria
+        # (indented via record.is_child), instead of a flat interleaved list.
+        group_data['records'] = _order_records_hierarchically(recs)
 
     grouped_progress = sorted(
         grouped.values(),
@@ -976,19 +1011,49 @@ class StudentProgressReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
     def get(self, request):
         accessible_classes = self._get_accessible_classes(request.user)
 
-        # Build filter options
-        dept_ids = accessible_classes.values_list('department_id', flat=True).distinct()
-        departments = Department.objects.filter(id__in=dept_ids, is_active=True).order_by('name')
-
-        subject_ids = accessible_classes.exclude(subject__isnull=True).values_list('subject_id', flat=True).distinct()
-        subjects = Subject.objects.filter(id__in=subject_ids, is_active=True).order_by('name')
-
-        classes = accessible_classes.select_related('department', 'subject').order_by('name')
-
-        # Apply filters
+        # Read filters first so the option lists can reflect the selection.
         filter_dept = request.GET.get('department')
         filter_subject = request.GET.get('subject')
         filter_class = request.GET.get('classroom')
+
+        dept_ids = accessible_classes.values_list('department_id', flat=True).distinct()
+        departments = Department.objects.filter(id__in=dept_ids, is_active=True).order_by('name')
+
+        # Subjects: when a department is chosen, scope to that department's subjects —
+        # the union of its classes' subjects AND its DepartmentSubject links, so the
+        # list is populated whether or not the mapping table is filled. Otherwise show
+        # every subject across the user's accessible classes.
+        if filter_dept:
+            class_subject_ids = (
+                accessible_classes.filter(department_id=filter_dept)
+                .exclude(subject__isnull=True)
+                .values_list('subject_id', flat=True)
+            )
+            mapped_subject_ids = DepartmentSubject.objects.filter(
+                department_id=filter_dept,
+            ).values_list('subject_id', flat=True)
+            subject_id_set = set(class_subject_ids) | set(mapped_subject_ids)
+        else:
+            subject_id_set = set(
+                accessible_classes.exclude(subject__isnull=True)
+                .values_list('subject_id', flat=True)
+            )
+        subjects = Subject.objects.filter(
+            id__in=subject_id_set, is_active=True,
+        ).order_by('name')
+
+        # Ignore a stale subject filter that doesn't belong to the chosen department
+        # (so it never silently zeroes out the results).
+        if filter_subject and (not filter_subject.isdigit()
+                               or int(filter_subject) not in subject_id_set):
+            filter_subject = None
+
+        # Class dropdown: scope to the chosen department only — deliberately NOT by
+        # subject, so picking a subject never makes the selected class vanish/reset.
+        class_options = accessible_classes
+        if filter_dept:
+            class_options = class_options.filter(department_id=filter_dept)
+        classes = class_options.select_related('department', 'subject').order_by('name')
 
         filtered_classes = accessible_classes
         if filter_dept:

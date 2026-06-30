@@ -89,6 +89,13 @@ class WorksheetUploadView(RoleRequiredMixin, View):
 
     def post(self, request):
         school = get_school_for_user(request.user)
+
+        # Authored JSON/ZIP upload — skips AI extraction + preview, goes straight
+        # to a lightweight confirm step.
+        json_file = request.FILES.get('json_file')
+        if json_file:
+            return self._handle_json_upload(request, json_file, school)
+
         pdf_file = request.FILES.get('pdf_file')
 
         if not pdf_file:
@@ -138,6 +145,116 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             return redirect('worksheets:upload')
 
         return redirect('worksheets:processing', session_id=session.pk)
+
+    def _handle_json_upload(self, request, json_file, school):
+        """Import an authored JSON/ZIP question file and stage a confirm step.
+
+        No AI extraction or editable preview — the questions are authored, so
+        they are parsed + saved immediately and the teacher only names the
+        worksheet on the next page.
+        """
+        from classroom.upload_services import import_assignment_questions
+
+        if not json_file.name.lower().endswith(('.json', '.zip')):
+            messages.error(request, 'Only .json or .zip files are supported.')
+            return redirect('worksheets:upload')
+
+        result = import_assignment_questions(json_file, request.user)
+        saved = result.get('saved', [])
+        if not saved:
+            errs = result.get('errors') or ['No questions could be imported from the file.']
+            messages.error(request, 'Could not import questions: ' + ' '.join(errs[:5]))
+            return redirect('worksheets:upload')
+
+        worksheet_name = json_file.name.rsplit('.', 1)[0]
+
+        session = WorksheetUploadSession.objects.create(
+            user=request.user,
+            school=school,
+            pdf_filename=json_file.name,
+            worksheet_name=worksheet_name,
+            status=WorksheetUploadSession.STATUS_READY,
+            extracted_data={
+                'source': 'json_upload',
+                'subject': result.get('subject'),
+                'saved': saved,
+            },
+        )
+
+        messages.success(
+            request,
+            f'Imported {len(saved)} question(s). Name your worksheet to finish.',
+        )
+        return redirect('worksheets:json_confirm', session_id=session.pk)
+
+
+class WorksheetJSONConfirmView(RoleRequiredMixin, View):
+    """Confirm step for an authored JSON/ZIP worksheet upload.
+
+    The questions are already parsed + saved (refs in
+    ``session.extracted_data['saved']``); this step only names the worksheet
+    and creates the Worksheet + WorksheetQuestion rows.
+    """
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        saved = session.extracted_data.get('saved', [])
+        return render(request, 'worksheets/json_confirm.html', {
+            'session': session,
+            'question_count': len(saved),
+            'subject': session.extracted_data.get('subject'),
+        })
+
+    def post(self, request, session_id):
+        from django.db import transaction
+
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        school = get_school_for_user(request.user)
+        saved = session.extracted_data.get('saved', [])
+        if not saved:
+            messages.error(request, 'This upload has no questions to save.')
+            return redirect('worksheets:upload')
+
+        worksheet_name = (
+            request.POST.get('worksheet_name', '').strip()
+            or session.worksheet_name or session.pdf_filename
+        )
+
+        with transaction.atomic():
+            worksheet = Worksheet.objects.create(
+                school=school,
+                name=worksheet_name,
+                original_filename=session.pdf_filename,
+                created_by=request.user,
+                question_count=0,
+            )
+            WorksheetQuestion.objects.bulk_create([
+                WorksheetQuestion(
+                    worksheet=worksheet,
+                    question_id=(ref['content_id'] if ref['subject_slug'] == 'mathematics' else None),
+                    coding_exercise_id=(ref['content_id'] if ref['subject_slug'] == 'coding' else None),
+                    subject_slug=ref['subject_slug'],
+                    content_id=ref['content_id'],
+                    order=i,
+                )
+                for i, ref in enumerate(saved, 1)
+            ])
+            worksheet.refresh_question_count()
+
+        session.is_confirmed = True
+        session.worksheet = worksheet
+        session.save(update_fields=['is_confirmed', 'worksheet'])
+
+        messages.success(
+            request,
+            f'Worksheet "{worksheet.name}" created with {worksheet.question_count} questions.',
+        )
+        return redirect('worksheets:detail', pk=worksheet.pk)
 
 
 class WorksheetProcessingView(RoleRequiredMixin, View):
