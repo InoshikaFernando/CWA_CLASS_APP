@@ -412,3 +412,83 @@ class TestCodingExerciseAdmin(TestCase):
         resp = self.client.get('/admin/coding/codingexercise/')
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'question_type')
+
+
+# ---------------------------------------------------------------------------
+# Plugin: take_item_context + grade_answer for quiz question types
+# ---------------------------------------------------------------------------
+
+class TestPluginQuizGrading(TestCase):
+    """CodingExercisePlugin must render and grade MCQ / TF / short-answer
+    exercises as quizzes rather than as write-code editors."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.subject_registry import get as get_plugin
+        cls.plugin = get_plugin('coding')
+        cls.topic = _make_topic(_make_lang())
+
+    def _mcq(self):
+        ex = _make_exercise(self.topic, question_type=CodingExercise.MULTIPLE_CHOICE)
+        _add_answers(ex, [('Right', True), ('Wrong', False)])
+        return ex
+
+    def test_take_item_context_exposes_choices(self):
+        ex = self._mcq()
+        ctx = self.plugin.take_item_context(ex.pk)
+        self.assertTrue(ctx['is_choice'])
+        self.assertFalse(ctx['is_write_code'])
+        self.assertEqual(len(ctx['answers']), 2)
+
+    def test_take_item_context_write_code_has_no_choices(self):
+        ex = _make_exercise(self.topic)  # write_code
+        ctx = self.plugin.take_item_context(ex.pk)
+        self.assertTrue(ctx['is_write_code'])
+        self.assertEqual(ctx['answers'], [])
+
+    def test_grade_mcq_correct(self):
+        ex = self._mcq()
+        right = ex.answers.get(is_correct=True)
+        result = self.plugin.grade_answer(
+            ex.pk, {f'coding_choice_{ex.pk}': str(right.pk)},
+        )
+        self.assertTrue(result['is_correct'])
+        self.assertEqual(result['points_earned'], 1)
+        self.assertEqual(result['answer_data']['selected_text'], 'Right')
+
+    def test_grade_mcq_incorrect_records_correct_text(self):
+        ex = self._mcq()
+        wrong = ex.answers.get(is_correct=False)
+        result = self.plugin.grade_answer(
+            ex.pk, {f'coding_choice_{ex.pk}': str(wrong.pk)},
+        )
+        self.assertFalse(result['is_correct'])
+        self.assertEqual(result['answer_data']['correct_text'], 'Right')
+
+    def test_grade_mcq_no_selection(self):
+        ex = self._mcq()
+        result = self.plugin.grade_answer(ex.pk, {})
+        self.assertFalse(result['is_correct'])
+        self.assertEqual(result['points_earned'], 0)
+
+    def test_grade_short_answer_case_insensitive(self):
+        ex = _make_exercise(
+            self.topic, question_type=CodingExercise.SHORT_ANSWER,
+            correct_short_answer='Loop',
+        )
+        result = self.plugin.grade_answer(
+            ex.pk, {f'coding_text_{ex.pk}': '  loop '},
+        )
+        self.assertTrue(result['is_correct'])
+        self.assertEqual(result['answer_data']['question_type'], 'short_answer')
+
+    def test_grade_short_answer_wrong(self):
+        ex = _make_exercise(
+            self.topic, question_type=CodingExercise.SHORT_ANSWER,
+            correct_short_answer='Loop',
+        )
+        result = self.plugin.grade_answer(
+            ex.pk, {f'coding_text_{ex.pk}': 'variable'},
+        )
+        self.assertFalse(result['is_correct'])
+        self.assertEqual(result['answer_data']['correct_text'], 'Loop')
