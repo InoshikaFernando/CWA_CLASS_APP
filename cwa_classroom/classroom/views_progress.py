@@ -1019,25 +1019,20 @@ class StudentProgressReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
         dept_ids = accessible_classes.values_list('department_id', flat=True).distinct()
         departments = Department.objects.filter(id__in=dept_ids, is_active=True).order_by('name')
 
-        # Subjects: when a department is chosen, scope to that department's subjects —
-        # the union of its classes' subjects AND its DepartmentSubject links, so the
-        # list is populated whether or not the mapping table is filled. Otherwise show
-        # every subject across the user's accessible classes.
-        if filter_dept:
-            class_subject_ids = (
-                accessible_classes.filter(department_id=filter_dept)
-                .exclude(subject__isnull=True)
-                .values_list('subject_id', flat=True)
-            )
-            mapped_subject_ids = DepartmentSubject.objects.filter(
-                department_id=filter_dept,
-            ).values_list('subject_id', flat=True)
-            subject_id_set = set(class_subject_ids) | set(mapped_subject_ids)
-        else:
-            subject_id_set = set(
-                accessible_classes.exclude(subject__isnull=True)
-                .values_list('subject_id', flat=True)
-            )
+        # Subjects come from the union of (a) the subjects actually taught in the
+        # relevant classes and (b) the DepartmentSubject mappings — so a subject
+        # shows once it's mapped to a department, even before any class carries it.
+        # Scoped to the chosen department, or to all accessible departments otherwise.
+        scope_dept_ids = [filter_dept] if filter_dept else list(dept_ids)
+        class_subject_ids = (
+            accessible_classes.filter(department_id__in=scope_dept_ids)
+            .exclude(subject__isnull=True)
+            .values_list('subject_id', flat=True)
+        )
+        mapped_subject_ids = DepartmentSubject.objects.filter(
+            department_id__in=scope_dept_ids,
+        ).values_list('subject_id', flat=True)
+        subject_id_set = set(class_subject_ids) | set(mapped_subject_ids)
         subjects = Subject.objects.filter(
             id__in=subject_id_set, is_active=True,
         ).order_by('name')
