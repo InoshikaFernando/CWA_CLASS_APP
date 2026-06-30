@@ -1011,19 +1011,49 @@ class StudentProgressReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
     def get(self, request):
         accessible_classes = self._get_accessible_classes(request.user)
 
-        # Build filter options
-        dept_ids = accessible_classes.values_list('department_id', flat=True).distinct()
-        departments = Department.objects.filter(id__in=dept_ids, is_active=True).order_by('name')
-
-        subject_ids = accessible_classes.exclude(subject__isnull=True).values_list('subject_id', flat=True).distinct()
-        subjects = Subject.objects.filter(id__in=subject_ids, is_active=True).order_by('name')
-
-        classes = accessible_classes.select_related('department', 'subject').order_by('name')
-
-        # Apply filters
+        # Read filters first so the option lists can reflect the selection.
         filter_dept = request.GET.get('department')
         filter_subject = request.GET.get('subject')
         filter_class = request.GET.get('classroom')
+
+        dept_ids = accessible_classes.values_list('department_id', flat=True).distinct()
+        departments = Department.objects.filter(id__in=dept_ids, is_active=True).order_by('name')
+
+        # Subjects: when a department is chosen, scope to that department's subjects —
+        # the union of its classes' subjects AND its DepartmentSubject links, so the
+        # list is populated whether or not the mapping table is filled. Otherwise show
+        # every subject across the user's accessible classes.
+        if filter_dept:
+            class_subject_ids = (
+                accessible_classes.filter(department_id=filter_dept)
+                .exclude(subject__isnull=True)
+                .values_list('subject_id', flat=True)
+            )
+            mapped_subject_ids = DepartmentSubject.objects.filter(
+                department_id=filter_dept,
+            ).values_list('subject_id', flat=True)
+            subject_id_set = set(class_subject_ids) | set(mapped_subject_ids)
+        else:
+            subject_id_set = set(
+                accessible_classes.exclude(subject__isnull=True)
+                .values_list('subject_id', flat=True)
+            )
+        subjects = Subject.objects.filter(
+            id__in=subject_id_set, is_active=True,
+        ).order_by('name')
+
+        # Ignore a stale subject filter that doesn't belong to the chosen department
+        # (so it never silently zeroes out the results).
+        if filter_subject and (not filter_subject.isdigit()
+                               or int(filter_subject) not in subject_id_set):
+            filter_subject = None
+
+        # Class dropdown: scope to the chosen department only — deliberately NOT by
+        # subject, so picking a subject never makes the selected class vanish/reset.
+        class_options = accessible_classes
+        if filter_dept:
+            class_options = class_options.filter(department_id=filter_dept)
+        classes = class_options.select_related('department', 'subject').order_by('name')
 
         filtered_classes = accessible_classes
         if filter_dept:
