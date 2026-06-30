@@ -20,6 +20,8 @@ urlpatterns = [
     path('homework/pdf/status/<int:session_id>/', views.HomeworkPDFStatusView.as_view(), name='pdf_status'),
     path('homework/pdf/preview/<int:session_id>/', views.HomeworkPDFPreviewView.as_view(), name='pdf_preview'),
     path('homework/pdf/confirm/<int:session_id>/', views.HomeworkPDFConfirmView.as_view(), name='pdf_confirm'),
+    # Teacher: authored JSON/ZIP upload (skips AI extraction + preview)
+    path('homework/json/confirm/<int:session_id>/', views.HomeworkJSONConfirmView.as_view(), name='json_confirm'),
 
     # Teacher: grading review
     path('homework/review/', views.HomeworkPendingReviewView.as_view(), name='pending_review'),

@@ -67,6 +67,24 @@
     </script>
   </div>
 
+  <!-- Authored JSON / ZIP upload -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <h2 class="font-bold text-gray-800 mb-1">Or upload authored questions (JSON / ZIP)</h2>
+    <p class="text-xs text-gray-400 mb-4">Already have questions in the question-bank format? Upload a
+      <code class="text-gray-500">.json</code> file (or a <code class="text-gray-500">.zip</code> containing
+      <code class="text-gray-500">questions.json</code> plus images) to skip AI extraction and go straight to naming the worksheet.
+      Works for Mathematics and Coding.</p>
+    <form method="post" enctype="multipart/form-data" class="space-y-4">
+      {% csrf_token %}
+      <input type="file" name="json_file" accept=".json,.zip" required
+             class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-primary/10 file:text-primary file:font-semibold hover:file:bg-primary/20 transition" />
+      <button type="submit"
+              class="px-6 py-2.5 rounded-xl bg-slate-700 text-white font-semibold shadow-sm hover:bg-slate-800 transition">
+        Upload questions
+      </button>
+    </form>
+  </div>
+
   <!-- How it works -->
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
     <h2 class="font-bold text-gray-800 mb-3">How It Works</h2>
