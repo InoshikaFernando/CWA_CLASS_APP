@@ -244,13 +244,100 @@ class CodingExercisePlugin(SubjectPlugin):
             .select_related('topic_level__topic__language')
             .get(pk=content_id)
         )
+        is_choice = ex.question_type in (
+            CodingExercise.MULTIPLE_CHOICE, CodingExercise.TRUE_FALSE,
+        )
         return {
             'exercise': ex,
             'content_id': ex.pk,
             'language': ex.topic_level.topic.language,
+            'question_type': ex.question_type,
+            'is_write_code': ex.question_type == CodingExercise.WRITE_CODE,
+            'is_choice': is_choice,
+            'answers': list(ex.answers.order_by('order')) if is_choice else [],
         }
 
     def grade_answer(self, content_id, post_data):
+        """Grade one coding exercise according to its ``question_type``.
+
+        ``write_code`` (the historical default) runs the student's code via
+        Piston and matches stdout to ``expected_output``. MCQ / true-false
+        grade against the selected :class:`CodingAnswer`; short-answer /
+        fill-blank grade against ``correct_short_answer`` (case-insensitive).
+        """
+        from coding.models import CodingExercise
+
+        ex = (
+            CodingExercise.objects
+            .select_related('topic_level__topic__language')
+            .get(pk=content_id)
+        )
+
+        if ex.question_type in (CodingExercise.MULTIPLE_CHOICE, CodingExercise.TRUE_FALSE):
+            return self._grade_choice(ex, content_id, post_data)
+        if ex.question_type in (CodingExercise.SHORT_ANSWER, CodingExercise.FILL_BLANK):
+            return self._grade_short_answer(ex, content_id, post_data)
+        return self._grade_write_code(ex, content_id, post_data)
+
+    # ------------------------------------------------------------------
+    # Quiz-type grading (MCQ / TF / short-answer / fill-blank)
+    # ------------------------------------------------------------------
+
+    def _grade_choice(self, ex, content_id, post_data):
+        """Grade an MCQ / true-false exercise against the chosen CodingAnswer.
+
+        The selected answer pk is NOT stored on the answer row's
+        ``selected_answer`` FK — that points at ``maths.Answer`` — so the
+        choice is recorded in ``answer_data`` for the review page instead.
+        """
+        raw = (
+            post_data.get(f'coding_choice_{content_id}')
+            or post_data.get('coding_choice')
+            or ''
+        )
+        selected = None
+        try:
+            selected = ex.answers.get(pk=int(raw))
+        except (ValueError, TypeError, ex.answers.model.DoesNotExist):
+            selected = None
+
+        is_correct = bool(selected and selected.is_correct)
+        correct = ex.answers.filter(is_correct=True).first()
+        selected_text = selected.answer_text if selected else ''
+        return {
+            'text_answer': selected_text[:500],
+            'is_correct': is_correct,
+            'points_earned': 1 if is_correct else 0,
+            'answer_data': {
+                'question_type': ex.question_type,
+                'selected_answer_id': selected.pk if selected else None,
+                'selected_text': selected_text,
+                'correct_text': correct.answer_text if correct else '',
+            },
+        }
+
+    def _grade_short_answer(self, ex, content_id, post_data):
+        """Grade a short-answer / fill-blank exercise (case-insensitive match)."""
+        submitted = (
+            post_data.get(f'coding_text_{content_id}')
+            or post_data.get('coding_text')
+            or post_data.get('text_answer')
+            or ''
+        ).strip()
+        expected = (ex.correct_short_answer or '').strip()
+        is_correct = bool(expected) and submitted.casefold() == expected.casefold()
+        return {
+            'text_answer': submitted[:500],
+            'is_correct': is_correct,
+            'points_earned': 1 if is_correct else 0,
+            'answer_data': {
+                'question_type': ex.question_type,
+                'submitted': submitted,
+                'correct_text': expected,
+            },
+        }
+
+    def _grade_write_code(self, ex, content_id, post_data):
         """Run the student's code via Piston and compare stdout to expected_output.
 
         Browser-sandbox languages (HTML/CSS/Scratch) have no Piston runtime
@@ -260,13 +347,7 @@ class CodingExercisePlugin(SubjectPlugin):
         stdout/stderr for the review page.
         """
         from coding.execution import run_code
-        from coding.models import CodingExercise
 
-        ex = (
-            CodingExercise.objects
-            .select_related('topic_level__topic__language')
-            .get(pk=content_id)
-        )
         code = (post_data.get(f'code_{content_id}') or '').strip()
 
         base = {
