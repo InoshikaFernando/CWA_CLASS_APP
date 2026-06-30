@@ -1,5 +1,7 @@
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from unittest.mock import patch
+
+from freezegun import freeze_time
 
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
@@ -3236,28 +3238,42 @@ class HomeworkLeaderboardTest(HomeworkTestBase):
     def test_defaults_to_last_completed_week_not_current(self):
         # With no week param the board lands on the most recent *completed* week
         # with homework due — never the current week (which may be in progress).
-        from django.utils import timezone
-        now = timezone.now()
-        today = timezone.localdate()
-        # Homework due last week, mid-week (away from week boundaries).
-        last_week_due = (now - timedelta(days=now.weekday() + 7)).replace(
-            hour=12, minute=0, second=0, microsecond=0,
-        ) + timedelta(days=2)
-        hw = Homework.objects.create(
-            classroom=self.classroom, created_by=self.teacher, title='Last Week HW',
-            homework_type='topic', num_questions=5, due_date=last_week_due, max_attempts=3,
-        )
-        HomeworkSubmission.objects.create(
-            homework=hw, student=self.student,
-            attempt_number=1, score=4, total_questions=5, points=80.0,
-        )
-        resp = self.client.get(self.url + f'?classroom={self.classroom.id}')
-        due_local = timezone.localtime(hw.due_date).date()
-        expected_monday = due_local - timedelta(days=due_local.weekday())
-        self.assertEqual(resp.context['week_start'], expected_monday)
-        # Not the current week.
-        current_monday = today - timedelta(days=today.weekday())
-        self.assertNotEqual(resp.context['week_start'], current_monday)
+        #
+        # Time is frozen so the week boundaries are deterministic. This test
+        # used to flake on the CI clock: with TIME_ZONE='Pacific/Auckland'
+        # (UTC+12), a UTC-Sunday afternoon is already Monday in Auckland, which
+        # pulled the shared ``past_homework`` fixture (due "yesterday" = Sunday)
+        # into the last completed week and made *it* the default-week anchor —
+        # the most recent completed homework — instead of this test's homework.
+        # Pinning every relevant due date to a frozen week removes that
+        # dependency on the wall clock.
+        frozen = timezone.make_aware(datetime(2026, 6, 17, 12, 0))  # a Wednesday
+        with freeze_time(frozen):
+            # Park the fixtures' relative-dated homework so only this test's
+            # data drives the default-week selection: ``past_homework`` into the
+            # current (in-progress) week, ``homework`` into the future.
+            Homework.objects.filter(pk=self.past_homework.pk).update(
+                due_date=timezone.make_aware(datetime(2026, 6, 16, 12, 0)),  # current week
+            )
+            Homework.objects.filter(pk=self.homework.pk).update(
+                due_date=timezone.make_aware(datetime(2026, 7, 1, 12, 0)),  # future
+            )
+            # The only homework due in the last completed week.
+            hw = Homework.objects.create(
+                classroom=self.classroom, created_by=self.teacher, title='Last Week HW',
+                homework_type='topic', num_questions=5,
+                due_date=timezone.make_aware(datetime(2026, 6, 10, 12, 0)),  # Wed, prev week
+                max_attempts=3,
+            )
+            HomeworkSubmission.objects.create(
+                homework=hw, student=self.student,
+                attempt_number=1, score=4, total_questions=5, points=80.0,
+            )
+            resp = self.client.get(self.url + f'?classroom={self.classroom.id}')
+
+        self.assertEqual(resp.context['week_start'], date(2026, 6, 8))  # Mon of prev week
+        # Not the current week (Mon 2026-06-15).
+        self.assertNotEqual(resp.context['week_start'], date(2026, 6, 15))
         self.assertIn(self.student, [r['student'] for r in resp.context['ranked_rows']])
 
     def test_dropdown_lists_all_homework_across_weeks(self):
