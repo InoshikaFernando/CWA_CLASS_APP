@@ -1,10 +1,13 @@
 {% comment %}
 Renders one coding exercise on the homework take page.
-Receives ``ctx`` with keys: exercise (CodingExercise), content_id, language.
+Receives ``ctx`` with keys: exercise (CodingExercise), content_id, language,
+question_type, is_choice, is_write_code, answers.
 
-The textarea is marked ``data-hw-code-editor`` so the page-level script in
-student_take.html wraps it in a CodeMirror editor on load. Each item gets a
-Run button that hits POST /coding/api/run/ so students can try their code
+Quiz-type exercises (MCQ / true-false / short-answer / fill-blank) render as
+answer options or a text input. Write-code exercises render the code editor:
+the textarea is marked ``data-hw-code-editor`` so the page-level script in
+student_take.html wraps it in a CodeMirror editor on load, and each item gets
+a Run button that hits POST /coding/api/run/ so students can try their code
 and fix errors before submitting the whole homework.
 {% endcomment %}
 {% with ex=ctx.exercise %}
@@ -16,6 +19,27 @@ and fix errors before submitting the whole homework.
   <span class="bg-gray-50 text-gray-600 px-2 py-0.5 rounded">{{ ex.topic_level.get_level_choice_display }}</span>
 </div>
 
+{% if ctx.is_choice %}
+{# ── Coding MCQ / True-False ───────────────────────────────────────────── #}
+<div class="space-y-2">
+  {% for ans in ctx.answers %}
+  <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition group">
+    <input type="radio" name="coding_choice_{{ ctx.content_id }}" value="{{ ans.pk }}"
+           class="text-blue-600 focus:ring-blue-500 w-4 h-4" />
+    <span class="text-sm text-gray-700 group-hover:text-gray-900 flex-1">{{ ans.answer_text }}</span>
+  </label>
+  {% endfor %}
+</div>
+
+{% elif ex.question_type == 'short_answer' or ex.question_type == 'fill_blank' %}
+{# ── Coding short-answer / fill-in-the-blank ───────────────────────────── #}
+<label for="coding_text_{{ ctx.content_id }}" class="block text-xs font-semibold text-gray-500 mb-1">Your answer</label>
+<input type="text" name="coding_text_{{ ctx.content_id }}" id="coding_text_{{ ctx.content_id }}"
+       class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+       placeholder="Type your answer here…" autocomplete="off" spellcheck="false" />
+
+{% else %}
+{# ── Write-code exercise ───────────────────────────────────────────────── #}
 {% if ex.expected_output %}
 <div class="mb-3">
   <p class="text-xs font-semibold text-gray-500 mb-1">Expected output</p>
@@ -59,5 +83,6 @@ and fix errors before submitting the whole homework.
   <summary class="text-xs text-blue-600 cursor-pointer hover:underline">Show hint</summary>
   <p class="text-xs text-gray-600 mt-1 whitespace-pre-line">{{ ex.hints }}</p>
 </details>
+{% endif %}
 {% endif %}
 {% endwith %}
