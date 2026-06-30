@@ -20,7 +20,7 @@ Receives ``ctx`` with keys: ans (HomeworkStudentAnswer), exercise (CodingExercis
       {% if ex %}{{ ex.title }}{% else %}(deleted exercise){% endif %}
     </p>
     {% if ex %}
-      <p class="text-xs text-gray-500 mb-2 whitespace-pre-line">{{ ex.description|truncatechars:200 }}</p>
+      <p class="text-xs text-gray-500 mb-2 whitespace-pre-wrap">{{ ex.description|truncatechars:200 }}</p>
     {% endif %}
 
     {% if ans.answer_data.question_type %}
