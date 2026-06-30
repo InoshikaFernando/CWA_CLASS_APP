@@ -959,3 +959,26 @@ class ReportFilterDeptScopeTest(_BaseAttendanceProgressTest):
         self.assertEqual(resp.context['filter_subject'], '')  # cleared
         student_ids = [d['student'].id for d in resp.context['student_data']]
         self.assertIn(self.student_user.id, student_ids)
+
+    def test_all_departments_shows_every_mapped_subject(self):
+        # 'All Departments' lists the union of every accessible subject — Maths
+        # (base) AND Coding (mapped to IT) — not just subjects that have a class.
+        self._login()
+        names = [s.name for s in self.client.get(
+            reverse('student_progress_report')).context['subjects']]
+        self.assertIn('Mathematics', names)
+        self.assertIn('Coding', names)
+
+    def test_mapped_subject_without_any_class_still_shows(self):
+        # A subject mapped to a department but not yet on any class still appears —
+        # both under 'All Departments' and under that department.
+        from classroom.models import DepartmentSubject
+        robotics = Subject.objects.create(name='Robotics', slug='robotics', is_active=True)
+        DepartmentSubject.objects.create(department=self.it_dept, subject=robotics)
+        self._login()
+        all_names = [s.name for s in self.client.get(
+            reverse('student_progress_report')).context['subjects']]
+        self.assertIn('Robotics', all_names)
+        it_names = [s.name for s in self.client.get(
+            self._url(department=self.it_dept.id)).context['subjects']]
+        self.assertIn('Robotics', it_names)
