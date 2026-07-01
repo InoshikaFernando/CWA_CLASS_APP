@@ -1,0 +1,98 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "if-conditions",
+  "level": "beginner",
+  "exercises": [
+    {
+      "title": "Positive or Negative",
+      "question_type": "write_code",
+      "instructions": "Write a program that checks if the number 7 is positive or negative.\nPrint \"Positive\" if it is greater than 0, otherwise print \"Negative\".",
+      "starter_code": "let number = 7;\n\n// Check and print\n",
+      "expected_output": "Positive",
+      "hints": "Use if (number > 0) { ... }",
+      "display_order": 1
+    },
+    {
+      "title": "If: Positive Number",
+      "question_type": "write_code",
+      "instructions": "Check if the number is greater than 0 and print 'Positive' when it is.",
+      "starter_code": "let num = 7;\nif (num ? 0) {\n  console.log(?);\n}\n",
+      "expected_output": "Positive",
+      "hints": "Use the > operator to compare num with 0",
+      "display_order": 2
+    },
+    {
+      "title": "If: Is Even",
+      "question_type": "write_code",
+      "instructions": "If the number is divisible by 2, print 'Even'.",
+      "starter_code": "let num = 4;\nif (num % 2 === ?) {\n  console.log(?);\n}\n",
+      "expected_output": "Even",
+      "hints": "A number is even when num % 2 equals 0",
+      "display_order": 3
+    },
+    {
+      "title": "Even or Odd",
+      "question_type": "write_code",
+      "instructions": "Given number = 17, check if it is even or odd.\nPrint \"Even\" if divisible by 2, otherwise print \"Odd\".",
+      "starter_code": "let number = 17;\n\n// Check and print\n",
+      "expected_output": "Odd",
+      "hints": "Use the modulo operator % to check divisibility.",
+      "display_order": 4
+    },
+    {
+      "title": "If: Big Enough",
+      "question_type": "write_code",
+      "instructions": "If the age is 18 or more, print 'Adult'.",
+      "starter_code": "let age = 21;\nif (age ? 18) {\n  console.log(?);\n}\n",
+      "expected_output": "Adult",
+      "hints": "Use the >= operator to include 18",
+      "display_order": 5
+    },
+    {
+      "title": "If: Exact Match",
+      "question_type": "write_code",
+      "instructions": "If the colour is 'red', print 'Stop'.",
+      "starter_code": "let colour = \"red\";\nif (colour === ?) {\n  console.log(?);\n}\n",
+      "expected_output": "Stop",
+      "hints": "Use === to compare strings",
+      "display_order": 6
+    },
+    {
+      "title": "If: Passing Mark",
+      "question_type": "write_code",
+      "instructions": "If the score is 50 or above, print 'Pass'.",
+      "starter_code": "let score = 72;\nif (score ? 50) {\n  console.log(?);\n}\n",
+      "expected_output": "Pass",
+      "hints": "Use >= so a score of exactly 50 still passes",
+      "display_order": 7
+    },
+    {
+      "title": "If: Empty Array",
+      "question_type": "write_code",
+      "instructions": "If the array has 0 items, print 'Empty'.",
+      "starter_code": "let items = [];\nif (items.length === ?) {\n  console.log(?);\n}\n",
+      "expected_output": "Empty",
+      "hints": "items.length returns the number of items in the array",
+      "display_order": 8
+    },
+    {
+      "title": "If: Member Check",
+      "question_type": "write_code",
+      "instructions": "If the letter 'a' is in the word 'banana', print 'Found'.",
+      "starter_code": "let word = \"banana\";\nif (word.includes(?)) {\n  console.log(?);\n}\n",
+      "expected_output": "Found",
+      "hints": "Use .includes() to check if the letter is in the word",
+      "display_order": 9
+    },
+    {
+      "title": "If: Boolean Flag",
+      "question_type": "write_code",
+      "instructions": "If isRaining is true, print 'Take an umbrella'.",
+      "starter_code": "let isRaining = true;\nif (?) {\n  console.log(?);\n}\n",
+      "expected_output": "Take an umbrella",
+      "hints": "A boolean variable can be used directly as the condition",
+      "display_order": 10
+    }
+  ]
+}
