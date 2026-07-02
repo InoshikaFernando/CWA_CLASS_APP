@@ -170,7 +170,7 @@
               <label class="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="radio" name="range_type" value="first_n" x-model="rangeType" class="text-primary focus:ring-primary" />
                 First
-                <input type="number" name="first_n" min="1" max="{{ worksheet.question_count }}" value="10"
+                <input type="number" name="first_n" min="1" max="{{ worksheet.question_count }}" value="{% if worksheet.question_count < 10 %}{{ worksheet.question_count }}{% else %}10{% endif %}"
                        class="w-16 rounded-md border border-gray-200 px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary" />
                 questions
               </label>
