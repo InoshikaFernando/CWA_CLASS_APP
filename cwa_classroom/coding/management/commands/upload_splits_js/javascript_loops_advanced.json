@@ -1,0 +1,41 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "loops",
+  "level": "advanced",
+  "exercises": [
+    {
+      "title": "FizzBuzz",
+      "question_type": "write_code",
+      "instructions": "Print numbers 1 to 20.\n- If divisible by 3, print \"Fizz\" instead.\n- If divisible by 5, print \"Buzz\" instead.\n- If divisible by both 3 and 5, print \"FizzBuzz\".",
+      "starter_code": "// FizzBuzz from 1 to 20\n",
+      "expected_output": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz",
+      "hints": "Check the FizzBuzz condition first (divisible by both), then Fizz, then Buzz.",
+      "display_order": 1
+    },
+    {
+      "title": "What does the array map() method do?",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 2,
+      "answers": [
+        {
+          "text": "Creates a new array by transforming each element",
+          "is_correct": true
+        },
+        {
+          "text": "Sorts the array in place",
+          "is_correct": false
+        },
+        {
+          "text": "Removes elements from the array",
+          "is_correct": false
+        },
+        {
+          "text": "Joins the array into a single string",
+          "is_correct": false
+        }
+      ]
+    }
+  ]
+}

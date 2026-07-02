@@ -1,0 +1,108 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "variables-data-types",
+  "level": "beginner",
+  "exercises": [
+    {
+      "title": "Hello, World!",
+      "question_type": "write_code",
+      "instructions": "Write a JavaScript program that prints exactly:\nHello, World!",
+      "starter_code": "// Write your code below\n",
+      "expected_output": "Hello, World!",
+      "hints": "Use console.log().",
+      "display_order": 1
+    },
+    {
+      "title": "Store Your Name",
+      "question_type": "write_code",
+      "instructions": "Create a variable called name and assign \"Test\" into it.\nThen print: Hello, <name>!",
+      "starter_code": "// Create a variable called name\nlet name = ;\n\n// Print the greeting\n",
+      "expected_output": "Hello, Test!",
+      "hints": "Use a template literal: console.log(`Hello, ${name}!`)",
+      "display_order": 2
+    },
+    {
+      "title": "Variable: Store and Print a Name",
+      "question_type": "write_code",
+      "instructions": "Create a variable called 'name' holding the string 'Ada' and print it.",
+      "starter_code": "let name = ?;\nconsole.log(?);\n",
+      "expected_output": "Ada",
+      "hints": "Strings go in quotes: \"Ada\" or 'Ada'",
+      "display_order": 3,
+      "required_code_patterns": "console\\.log\\s*\\(\\s*name\\s*\\)"
+    },
+    {
+      "title": "Variable: Store a Number",
+      "question_type": "write_code",
+      "instructions": "Create a variable called 'age' holding the number 12 and print it.",
+      "starter_code": "let age = ?;\nconsole.log(?);\n",
+      "expected_output": "12",
+      "hints": "Numbers have no quotes around them",
+      "display_order": 4
+    },
+    {
+      "title": "Variable: A Decimal Number",
+      "question_type": "write_code",
+      "instructions": "Create a variable called 'price' holding the number 9.5 and print it.",
+      "starter_code": "let price = ?;\nconsole.log(?);\n",
+      "expected_output": "9.5",
+      "hints": "Decimals are numbers with a decimal point",
+      "display_order": 5
+    },
+    {
+      "title": "Simple Math",
+      "question_type": "write_code",
+      "instructions": "Create two variables x = 10 and y = 3.\nPrint the result of: x + y, x - y, x * y, and x / y (each on a new line).",
+      "starter_code": "let x = 10;\nlet y = 3;\n\n// Print the four operations\n",
+      "expected_output": "13\n7\n30\n3.3333333333333335",
+      "hints": "Use console.log() for each operation.",
+      "display_order": 6
+    },
+    {
+      "title": "Variable: A Boolean",
+      "question_type": "write_code",
+      "instructions": "Create a variable 'isStudent' set to true and print it.",
+      "starter_code": "let isStudent = ?;\nconsole.log(?);\n",
+      "expected_output": "true",
+      "hints": "Booleans are true or false — lowercase, no quotes",
+      "display_order": 7
+    },
+    {
+      "title": "Variable: Add Two Numbers",
+      "question_type": "write_code",
+      "instructions": "Create a = 3 and b = 4, then print their sum.",
+      "starter_code": "let a = 3;\nlet b = 4;\nconsole.log(? + ?);\n",
+      "expected_output": "7",
+      "hints": "Use the + operator between the two variable names",
+      "display_order": 8
+    },
+    {
+      "title": "Variable: Greeting String",
+      "question_type": "write_code",
+      "instructions": "Create name = 'Sam' and print 'Hello, Sam' using string concatenation.",
+      "starter_code": "let name = \"Sam\";\nconsole.log(\"Hello, \" + ?);\n",
+      "expected_output": "Hello, Sam",
+      "hints": "Use + to join two strings together",
+      "display_order": 9
+    },
+    {
+      "title": "Variable: Type of a Value",
+      "question_type": "write_code",
+      "instructions": "Create x = 5 and print its type using typeof.",
+      "starter_code": "let x = 5;\nconsole.log(typeof ?);\n",
+      "expected_output": "number",
+      "hints": "typeof returns the type of a value as a string",
+      "display_order": 10
+    },
+    {
+      "title": "Variable: Reassign",
+      "question_type": "write_code",
+      "instructions": "Set x = 10, then reassign x = 20, and print x.",
+      "starter_code": "let x = 10;\nx = ?;\nconsole.log(?);\n",
+      "expected_output": "20",
+      "hints": "A variable keeps the last value assigned to it",
+      "display_order": 11
+    }
+  ]
+}
