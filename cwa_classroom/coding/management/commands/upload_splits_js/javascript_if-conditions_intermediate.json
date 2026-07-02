@@ -1,0 +1,98 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "if-conditions",
+  "level": "intermediate",
+  "exercises": [
+    {
+      "title": "If/Else: Even or Odd",
+      "question_type": "write_code",
+      "instructions": "Print 'Even' if the number is divisible by 2, otherwise print 'Odd'.",
+      "starter_code": "let num = 7;\nif (num % 2 === 0) {\n  console.log(?);\n} else {\n  console.log(?);\n}\n",
+      "expected_output": "Odd",
+      "hints": "The else branch runs when the if condition is false",
+      "display_order": 1
+    },
+    {
+      "title": "Grade Calculator",
+      "question_type": "write_code",
+      "instructions": "Given score = 72, print the grade using this scale:\n90-100 -> A\n80-89  -> B\n70-79  -> C\n60-69  -> D\nBelow 60 -> F",
+      "starter_code": "let score = 72;\n\n// Determine and print the grade\n",
+      "expected_output": "C",
+      "hints": "Use else if for each range. Check from highest to lowest.",
+      "display_order": 2
+    },
+    {
+      "title": "If/Else: Adult or Minor",
+      "question_type": "write_code",
+      "instructions": "Print 'Adult' if age is 18 or more, otherwise 'Minor'.",
+      "starter_code": "let age = 16;\nif (age >= 18) {\n  console.log(?);\n} else {\n  console.log(?);\n}\n",
+      "expected_output": "Minor",
+      "hints": "Use >= to include exactly 18 as an adult",
+      "display_order": 3
+    },
+    {
+      "title": "If/Else: Larger Number",
+      "question_type": "write_code",
+      "instructions": "Given a = 12 and b = 9, print the larger number.",
+      "starter_code": "let a = 12;\nlet b = 9;\nif (a ? b) {\n  console.log(?);\n} else {\n  console.log(?);\n}\n",
+      "expected_output": "12",
+      "hints": "Compare with > and print whichever is bigger",
+      "display_order": 4
+    },
+    {
+      "title": "Number Range Check",
+      "question_type": "write_code",
+      "instructions": "Given number = 42, check if it's within range 1-100.\nPrint \"In range\" or \"Out of range\".",
+      "starter_code": "let number = 42;\n\n// Check and print\n",
+      "expected_output": "In range",
+      "hints": "Use && to combine two conditions: number >= 1 && number <= 100",
+      "display_order": 5
+    },
+    {
+      "title": "If/Else: Positive or Non-Positive",
+      "question_type": "write_code",
+      "instructions": "If num is greater than 0 print 'Positive', otherwise print 'Non-positive'.",
+      "starter_code": "let num = -3;\nif (num > 0) {\n  console.log(?);\n} else {\n  console.log(?);\n}\n",
+      "expected_output": "Non-positive",
+      "hints": "The else branch handles 0 and negatives together",
+      "display_order": 6
+    },
+    {
+      "title": "If/Else If/Else: Sign of a Number",
+      "question_type": "write_code",
+      "instructions": "Given num = 0, print 'Positive' if > 0, 'Negative' if < 0, otherwise 'Zero'.",
+      "starter_code": "let num = 0;\nif (num > 0) {\n  console.log(?);\n} else if (num ? 0) {\n  console.log(?);\n} else {\n  console.log(?);\n}\n",
+      "expected_output": "Zero",
+      "hints": "else if is checked only if the first if is false",
+      "display_order": 7
+    },
+    {
+      "title": "If/Else If/Else: Grade Letter",
+      "question_type": "write_code",
+      "instructions": "Given score = 75, print 'A' if >= 90, 'B' if >= 75, 'C' if >= 50, otherwise 'F'.",
+      "starter_code": "let score = 75;\nif (score >= 90) {\n  console.log(\"A\");\n} else if (score >= ?) {\n  console.log(?);\n} else if (score >= 50) {\n  console.log(\"C\");\n} else {\n  console.log(?);\n}\n",
+      "expected_output": "B",
+      "hints": "The first matching branch wins — order matters",
+      "display_order": 8
+    },
+    {
+      "title": "If/Else with AND: In Range",
+      "question_type": "write_code",
+      "instructions": "Given x = 15, print 'In range' if x is between 10 and 20 inclusive, otherwise 'Out of range'.",
+      "starter_code": "let x = 15;\nif (x >= 10 ? x <= 20) {\n  console.log(?);\n} else {\n  console.log(?);\n}\n",
+      "expected_output": "In range",
+      "hints": "Combine two conditions with the && operator",
+      "display_order": 9
+    },
+    {
+      "title": "If/Else with OR: Weekend",
+      "question_type": "write_code",
+      "instructions": "Given day = 'Sun', print 'Weekend' if day is 'Sat' or 'Sun', otherwise 'Weekday'.",
+      "starter_code": "let day = \"Sun\";\nif (day === \"Sat\" ? day === \"Sun\") {\n  console.log(?);\n} else {\n  console.log(?);\n}\n",
+      "expected_output": "Weekend",
+      "hints": "Use the || operator between the two equality checks",
+      "display_order": 10
+    }
+  ]
+}

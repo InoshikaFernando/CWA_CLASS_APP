@@ -1,0 +1,26 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "functions",
+  "level": "beginner",
+  "exercises": [
+    {
+      "title": "Greet Function",
+      "question_type": "write_code",
+      "instructions": "Define a function called greet that takes a name as a parameter.\nIt should print: Hello, <name>!\n\nCall it with greet(\"Alex\").",
+      "starter_code": "function greet(name) {\n  // Write your code here\n}\n\ngreet(\"Alex\");\n",
+      "expected_output": "Hello, Alex!",
+      "hints": "Use console.log(`Hello, ${name}!`) inside the function.",
+      "display_order": 1
+    },
+    {
+      "title": "Add Function",
+      "question_type": "write_code",
+      "instructions": "Write a function called add(a, b) that returns the sum of two numbers.\nCall it with add(15, 27) and print the result.",
+      "starter_code": "function add(a, b) {\n  // Return the sum\n}\n\nconsole.log(add(15, 27));\n",
+      "expected_output": "42",
+      "hints": "Use return a + b",
+      "display_order": 2
+    }
+  ]
+}

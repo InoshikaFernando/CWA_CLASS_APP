@@ -1,0 +1,26 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "loops",
+  "level": "intermediate",
+  "exercises": [
+    {
+      "title": "Sum of an Array",
+      "question_type": "write_code",
+      "instructions": "Given numbers = [4, 8, 15, 16, 23, 42], use a loop to calculate the total.\nPrint the total.",
+      "starter_code": "let numbers = [4, 8, 15, 16, 23, 42];\nlet total = 0;\n\n// Loop and sum\n\nconsole.log(total);\n",
+      "expected_output": "108",
+      "hints": "Add each number to total inside the loop.",
+      "display_order": 1
+    },
+    {
+      "title": "Countdown Loop",
+      "question_type": "write_code",
+      "instructions": "Print a countdown from 10 to 1, each on a new line.",
+      "starter_code": "// Print countdown\n",
+      "expected_output": "10\n9\n8\n7\n6\n5\n4\n3\n2\n1",
+      "hints": "Use a for loop: for (let i = 10; i >= 1; i--)",
+      "display_order": 2
+    }
+  ]
+}

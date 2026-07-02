@@ -1,0 +1,107 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "variables-data-types",
+  "level": "intermediate",
+  "exercises": [
+    {
+      "title": "Conversion: String to Number",
+      "question_type": "write_code",
+      "instructions": "Given s = '42', convert it to a number, add 8, and print the result.",
+      "starter_code": "let s = \"42\";\nlet n = Number(?);\nconsole.log(n + ?);\n",
+      "expected_output": "50",
+      "hints": "Number(s) converts a numeric string to a number",
+      "display_order": 1
+    },
+    {
+      "title": "Conversion: Number to String",
+      "question_type": "write_code",
+      "instructions": "Given age = 15, print 'Age: 15' by converting age to a string and concatenating.",
+      "starter_code": "let age = 15;\nconsole.log(\"Age: \" + String(?));\n",
+      "expected_output": "Age: 15",
+      "hints": "String(age) converts the number to text",
+      "display_order": 2
+    },
+    {
+      "title": "Type Inspector",
+      "question_type": "write_code",
+      "instructions": "Create four variables:\n- a number called age (value: 16)\n- a number called height (value: 1.75)\n- a string called city (value: \"Auckland\")\n- a boolean called isStudent (value: true)\n\nPrint the type of each variable (using typeof) on a separate line.",
+      "starter_code": "// Create your variables here\n\n\n// Print each type with typeof\n",
+      "expected_output": "number\nnumber\nstring\nboolean",
+      "hints": "Use typeof: console.log(typeof age). JavaScript has one number type for ints and decimals.",
+      "display_order": 3
+    },
+    {
+      "title": "Conversion: Decimal to Integer",
+      "question_type": "write_code",
+      "instructions": "Given price = 9.8, convert to an integer (truncate toward zero) and print it.",
+      "starter_code": "let price = 9.8;\nconsole.log(Math.trunc(?));\n",
+      "expected_output": "9",
+      "hints": "Math.trunc() drops the decimal part",
+      "display_order": 4
+    },
+    {
+      "title": "Operator: Integer Division",
+      "question_type": "write_code",
+      "instructions": "Given a = 17 and b = 5, print the integer (floor) division of a by b.",
+      "starter_code": "let a = 17;\nlet b = 5;\nconsole.log(Math.floor(a ? b));\n",
+      "expected_output": "3",
+      "hints": "JavaScript has no // operator — use Math.floor(a / b)",
+      "display_order": 5
+    },
+    {
+      "title": "Operator: Modulo",
+      "question_type": "write_code",
+      "instructions": "Given a = 17 and b = 5, print the remainder of a divided by b.",
+      "starter_code": "let a = 17;\nlet b = 5;\nconsole.log(a ? b);\n",
+      "expected_output": "2",
+      "hints": "% returns the remainder",
+      "display_order": 6
+    },
+    {
+      "title": "Temperature Converter",
+      "question_type": "write_code",
+      "instructions": "Given celsius = 25, convert it to Fahrenheit using the formula: F = (C * 9/5) + 32.\nPrint the result as: 25°C is 77.0°F",
+      "starter_code": "let celsius = 25;\n\n// Calculate and print\n",
+      "expected_output": "25°C is 77.0°F",
+      "hints": "Use a template literal and .toFixed(1) to show one decimal place.",
+      "display_order": 7
+    },
+    {
+      "title": "String Formatting: Template Literal",
+      "question_type": "write_code",
+      "instructions": "Given name = 'Mia' and score = 95, print 'Mia scored 95' using a template literal.",
+      "starter_code": "let name = \"Mia\";\nlet score = 95;\nconsole.log(`${?} scored ${?}`);\n",
+      "expected_output": "Mia scored 95",
+      "hints": "Inside a template literal (backticks), put variables inside ${ }",
+      "display_order": 8
+    },
+    {
+      "title": "Multiple Assignment",
+      "question_type": "write_code",
+      "instructions": "Assign a, b, c = 1, 2, 3 in a single line using array destructuring, then print their sum.",
+      "starter_code": "let [a, b, c] = [?, ?, ?];\nconsole.log(a + b + c);\n",
+      "expected_output": "6",
+      "hints": "JavaScript unpacks the array [1, 2, 3] into a, b, c via destructuring",
+      "display_order": 9
+    },
+    {
+      "title": "Swap Two Variables",
+      "question_type": "write_code",
+      "instructions": "Given a = 1 and b = 2, swap them using array destructuring and print 'a=2 b=1'.",
+      "starter_code": "let a = 1;\nlet b = 2;\n[a, b] = [?, ?];\nconsole.log(`a=${a} b=${b}`);\n",
+      "expected_output": "a=2 b=1",
+      "hints": "Write [a, b] = [b, a] — swaps without a temp variable",
+      "display_order": 10
+    },
+    {
+      "title": "Augmented Assignment",
+      "question_type": "write_code",
+      "instructions": "Start with total = 10 and add 5 using +=, then print total.",
+      "starter_code": "let total = 10;\ntotal ?= 5;\nconsole.log(total);\n",
+      "expected_output": "15",
+      "hints": "+= adds the right-hand side in place",
+      "display_order": 11
+    }
+  ]
+}
