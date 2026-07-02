@@ -12,7 +12,7 @@ and fix errors before submitting the whole homework.
 {% endcomment %}
 {% with ex=ctx.exercise %}
 <p class="text-gray-900 font-medium mb-2">{{ ex.title }}</p>
-<p class="text-sm text-gray-600 mb-3 whitespace-pre-line">{{ ex.description }}</p>
+<p class="text-sm text-gray-600 mb-3 whitespace-pre-wrap">{{ ex.description }}</p>
 
 <div class="flex flex-wrap gap-2 text-xs mb-3">
   <span class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{{ ctx.language.name }}</span>
