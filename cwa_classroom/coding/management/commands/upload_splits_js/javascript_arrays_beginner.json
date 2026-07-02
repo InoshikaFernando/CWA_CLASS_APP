@@ -1,0 +1,26 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "arrays",
+  "level": "beginner",
+  "exercises": [
+    {
+      "title": "Create and Print an Array",
+      "question_type": "write_code",
+      "instructions": "Create an array called fruits containing these 5 items, in order:\n\"apple\", \"banana\", \"cherry\", \"date\", \"elder\".\nThen print it using JSON.stringify().",
+      "starter_code": "let fruits = [];\n\n// Add the fruits and print with JSON.stringify\n",
+      "expected_output": "[\"apple\",\"banana\",\"cherry\",\"date\",\"elder\"]",
+      "hints": "Build the array, then console.log(JSON.stringify(fruits)).",
+      "display_order": 1
+    },
+    {
+      "title": "Access Array Elements",
+      "question_type": "write_code",
+      "instructions": "Given numbers = [10, 20, 30, 40, 50], print the first, third, and last elements.",
+      "starter_code": "let numbers = [10, 20, 30, 40, 50];\n\n// Print first, third, and last\n",
+      "expected_output": "10\n30\n50",
+      "hints": "Use indices: numbers[0], numbers[2], numbers[numbers.length - 1]",
+      "display_order": 2
+    }
+  ]
+}

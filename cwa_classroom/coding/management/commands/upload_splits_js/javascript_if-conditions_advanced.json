@@ -1,0 +1,95 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "if-conditions",
+  "level": "advanced",
+  "exercises": [
+    {
+      "title": "Nested If: Admin Panel",
+      "question_type": "write_code",
+      "instructions": "If the user is logged in AND also an admin, print 'Admin panel'. Use nested ifs (not &&).",
+      "starter_code": "let loggedIn = true;\nlet isAdmin = true;\nif (loggedIn) {\n  if (?) {\n    console.log(?);\n  }\n}\n",
+      "expected_output": "Admin panel",
+      "hints": "Place the second if inside the first if's block",
+      "display_order": 1
+    },
+    {
+      "title": "Nested If: Positive and Even",
+      "question_type": "write_code",
+      "instructions": "Given num = 8, first check that num is positive; if so, check whether it is even and print 'Positive even' or 'Positive odd'.",
+      "starter_code": "let num = 8;\nif (num > 0) {\n  if (num % 2 === 0) {\n    console.log(?);\n  } else {\n    console.log(?);\n  }\n}\n",
+      "expected_output": "Positive even",
+      "hints": "The inner if/else only runs when the outer condition is true",
+      "display_order": 2
+    },
+    {
+      "title": "Nested If: Login Flow",
+      "question_type": "write_code",
+      "instructions": "Given username = 'admin' and password = 'secret', print 'Welcome admin' only when both match. Otherwise print 'Access denied'. Use nested ifs.",
+      "starter_code": "let username = \"admin\";\nlet password = \"secret\";\nif (username === \"admin\") {\n  if (password === ?) {\n    console.log(?);\n  } else {\n    console.log(?);\n  }\n} else {\n  console.log(\"Access denied\");\n}\n",
+      "expected_output": "Welcome admin",
+      "hints": "Check username in the outer if, then password in the inner if",
+      "display_order": 3
+    },
+    {
+      "title": "Nested If: Ticket Pricing",
+      "question_type": "write_code",
+      "instructions": "Given age = 30 and isMember = true, print 10 if adult member, 15 if adult non-member, 5 if child member, 7 if child non-member. 'Adult' means age >= 18.",
+      "starter_code": "let age = 30;\nlet isMember = true;\nif (age >= 18) {\n  if (isMember) {\n    console.log(?);\n  } else {\n    console.log(?);\n  }\n} else {\n  if (isMember) {\n    console.log(?);\n  } else {\n    console.log(?);\n  }\n}\n",
+      "expected_output": "10",
+      "hints": "Outer if splits adult/child, inner if splits member/non-member",
+      "display_order": 4
+    },
+    {
+      "title": "Nested If: Triangle Classifier",
+      "question_type": "write_code",
+      "instructions": "Given a = 5, b = 5, c = 5, first check the triangle is valid (a+b>c and a+c>b and b+c>a). If valid, classify it as 'Equilateral', 'Isosceles', or 'Scalene' with nested ifs.",
+      "starter_code": "let a = 5, b = 5, c = 5;\nif (a + b > c && a + c > b && b + c > a) {\n  if (a === b && b === c) {\n    console.log(?);\n  } else {\n    if (a === b || b === c || a === c) {\n      console.log(?);\n    } else {\n      console.log(?);\n    }\n  }\n} else {\n  console.log(\"Not a triangle\");\n}\n",
+      "expected_output": "Equilateral",
+      "hints": "The innermost if handles Isosceles vs Scalene",
+      "display_order": 5
+    },
+    {
+      "title": "Nested If: Leap Year",
+      "question_type": "write_code",
+      "instructions": "Given year = 2000, print 'Leap' if it is a leap year, otherwise 'Not leap'. Rule: divisible by 4; if divisible by 100 it must also be divisible by 400. Use nested ifs (no &&).",
+      "starter_code": "let year = 2000;\nif (year % 4 === 0) {\n  if (year % 100 === 0) {\n    if (year % 400 === 0) {\n      console.log(?);\n    } else {\n      console.log(?);\n    }\n  } else {\n    console.log(\"Leap\");\n  }\n} else {\n  console.log(\"Not leap\");\n}\n",
+      "expected_output": "Leap",
+      "hints": "Three levels of nesting handle the /4, /100, /400 rules in order",
+      "display_order": 6
+    },
+    {
+      "title": "Leap Year",
+      "question_type": "write_code",
+      "instructions": "Given year = 2024, determine if it is a leap year.\nA year is a leap year if:\n- It is divisible by 4 AND\n- It is NOT divisible by 100, OR it IS divisible by 400\n\nPrint \"Leap year\" or \"Not a leap year\".",
+      "starter_code": "let year = 2024;\n\n// Check and print\n",
+      "expected_output": "Leap year",
+      "hints": "Use the % (modulo) operator. Combine conditions with && and ||.",
+      "display_order": 7
+    },
+    {
+      "title": "What is the JavaScript ternary (conditional) expression syntax?",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 8,
+      "answers": [
+        {
+          "text": "condition ? valueIfTrue : valueIfFalse",
+          "is_correct": true
+        },
+        {
+          "text": "valueIfTrue if condition else valueIfFalse",
+          "is_correct": false
+        },
+        {
+          "text": "if condition then valueIfTrue else valueIfFalse",
+          "is_correct": false
+        },
+        {
+          "text": "condition && valueIfTrue || valueIfFalse only",
+          "is_correct": false
+        }
+      ]
+    }
+  ]
+}
