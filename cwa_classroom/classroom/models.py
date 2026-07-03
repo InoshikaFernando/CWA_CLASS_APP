@@ -1465,6 +1465,14 @@ class ProgressRecord(models.Model):
         related_name='progress_records',
     )
     criteria = models.ForeignKey(ProgressCriteria, on_delete=models.CASCADE, related_name='records')
+    # Progress is tracked per class: a student in two classes has independent
+    # records. Null = legacy/class-less record from before per-class tracking.
+    classroom = models.ForeignKey(
+        ClassRoom, on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='progress_records',
+        help_text='The class this progress was recorded for. Null = legacy record.',
+    )
     session = models.ForeignKey(
         ClassSession,
         on_delete=models.SET_NULL,
@@ -1485,7 +1493,7 @@ class ProgressRecord(models.Model):
 
     class Meta:
         ordering = ['-recorded_at']
-        unique_together = ('student', 'criteria', 'session')
+        unique_together = ('student', 'criteria', 'classroom', 'session')
 
     def __str__(self):
         return f'{self.student.username} — {self.criteria.name} ({self.status})'

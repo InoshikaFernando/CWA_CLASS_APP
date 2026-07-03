@@ -351,6 +351,20 @@ block('if-conditions', 'beginner', [
        'let isRaining = true;\nif (?) {\n  console.log(?);\n}\n',
        'Take an umbrella',
        'A boolean variable can be used directly as the condition', 10),
+    mcq('What is the output of:\nlet x = 5;\nif (x > 3) {\n  console.log("big");\n} else {\n  console.log("small");\n}',
+        [('big', True), ('small', False), ('5', False), ('nothing', False)], 11),
+    mcq('Which is the strict equality operator in JavaScript?',
+        [('===', True), ('=', False), ('==', False), ('!=', False)], 12),
+    mcq('What is the output of:\nlet age = 15;\nif (age >= 18) {\n  console.log("adult");\n} else {\n  console.log("minor");\n}',
+        [('minor', True), ('adult', False), ('15', False), ('nothing', False)], 13),
+    mcq('When does the code inside an if block run?',
+        [('Only when the condition is true', True),
+         ('Always, no matter what', False),
+         ('Only when the condition is false', False),
+         ('Never', False)], 14),
+    mcq('What is the output of:\nlet colour = "red";\nif (colour === "green") {\n  console.log("go");\n} else {\n  console.log("stop");\n}',
+        [('stop', True), ('go', False), ('red', False), ('nothing', False)], 15),
+    tf('In JavaScript, = and === mean the same thing.', False, 16),
 ])
 
 block('if-conditions', 'intermediate', [
@@ -406,6 +420,23 @@ block('if-conditions', 'intermediate', [
        'let day = "Sun";\nif (day === "Sat" ? day === "Sun") {\n  console.log(?);\n} else {\n  console.log(?);\n}\n',
        'Weekend',
        'Use the || operator between the two equality checks', 10),
+    mcq('What is the output of:\nlet score = 75;\nif (score >= 90) {\n  console.log("A");\n} else if (score >= 70) {\n  console.log("B");\n} else {\n  console.log("C");\n}',
+        [('B', True), ('A', False), ('C', False), ('nothing', False)], 11),
+    mcq('What is the output of:\nlet x = 5;\nif (x > 0 && x < 10) {\n  console.log("in range");\n} else {\n  console.log("out");\n}',
+        [('in range', True), ('out', False), ('5', False), ('nothing', False)], 12),
+    mcq('The && (AND) operator returns true when...',
+        [('both conditions are true', True),
+         ('at least one condition is true', False),
+         ('neither condition is true', False),
+         ('always, regardless of the conditions', False)], 13),
+    mcq('What is the output of:\nlet day = "Sun";\nif (day === "Sat" || day === "Sun") {\n  console.log("weekend");\n} else {\n  console.log("weekday");\n}',
+        [('weekend', True), ('weekday', False), ('Sun', False), ('nothing', False)], 14),
+    mcq('What does the ! (NOT) operator do to a boolean?',
+        [('Reverses it — true becomes false', True),
+         ('Leaves it unchanged', False),
+         ('Turns it into a number', False),
+         ('Always makes it true', False)], 15),
+    tf('The || (OR) operator needs BOTH conditions to be true.', False, 16),
 ])
 
 block('if-conditions', 'advanced', [
@@ -453,6 +484,14 @@ block('if-conditions', 'advanced', [
          ('valueIfTrue if condition else valueIfFalse', False),
          ('if condition then valueIfTrue else valueIfFalse', False),
          ('condition && valueIfTrue || valueIfFalse only', False)], 8),
+    mcq('Which of these values is falsy in JavaScript?',
+        [('0', True), ('1', False), ('"false"', False), ('[]', False)], 9),
+    mcq('What is the output of:\nif ("") {\n  console.log("yes");\n} else {\n  console.log("no");\n}',
+        [('no', True), ('yes', False), ('""', False), ('nothing', False)], 10),
+    mcq('What is the result of the comparison 1 === "1"?',
+        [('false', True), ('true', False), ('1', False), ('an error', False)], 11),
+    mcq('What is the output of:\nlet y = (5 > 3) ? "yes" : "no";\nconsole.log(y);',
+        [('yes', True), ('no', False), ('true', False), ('5 > 3', False)], 12),
 ])
 
 # ===========================================================================

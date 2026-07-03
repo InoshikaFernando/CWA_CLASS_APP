@@ -133,31 +133,20 @@ def _order_records_hierarchically(recs):
     return ordered
 
 
-def _build_student_progress(student):
-    """Build a student's progress grouped by (subject, level) plus overall counts.
+# Sentinel for _latest_progress_records: "across all classes" (vs a specific
+# ClassRoom, or None = legacy class-less records).
+_ALL_CLASSES = object()
 
-    Returns ``(grouped_progress, overall)`` where ``grouped_progress`` is a
-    sorted list of group dicts and ``overall`` is a summary-counts dict. Shared
-    by the on-screen progress view and the generated report.
+
+def _group_records(records):
+    """Group latest ProgressRecords by (subject, level) → (grouped_progress, overall).
+
+    ``achieved`` counts the proficient bucket (Confident + Advanced); ``in_progress``
+    the developing bucket (Beginning + Developing). See §12.7.
     """
-    latest_ids_qs = (
-        ProgressRecord.objects
-        .filter(student=student)
-        .values('criteria_id')
-        .annotate(latest_id=Max('id'))
-    )
-    latest_ids = [r['latest_id'] for r in latest_ids_qs]
-
-    records = (
-        ProgressRecord.objects
-        .filter(id__in=latest_ids)
-        .select_related('criteria__subject', 'criteria__level', 'recorded_by')
-        .order_by(
-            'criteria__subject__name',
-            'criteria__level__level_number',
-            'criteria__order',
-        )
-    )
+    _PROFICIENT = ProgressRecord.PROFICIENT_STATUSES
+    _DEVELOPING = ProgressRecord.DEVELOPING_STATUSES
+    records = list(records)
 
     grouped = {}
     for record in records:
@@ -170,17 +159,10 @@ def _build_student_progress(student):
             }
         grouped[key]['records'].append(record)
 
-    # 'achieved' = proficient bucket (Confident + Advanced); 'in_progress' =
-    # developing bucket (Beginning + Developing). See §12.7.
-    _PROFICIENT = ProgressRecord.PROFICIENT_STATUSES
-    _DEVELOPING = ProgressRecord.DEVELOPING_STATUSES
-
     for group_data in grouped.values():
         recs = group_data['records']
         group_data['total'] = len(recs)
         group_data['achieved'] = sum(1 for r in recs if r.status in _PROFICIENT)
-        # Reorder so each parent criterion is followed by its own sub-criteria
-        # (indented via record.is_child), instead of a flat interleaved list.
         group_data['records'] = _order_records_hierarchically(recs)
 
     grouped_progress = sorted(
@@ -191,14 +173,65 @@ def _build_student_progress(student):
             g['level'].level_number if g['level'] else -1,
         ),
     )
-
     overall = {
-        'total': len(latest_ids),
+        'total': len(records),
         'achieved': sum(1 for r in records if r.status in _PROFICIENT),
         'in_progress': sum(1 for r in records if r.status in _DEVELOPING),
         'not_started': sum(1 for r in records if r.status == 'not_started'),
     }
     return grouped_progress, overall
+
+
+def _latest_progress_records(student, classroom=_ALL_CLASSES):
+    """Latest ProgressRecord per criterion for ``student``.
+
+    ``classroom``: a ClassRoom → that class only; ``None`` → legacy class-less
+    records (classroom IS NULL); ``_ALL_CLASSES`` (default) → across all classes.
+    """
+    qs = ProgressRecord.objects.filter(student=student)
+    if classroom is None:
+        qs = qs.filter(classroom__isnull=True)
+    elif classroom is not _ALL_CLASSES:
+        qs = qs.filter(classroom=classroom)
+    latest_ids = list(
+        qs.values('criteria_id').annotate(latest=Max('id')).values_list('latest', flat=True)
+    )
+    return (
+        ProgressRecord.objects
+        .filter(id__in=latest_ids)
+        .select_related('criteria__subject', 'criteria__level', 'recorded_by')
+        .order_by('criteria__subject__name', 'criteria__level__level_number', 'criteria__order')
+    )
+
+
+def _build_student_progress(student, classroom=_ALL_CLASSES):
+    """(grouped_progress, overall) — all classes (default), one class, or legacy
+    class-less records (classroom=None). Progress is tracked per class (§12.10)."""
+    return _group_records(_latest_progress_records(student, classroom))
+
+
+def _build_student_progress_by_class(student):
+    """Per-class progress sections for the student's own page + parent view —
+    one section per class the student is in, plus a 'General' section for any
+    legacy class-less records. Each section: {classroom, grouped_progress, overall}."""
+    class_ids = list(
+        ClassStudent.objects.filter(student=student, is_active=True)
+        .values_list('classroom_id', flat=True)
+    )
+    classes = (
+        ClassRoom.objects.filter(id__in=class_ids)
+        .select_related('subject').order_by('name')
+    )
+    sections = []
+    for cls in classes:
+        gp, ov = _build_student_progress(student, cls)
+        if ov['total']:
+            sections.append({'classroom': cls, 'grouped_progress': gp, 'overall': ov})
+    # Legacy class-less records (from before per-class tracking) → 'General'.
+    gp, ov = _build_student_progress(student, classroom=None)
+    if ov['total']:
+        sections.append({'classroom': None, 'grouped_progress': gp, 'overall': ov})
+    return sections
 
 
 def _build_hierarchical_criteria(criteria_qs):
@@ -844,6 +877,7 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 record, created = ProgressRecord.objects.get_or_create(
                     student=student,
                     criteria=crit,
+                    classroom=classroom,
                     session=None,
                     defaults={
                         'status': new_status,
@@ -919,7 +953,10 @@ class StudentProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
         from accounts.models import CustomUser
         student = get_object_or_404(CustomUser, pk=student_id)
 
-        grouped_progress, overall = _build_student_progress(student)
+        # Progress is tracked per class (§12.10): show a section per class, plus
+        # an aggregate 'overall' across classes for the summary cards.
+        progress_sections = _build_student_progress_by_class(student)
+        _, overall = _build_student_progress(student)
 
         # ── Teacher comments + report controls ──────────────────────────
         school = _school_for_student(request, student)
@@ -956,7 +993,7 @@ class StudentProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
         return render(request, 'progress/student_progress.html', {
             'student': student,
-            'grouped_progress': grouped_progress,
+            'progress_sections': progress_sections,
             'overall': overall,
             'school': school,
             'can_comment': can_comment,
@@ -1429,7 +1466,7 @@ class ProgressReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
             include_coding=sel['coding'],
             summary_snapshot=build_summary(student, classroom, **sel),
         )
-        grouped_progress, overall = _build_student_progress(student)
+        grouped_progress, overall = _build_student_progress(student, classroom or _ALL_CLASSES)
         return render(request, 'progress/report_preview.html', {
             'report': report, 'student': student, 'school': school,
             'grouped_progress': grouped_progress, 'overall': overall,
@@ -1446,7 +1483,9 @@ class ProgressReportDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):
             ProgressReport.objects.select_related('student', 'school', 'term', 'sent_by'),
             pk=report_id,
         )
-        grouped_progress, overall = _build_student_progress(report.student)
+        grouped_progress, overall = _build_student_progress(
+            report.student, report.classroom or _ALL_CLASSES,
+        )
 
         comments = ProgressReportComment.objects.filter(
             student=report.student, school=report.school,
@@ -1481,7 +1520,9 @@ class ProgressReportSendView(RoleRequiredMixin, ModuleRequiredMixin, View):
         student = report.student
         school = report.school
 
-        grouped_progress, overall = _build_student_progress(student)
+        grouped_progress, overall = _build_student_progress(
+            student, report.classroom or _ALL_CLASSES,
+        )
         comments = ProgressReportComment.objects.filter(
             student=student, school=school,
         ).select_related('term', 'subject', 'created_by')

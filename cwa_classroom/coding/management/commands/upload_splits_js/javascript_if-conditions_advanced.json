@@ -90,6 +90,102 @@
           "is_correct": false
         }
       ]
+    },
+    {
+      "title": "Which of these values is falsy in JavaScript?",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 9,
+      "answers": [
+        {
+          "text": "0",
+          "is_correct": true
+        },
+        {
+          "text": "1",
+          "is_correct": false
+        },
+        {
+          "text": "\"false\"",
+          "is_correct": false
+        },
+        {
+          "text": "[]",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "title": "What is the output of:\nif (\"\") {\n  console.log(\"yes\");\n} else {\n  console.log(\"no\");\n}",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 10,
+      "answers": [
+        {
+          "text": "no",
+          "is_correct": true
+        },
+        {
+          "text": "yes",
+          "is_correct": false
+        },
+        {
+          "text": "\"\"",
+          "is_correct": false
+        },
+        {
+          "text": "nothing",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "title": "What is the result of the comparison 1 === \"1\"?",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 11,
+      "answers": [
+        {
+          "text": "false",
+          "is_correct": true
+        },
+        {
+          "text": "true",
+          "is_correct": false
+        },
+        {
+          "text": "1",
+          "is_correct": false
+        },
+        {
+          "text": "an error",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "title": "What is the output of:\nlet y = (5 > 3) ? \"yes\" : \"no\";\nconsole.log(y);",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 12,
+      "answers": [
+        {
+          "text": "yes",
+          "is_correct": true
+        },
+        {
+          "text": "no",
+          "is_correct": false
+        },
+        {
+          "text": "true",
+          "is_correct": false
+        },
+        {
+          "text": "5 > 3",
+          "is_correct": false
+        }
+      ]
     }
   ]
 }

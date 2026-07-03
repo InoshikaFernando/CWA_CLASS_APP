@@ -982,3 +982,71 @@ class ReportFilterDeptScopeTest(_BaseAttendanceProgressTest):
         it_names = [s.name for s in self.client.get(
             self._url(department=self.it_dept.id)).context['subjects']]
         self.assertIn('Robotics', it_names)
+
+
+# ---------------------------------------------------------------------------
+# 9. ProgressPerClassTest  (progress tracked independently per class — §12.10)
+# ---------------------------------------------------------------------------
+
+class ProgressPerClassTest(_BaseAttendanceProgressTest):
+    """A student in two classes has independent progress; reports scope to a
+    class; the reassign command moves legacy class-less records."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        # A second class (same subject/level) the student is also in.
+        cls.classroom2 = _create_classroom(cls.school, cls.department, cls.subject, 'Maths 202')
+        cls.classroom2.levels.add(cls.level)
+        ClassTeacher.objects.create(classroom=cls.classroom2, teacher=cls.teacher_user)
+        ClassStudent.objects.create(classroom=cls.classroom2, student=cls.student_user, is_active=True)
+        cls.crit = ProgressCriteria.objects.create(
+            school=cls.school, subject=cls.subject, level=cls.level,
+            name='Adds fractions', status='approved',
+            created_by=cls.teacher_user, approved_by=cls.teacher_user,
+        )
+
+    def _login(self):
+        self.client.force_login(self.teacher_user)
+        s = self.client.session
+        s['current_school_id'] = self.school.id
+        s.save()
+
+    def test_recording_is_independent_per_class(self):
+        self._login()
+        # Record 'advanced' in class 1, 'developing' in class 2 — same criterion.
+        self.client.post(reverse('record_progress', kwargs={'class_id': self.classroom.id}),
+                         {f'status_{self.student_user.id}_{self.crit.id}': 'advanced'})
+        self.client.post(reverse('record_progress', kwargs={'class_id': self.classroom2.id}),
+                         {f'status_{self.student_user.id}_{self.crit.id}': 'developing'})
+        r1 = ProgressRecord.objects.get(student=self.student_user, criteria=self.crit, classroom=self.classroom)
+        r2 = ProgressRecord.objects.get(student=self.student_user, criteria=self.crit, classroom=self.classroom2)
+        self.assertEqual(r1.status, 'advanced')
+        self.assertEqual(r2.status, 'developing')
+
+    def test_student_page_sections_per_class(self):
+        from classroom.views_progress import _build_student_progress_by_class
+        ProgressRecord.objects.create(student=self.student_user, criteria=self.crit,
+                                      classroom=self.classroom, status='advanced',
+                                      recorded_by=self.teacher_user)
+        ProgressRecord.objects.create(student=self.student_user, criteria=self.crit,
+                                      classroom=self.classroom2, status='not_started',
+                                      recorded_by=self.teacher_user)
+        sections = _build_student_progress_by_class(self.student_user)
+        by_class = {s['classroom'].id: s['overall'] for s in sections if s['classroom']}
+        self.assertEqual(by_class[self.classroom.id]['achieved'], 1)      # advanced
+        self.assertEqual(by_class[self.classroom2.id]['achieved'], 0)     # not_started
+
+    def test_reassign_command_moves_legacy_records(self):
+        from django.core.management import call_command
+        # A legacy class-less record.
+        ProgressRecord.objects.create(student=self.student_user, criteria=self.crit,
+                                      classroom=None, status='confident',
+                                      recorded_by=self.teacher_user)
+        call_command('reassign_progress_records', '--student', str(self.student_user.id),
+                     '--classroom', str(self.classroom.id))
+        self.assertFalse(
+            ProgressRecord.objects.filter(student=self.student_user, classroom__isnull=True).exists()
+        )
+        moved = ProgressRecord.objects.get(student=self.student_user, criteria=self.crit)
+        self.assertEqual(moved.classroom, self.classroom)
