@@ -154,6 +154,17 @@ class TrialExpiryMiddleware:
 
             return self.get_response(request)
 
+        # Personal subscription enforcement for non-individual roles.
+        # School students and parents who self-pay hold their OWN recurring
+        # Subscription; a failed/lost card leaves it past_due. Without this check
+        # the delinquent personal sub was ignored — only the school sub was
+        # inspected below — so a self-paying student kept full access by riding
+        # their school's active plan. A 100%-discount sub stays active (not
+        # delinquent) and is never blocked here.
+        personal_redirect = self._check_personal_subscription(request)
+        if personal_redirect:
+            return personal_redirect
+
         # Institute subscription expiry
         if self._is_institute_user(request.user):
             redirect_response = self._check_institute_subscription(request)
@@ -191,6 +202,40 @@ class TrialExpiryMiddleware:
             if not self._is_allowed_path(request.path):
                 return redirect('institute_trial_expired')
 
+        return None
+
+    def _check_personal_subscription(self, request):
+        """Block a self-paying user whose OWN recurring subscription is delinquent.
+
+        Targets school students / parents who self-pay via a personal
+        ``billing.Subscription`` (e.g. the per-student monthly plan). Individual
+        students are handled by their dedicated branch above and never reach here.
+
+        Scope is limited to the self-paying roles (STUDENT, PARENT) on purpose:
+        staff (teachers/HoD/HoI/accountant) and superusers must NOT be locked out
+        of running their school by a stale personal sub they may hold.
+
+        Rules:
+          - Not a self-paying role, or no personal subscription → None (they ride
+            the school plan; the school-subscription check below still applies).
+          - active / trialing (incl. an active 100%-discount free sub) → allowed.
+          - past_due / expired / cancelled → redirect to the payment wall, unless
+            already on an allowed billing path.
+        """
+        from accounts.models import Role
+        from billing.models import Subscription
+
+        user = request.user
+        if not (user.has_role(Role.STUDENT) or user.has_role(Role.PARENT)):
+            return None
+        try:
+            sub = user.subscription
+        except Subscription.DoesNotExist:
+            return None
+        if sub.is_active_or_trialing:
+            return None
+        if not self._is_allowed_path(request.path):
+            return redirect('trial_expired')
         return None
 
     @staticmethod
