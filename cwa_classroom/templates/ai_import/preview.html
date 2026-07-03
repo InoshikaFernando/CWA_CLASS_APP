@@ -188,13 +188,20 @@
               </div>
               <div>
                 <label class="block text-xs font-semibold text-gray-500 mb-1">Image</label>
-                <select name="q_{{ forloop.counter0 }}_image_ref"
+                <select name="q_{{ forloop.counter0 }}_image_ref" id="img-ref-{{ forloop.counter0 }}"
                         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm image-ref-select">
                   <option value="none">No Image</option>
                   {% for img in image_list %}
                   <option value="{{ img.ref }}" {% if q.image_ref == img.ref %}selected{% endif %}>{{ img.name }}</option>
                   {% endfor %}
                 </select>
+                <button type="button" class="mt-1 text-xs text-indigo-600 hover:underline font-medium"
+                        data-adjust="{{ forloop.counter0 }}" data-page="{{ q.image_page }}"
+                        data-frac="{{ q.image_bbox_frac_json }}">✥ Adjust / crop from page</button>
+                <div id="img-wrap-{{ forloop.counter0 }}" class="hidden mt-1">
+                  <img id="img-preview-{{ forloop.counter0 }}" alt="Crop preview"
+                       class="max-h-40 rounded border border-gray-200 object-contain bg-white">
+                </div>
               </div>
             </div>
 
@@ -487,4 +494,8 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 </script>
+
+{% url 'ai_import:pdf_page_image' session.pk as adj_page_url %}
+{% url 'ai_import:pdf_recrop' session.pk as adj_recrop_url %}
+{% include 'partials/_adjust_image_modal.html' with page_url=adj_page_url recrop_url=adj_recrop_url %}
 {% endblock %}

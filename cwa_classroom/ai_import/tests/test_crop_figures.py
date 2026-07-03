@@ -31,9 +31,11 @@ class CropFigureBoxesTests(SimpleTestCase):
         ref = q['image_ref']
         self.assertIn(ref, crops)
         self.assertTrue(ref.endswith('.png'))
-        # Transient locator fields must not survive onto the question.
+        # The transient % box locator is cleared, but the page + normalised box
+        # are kept as crop provenance for the "Adjust image" re-crop tool.
         self.assertNotIn('image_box', q)
-        self.assertNotIn('image_page', q)
+        self.assertEqual(q['image_page'], 1)
+        self.assertEqual(q['image_bbox_frac'], [0.0, 0.0, 0.5, 1.0])
         # The crop is the left half: 100x100.
         img = Image.open(io.BytesIO(base64.b64decode(crops[ref])))
         self.assertEqual(img.size, (100, 100))
