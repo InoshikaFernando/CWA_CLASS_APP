@@ -80,12 +80,21 @@ def parent_with_progress_child(db, school, roles, admin_user, progress_school_se
     A parent linked to a student enrolled in the school.
     Returns (parent_user, student_user).
     """
+    import datetime as _dt
     from accounts.models import Role
-    from classroom.models import SchoolStudent, ParentStudent
+    from classroom.models import SchoolStudent, ParentStudent, ClassRoom, ClassStudent
 
+    subj, lvl, *_ = progress_school_setup
     student = _make_user("ui_prog_student", Role.STUDENT,
                          first_name="Leo", last_name="Learner")
     SchoolStudent.objects.get_or_create(school=school, student=student)
+    # Progress is tracked per class (§12.10) — enrol the student in a matching class.
+    classroom = ClassRoom.objects.create(
+        name="Reading Class", school=school, subject=subj,
+        start_time=_dt.time(9, 0), end_time=_dt.time(10, 0),
+    )
+    classroom.levels.add(lvl)
+    ClassStudent.objects.create(classroom=classroom, student=student, is_active=True)
     parent = _make_user("ui_prog_parent", Role.PARENT,
                         first_name="Mary", last_name="Parent")
     ParentStudent.objects.create(
@@ -103,14 +112,16 @@ def parent_with_achieved_record(db, parent_with_progress_child, progress_school_
     """
     Add an 'achieved' ProgressRecord for criteria_1 and an 'in_progress' for criteria_2.
     """
-    from classroom.models import ProgressRecord
+    from classroom.models import ProgressRecord, ClassStudent
 
     parent, student = parent_with_progress_child
     _, _, c1, c2, _ = progress_school_setup
+    classroom = ClassStudent.objects.get(student=student, is_active=True).classroom
 
     ProgressRecord.objects.create(
         student=student,
         criteria=c1,
+        classroom=classroom,
         status="advanced",
         recorded_by=admin_user,
         notes="Well done!",
@@ -118,6 +129,7 @@ def parent_with_achieved_record(db, parent_with_progress_child, progress_school_
     ProgressRecord.objects.create(
         student=student,
         criteria=c2,
+        classroom=classroom,
         status="developing",
         recorded_by=admin_user,
     )
