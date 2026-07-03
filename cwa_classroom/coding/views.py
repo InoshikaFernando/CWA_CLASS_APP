@@ -1,5 +1,3 @@
-from functools import wraps
-
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
@@ -10,6 +8,7 @@ from django.conf import settings
 
 import logging
 
+from accounts.decorators import student_required
 from audit.services import log_event
 from classroom.models import SchoolStudent
 
@@ -26,27 +25,6 @@ from .models import (
 from .scoring import evaluate_submission, score_submission
 
 logger = logging.getLogger(__name__)
-
-
-def student_required(view_func):
-    """Decorator: allow only authenticated students.
-
-    Elevated non-student roles must not accumulate CodingTimeLog records or
-    StudentProblemSubmission rows.
-    """
-    @wraps(view_func)
-    def _wrapped(request, *args, **kwargs):
-        blocked_flags = (
-            'is_teacher',
-            'is_head_of_institute',
-            'is_head_of_department',
-            'is_institute_owner',
-            'is_admin_user',
-        )
-        if any(getattr(request.user, flag, False) for flag in blocked_flags):
-            return redirect('home')
-        return view_func(request, *args, **kwargs)
-    return _wrapped
 
 
 

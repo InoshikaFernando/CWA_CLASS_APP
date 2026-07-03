@@ -60,11 +60,13 @@ def resolve_daily_rate(student, classroom, billing_period_end):
 # ---------------------------------------------------------------------------
 
 def validate_attendance_complete(school, billing_period_start, billing_period_end,
-                                  department=None):
+                                  department=None, classroom=None):
     """
     Checks that all completed sessions have attendance for every enrolled student.
     Returns list of dicts: {session, classroom, missing_students}
     Empty list means all attendance is marked.
+
+    Scoping priority: classroom > department > school-wide.
     """
     sessions_qs = ClassSession.objects.filter(
         classroom__school=school,
@@ -72,7 +74,9 @@ def validate_attendance_complete(school, billing_period_start, billing_period_en
         date__range=(billing_period_start, billing_period_end),
     ).select_related('classroom')
 
-    if department:
+    if classroom:
+        sessions_qs = sessions_qs.filter(classroom=classroom)
+    elif department:
         sessions_qs = sessions_qs.filter(classroom__department=department)
 
     unmarked = []

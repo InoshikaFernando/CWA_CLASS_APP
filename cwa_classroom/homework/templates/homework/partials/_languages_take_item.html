@@ -1,0 +1,117 @@
+{% comment %}
+  Included by the homework take view as:
+    {% include item.template with ctx=item.ctx %}
+  ctx keys: exercise (LanguageExercise), answers (list of LanguageAnswer)
+  All form inputs named  answer_{{ ctx.exercise.id }}  so grade_answer() can find them.
+{% endcomment %}
+
+{% with ex=ctx.exercise answers=ctx.answers %}
+<div class="language-exercise-item bg-white rounded-xl border border-gray-200 p-4"
+     data-exercise-id="{{ ex.id }}"
+     data-exercise-type="{{ ex.exercise_type }}">
+
+  <p class="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">
+    {{ ex.get_exercise_type_display }}
+  </p>
+
+  {% if ex.exercise_type == 'grammar_fill_blank' %}
+    {% comment %}Render sentence with gap{% endcomment %}
+    {% with parts=ex.prompt|cut:"___" %}
+    <p class="text-sm font-semibold text-gray-700 mb-3 leading-relaxed">
+      {{ ex.prompt }}
+    </p>
+    {% endwith %}
+  {% else %}
+    <p class="text-sm font-semibold text-gray-700 mb-3 leading-relaxed">{{ ex.prompt }}</p>
+  {% endif %}
+
+  {% if ex.exercise_type == 'phonics_mcq' or ex.exercise_type == 'spelling_mcq' or ex.exercise_type == 'grammar_fill_blank' %}
+    <div class="space-y-2">
+      {% for answer in answers %}
+      <label class="flex items-center gap-3 p-2.5 rounded-lg border-2 border-gray-200 cursor-pointer hover:border-blue-400 transition-colors">
+        <input type="radio"
+               name="answer_{{ ex.id }}"
+               value="{{ answer.id }}"
+               class="text-blue-600 focus:ring-blue-500">
+        <span class="text-sm text-gray-700">{{ answer.answer_text }}</span>
+      </label>
+      {% endfor %}
+    </div>
+
+  {% elif ex.exercise_type == 'spelling_type' %}
+    <input type="text"
+           name="answer_{{ ex.id }}"
+           class="w-full border-2 border-gray-200 rounded-lg px-4 py-2 text-sm focus:border-blue-400 focus:outline-none"
+           placeholder="Type the word here…"
+           autocomplete="off">
+
+  {% elif ex.exercise_type == 'sentence_order' %}
+    {% with word_order=ex.puzzle_data.word_order %}
+    <p class="text-xs text-gray-500 mb-2">Click words to build the sentence in order:</p>
+    <div class="so-word-bank flex flex-wrap gap-2 mb-2 min-h-10 p-2 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50"
+         id="so_bank_{{ ex.id }}">
+      {% for word in word_order %}
+      <button type="button"
+              class="so-tile px-3 py-1 rounded-lg border border-gray-300 bg-white text-sm font-medium shadow-sm hover:border-blue-400 transition-colors"
+              data-word="{{ word }}"
+              onclick="soMoveToAnswer('{{ ex.id }}', this)">{{ word }}</button>
+      {% endfor %}
+    </div>
+    <div class="so-answer-zone flex flex-wrap gap-2 min-h-10 p-2 rounded-lg border-2 border-dashed border-blue-200 bg-blue-50"
+         id="so_answer_{{ ex.id }}">
+      <span class="text-xs text-gray-400 italic self-center" id="so_ph_{{ ex.id }}">Drop words here</span>
+    </div>
+    <input type="hidden" name="answer_{{ ex.id }}" id="so_input_{{ ex.id }}" value="[]">
+    {% endwith %}
+
+  {% elif ex.exercise_type == 'letter_writing' %}
+    <div class="flex items-center gap-3">
+      <span class="text-5xl font-bold text-gray-200 leading-none select-none">{{ ex.prompt|truncatechars:2 }}</span>
+      <input type="text"
+             name="answer_{{ ex.id }}"
+             class="flex-1 border-2 border-gray-200 rounded-lg px-4 py-2 text-sm focus:border-blue-400 focus:outline-none"
+             placeholder="Type the character…"
+             maxlength="4"
+             autocomplete="off">
+    </div>
+
+  {% else %}
+    <input type="text"
+           name="answer_{{ ex.id }}"
+           class="w-full border-2 border-gray-200 rounded-lg px-4 py-2 text-sm focus:border-blue-400 focus:outline-none"
+           placeholder="Your answer…"
+           autocomplete="off">
+  {% endif %}
+
+</div>
+{% endwith %}
+
+{% comment %}Sentence-order JS helpers (idempotent — safe to include multiple times){% endcomment %}
+<script>
+(function () {
+  if (window._soHelpersLoaded) return;
+  window._soHelpersLoaded = true;
+
+  window.soMoveToAnswer = function (exId, tile) {
+    var zone = document.getElementById('so_answer_' + exId);
+    var ph   = document.getElementById('so_ph_' + exId);
+    zone.appendChild(tile);
+    if (ph) ph.style.display = 'none';
+    soUpdateInput(exId);
+  };
+
+  window.soMoveToBank = function (exId, e) {
+    var tile = e.target.closest('.so-tile');
+    if (!tile) return;
+    var bank = document.getElementById('so_bank_' + exId);
+    bank.appendChild(tile);
+    soUpdateInput(exId);
+  };
+
+  window.soUpdateInput = function (exId) {
+    var zone = document.getElementById('so_answer_' + exId);
+    var words = Array.from(zone.querySelectorAll('.so-tile')).map(function (t) { return t.dataset.word; });
+    document.getElementById('so_input_' + exId).value = JSON.stringify(words);
+  };
+})();
+</script>

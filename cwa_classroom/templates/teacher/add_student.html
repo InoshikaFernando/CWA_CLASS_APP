@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Add New Student — {{ classroom.name }}{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+
+  <!-- Header -->
+  <div class="flex items-center gap-3">
+    <a href="{% url 'class_detail' classroom.id %}"
+       class="text-primary hover:text-primary/80 transition">
+      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+      </svg>
+    </a>
+    <div>
+      <h1 class="font-display text-2xl text-primary">Add New Student</h1>
+      <p class="text-sm text-gray-400 mt-0.5">Creating account &amp; enrolling into <strong>{{ classroom.name }}</strong></p>
+    </div>
+  </div>
+
+  <!-- Messages -->
+  {% if messages %}
+  <div class="space-y-2">
+    {% for msg in messages %}
+    <div class="rounded-lg px-4 py-3 text-sm font-medium
+                {% if msg.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
+                {% else %}bg-emerald-50 text-emerald-700 border border-emerald-200{% endif %}">
+      {{ msg }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Form -->
+  <form method="post" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
+    {% csrf_token %}
+
+    <h2 class="font-bold text-gray-800">Student Details</h2>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">
+          First Name <span class="text-red-500">*</span>
+        </label>
+        <input type="text" name="first_name"
+               value="{{ form_data.first_name|default:'' }}"
+               required
+               class="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1.5">
+          Last Name <span class="text-red-500">*</span>
+        </label>
+        <input type="text" name="last_name"
+               value="{{ form_data.last_name|default:'' }}"
+               required
+               class="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-1.5">
+        Email Address <span class="text-red-500">*</span>
+      </label>
+      <input type="email" name="email"
+             value="{{ form_data.email|default:'' }}"
+             required
+             class="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+    </div>
+
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-1.5">
+        Username <span class="font-normal text-gray-400">(optional — auto-generated from email)</span>
+      </label>
+      <input type="text" name="username"
+             value="{{ form_data.username|default:'' }}"
+             class="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+    </div>
+
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-1.5">
+        Temporary Password <span class="text-red-500">*</span>
+      </label>
+      <input type="text" name="password"
+             required
+             autocomplete="new-password"
+             placeholder="Min 8 characters — student will change on first login"
+             class="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+    </div>
+
+    <hr class="border-slate-200" />
+
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-1.5">
+        Card Number <span class="font-normal text-gray-400">(optional — pre-assigns school access card)</span>
+      </label>
+      <input type="text" name="card_number"
+             value="{{ form_data.card_number|default:'' }}"
+             placeholder="Leave blank if not issuing a card"
+             class="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-gray-800 text-sm font-mono tracking-wider uppercase focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition" />
+      <p class="text-xs text-gray-400 mt-1.5">
+        If a card is pre-assigned, the student can activate their account on first login
+        by entering the card number instead of paying for a subscription.
+      </p>
+    </div>
+
+    <button type="submit"
+            class="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 px-6 rounded-xl transition shadow-sm">
+      Create Student &amp; Enrol
+    </button>
+  </form>
+
+</div>
+{% endblock %}

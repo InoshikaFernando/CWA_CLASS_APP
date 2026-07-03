@@ -13,6 +13,7 @@ Required env vars for production / test deploys:
     SITE_URL
 """
 
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -568,6 +569,21 @@ QUIZ_RECENT_RESULT_WINDOW_SECONDS = 30
 # ---------------------------------------------------------------------------
 
 REDIS_URL = os.environ.get('REDIS_URL', '')
+
+# REDIS_URL being set selects the Redis cache backend, but that backend imports
+# the `redis` package lazily on first use — so a venv that has REDIS_URL but is
+# missing the dependency does not fail at startup; it 500s on the first cache
+# hit (e.g. the login rate-limiter). That bit dev, whose venv drifted because
+# its GitHub deploy no-ops without DEV_DEPLOY_* secrets. Guard against it: if
+# `redis` cannot be imported, loudly warn (NOT silent — surfaced to stderr and
+# the deploy log) and degrade to LocMem so the site stays up.
+if REDIS_URL and importlib.util.find_spec('redis') is None:
+    sys.stderr.write(
+        "WARNING: REDIS_URL is set but the 'redis' package is not installed in "
+        "this venv. Falling back to LocMemCache. Run "
+        "`pip install -r requirements.txt` to restore the shared Redis cache.\n"
+    )
+    REDIS_URL = ''
 
 if REDIS_URL:
     CACHES = {

@@ -14,6 +14,7 @@ from .models import (
     TeacherHourlyRate, TeacherRateOverride, SalaryNumberSequence,
     SalarySlip, SalarySlipLineItem, SalaryPayment,
     ParentStudent, ParentInvite, Term,
+    StudentCard,
 )
 
 
@@ -492,3 +493,16 @@ class ParentInviteAdmin(admin.ModelAdmin):
     list_filter = ('status', 'school')
     search_fields = ('parent_email', 'student__username')
     readonly_fields = ('token', 'created_at', 'accepted_at')
+
+
+# ---------------------------------------------------------------------------
+# Student Card (CPP-317)
+# ---------------------------------------------------------------------------
+
+@admin.register(StudentCard)
+class StudentCardAdmin(admin.ModelAdmin):
+    list_display = ('card_number', 'school', 'student', 'is_claimed', 'claimed_at', 'created_at')
+    list_filter = ('is_claimed', 'school')
+    search_fields = ('card_number', 'student__username', 'student__email')
+    readonly_fields = ('claimed_at', 'created_at')
+    raw_id_fields = ('student',)

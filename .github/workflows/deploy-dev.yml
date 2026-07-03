@@ -1,0 +1,124 @@
+name: Deploy to Dev
+
+# Every push to `dev` deploys the dev branch to the dev environment on the
+# shared droplet by running scripts/deploy.sh over SSH. Mirrors deploy-test.yml
+# but targets the dev service / checkout / env file.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   DEV_DEPLOY_HOST      — dev server IP / hostname (same droplet as test/prod)
+#   DEV_DEPLOY_SSH_KEY   — private key authorised for the deploy user on dev
+#   DEV_DEPLOY_USER      — (optional) SSH user, default: cwa
+#   DEV_DEPLOY_PATH      — (optional) repo path,  default: /home/cwa/CWA_CLASS_APP_DEV
+#   DEV_HEALTH_SOCKET    — (optional) unix socket for the deep health gate
+#                          (e.g. /run/cwa-dev.sock). If unset, the deep gate is
+#                          skipped — the systemd is-active check still runs.
+#   DEV_WORKER           — (optional) RQ worker unit to restart after the web
+#                          service (e.g. cwa-rqworker-dev). Unset = no worker.
+#   DEV_SMOKE_URL        — (optional) public URL to smoke-test after deploy.
+#                          If unset, the smoke step is skipped.
+#   DEPLOY_ALERT_WEBHOOK — (optional) Slack/Discord incoming webhook for failures
+#
+# Until DEV_DEPLOY_HOST is set the deploy step no-ops (keeps dev green).
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false      # never interrupt an in-flight deploy
+
+jobs:
+  deploy:
+    name: Deploy dev → dev site
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.gate.outputs.configured }}
+      smoke: ${{ steps.gate.outputs.smoke }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check deploy secrets
+        id: gate
+        env:
+          DEV_DEPLOY_HOST: ${{ secrets.DEV_DEPLOY_HOST }}
+          DEV_SMOKE_URL: ${{ secrets.DEV_SMOKE_URL }}
+        run: |
+          if [ -z "$DEV_DEPLOY_HOST" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::DEV_DEPLOY_HOST not set — skipping dev deploy. Add DEV_DEPLOY_HOST / DEV_DEPLOY_SSH_KEY to enable."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -z "$DEV_SMOKE_URL" ]; then
+            echo "smoke=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "smoke=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          DEV_DEPLOY_HOST: ${{ secrets.DEV_DEPLOY_HOST }}
+          DEV_DEPLOY_USER: ${{ secrets.DEV_DEPLOY_USER }}
+          DEV_DEPLOY_SSH_KEY: ${{ secrets.DEV_DEPLOY_SSH_KEY }}
+          DEV_DEPLOY_PATH: ${{ secrets.DEV_DEPLOY_PATH }}
+          DEV_HEALTH_SOCKET: ${{ secrets.DEV_HEALTH_SOCKET }}
+          DEV_WORKER: ${{ secrets.DEV_WORKER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEV_DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEV_DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
+            "${DEV_DEPLOY_USER:-cwa}@${DEV_DEPLOY_HOST}" \
+            "cd ${DEV_DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP_DEV} && DEPLOY_BRANCH=dev SERVICE=cwa-dev ENV_FILE=/etc/cwa/cwa-dev.env HEALTH_SOCKET='${DEV_HEALTH_SOCKET:-}' WORKER='${DEV_WORKER:-}' bash scripts/deploy.sh"
+          # Runs in the DEV checkout: resets to origin/dev, migrates, collects
+          # static, restarts cwa-dev, verifies the service is active, and (if
+          # DEV_HEALTH_SOCKET is set) runs the deep health gate.
+
+  smoke:
+    name: Post-deploy smoke (public)
+    needs: deploy
+    if: needs.deploy.outputs.configured == 'true' && needs.deploy.outputs.smoke == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright + Chromium
+        run: |
+          pip install playwright==1.49.1
+          playwright install --with-deps chromium
+
+      - name: Public smoke test
+        env:
+          DEV_SMOKE_URL: ${{ secrets.DEV_SMOKE_URL }}
+        working-directory: cwa_classroom
+        run: |
+          echo "Smoke-testing ${DEV_SMOKE_URL} (public/liveness only)"
+          python smoke_test.py "$DEV_SMOKE_URL" --public-only
+
+  notify-failure:
+    name: Alert on failed deploy
+    needs: [deploy, smoke]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post failure to webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.DEPLOY_ALERT_WEBHOOK }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "::notice::DEPLOY_ALERT_WEBHOOK not set — skipping chat alert (GitHub still emails the run owner)."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          MSG="🚨 CWA DEV deploy FAILED on ${GITHUB_REF_NAME} (${GITHUB_SHA:0:7}) — ${RUN_URL}"
+          printf '{"text": %s, "content": %s}' "$(jq -Rn --arg m "$MSG" '$m')" "$(jq -Rn --arg m "$MSG" '$m')" \
+            | curl -sS -X POST -H 'Content-Type: application/json' -d @- "$WEBHOOK_URL"

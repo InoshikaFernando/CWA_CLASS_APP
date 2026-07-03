@@ -526,18 +526,25 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
         if dept_id:
             department = Department.objects.filter(id=dept_id, school=school).first()
 
+        classroom_obj = None
+        if classroom_id:
+            classroom_obj = ClassRoom.objects.filter(id=classroom_id, school=school).first()
+
         # Validate attendance completeness only when billing depends on it.
         # Upfront billing skips it entirely; "all_class_days" charges every held
         # session regardless of who attended, so missing marks don't affect the
         # invoice. Only "attended_only" needs every student marked.
         if billing_type != 'upfront' and mode == 'attended_only':
-            unmarked = svc.validate_attendance_complete(school, start, end, department)
+            unmarked = svc.validate_attendance_complete(school, start, end, department, classroom_obj)
             if unmarked:
                 departments = Department.objects.filter(school=school, is_active=True)
+                classrooms = ClassRoom.objects.filter(
+                    school=school, is_active=True).order_by('name')
                 terms = Term.objects.filter(school=school).select_related('academic_year')
                 return render(request, 'invoicing/generate_invoices.html', {
                     'school': school,
                     'departments': departments,
+                    'classrooms': classrooms,
                     'terms': terms,
                     'unmarked_sessions': unmarked,
                     'form_data': {
@@ -546,6 +553,7 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
                         'attendance_mode': mode,
                         'billing_type': billing_type,
                         'department_id': dept_id,
+                        'classroom_id': classroom_id,
                     },
                 })
 
@@ -934,6 +942,15 @@ class InvoiceListView(RoleRequiredMixin, View):
                 line_items__classroom_id=classroom_filter,
             ).distinct()
 
+        period_start_filter = request.GET.get('period_start', '').strip()
+        period_end_filter = request.GET.get('period_end', '').strip()
+        parsed_period_start = _parse_date(period_start_filter)
+        parsed_period_end = _parse_date(period_end_filter)
+        if parsed_period_start:
+            invoices = invoices.filter(billing_period_end__gte=parsed_period_start)
+        if parsed_period_end:
+            invoices = invoices.filter(billing_period_start__lte=parsed_period_end)
+
         # Annotate email send-status, then optionally filter by it (CPP-343).
         invoices = _annotate_invoice_email_state(invoices)
         email_filter = request.GET.get('email')
@@ -967,6 +984,8 @@ class InvoiceListView(RoleRequiredMixin, View):
             'search': search,
             'dept_filter': dept_filter or '',
             'classroom_filter': classroom_filter or '',
+            'period_start_filter': period_start_filter,
+            'period_end_filter': period_end_filter,
             'email_filter': email_filter if email_filter in _INVOICE_EMAIL_FILTER_Q else '',
             'draft_count': draft_count,
             'draft_ids': draft_ids,
