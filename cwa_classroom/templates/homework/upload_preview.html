@@ -120,37 +120,28 @@
             <!-- Image section -->
             <div>
               <label class="block text-xs font-medium text-gray-500 mb-1">Question Image</label>
-              {% if q.image_b64 %}
-              <div class="mb-2">
-                <img src="data:image/png;base64,{{ q.image_b64 }}" alt="Question image"
+              <div class="mb-2 {% if not q.image_b64 %}hidden{% endif %}" id="img-wrap-{{ q_idx }}">
+                <img src="{% if q.image_b64 %}data:image/png;base64,{{ q.image_b64 }}{% endif %}" alt="Question image"
                      class="max-h-48 rounded-lg border border-gray-100 object-contain"
                      id="img-preview-{{ q_idx }}">
               </div>
-              <div class="flex items-center gap-4">
+              <div class="flex items-center gap-4 flex-wrap">
+                <button type="button" class="text-xs text-indigo-600 hover:underline cursor-pointer font-medium"
+                        data-adjust="{{ q_idx }}" data-page="{{ q.image_page }}"
+                        data-frac="{{ q.image_bbox_frac_json }}">
+                  ✥ {% if q.image_b64 %}Adjust / re-crop image{% else %}Crop image from page{% endif %}
+                </button>
                 <label class="text-xs text-blue-600 hover:underline cursor-pointer font-medium">
                   📎 Replace image
                   <input type="file" name="q_{{ q_idx }}_image_upload" accept="image/*" class="hidden"
-                         onchange="replaceImagePreview(this, 'img-preview-{{ q_idx }}')">
+                         onchange="replaceImagePreview(this, {{ q_idx }})">
                 </label>
                 <label class="flex items-center gap-1.5 text-xs text-red-500 cursor-pointer">
                   <input type="checkbox" name="q_{{ q_idx }}_remove_image" class="w-3 h-3 rounded">
                   Remove image
                 </label>
               </div>
-              {% else %}
-              <div>
-                <label class="inline-flex items-center gap-2 text-xs text-gray-500 hover:text-blue-600 cursor-pointer border border-dashed border-gray-300 rounded-lg px-3 py-2 hover:border-blue-400 transition">
-                  📎 <span>Upload image (optional)</span>
-                  <input type="file" name="q_{{ q_idx }}_image_upload" accept="image/*" class="hidden"
-                         onchange="showNewImagePreview(this, {{ q_idx }})">
-                </label>
-                <span id="new-img-name-{{ q_idx }}" class="ml-2 text-xs text-gray-400"></span>
-                <div id="new-img-preview-{{ q_idx }}" class="hidden mt-2">
-                  <img src="" alt="Preview" class="max-h-48 rounded-lg border border-gray-100 object-contain">
-                </div>
-              </div>
-              {% endif %}
-              <input type="hidden" name="q_{{ q_idx }}_image_ref" value="{{ q.image_ref|default:'' }}">
+              <input type="hidden" name="q_{{ q_idx }}_image_ref" value="{{ q.image_ref|default:'' }}" id="img-ref-{{ q_idx }}">
             </div>
 
             <!-- Question text -->
@@ -341,6 +332,184 @@
   </div>
 </div>
 
+<!-- ===================== Adjust-image crop modal ===================== -->
+<div id="adjust-modal"
+     data-page-url="{% url 'homework:pdf_page_image' session.pk %}"
+     data-recrop-url="{% url 'homework:pdf_recrop' session.pk %}"
+     class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-4">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[92vh] flex flex-col">
+    <div class="flex items-center justify-between px-4 py-3 border-b">
+      <h3 class="font-semibold text-gray-800 text-sm">Adjust question image</h3>
+      <button type="button" id="adjust-close" class="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+    </div>
+    <p class="px-4 pt-2 text-xs text-gray-500">Drag the box to frame the figure; drag its edges/corners to resize. Change page if the figure is elsewhere.</p>
+    <div class="flex items-center gap-2 px-4 py-2 text-sm">
+      <button type="button" id="adjust-prev" class="px-2 py-1 border rounded text-xs disabled:opacity-40">&#9664; Prev</button>
+      <span id="adjust-pagelabel" class="text-gray-600 text-xs">Page 1</span>
+      <button type="button" id="adjust-next" class="px-2 py-1 border rounded text-xs disabled:opacity-40">Next &#9654;</button>
+      <label class="ml-auto flex items-center gap-1 text-xs text-gray-500" title="Auto-tighten to the drawn shape">
+        <input type="checkbox" id="adjust-snap" class="w-3 h-3"> Snap to diagram
+      </label>
+    </div>
+    <div id="adjust-stage" class="relative overflow-auto flex-1 mx-4 mb-2 border bg-gray-50 select-none" style="min-height:200px">
+      <img id="adjust-page-img" class="block max-w-full pointer-events-none" draggable="false" alt="Source page">
+      <div id="adjust-box" class="absolute border-2 border-indigo-500 bg-indigo-500/10 cursor-move hidden"></div>
+    </div>
+    <div class="flex items-center gap-3 px-4 py-3 border-t">
+      <span id="adjust-error" class="text-xs text-red-500"></span>
+      <div class="ml-auto flex gap-2">
+        <button type="button" id="adjust-cancel" class="px-3 py-1.5 text-sm border rounded text-gray-600">Cancel</button>
+        <button type="button" id="adjust-apply" class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded font-medium">Apply crop</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Adjust-image crop tool — shared across homework/worksheet/ai_import review editors.
+   Endpoints come from #adjust-modal data-attrs so this block is URL-agnostic. */
+(function () {
+  const modal = document.getElementById('adjust-modal');
+  if (!modal) return;
+  const stage = document.getElementById('adjust-stage');
+  const pageImg = document.getElementById('adjust-page-img');
+  const box = document.getElementById('adjust-box');
+  const errEl = document.getElementById('adjust-error');
+  const pageLabel = document.getElementById('adjust-pagelabel');
+  const snapCb = document.getElementById('adjust-snap');
+  const pageUrl = modal.dataset.pageUrl, recropUrl = modal.dataset.recropUrl;
+  const csrf = (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '';
+  let st = { qIdx: null, page: 1, pageCount: 1, pendingFrac: null };
+
+  const HANDLES = [['nw',0,0],['n',.5,0],['ne',1,0],['e',1,.5],['se',1,1],['s',.5,1],['sw',0,1],['w',0,.5]];
+  HANDLES.forEach(([h, fx, fy]) => {
+    const s = document.createElement('span');
+    s.dataset.h = h;
+    s.style.cssText = 'position:absolute;width:11px;height:11px;background:#6366f1;border:1px solid #fff;border-radius:2px;'
+      + `left:calc(${fx*100}% - 5px);top:calc(${fy*100}% - 5px);`
+      + 'cursor:' + (h==='n'||h==='s'?'ns-resize':h==='e'||h==='w'?'ew-resize':(h==='ne'||h==='sw'?'nesw-resize':'nwse-resize'));
+    box.appendChild(s);
+  });
+
+  function show(el){ el.classList.remove('hidden'); el.classList.add('flex'); }
+  function hide(el){ el.classList.add('hidden'); el.classList.remove('flex'); }
+
+  function setBoxPx(x, y, w, h) {
+    const iw = pageImg.clientWidth, ih = pageImg.clientHeight;
+    w = Math.max(12, Math.min(w, iw)); h = Math.max(12, Math.min(h, ih));
+    x = Math.max(0, Math.min(x, iw - w)); y = Math.max(0, Math.min(y, ih - h));
+    box.style.left = x+'px'; box.style.top = y+'px'; box.style.width = w+'px'; box.style.height = h+'px';
+  }
+  function boxFrac() {
+    const iw = pageImg.clientWidth, ih = pageImg.clientHeight;
+    const x = box.offsetLeft, y = box.offsetTop, w = box.offsetWidth, h = box.offsetHeight;
+    return [x/iw, y/ih, (x+w)/iw, (y+h)/ih];
+  }
+  function applyFracToBox(frac) {
+    const iw = pageImg.clientWidth, ih = pageImg.clientHeight;
+    if (frac && frac.length === 4) {
+      setBoxPx(frac[0]*iw, frac[1]*ih, (frac[2]-frac[0])*iw, (frac[3]-frac[1])*ih);
+    } else {
+      setBoxPx(iw*0.3, ih*0.3, iw*0.4, ih*0.4);   // default centred box
+    }
+    box.classList.remove('hidden');
+  }
+
+  async function loadPage(page, frac) {
+    errEl.textContent = 'Loading…';
+    box.classList.add('hidden');
+    try {
+      const r = await fetch(pageUrl + '?page=' + page, {headers: {'X-Requested-With':'fetch'}});
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Failed to load page');
+      st.page = j.page; st.pageCount = j.page_count;
+      pageImg.onload = () => { applyFracToBox(frac); errEl.textContent = ''; };
+      pageImg.src = 'data:image/png;base64,' + j.image_b64;
+      pageLabel.textContent = 'Page ' + j.page + ' / ' + j.page_count;
+      document.getElementById('adjust-prev').disabled = j.page <= 1;
+      document.getElementById('adjust-next').disabled = j.page >= j.page_count;
+    } catch (e) { errEl.textContent = e.message; }
+  }
+
+  // --- drag / resize ---
+  let drag = null;
+  stage.addEventListener('pointerdown', ev => {
+    if (box.classList.contains('hidden')) return;
+    const handle = ev.target.dataset ? ev.target.dataset.h : null;
+    const onBox = ev.target === box || handle;
+    if (!onBox) return;
+    ev.preventDefault();
+    drag = { h: handle || 'move', sx: ev.clientX, sy: ev.clientY,
+             x: box.offsetLeft, y: box.offsetTop, w: box.offsetWidth, ht: box.offsetHeight };
+    stage.setPointerCapture(ev.pointerId);
+  });
+  stage.addEventListener('pointermove', ev => {
+    if (!drag) return;
+    const dx = ev.clientX - drag.sx, dy = ev.clientY - drag.sy, h = drag.h;
+    let {x, y, w, ht} = drag;
+    if (h === 'move') { setBoxPx(x+dx, y+dy, w, ht); return; }
+    if (h.includes('w')) { x += dx; w -= dx; }
+    if (h.includes('e')) { w += dx; }
+    if (h.includes('n')) { y += dy; ht -= dy; }
+    if (h.includes('s')) { ht += dy; }
+    setBoxPx(x, y, w, ht);
+  });
+  const endDrag = () => { drag = null; };
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+
+  // --- open / close / nav / apply ---
+  function open(qIdx, page, frac) {
+    st.qIdx = qIdx; st.pendingFrac = frac;
+    errEl.textContent = '';
+    show(modal);
+    loadPage(page || 1, frac);
+  }
+  function close() { hide(modal); }
+  document.getElementById('adjust-close').onclick = close;
+  document.getElementById('adjust-cancel').onclick = close;
+  modal.addEventListener('click', ev => { if (ev.target === modal) close(); });
+  document.getElementById('adjust-prev').onclick = () => loadPage(st.page - 1, null);
+  document.getElementById('adjust-next').onclick = () => loadPage(st.page + 1, null);
+
+  document.getElementById('adjust-apply').onclick = async () => {
+    if (box.classList.contains('hidden')) { errEl.textContent = 'Draw a box first.'; return; }
+    const btn = document.getElementById('adjust-apply');
+    btn.disabled = true; errEl.textContent = 'Rendering…';
+    try {
+      const r = await fetch(recropUrl, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json', 'X-CSRFToken': csrf},
+        body: JSON.stringify({q_idx: st.qIdx, page: st.page, box: boxFrac(), snap: snapCb.checked}),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Re-crop failed');
+      const i = st.qIdx;
+      const img = document.getElementById('img-preview-' + i);
+      if (img) img.src = 'data:image/png;base64,' + j.image_b64;
+      const wrap = document.getElementById('img-wrap-' + i);
+      if (wrap) wrap.classList.remove('hidden');
+      const ref = document.getElementById('img-ref-' + i);
+      if (ref) ref.value = j.ref;
+      const rm = document.querySelector('[name="q_' + i + '_remove_image"]');
+      if (rm) rm.checked = false;
+      close();
+    } catch (e) { errEl.textContent = e.message; }
+    finally { btn.disabled = false; }
+  };
+
+  // Delegated trigger — works for existing and dynamically-added questions.
+  document.addEventListener('click', ev => {
+    const t = ev.target.closest('[data-adjust]');
+    if (!t) return;
+    ev.preventDefault();
+    let frac = null;
+    try { frac = JSON.parse(t.dataset.frac || 'null'); } catch (e) {}
+    open(parseInt(t.dataset.adjust, 10), parseInt(t.dataset.page, 10) || 1, frac);
+  });
+})();
+</script>
+
 <script>
   // Toggle include/exclude card
   document.querySelectorAll('.include-cb').forEach(cb => {
@@ -360,13 +529,15 @@
     });
   });
 
-  // Replace existing image preview when a new file is chosen
-  function replaceImagePreview(input, previewId) {
+  // Replace / add an image preview when a file is chosen
+  function replaceImagePreview(input, idx) {
     if (!input.files || !input.files[0]) return;
     const reader = new FileReader();
     reader.onload = e => {
-      const img = document.getElementById(previewId);
+      const img = document.getElementById('img-preview-' + idx);
       if (img) img.src = e.target.result;
+      const wrap = document.getElementById('img-wrap-' + idx);
+      if (wrap) wrap.classList.remove('hidden');
     };
     reader.readAsDataURL(input.files[0]);
   }

@@ -751,6 +751,13 @@ def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
             continue
         if r.width * r.height < min_area_pts:
             continue
+        # Skip thin horizontal rules — answer-blank underlines and section
+        # separators are vector "drawings" too, and a lone one would otherwise
+        # make a self-contained text question render its surrounding text as a
+        # spurious figure. A real line-art figure (number line, geometry) has
+        # tick marks / strokes giving it height, so this only drops bare rules.
+        if r.height < 2.5 and r.width > 20:
+            continue
         # Belongs to this region only if its centre is inside — excludes a
         # neighbouring figure whose edge pokes into the padded search box.
         cx, cy = (r.x0 + r.x1) / 2.0, (r.y0 + r.y1) / 2.0
@@ -1086,6 +1093,14 @@ def render_question_images(doc, extracted_pages, classified_result):
             ref = f'worksheet_img_q{idx+1}_p{page_num}.png'
             extracted_images[ref] = img_b64
             q['image_ref'] = ref
+            # Crop provenance for the "Adjust image" editor: the final region as
+            # fractions of the page, so the crop box can be pre-filled and the
+            # teacher can drag it to recover cut-off detail or exclude junk.
+            q['image_page'] = page_num
+            q['image_bbox_frac'] = [
+                round(clip_rect.x0 / pdf_w, 4), round(clip_rect.y0 / pdf_h, 4),
+                round(clip_rect.x1 / pdf_w, 4), round(clip_rect.y1 / pdf_h, 4),
+            ]
 
             logger.info(
                 f'Q{idx+1}: rendered from PDF — page {page_num}, '
@@ -1099,6 +1114,84 @@ def render_question_images(doc, extracted_pages, classified_result):
 
     classified_result['questions'] = questions
     return classified_result, extracted_images
+
+
+# ---------------------------------------------------------------------------
+# Manual re-crop support — powers the teacher "Adjust image" tool in the
+# homework / worksheet / ai_import review editors. Pipeline-agnostic: renders
+# straight from the PDF page, so it works for scanned (raster) pages just as
+# well as born-digital (vector) ones.
+# ---------------------------------------------------------------------------
+
+def pdf_bytes_from(pdf_source):
+    """Read raw PDF bytes from a Django FieldFile, a path, or bytes."""
+    if isinstance(pdf_source, (bytes, bytearray)):
+        return bytes(pdf_source)
+    if hasattr(pdf_source, 'read'):          # Django FieldFile / file-like
+        try:
+            pdf_source.open('rb')
+        except Exception:
+            pass
+        try:
+            return pdf_source.read()
+        finally:
+            try:
+                pdf_source.close()
+            except Exception:
+                pass
+    with open(pdf_source, 'rb') as fh:       # filesystem path
+        return fh.read()
+
+
+def render_pdf_page_png(pdf_bytes, page_index, dpi=150):
+    """Render a full PDF page as PNG bytes for the Adjust-image modal.
+
+    Returns ``(png_bytes, page_w_pt, page_h_pt)``. ``page_index`` is 0-based.
+    The point dimensions let the client map a drag box (in displayed pixels)
+    back to page fractions independent of this preview DPI.
+    """
+    import fitz
+
+    doc = fitz.open(stream=bytes(pdf_bytes), filetype='pdf')
+    try:
+        page = doc[page_index]
+        pw, ph = page.rect.width, page.rect.height
+        return page.get_pixmap(dpi=dpi).tobytes('png'), pw, ph
+    finally:
+        doc.close()
+
+
+def recrop_pdf_region(pdf_bytes, page_index, frac_box, dpi=None, snap=False):
+    """Render a sub-region of a PDF page as PNG bytes for a manual re-crop.
+
+    ``frac_box`` is ``[x0, y0, x1, y1]`` as fractions (0..1) of page width/height
+    — DPI-independent, so the client can send exactly what it drew. WYSIWYG:
+    renders precisely the boxed region (no header redaction) at print DPI, so
+    the teacher gets what they see. ``snap=True`` first tightens to the vector
+    drawing via :func:`_smart_diagram_rect` (opt-in; off by default because the
+    teacher's box is authoritative). Raises ValueError on a degenerate box.
+    """
+    import fitz
+
+    dpi = dpi or IMAGE_RENDER_DPI
+    x0, y0, x1, y1 = (float(v) for v in frac_box)
+    x0, x1 = sorted((max(0.0, min(1.0, x0)), max(0.0, min(1.0, x1))))
+    y0, y1 = sorted((max(0.0, min(1.0, y0)), max(0.0, min(1.0, y1))))
+
+    doc = fitz.open(stream=bytes(pdf_bytes), filetype='pdf')
+    try:
+        page = doc[page_index]
+        pw, ph = page.rect.width, page.rect.height
+        clip = fitz.Rect(x0 * pw, y0 * ph, x1 * pw, y1 * ph)
+        if clip.width < 2 or clip.height < 2:
+            raise ValueError('crop region too small')
+        if snap:
+            tight = _smart_diagram_rect(page, clip)
+            if tight is not None:
+                clip = tight
+        return page.get_pixmap(clip=clip, dpi=dpi).tobytes('png')
+    finally:
+        doc.close()
 
 
 # ---------------------------------------------------------------------------
