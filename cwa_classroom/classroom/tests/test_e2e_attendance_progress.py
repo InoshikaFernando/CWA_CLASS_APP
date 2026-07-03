@@ -1024,6 +1024,25 @@ class ProgressPerClassTest(_BaseAttendanceProgressTest):
         self.assertEqual(r1.status, 'advanced')
         self.assertEqual(r2.status, 'developing')
 
+    def test_record_page_shows_only_this_class_status(self):
+        """The record-progress GET must pre-fill each student's status from THIS
+        class's records only — a status recorded in another class must not bleed
+        onto this class's page (which would otherwise get saved back on submit)."""
+        self._login()
+        # 'advanced' recorded in class 1 (higher id = would win a cross-class Max).
+        ProgressRecord.objects.create(student=self.student_user, criteria=self.crit,
+                                      classroom=self.classroom, status='advanced',
+                                      recorded_by=self.teacher_user)
+        # class 2 has no record yet → its page must show 'not_started'.
+        resp = self.client.get(reverse('record_progress', kwargs={'class_id': self.classroom2.id}))
+        rows = resp.context['student_rows']
+        statuses = {
+            cs['criteria'].id: cs['current_status']
+            for row in rows if row['student'].id == self.student_user.id
+            for cs in row['criteria_statuses']
+        }
+        self.assertEqual(statuses[self.crit.id], 'not_started')
+
     def test_student_page_sections_per_class(self):
         from classroom.views_progress import _build_student_progress_by_class
         ProgressRecord.objects.create(student=self.student_user, criteria=self.crit,
