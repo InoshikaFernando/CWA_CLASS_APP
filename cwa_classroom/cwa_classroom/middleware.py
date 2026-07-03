@@ -205,25 +205,34 @@ class TrialExpiryMiddleware:
         return None
 
     def _check_personal_subscription(self, request):
-        """Block a non-individual user whose OWN recurring subscription is delinquent.
+        """Block a self-paying user whose OWN recurring subscription is delinquent.
 
         Targets school students / parents who self-pay via a personal
         ``billing.Subscription`` (e.g. the per-student monthly plan). Individual
         students are handled by their dedicated branch above and never reach here.
 
+        Scope is limited to the self-paying roles (STUDENT, PARENT) on purpose:
+        staff (teachers/HoD/HoI/accountant) and superusers must NOT be locked out
+        of running their school by a stale personal sub they may hold.
+
         Rules:
-          - No personal subscription → None (they ride the school plan; the
-            school-subscription check below still applies).
+          - Not a self-paying role, or no personal subscription → None (they ride
+            the school plan; the school-subscription check below still applies).
           - active / trialing (incl. an active 100%-discount free sub) → allowed.
           - past_due / expired / cancelled → redirect to the payment wall, unless
             already on an allowed billing path.
         """
+        from accounts.models import Role
         from billing.models import Subscription
+
+        user = request.user
+        if not (user.has_role(Role.STUDENT) or user.has_role(Role.PARENT)):
+            return None
         try:
-            sub = request.user.subscription
+            sub = user.subscription
         except Subscription.DoesNotExist:
             return None
-        if sub is None or sub.is_active_or_trialing:
+        if sub.is_active_or_trialing:
             return None
         if not self._is_allowed_path(request.path):
             return redirect('trial_expired')

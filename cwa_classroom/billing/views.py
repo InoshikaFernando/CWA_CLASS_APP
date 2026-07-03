@@ -877,10 +877,16 @@ class StripeBillingPortalView(LoginRequiredMixin, View):
     """Redirect to Stripe Customer Portal for payment method management."""
 
     def get(self, request):
-        school = get_school_for_user(request.user)
         customer_id = None
 
-        if school:
+        # Only the school's own admin (HoI / institute owner) may open the
+        # SCHOOL's Stripe billing portal. Students, parents and other members
+        # must NEVER resolve the school's Stripe customer — otherwise a gated
+        # student sent here from the payment wall could view/change the school's
+        # card or cancel the school subscription. Everyone else gets their OWN
+        # subscription's customer only.
+        school = get_school_for_user(request.user)
+        if school and school.admin_id == request.user.id:
             sub = get_school_subscription(school)
             if sub:
                 customer_id = sub.stripe_customer_id

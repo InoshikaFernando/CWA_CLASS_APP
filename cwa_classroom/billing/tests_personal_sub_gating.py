@@ -12,7 +12,10 @@ The headline regression case is a past_due school student under an ACTIVE school
 subscription — the real Ovindik / Maths Hub Melbourne situation — which must now
 be redirected to the payment wall.
 """
+from unittest.mock import patch
+
 from django.test import TestCase, RequestFactory
+from django.urls import reverse
 
 from accounts.models import CustomUser, Role, UserRole
 from classroom.models import School, SchoolStudent
@@ -130,6 +133,23 @@ class PersonalSubscriptionGatingTests(TestCase):
         )
         self._assert_blocked(self._run(parent))
 
+    # -- staff must NOT be locked out by a stale personal sub (scope) ----------
+
+    def test_teacher_with_delinquent_personal_sub_not_blocked(self):
+        """A teacher who happens to hold a past_due personal sub keeps access."""
+        teacher = _user('tch_pastdue', Role.TEACHER)
+        Subscription.objects.create(
+            user=teacher, package=self.package, status=Subscription.STATUS_PAST_DUE,
+        )
+        self._assert_allowed(self._run(teacher))
+
+    def test_head_of_institute_with_delinquent_personal_sub_not_blocked(self):
+        hoi = _user('hoi_pastdue', Role.HEAD_OF_INSTITUTE)
+        Subscription.objects.create(
+            user=hoi, package=self.package, status=Subscription.STATUS_PAST_DUE,
+        )
+        self._assert_allowed(self._run(hoi))
+
     # -- the payment wall itself stays reachable so they can fix the card ------
 
     def test_blocked_student_can_reach_billing_paths(self):
@@ -140,3 +160,52 @@ class PersonalSubscriptionGatingTests(TestCase):
         )
         self._assert_allowed(self._run(student, path='/billing/'))
         self._assert_allowed(self._run(student, path='/accounts/trial-expired/'))
+
+
+class StripeBillingPortalAccessTests(TestCase):
+    """A gated student sent to the payment wall must never reach the SCHOOL's
+    Stripe billing portal (StripeBillingPortalView used to resolve the school's
+    customer for any member — a student could then change/cancel school billing).
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.pkg = Package.objects.create(
+            name='Portal Pkg', price=19.90, stripe_price_id='price_portal_test',
+        )
+        cls.admin = CustomUser.objects.create_user(
+            username='portal_hoi', email='portal_hoi@test.local', password='TestPass123!',
+        )
+        UserRole.objects.create(user=cls.admin, role=_role(Role.HEAD_OF_INSTITUTE))
+        cls.school = School.objects.create(
+            name='Portal School', slug='portal-school', admin=cls.admin,
+        )
+        cls.school_sub = SchoolSubscription.objects.create(
+            school=cls.school, status=SchoolSubscription.STATUS_ACTIVE,
+            stripe_customer_id='cus_SCHOOL_secret',
+        )
+
+    @patch('billing.stripe_service.create_billing_portal_session')
+    def test_school_student_cannot_open_school_portal(self, mock_portal):
+        student = _user('portal_stu', Role.STUDENT)
+        SchoolStudent.objects.create(school=self.school, student=student, is_active=True)
+        # Self-pays but has no own Stripe customer id (the Ovindik shape).
+        Subscription.objects.create(
+            user=student, package=self.pkg, status=Subscription.STATUS_PAST_DUE,
+        )
+        self.client.force_login(student)
+        resp = self.client.get(reverse('stripe_billing_portal'))
+        # Never resolved a customer → never called Stripe → bounced locally,
+        # NOT off to the school's Stripe portal.
+        mock_portal.assert_not_called()
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(resp.url.startswith('http'))
+
+    @patch('billing.stripe_service.create_billing_portal_session')
+    def test_school_admin_opens_own_school_portal(self, mock_portal):
+        mock_portal.return_value = type('S', (), {'url': 'https://stripe.test/portal'})()
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse('stripe_billing_portal'))
+        mock_portal.assert_called_once()
+        self.assertEqual(mock_portal.call_args[0][0], 'cus_SCHOOL_secret')
+        self.assertEqual(resp.status_code, 302)
