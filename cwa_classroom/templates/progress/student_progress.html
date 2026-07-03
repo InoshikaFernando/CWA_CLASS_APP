@@ -34,29 +34,39 @@
     </div>
   {% endif %}
 
-  <!-- Progress by subject & level -->
-  {% if grouped_progress %}
-    <div class="space-y-6">
-      {% for group in grouped_progress %}
-        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
-          <div class="p-5 border-b border-slate-100">
-            <h2 class="font-semibold text-gray-900">{% if group.subject %}{{ group.subject }}{% else %}All Subjects{% endif %} — {% if group.level %}{{ group.level }}{% else %}All Levels{% endif %}</h2>
-            <div class="flex items-center gap-4 mt-2">
-              <div class="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
-                {% if group.total > 0 %}
-                  <div class="bg-emerald-500 h-2 rounded-full" style="width: {% widthratio group.achieved group.total 100 %}%"></div>
-                {% endif %}
-              </div>
-              <span class="text-xs text-gray-500">{{ group.achieved }}/{{ group.total }}</span>
-            </div>
+  <!-- Progress by class (each class tracked independently — §12.10) -->
+  {% if progress_sections %}
+    <div class="space-y-8">
+      {% for section in progress_sections %}
+        <div>
+          <div class="flex items-baseline gap-2 mb-3">
+            <h2 class="text-lg font-bold text-gray-900">{% if section.classroom %}{{ section.classroom.name }}{% else %}General{% endif %}</h2>
+            <span class="text-xs text-gray-400">{{ section.overall.achieved }} proficient · {{ section.overall.in_progress }} developing · {{ section.overall.total }} total</span>
           </div>
-          <div class="divide-y divide-slate-50">
-            {% for record in group.records %}
-              <div class="flex items-center justify-between px-5 py-3 {% if record.is_child %}pl-10 bg-slate-50/40{% endif %}">
-                <p class="text-sm {% if record.is_child %}text-gray-600{% else %}font-semibold text-gray-900{% endif %}">{% if record.is_child %}<span class="text-gray-300 mr-1.5">&#8627;</span>{% endif %}{{ record.criteria.name }}</p>
-                <span class="text-xs font-medium px-2.5 py-1 rounded-full {{ record.status|progress_badge_classes }}">
-                  {{ record.get_status_display }}
-                </span>
+          <div class="space-y-6">
+            {% for group in section.grouped_progress %}
+              <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+                <div class="p-5 border-b border-slate-100">
+                  <h3 class="font-semibold text-gray-900">{% if group.subject %}{{ group.subject }}{% else %}All Subjects{% endif %} — {% if group.level %}{{ group.level }}{% else %}All Levels{% endif %}</h3>
+                  <div class="flex items-center gap-4 mt-2">
+                    <div class="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                      {% if group.total > 0 %}
+                        <div class="bg-emerald-500 h-2 rounded-full" style="width: {% widthratio group.achieved group.total 100 %}%"></div>
+                      {% endif %}
+                    </div>
+                    <span class="text-xs text-gray-500">{{ group.achieved }}/{{ group.total }}</span>
+                  </div>
+                </div>
+                <div class="divide-y divide-slate-50">
+                  {% for record in group.records %}
+                    <div class="flex items-center justify-between px-5 py-3 {% if record.is_child %}pl-10 bg-slate-50/40{% endif %}">
+                      <p class="text-sm {% if record.is_child %}text-gray-600{% else %}font-semibold text-gray-900{% endif %}">{% if record.is_child %}<span class="text-gray-300 mr-1.5">&#8627;</span>{% endif %}{{ record.criteria.name }}</p>
+                      <span class="text-xs font-medium px-2.5 py-1 rounded-full {{ record.status|progress_badge_classes }}">
+                        {{ record.get_status_display }}
+                      </span>
+                    </div>
+                  {% endfor %}
+                </div>
               </div>
             {% endfor %}
           </div>

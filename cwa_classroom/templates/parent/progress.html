@@ -38,7 +38,7 @@
   </div>
   {% endif %}
 
-  {% if grouped_progress %}
+  {% if progress_sections %}
 
     <!-- Overall summary -->
     {% if overall.total %}
@@ -87,8 +87,11 @@
     {% endif %}
     {% endif %}
 
-    <!-- Grouped criteria -->
-    {% for group in grouped_progress %}
+    <!-- Progress per class (each class tracked independently — §12.10) -->
+    {% for section in progress_sections %}
+    <div class="space-y-4">
+      <h2 class="text-lg font-bold text-slate-800 mt-4">{% if section.classroom %}{{ section.classroom.name }}{% else %}General{% endif %}</h2>
+    {% for group in section.grouped_progress %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
 
       <!-- Group header -->
@@ -168,6 +171,8 @@
         </div>
         {% endfor %}
       </div>
+    </div>
+    {% endfor %}
     </div>
     {% endfor %}
 

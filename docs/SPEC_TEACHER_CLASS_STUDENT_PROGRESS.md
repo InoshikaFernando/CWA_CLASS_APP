@@ -855,6 +855,32 @@ needed), so new sections need no migration.
 translates the builder checkboxes (POST for generate, GET for preview) into its
 kwargs.
 
+### 12.10 Per-class progress tracking
+
+*(Added 2026-06-30.)*
+
+Progress is tracked **per class**, not per student: a student enrolled in two
+classes has **independent** records. `ProgressRecord` gained a `classroom` FK and
+the uniqueness key is now `(student, criteria, classroom, session)`. `classroom`
+is nullable — `NULL` = a **legacy** record from before per-class tracking.
+
+- **Recording** — the record-progress grid saves with its class; the
+  session-attendance path saves with `session.classroom`.
+- **Reports** — a report carries a `classroom`; its rubric is built from that
+  class's records only (`_build_student_progress(student, report.classroom)`), so
+  two classes produce independent reports.
+- **Student & parent pages** — grouped **by class**: one section per class the
+  student is in (`_build_student_progress_by_class`), plus a "General" section for
+  any legacy class-less records. The parent view lists each class's applicable
+  approved criteria (subject/level match + All-Subjects/All-Levels).
+- `_latest_progress_records(student, classroom)` takes a ClassRoom (that class),
+  `None` (legacy class-less), or `_ALL_CLASSES` (aggregate — used for the
+  dashboard summary card).
+- **Migration** `0109` is additive (nullable FK); existing records become legacy
+  (`classroom=NULL`). The idempotent `reassign_progress_records --student --classroom`
+  command moves a student's legacy records onto a chosen class (e.g. shared records
+  → the Tuesday class, not the Wednesday one).
+
 ---
 
 ## 13. Packages & Billing (Global)
