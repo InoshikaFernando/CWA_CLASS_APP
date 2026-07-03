@@ -793,10 +793,12 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
         # Build a lookup of *latest* records: {(student_id, criteria_id): status}
         # Since there can be multiple records per (student, criteria) across sessions,
-        # pick the one with the highest id (most recent).
+        # pick the one with the highest id (most recent). Scope to THIS class only —
+        # progress is tracked per class (§12.10), so a student in two classes must
+        # not see one class's statuses bleed into the other's record page.
         latest_ids_qs = (
             ProgressRecord.objects
-            .filter(student__in=students, criteria__in=criteria_qs)
+            .filter(student__in=students, criteria__in=criteria_qs, classroom=classroom)
             .values('student_id', 'criteria_id')
             .annotate(latest_id=Max('id'))
         )
