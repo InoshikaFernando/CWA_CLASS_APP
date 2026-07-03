@@ -563,8 +563,8 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
         from classroom.models import ProgressReportComment
         ProgressReportComment.objects.create(
             student=self.student_user, school=self.school,
-            subject=self.classroom.subject, body='Prior note.',
-            created_by=self.teacher_user,
+            subject=self.classroom.subject, classroom=self.classroom,
+            body='Prior note.', created_by=self.teacher_user,
         )
         self.client.force_login(self.teacher_user)
         sess = self.client.session
@@ -1042,6 +1042,34 @@ class ProgressPerClassTest(_BaseAttendanceProgressTest):
             for cs in row['criteria_statuses']
         }
         self.assertEqual(statuses[self.crit.id], 'not_started')
+
+    def test_comment_is_independent_per_class(self):
+        """A general comment recorded in one class must not appear on — or be
+        overwritten by — the other class's record page (both classes share the
+        same subject, §12.10)."""
+        self._login()
+        from classroom.models import ProgressReportComment
+        # Save a comment via class 1's record page.
+        self.client.post(
+            reverse('record_progress', kwargs={'class_id': self.classroom.id}),
+            {f'comment_{self.student_user.id}': 'Great focus on Tuesday.'},
+        )
+        # Class 2's record page must show a blank comment for this student.
+        resp = self.client.get(reverse('record_progress', kwargs={'class_id': self.classroom2.id}))
+        row = next(r for r in resp.context['student_rows']
+                   if r['student'].id == self.student_user.id)
+        self.assertEqual(row['comment'], '')
+        # Saving a different comment in class 2 leaves class 1's untouched.
+        self.client.post(
+            reverse('record_progress', kwargs={'class_id': self.classroom2.id}),
+            {f'comment_{self.student_user.id}': 'Different note for Wednesday.'},
+        )
+        bodies = {
+            c.classroom_id: c.body
+            for c in ProgressReportComment.objects.filter(student=self.student_user)
+        }
+        self.assertEqual(bodies[self.classroom.id], 'Great focus on Tuesday.')
+        self.assertEqual(bodies[self.classroom2.id], 'Different note for Wednesday.')
 
     def test_student_page_sections_per_class(self):
         from classroom.views_progress import _build_student_progress_by_class

@@ -809,12 +809,14 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
         for rec in existing_records:
             record_map[(rec.student_id, rec.criteria_id)] = rec
 
-        # Prefill each student's general comment for this class's subject (latest one),
-        # so teachers can add/update a comment right here while recording progress.
+        # Prefill each student's general comment for THIS class (latest one), so
+        # teachers can add/update a comment right here while recording progress.
+        # Scoped to the class (§12.10) so two classes sharing a subject don't share
+        # one comment — each teacher keeps their own.
         comment_map = {}
         for c in ProgressReportComment.objects.filter(
             student__in=students, school=classroom.school,
-            subject=classroom.subject, term__isnull=True,
+            subject=classroom.subject, classroom=classroom, term__isnull=True,
         ).order_by('student_id', '-created_at'):
             comment_map.setdefault(c.student_id, c.body)
 
@@ -905,13 +907,14 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
             existing = (
                 ProgressReportComment.objects
                 .filter(student=student, school=classroom.school,
-                        subject=classroom.subject, term__isnull=True)
+                        subject=classroom.subject, classroom=classroom, term__isnull=True)
                 .order_by('-created_at').first()
             )
             if existing is None:
                 ProgressReportComment.objects.create(
                     student=student, school=classroom.school,
-                    subject=classroom.subject, body=body, created_by=request.user,
+                    subject=classroom.subject, classroom=classroom,
+                    body=body, created_by=request.user,
                 )
                 comments_saved += 1
             elif existing.body != body:
