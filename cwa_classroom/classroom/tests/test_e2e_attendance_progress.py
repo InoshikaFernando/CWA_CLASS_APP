@@ -535,6 +535,47 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
         self.assertEqual(record.status, 'developing')
         self.assertEqual(record.recorded_by, self.teacher_user)
 
+    def test_record_progress_saves_and_updates_comment(self):
+        """The record-progress form saves a per-student comment, and re-posting
+        updates the same comment rather than creating a duplicate."""
+        from classroom.models import ProgressReportComment
+        self.client.force_login(self.teacher_user)
+        sess = self.client.session
+        sess['current_school_id'] = self.school.id
+        sess.save()
+        url = reverse('record_progress', kwargs={'class_id': self.classroom.id})
+
+        self.client.post(url, {f'comment_{self.student_user.id}': 'Great improvement!'})
+        c = ProgressReportComment.objects.get(student=self.student_user)
+        self.assertEqual(c.body, 'Great improvement!')
+        self.assertEqual(c.subject, self.classroom.subject)
+        self.assertEqual(c.created_by, self.teacher_user)
+
+        self.client.post(url, {f'comment_{self.student_user.id}': 'Even better now.'})
+        self.assertEqual(
+            ProgressReportComment.objects.filter(student=self.student_user).count(), 1,
+        )
+        c.refresh_from_db()
+        self.assertEqual(c.body, 'Even better now.')
+
+    def test_record_progress_prefills_existing_comment(self):
+        """The form GET prefills each student's latest subject comment."""
+        from classroom.models import ProgressReportComment
+        ProgressReportComment.objects.create(
+            student=self.student_user, school=self.school,
+            subject=self.classroom.subject, body='Prior note.',
+            created_by=self.teacher_user,
+        )
+        self.client.force_login(self.teacher_user)
+        sess = self.client.session
+        sess['current_school_id'] = self.school.id
+        sess.save()
+        resp = self.client.get(
+            reverse('record_progress', kwargs={'class_id': self.classroom.id}),
+        )
+        rows = {r['student'].id: r for r in resp.context['student_rows']}
+        self.assertEqual(rows[self.student_user.id]['comment'], 'Prior note.')
+
     def test_student_can_view_own_progress(self):
         """A student can view their own progress page."""
         # Seed a progress record

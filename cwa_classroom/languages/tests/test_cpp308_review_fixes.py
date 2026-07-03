@@ -337,7 +337,8 @@ class TestStrokeDataSizeGuard:
         assert ans.stroke_data == {}, \
             'Oversized stroke_data should be stored as empty dict'
 
-    def test_oversized_stroke_data_score_still_recorded(self):
+    def test_oversized_stroke_data_score_is_zero(self):
+        """Oversized stroke_data is rejected → no strokes → client score ignored → 0."""
         ex = self._make_letter_exercise('score')
         student = _make_student('stu_sgscore')
         client = Client()
@@ -348,7 +349,7 @@ class TestStrokeDataSizeGuard:
         client.post(url, {'stroke_data': oversized, 'score': '82'})
 
         ans = LanguageStudentAnswer.objects.get(student=student, exercise=ex)
-        assert ans.score == 82.0, 'Score should be recorded even when stroke_data is dropped'
+        assert ans.score == 0.0, 'Score must be 0 when stroke_data is rejected (no strokes = no attempt)'
 
     def test_normal_stroke_data_passes_through(self):
         ex = self._make_letter_exercise('norm')

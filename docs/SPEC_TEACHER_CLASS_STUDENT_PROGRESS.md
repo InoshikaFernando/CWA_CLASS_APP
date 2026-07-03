@@ -820,6 +820,41 @@ partial. Each section is gated by its `include_*` flag.
 *Follow-up (not in this change):* per-criterion selection within the rubric (today
 the rubric is included/excluded as a whole).
 
+### 12.9 Report sections — modes, worksheets, Maths detail, preview
+
+*(Added 2026-06-28.)*
+
+Extends §12.8. The **snapshot is now the single source of truth** — each section
+renders iff its key is present in `summary_snapshot` (no per-section model flag
+needed), so new sections need no migration.
+
+- **Homework & Worksheets — summary *or* selected.** Each takes a `mode`:
+  `summary` (completion % + average) or `selected` (specific items the staff picked
+  for the *class*; each student's report shows those items with their own score, or
+  "Not attempted"). Worksheets (`worksheets.WorksheetAssignment` /
+  `WorksheetSubmission`) mirror homework. Selection is per class (one pick for all
+  students).
+- **Maths breakdowns (opt-in).** Beyond the summary numbers, staff can tick
+  **times tables** (best ×/÷ % per table), **quiz topics** (best % per topic) and
+  **basic facts** (best % per subtopic). Each is added to the snapshot only when
+  ticked.
+- **Per-student preview.** `ProgressReportPreviewView`
+  (`/progress/student/<id>/report/preview/`) renders one student's report live from
+  the builder's current selection (passed as GET params) — nothing is persisted.
+  The builder's per-student "Preview" buttons submit the section form via
+  `formmethod="get"` to this URL in a new tab.
+- **Coding — summary *or* selected.** `summary` (exercises + problems solved) or
+  `selected` (pick CodingLanguage(s) → per-topic exercise completion: completed /
+  total + % for each `CodingTopic` in the chosen languages). Languages are
+  platform-wide (not class-bound). Maths has breakdown toggles rather than a
+  selected mode.
+- Entry point: a **"Generate class reports"** button on the Student Progress Report
+  overview (shown when a class filter is active).
+
+`build_summary(...)` orchestrates all of the above; `_summary_selection_kwargs`
+translates the builder checkboxes (POST for generate, GET for preview) into its
+kwargs.
+
 ---
 
 ## 13. Packages & Billing (Global)
