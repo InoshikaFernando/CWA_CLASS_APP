@@ -815,16 +815,38 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
         # Prefill each student's general comment for THIS class (latest one), so
         # teachers can add/update a comment right here while recording progress.
-        # Strictly scoped to the class (§12.10): unlike records, a comment carries
-        # no criterion to attribute it, so a class-less legacy comment has no single
-        # home — falling back to it would show it on EVERY class sharing the subject
-        # (cross-class bleed). So we show class-specific comments only; a legacy
-        # comment must be reassigned to a class (or re-entered) to appear here.
+        # Class-specific comments (§12.10) always win. A legacy class-less comment
+        # (classroom IS NULL, pre-per-class) is shown as a fallback ONLY for a
+        # student who has a single class of this subject — for them it can't bleed.
+        # A student in two+ same-subject classes (e.g. taught by different teachers
+        # on different days) is EXCLUDED from the fallback, because a class-less
+        # comment would otherwise appear on every one of their classes; they must
+        # have the comment reassigned to a class to see it.
+        student_ids = [s.id for s in students]
+        multi_class_student_ids = {
+            row['student_id']
+            for row in ClassStudent.objects.filter(
+                student_id__in=student_ids, is_active=True,
+                classroom__subject=classroom.subject,
+            ).values('student_id').annotate(
+                n=Count('classroom_id', distinct=True),
+            ).filter(n__gt=1)
+        }
+
         comment_map = {}
+        # Class-specific comments first — authoritative.
         for c in ProgressReportComment.objects.filter(
-            student__in=students, school=classroom.school,
+            student_id__in=student_ids, school=classroom.school,
             subject=classroom.subject, classroom=classroom, term__isnull=True,
         ).order_by('student_id', '-created_at', '-id'):
+            comment_map.setdefault(c.student_id, c.body)
+        # Legacy class-less fallback — only for single-class students (no bleed risk).
+        for c in ProgressReportComment.objects.filter(
+            student_id__in=student_ids, school=classroom.school,
+            subject=classroom.subject, classroom__isnull=True, term__isnull=True,
+        ).order_by('student_id', '-created_at', '-id'):
+            if c.student_id in multi_class_student_ids:
+                continue
             comment_map.setdefault(c.student_id, c.body)
 
         # Build per-student rows for the template

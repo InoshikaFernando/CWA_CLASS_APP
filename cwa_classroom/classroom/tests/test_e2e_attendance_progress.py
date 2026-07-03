@@ -1074,6 +1074,25 @@ class ProgressPerClassTest(_BaseAttendanceProgressTest):
                        if r['student'].id == self.student_user.id)
             self.assertEqual(row['comment'], '')
 
+    def test_legacy_classless_comment_shows_for_single_class_student(self):
+        """A class-less legacy comment MUST still prefill for a student who is in
+        only one class of this subject — it can't bleed (they have one class), so
+        removing it would wrongly wipe every pre-per-class comment."""
+        self._login()
+        from classroom.models import ProgressReportComment, ClassStudent
+        # A student in ONLY self.classroom (not classroom2).
+        solo = _create_user('solo_student', first_name='Sam', last_name='Solo')
+        SchoolStudent.objects.create(school=self.school, student=solo)
+        ClassStudent.objects.create(classroom=self.classroom, student=solo, is_active=True)
+        ProgressReportComment.objects.create(
+            student=solo, school=self.school,
+            subject=self.classroom.subject, classroom=None,
+            body='Legacy solo note.', created_by=self.teacher_user,
+        )
+        resp = self.client.get(reverse('record_progress', kwargs={'class_id': self.classroom.id}))
+        row = next(r for r in resp.context['student_rows'] if r['student'].id == solo.id)
+        self.assertEqual(row['comment'], 'Legacy solo note.')
+
     def test_comment_is_independent_per_class(self):
         """A general comment recorded in one class must not appear on — or be
         overwritten by — the other class's record page (both classes share the
