@@ -1968,6 +1968,9 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             q.setdefault('grading_rubric', '')
             ref = q.get('image_ref')
             q['image_b64'] = session.extracted_images.get(ref) if ref else None
+            # For the "Adjust image" crop modal: which page + the current crop box.
+            q['image_page'] = q.get('image_page') or q.get('page_num') or 1
+            q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
             # Pre-format the structured-spec JSON for the editable textareas.
             if q.get('plane_spec'):
                 q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)
@@ -2150,6 +2153,34 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         session.save(update_fields=['extracted_data', 'extracted_images', 'homework_title', 'classroom'])
 
         return redirect('homework:pdf_confirm', session_id=session.pk)
+
+
+class HomeworkPDFPageImageView(RoleRequiredMixin, View):
+    """AJAX: full source-page PNG for the 'Adjust image' crop modal."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        from worksheets.image_adjust import page_image_response
+
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(
+            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return page_image_response(session, request)
+
+
+class HomeworkPDFRecropView(RoleRequiredMixin, View):
+    """AJAX: re-render a question image from a teacher-drawn box on the PDF."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, session_id):
+        from worksheets.image_adjust import recrop_response
+
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(
+            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return recrop_response(session, request)
 
 
 class HomeworkPDFConfirmView(RoleRequiredMixin, View):

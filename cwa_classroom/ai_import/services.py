@@ -899,6 +899,10 @@ def _crop_figure_boxes_inner(result, pages, crops, decoded, doc, Image, io):
         ref = f'page{int(page_num)}_figure{idx}.png'
         crops[ref] = base64.b64encode(img_bytes).decode('utf-8')
         q['image_ref'] = ref
+        # Crop provenance for the "Adjust image" editor (box was in % of page).
+        q['image_page'] = int(page_num)
+        q['image_bbox_frac'] = [round(lo_x / 100, 4), round(lo_y / 100, 4),
+                                round(hi_x / 100, 4), round(hi_y / 100, 4)]
 
     return crops
 

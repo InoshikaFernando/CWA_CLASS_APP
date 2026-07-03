@@ -317,6 +317,9 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)
             if q.get('graph_spec'):
                 q['graph_spec_json'] = json.dumps(q['graph_spec'], indent=2)
+            # For the "Adjust image" crop modal: which page + the current crop box.
+            q['image_page'] = q.get('image_page') or q.get('page') or 1
+            q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
 
         return render(request, 'ai_import/preview.html', {
             'session': session,
@@ -453,13 +456,40 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
         return redirect('ai_import:confirm', session_id=session.pk)
 
 
+_IMPORT_ROLES = [
+    Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+    Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
+    Role.TEACHER, Role.JUNIOR_TEACHER,
+]
+
+
+class PageImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+    """AJAX: full source-page PNG for the 'Adjust image' crop modal."""
+    required_roles = _IMPORT_ROLES
+
+    def get(self, request, session_id):
+        from worksheets.image_adjust import page_image_response
+        session = get_object_or_404(
+            AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return page_image_response(session, request)
+
+
+class RecropView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+    """AJAX: re-render a question image from a teacher-drawn box on the PDF."""
+    required_roles = _IMPORT_ROLES
+
+    def post(self, request, session_id):
+        from worksheets.image_adjust import recrop_response
+        session = get_object_or_404(
+            AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return recrop_response(session, request)
+
+
 class UploadImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
     """AJAX endpoint: upload an image to the session's image gallery."""
-    required_roles = [
-        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
-        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
-        Role.TEACHER, Role.JUNIOR_TEACHER,
-    ]
+    required_roles = _IMPORT_ROLES
 
     def post(self, request, session_id):
         import base64

@@ -337,6 +337,9 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             # don't need a custom filter for dict lookups.
             ref = q.get('image_ref')
             q['image_b64'] = session.extracted_images.get(ref) if ref else None
+            # For the "Adjust image" crop modal: which page + the current crop box.
+            q['image_page'] = q.get('image_page') or q.get('page_num') or 1
+            q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
 
         # Recovery: if every question ended up with include=False (stuck state
         # from a previous all-uncheck submission), re-apply the default selection
@@ -351,7 +354,8 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             # Save only the include reset — strip image_b64 first since that
             # is added in-memory for template rendering only and must not be
             # persisted (it bloats the JSONField with base64 image data).
-            clean_questions = [{k: v for k, v in q.items() if k != 'image_b64'} for q in questions]
+            _transient = {'image_b64', 'image_bbox_frac_json'}
+            clean_questions = [{k: v for k, v in q.items() if k not in _transient} for q in questions]
             data['questions'] = clean_questions
             session.extracted_data = data
             session.save(update_fields=['extracted_data'])
@@ -428,6 +432,30 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
         session.save(update_fields=['extracted_data', 'worksheet_name'])
 
         return redirect('worksheets:confirm', session_id=session.pk)
+
+
+class WorksheetPageImageView(RoleRequiredMixin, View):
+    """AJAX: full source-page PNG for the 'Adjust image' crop modal."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        from .image_adjust import page_image_response
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return page_image_response(session, request)
+
+
+class WorksheetRecropView(RoleRequiredMixin, View):
+    """AJAX: re-render a question image from a teacher-drawn box on the PDF."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, session_id):
+        from .image_adjust import recrop_response
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return recrop_response(session, request)
 
 
 class WorksheetConfirmView(RoleRequiredMixin, View):
