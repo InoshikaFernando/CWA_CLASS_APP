@@ -1532,6 +1532,13 @@ class ProgressReportComment(models.Model):
         related_name='progress_report_comments',
         help_text='Optional: a subject-specific comment. Null = overall comment.',
     )
+    classroom = models.ForeignKey(
+        'ClassRoom', on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='progress_report_comments',
+        help_text='Class this comment was recorded in (per-class tracking, §12.10). '
+                  'Null = legacy / class-agnostic comment.',
+    )
     body = models.TextField()
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
