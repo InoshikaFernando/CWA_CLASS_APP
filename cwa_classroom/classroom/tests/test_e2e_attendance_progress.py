@@ -1043,6 +1043,34 @@ class ProgressPerClassTest(_BaseAttendanceProgressTest):
         }
         self.assertEqual(statuses[self.crit.id], 'not_started')
 
+    def test_legacy_classless_record_still_shows_on_record_page(self):
+        """A record from before per-class tracking (classroom=None) must still
+        prefill on a class record page — otherwise old progress looks 'cleared'."""
+        self._login()
+        ProgressRecord.objects.create(student=self.student_user, criteria=self.crit,
+                                      classroom=None, status='confident',
+                                      recorded_by=self.teacher_user)
+        resp = self.client.get(reverse('record_progress', kwargs={'class_id': self.classroom.id}))
+        row = next(r for r in resp.context['student_rows']
+                   if r['student'].id == self.student_user.id)
+        statuses = {cs['criteria'].id: cs['current_status'] for cs in row['criteria_statuses']}
+        self.assertEqual(statuses[self.crit.id], 'confident')
+
+    def test_legacy_classless_comment_still_shows_on_record_page(self):
+        """A comment from before per-class tracking (classroom=None) must still
+        prefill on a class record page."""
+        self._login()
+        from classroom.models import ProgressReportComment
+        ProgressReportComment.objects.create(
+            student=self.student_user, school=self.school,
+            subject=self.classroom.subject, classroom=None,
+            body='Legacy note.', created_by=self.teacher_user,
+        )
+        resp = self.client.get(reverse('record_progress', kwargs={'class_id': self.classroom.id}))
+        row = next(r for r in resp.context['student_rows']
+                   if r['student'].id == self.student_user.id)
+        self.assertEqual(row['comment'], 'Legacy note.')
+
     def test_comment_is_independent_per_class(self):
         """A general comment recorded in one class must not appear on — or be
         overwritten by — the other class's record page (both classes share the

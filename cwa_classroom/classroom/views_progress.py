@@ -793,12 +793,16 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
         # Build a lookup of *latest* records: {(student_id, criteria_id): status}
         # Since there can be multiple records per (student, criteria) across sessions,
-        # pick the one with the highest id (most recent). Scope to THIS class only —
-        # progress is tracked per class (§12.10), so a student in two classes must
-        # not see one class's statuses bleed into the other's record page.
+        # pick the one with the highest id (most recent). Include THIS class's records
+        # plus legacy class-less records (classroom IS NULL) recorded before per-class
+        # tracking (§12.10) — so old progress still shows here — but never ANOTHER
+        # class's records, so a student in two classes doesn't see one class's statuses
+        # bleed onto the other's page. Once saved, a class-specific record (higher id)
+        # supersedes the legacy one.
         latest_ids_qs = (
             ProgressRecord.objects
-            .filter(student__in=students, criteria__in=criteria_qs, classroom=classroom)
+            .filter(student__in=students, criteria__in=criteria_qs)
+            .filter(Q(classroom=classroom) | Q(classroom__isnull=True))
             .values('student_id', 'criteria_id')
             .annotate(latest_id=Max('id'))
         )
@@ -812,12 +816,14 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
         # Prefill each student's general comment for THIS class (latest one), so
         # teachers can add/update a comment right here while recording progress.
         # Scoped to the class (§12.10) so two classes sharing a subject don't share
-        # one comment — each teacher keeps their own.
+        # one comment — each teacher keeps their own. Falls back to a legacy
+        # class-less comment (classroom IS NULL) so pre-per-class comments still show.
         comment_map = {}
         for c in ProgressReportComment.objects.filter(
+            Q(classroom=classroom) | Q(classroom__isnull=True),
             student__in=students, school=classroom.school,
-            subject=classroom.subject, classroom=classroom, term__isnull=True,
-        ).order_by('student_id', '-created_at'):
+            subject=classroom.subject, term__isnull=True,
+        ).order_by('student_id', '-created_at', '-id'):
             comment_map.setdefault(c.student_id, c.body)
 
         # Build per-student rows for the template
