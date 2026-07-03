@@ -815,14 +815,15 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
         # Prefill each student's general comment for THIS class (latest one), so
         # teachers can add/update a comment right here while recording progress.
-        # Scoped to the class (§12.10) so two classes sharing a subject don't share
-        # one comment — each teacher keeps their own. Falls back to a legacy
-        # class-less comment (classroom IS NULL) so pre-per-class comments still show.
+        # Strictly scoped to the class (§12.10): unlike records, a comment carries
+        # no criterion to attribute it, so a class-less legacy comment has no single
+        # home — falling back to it would show it on EVERY class sharing the subject
+        # (cross-class bleed). So we show class-specific comments only; a legacy
+        # comment must be reassigned to a class (or re-entered) to appear here.
         comment_map = {}
         for c in ProgressReportComment.objects.filter(
-            Q(classroom=classroom) | Q(classroom__isnull=True),
             student__in=students, school=classroom.school,
-            subject=classroom.subject, term__isnull=True,
+            subject=classroom.subject, classroom=classroom, term__isnull=True,
         ).order_by('student_id', '-created_at', '-id'):
             comment_map.setdefault(c.student_id, c.body)
 
