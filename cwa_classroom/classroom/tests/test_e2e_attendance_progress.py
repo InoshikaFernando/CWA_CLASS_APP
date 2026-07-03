@@ -1056,9 +1056,11 @@ class ProgressPerClassTest(_BaseAttendanceProgressTest):
         statuses = {cs['criteria'].id: cs['current_status'] for cs in row['criteria_statuses']}
         self.assertEqual(statuses[self.crit.id], 'confident')
 
-    def test_legacy_classless_comment_still_shows_on_record_page(self):
-        """A comment from before per-class tracking (classroom=None) must still
-        prefill on a class record page."""
+    def test_legacy_classless_comment_does_not_bleed_across_classes(self):
+        """A class-less legacy comment must NOT prefill on a class record page:
+        it has no single home, so showing it would bleed onto every class sharing
+        the subject. Comments are strictly per-class (§12.10) — unlike records,
+        which do fall back."""
         self._login()
         from classroom.models import ProgressReportComment
         ProgressReportComment.objects.create(
@@ -1066,10 +1068,11 @@ class ProgressPerClassTest(_BaseAttendanceProgressTest):
             subject=self.classroom.subject, classroom=None,
             body='Legacy note.', created_by=self.teacher_user,
         )
-        resp = self.client.get(reverse('record_progress', kwargs={'class_id': self.classroom.id}))
-        row = next(r for r in resp.context['student_rows']
-                   if r['student'].id == self.student_user.id)
-        self.assertEqual(row['comment'], 'Legacy note.')
+        for cls in (self.classroom, self.classroom2):
+            resp = self.client.get(reverse('record_progress', kwargs={'class_id': cls.id}))
+            row = next(r for r in resp.context['student_rows']
+                       if r['student'].id == self.student_user.id)
+            self.assertEqual(row['comment'], '')
 
     def test_comment_is_independent_per_class(self):
         """A general comment recorded in one class must not appear on — or be
