@@ -209,3 +209,48 @@ class StripeBillingPortalAccessTests(TestCase):
         mock_portal.assert_called_once()
         self.assertEqual(mock_portal.call_args[0][0], 'cus_SCHOOL_secret')
         self.assertEqual(resp.status_code, 302)
+
+
+class IndividualStatusPreservedTests(TestCase):
+    """A past_due individual student is blocked WITHOUT the middleware clobbering
+    the status to 'expired' — otherwise the wall shows the wrong 'trial ended'
+    message and our DB drifts from Stripe. A genuinely-expired trial must still
+    auto-expire.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.pkg = Package.objects.create(name='Ind', price=19.90, stripe_price_id='price_ind_pres')
+
+    def setUp(self):
+        self.rf = RequestFactory()
+        self.mw = TrialExpiryMiddleware(lambda request: SENTINEL)
+
+    def _run(self, user, path='/hub/'):
+        request = self.rf.get(path)
+        request.user = user
+        return self.mw(request)
+
+    def test_past_due_individual_blocked_but_status_preserved(self):
+        u = _user('ind_pastdue', Role.INDIVIDUAL_STUDENT)
+        sub = Subscription.objects.create(
+            user=u, package=self.pkg, status=Subscription.STATUS_PAST_DUE,
+        )
+        resp = self._run(u)
+        self.assertIsNot(resp, SENTINEL)
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/accounts/trial-expired/', resp.url)
+        sub.refresh_from_db()
+        self.assertEqual(sub.status, Subscription.STATUS_PAST_DUE)  # NOT clobbered
+
+    def test_expired_trial_individual_still_auto_expires(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        u = _user('ind_trial', Role.INDIVIDUAL_STUDENT)
+        sub = Subscription.objects.create(
+            user=u, package=self.pkg, status=Subscription.STATUS_TRIALING,
+            trial_end=timezone.now() - timedelta(days=1),
+        )
+        self._run(u)
+        sub.refresh_from_db()
+        self.assertEqual(sub.status, Subscription.STATUS_EXPIRED)
