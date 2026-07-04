@@ -33,11 +33,15 @@ def handle_checkout_completed(event_data):
     metadata = session.get('metadata', {})
     sub_type = metadata.get('type', '')
     stripe_subscription_id = session.get('subscription', '')
+    # The checkout session always carries the Stripe customer. Persisting it is
+    # what lets the billing portal open and stops re-checkouts creating duplicate
+    # customers. (Historically this was never saved for user checkouts.)
+    stripe_customer_id = session.get('customer', '') or ''
 
     if sub_type == 'institute':
-        _activate_institute_from_checkout(metadata, stripe_subscription_id)
+        _activate_institute_from_checkout(metadata, stripe_subscription_id, stripe_customer_id)
     elif sub_type in ('individual', 'school_student'):
-        _activate_individual_from_checkout(metadata, stripe_subscription_id)
+        _activate_individual_from_checkout(metadata, stripe_subscription_id, stripe_customer_id)
     elif sub_type == 'pending_individual_registration':
         _activate_pending_registration(stripe_session_id, stripe_subscription_id)
     elif sub_type == 'invoice_payment':
@@ -46,7 +50,7 @@ def handle_checkout_completed(event_data):
         logger.warning('Unknown checkout type: %s', sub_type)
 
 
-def _activate_institute_from_checkout(metadata, stripe_subscription_id):
+def _activate_institute_from_checkout(metadata, stripe_subscription_id, stripe_customer_id=''):
     from billing.models import SchoolSubscription, InstitutePlan
     from classroom.models import School
 
@@ -74,7 +78,7 @@ def _activate_institute_from_checkout(metadata, stripe_subscription_id):
 
     sub.status = SchoolSubscription.STATUS_ACTIVE
     sub.stripe_subscription_id = stripe_subscription_id or sub.stripe_subscription_id
-    sub.stripe_customer_id = sub.stripe_customer_id or ''
+    sub.stripe_customer_id = stripe_customer_id or sub.stripe_customer_id or ''
     sub.trial_end = None
     sub.current_period_start = timezone.now()
     if plan:
@@ -83,7 +87,7 @@ def _activate_institute_from_checkout(metadata, stripe_subscription_id):
     logger.info('Institute subscription activated: school=%s plan=%s', school_id, plan)
 
 
-def _activate_individual_from_checkout(metadata, stripe_subscription_id):
+def _activate_individual_from_checkout(metadata, stripe_subscription_id, stripe_customer_id=''):
     from billing.models import Subscription, Package
     from accounts.models import CustomUser
 
@@ -113,6 +117,10 @@ def _activate_individual_from_checkout(metadata, stripe_subscription_id):
     package = Package.objects.filter(id=package_id).first() if package_id else sub.package
 
     sub.stripe_subscription_id = stripe_subscription_id or sub.stripe_subscription_id
+    # Persist the Stripe customer id so the billing portal works and re-checkouts
+    # reuse the same customer. Only fill it in — never blank an existing value.
+    if stripe_customer_id:
+        sub.stripe_customer_id = stripe_customer_id
     if package:
         sub.package = package
         user.package = package
@@ -125,6 +133,10 @@ def _activate_individual_from_checkout(metadata, stripe_subscription_id):
             import stripe
             stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id)
             stripe_status = stripe_sub.status
+            # Belt-and-suspenders: the subscription object is the authoritative
+            # source of its customer, in case the session didn't carry one.
+            if not sub.stripe_customer_id and getattr(stripe_sub, 'customer', None):
+                sub.stripe_customer_id = stripe_sub.customer
         except Exception:
             pass
 
@@ -195,27 +207,32 @@ def handle_subscription_updated(event_data):
     cancel_at_period_end = stripe_sub.get('cancel_at_period_end', False)
     current_period_start = _ts_to_dt(stripe_sub.get('current_period_start'))
     current_period_end = _ts_to_dt(stripe_sub.get('current_period_end'))
+    stripe_customer_id = stripe_sub.get('customer', '') or ''
 
     if sub_type == 'institute':
         _sync_institute_subscription(
             stripe_sub_id, status, metadata,
             cancel_at_period_end, current_period_start, current_period_end,
+            stripe_customer_id,
         )
     elif sub_type == 'individual':
         _sync_individual_subscription(
             stripe_sub_id, status, metadata,
             cancel_at_period_end, current_period_start, current_period_end,
+            stripe_customer_id,
         )
     else:
         # Try to find by stripe_subscription_id
         _sync_by_stripe_id(
             stripe_sub_id, status,
             cancel_at_period_end, current_period_start, current_period_end,
+            stripe_customer_id,
         )
 
 
 def _sync_institute_subscription(stripe_sub_id, status, metadata,
-                                  cancel_at_period_end, period_start, period_end):
+                                  cancel_at_period_end, period_start, period_end,
+                                  stripe_customer_id=''):
     from billing.models import SchoolSubscription
 
     STATUS_MAP = {
@@ -250,6 +267,8 @@ def _sync_institute_subscription(stripe_sub_id, status, metadata,
 
     sub.status = STATUS_MAP.get(status, status)
     sub.stripe_subscription_id = stripe_sub_id
+    if stripe_customer_id:
+        sub.stripe_customer_id = stripe_customer_id
     sub.cancel_at_period_end = cancel_at_period_end
     if period_start:
         sub.current_period_start = period_start
@@ -270,7 +289,8 @@ def _sync_institute_subscription(stripe_sub_id, status, metadata,
 
 
 def _sync_individual_subscription(stripe_sub_id, status, metadata,
-                                   cancel_at_period_end, period_start, period_end):
+                                   cancel_at_period_end, period_start, period_end,
+                                   stripe_customer_id=''):
     from billing.models import Subscription
 
     STATUS_MAP = {
@@ -294,6 +314,8 @@ def _sync_individual_subscription(stripe_sub_id, status, metadata,
 
     sub.status = STATUS_MAP.get(status, status)
     sub.stripe_subscription_id = stripe_sub_id
+    if stripe_customer_id:
+        sub.stripe_customer_id = stripe_customer_id
     sub.cancel_at_period_end = cancel_at_period_end
     if period_start:
         sub.current_period_start = period_start
@@ -305,7 +327,8 @@ def _sync_individual_subscription(stripe_sub_id, status, metadata,
     logger.info('Individual subscription synced: user=%s status=%s', sub.user_id, sub.status)
 
 
-def _sync_by_stripe_id(stripe_sub_id, status, cancel_at_period_end, period_start, period_end):
+def _sync_by_stripe_id(stripe_sub_id, status, cancel_at_period_end, period_start, period_end,
+                       stripe_customer_id=''):
     """Fallback: try to find subscription by stripe_subscription_id."""
     from billing.models import SchoolSubscription, Subscription
 
@@ -314,6 +337,7 @@ def _sync_by_stripe_id(stripe_sub_id, status, cancel_at_period_end, period_start
         _sync_institute_subscription(
             stripe_sub_id, status, {'school_id': sub.school_id},
             cancel_at_period_end, period_start, period_end,
+            stripe_customer_id,
         )
         return
     except SchoolSubscription.DoesNotExist:
@@ -324,6 +348,7 @@ def _sync_by_stripe_id(stripe_sub_id, status, cancel_at_period_end, period_start
         _sync_individual_subscription(
             stripe_sub_id, status, {'user_id': sub.user_id},
             cancel_at_period_end, period_start, period_end,
+            stripe_customer_id,
         )
         return
     except Subscription.DoesNotExist:
