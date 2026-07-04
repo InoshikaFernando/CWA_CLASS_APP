@@ -145,7 +145,11 @@ class TrialExpiryMiddleware:
                 return self.get_response(request)
 
             if self._is_trial_expired(sub):
-                if sub.status != sub.STATUS_EXPIRED:
+                # Only auto-expire a genuinely-expired TRIAL. Preserve real
+                # Stripe statuses (past_due / cancelled) so the payment wall
+                # shows the correct "Payment Failed → Update card" message and
+                # our status doesn't drift from Stripe.
+                if sub.status == sub.STATUS_TRIALING:
                     sub.status = sub.STATUS_EXPIRED
                     sub.save(update_fields=['status'])
 
@@ -191,7 +195,10 @@ class TrialExpiryMiddleware:
             return None
 
         if self._is_school_sub_expired(sub):
-            if sub.status != SchoolSubscription.STATUS_EXPIRED:
+            # Only auto-expire a genuinely-expired TRIAL; preserve real Stripe
+            # statuses (past_due / cancelled / suspended) so the wall message and
+            # our records stay truthful.
+            if sub.status == SchoolSubscription.STATUS_TRIALING:
                 sub.status = SchoolSubscription.STATUS_EXPIRED
                 sub.save(update_fields=['status'])
 
