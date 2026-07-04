@@ -354,6 +354,8 @@ class CheckoutSuccessView(View):
             if session.payment_status in ('paid', 'no_payment_required'):
                 sub.status = Subscription.STATUS_ACTIVE
                 sub.stripe_subscription_id = session.subscription or sub.stripe_subscription_id
+                if getattr(session, 'customer', None):
+                    sub.stripe_customer_id = session.customer
                 sub.trial_end = None
                 sub.current_period_start = timezone.now()
                 if session.metadata.get('package_id'):
@@ -730,6 +732,8 @@ class InstituteCheckoutSuccessView(LoginRequiredMixin, View):
             if session.payment_status in ('paid', 'no_payment_required'):
                 sub.status = SchoolSubscription.STATUS_ACTIVE
                 sub.stripe_subscription_id = session.subscription or sub.stripe_subscription_id
+                if getattr(session, 'customer', None):
+                    sub.stripe_customer_id = session.customer
                 sub.trial_end = None
                 sub.current_period_start = timezone.now()
                 if session.metadata.get('plan_id'):
