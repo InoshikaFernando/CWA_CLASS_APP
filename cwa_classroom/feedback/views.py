@@ -10,10 +10,33 @@ from django.views import View
 from billing.entitlements import get_school_for_user
 
 from .forms import FeedbackForm
-from .models import Feedback
+from .models import Feedback, FeedbackImage
 from .owner import get_feedback_owner, is_feedback_owner
 
 logger = logging.getLogger(__name__)
+
+# Screenshot upload limits (CPP-324). Screenshots are pasted/dragged into the
+# feedback modal; keep the count and size bounded so a runaway paste can't fill
+# storage or blow the request body limit.
+MAX_FEEDBACK_IMAGES = 5
+MAX_FEEDBACK_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB each
+
+
+def _validate_images(files):
+    """Return an error string for an invalid screenshot set, else ``''``.
+
+    Rejects non-image uploads and oversized files loudly (the modal shows the
+    message) rather than silently dropping them — a user who attached proof of
+    a bug should never have it vanish without explanation.
+    """
+    if len(files) > MAX_FEEDBACK_IMAGES:
+        return f'Please attach at most {MAX_FEEDBACK_IMAGES} screenshots.'
+    for f in files:
+        if not (f.content_type or '').startswith('image/'):
+            return f'"{f.name}" is not an image. Only image screenshots can be attached.'
+        if f.size > MAX_FEEDBACK_IMAGE_BYTES:
+            return f'"{f.name}" is too large. Each screenshot must be under 10 MB.'
+    return ''
 
 
 def _safe_page_url(url):
@@ -53,11 +76,13 @@ class SubmitFeedbackView(LoginRequiredMixin, View):
 
     def post(self, request):
         form = FeedbackForm(request.POST)
-        if not form.is_valid():
+        images = request.FILES.getlist('screenshots')
+        image_error = _validate_images(images)
+        if not form.is_valid() or image_error:
             return render(
                 request,
                 'feedback/_partials/feedback_modal.html',
-                {'form': form},
+                {'form': form, 'image_error': image_error},
                 status=400,
             )
 
@@ -72,6 +97,11 @@ class SubmitFeedbackView(LoginRequiredMixin, View):
         feedback.status = Feedback.STATUS_NEW
         feedback.assignee = get_feedback_owner()
         feedback.save()
+
+        # Persist screenshots before enqueueing so the Jira task (which attaches
+        # them) sees a complete set.
+        for f in images:
+            FeedbackImage.objects.create(feedback=feedback, image=f)
 
         # Bug reports get auto-filed to Jira (+ Discord) in the background. The
         # task is config-gated and idempotent, so enqueue unconditionally for
@@ -125,6 +155,7 @@ class TriageDashboardView(OwnerRequiredMixin, View):
         queryset = (
             Feedback.objects.active()
             .select_related('submitted_by', 'school', 'assignee')
+            .prefetch_related('images')
         )
 
         category = request.GET.get('category', '')
@@ -178,7 +209,7 @@ class UpdateFeedbackView(OwnerRequiredMixin, View):
         item = get_object_or_404(
             Feedback.objects.active().select_related(
                 'submitted_by', 'school', 'assignee',
-            ),
+            ).prefetch_related('images'),
             pk=pk,
         )
 

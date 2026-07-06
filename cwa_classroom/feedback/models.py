@@ -124,3 +124,26 @@ class Feedback(models.Model):
     @property
     def is_removed(self):
         return self.removed_at is not None
+
+
+class FeedbackImage(models.Model):
+    """A screenshot attached to a feedback item (CPP-324).
+
+    Users can paste (Ctrl+V), drag or pick images when reporting — most often
+    a screenshot of the problem. Stored via the default storage backend
+    (DigitalOcean Spaces in prod, local media in dev). For bug reports the
+    image bytes are also pushed onto the auto-created Jira issue as a real
+    attachment (``feedback.services.report_feedback_bug``).
+    """
+
+    feedback = models.ForeignKey(
+        Feedback, on_delete=models.CASCADE, related_name='images',
+    )
+    image = models.ImageField(upload_to='feedback_attachments/')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'Image for feedback {self.feedback_id}'
