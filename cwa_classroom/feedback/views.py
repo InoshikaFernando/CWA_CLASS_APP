@@ -209,7 +209,7 @@ class UpdateFeedbackView(OwnerRequiredMixin, View):
         item = get_object_or_404(
             Feedback.objects.active().select_related(
                 'submitted_by', 'school', 'assignee',
-            ),
+            ).prefetch_related('images'),
             pk=pk,
         )
 
