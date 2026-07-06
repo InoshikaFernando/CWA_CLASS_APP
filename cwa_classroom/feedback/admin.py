@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from .models import Feedback
+from .models import Feedback, FeedbackImage
+
+
+class FeedbackImageInline(admin.TabularInline):
+    model = FeedbackImage
+    extra = 0
+    readonly_fields = ('created_at',)
 
 
 @admin.register(Feedback)
@@ -13,3 +19,4 @@ class FeedbackAdmin(admin.ModelAdmin):
     search_fields = ('title', 'description', 'submitted_by__username', 'page_url')
     raw_id_fields = ('submitted_by', 'school', 'assignee')
     readonly_fields = ('created_at', 'updated_at')
+    inlines = [FeedbackImageInline]
