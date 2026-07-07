@@ -202,7 +202,8 @@ Your task:
    b. If the visual is DRAWN into the page and has no embedded image reference (most shapes,
       geometry figures and number lines are like this), leave image_ref null and instead set
       image_page to the page it is on and image_box to its bounding box as percentages of that
-      page (see the image_box field description). Box the figure tightly.
+      page (see the image_box field description). Box THIS question's own figure tightly —
+      never a neighbouring question's figure, the question text, or the answer options.
    Do NOT invent or reuse an embedded image_ref that does not actually depict this question's
    visual — if no embedded image matches but a visual is genuinely needed, use approach (b).
    If a question has no visual, leave image_ref, image_page, and image_box all null.

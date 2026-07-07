@@ -536,10 +536,15 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
         )
     else:
         closing = (
-            "Extract ALL questions on these pages. For each question with a shape, diagram, "
-            "graph, table, ruler, or number line: set has_image=true and provide image_bbox "
-            "[left, top, right, bottom] in the page screenshot's pixel coordinates. "
-            "Crop ONLY the visual — not the question text or answer options. "
+            "Extract ALL questions on these pages. Set has_image=true ONLY when the question "
+            "cannot be answered from its text alone — the figure carries information the wording "
+            "does not (e.g. an unlabelled shape to measure, a graph to read off, a diagram whose "
+            "values aren't written out). If every value needed is already in the text (e.g. "
+            "'area of a circle with diameter 10 cm'), set has_image=false even if a visual sits "
+            "nearby. When unsure, prefer has_image=false — a wrongly-attached image is worse than "
+            "none. When has_image=true, give image_bbox [left, top, right, bottom] in the page "
+            "screenshot's pixel coordinates, cropping ONLY that question's own visual — never "
+            "another question's figure, the question text, or the answer options. "
             "Use the classify_worksheet_questions tool now."
         )
     content_blocks.append({
