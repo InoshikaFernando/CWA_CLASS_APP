@@ -141,6 +141,7 @@ class TrialExpiryMiddleware:
             # No subscription at all → treat as expired
             if not sub:
                 if not self._is_allowed_path(request.path):
+                    self._log_block(request, 'individual_no_subscription', 'none')
                     return redirect('trial_expired')
                 return self.get_response(request)
 
@@ -154,6 +155,7 @@ class TrialExpiryMiddleware:
                     sub.save(update_fields=['status'])
 
                 if not self._is_allowed_path(request.path):
+                    self._log_block(request, 'individual_subscription_expired', sub.status)
                     return redirect('trial_expired')
 
             return self.get_response(request)
@@ -207,6 +209,7 @@ class TrialExpiryMiddleware:
                 return None
 
             if not self._is_allowed_path(request.path):
+                self._log_block(request, 'school_subscription_expired', sub.status)
                 return redirect('institute_trial_expired')
 
         return None
@@ -242,8 +245,22 @@ class TrialExpiryMiddleware:
         if sub.is_active_or_trialing:
             return None
         if not self._is_allowed_path(request.path):
+            self._log_block(request, 'personal_subscription_delinquent', sub.status)
             return redirect('trial_expired')
         return None
+
+    @staticmethod
+    def _log_block(request, reason, sub_status=''):
+        """Audit-log a subscription/trial block so every denial is provable
+        (who, when, which page, why). log_event swallows its own errors, so this
+        can never break the request."""
+        from audit.services import log_event
+        log_event(
+            user=request.user, category='entitlement',
+            action='subscription_blocked', result='blocked',
+            detail={'reason': reason, 'sub_status': sub_status, 'path': request.path},
+            request=request,
+        )
 
     @staticmethod
     def _is_institute_user(user):
