@@ -98,6 +98,21 @@ class PersonalSubscriptionGatingTests(TestCase):
         )
         self._assert_blocked(self._run(student))
 
+    def test_block_emits_audit_event(self):
+        """Every block writes a provable audit event (who / when / why / path)."""
+        from audit.models import AuditLog
+        student = _user('stu_audit', Role.STUDENT)
+        self._enrol(student)
+        Subscription.objects.create(
+            user=student, package=self.package, status=Subscription.STATUS_PAST_DUE,
+        )
+        self._assert_blocked(self._run(student, path='/homework/'))
+        ev = AuditLog.objects.filter(user=student, action='subscription_blocked').first()
+        self.assertIsNotNone(ev)
+        self.assertEqual(ev.result, 'blocked')
+        self.assertEqual(ev.detail.get('sub_status'), 'past_due')
+        self.assertEqual(ev.detail.get('path'), '/homework/')
+
     # -- must NOT over-block ----------------------------------------------------
 
     def test_active_personal_sub_is_allowed(self):
