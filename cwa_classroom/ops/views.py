@@ -32,6 +32,10 @@ class OpsDashboardView(SuperuserRequiredMixin, View):
             'chart_data': series,
             'incidents': incidents,
             'window': window,
+            # Granularity word for the chart subtitles ("per hour" for the 24h
+            # view, "per day" for the longer ones) — the window key alone would
+            # read "per day"/"per month", which misdescribes the buckets.
+            'bucket_label': 'hour' if WINDOWS[window]['bucket'] == 'hour' else 'day',
             'window_options': [
                 {'key': k, 'label': v['label']} for k, v in WINDOWS.items()
             ],
