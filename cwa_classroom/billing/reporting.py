@@ -435,6 +435,123 @@ def _add_month(d):
     return d.replace(month=d.month + 1)
 
 
+def _add_year(d):
+    """First-of-month date -> same month next year."""
+    return d.replace(year=d.year + 1)
+
+
+def _recurring_occurrences(template, until):
+    """Yield first-of-month dates a RecurringExpense template should book, up to
+    and including `until` (a first-of-month date). Monthly templates book one
+    row per month; yearly ones book one row per year on their start month.
+    Bounded by end_date when set.
+    """
+    from .models import RecurringExpense
+    cursor = _first_of_month(template.start_date)
+    end = _first_of_month(template.end_date) if template.end_date else None
+    step = (
+        _add_year if template.frequency == RecurringExpense.FREQUENCY_YEARLY
+        else _add_month
+    )
+    while cursor <= until:
+        if end and cursor > end:
+            break
+        yield cursor
+        cursor = step(cursor)
+
+
+def materialize_recurring_expenses(until=None, *, dry_run=False):
+    """Book missing Expense rows from active RecurringExpense templates.
+
+    Walks every active template and creates any Expense row it should have
+    (per `_recurring_occurrences`) up to `until` (default: the current month)
+    that doesn't already exist. Idempotent — an existing row is never touched,
+    so hand-entered true-ups survive. With dry_run=True nothing is written.
+
+    Returns a list of (template, month_start) pairs that were (or, in dry-run,
+    would be) created.
+    """
+    from .models import Expense, RecurringExpense, EXPENSE_SOURCE_RECURRING
+
+    if until is None:
+        until = _first_of_month(timezone.localdate())
+
+    templates = list(RecurringExpense.objects.filter(is_active=True))
+    if not templates:
+        return []
+
+    # Pull the already-booked (template, month) pairs once and diff in Python —
+    # same pull-once approach as get_income_expense_summary — so a dashboard
+    # load doesn't fire one existence query per template per month.
+    existing = set(
+        Expense.objects.filter(recurring__in=templates)
+        .values_list('recurring_id', 'incurred_on'),
+    )
+
+    created = []
+    for template in templates:
+        for month in _recurring_occurrences(template, until):
+            if (template.id, month) in existing:
+                continue
+            if dry_run:
+                created.append((template, month))
+                continue
+            # get_or_create is race-safe (retries the get on IntegrityError),
+            # so concurrent loads can't trip uniq_recurring_expense_per_date.
+            _, was_created = Expense.objects.get_or_create(
+                recurring=template,
+                incurred_on=month,
+                defaults={
+                    'category': template.category,
+                    'vendor': template.vendor,
+                    'description': template.description,
+                    'amount': template.amount,
+                    'source': EXPENSE_SOURCE_RECURRING,
+                    'note': template.note,
+                },
+            )
+            if was_created:
+                created.append((template, month))
+    return created
+
+
+# Vendor syncs (full-ledger scan / outbound HTTP) are heavier than a page load
+# should run every time, so the on-demand dashboard refresh throttles them to
+# at most once per this many seconds. Recurring materialisation is cheap and
+# always runs.
+FINANCE_REFRESH_LOCK_KEY = 'finance:autorefresh'
+FINANCE_REFRESH_LOCK_TTL = 300  # 5 minutes
+
+
+def refresh_current_month_expenses():
+    """Self-heal the current month's auto-expenses so the finance dashboard is
+    up to date between monthly cron runs (`scripts/sync_expenses.sh`).
+
+    Recurring templates are materialised every call (cheap + idempotent) so a
+    newly added template — or a month the cron hasn't reached yet — shows
+    immediately instead of reading $0. The heavier vendor syncs (AI-usage
+    ledger scan + DigitalOcean invoice fetch) are throttled to once per
+    FINANCE_REFRESH_LOCK_TTL. Each step is isolated and best-effort: a failure
+    is logged (never silently swallowed) and can't blank the dashboard.
+    """
+    try:
+        materialize_recurring_expenses()
+    except Exception as exc:
+        logger.warning('Recurring expense materialisation failed: %s', exc)
+
+    if cache.get(FINANCE_REFRESH_LOCK_KEY):
+        return
+    cache.set(FINANCE_REFRESH_LOCK_KEY, True, FINANCE_REFRESH_LOCK_TTL)
+    for label, sync in (
+        ('AI usage', sync_ai_usage_expenses),
+        ('DigitalOcean', sync_digitalocean_expenses),
+    ):
+        try:
+            sync()
+        except Exception as exc:
+            logger.warning('%s expense sync failed: %s', label, exc)
+
+
 def _month_dt(d):
     """Local date -> aware datetime at 00:00 (for Stripe period bounds)."""
     return timezone.make_aware(datetime.combine(d, datetime.min.time()))
