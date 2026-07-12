@@ -101,6 +101,9 @@ urlpatterns = [
     # --- Usage analytics ---
     path('', include('usage.urls')),
 
+    # --- Ops (droplet health) ---
+    path('', include('ops.urls')),
+
     # --- Subject apps ---
     path('brainbuzz/', include('brainbuzz.urls', namespace='brainbuzz')),
     path('maths/', include('maths.urls', namespace='maths')),
