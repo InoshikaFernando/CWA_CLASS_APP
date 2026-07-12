@@ -476,25 +476,42 @@ def materialize_recurring_expenses(until=None, *, dry_run=False):
     if until is None:
         until = _first_of_month(timezone.localdate())
 
+    templates = list(RecurringExpense.objects.filter(is_active=True))
+    if not templates:
+        return []
+
+    # Pull the already-booked (template, month) pairs once and diff in Python —
+    # same pull-once approach as get_income_expense_summary — so a dashboard
+    # load doesn't fire one existence query per template per month.
+    existing = set(
+        Expense.objects.filter(recurring__in=templates)
+        .values_list('recurring_id', 'incurred_on'),
+    )
+
     created = []
-    for template in RecurringExpense.objects.filter(is_active=True):
+    for template in templates:
         for month in _recurring_occurrences(template, until):
-            if Expense.objects.filter(
-                    recurring=template, incurred_on=month).exists():
+            if (template.id, month) in existing:
                 continue
-            created.append((template, month))
             if dry_run:
+                created.append((template, month))
                 continue
-            Expense.objects.create(
+            # get_or_create is race-safe (retries the get on IntegrityError),
+            # so concurrent loads can't trip uniq_recurring_expense_per_date.
+            _, was_created = Expense.objects.get_or_create(
                 recurring=template,
-                category=template.category,
-                vendor=template.vendor,
-                description=template.description,
-                amount=template.amount,
                 incurred_on=month,
-                source=EXPENSE_SOURCE_RECURRING,
-                note=template.note,
+                defaults={
+                    'category': template.category,
+                    'vendor': template.vendor,
+                    'description': template.description,
+                    'amount': template.amount,
+                    'source': EXPENSE_SOURCE_RECURRING,
+                    'note': template.note,
+                },
             )
+            if was_created:
+                created.append((template, month))
     return created
 
 

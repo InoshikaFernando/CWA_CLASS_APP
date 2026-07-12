@@ -350,6 +350,22 @@ class RefreshCurrentMonthExpensesTests(TestCase):
         row.refresh_from_db()
         self.assertEqual(row.amount, Decimal('56.74'))
 
+    def test_existence_check_is_bulk_not_per_month(self):
+        """Re-materialising a long-running template must not scale its query
+        count with the number of months already booked (was one .exists() per
+        month, now a single bulk fetch)."""
+        old_start = self._sub_months(date.today().replace(day=1), 18)
+        RecurringExpense.objects.create(
+            category=ExpenseCategory.GODADDY, amount=Decimal('20.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY, start_date=old_start,
+        )
+        materialize_recurring_expenses()  # first run books ~19 months
+        # Second run creates nothing; it must not fan out into one query per
+        # already-booked month — just the template list (1) + bulk fetch (1),
+        # regardless of how many months are already booked.
+        with self.assertNumQueries(2):
+            self.assertEqual(len(materialize_recurring_expenses()), 0)
+
     def test_vendor_sync_failure_does_not_break_refresh(self):
         today = date.today().replace(day=1)
         RecurringExpense.objects.create(
