@@ -84,7 +84,7 @@
           <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-fuchsia-400"></span> Swap</span>
         </div>
       </div>
-      <p class="text-xs text-slate-500 mb-5">Peak % used per {{ window|default:"period" }} bucket</p>
+      <p class="text-xs text-slate-500 mb-5">Peak % used per {{ bucket_label }}</p>
       <div class="relative h-64"><canvas id="opsMemChart" role="img" aria-label="Peak RAM and swap percent used over time"></canvas></div>
     </div>
 
@@ -95,7 +95,7 @@
           <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-amber-400"></span> Disk %</span>
         </div>
       </div>
-      <p class="text-xs text-slate-500 mb-5">Peak root-filesystem % used per bucket</p>
+      <p class="text-xs text-slate-500 mb-5">Peak root-filesystem % used per {{ bucket_label }}</p>
       <div class="relative h-64"><canvas id="opsDiskChart" role="img" aria-label="Peak disk percent used over time"></canvas></div>
     </div>
 
@@ -107,7 +107,7 @@
           <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-red-400"></span> high</span>
         </div>
       </div>
-      <p class="text-xs text-slate-500 mb-5">Peak background-task backlog per bucket — a sustained climb means workers aren't keeping up</p>
+      <p class="text-xs text-slate-500 mb-5">Peak background-task backlog per {{ bucket_label }} — a sustained climb means workers aren't keeping up</p>
       <div class="relative h-64"><canvas id="opsRqChart" role="img" aria-label="Peak RQ queue depth over time"></canvas></div>
     </div>
   </div>
@@ -125,8 +125,10 @@
       function countAxis() { return { beginAtZero: true, grid: { color: GRID, drawBorder: false }, ticks: { color: TICK, font: { size: 11 }, precision: 0 } }; }
 
       function line(label, data, color) {
+        // Small non-zero pointRadius so a single/sparse data point is still
+        // visible as a dot (a line needs 2+ points; early on there's just one).
         return { label: label, data: data, borderColor: color, backgroundColor: color,
-                 borderWidth: 2, tension: 0.3, pointRadius: 0, pointHoverRadius: 4 };
+                 borderWidth: 2, tension: 0.3, pointRadius: 2, pointHoverRadius: 4 };
       }
       function mk(id, datasets, yAxis, unit) {
         new Chart(document.getElementById(id).getContext('2d'), {

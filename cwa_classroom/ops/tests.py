@@ -168,7 +168,13 @@ class OpsDashboardViewTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Droplet Health')
         self.assertEqual(resp.context['window'], '3m')
+        self.assertEqual(resp.context['bucket_label'], 'day')  # long windows bucket by day
         self.assertEqual(resp.context['latest'].disk_used_pct, 42)
+
+    def test_day_window_labels_buckets_as_hour(self):
+        self.client.login(username='boss', password='Pass123!')
+        resp = self.client.get(reverse('ops_admin_dashboard'))  # default = day
+        self.assertEqual(resp.context['bucket_label'], 'hour')
 
     def test_renders_empty_state(self):
         self.client.login(username='boss', password='Pass123!')
