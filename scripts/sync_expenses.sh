@@ -29,10 +29,18 @@ ENV_FILE="${2:-/etc/cwa/cwa-test.env}"
 
 # Load the app env (DB creds, DIGITALOCEAN_API_TOKEN, FX/USD rate, etc.),
 # exported so manage.py's Python child sees them — same vars systemd injects.
+#
+# The file is a systemd EnvironmentFile (plain KEY=value; values are NOT
+# shell-quoted), so it must NOT be `source`d: a value containing shell
+# metacharacters (e.g. a secret with ')') makes bash abort with a syntax
+# error. Read it line by line and export each assignment verbatim instead, so
+# the value is never interpreted by the shell — matching systemd's semantics.
 if [[ -f "$ENV_FILE" ]]; then
-    set -a
-    source "$ENV_FILE"
-    set +a
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue  # skip comments/blanks
+        [[ "$line" == *=* ]] || continue                 # skip non-assignments
+        export "$line"
+    done < "$ENV_FILE"
 fi
 
 cd "$APP_DIR"
