@@ -183,7 +183,7 @@ jobs:
 
       - name: Run billing tests
         working-directory: cwa_classroom
-        run: pytest billing/tests.py billing/tests_admin.py billing/tests_gaps.py billing/tests_parent_invoice_payment.py billing/tests_stripe.py billing/tests_views_coverage.py billing/tests_webhook_handlers.py -n auto --dist=loadscope -v --tb=short
+        run: pytest billing/tests.py billing/tests_admin.py billing/tests_finance.py billing/tests_gaps.py billing/tests_parent_invoice_payment.py billing/tests_stripe.py billing/tests_views_coverage.py billing/tests_webhook_handlers.py -n auto --dist=loadscope -v --tb=short
 
   homework-tests:
     name: Homework Tests
