@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     'progress',
     'audit',
     'usage',
+    'ops',
 
     # Subject apps
     'maths',
@@ -167,6 +168,11 @@ FX_RATE_API_URL = os.environ.get(
 # pulls real monthly invoices (so droplet/DB/Spaces addons are captured with no
 # manual update). Inert when empty — dev/test stay no-op.
 DIGITALOCEAN_API_TOKEN = os.environ.get('DIGITALOCEAN_API_TOKEN', '')
+
+# Chat webhook (Discord/Slack) for critical droplet-health alerts, posted by the
+# record_ops_metrics command when the box first enters a critical state. Reuses
+# the same secret the retired ops-dashboard Action used. Inert when empty.
+OPS_ALERT_WEBHOOK = os.environ.get('DEPLOY_ALERT_WEBHOOK', '')
 
 # Live AI usage dashboard — after each AI call the worker rewrites a pinned
 # GitHub issue with the latest usage/cost. Best-effort: stays disabled (no-op)
