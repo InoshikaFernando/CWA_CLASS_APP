@@ -23,6 +23,8 @@ from billing.reporting import (
     get_income_expense_summary, sync_ai_usage_expenses,
     sync_digitalocean_expenses, StripeUnavailable,
     get_usd_to_nzd_rate, FX_CACHE_KEY,
+    materialize_recurring_expenses, refresh_current_month_expenses,
+    FINANCE_REFRESH_LOCK_KEY,
 )
 from taskqueue.models import AIUsageLog
 
@@ -295,6 +297,75 @@ class MaterializeCommandTests(TestCase):
         self.assertEqual(Expense.objects.filter(source=EXPENSE_SOURCE_RECURRING).count(), 0)
 
 
+class RefreshCurrentMonthExpensesTests(TestCase):
+    """The dashboard self-heals the current month between monthly cron runs, so
+    an active recurring template shows immediately instead of reading $0."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.delete(FINANCE_REFRESH_LOCK_KEY)
+
+    @staticmethod
+    def _sub_months(d, n):
+        m, y = d.month - n, d.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        return d.replace(year=y, month=m)
+
+    def test_refresh_books_current_month_recurring_row(self):
+        today = date.today().replace(day=1)
+        RecurringExpense.objects.create(
+            category=ExpenseCategory.GODADDY, amount=Decimal('20.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY,
+            start_date=self._sub_months(today, 2),
+        )
+        # Cron hasn't run — nothing materialised yet.
+        self.assertEqual(Expense.objects.count(), 0)
+
+        refresh_current_month_expenses()
+
+        # The current month (and the two prior) now have a recurring row.
+        self.assertEqual(
+            Expense.objects.filter(source=EXPENSE_SOURCE_RECURRING).count(), 3,
+        )
+        self.assertTrue(
+            Expense.objects.filter(
+                source=EXPENSE_SOURCE_RECURRING, incurred_on=today).exists(),
+        )
+
+    def test_materialize_is_idempotent_and_preserves_true_ups(self):
+        today = date.today().replace(day=1)
+        tpl = RecurringExpense.objects.create(
+            category=ExpenseCategory.DIGITALOCEAN, amount=Decimal('80.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY, start_date=today,
+        )
+        self.assertEqual(len(materialize_recurring_expenses()), 1)
+        # Operator trues the row up to the real charge.
+        row = Expense.objects.get(recurring=tpl, incurred_on=today)
+        row.amount = Decimal('56.74')
+        row.save(update_fields=['amount'])
+        # Re-running creates nothing and never overwrites the true-up.
+        self.assertEqual(len(materialize_recurring_expenses()), 0)
+        row.refresh_from_db()
+        self.assertEqual(row.amount, Decimal('56.74'))
+
+    def test_vendor_sync_failure_does_not_break_refresh(self):
+        today = date.today().replace(day=1)
+        RecurringExpense.objects.create(
+            category=ExpenseCategory.GODADDY, amount=Decimal('15.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY, start_date=today,
+        )
+        with patch('billing.reporting.sync_ai_usage_expenses',
+                   side_effect=RuntimeError('boom')):
+            refresh_current_month_expenses()  # must not raise
+        # Recurring row still booked despite the vendor-sync failure.
+        self.assertTrue(
+            Expense.objects.filter(
+                source=EXPENSE_SOURCE_RECURRING, incurred_on=today).exists(),
+        )
+
+
 class FinanceDashboardViewTests(TestCase):
     def setUp(self):
         self.super = User.objects.create_superuser(
@@ -316,6 +387,27 @@ class FinanceDashboardViewTests(TestCase):
         resp = self.client.get(reverse('billing_admin_finance_dashboard'))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Income vs Expenses')
+
+    @patch('billing.views_admin.get_usd_to_nzd_rate', return_value=(Decimal('1.63'), 'live'))
+    @patch('billing.reporting.get_paid_revenue', side_effect=StripeUnavailable)
+    def test_current_month_expense_materialised_on_load(self, mock_rev, mock_rate):
+        """Regression: an active recurring template must show for the current
+        month even when the monthly cron hasn't run yet (was reading $0)."""
+        from django.core.cache import cache
+        cache.delete(FINANCE_REFRESH_LOCK_KEY)
+        this_month = date.today().replace(day=1)
+        RecurringExpense.objects.create(
+            category=ExpenseCategory.GODADDY, amount=Decimal('20.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY, start_date=this_month,
+        )
+        self.assertEqual(Expense.objects.count(), 0)  # cron hasn't run
+
+        self.client.login(username='boss', password='Pass123!')
+        resp = self.client.get(reverse('billing_admin_finance_dashboard'))
+
+        self.assertEqual(resp.status_code, 200)
+        current = resp.context['bars'][-1]
+        self.assertEqual(current['expense'], Decimal('20.00'))
 
     def test_create_manual_expense(self):
         self.client.login(username='boss', password='Pass123!')

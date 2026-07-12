@@ -26,7 +26,7 @@ from .models import (
 from .reporting import (
     get_paid_revenue, get_daily_active_series_local,
     DAILY_WINDOWS, StripeUnavailable, get_income_expense_summary,
-    get_usd_to_nzd_rate,
+    get_usd_to_nzd_rate, refresh_current_month_expenses,
 )
 from audit.services import log_event
 
@@ -1847,6 +1847,11 @@ class FinanceDashboardView(SuperuserRequiredMixin, View):
             months = 6
         if months not in self.MONTH_OPTIONS:
             months = 6
+
+        # Self-heal the current month's auto-expenses on load so the figures
+        # stay current between the monthly cron runs (scripts/sync_expenses.sh)
+        # — otherwise a month the cron hasn't reached reads $0.
+        refresh_current_month_expenses()
 
         summary = get_income_expense_summary(months)
 
