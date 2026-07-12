@@ -37,7 +37,7 @@
 
   <!-- Summary tiles (current state) -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-    <div class="bg-slate-800 rounded-2xl p-6 border {% if latest.status == 'crit' %}border-red-500/40{% elif latest.status == 'warn' %}border-amber-500/40{% else %}border-emerald-500/40{% endif %}">
+    <div class="bg-slate-800 rounded-2xl p-6 border {% if not latest %}border-slate-700{% elif latest.status == 'crit' %}border-red-500/40{% elif latest.status == 'warn' %}border-amber-500/40{% else %}border-emerald-500/40{% endif %}">
       <p class="text-sm text-slate-400">Status</p>
       <p class="text-2xl font-bold mt-1 {% if latest.status == 'crit' %}text-red-400{% elif latest.status == 'warn' %}text-amber-400{% else %}text-emerald-400{% endif %}">
         {% if latest.status == 'crit' %}Critical{% elif latest.status == 'warn' %}Watch{% elif latest %}Healthy{% else %}—{% endif %}
@@ -45,16 +45,18 @@
     </div>
     <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
       <p class="text-sm text-slate-400">RAM used</p>
-      <p class="text-2xl font-bold text-white mt-1">{{ latest.mem_used_pct|default:"—" }}%</p>
-      <p class="text-xs text-slate-500 mt-1">{{ latest.mem_avail }} MB free of {{ latest.mem_total }} MB</p>
+      {# Guard on `latest` (not |default) so a real 0 shows as 0, not "—". #}
+      <p class="text-2xl font-bold text-white mt-1">{% if latest %}{{ latest.mem_used_pct }}%{% else %}—{% endif %}</p>
+      {% if latest %}<p class="text-xs text-slate-500 mt-1">{{ latest.mem_avail }} MB free of {{ latest.mem_total }} MB</p>{% endif %}
     </div>
     <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
       <p class="text-sm text-slate-400">Disk used</p>
-      <p class="text-2xl font-bold text-white mt-1">{{ latest.disk_used_pct|default:"—" }}%</p>
+      <p class="text-2xl font-bold text-white mt-1">{% if latest %}{{ latest.disk_used_pct }}%{% else %}—{% endif %}</p>
     </div>
     <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
       <p class="text-sm text-slate-400">RQ queue (default / high)</p>
-      <p class="text-2xl font-bold text-white mt-1">{{ latest.rq_default|default:"—" }} / {{ latest.rq_high|default:"—" }}</p>
+      {# rq_* is null when Redis was unreachable; default_if_none keeps 0 as 0. #}
+      <p class="text-2xl font-bold text-white mt-1">{% if latest %}{{ latest.rq_default|default_if_none:"—" }} / {{ latest.rq_high|default_if_none:"—" }}{% else %}—{% endif %}</p>
     </div>
   </div>
 

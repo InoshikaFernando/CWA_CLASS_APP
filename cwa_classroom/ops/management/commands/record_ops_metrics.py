@@ -13,6 +13,7 @@ Every collector is best-effort: on a non-Linux box, or when journalctl /
 systemctl / Redis aren't reachable, it degrades to 0 / 'unknown' instead of
 failing, so the snapshot is always written.
 """
+import logging
 import os
 import shutil
 import subprocess
@@ -22,6 +23,8 @@ from django.core.management.base import BaseCommand
 
 from ops.models import OpsSnapshot
 from ops.reporting import classify
+
+logger = logging.getLogger(__name__)
 
 
 def _meminfo_mb():
@@ -103,7 +106,10 @@ def _rq_depths():
             django_rq.get_queue('default').count,
             django_rq.get_queue('high').count,
         )
-    except Exception:  # noqa: BLE001 — best-effort; Redis may be down
+    except Exception as exc:  # noqa: BLE001 — best-effort; Redis may be down
+        # Surface the reason rather than silently reporting None forever (the
+        # redis service tile also flags a genuine outage).
+        logger.warning('ops: RQ depth unavailable: %s', exc)
         return None, None
 
 

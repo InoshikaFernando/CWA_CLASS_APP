@@ -71,6 +71,15 @@ class SeriesTests(TestCase):
         # 90 days still excludes the 100-day row.
         self.assertNotIn(88, three['disk_pct'])
 
+    def test_rq_zero_kept_but_none_stays_null(self):
+        # A real empty queue (0) must stay 0; an unknown reading (Redis down,
+        # NULL) must stay null so the chart shows a gap, not a healthy 0.
+        OpsSnapshot.objects.create(
+            mem_total=1000, mem_used=100, rq_default=0, rq_high=None)
+        s = get_ops_series('day')
+        self.assertEqual(s['rq_default'][-1], 0)
+        self.assertIsNone(s['rq_high'][-1])
+
     def test_empty_series_is_safe(self):
         s = get_ops_series('day')
         self.assertEqual(s['labels'], [])

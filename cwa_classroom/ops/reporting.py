@@ -94,13 +94,18 @@ def get_ops_series(window):
     for created, mt, mu, st, su, disk, rqd, rqh in rows:
         key = timezone.localtime(created).strftime(fmt)
         b = buckets.setdefault(
-            key, {'mem': 0, 'swap': 0, 'disk': 0, 'rqd': 0, 'rqh': 0},
+            key, {'mem': 0, 'swap': 0, 'disk': 0, 'rqd': None, 'rqh': None},
         )
         b['mem'] = max(b['mem'], round(mu / mt * 100) if mt else 0)
         b['swap'] = max(b['swap'], round(su / st * 100) if st else 0)
         b['disk'] = max(b['disk'], disk or 0)
-        b['rqd'] = max(b['rqd'], rqd or 0)
-        b['rqh'] = max(b['rqh'], rqh or 0)
+        # Keep RQ depth None when Redis was unreachable (rather than coalescing
+        # to 0, which would plot an outage as a healthy empty queue) — the chart
+        # renders null as a gap.
+        if rqd is not None:
+            b['rqd'] = rqd if b['rqd'] is None else max(b['rqd'], rqd)
+        if rqh is not None:
+            b['rqh'] = rqh if b['rqh'] is None else max(b['rqh'], rqh)
 
     labels = list(buckets.keys())
     return {
