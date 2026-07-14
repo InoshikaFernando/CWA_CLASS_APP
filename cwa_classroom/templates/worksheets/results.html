@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load maths_format %}
 {% block title %}Results — {{ assignment.worksheet.name }}{% endblock %}
 {% block content %}
 <div class="max-w-2xl mx-auto space-y-6">
@@ -27,10 +28,12 @@
   <div class="space-y-3">
     <h2 class="font-semibold text-gray-700">Answer Review</h2>
     {% for item in review_items %}
+    {% with state=item.ans|credit_state %}
     <div class="bg-white rounded-2xl border shadow-sm p-5
-      {% if item.ans.is_correct %}border-emerald-200{% else %}border-red-200{% endif %}">
+      {% if state == 'correct' %}border-emerald-200{% elif state == 'partial' %}border-amber-200{% else %}border-red-200{% endif %}">
       {% include item.template with ctx=item.ctx %}
     </div>
+    {% endwith %}
     {% endfor %}
   </div>
   {% else %}
