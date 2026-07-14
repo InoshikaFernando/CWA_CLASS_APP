@@ -19,6 +19,20 @@ def _ts_to_dt(timestamp):
     return datetime.fromtimestamp(timestamp, tz=timezone.utc)
 
 
+def _is_stale_incomplete(raw_status, current_status, active_statuses):
+    """True when a transient ``incomplete`` event would downgrade a sub we
+    already know to be active/trialing.
+
+    Stripe does NOT guarantee webhook ordering, so the pre-activation
+    ``customer.subscription.created`` (status ``incomplete``) can arrive AFTER
+    the ``customer.subscription.updated`` that activated the sub. Applying it
+    would wrongly wall off a paying customer (the exact bug that left a paid
+    student stuck at ``incomplete``). ``incomplete_expired`` is a genuine
+    terminal state and is intentionally NOT treated as stale.
+    """
+    return raw_status == 'incomplete' and current_status in active_statuses
+
+
 # ---------------------------------------------------------------------------
 # checkout.session.completed
 # ---------------------------------------------------------------------------
@@ -242,6 +256,10 @@ def _sync_institute_subscription(stripe_sub_id, status, metadata,
         'canceled': SchoolSubscription.STATUS_CANCELLED,
         'cancelled': SchoolSubscription.STATUS_CANCELLED,
         'unpaid': SchoolSubscription.STATUS_PAST_DUE,
+        # Pre-activation states — map to gated local statuses so the raw Stripe
+        # value never lands in our status field (which then slips past gating).
+        'incomplete': SchoolSubscription.STATUS_PAST_DUE,
+        'incomplete_expired': SchoolSubscription.STATUS_EXPIRED,
     }
 
     school_id = metadata.get('school_id')
@@ -264,6 +282,18 @@ def _sync_institute_subscription(stripe_sub_id, status, metadata,
             else:
                 logger.warning('No SchoolSubscription found for stripe_sub %s', stripe_sub_id)
                 return
+
+    # Out-of-order protection (existing subs only): never let a stale
+    # `incomplete` event downgrade a school sub already known active/trialing.
+    if sub.pk and _is_stale_incomplete(
+        status, sub.status,
+        (SchoolSubscription.STATUS_ACTIVE, SchoolSubscription.STATUS_TRIALING),
+    ):
+        logger.info(
+            'Ignoring stale incomplete event for school=%s (already %s)',
+            sub.school_id, sub.status,
+        )
+        return
 
     sub.status = STATUS_MAP.get(status, status)
     sub.stripe_subscription_id = stripe_sub_id
@@ -300,6 +330,10 @@ def _sync_individual_subscription(stripe_sub_id, status, metadata,
         'canceled': Subscription.STATUS_CANCELLED,
         'cancelled': Subscription.STATUS_CANCELLED,
         'unpaid': Subscription.STATUS_PAST_DUE,
+        # Pre-activation states — map to gated local statuses so the raw Stripe
+        # value never lands in our status field (which then slips past gating).
+        'incomplete': Subscription.STATUS_PAST_DUE,
+        'incomplete_expired': Subscription.STATUS_EXPIRED,
     }
 
     user_id = metadata.get('user_id')
@@ -311,6 +345,17 @@ def _sync_individual_subscription(stripe_sub_id, status, metadata,
         except Subscription.DoesNotExist:
             logger.warning('No Subscription found for stripe_sub %s', stripe_sub_id)
             return
+
+    # Out-of-order protection: never let a stale `incomplete` event downgrade a
+    # sub Stripe already told us is active/trialing.
+    if _is_stale_incomplete(
+        status, sub.status, (Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIALING)
+    ):
+        logger.info(
+            'Ignoring stale incomplete event for user=%s (already %s)',
+            sub.user_id, sub.status,
+        )
+        return
 
     sub.status = STATUS_MAP.get(status, status)
     sub.stripe_subscription_id = stripe_sub_id
