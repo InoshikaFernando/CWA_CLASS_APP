@@ -672,7 +672,7 @@ class Question(models.Model):
         """
         if self.question_type != self.NUMBER_LINE or not self.number_line_spec:
             return None
-        from maths.geometry_grading import number_line_ticks
+        from maths.geometry_grading import number_line_ticks, _num_key
         from maths.svg_geometry import number_line_svg
         ticks = number_line_ticks(self.number_line_spec)
         if ticks is None:
@@ -692,16 +692,18 @@ class Question(models.Model):
         if mode == 'mark':
             dots = [{'value': v, 'px': px(i), 'py': top}
                     for i, v in enumerate(ticks)]
+        # Index by the canonical tick key so a spec value stored as 6.0 still maps
+        # to the tick at 6 (same normalisation validate_number_line_spec uses).
+        index_of = {_num_key(v): i for i, v in enumerate(ticks)}
         # Values already marked with an arrow (read mode reads these).
-        index_of = {v: i for i, v in enumerate(ticks)}
-        given = [{'value': v, 'px': px(index_of[v]), 'py': top}
-                 for v in (spec.get('given') or []) if v in index_of]
+        given = [{'value': v, 'px': px(index_of[_num_key(v)]), 'py': top}
+                 for v in (spec.get('given') or []) if _num_key(v) in index_of]
         # Correct answer marks — shown on the teacher answer-key (worksheets).
         targets = spec.get('target')
         if targets is None:
             targets = spec.get('given') or []
-        answer = [{'value': v, 'px': px(index_of[v]), 'py': top}
-                  for v in targets if v in index_of]
+        answer = [{'value': v, 'px': px(index_of[_num_key(v)]), 'py': top}
+                  for v in targets if _num_key(v) in index_of]
         return {
             'svg': number_line_svg(self.number_line_spec, pad=pad, tick_px=tick_px, top=top),
             'width': width, 'height': height, 'pad': pad, 'tick_px': tick_px, 'top': top,

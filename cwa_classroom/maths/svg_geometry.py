@@ -321,11 +321,12 @@ def number_line_svg(spec, *, pad=28, tick_px=44, top=34):
         )
     # read mode: draw a marker arrow above each given value the pupil reads off.
     if (spec.get('mode') or 'mark') == 'read':
-        index_of = {v: i for i, v in enumerate(ticks)}
+        from maths.geometry_grading import _num_key
+        index_of = {_num_key(v): i for i, v in enumerate(ticks)}
         for v in (spec.get('given') or []):
-            if v not in index_of:
+            if _num_key(v) not in index_of:
                 continue
-            x = px(index_of[v])
+            x = px(index_of[_num_key(v)])
             parts.append(
                 f'<polygon points="{_f(x)},{_f(top - 2)} {_f(x - 5)},{_f(top - 14)} '
                 f'{_f(x + 5)},{_f(top - 14)}" fill="{marker}"/>'

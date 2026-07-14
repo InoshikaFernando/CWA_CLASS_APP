@@ -621,7 +621,9 @@ def number_line_ticks(spec):
         return None
     if step <= 0 or lo >= hi:
         return None
-    n = int((hi - lo) / step)
+    # Round before truncating so a decimal step whose division lands just under
+    # an integer (0.3 / 0.1 == 2.9999999999999996) doesn't drop the last tick.
+    n = int(round((hi - lo) / step, 9))
     if n < 1 or n + 1 > _MAX_NUMBER_LINE_TICKS:
         return None
     ticks = [_num_key(lo + i * step) for i in range(n + 1)]

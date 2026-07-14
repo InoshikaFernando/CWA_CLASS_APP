@@ -36,6 +36,19 @@ class NumberLineTicksTests(SimpleTestCase):
         # A huge range at step 1 would emit thousands of ticks — refuse it.
         self.assertIsNone(number_line_ticks({'min': 0, 'max': 5000, 'step': 1}))
 
+    def test_ticks_decimal_step_keeps_last_tick(self):
+        # 0.3 / 0.1 == 2.9999999999999996 in float; truncation would drop the
+        # final 0.3 tick, so the builder rounds before truncating.
+        self.assertEqual(
+            number_line_ticks({'min': 0, 'max': 0.3, 'step': 0.1}),
+            [0, 0.1, 0.2, 0.3],
+        )
+
+    def test_decimal_target_on_tick_is_valid_and_graded(self):
+        spec = {'min': 0, 'max': 0.3, 'step': 0.1, 'mode': 'mark', 'target': [0.3]}
+        validate_number_line_spec(spec)  # must not raise
+        self.assertTrue(grade_number_line(spec, '{"marks": [0.3]}'))
+
 
 class ValidateSpecTests(SimpleTestCase):
     def test_valid_mark_spec(self):
