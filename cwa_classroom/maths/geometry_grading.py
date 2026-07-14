@@ -584,3 +584,170 @@ def validate_graph_spec(graph_spec):
                 raise ValueError(f'Series point must be [x, y] numbers; got {p!r}.')
             if not (xmin <= p[0] <= xmax and ymin <= p[1] <= ymax):
                 raise ValueError(f'Series point {p!r} is outside the axis range.')
+
+
+# ---------------------------------------------------------------------------
+# number_line — mark a value on / read a value off a number line
+# ---------------------------------------------------------------------------
+
+_NUMBER_LINE_MODES = ('mark', 'read')
+# Cap the tick count so an absurd spec (min -1000, max 1000, step 1) can't emit
+# thousands of ticks; validate_number_line_spec enforces the same cap so a stored
+# spec always renders.
+_MAX_NUMBER_LINE_TICKS = 60
+
+
+def _num_key(v):
+    """Canonical comparison key for a number-line value (int-if-whole float).
+
+    ``5`` and ``5.0`` must compare equal in a set, so both map to the same key.
+    """
+    f = float(v)
+    return int(f) if f.is_integer() else round(f, 6)
+
+
+def number_line_ticks(spec):
+    """Return the list of tick VALUES for a number_line spec, or None if invalid.
+
+    Ticks run ``min, min+step, … ≤ max``. Pure and defensive: returns None for a
+    malformed/oversized spec so the model render helper and svg builder can guard
+    with a single check (never raises). ``validate_number_line_spec`` is the strict
+    gate used at import/clean time; this is the lenient render-time reader.
+    """
+    if not isinstance(spec, dict):
+        return None
+    lo, hi, step = spec.get('min'), spec.get('max'), spec.get('step', 1)
+    if not (_is_number(lo) and _is_number(hi) and _is_number(step)):
+        return None
+    if step <= 0 or lo >= hi:
+        return None
+    n = int((hi - lo) / step)
+    if n < 1 or n + 1 > _MAX_NUMBER_LINE_TICKS:
+        return None
+    ticks = [_num_key(lo + i * step) for i in range(n + 1)]
+    return ticks
+
+
+def validate_number_line_spec(spec):
+    """Validate a ``number_line`` ``number_line_spec``; raise ``ValueError`` if bad.
+
+    Pure and framework-agnostic (no Django import) so it is reused by the model's
+    ``clean()`` AND by both PDF importers before persisting, so a malformed spec
+    can't slip in through either path. Checks the scale (min < max, positive step,
+    bounded tick count), a known ``mode``, and that the mode's required values are
+    present, numeric, in range, and aligned to a tick (so a marked/read answer is
+    actually reachable on the drawn line).
+    """
+    if not isinstance(spec, dict):
+        raise ValueError('number_line_spec must be a JSON object.')
+    lo, hi, step = spec.get('min'), spec.get('max'), spec.get('step', 1)
+    if not (_is_number(lo) and _is_number(hi)):
+        raise ValueError('number_line_spec.min and .max must be numbers.')
+    if not _is_number(step) or step <= 0:
+        raise ValueError('number_line_spec.step must be a positive number.')
+    if lo >= hi:
+        raise ValueError('number_line_spec.min must be less than .max.')
+    ticks = number_line_ticks(spec)
+    if ticks is None:
+        raise ValueError(
+            f'number_line_spec has too many ticks (max {_MAX_NUMBER_LINE_TICKS}); '
+            'widen the step or narrow the range.'
+        )
+    tick_set = set(ticks)
+
+    mode = spec.get('mode', 'mark')
+    if mode not in _NUMBER_LINE_MODES:
+        raise ValueError(f'number_line_spec.mode must be one of {_NUMBER_LINE_MODES}.')
+
+    def _check_values(key, values):
+        if not isinstance(values, list) or not values:
+            raise ValueError(f'number_line_spec.{key} must be a non-empty list.')
+        for v in values:
+            if not _is_number(v):
+                raise ValueError(f'number_line_spec.{key} value must be a number; got {v!r}.')
+            if _num_key(v) not in tick_set:
+                raise ValueError(
+                    f'number_line_spec.{key} value {v!r} is not on a tick '
+                    f'(min {lo}, max {hi}, step {step}).'
+                )
+
+    if mode == 'mark':
+        # The student places marker(s); target is the required set.
+        _check_values('target', spec.get('target'))
+    else:  # read
+        # The line shows marker(s) at given positions; the student types them.
+        _check_values('given', spec.get('given'))
+        # target defaults to given; if supplied explicitly it must also be valid.
+        if spec.get('target') is not None:
+            _check_values('target', spec.get('target'))
+
+    tol = spec.get('tolerance')
+    if tol is not None and (not _is_number(tol) or tol < 0):
+        raise ValueError('number_line_spec.tolerance must be a non-negative number.')
+
+
+def _number_line_targets(spec):
+    """The set of correct values for grading: ``target`` (or ``given`` if target
+    is omitted, e.g. a read question whose answer is exactly the drawn marks)."""
+    targets = spec.get('target')
+    if targets is None:
+        targets = spec.get('given') or []
+    return targets
+
+
+def grade_number_line(spec, payload):
+    """Grade a number_line answer. Returns ``True``/``False``, never raises.
+
+    - ``mark`` mode: ``payload`` is the JSON the client serialises,
+      ``{"marks": [values...]}``. Correct when the marked set equals the target
+      set (exact, on-tick — no tolerance, since taps land on ticks).
+    - ``read`` mode: ``payload`` is the typed text (e.g. ``"3"`` or ``"3, 5"``).
+      Correct when the parsed values match the target multiset within
+      ``tolerance`` (``0`` = exact).
+
+    A malformed spec or unparseable answer simply grades wrong.
+    """
+    if not isinstance(spec, dict):
+        return False
+    mode = spec.get('mode', 'mark')
+    targets = _number_line_targets(spec)
+    if not targets:
+        return False
+
+    if mode == 'mark':
+        try:
+            data = json.loads(payload) if isinstance(payload, str) else payload
+        except (ValueError, TypeError):
+            return False
+        if not isinstance(data, dict):
+            return False
+        marks = data.get('marks')
+        if not isinstance(marks, list):
+            return False
+        try:
+            got = {_num_key(m) for m in marks}
+        except (TypeError, ValueError):
+            return False
+        want = {_num_key(t) for t in targets}
+        return got == want
+
+    # read mode — parse the typed numbers and multiset-compare within tolerance.
+    if not isinstance(payload, str):
+        return False
+    tol = spec.get('tolerance') or 0
+    try:
+        tol = Decimal(str(tol))
+    except (InvalidOperation, ValueError):
+        tol = Decimal('0')
+    got = [d for d in (_to_decimal(tok) for tok in re.split(r'[,;\s]+', payload.strip())) if d is not None]
+    want = [Decimal(str(t)) for t in targets]
+    if len(got) != len(want):
+        return False
+    # Greedy match: each typed value must pair with a distinct target within tol.
+    remaining = list(want)
+    for g in got:
+        hit = next((w for w in remaining if abs(g - w) <= tol), None)
+        if hit is None:
+            return False
+        remaining.remove(hit)
+    return not remaining

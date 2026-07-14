@@ -597,6 +597,14 @@ suffix — the same input as a measure question; grading reuses grade_measure.
   {% if q.answer_unit %}<span class="text-gray-700 font-medium" aria-hidden="true">{{ q.answer_unit }}</span>{% endif %}
 </div>
 
+{% elif q.question_type == 'number_line' and q.number_line_data %}
+{% comment %}
+Number line: mark mode overlays tappable ticks on the drawn scale (marks
+serialise to JSON in answer_<id> via static/js/number_line.js); read mode draws
+the arrow(s) and takes a typed value. Mirrors the measure tool include.
+{% endcomment %}
+{% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_number_line_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
+
 {% else %}
 <input type="text" name="answer_{{ q.id }}"
        class="cwa-exp-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"

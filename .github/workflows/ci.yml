@@ -202,7 +202,11 @@ jobs:
 
       - name: Run homework tests
         working-directory: cwa_classroom
-        run: pytest homework/tests.py -n auto --dist=loadscope -v --tb=short
+        # homework/tests.py holds the legacy suite; the app-root test_*.py files
+        # (PDF-import wiring for measure/geometry/plane/column/number_line, etc.)
+        # are NOT matched by pytest's default python_files, so pass the package
+        # dir too or they silently never run in CI.
+        run: pytest homework/tests.py homework/ -n auto --dist=loadscope -v --tb=short
 
   brainbuzz-tests:
     name: BrainBuzz Tests

@@ -1,0 +1,9 @@
+{% comment %}
+Worksheet number-line answer: the shared interactive tool. mark mode overlays
+tappable ticks on the drawn scale (marks serialise to text_answer via
+static/js/number_line.js); read mode draws the arrow(s) and takes a typed value.
+Context: question
+{% endcomment %}
+<div>
+  {% include "maths/partials/_number_line_tool.html" with q=question field_name='text_answer' %}
+</div>

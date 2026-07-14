@@ -270,6 +270,73 @@ def cartesian_plane_svg(plane_spec, *, pad=28, step=32):
     return ''.join(parts)
 
 
+def number_line_svg(spec, *, pad=28, tick_px=44, top=34):
+    """Return the inner SVG markup for a number-line backdrop.
+
+    Draws the horizontal axis with an arrowhead at each end, a tick at every
+    ``step`` value, the integer/step labels beneath, and — in ``read`` mode — a
+    downward arrow marker over each ``given`` value the pupil must read. The
+    *interactive* tap targets (mark mode) are overlaid by the take-item template
+    (same split as ``cartesian_plane_svg``: SVG backdrop + template dots), so
+    this function is pure backdrop.
+
+    Returns '' for a malformed/oversized spec, so the model render helper can
+    guard with a single check. ``pad``/``tick_px``/``top`` must match the model's
+    ``number_line_data`` so backdrop and overlaid dots align.
+    """
+    from maths.geometry_grading import number_line_ticks
+    ticks = number_line_ticks(spec)
+    if ticks is None:
+        return ''
+
+    def px(i):
+        return pad + i * tick_px
+
+    left, right = px(0), px(len(ticks) - 1)
+    axis = 'var(--svg-axis, #dc2626)'
+    label = 'var(--svg-stroke, #1a1a1a)'
+    marker = 'var(--svg-axis, #dc2626)'
+    fs = _f(tick_px * 0.36)
+
+    parts = [
+        # The base line with an arrowhead at both ends.
+        f'<line x1="{_f(left - 12)}" y1="{_f(top)}" x2="{_f(right + 12)}" y2="{_f(top)}" '
+        f'stroke="{axis}" stroke-width="2.5" stroke-linecap="round"/>',
+        f'<polygon points="{_f(left - 12)},{_f(top)} {_f(left - 4)},{_f(top - 4)} '
+        f'{_f(left - 4)},{_f(top + 4)}" fill="{axis}"/>',
+        f'<polygon points="{_f(right + 12)},{_f(top)} {_f(right + 4)},{_f(top - 4)} '
+        f'{_f(right + 4)},{_f(top + 4)}" fill="{axis}"/>',
+    ]
+    # Ticks + labels.
+    for i, v in enumerate(ticks):
+        x = px(i)
+        parts.append(
+            f'<line x1="{_f(x)}" y1="{_f(top - 6)}" x2="{_f(x)}" y2="{_f(top + 6)}" '
+            f'stroke="{axis}" stroke-width="2"/>'
+        )
+        vlabel = str(int(v)) if isinstance(v, int) or (isinstance(v, float) and float(v).is_integer()) else _f(v)
+        parts.append(
+            f'<text x="{_f(x)}" y="{_f(top + 22)}" fill="{label}" font-size="{fs}" '
+            f'text-anchor="middle">{vlabel}</text>'
+        )
+    # read mode: draw a marker arrow above each given value the pupil reads off.
+    if (spec.get('mode') or 'mark') == 'read':
+        index_of = {v: i for i, v in enumerate(ticks)}
+        for v in (spec.get('given') or []):
+            if v not in index_of:
+                continue
+            x = px(index_of[v])
+            parts.append(
+                f'<polygon points="{_f(x)},{_f(top - 2)} {_f(x - 5)},{_f(top - 14)} '
+                f'{_f(x + 5)},{_f(top - 14)}" fill="{marker}"/>'
+            )
+            parts.append(
+                f'<line x1="{_f(x)}" y1="{_f(top - 14)}" x2="{_f(x)}" y2="{_f(top - 26)}" '
+                f'stroke="{marker}" stroke-width="2.5" stroke-linecap="round"/>'
+            )
+    return ''.join(parts)
+
+
 def line_graph_svg(graph_spec, *, width=420, height=300):
     """Return a complete inline ``<svg>`` for a read_graph line graph.
 

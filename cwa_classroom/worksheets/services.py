@@ -152,7 +152,7 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                      "fill_blank", "calculation", "extended_answer",
                                      "long_division", "column_operation",
                                      "plot_points", "plot_line", "identify_coords",
-                                     "read_graph"],
+                                     "read_graph", "measure", "number_line"],
                         },
                         "plane_spec": {
                             "type": "object",
@@ -174,17 +174,31 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                 "and keep the graph image (has_image=true)."
                             ),
                         },
+                        "number_line_spec": {
+                            "type": "object",
+                            "description": (
+                                "For number_line only — a horizontal number line. "
+                                "min/max = the scale's end values; step = the tick interval "
+                                "(default 1); mode 'mark' (the app draws the blank scale and "
+                                "the student marks value(s)) or 'read' (the app draws marker "
+                                "arrow(s) at 'given' positions and the student types the "
+                                "value(s)); target = the correct value(s) to mark/read (numbers "
+                                "on the scale, each landing on a tick); given = value(s) already "
+                                "marked with an arrow (read mode). The app draws the line, so set "
+                                "has_image=false for this type."
+                            ),
+                        },
                         "numeric_answer": {
                             "type": "number",
-                            "description": "For read_graph only: the value the student reads off the graph.",
+                            "description": "For read_graph and measure: the value to read off / measure (e.g. 135 for a 135° angle).",
                         },
                         "answer_tolerance": {
                             "type": "number",
-                            "description": "For read_graph only: accepted ± band around numeric_answer (e.g. 5). Omit for exact.",
+                            "description": "For read_graph and measure: accepted ± band around numeric_answer (e.g. 2). Omit for exact.",
                         },
                         "answer_unit": {
                             "type": "string",
-                            "description": "For read_graph only: unit shown after the answer box, e.g. 'km', 'min'.",
+                            "description": "For read_graph and measure: unit shown after the answer box, e.g. '°', 'cm', 'km'.",
                         },
                         "dividend": {
                             "type": "integer",
@@ -375,6 +389,21 @@ Rules:
    answer_tolerance to a sensible ± band, answer_unit to the axis unit. Keep the graph image
    (has_image=true, image_bbox around the graph). Only add graph_spec if you can read the series
    points confidently; otherwise omit it. Leave answers=[]; validation_type="auto".
+13. MEASURE (angle / scale / ruler): if the student must MEASURE a drawn figure and write the value —
+   read an ANGLE with a protractor, a length with a ruler, or a value off a marked scale/dial — use
+   "measure". Set numeric_answer to the true value, answer_tolerance to a sensible ± band (e.g. 2 for
+   an angle), and answer_unit to the unit ("°" for angles, "cm"/"mm" for lengths). For an ANGLE the
+   app draws a true-to-scale figure from numeric_answer, so set has_image=false. For a length/scale
+   the pupil measures a picture, so keep it: has_image=true with image_bbox around the figure. Leave
+   answers=[]; validation_type="auto".
+14. NUMBER LINE: if the question shows (or asks the student to draw/use) a horizontal NUMBER LINE and
+   the task is to MARK a value on it or READ the value an arrow points to, use "number_line" and fill
+   number_line_spec. Set min/max to the scale's end values and step to the tick interval (usually 1).
+   Use mode "mark" when the student must place/mark a value ("mark 5 on the number line", "draw a
+   number line from -3 to 7 and show 2") — put the value(s) to mark in target. Use mode "read" when an
+   arrow/marker is already drawn and the student reads its value — put the marked position(s) in given
+   (target defaults to given). Every target/given value must land exactly on a tick. The app draws the
+   line, so set has_image=false. Leave answers=[]; validation_type="auto".
 
 IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
 - has_image=true ONLY when the question genuinely depends on a visual that cannot be written

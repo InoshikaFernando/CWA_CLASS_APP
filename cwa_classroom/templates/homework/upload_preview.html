@@ -270,6 +270,41 @@
             </div>
             {% endif %}
 
+            <!-- Measure — shown only for measure -->
+            {% if q.question_type == 'measure' %}
+            <div class="bg-sky-50 rounded-lg p-3 grid grid-cols-3 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-sky-600 mb-1">Correct value</label>
+                <input type="text" name="q_{{ q_idx }}_numeric_answer" value="{% if q.numeric_answer is not None %}{{ q.numeric_answer }}{% endif %}"
+                       placeholder="e.g. 135"
+                       class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-sky-600 mb-1">Tolerance (±)</label>
+                <input type="text" name="q_{{ q_idx }}_answer_tolerance" value="{% if q.answer_tolerance is not None %}{{ q.answer_tolerance }}{% endif %}"
+                       placeholder="e.g. 2"
+                       class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-sky-600 mb-1">Unit</label>
+                <input type="text" name="q_{{ q_idx }}_answer_unit" value="{{ q.answer_unit|default:'' }}"
+                       placeholder="e.g. °"
+                       class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
+              </div>
+            </div>
+            {% endif %}
+
+            <!-- Number line — shown only for number_line -->
+            {% if q.question_type == 'number_line' %}
+            <div class="bg-sky-50 rounded-lg p-3">
+              <label class="block text-xs font-medium text-sky-600 mb-1">Number-line spec (JSON)</label>
+              <textarea name="q_{{ q_idx }}_number_line_spec" rows="3"
+                        placeholder='{"min":-3,"max":7,"step":1,"mode":"mark","target":[2]}'
+                        class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 resize-y">{% if q.number_line_spec %}{{ q.number_line_spec_json }}{% endif %}</textarea>
+              <p class="text-[11px] text-sky-500 mt-1">mode "mark" (tap ticks to mark target) or "read" (arrow at given, student types it). Every target/given value must land on a tick. The answer is graded from this.</p>
+            </div>
+            {% endif %}
+
             <!-- Grading rubric (shown only for ai_graded / human_graded) -->
             <div id="rubric-row-{{ q_idx }}" {% if q.validation_type == 'auto' %}class="hidden"{% endif %}>
               <label class="block text-xs font-medium text-gray-500 mb-1">
@@ -281,7 +316,7 @@
             </div>
 
             <!-- Answers (hidden for types that compute/derive/skip fixed answers) -->
-            {% if q.question_type != 'extended_answer' and q.question_type != 'long_division' and q.question_type != 'column_operation' and q.question_type != 'plot_points' and q.question_type != 'plot_line' and q.question_type != 'identify_coords' and q.question_type != 'read_graph' %}
+            {% if q.question_type != 'extended_answer' and q.question_type != 'long_division' and q.question_type != 'column_operation' and q.question_type != 'plot_points' and q.question_type != 'plot_line' and q.question_type != 'identify_coords' and q.question_type != 'read_graph' and q.question_type != 'measure' and q.question_type != 'number_line' %}
             <div id="answers-row-{{ q_idx }}">
               <label class="block text-xs font-medium text-gray-500 mb-2">Answers <span class="text-gray-400 font-normal">(tick the correct one — add alternatives that should also be accepted)</span></label>
               <div class="space-y-2" id="answers-box-{{ q_idx }}">

@@ -155,6 +155,22 @@
         </div>
       </div>
 
+      <!-- Number-line settings (shown only for question_type = number_line) -->
+      <div id="number-line-fields" style="display:none;" class="rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-3">
+        <label class="block text-sm font-semibold text-gray-700">Number-line settings</label>
+        <p class="text-xs text-gray-500">
+          Paste a <strong>number_line_spec</strong> JSON. <strong>mode "mark"</strong> draws a blank
+          scale and the student taps ticks to mark the <strong>target</strong> value(s);
+          <strong>mode "read"</strong> draws arrow(s) at the <strong>given</strong> position(s) and the
+          student types the value. Every target/given value must land on a tick
+          (min, min+step, …). Example:
+          <code class="text-[11px]">{"min": -3, "max": 7, "step": 1, "mode": "mark", "target": [2]}</code>
+        </p>
+        <textarea name="number_line_spec" rows="4"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition"
+                  placeholder='{"min": -3, "max": 7, "step": 1, "mode": "mark", "target": [2]}'>{% if question and question.number_line_spec %}{{ number_line_spec_json }}{% endif %}</textarea>
+      </div>
+
       <!-- Answers -->
       <div id="answers-section">
         <div class="flex items-center justify-between mb-3">
@@ -291,10 +307,14 @@ function syncCorrectAnswer(radio) {
 // for an existing measure question being edited.
 function toggleSections(type) {
   var isMeasure = (type === 'measure');
+  var isNumberLine = (type === 'number_line');
+  var noAnswers = isMeasure || isNumberLine;
   var measure = document.getElementById('measure-fields');
+  var numberLine = document.getElementById('number-line-fields');
   var answers = document.getElementById('answers-section');
   if (measure) measure.style.display = isMeasure ? '' : 'none';
-  if (answers) answers.style.display = isMeasure ? 'none' : '';
+  if (numberLine) numberLine.style.display = isNumberLine ? '' : 'none';
+  if (answers) answers.style.display = noAnswers ? 'none' : '';
 }
 
 function handleTypeChange(type) {
@@ -304,8 +324,8 @@ function handleTypeChange(type) {
   var addBtn = document.getElementById('add-answer-btn');
   var help = document.getElementById('answers-help');
 
-  if (type === 'measure') {
-    // No Answer rows for measure — clear any so empty inputs aren't posted.
+  if (type === 'measure' || type === 'number_line') {
+    // No Answer rows for these — clear any so empty inputs aren't posted.
     container.innerHTML = '';
     addBtn.style.display = 'none';
     return;

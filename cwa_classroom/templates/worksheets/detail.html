@@ -132,6 +132,26 @@
               {% if q.answer_unit %}<span class="text-gray-700 font-medium">{{ q.answer_unit }}</span>{% endif %}
               <span class="text-xs text-emerald-700 ml-2">Answer: {{ q.numeric_answer }}{{ q.answer_unit }}{% if q.answer_tolerance %} ± {{ q.answer_tolerance }}{% endif %}</span>
             </div>
+            {% elif q.question_type == 'number_line' and q.number_line_data %}
+            {% comment %}
+            Printable number line: the drawn scale (with any read-mode arrows), plus
+            the correct answer values (this is the teacher detail view). In mark mode
+            the answer is the value(s) to mark; in read mode it's the value(s) shown.
+            {% endcomment %}
+            {% with d=q.number_line_data %}
+            <div class="my-2 max-w-full overflow-x-auto">
+              <svg viewBox="0 0 {{ d.width }} {{ d.height }}" width="{{ d.width }}" height="{{ d.height }}"
+                   class="text-gray-900" style="max-width:100%;height:auto">
+                {{ d.svg|safe }}
+                {% for m in d.answer %}
+                <circle cx="{{ m.px }}" cy="{{ m.py }}" r="6" fill="#059669"/>
+                {% endfor %}
+              </svg>
+            </div>
+            <div class="p-3 rounded-xl border border-gray-200 bg-gray-50">
+              <span class="text-xs text-emerald-700">{% if d.mode == 'read' %}Reads: {% else %}Mark: {% endif %}{% for v in d.target_values %}{{ v }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
+            </div>
+            {% endwith %}
             {% endif %}
             {% endwith %}
             {% endif %}

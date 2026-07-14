@@ -2862,6 +2862,36 @@ def _parse_measure_post(request):
     return numeric_answer, tolerance, unit, None
 
 
+def _parse_number_line_post(request):
+    """Pull and validate the ``number_line_spec`` JSON for a number_line question.
+
+    Returns ``(spec, error)``. For a non-number_line question ``spec`` is None and
+    ``error`` is None (so switching type away clears the field). For a number_line
+    question the pasted JSON must parse and pass ``validate_number_line_spec``;
+    ``error`` is a user-facing string otherwise. Kept beside ``_parse_measure_post``
+    because ``Model.objects.create()`` bypasses ``clean()``, so the spec must be
+    validated here or a broken number line would save and grade every answer wrong.
+    """
+    import json
+    from maths.geometry_grading import validate_number_line_spec
+
+    if request.POST.get('question_type') != 'number_line':
+        return None, None
+
+    raw = (request.POST.get('number_line_spec') or '').strip()
+    if not raw:
+        return None, 'Number-line questions need a number_line_spec.'
+    try:
+        spec = json.loads(raw)
+    except (ValueError, TypeError):
+        return None, 'number_line_spec is not valid JSON.'
+    try:
+        validate_number_line_spec(spec)
+    except (ValueError, TypeError) as exc:
+        return None, f'Invalid number_line_spec: {exc}'
+    return spec, None
+
+
 class AddQuestionView(RoleRequiredMixin, View):
     """Create a question. Works both standalone (/create-question/) and with pre-selected level (/level/<int>/add-question/)."""
     required_roles = [
@@ -2965,6 +2995,11 @@ class AddQuestionView(RoleRequiredMixin, View):
             messages.error(request, measure_err)
             return render(request, 'teacher/question_form.html', self._build_context(request, level))
 
+        number_line_spec, nl_err = _parse_number_line_post(request)
+        if nl_err:
+            messages.error(request, nl_err)
+            return render(request, 'teacher/question_form.html', self._build_context(request, level))
+
         # Auto-link topic to level
         if not classroom_topic.levels.filter(pk=level.pk).exists():
             classroom_topic.levels.add(level)
@@ -2987,6 +3022,7 @@ class AddQuestionView(RoleRequiredMixin, View):
                 numeric_answer=numeric_answer,
                 answer_tolerance=answer_tolerance,
                 answer_unit=answer_unit,
+                number_line_spec=number_line_spec,
             )
             # Dynamic answers — support up to 20
             for i in range(1, 21):
@@ -3035,6 +3071,7 @@ class EditQuestionView(RoleRequiredMixin, View):
                 })
             else:
                 answer_data.append({'text': '', 'is_correct': False})
+        import json as _json
         return render(request, 'teacher/question_form.html', {
             'question': question, 'level': question.level,
             'topics': Topic.objects.filter(is_active=True).order_by('name'),
@@ -3042,6 +3079,9 @@ class EditQuestionView(RoleRequiredMixin, View):
             'difficulty_choices': MathsQuestion.DIFFICULTY_CHOICES,
             'is_global': question.school is None,
             'answer_data': answer_data,
+            'number_line_spec_json': (
+                _json.dumps(question.number_line_spec) if question.number_line_spec else ''
+            ),
         })
 
     def post(self, request, question_id):
@@ -3053,6 +3093,10 @@ class EditQuestionView(RoleRequiredMixin, View):
         numeric_answer, answer_tolerance, answer_unit, measure_err = _parse_measure_post(request)
         if measure_err:
             messages.error(request, measure_err)
+            return redirect('edit_question', question_id=question.id)
+        number_line_spec, nl_err = _parse_number_line_post(request)
+        if nl_err:
+            messages.error(request, nl_err)
             return redirect('edit_question', question_id=question.id)
         classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
         question.topic = classroom_topic
@@ -3067,6 +3111,7 @@ class EditQuestionView(RoleRequiredMixin, View):
         question.numeric_answer = numeric_answer
         question.answer_tolerance = answer_tolerance
         question.answer_unit = answer_unit
+        question.number_line_spec = number_line_spec
         with transaction.atomic():
             question.save()
             question.answers.all().delete()

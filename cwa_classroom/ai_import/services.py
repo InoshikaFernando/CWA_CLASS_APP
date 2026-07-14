@@ -278,6 +278,18 @@ QUESTION TYPE RULES (important):
   sensible ± band, and answer_unit to the axis unit. Keep the graph image (set image_page/image_box
   so the original graph is attached). Only add graph_spec if you can read the plotted series points
   confidently; otherwise omit it. Do NOT generate answers.
+- If the student must MEASURE a drawn figure and write the value — read an ANGLE with a protractor, a
+  length with a ruler, or a value off a marked scale/dial — use "measure". Set numeric_answer to the
+  true value, answer_tolerance to a sensible ± band (e.g. 2 for an angle), and answer_unit to the unit
+  ("°" for angles, "cm"/"mm" for lengths). For an ANGLE the app draws a true-to-scale figure, so do NOT
+  attach an image; for a length/scale the pupil measures the picture, so keep it. Do NOT generate answers.
+- If the question shows (or asks the student to draw/use) a horizontal NUMBER LINE and the task is to
+  MARK a value on it or READ the value an arrow points to, use "number_line" and fill number_line_spec.
+  Set min/max to the scale's end values and step to the tick interval (usually 1). Use mode "mark" when
+  the student must place/mark value(s) ("mark 5 on the number line", "draw a number line from -3 to 7
+  and show 2") — put the value(s) in target. Use mode "read" when an arrow is already drawn and the
+  student reads its value — put the marked position(s) in given. Every target/given value must land on a
+  tick. The app draws the line, so do NOT attach an image. Do NOT generate answers.
 
 ANSWER BLANK FORMATTING (important):
 - When a question is an equation where the student fills in a missing value, ALWAYS represent
@@ -341,7 +353,7 @@ CLASSIFICATION_TOOL = {
                         "question_text": {"type": "string"},
                         "question_type": {
                             "type": "string",
-                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division", "plot_points", "plot_line", "identify_coords", "read_graph"],
+                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division", "plot_points", "plot_line", "identify_coords", "read_graph", "measure", "number_line"],
                         },
                         "plane_spec": {
                             "type": "object",
@@ -374,17 +386,28 @@ CLASSIFICATION_TOOL = {
                                 "it and the original graph image is kept instead."
                             ),
                         },
+                        "number_line_spec": {
+                            "type": "object",
+                            "description": (
+                                "For number_line only — a horizontal number line. min/max = the "
+                                "scale's end values; step = the tick interval (default 1); mode 'mark' "
+                                "(app draws the blank scale, student marks value(s)) or 'read' (app "
+                                "draws marker arrow(s) at 'given' positions, student types the value(s)); "
+                                "target = correct value(s) to mark/read (each landing on a tick); given = "
+                                "value(s) already marked with an arrow (read mode). The app draws the line."
+                            ),
+                        },
                         "numeric_answer": {
                             "type": "number",
-                            "description": "For read_graph only: the value the student should read off the graph.",
+                            "description": "For read_graph and measure: the value to read off / measure (e.g. 135 for a 135° angle).",
                         },
                         "answer_tolerance": {
                             "type": "number",
-                            "description": "For read_graph only: accepted ± band around numeric_answer (e.g. 5). Omit for exact.",
+                            "description": "For read_graph and measure: accepted ± band around numeric_answer (e.g. 2). Omit for exact.",
                         },
                         "answer_unit": {
                             "type": "string",
-                            "description": "For read_graph only: unit shown after the answer box, e.g. 'km', 'min', '°'.",
+                            "description": "For read_graph and measure: unit shown after the answer box, e.g. '°', 'cm', 'km', 'min'.",
                         },
                         "operands": {
                             "type": "array",
@@ -1089,7 +1112,8 @@ def save_questions_from_session(session, user, overrides=None):
         # Self-rendering types draw their own layout from structured fields, so any
         # attached worksheet graphic (division bracket, column grid, blank plane) is
         # just noise. read_graph is the exception — it KEEPS its graph image.
-        if q_type in ('column_operation', 'long_division', 'plot_points', 'plot_line', 'identify_coords'):
+        if q_type in ('column_operation', 'long_division', 'plot_points', 'plot_line',
+                      'identify_coords', 'draw_on_grid', 'shape_select', 'number_line'):
             image_ref = None
 
         # Long-division fields (bus-stop layout)
@@ -1147,20 +1171,21 @@ def save_questions_from_session(session, user, overrides=None):
                 failed += 1
                 continue
 
-        # Read-a-graph fields: numeric answer (+ tolerance/unit) and an optional
-        # clean graph_spec; the original graph image is kept when no spec is given.
+        # Read-a-graph / measure fields: numeric answer (+ tolerance/unit).
+        # read_graph may also carry an optional clean graph_spec (else the graph
+        # image is kept); measure grades the same numeric fields (angle/length).
         graph_spec = None
         numeric_answer = None
         answer_tolerance = None
         answer_unit = ''
-        if q_type == 'read_graph':
+        if q_type in ('read_graph', 'measure'):
             from decimal import Decimal, InvalidOperation
             try:
                 numeric_answer = Decimal(str(q.get('numeric_answer')))
             except (InvalidOperation, TypeError, ValueError):
                 numeric_answer = None
             if numeric_answer is None:
-                errors.append(f'Q{idx}: read_graph needs a numeric_answer')
+                errors.append(f'Q{idx}: {q_type} needs a numeric_answer')
                 failed += 1
                 continue
             raw_tol = q.get('answer_tolerance')
@@ -1170,13 +1195,47 @@ def save_questions_from_session(session, user, overrides=None):
                 except (InvalidOperation, ValueError):
                     answer_tolerance = None
             answer_unit = (q.get('answer_unit') or '')[:10]
-            graph_spec = q.get('graph_spec') or None
-            if graph_spec:
-                from maths.geometry_grading import validate_graph_spec
-                try:
-                    validate_graph_spec(graph_spec)
-                except (ValueError, TypeError):
-                    graph_spec = None  # fall back to the image; don't fail the import
+            if q_type == 'read_graph':
+                graph_spec = q.get('graph_spec') or None
+                if graph_spec:
+                    from maths.geometry_grading import validate_graph_spec
+                    try:
+                        validate_graph_spec(graph_spec)
+                    except (ValueError, TypeError):
+                        graph_spec = None  # fall back to the image; don't fail the import
+
+        # Draw-on-grid / shape-select / number-line: validate the structured spec;
+        # skip a malformed one rather than import a question that can't be graded.
+        grid_spec = None
+        shape_spec = None
+        number_line_spec = None
+        if q_type == 'draw_on_grid':
+            from maths.geometry_grading import validate_grid_spec
+            grid_spec = q.get('grid_spec')
+            try:
+                validate_grid_spec(grid_spec)
+            except (ValueError, TypeError) as exc:
+                errors.append(f'Q{idx}: Invalid grid_spec ({exc})')
+                failed += 1
+                continue
+        elif q_type == 'shape_select':
+            from maths.geometry_grading import validate_shape_spec
+            shape_spec = q.get('shape_spec')
+            try:
+                validate_shape_spec(shape_spec)
+            except (ValueError, TypeError) as exc:
+                errors.append(f'Q{idx}: Invalid shape_spec ({exc})')
+                failed += 1
+                continue
+        elif q_type == 'number_line':
+            from maths.geometry_grading import validate_number_line_spec
+            number_line_spec = q.get('number_line_spec')
+            try:
+                validate_number_line_spec(number_line_spec)
+            except (ValueError, TypeError) as exc:
+                errors.append(f'Q{idx}: Invalid number_line_spec ({exc})')
+                failed += 1
+                continue
 
         try:
             with transaction.atomic():
@@ -1200,6 +1259,9 @@ def save_questions_from_session(session, user, overrides=None):
                     existing.divisor = divisor
                     existing.plane_spec = plane_spec
                     existing.graph_spec = graph_spec
+                    existing.grid_spec = grid_spec
+                    existing.shape_spec = shape_spec
+                    existing.number_line_spec = number_line_spec
                     existing.numeric_answer = numeric_answer
                     existing.answer_tolerance = answer_tolerance
                     existing.answer_unit = answer_unit
@@ -1219,6 +1281,8 @@ def save_questions_from_session(session, user, overrides=None):
                         operands=operands, operator=operator,
                         dividend=dividend, divisor=divisor,
                         plane_spec=plane_spec, graph_spec=graph_spec,
+                        grid_spec=grid_spec, shape_spec=shape_spec,
+                        number_line_spec=number_line_spec,
                         numeric_answer=numeric_answer,
                         answer_tolerance=answer_tolerance, answer_unit=answer_unit,
                     )
@@ -1257,9 +1321,11 @@ def save_questions_from_session(session, user, overrides=None):
                         is_correct=True,
                         order=1,
                     )
-                elif q_type in ('plot_points', 'plot_line', 'identify_coords', 'read_graph'):
-                    # Graded by the plane_spec set / typed coords / numeric tolerance —
-                    # no Answer rows (mirrors measure / draw_on_grid / shape_select).
+                elif q_type in ('plot_points', 'plot_line', 'identify_coords', 'read_graph',
+                                'measure', 'draw_on_grid', 'shape_select', 'number_line'):
+                    # Graded by the structured spec (plane / grid / shapes / number
+                    # line) or numeric tolerance (measure / read_graph) — never Answer
+                    # rows. The model's clean() also forbids answer options here.
                     pass
                 else:
                     for a_idx, ans in enumerate(answers_data):
