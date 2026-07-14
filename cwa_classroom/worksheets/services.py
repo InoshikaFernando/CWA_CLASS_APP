@@ -21,6 +21,7 @@ import base64
 import json
 import logging
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.conf import settings
@@ -305,6 +306,10 @@ Rules:
    counts 28 wheels altogether. Explain why Stefan cannot be correct." must keep ALL of that
    in question_text — not just "Explain why Stefan cannot be correct." Carry numbers, names
    and given facts into the text; do not assume the image will supply them.
+   Do NOT copy the worksheet's question number or section label into question_text. Strip any
+   leading enumeration such as "Question 5", "Question 5 e)", "Q154", "5.", "5)", "a)",
+   "(iii)", "PART C:", "Section B", or "Exercise 3:" — start question_text at the first word
+   of the actual question. Remove only the numbering/label, never the wording a student needs.
 3. For questions with a VISUAL (shape, diagram, ruler, number line, graph, table,
    geometric figure, coordinate plane): set has_image=true and give image_bbox as the
    pixel bounding box of ONLY the visual in the page screenshot.
@@ -482,6 +487,62 @@ def _build_system_prompt(existing_topics, existing_levels, shape_naming=False):
     )
 
 
+# Leading "question number" / section labels the model sometimes copies verbatim
+# from a worksheet into question_text, e.g. "Question 5 e)", "Q154", "PART C:",
+# "Section B", "5)", "a)", "(iii)". These are enumeration, not part of the actual
+# question. The trailing (?=\s|$) after each label prevents clobbering real words
+# that merely start the same way ("No cars…", "Problems arise…", "A cat…").
+_QUESTION_LABEL_RE = re.compile(
+    r"""
+    ^\s*
+    (?:
+        # Abbreviations clamped onto a number: Q7, Q154, No. 5, #5, Prob 3
+        (?:q|qn|no|prob)\.?\s*\#?\s*\d+
+        (?:\s*[a-z]\s*[.)])?          # optional sub-part e.g. " e)"
+        \s*[.):\-]?                   # optional trailing punctuation
+      |
+        # Full word + separator + standalone identifier: Question 5, PART C, Section B
+        (?:question|part|section|exercise|problem)
+        [\s.:\#\-]+
+        (?:\d+|[a-z])
+        (?:\s*[a-z]\s*[.)])?          # optional sub-part e.g. " e)"
+        \s*[.):\-]?                   # optional trailing punctuation
+      |
+        \d{1,3}\s*[.):]              # bare number label: 5. 5) 5:
+      |
+        \(\s*[a-z0-9]{1,4}\s*\)      # bracketed label: (a) (iii) (5)
+      |
+        [a-z]\s*\)                   # single-letter label: a)
+    )
+    (?=\s|$)
+    \s*
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _strip_question_label(question_text):
+    """Remove a leading question-number / section label from question_text.
+
+    Worksheets prefix questions with enumeration ("Question 5 e)", "Q154",
+    "PART C:", "5)", "a)") that the model sometimes copies into question_text.
+    That prefix is not part of the question itself, so drop it. Conservative and
+    idempotent: only a recognised leading label is removed, and if stripping would
+    empty the text the original is kept.
+    """
+    if not question_text:
+        return question_text
+    text = question_text
+    # A question may carry more than one stacked label ("5. a) ..."). Strip a few,
+    # but stop as soon as nothing matches or the text would be emptied.
+    for _ in range(3):
+        stripped = _QUESTION_LABEL_RE.sub('', text, count=1)
+        if stripped == text or not stripped.strip():
+            break
+        text = stripped
+    return text if text.strip() else question_text
+
+
 def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=False):
     """Classify one chunk of pages in a single streamed Claude call.
 
@@ -590,6 +651,12 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
         raise ValueError("AI did not return structured question data. Please try again.")
 
     result.setdefault('questions', [])
+    # Safety net: strip any leading question-number/section label the model copied
+    # into question_text (e.g. "Question 5 e)", "PART C:", "5)"). It's enumeration,
+    # not part of the question.
+    for q in result['questions']:
+        if isinstance(q, dict):
+            q['question_text'] = _strip_question_label(q.get('question_text', '') or '')
     result['usage'] = {
         'input_tokens': response.usage.input_tokens,
         'output_tokens': response.usage.output_tokens,

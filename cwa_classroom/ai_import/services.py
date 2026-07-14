@@ -236,6 +236,14 @@ SPLIT MULTI-PART QUESTIONS (important):
 - Only keep parts together when they genuinely cannot be answered independently (e.g. part b
   explicitly depends on the result of part a); in that rare case, note the dependency in the text.
 
+QUESTION NUMBERING (important):
+- question_text is the QUESTION ONLY. Do NOT copy the worksheet's question number or section
+  label into it. Strip any leading enumeration such as "Question 5", "Question 5 e)", "Q154",
+  "5.", "5)", "a)", "(iii)", "PART C:", "Section B", or "Exercise 3:" — start question_text at
+  the first word of the actual question.
+- Keep the shared instruction/stem (see SPLIT MULTI-PART) — remove only the numbering/label,
+  never the wording a student needs to answer.
+
 QUESTION TYPE RULES (important):
 - If a problem is presented VERTICALLY / STACKED — numbers written one above another with an
   operator and a horizontal rule, i.e. traditional column addition, subtraction, or multiplication
@@ -483,6 +491,62 @@ def _normalize_answer_blank(question_text):
     return question_text
 
 
+# Leading "question number" / section labels the model sometimes copies verbatim
+# from a worksheet into question_text, e.g. "Question 5 e)", "Q154", "PART C:",
+# "Section B", "5)", "a)", "(iii)". These are enumeration, not part of the actual
+# question. The trailing (?=\s|$) after each label prevents clobbering real words
+# that merely start the same way ("No cars…", "Problems arise…", "A cat…").
+_QUESTION_LABEL_RE = re.compile(
+    r"""
+    ^\s*
+    (?:
+        # Abbreviations clamped onto a number: Q7, Q154, No. 5, #5, Prob 3
+        (?:q|qn|no|prob)\.?\s*\#?\s*\d+
+        (?:\s*[a-z]\s*[.)])?          # optional sub-part e.g. " e)"
+        \s*[.):\-]?                   # optional trailing punctuation
+      |
+        # Full word + separator + standalone identifier: Question 5, PART C, Section B
+        (?:question|part|section|exercise|problem)
+        [\s.:\#\-]+
+        (?:\d+|[a-z])
+        (?:\s*[a-z]\s*[.)])?          # optional sub-part e.g. " e)"
+        \s*[.):\-]?                   # optional trailing punctuation
+      |
+        \d{1,3}\s*[.):]              # bare number label: 5. 5) 5:
+      |
+        \(\s*[a-z0-9]{1,4}\s*\)      # bracketed label: (a) (iii) (5)
+      |
+        [a-z]\s*\)                   # single-letter label: a)
+    )
+    (?=\s|$)
+    \s*
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _strip_question_label(question_text):
+    """Remove a leading question-number / section label from question_text.
+
+    Worksheets prefix questions with enumeration ("Question 5 e)", "Q154",
+    "PART C:", "5)", "a)") that the model sometimes copies into question_text.
+    That prefix is not part of the question itself, so drop it. Conservative and
+    idempotent: only a recognised leading label is removed, and if stripping would
+    empty the text the original is kept.
+    """
+    if not question_text:
+        return question_text
+    text = question_text
+    # A question may carry more than one stacked label ("5. a) ..."). Strip a few,
+    # but stop as soon as nothing matches or the text would be emptied.
+    for _ in range(3):
+        stripped = _QUESTION_LABEL_RE.sub('', text, count=1)
+        if stripped == text or not stripped.strip():
+            break
+        text = stripped
+    return text if text.strip() else question_text
+
+
 def _classify_page_batch(client, system_prompt, pages, total_page_count):
     """Run one Claude classification request over a batch of extracted pages.
 
@@ -650,9 +714,12 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
     if merged is None:
         raise ValueError("AI did not return structured question data. Please try again.")
 
-    # Safety net for ANSWER BLANK FORMATTING: ensure a missing left operand renders as a blank.
+    # Safety nets: strip any leading question-number/section label the model copied
+    # in, then ensure a missing left operand renders as a blank.
     for q in merged.get('questions', []):
-        q['question_text'] = _normalize_answer_blank(q.get('question_text', ''))
+        q['question_text'] = _normalize_answer_blank(
+            _strip_question_label(q.get('question_text', ''))
+        )
 
     merged['usage'] = {
         'input_tokens': in_tok,
