@@ -54,6 +54,9 @@ class StripQuestionLabelTests(SimpleTestCase):
             '(x + 2)(x - 3) = ?',       # algebra, not a "(a)" label
             '12 apples cost $6. Find the unit price.',
             'Part time work: how many hours?',  # "Part" is a real word here
+            # "A"/"I" articles after a word+colon must NOT be eaten as a sub-label.
+            'Problem: A train leaves the station at 9am. When does it arrive?',
+            'Question: A number is doubled. What is it?',
         ]
         for text in keep:
             with self.subTest(text=text):

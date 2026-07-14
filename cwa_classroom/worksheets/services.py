@@ -501,11 +501,14 @@ _QUESTION_LABEL_RE = re.compile(
         (?:\s*[a-z]\s*[.)])?          # optional sub-part e.g. " e)"
         \s*[.):\-]?                   # optional trailing punctuation
       |
-        # Full word + separator + standalone identifier: Question 5, PART C, Section B
+        # Full word + separator + standalone identifier: Question 5, PART C:, Section B:
         (?:question|part|section|exercise|problem)
         [\s.:\#\-]+
-        (?:\d+|[a-z])
-        (?:\s*[a-z]\s*[.)])?          # optional sub-part e.g. " e)"
+        (?:
+            \d+ (?:\s*[a-z]\s*[.)])?  # number, optional " e)" sub-part
+          | [a-z] \s* [.):]           # a single letter must end in . ) or : so a
+                                      # following article ("Problem: A train") is safe
+        )
         \s*[.):\-]?                   # optional trailing punctuation
       |
         \d{1,3}\s*[.):]              # bare number label: 5. 5) 5:
