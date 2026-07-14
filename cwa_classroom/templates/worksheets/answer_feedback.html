@@ -58,7 +58,7 @@
 
 {% else %}
 {# ── Maths feedback ───────────────────────────────────────────────────────── #}
-  {% with ai_feedback=student_answer.answer_data.feedback pending_review=student_answer.answer_data.review_status is_partial=student_answer.answer_data.is_partial what_was_correct=student_answer.answer_data.what_was_correct what_to_add=student_answer.answer_data.what_to_add %}
+  {% with ai_feedback=student_answer.answer_data.feedback pending_review=student_answer.answer_data.review_status state=student_answer|credit_state what_was_correct=student_answer.answer_data.what_was_correct what_to_add=student_answer.answer_data.what_to_add %}
 
   {% if pending_review == 'pending_ai' %}
   {# Extended answer — AI grading unavailable; teacher will review #}
@@ -72,7 +72,7 @@
     </div>
   </div>
 
-  {% elif is_correct %}
+  {% elif state == 'correct' %}
   <div class="flex items-start gap-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
     <svg class="w-6 h-6 text-emerald-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -87,7 +87,7 @@
     </div>
   </div>
 
-  {% elif is_partial %}
+  {% elif state == 'partial' %}
   {# Partial credit — amber — some correct, something still missing #}
   <div class="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
     <svg class="w-6 h-6 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">

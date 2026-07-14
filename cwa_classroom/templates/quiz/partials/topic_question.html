@@ -282,6 +282,21 @@
       </button>
     </div>
 
+  {% elif question.question_type == 'number_line' and question.number_line_data %}
+    {% comment %}
+    Number line: mark mode overlays tappable ticks on the drawn scale (marks
+    synced to a hidden field by static/js/number_line.js); read mode draws the
+    arrow(s) and takes a typed value. submitNumberLine posts text_answer, graded
+    by grade_number_line server-side. The Submit button's onclick survives the
+    innerHTML question swap; number_line.js re-mounts via its MutationObserver.
+    {% endcomment %}
+    {% include "maths/partials/_number_line_tool.html" with q=question field_name='text_answer' %}
+    <button type="button"
+            class="mt-4 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+            onclick="submitNumberLine('{{ session_id }}', {{ question.id }})">
+      Submit
+    </button>
+
   {% else %}
     <!-- Short answer / calculation (symbol keypad injected by maths_exponent.js) -->
     <div class="flex gap-3">

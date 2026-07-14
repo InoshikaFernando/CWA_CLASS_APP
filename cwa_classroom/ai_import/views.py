@@ -317,6 +317,8 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)
             if q.get('graph_spec'):
                 q['graph_spec_json'] = json.dumps(q['graph_spec'], indent=2)
+            if q.get('number_line_spec'):
+                q['number_line_spec_json'] = json.dumps(q['number_line_spec'], indent=2)
             # For the "Adjust image" crop modal: which page + the current crop box.
             q['image_page'] = q.get('image_page') or q.get('page') or 1
             q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
@@ -342,6 +344,8 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
                 ('identify_coords', 'Identify Coordinates (type the point)'),
                 ('read_graph', 'Read a Graph (read off a value)'),
+                ('measure', 'Measure (angle/scale, tolerance-graded)'),
+                ('number_line', 'Number Line (mark or read a value)'),
             ],
         })
 
@@ -434,6 +438,27 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 if raw:
                     try:
                         q['graph_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
+            # Measure fields: numeric answer (+ tolerance/unit).
+            if q['question_type'] == 'measure':
+                for fld in ('numeric_answer', 'answer_tolerance'):
+                    raw = request.POST.get(f'{prefix}{fld}', '').strip()
+                    if raw:
+                        q[fld] = raw
+                unit = request.POST.get(f'{prefix}answer_unit', '').strip()
+                if unit:
+                    q['answer_unit'] = unit
+
+            # Number-line spec — edited as raw JSON in the preview; a parse
+            # failure leaves the prior spec untouched so the import-time validator
+            # surfaces the issue.
+            if q['question_type'] == 'number_line':
+                raw = request.POST.get(f'{prefix}number_line_spec', '').strip()
+                if raw:
+                    try:
+                        q['number_line_spec'] = json.loads(raw)
                     except (ValueError, TypeError):
                         pass
 

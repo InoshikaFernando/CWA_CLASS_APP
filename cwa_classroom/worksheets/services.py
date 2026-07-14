@@ -21,6 +21,7 @@ import base64
 import json
 import logging
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.conf import settings
@@ -152,7 +153,7 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                      "fill_blank", "calculation", "extended_answer",
                                      "long_division", "column_operation",
                                      "plot_points", "plot_line", "identify_coords",
-                                     "read_graph"],
+                                     "read_graph", "measure", "number_line"],
                         },
                         "plane_spec": {
                             "type": "object",
@@ -174,17 +175,31 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                 "and keep the graph image (has_image=true)."
                             ),
                         },
+                        "number_line_spec": {
+                            "type": "object",
+                            "description": (
+                                "For number_line only — a horizontal number line. "
+                                "min/max = the scale's end values; step = the tick interval "
+                                "(default 1); mode 'mark' (the app draws the blank scale and "
+                                "the student marks value(s)) or 'read' (the app draws marker "
+                                "arrow(s) at 'given' positions and the student types the "
+                                "value(s)); target = the correct value(s) to mark/read (numbers "
+                                "on the scale, each landing on a tick); given = value(s) already "
+                                "marked with an arrow (read mode). The app draws the line, so set "
+                                "has_image=false for this type."
+                            ),
+                        },
                         "numeric_answer": {
                             "type": "number",
-                            "description": "For read_graph only: the value the student reads off the graph.",
+                            "description": "For read_graph and measure: the value to read off / measure (e.g. 135 for a 135° angle).",
                         },
                         "answer_tolerance": {
                             "type": "number",
-                            "description": "For read_graph only: accepted ± band around numeric_answer (e.g. 5). Omit for exact.",
+                            "description": "For read_graph and measure: accepted ± band around numeric_answer (e.g. 2). Omit for exact.",
                         },
                         "answer_unit": {
                             "type": "string",
-                            "description": "For read_graph only: unit shown after the answer box, e.g. 'km', 'min'.",
+                            "description": "For read_graph and measure: unit shown after the answer box, e.g. '°', 'cm', 'km'.",
                         },
                         "dividend": {
                             "type": "integer",
@@ -305,6 +320,10 @@ Rules:
    counts 28 wheels altogether. Explain why Stefan cannot be correct." must keep ALL of that
    in question_text — not just "Explain why Stefan cannot be correct." Carry numbers, names
    and given facts into the text; do not assume the image will supply them.
+   Do NOT copy the worksheet's question number or section label into question_text. Strip any
+   leading enumeration such as "Question 5", "Question 5 e)", "Q154", "5.", "5)", "a)",
+   "(iii)", "PART C:", "Section B", or "Exercise 3:" — start question_text at the first word
+   of the actual question. Remove only the numbering/label, never the wording a student needs.
 3. For questions with a VISUAL (shape, diagram, ruler, number line, graph, table,
    geometric figure, coordinate plane): set has_image=true and give image_bbox as the
    pixel bounding box of ONLY the visual in the page screenshot.
@@ -375,6 +394,21 @@ Rules:
    answer_tolerance to a sensible ± band, answer_unit to the axis unit. Keep the graph image
    (has_image=true, image_bbox around the graph). Only add graph_spec if you can read the series
    points confidently; otherwise omit it. Leave answers=[]; validation_type="auto".
+13. MEASURE (angle / scale / ruler): if the student must MEASURE a drawn figure and write the value —
+   read an ANGLE with a protractor, a length with a ruler, or a value off a marked scale/dial — use
+   "measure". Set numeric_answer to the true value, answer_tolerance to a sensible ± band (e.g. 2 for
+   an angle), and answer_unit to the unit ("°" for angles, "cm"/"mm" for lengths). For an ANGLE the
+   app draws a true-to-scale figure from numeric_answer, so set has_image=false. For a length/scale
+   the pupil measures a picture, so keep it: has_image=true with image_bbox around the figure. Leave
+   answers=[]; validation_type="auto".
+14. NUMBER LINE: if the question shows (or asks the student to draw/use) a horizontal NUMBER LINE and
+   the task is to MARK a value on it or READ the value an arrow points to, use "number_line" and fill
+   number_line_spec. Set min/max to the scale's end values and step to the tick interval (usually 1).
+   Use mode "mark" when the student must place/mark a value ("mark 5 on the number line", "draw a
+   number line from -3 to 7 and show 2") — put the value(s) to mark in target. Use mode "read" when an
+   arrow/marker is already drawn and the student reads its value — put the marked position(s) in given
+   (target defaults to given). Every target/given value must land exactly on a tick. The app draws the
+   line, so set has_image=false. Leave answers=[]; validation_type="auto".
 
 IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
 - has_image=true ONLY when the question genuinely depends on a visual that cannot be written
@@ -480,6 +514,65 @@ def _build_system_prompt(existing_topics, existing_levels, shape_naming=False):
         + f"\nAvailable year levels: {level_names}"
         + "\nMap to existing topics where possible."
     )
+
+
+# Leading "question number" / section labels the model sometimes copies verbatim
+# from a worksheet into question_text, e.g. "Question 5 e)", "Q154", "PART C:",
+# "Section B", "5)", "a)", "(iii)". These are enumeration, not part of the actual
+# question. The trailing (?=\s|$) after each label prevents clobbering real words
+# that merely start the same way ("No cars…", "Problems arise…", "A cat…").
+_QUESTION_LABEL_RE = re.compile(
+    r"""
+    ^\s*
+    (?:
+        # Abbreviations clamped onto a number: Q7, Q154, No. 5, #5, Prob 3
+        (?:q|qn|no|prob)\.?\s*\#?\s*\d+
+        (?:\s*[a-z]\s*[.)])?          # optional sub-part e.g. " e)"
+        \s*[.):\-]?                   # optional trailing punctuation
+      |
+        # Full word + separator + standalone identifier: Question 5, PART C:, Section B:
+        (?:question|part|section|exercise|problem)
+        [\s.:\#\-]+
+        (?:
+            \d+ (?:\s*[a-z]\s*[.)])?  # number, optional " e)" sub-part
+          | [a-z] \s* [.):]           # a single letter must end in . ) or : so a
+                                      # following article ("Problem: A train") is safe
+        )
+        \s*[.):\-]?                   # optional trailing punctuation
+      |
+        \d{1,3}\s*[.):]              # bare number label: 5. 5) 5:
+      |
+        \(\s*[a-z0-9]{1,4}\s*\)      # bracketed label: (a) (iii) (5)
+      |
+        [a-z]\s*\)                   # single-letter label: a)
+    )
+    (?=\s|$)
+    \s*
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _strip_question_label(question_text):
+    """Remove a leading question-number / section label from question_text.
+
+    Worksheets prefix questions with enumeration ("Question 5 e)", "Q154",
+    "PART C:", "5)", "a)") that the model sometimes copies into question_text.
+    That prefix is not part of the question itself, so drop it. Conservative and
+    idempotent: only a recognised leading label is removed, and if stripping would
+    empty the text the original is kept.
+    """
+    if not question_text:
+        return question_text
+    text = question_text
+    # A question may carry more than one stacked label ("5. a) ..."). Strip a few,
+    # but stop as soon as nothing matches or the text would be emptied.
+    for _ in range(3):
+        stripped = _QUESTION_LABEL_RE.sub('', text, count=1)
+        if stripped == text or not stripped.strip():
+            break
+        text = stripped
+    return text if text.strip() else question_text
 
 
 def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=False):
@@ -590,6 +683,12 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
         raise ValueError("AI did not return structured question data. Please try again.")
 
     result.setdefault('questions', [])
+    # Safety net: strip any leading question-number/section label the model copied
+    # into question_text (e.g. "Question 5 e)", "PART C:", "5)"). It's enumeration,
+    # not part of the question.
+    for q in result['questions']:
+        if isinstance(q, dict):
+            q['question_text'] = _strip_question_label(q.get('question_text', '') or '')
     result['usage'] = {
         'input_tokens': response.usage.input_tokens,
         'output_tokens': response.usage.output_tokens,
