@@ -1,0 +1,52 @@
+{% comment %}
+Shared interactive number line, used by the homework take, topic quiz, and
+worksheet take. Expects `q` (the maths.Question) and `field_name` (the POST
+field to write into — defaults to "text_answer"; the homework take passes
+"answer_<id>").
+
+mark mode: renders the blank scale with tappable tick positions; static/js/
+number_line.js serialises the marked values to JSON ({"marks":[...]}) in a
+hidden input. read mode: renders the scale with the given arrow(s) drawn and a
+plain numeric box for the value the pupil reads off.
+{% endcomment %}
+{% with d=q.number_line_data field=field_name|default:'text_answer' %}
+{% if d %}
+{% if d.mode == 'mark' %}
+<div data-nl-stage data-nl-mode="mark" class="select-none">
+  <input type="hidden" name="{{ field }}" data-nl-hidden value='{"marks":[]}' />
+  <p class="text-xs text-gray-500 mb-2">Tap a tick to mark it. Tap it again to remove the mark.</p>
+  <div class="max-w-full overflow-x-auto">
+    <svg data-nl-wrap viewBox="0 0 {{ d.width }} {{ d.height }}" width="{{ d.width }}" height="{{ d.height }}"
+         class="touch-none text-gray-900" style="max-width:100%;height:auto">
+      {{ d.svg|safe }}
+      <g data-nl-marks></g>
+      {% for dot in d.dots %}
+      <g class="cursor-pointer" data-nl-dot data-value="{{ dot.value }}" data-px="{{ dot.px }}" data-py="{{ dot.py }}"
+         tabindex="0" role="button" aria-label="mark {{ dot.value }}">
+        <circle cx="{{ dot.px }}" cy="{{ dot.py }}" r="16" fill="transparent"></circle>
+        <circle cx="{{ dot.px }}" cy="{{ dot.py }}" r="3.5" fill="#94a3b8"></circle>
+      </g>
+      {% endfor %}
+    </svg>
+  </div>
+  <div class="mt-2 flex items-center gap-3 flex-wrap">
+    <button type="button" data-nl-clear
+            class="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50">Clear</button>
+    <p class="text-sm text-gray-600">You marked: <span data-nl-readout class="font-medium text-gray-800">—</span></p>
+  </div>
+</div>
+{% else %}
+<div data-nl-stage data-nl-mode="read" class="select-none">
+  <div class="max-w-full overflow-x-auto mb-3">
+    <svg viewBox="0 0 {{ d.width }} {{ d.height }}" width="{{ d.width }}" height="{{ d.height }}"
+         class="text-gray-900" style="max-width:100%;height:auto">
+      {{ d.svg|safe }}
+    </svg>
+  </div>
+  <input type="text" name="{{ field }}" inputmode="decimal"
+         class="w-40 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+         placeholder="Value…" aria-label="Value read from the number line">
+</div>
+{% endif %}
+{% endif %}
+{% endwith %}

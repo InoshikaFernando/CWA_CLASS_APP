@@ -1976,6 +1976,8 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                 q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)
             if q.get('graph_spec'):
                 q['graph_spec_json'] = json.dumps(q['graph_spec'], indent=2)
+            if q.get('number_line_spec'):
+                q['number_line_spec_json'] = json.dumps(q['number_line_spec'], indent=2)
 
         return render(request, self.template_name, {
             'session': session,
@@ -1997,6 +1999,8 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                 ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
                 ('identify_coords', 'Identify Coordinates (type the point)'),
                 ('read_graph', 'Read a Graph (read off a value)'),
+                ('measure', 'Measure (angle/scale, tolerance-graded)'),
+                ('number_line', 'Number Line (mark or read a value)'),
             ],
             'validation_types': [
                 ('auto', 'Auto (system checks)'),
@@ -2101,6 +2105,26 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                 if raw:
                     try:
                         q['graph_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
+            # Measure fields: numeric answer (+ tolerance/unit).
+            if q['question_type'] == 'measure':
+                for fld in ('numeric_answer', 'answer_tolerance'):
+                    raw = request.POST.get(f'{prefix}{fld}', '').strip()
+                    if raw:
+                        q[fld] = raw
+                unit = request.POST.get(f'{prefix}answer_unit', '').strip()
+                if unit:
+                    q['answer_unit'] = unit
+
+            # Number-line spec — edited as raw JSON in the preview; a parse failure
+            # leaves the prior spec untouched so the import-time validator surfaces it.
+            if q['question_type'] == 'number_line':
+                raw = request.POST.get(f'{prefix}number_line_spec', '').strip()
+                if raw:
+                    try:
+                        q['number_line_spec'] = json.loads(raw)
                     except (ValueError, TypeError):
                         pass
 
@@ -2703,6 +2727,10 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             'plot_line': MQ.PLOT_LINE,
             'identify_coords': MQ.IDENTIFY_COORDS,
             'read_graph': MQ.READ_GRAPH,
+            'measure': MQ.MEASURE,
+            'draw_on_grid': MQ.DRAW_ON_GRID,
+            'shape_select': MQ.SHAPE_SELECT,
+            'number_line': MQ.NUMBER_LINE,
         }
         mapped_type = type_map.get(q_type, MQ.SHORT_ANSWER)
 
@@ -2748,20 +2776,22 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             except (ValueError, TypeError):
                 continue
 
-        # Read-a-graph: numeric answer (+ tolerance/unit) and an optional clean
-        # graph_spec; keep the graph image when no spec is given.
+        # Read-a-graph / measure: numeric answer (+ tolerance/unit). read_graph may
+        # also carry an optional clean graph_spec (else the graph image is kept);
+        # measure grades the same numeric fields (angle/length/scale reading).
         graph_spec = None
         numeric_answer = None
         answer_tolerance = None
         answer_unit = ''
-        if mapped_type == MQ.READ_GRAPH:
+        if mapped_type in (MQ.READ_GRAPH, MQ.MEASURE):
             from decimal import Decimal, InvalidOperation
             try:
                 numeric_answer = Decimal(str(q.get('numeric_answer')))
             except (InvalidOperation, TypeError, ValueError):
                 numeric_answer = None
             if numeric_answer is None:
-                # No readable value — can't grade; skip rather than import broken.
+                # No readable/measurable value — can't grade; skip rather than
+                # import a broken question that marks every answer wrong.
                 continue
             raw_tol = q.get('answer_tolerance')
             if raw_tol not in (None, ''):
@@ -2770,13 +2800,43 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 except (InvalidOperation, ValueError):
                     answer_tolerance = None
             answer_unit = (q.get('answer_unit') or '')[:10]
-            graph_spec = q.get('graph_spec') or None
-            if graph_spec:
-                from maths.geometry_grading import validate_graph_spec
-                try:
-                    validate_graph_spec(graph_spec)
-                except (ValueError, TypeError):
-                    graph_spec = None  # fall back to the image
+            if mapped_type == MQ.READ_GRAPH:
+                graph_spec = q.get('graph_spec') or None
+                if graph_spec:
+                    from maths.geometry_grading import validate_graph_spec
+                    try:
+                        validate_graph_spec(graph_spec)
+                    except (ValueError, TypeError):
+                        graph_spec = None  # fall back to the image
+
+        # Draw-on-grid / shape-select: validate the structured spec; skip a
+        # malformed one rather than import a question that can never be graded.
+        grid_spec = None
+        if mapped_type == MQ.DRAW_ON_GRID:
+            from maths.geometry_grading import validate_grid_spec
+            grid_spec = q.get('grid_spec')
+            try:
+                validate_grid_spec(grid_spec)
+            except (ValueError, TypeError):
+                continue
+        shape_spec = None
+        if mapped_type == MQ.SHAPE_SELECT:
+            from maths.geometry_grading import validate_shape_spec
+            shape_spec = q.get('shape_spec')
+            try:
+                validate_shape_spec(shape_spec)
+            except (ValueError, TypeError):
+                continue
+
+        # Number-line: validate the scale + target/given spec; skip a malformed one.
+        number_line_spec = None
+        if mapped_type == MQ.NUMBER_LINE:
+            from maths.geometry_grading import validate_number_line_spec
+            number_line_spec = q.get('number_line_spec')
+            try:
+                validate_number_line_spec(number_line_spec)
+            except (ValueError, TypeError):
+                continue
 
         # Image-based questions are visually distinct even when they share a
         # generic stem (e.g. 79 "What is the name of this shape?" questions, one
@@ -2794,6 +2854,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             and mapped_type not in (
                 MQ.LONG_DIVISION, MQ.COLUMN_OPERATION,
                 MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS,
+                MQ.DRAW_ON_GRID, MQ.SHAPE_SELECT, MQ.NUMBER_LINE,
             )
         )
         # read_graph carries a graph image but its IDENTITY is the numeric answer,
@@ -2825,6 +2886,9 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             'operator': operator,
             'plane_spec': plane_spec,
             'graph_spec': graph_spec,
+            'grid_spec': grid_spec,
+            'shape_spec': shape_spec,
+            'number_line_spec': number_line_spec,
             'numeric_answer': numeric_answer,
             'answer_tolerance': answer_tolerance,
             'answer_unit': answer_unit,
@@ -2892,9 +2956,13 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                     answer_text=str(mq.column_result),
                     is_correct=True,
                 )
-        elif mapped_type in (MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS, MQ.READ_GRAPH):
-            # Graded by the plane_spec set / typed coords / numeric tolerance —
-            # no Answer rows (mirrors measure / draw_on_grid / shape_select).
+        elif mapped_type in (
+            MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS, MQ.READ_GRAPH,
+            MQ.MEASURE, MQ.DRAW_ON_GRID, MQ.SHAPE_SELECT, MQ.NUMBER_LINE,
+        ):
+            # Graded by the structured spec (plane / grid / shapes / number line)
+            # or numeric tolerance (measure / read_graph) — never Answer rows. The
+            # model's clean() also forbids answer options on these types.
             pass
         elif mapped_type != MQ.EXTENDED_ANSWER:
             answers_data = [a for a in q.get('answers', []) if a.get('text', '').strip()]

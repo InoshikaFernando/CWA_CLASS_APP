@@ -45,6 +45,7 @@ ANSWER_PARTIAL_MAP = {
     'column_operation':   _PARTIAL + '_answer_column_operation.html',
     'prime_factorization': _PARTIAL + '_answer_prime_factorization.html',
     'measure':            _PARTIAL + '_answer_measure.html',
+    'number_line':        _PARTIAL + '_answer_number_line.html',
 }
 _ANSWER_PARTIAL_DEFAULT = _PARTIAL + '_answer_text.html'
 
@@ -377,6 +378,8 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
                 ('short_answer', 'Short Answer'),
                 ('fill_blank', 'Fill in the Blank'),
                 ('calculation', 'Calculation'),
+                ('measure', 'Measure (angle/scale, tolerance-graded)'),
+                ('number_line', 'Number Line (mark or read a value)'),
             ],
         })
 
@@ -982,6 +985,14 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                 from maths.geometry_grading import grade_measure
                 text_answer = request.POST.get('text_answer', '').strip()
                 is_correct = grade_measure(question, text_answer)
+                if is_correct:
+                    points_earned = float(question.points)
+
+            elif question.question_type == 'number_line' and question.number_line_spec:
+                # Mark mode posts a JSON {"marks":[...]}; read mode posts the value.
+                from maths.geometry_grading import grade_number_line
+                text_answer = request.POST.get('text_answer', '')
+                is_correct = grade_number_line(question.number_line_spec, text_answer)
                 if is_correct:
                     points_earned = float(question.points)
 

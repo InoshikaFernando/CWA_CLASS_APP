@@ -894,6 +894,17 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             is_correct = grade_measure(q, raw)
             num = q.numeric_answer.normalize()
             correct_answer_text = f'{num:f}{q.answer_unit or ""}'
+        elif q.question_type == 'number_line' and q.number_line_spec:
+            # Mark a value on / read a value off a number line. Mark mode posts a
+            # JSON {"marks":[...]} in text_answer; read mode posts the typed value.
+            # Graded by the spec (set comparison / numeric tolerance), never an
+            # Answer row — mirrors maths.plugin.grade_answer.
+            from maths.geometry_grading import grade_number_line
+            raw = data.get('text_answer', '')
+            is_correct = grade_number_line(q.number_line_spec, raw)
+            correct_answer_text = ', '.join(
+                str(v) for v in (q.number_line_data or {}).get('target_values', [])
+            )
         elif q.answer_format == 'algebra':
             raw = data.get('text_answer', '').strip()
             is_correct = q.grade_text_answer(raw)

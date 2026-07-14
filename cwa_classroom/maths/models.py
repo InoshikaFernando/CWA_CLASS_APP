@@ -56,6 +56,7 @@ class Question(models.Model):
     PLOT_LINE = 'plot_line'
     IDENTIFY_COORDS = 'identify_coords'
     READ_GRAPH = 'read_graph'
+    NUMBER_LINE = 'number_line'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -74,6 +75,7 @@ class Question(models.Model):
         ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
         ('identify_coords', 'Identify Coordinates (type the point)'),
         ('read_graph', 'Read a Graph (read off a value)'),
+        ('number_line', 'Number Line (mark or read a value)'),
     ]
 
     # Validation mode — how student answers are graded
@@ -222,6 +224,21 @@ class Question(models.Model):
     graph_spec = models.JSONField(
         null=True, blank=True,
         help_text="read_graph only. Render-only line-graph (axes/series); answer uses the measure numeric fields.",
+    )
+
+    # Number-line question data: a single JSON document describing the scale
+    # (min/max/step), the interaction mode, and the correct target set. Two modes:
+    #   - "mark": the app draws the blank scale and the student taps tick positions
+    #     to place marker(s); graded by set comparison against target.
+    #   - "read": the app draws marker(s) at given positions (an arrow on the line)
+    #     and the student types the value(s); graded numerically within tolerance.
+    # All positions are numbers on the line's own scale (not pixels), so the figure
+    # is scale-independent. Schema validation lives in Question.clean().
+    #   {"min": -3, "max": 7, "step": 1, "mode": "mark"|"read",
+    #    "target": [numbers], "given": [numbers], "tolerance": 0}
+    number_line_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="number_line only. Scale + mode + correct target set (mark: set-comparison; read: numeric tolerance).",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -415,6 +432,27 @@ class Question(models.Model):
                     'question_type': (
                         'Read-a-graph questions are graded by numeric tolerance '
                         'and must not have answer options.'
+                    )
+                })
+
+        # Number-line questions are graded by set comparison of the marked
+        # positions (mark mode) or by numeric tolerance on the typed value
+        # (read mode) — both need a valid number_line_spec, never answer options.
+        if self.question_type == self.NUMBER_LINE:
+            if not self.number_line_spec:
+                raise ValidationError({
+                    'number_line_spec': 'Number-line questions require a number_line_spec.'
+                })
+            from maths.geometry_grading import validate_number_line_spec
+            try:
+                validate_number_line_spec(self.number_line_spec)
+            except ValueError as exc:
+                raise ValidationError({'number_line_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Number-line questions are graded by the marked/typed '
+                        'values and must not have answer options.'
                     )
                 })
 
@@ -619,6 +657,60 @@ class Question(models.Model):
         if not svg:
             return None
         return {'svg': svg}
+
+    @property
+    def number_line_data(self):
+        """SVG-ready render data for a number_line question, or None.
+
+        Maps the ``number_line_spec`` (values on the line's own scale) to pixel
+        coordinates the take-item template draws: the axis backdrop SVG (line,
+        ticks, labels, and — in read mode — the given arrows), the tappable tick
+        positions (mark mode) each carrying its value for the click-to-mark JS,
+        and the canvas size. Returns None when there's nothing renderable, so
+        templates guard with a single check. Mirrors ``plane_data`` — render data
+        on the model, no per-view plumbing.
+        """
+        if self.question_type != self.NUMBER_LINE or not self.number_line_spec:
+            return None
+        from maths.geometry_grading import number_line_ticks, _num_key
+        from maths.svg_geometry import number_line_svg
+        ticks = number_line_ticks(self.number_line_spec)
+        if ticks is None:
+            return None
+        spec = self.number_line_spec
+        pad, tick_px = 28, 44
+        top = 34  # baseline y for the number line
+
+        def px(i):
+            return pad + i * tick_px
+
+        width = pad * 2 + (len(ticks) - 1) * tick_px
+        height = 78
+        mode = spec.get('mode') or 'mark'
+        # Tappable tick positions (mark mode only — read mode is answered by typing).
+        dots = []
+        if mode == 'mark':
+            dots = [{'value': v, 'px': px(i), 'py': top}
+                    for i, v in enumerate(ticks)]
+        # Index by the canonical tick key so a spec value stored as 6.0 still maps
+        # to the tick at 6 (same normalisation validate_number_line_spec uses).
+        index_of = {_num_key(v): i for i, v in enumerate(ticks)}
+        # Values already marked with an arrow (read mode reads these).
+        given = [{'value': v, 'px': px(index_of[_num_key(v)]), 'py': top}
+                 for v in (spec.get('given') or []) if _num_key(v) in index_of]
+        # Correct answer marks — shown on the teacher answer-key (worksheets).
+        targets = spec.get('target')
+        if targets is None:
+            targets = spec.get('given') or []
+        answer = [{'value': v, 'px': px(index_of[_num_key(v)]), 'py': top}
+                  for v in targets if _num_key(v) in index_of]
+        return {
+            'svg': number_line_svg(self.number_line_spec, pad=pad, tick_px=tick_px, top=top),
+            'width': width, 'height': height, 'pad': pad, 'tick_px': tick_px, 'top': top,
+            'mode': mode, 'dots': dots, 'given': given, 'answer': answer,
+            'target_values': [t['value'] for t in answer],
+            'tolerance': spec.get('tolerance') or 0,
+        }
 
     @property
     def prime_factorization_rows(self):

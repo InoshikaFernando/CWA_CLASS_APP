@@ -242,6 +242,25 @@
     });
   }
 
+  function submitNumberLine(sessionId, questionId) {
+    // mark mode posts the hidden {"marks":[...]} JSON (kept in sync by
+    // number_line.js); read mode posts the typed value. Both go as text_answer,
+    // graded by grade_number_line server-side.
+    const stage = document.querySelector('[data-nl-stage]');
+    let answer = '';
+    if (stage && (stage.dataset.nlMode || 'mark') === 'mark') {
+      const hidden = stage.querySelector('[data-nl-hidden]');
+      answer = hidden ? hidden.value : '';
+    } else if (stage) {
+      const box = stage.querySelector('input[type="text"]');
+      answer = box ? box.value.trim() : '';
+      if (!answer) return;
+    }
+    _submitAndAdvance(sessionId, {
+      session_id: sessionId, question_id: questionId, text_answer: answer,
+    });
+  }
+
   // ── Post-swap init hook ───────────────────────────────────────────────────
   // Re-binds every per-question listener that an inline <script> used to wire.
   // Runs once on initial load and again at the end of _loadNext() after the
