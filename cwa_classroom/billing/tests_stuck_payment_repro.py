@@ -63,6 +63,69 @@ def test_paid_but_no_webhook_stays_gated_then_webhook_unblocks():
 
 
 @pytest.mark.django_db
+def test_incomplete_status_is_mapped_not_stored_raw():
+    """A subscription.created (status=incomplete) event must map to a gated
+    local status, never store the raw Stripe value 'incomplete'."""
+    user, pkg, sub = _individual_student_with_expired_sub()
+    handle_subscription_updated({'object': {
+        'id': 'sub_1Tt3Qq', 'status': 'incomplete',
+        'metadata': {'type': 'individual', 'user_id': str(user.id)},
+        'cancel_at_period_end': False, 'customer': 'cus_x',
+    }})
+    sub.refresh_from_db()
+    assert sub.status == Subscription.STATUS_PAST_DUE      # mapped, gated
+    assert sub.status != 'incomplete'                       # never raw
+
+
+@pytest.mark.django_db
+def test_out_of_order_incomplete_does_not_downgrade_active():
+    """The reported bug: a stale 'incomplete' event arriving AFTER activation
+    must not knock an active subscriber back offline."""
+    user, pkg, sub = _individual_student_with_expired_sub()
+    # 1. activation lands
+    handle_subscription_updated({'object': {
+        'id': 'sub_1Tt3Qq', 'status': 'active',
+        'metadata': {'type': 'individual', 'user_id': str(user.id)},
+        'cancel_at_period_end': False, 'customer': 'cus_x',
+    }})
+    sub.refresh_from_db()
+    assert sub.status == Subscription.STATUS_ACTIVE
+    # 2. stale created(incomplete) arrives out of order
+    handle_subscription_updated({'object': {
+        'id': 'sub_1Tt3Qq', 'status': 'incomplete',
+        'metadata': {'type': 'individual', 'user_id': str(user.id)},
+        'cancel_at_period_end': False, 'customer': 'cus_x',
+    }})
+    sub.refresh_from_db()
+    assert sub.status == Subscription.STATUS_ACTIVE         # stays active
+    assert TrialExpiryMiddleware._is_trial_expired(sub) is False
+
+
+@pytest.mark.django_db
+def test_success_page_creates_subscription_when_missing(monkeypatch):
+    """Success-page safety net must create a Subscription row for a paid user
+    who has none yet, instead of silently returning."""
+    import types
+    from billing.views import CheckoutSuccessView
+    role, _ = Role.objects.get_or_create(
+        name=Role.STUDENT, defaults={'display_name': 'Student'})
+    user = CustomUser.objects.create_user(username='sc', email='sc@school.test', password='x')
+    UserRole.objects.get_or_create(user=user, role=role)
+    pkg = Package.objects.create(name='Wizard', price=19.90, is_active=True, stripe_price_id='p')
+    assert not Subscription.objects.filter(user=user).exists()
+
+    fake_session = types.SimpleNamespace(
+        payment_status='paid', subscription='sub_new', customer='cus_new',
+        metadata={'package_id': str(pkg.id)})
+    monkeypatch.setattr('stripe.checkout.Session.retrieve', lambda _sid: fake_session)
+
+    CheckoutSuccessView._activate_from_session(user, 'cs_test')
+    sub = Subscription.objects.get(user=user)
+    assert sub.status == Subscription.STATUS_ACTIVE
+    assert sub.stripe_subscription_id == 'sub_new'
+
+
+@pytest.mark.django_db
 def test_checkout_completed_also_activates_existing_individual():
     user, pkg, sub = _individual_student_with_expired_sub()
     assert TrialExpiryMiddleware._is_trial_expired(sub) is True
