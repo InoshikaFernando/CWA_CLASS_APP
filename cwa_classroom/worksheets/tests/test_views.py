@@ -535,11 +535,11 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
 
     @patch('worksheets.views.grade_extended_answer')
     def test_grade_extended_answer_partial_credit_stored(self, mock_grade):
-        """Partial answer (score 0.3) stores is_partial=True and structured feedback."""
+        """A mid-range score (0.55) stores partial credit and displays as amber."""
         mock_grade.return_value = {
             'is_correct': False,
             'is_partial': True,
-            'score_fraction': 0.3,
+            'score_fraction': 0.55,
             'feedback': 'You got some things right.',
             'what_was_correct': 'Mentioned gravity correctly.',
             'what_to_add': 'Add the inverse square law.',
@@ -554,10 +554,29 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
         self.assertTrue(sa.answer_data['is_partial'])
         self.assertEqual(sa.answer_data['what_was_correct'], 'Mentioned gravity correctly.')
         self.assertEqual(sa.answer_data['what_to_add'], 'Add the inverse square law.')
-        # Partial points awarded proportionally (0.3 * 1.0 = 0.3)
-        self.assertAlmostEqual(sa.points_earned, 0.3, places=2)
-        # Template renders amber partial state — assert content
+        # Partial points awarded proportionally (0.55 * 1.0 = 0.55)
+        self.assertAlmostEqual(sa.points_earned, 0.55, places=2)
+        # Score >= 0.5 renders the amber partial state.
         self.assertContains(resp, 'Partially correct')
+
+    @patch('worksheets.views.grade_extended_answer')
+    def test_grade_extended_answer_low_score_displays_as_wrong(self, mock_grade):
+        """A low score (0.3, below the 0.5 partial floor) displays as wrong, not partial."""
+        mock_grade.return_value = {
+            'is_correct': False,
+            'is_partial': True,
+            'score_fraction': 0.3,
+            'feedback': 'Not enough here.',
+            'what_was_correct': '',
+            'what_to_add': 'Explain the mechanism.',
+            'cache_hit': False,
+        }
+        q = self._make_question('extended_answer')
+        assignment, _ = self._make_worksheet_with_question(q)
+        resp = self._submit_answer(assignment, q, text_answer='Things fall.')
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'Partially correct')
+        self.assertContains(resp, 'Not quite right')
 
     @patch('worksheets.views.grade_extended_answer')
     def test_grade_extended_answer_graceful_fallback_when_service_unavailable(self, mock_grade):

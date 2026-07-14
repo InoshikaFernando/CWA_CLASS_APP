@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load maths_format %}
 {% block title %}Result — {{ submission.homework.title }}{% endblock %}
 
 {% block content %}
@@ -39,11 +40,13 @@
     <h2 class="text-lg font-display font-bold text-gray-800 mb-3">Answer Review</h2>
     <div class="space-y-4">
       {% for item in review_items %}
+      {% with state=item.ans|credit_state %}
       <div class="bg-white rounded-xl border shadow-sm p-4
-        {% if item.ans.is_correct %}border-green-200{% else %}border-red-200{% endif %}">
+        {% if state == 'correct' %}border-green-200{% elif state == 'partial' %}border-amber-200{% else %}border-red-200{% endif %}">
         {# Subject-plugin dispatch: each plugin provides its own review partial. #}
         {% include item.template with ctx=item.ctx %}
       </div>
+      {% endwith %}
       {% endfor %}
     </div>
 
