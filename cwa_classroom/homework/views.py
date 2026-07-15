@@ -1140,17 +1140,45 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
         # plugin's context dict, so the take template can render any subject
         # via ``{% include item.template with ctx=item.ctx %}``.
         items = []
+        skipped = 0
         for hwq in hw_questions:
             plugin = get_plugin(hwq.subject_slug)
             if plugin is None:
+                skipped += 1
+                continue
+            # Build the item's render context defensively: a single item whose
+            # backing content row was deleted after assignment (e.g. a topic
+            # regenerated, an exercise removed) must NOT 500 the whole take page.
+            # Skip the broken item and log it — mirrors the per-item resilience
+            # the grading (POST) path already has for grade_answer().
+            try:
+                ctx = plugin.take_item_context(hwq.content_id)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    'Skipping homework %s item (subject=%s content_id=%s): '
+                    'failed to build take context',
+                    homework.id, hwq.subject_slug, hwq.content_id,
+                )
+                skipped += 1
                 continue
             items.append({
                 'hwq': hwq,
                 'template': plugin.take_item_template(),
-                'ctx': plugin.take_item_context(hwq.content_id),
+                'ctx': ctx,
                 'subject_slug': hwq.subject_slug,
                 'content_id': hwq.content_id,
             })
+
+        # Surface (rather than silently swallow) the fact that some items are
+        # missing, so the student understands the shorter paper isn't a bug and
+        # the teacher gets a signal to fix the assignment.
+        if skipped:
+            messages.warning(
+                request,
+                'Some questions in this homework are no longer available and '
+                'have been skipped.',
+            )
 
         has_coding_item = any(item.get('subject_slug') == 'coding' for item in items)
         has_maths_item = any(item.get('subject_slug') == 'mathematics' for item in items)
