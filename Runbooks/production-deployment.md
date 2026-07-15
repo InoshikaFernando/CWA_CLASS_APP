@@ -288,10 +288,15 @@ pipefail`):
 2. `pip install -r requirements.txt`.
 3. `manage.py migrate --noinput`.
 4. `manage.py collectstatic --noinput --clear`.
-5. `manage.py check --deploy` (warnings are non-fatal here).
-6. `systemctl restart cwa-gunicorn` and verify it's active — on failure it
+5. **`manage.py verify_static_manifest`** — FATAL guard: every literal
+   `{% static '...' %}` reference in the project's templates must be in the
+   manifest just built. Aborts the deploy (before the restart) if a template
+   points at an uncollected/uncommitted asset, so the running service is never
+   replaced by one that 500s. See §5.3.
+6. `manage.py check --deploy` (warnings are non-fatal here).
+7. `systemctl restart cwa-gunicorn` and verify it's active — on failure it
    prints the last 20 journal lines and exits non-zero.
-7. **Deep health gate** — curls `https://<host>/api/health/?deep=1` (host
+8. **Deep health gate** — curls `https://<host>/api/health/?deep=1` (host
    derived from `ALLOWED_HOSTS` in `/etc/cwa/cwa.env`). A non-200 (e.g. 503
    `degraded` from a failed DB/migration/cache probe) aborts the deploy with
    the failing check and the last journal lines.
@@ -463,6 +468,51 @@ dig +short wizardslearninghub.co.nz          # must be the Droplet's IP
 `collectstatic` didn't run or WhiteNoise isn't picking up the manifest. Re-run
 `collectstatic --noinput --clear` and restart gunicorn. Confirm
 `https://.../static/css/output.css` returns 200.
+
+### 5.3a Every page (or a whole surface) 500s — "Missing staticfiles manifest entry"
+
+Symptom: a page returns a 500, and the traceback ends in
+`ValueError: Missing staticfiles manifest entry for '<path>'` (e.g.
+`js/number_line.js`). Under production's `ManifestStaticFilesStorage`,
+`{% static '<path>' %}` **raises at render time** when `<path>` isn't in the
+compiled `staticfiles.json` — so *any* page whose template references that asset
+500s, even though the rest of the app is fine.
+
+Cause: a release shipped a **template that references a new static file, but
+`collectstatic` was not run** (or a manual `git pull` + reload bypassed
+`scripts/deploy.sh`). The file exists in the repo but was never collected into
+the manifest the running workers use.
+
+This actually happened: `js/number_line.js` shipped in `homework/student_take.html`
+(and the quiz/worksheet take pages) with the number-line feature, `collectstatic`
+was skipped, and every homework "take" page 500'd while every other surface
+looked healthy.
+
+**Fix (manual hotfix — safe, no DB/user data touched):**
+
+```bash
+cd /home/cwa/CWA_CLASS_APP
+sudo -u cwa venv/bin/python cwa_classroom/manage.py collectstatic --noinput
+# Workers cache the manifest in memory at startup, so a reload is REQUIRED —
+# without it they keep using the stale manifest and the 500 persists.
+sudo systemctl reload cwa-gunicorn   # use `restart` if reload doesn't clear it
+```
+
+Confirm in a fresh shell that the entry now resolves:
+
+```bash
+cd /home/cwa/CWA_CLASS_APP/cwa_classroom
+/home/cwa/CWA_CLASS_APP/venv/bin/python manage.py shell -c \
+  "from django.contrib.staticfiles.storage import staticfiles_storage as s; \
+   print('js/number_line.js' in s.hashed_files)"   # expect: True
+```
+
+**Prevention:** `scripts/deploy.sh` runs `manage.py verify_static_manifest`
+right after `collectstatic` (§2.2 step 5) — it fails the deploy, before the
+restart, if any template references an asset missing from the manifest. Always
+deploy via `scripts/deploy.sh`; never hand-run `git pull`/reload on a checkout,
+because that skips both `collectstatic` and this guard. The same command runs in
+CI so a bad reference is caught before it merges.
 
 ### 5.4 DB connection / SSL errors
 

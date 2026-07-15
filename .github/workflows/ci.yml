@@ -33,6 +33,29 @@ jobs:
         working-directory: cwa_classroom
         run: pytest tests_migrations.py -v --tb=short
 
+  static-manifest:
+    name: Static Manifest Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      # Fail the build if any template references a {% static %} asset that has
+      # no source file — the pre-merge counterpart to the same check deploy.sh
+      # runs against the built manifest. Stops the number_line.js-style outage
+      # (template ships, asset missing/uncollected) before it can reach main.
+      - name: Verify every {% static %} reference has a source file
+        working-directory: cwa_classroom
+        run: python manage.py verify_static_manifest
+
   classroom-tests:
     name: Classroom Tests
     runs-on: ubuntu-latest

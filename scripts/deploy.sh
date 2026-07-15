@@ -11,7 +11,8 @@
 #       ENV_FILE=/etc/cwa/cwa-test.env HEALTH_SOCKET=/run/cwa-test.sock bash scripts/deploy.sh
 #
 # What it does: pull branch → install deps → migrate → collectstatic →
-# check --deploy → restart the systemd service → deep health gate.
+# verify static manifest → check --deploy → restart the systemd service →
+# deep health gate.
 #
 # Overridable knobs (all have prod defaults):
 #   REPO_DIR       default: the current directory
@@ -88,6 +89,16 @@ echo "==> Running migrations..."
 
 echo "==> Collecting static files..."
 "${VENV_DIR}/bin/python" "${APP_DIR}/manage.py" collectstatic --noinput --clear
+
+# FATAL guard (no `|| true`): every {% static '...' %} a template references must
+# be in the manifest we just built. A template that points at an uncollected /
+# uncommitted asset makes {% static %} raise at render time under
+# ManifestStaticFilesStorage — a live 500. Catch it here, BEFORE the restart, so
+# the running (healthy) service is never replaced by a broken one. This is the
+# guard for the number_line.js outage: template shipped, collectstatic skipped,
+# every take page 500'd.
+echo "==> Verifying static manifest covers all template references..."
+"${VENV_DIR}/bin/python" "${APP_DIR}/manage.py" verify_static_manifest
 
 echo "==> Running deploy checks..."
 "${VENV_DIR}/bin/python" "${APP_DIR}/manage.py" check --deploy 2>&1 || true
