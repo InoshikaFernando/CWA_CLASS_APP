@@ -28,7 +28,18 @@
   {% else %}
     <div class="space-y-4">
       {% for item in homework_list %}
+      {% comment %}
+        Any homework the child has attempted is clickable — the whole card
+        links to the attempt history / results, so parents can tap anywhere
+        (not just a small text link) to open past work. Homework with no
+        submission has nothing to review, so it stays a static card.
+      {% endcomment %}
+      {% if item.attempt_count %}
+      <a href="{% url 'homework:student_attempt_history' homework_id=item.homework.id student_id=child.id %}"
+         class="block bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md hover:border-accent/40 transition">
+      {% else %}
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+      {% endif %}
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
             <p class="font-semibold text-gray-900">{{ item.homework.title }}</p>
@@ -61,22 +72,25 @@
           {% endif %}
         </div>
 
-        {% if item.score is not None %}
+        {% if item.attempt_count %}
         <div class="mt-3 pt-3 border-t border-slate-100 flex items-center gap-4 text-sm text-gray-600">
+          {% if item.score is not None %}
           <span>Score: <strong>{{ item.score }} / {{ item.total_questions }}</strong></span>
+          {% endif %}
           {% if item.submitted_at %}
           <span class="text-gray-400">Submitted {{ item.submitted_at|date:"M j, Y" }}</span>
           {% endif %}
           {% if item.attempt_count > 1 %}
           <span class="text-gray-400">{{ item.attempt_count }} attempt{{ item.attempt_count|pluralize }}</span>
           {% endif %}
-          {% if item.attempt_count %}
-          <a href="{% url 'homework:student_attempt_history' homework_id=item.homework.id student_id=child.id %}"
-             class="text-accent hover:underline ml-auto">View results &amp; answers →</a>
-          {% endif %}
+          <span class="text-accent ml-auto">View results &amp; answers →</span>
         </div>
         {% endif %}
+      {% if item.attempt_count %}
+      </a>
+      {% else %}
       </div>
+      {% endif %}
       {% endfor %}
     </div>
   {% endif %}

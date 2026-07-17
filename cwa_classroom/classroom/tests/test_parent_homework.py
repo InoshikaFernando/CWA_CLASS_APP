@@ -193,3 +193,29 @@ class ParentHomeworkViewTest(ParentPortalTestBase):
     def test_child_name_displayed_in_header(self):
         resp = self.client.get(reverse('parent_homework'))
         self.assertContains(resp, self.student.first_name)
+
+    # --- Clickable "old homework" (attempt history link) ---
+
+    def test_submitted_homework_card_links_to_attempt_history(self):
+        """A homework the child has attempted is clickable — the card links to
+        the attempt-history / results page so parents can open past work."""
+        hw = _make_homework(self.classroom, 'Clickable HW', due_offset_days=-2)
+        submitted_time = timezone.now() - timezone.timedelta(days=1)
+        _make_submission(hw, self.student, score=4, total=5, submitted_at=submitted_time)
+        resp = self.client.get(reverse('parent_homework'))
+        history_url = reverse(
+            'homework:student_attempt_history',
+            kwargs={'homework_id': hw.id, 'student_id': self.student.id},
+        )
+        self.assertContains(resp, f'href="{history_url}"')
+
+    def test_not_submitted_homework_card_is_not_a_link(self):
+        """Homework with no attempt has nothing to review, so its card is not a
+        link (no attempt-history href for that homework)."""
+        hw = _make_homework(self.classroom, 'Untouched HW', due_offset_days=-2)
+        resp = self.client.get(reverse('parent_homework'))
+        history_url = reverse(
+            'homework:student_attempt_history',
+            kwargs={'homework_id': hw.id, 'student_id': self.student.id},
+        )
+        self.assertNotContains(resp, f'href="{history_url}"')
