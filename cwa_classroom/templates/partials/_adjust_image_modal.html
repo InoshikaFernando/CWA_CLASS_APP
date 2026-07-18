@@ -25,7 +25,9 @@ ref to #img-ref-{idx}, and unchecks q_{idx}_remove_image if present.
     <p class="px-4 pt-2 text-xs text-gray-500">Drag the box to frame the figure; drag its edges/corners to resize. Change page if the figure is elsewhere.</p>
     <div class="flex items-center gap-2 px-4 py-2 text-sm">
       <button type="button" id="adjust-prev" class="px-2 py-1 border rounded text-xs disabled:opacity-40">&#9664; Prev</button>
-      <span id="adjust-pagelabel" class="text-gray-600 text-xs">Page 1</span>
+      <label for="adjust-pageselect" class="sr-only">Select page</label>
+      <select id="adjust-pageselect" class="border rounded text-xs px-1 py-1 bg-white text-gray-700" title="Jump to page"></select>
+      <span id="adjust-pagelabel" class="text-gray-600 text-xs">/ 1</span>
       <button type="button" id="adjust-next" class="px-2 py-1 border rounded text-xs disabled:opacity-40">Next &#9654;</button>
       <label class="ml-auto flex items-center gap-1 text-xs text-gray-500" title="Auto-tighten to the drawn shape">
         <input type="checkbox" id="adjust-snap" class="w-3 h-3"> Snap to diagram
@@ -56,6 +58,7 @@ ref to #img-ref-{idx}, and unchecks q_{idx}_remove_image if present.
   const box = document.getElementById('adjust-box');
   const errEl = document.getElementById('adjust-error');
   const pageLabel = document.getElementById('adjust-pagelabel');
+  const pageSelect = document.getElementById('adjust-pageselect');
   const snapCb = document.getElementById('adjust-snap');
   const pageUrl = modal.dataset.pageUrl, recropUrl = modal.dataset.recropUrl;
   const csrf = (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '';
@@ -70,6 +73,17 @@ ref to #img-ref-{idx}, and unchecks q_{idx}_remove_image if present.
       + 'cursor:' + (h==='n'||h==='s'?'ns-resize':h==='e'||h==='w'?'ew-resize':(h==='ne'||h==='sw'?'nesw-resize':'nwse-resize'));
     box.appendChild(s);
   });
+
+  // (Re)build the page dropdown only when the page count changes.
+  function buildPageOptions(count) {
+    if (pageSelect.options.length === count) return;
+    pageSelect.innerHTML = '';
+    for (let p = 1; p <= count; p++) {
+      const o = document.createElement('option');
+      o.value = p; o.textContent = 'Page ' + p;
+      pageSelect.appendChild(o);
+    }
+  }
 
   function show(el){ el.classList.remove('hidden'); el.classList.add('flex'); }
   function hide(el){ el.classList.add('hidden'); el.classList.remove('flex'); }
@@ -105,7 +119,9 @@ ref to #img-ref-{idx}, and unchecks q_{idx}_remove_image if present.
       st.page = j.page; st.pageCount = j.page_count;
       pageImg.onload = () => { applyFracToBox(frac); errEl.textContent = ''; };
       pageImg.src = 'data:image/png;base64,' + j.image_b64;
-      pageLabel.textContent = 'Page ' + j.page + ' / ' + j.page_count;
+      buildPageOptions(j.page_count);
+      pageSelect.value = j.page;
+      pageLabel.textContent = '/ ' + j.page_count;
       document.getElementById('adjust-prev').disabled = j.page <= 1;
       document.getElementById('adjust-next').disabled = j.page >= j.page_count;
     } catch (e) { errEl.textContent = e.message; }
@@ -151,6 +167,7 @@ ref to #img-ref-{idx}, and unchecks q_{idx}_remove_image if present.
   modal.addEventListener('click', ev => { if (ev.target === modal) close(); });
   document.getElementById('adjust-prev').onclick = () => loadPage(st.page - 1, null);
   document.getElementById('adjust-next').onclick = () => loadPage(st.page + 1, null);
+  pageSelect.onchange = () => loadPage(parseInt(pageSelect.value, 10) || 1, null);
 
   document.getElementById('adjust-apply').onclick = async () => {
     if (box.classList.contains('hidden')) { errEl.textContent = 'Draw a box first.'; return; }
