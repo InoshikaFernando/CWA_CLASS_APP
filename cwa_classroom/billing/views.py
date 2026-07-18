@@ -341,29 +341,46 @@ class CheckoutSuccessView(View):
 
     @staticmethod
     def _activate_from_session(user, session_id):
-        """Verify checkout session with Stripe and activate if paid."""
+        """Verify checkout session with Stripe and activate if paid.
+
+        Safety net for a delayed/lost webhook. Handles users who have no
+        pre-created ``Subscription`` row yet (e.g. school students, whose sub is
+        created on activation) by creating one from the session metadata —
+        rather than silently doing nothing.
+        """
         try:
             sub = user.subscription
         except Subscription.DoesNotExist:
-            return
-        if sub.status == Subscription.STATUS_ACTIVE:
+            sub = None
+        if sub and sub.status == Subscription.STATUS_ACTIVE:
             return
         try:
             stripe.api_key = settings.STRIPE_SECRET_KEY
             session = stripe.checkout.Session.retrieve(session_id)
             if session.payment_status in ('paid', 'no_payment_required'):
+                pkg = None
+                if session.metadata.get('package_id'):
+                    pkg = Package.objects.filter(id=session.metadata['package_id']).first()
+                if sub is None:
+                    # No local row yet — create it so the payment isn't lost.
+                    if not pkg:
+                        logger.warning(
+                            'Success-page activation for user %s has no local sub '
+                            'and no package in session %s; cannot create.',
+                            user.id, session_id,
+                        )
+                        return
+                    sub = Subscription(user=user, package=pkg)
                 sub.status = Subscription.STATUS_ACTIVE
                 sub.stripe_subscription_id = session.subscription or sub.stripe_subscription_id
                 if getattr(session, 'customer', None):
                     sub.stripe_customer_id = session.customer
                 sub.trial_end = None
                 sub.current_period_start = timezone.now()
-                if session.metadata.get('package_id'):
-                    pkg = Package.objects.filter(id=session.metadata['package_id']).first()
-                    if pkg:
-                        sub.package = pkg
-                        user.package = pkg
-                        user.save(update_fields=['package'])
+                if pkg:
+                    sub.package = pkg
+                    user.package = pkg
+                    user.save(update_fields=['package'])
                 sub.save()
                 log_event(
                     user=user, category='billing',
