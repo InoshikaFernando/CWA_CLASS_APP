@@ -280,6 +280,30 @@ class SnapBoxToFiguresTests(SimpleTestCase):
         fragment = [34, 77, 36, 82]      # one stray tick the clusterer split off
         self.assertEqual(_snap_box_to_figures(box, [fragment]), box)
 
+    def test_does_not_grab_neighbouring_grid_figure(self):
+        # 2x2 grid of figures. The model drew a slightly-too-wide box for the
+        # top-left question that clips a sliver of the top-right figure. Snapping
+        # must lock onto the top-left figure only, never span across to grab the
+        # neighbour (the "wrong figure" failure on angle worksheets).
+        regions = [[13, 15, 40, 35], [60, 15, 87, 35],
+                   [13, 60, 40, 80], [60, 60, 87, 80]]
+        box = [13, 15, 65, 35]           # covers cell 1, clips into cell 2
+        snapped = _snap_box_to_figures(box, regions)
+        # Right edge stays on the top-left figure (~40% + pad), well short of the
+        # top-right figure that starts at 60%.
+        self.assertLess(snapped[2], 55)
+        self.assertAlmostEqual(snapped[2], 42, delta=1)
+
+    def test_edge_clip_of_neighbour_is_ignored_but_own_figure_kept(self):
+        # Box aligned with its own figure but just touching a neighbour: the
+        # neighbour (barely overlapped) is dropped, the own figure (mostly
+        # covered) is kept.
+        own = [10, 10, 45, 45]
+        neighbour = [46, 10, 90, 45]
+        box = [8, 8, 50, 47]             # covers `own`, clips 4% of `neighbour`
+        snapped = _snap_box_to_figures(box, [own, neighbour])
+        self.assertLess(snapped[2], 55)  # did not extend to the neighbour
+
 
 class CropUsesFigureRegionsTests(SimpleTestCase):
     """crop_figure_boxes snaps to figure_regions when extraction provides them."""
