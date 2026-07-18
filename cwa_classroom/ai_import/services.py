@@ -919,16 +919,42 @@ def _boxes_overlap(a, b):
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
+def _box_area(b):
+    return max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+
+
+def _overlap_area(a, b):
+    """Area of the intersection of two [x1, y1, x2, y2] boxes (0 if disjoint)."""
+    ox = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    oy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    return ox * oy
+
+
 def _snap_box_to_figures(box, regions):
     """Refine an AI figure box to the actual drawn-figure bounds.
 
     `box` and `regions` entries are [x1, y1, x2, y2] in percent of the page.
-    Returns the padded union of the drawing clusters that overlap `box` — this
-    both expands a too-tight box to include the whole figure and shrinks a
-    too-loose one back off neighbouring text. If no cluster overlaps, returns
+    Returns the padded union of the drawing clusters the box is genuinely aligned
+    with — this both expands a too-tight box to include the whole figure and
+    shrinks a too-loose one back off neighbouring text. If nothing aligns, returns
     `box` unchanged (the model's box is then the only signal we have).
+
+    A region is only unioned in when the box mostly covers it, or it mostly covers
+    the box. A region the box merely CLIPS at the edge — typically a neighbouring
+    question's figure in a 2x2 grid when the model drew a slightly-too-wide box —
+    is left out, so a crop never swallows the question next door.
     """
-    overlapping = [r for r in regions if _boxes_overlap(box, r)]
+    box_area = _box_area(box) or 1.0
+    overlapping = []
+    for r in regions:
+        ov = _overlap_area(box, r)
+        if ov <= 0:
+            continue
+        # Aligned when the smaller of {box, region} is at least half-covered by the
+        # overlap: box-inside-figure (too tight) and figure-inside-box (too loose /
+        # fragment) both pass; an edge-clipped neighbour does not.
+        if ov / (min(_box_area(r), box_area) or 1.0) >= 0.5:
+            overlapping.append(r)
     if not overlapping:
         return box
     pad = FIGURE_CROP_PAD_PCT
@@ -943,10 +969,7 @@ def _snap_box_to_figures(box, regions):
     # (e.g. a number line into separate ticks), the overlapping pieces can be far
     # smaller than the real figure. If snapping would collapse the crop to a
     # sliver of the model's box, the detection is unreliable — trust the box.
-    def _area(b):
-        return max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
-
-    if _area(snapped) < 0.20 * _area(box):
+    if _box_area(snapped) < 0.20 * box_area:
         return box
     return snapped
 
