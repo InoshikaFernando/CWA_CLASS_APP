@@ -28,6 +28,57 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+# Page numbers baked into generated image_ref filenames, most-specific first:
+#   worksheet_img_q4_p3.png   -> "_p3"   (worksheet / homework crops)
+#   page3_img1.png / page3_figure2.png -> "page3"  (ai_import crops)
+# These give a deterministic page even when the model omits per-question page info.
+_REF_PAGE_PATTERNS = (
+    re.compile(r'_p(\d+)(?=\.|_|$)', re.IGNORECASE),
+    re.compile(r'(?:^|[^a-z])page[_-]?(\d+)', re.IGNORECASE),
+)
+
+
+def question_source_page(q):
+    """Best-effort 1-based page a question maps to, for the "Adjust image" editor.
+
+    The crop modal opens on this page so the teacher lands on the page the
+    question actually came from. Resolution order (most reliable first):
+
+      1. ``image_page`` — explicit crop provenance recorded when a figure was
+         rendered/cropped for this question.
+      2. the page encoded in the generated ``image_ref`` filename
+         (e.g. ``worksheet_img_q4_p3.png`` -> 3, ``page3_img1.png`` -> 3) —
+         survives even when the classifier drops the per-question page field.
+      3. the classifier's per-question page (``page_num`` / ``source_page`` /
+         ``page``).
+      4. ``1`` as a last resort.
+    """
+    def _as_page(value):
+        try:
+            page = int(value)
+        except (TypeError, ValueError):
+            return None
+        return page if page > 0 else None
+
+    page = _as_page(q.get('image_page'))
+    if page:
+        return page
+
+    ref = q.get('image_ref')
+    if ref:
+        for pattern in _REF_PAGE_PATTERNS:
+            match = pattern.search(str(ref))
+            if match:
+                return int(match.group(1))
+
+    for key in ('page_num', 'source_page', 'page'):
+        page = _as_page(q.get(key))
+        if page:
+            return page
+
+    return 1
+
+
 # DPI for the page screenshots sent to Claude. 150 is the quality sweet spot —
 # lower values make Claude miss questions (small text becomes illegible). Tune
 # down via WORKSHEET_SCREENSHOT_DPI only if memory is tight (all page screenshots
@@ -409,6 +460,14 @@ Rules:
    arrow/marker is already drawn and the student reads its value — put the marked position(s) in given
    (target defaults to given). Every target/given value must land exactly on a tick. The app draws the
    line, so set has_image=false. Leave answers=[]; validation_type="auto".
+15. TABLES: if the question depends on reading a DATA TABLE (rows/columns of values — a
+   timetable, price list, tally/frequency table, results table, conversion table, etc.), set
+   has_image=true and give image_bbox tightly around the WHOLE table (all its rows, columns and
+   header cells — never clip a column). Do NOT transcribe the table's data into question_text —
+   keep question_text to the actual instruction ("Using the table, which city had the largest
+   range?") and let the cropped table image carry the figures. The app cannot redraw a table, so
+   the image is the only record of it: attaching it is required whenever the answer can't be found
+   without the table.
 
 IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
 - has_image=true ONLY when the question genuinely depends on a visual that cannot be written

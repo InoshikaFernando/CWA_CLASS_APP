@@ -21,6 +21,7 @@ from billing.entitlements import get_school_for_user
 from classroom.views import RoleRequiredMixin
 
 from .grading_service import grade_extended_answer
+from .services import question_source_page
 from .models import (
     Worksheet,
     WorksheetAssignment,
@@ -338,8 +339,9 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             # don't need a custom filter for dict lookups.
             ref = q.get('image_ref')
             q['image_b64'] = session.extracted_images.get(ref) if ref else None
-            # For the "Adjust image" crop modal: which page + the current crop box.
-            q['image_page'] = q.get('image_page') or q.get('page_num') or 1
+            # For the "Adjust image" crop modal: open the page this question maps
+            # to (falls back through crop provenance, the ref filename, page_num).
+            q['image_page'] = question_source_page(q)
             q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
 
         # Recovery: if every question ended up with include=False (stuck state

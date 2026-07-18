@@ -1953,6 +1953,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         questions = data.get('questions', [])
 
         from classroom.models import Topic, Level
+        from worksheets.services import question_source_page
         topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
         classrooms = _assignable_classrooms(request.user)
@@ -1968,8 +1969,9 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             q.setdefault('grading_rubric', '')
             ref = q.get('image_ref')
             q['image_b64'] = session.extracted_images.get(ref) if ref else None
-            # For the "Adjust image" crop modal: which page + the current crop box.
-            q['image_page'] = q.get('image_page') or q.get('page_num') or 1
+            # For the "Adjust image" crop modal: open the page this question maps
+            # to (falls back through crop provenance, the ref filename, page_num).
+            q['image_page'] = question_source_page(q)
             q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
             # Pre-format the structured-spec JSON for the editable textareas.
             if q.get('plane_spec'):

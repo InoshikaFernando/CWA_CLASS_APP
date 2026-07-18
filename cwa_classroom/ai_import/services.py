@@ -286,6 +286,9 @@ Your task:
    If a question has no visual, leave image_ref, image_page, and image_box all null.
 4. Do NOT embed table/chart data as text in the question — keep question_text concise and
    reference the image instead when the question depends on a visual.
+5. For EVERY question, set source_page to the 1-based page it appears on (the review editor
+   opens the crop tool on that page). This is separate from image_page: source_page is always
+   the question's own page; image_page is only for a drawn figure's bounding box.
 
 IMAGE NECESSITY (important — most questions need NO image):
 - Set image_ref to null whenever the question can be fully understood and answered from text alone
@@ -550,6 +553,10 @@ CLASSIFICATION_TOOL = {
                                 "x2": {"type": "number"},
                                 "y2": {"type": "number"},
                             },
+                        },
+                        "source_page": {
+                            "type": "integer",
+                            "description": "1-based page number where THIS question appears in the document. Set it for EVERY question (regardless of whether it has a visual) — the review editor uses it to open the crop tool on the right page.",
                         },
                         "year_level": {
                             "type": "integer",
