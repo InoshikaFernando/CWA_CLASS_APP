@@ -278,11 +278,17 @@ class Question(models.Model):
             from maths.algebra_grading import is_algebraic_answer_correct
             return any(is_algebraic_answer_correct(text_answer, c) for c in correct)
 
-        # Exact match, but exponent- and inequality-insensitive so the x² button
-        # is usable on ordinary maths answers (cm^2 == cm² == cm2) and a typed
-        # inequality matches however the student spells the operator
-        # (x ≥ 2 == x>=2 == x=>2). See fold_exponents / fold_inequalities.
-        from maths.algebra_grading import fold_exponents, fold_inequalities
+        # Exact match, but exponent-, inequality- and degree-insensitive so the
+        # keypad buttons are usable on ordinary maths answers: the x² button
+        # (cm^2 == cm² == cm2), a typed inequality however the student spells the
+        # operator (x ≥ 2 == x>=2 == x=>2), and the ° button so an angle grades
+        # the same with or without it (50 == 50°). See fold_exponents /
+        # fold_inequalities / fold_degrees.
+        from maths.algebra_grading import (
+            fold_degrees,
+            fold_exponents,
+            fold_inequalities,
+        )
 
         def _fold(value):
             # Make word-form answers tolerant of hyphenation and the filler
@@ -308,7 +314,7 @@ class Question(models.Model):
             # [x×*] split already used for prime_factorization in maths.plugin.
             value = re.sub(r'[×✕✖·∙⋅]', '*', value)
             value = re.sub(r'(?<=\d)\s*[x*]\s*(?=\d)', '*', value)
-            return fold_exponents(fold_inequalities(value))
+            return fold_exponents(fold_inequalities(fold_degrees(value)))
 
         user = _fold(text_answer)
         return any(user == _fold(c) for c in correct)

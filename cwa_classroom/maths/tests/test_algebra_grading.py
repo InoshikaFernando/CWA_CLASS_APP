@@ -14,6 +14,7 @@ from maths.algebra_grading import (
     _collect,
     _parse_term,
     _split_terms,
+    fold_degrees,
     fold_exponents,
     fold_inequalities,
     is_algebraic_answer_correct,
@@ -247,3 +248,22 @@ class TestFoldInequalities:
     def test_plain_values_unaffected(self):
         assert fold_inequalities("8") == "8"
         assert fold_inequalities("2x + 3") == "2x + 3"
+
+
+# --------------------------------------------------------------------------- #
+# fold_degrees — degree-insensitive matching so an angle answer grades the same
+# with or without the ° the keypad button inserts (50 == 50°).
+# --------------------------------------------------------------------------- #
+class TestFoldDegrees:
+    def test_with_and_without_degree_sign_collapse_equal(self):
+        forms = ["50°", "50"]
+        folded = {fold_exponents(fold_inequalities(fold_degrees(f))) for f in forms}
+        assert folded == {"50"}
+
+    def test_degree_sign_stripped(self):
+        assert fold_degrees("50°") == "50"
+        assert fold_degrees("90° ") == "90 "
+
+    def test_plain_values_unaffected(self):
+        assert fold_degrees("8") == "8"
+        assert fold_degrees("2x + 3") == "2x + 3"
