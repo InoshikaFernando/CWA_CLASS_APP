@@ -66,6 +66,20 @@ class EmbeddedImageLabelTests(SimpleTestCase):
     def test_full_figure_not_flagged(self):
         label = _embedded_image_label('page3_img1.png', 3, [11, 13, 47, 30])
         self.assertNotIn('decorative marker', label)
+        self.assertNotIn('whole page', label)
+
+    def test_full_page_background_flagged(self):
+        # A 100%x100% embedded image is a scanned page / poster background, never a
+        # single question's figure — flag it so the model doesn't attach it.
+        label = _embedded_image_label('page2_img1.jpeg', 2, [0, 0, 100, 100])
+        self.assertIn('covers the whole page', label)
+
+    def test_wide_real_figure_not_flagged_as_background(self):
+        # The widest genuine figures (e.g. 84%x29%) must NOT trip the full-page
+        # flag — only images large in BOTH dimensions do.
+        label = _embedded_image_label('page9_img3.png', 9, [6, 12, 90, 41])
+        self.assertNotIn('whole page', label)
+        self.assertNotIn('decorative marker', label)
 
 
 class ExtractAttachesBboxTests(SimpleTestCase):

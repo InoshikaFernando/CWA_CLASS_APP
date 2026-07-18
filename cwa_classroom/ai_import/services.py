@@ -144,6 +144,8 @@ def _embedded_image_label(ref, page_num, bbox_pct):
     )
     if w < 12 and h < 8:
         label += "; small - likely a decorative marker (arc / right-angle), not a full figure"
+    elif w >= 85 and h >= 85:
+        label += "; covers the whole page - a scanned page / background, not a single question's figure"
     return label + "]"
 
 
@@ -309,8 +311,9 @@ MATCHING THE RIGHT IMAGE TO EACH QUESTION (important — this is the #1 cause of
   (bottom-right) → the bottom-right image; and so on.
 - Never attach the SAME embedded image to two different questions, and never attach a figure whose
   region does not match the question's region. Each distinct figure belongs to exactly one question.
-- Ignore images flagged "small — likely a decorative marker" when choosing a question's figure;
-  they are angle arcs / right-angle squares, not the diagram. Pick the main figure for that region.
+- Ignore images flagged "small — likely a decorative marker" (angle arcs / right-angle squares)
+  and any flagged "covers the whole page" (a scanned page or poster background) when choosing a
+  question's figure — neither is that question's diagram. Pick the main figure for the region.
 - If two candidate images share a region, prefer the larger one (the full diagram) and the one
   directly adjacent to the question text.
 
