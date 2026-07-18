@@ -99,6 +99,20 @@ class GradeTextAnswerRoutingTests(TestCase):
         self.assertFalse(q.grade_text_answer('x > 2'))
         self.assertFalse(q.grade_text_answer('x ≤ 2'))  # wrong direction
 
+    def test_text_format_is_degree_insensitive(self):
+        # The ° button is available on all typed maths answers, so an angle
+        # answer must grade correct with or without the degree sign — a stored
+        # "50" accepts "50" and "50°", and a stored "50°" accepts both too.
+        q = self._question('text', ['50'], question_type=Question.CALCULATION)
+        for ans in ['50', '50°', '50 °']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+        self.assertFalse(q.grade_text_answer('60'))    # wrong value
+        self.assertFalse(q.grade_text_answer('60°'))   # wrong value, with unit
+
+        q2 = self._question('text', ['50°'], question_type=Question.CALCULATION)
+        for ans in ['50', '50°']:
+            self.assertTrue(q2.grade_text_answer(ans), ans)
+
     def test_text_format_folds_hyphen_and_filler_word(self):
         # "Express $9.53 in words" — one stored answer must accept every natural
         # phrasing: hyphenated or not, with or without the filler word "and".

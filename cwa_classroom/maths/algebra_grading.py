@@ -137,6 +137,26 @@ def fold_inequalities(text: str) -> str:
     return s
 
 
+def fold_degrees(text: str) -> str:
+    """Drop the degree sign so an angle/temperature answer grades the same
+    typed with or without it — ``50`` == ``50°``.
+
+    The ° button on the maths keypad inserts a literal ``°``; a teacher's stored
+    answer may or may not include it, and a student may or may not add it.
+    Removing it on both sides of the match makes the two equal. Composes cleanly
+    with :func:`fold_exponents` (whitespace left untouched here; the caller
+    folds it). Literal-match path only (see ``grade_text_answer``) — the
+    measure / number_line graders already strip the unit numerically in
+    ``geometry_grading._to_decimal``.
+
+    >>> fold_degrees("50°")
+    '50'
+    >>> fold_degrees("50")
+    '50'
+    """
+    return text.replace("°", "")
+
+
 def _to_fraction(num: str) -> Fraction:
     """Parse an int/decimal/simple-fraction coefficient token into a Fraction."""
     if "/" in num:
