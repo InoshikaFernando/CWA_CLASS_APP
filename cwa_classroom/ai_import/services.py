@@ -77,6 +77,76 @@ def _page_figure_regions(page):
     except Exception:
         return []
 
+def _embedded_image_bbox_pct(page, xref):
+    """Bounding box (percent of page) of an embedded image's placement(s).
+
+    The classifier's hardest failure mode is a page holding several near-identical
+    figures (e.g. a 2x2 grid of angle diagrams): given only bare refs it guesses
+    which embedded image goes with which question and often picks the wrong one.
+    Surfacing each image's position lets it map a question to the figure sitting at
+    the matching spot on the page instead. Returns ``[x0, y0, x1, y1]`` in percent
+    (the union when an image is placed more than once), or ``None`` when PyMuPDF
+    can't locate the image — best-effort, never fatal.
+    """
+    try:
+        pw, ph = page.rect.width, page.rect.height
+        if pw <= 0 or ph <= 0:
+            return None
+        rects = page.get_image_rects(xref)
+        if not rects:
+            return None
+        x0 = min(r.x0 for r in rects)
+        y0 = min(r.y0 for r in rects)
+        x1 = max(r.x1 for r in rects)
+        y1 = max(r.y1 for r in rects)
+        return [
+            round(x0 / pw * 100, 1), round(y0 / ph * 100, 1),
+            round(x1 / pw * 100, 1), round(y1 / ph * 100, 1),
+        ]
+    except Exception:
+        return None
+
+
+def _position_hint(cx, cy):
+    """Human-readable region of a page for a centre point (cx, cy) in percent.
+
+    Turns raw coordinates into an anchor the classifier can line up against a
+    question's own position, e.g. "top-left", "bottom-right", "centre".
+    """
+    vert = 'top' if cy < 45 else ('bottom' if cy > 55 else 'middle')
+    horiz = 'left' if cx < 45 else ('right' if cx > 55 else 'centre')
+    if vert == 'middle' and horiz == 'centre':
+        return 'centre'
+    if vert == 'middle':
+        return horiz
+    if horiz == 'centre':
+        return vert
+    return f'{vert}-{horiz}'
+
+
+def _embedded_image_label(ref, page_num, bbox_pct):
+    """Build the descriptive text block that accompanies an embedded image.
+
+    Without position the model can only tell look-alike figures apart by guessing;
+    with it, it can map each question to the image in the matching region. Small
+    images are flagged as probable decorative markers (angle arcs, right-angle
+    squares) so the model doesn't attach one in place of the real diagram.
+    """
+    if not bbox_pct:
+        return f"[Embedded image: {ref}]"
+    x0, y0, x1, y1 = bbox_pct
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    w, h = x1 - x0, y1 - y0
+    label = (
+        f"[Embedded image: {ref} — on page {page_num} at "
+        f"x {x0:.0f}-{x1:.0f}%, y {y0:.0f}-{y1:.0f}% "
+        f"({_position_hint(cx, cy)}; {w:.0f}%x{h:.0f}% of the page)"
+    )
+    if w < 12 and h < 8:
+        label += "; small - likely a decorative marker (arc / right-angle), not a full figure"
+    return label + "]"
+
+
 def get_pdf_page_count(pdf_file):
     """Cheaply count pages in a PDF without rendering screenshots.
 
@@ -138,6 +208,10 @@ def extract_pdf_content(pdf_file):
                     'ref': ref,
                     'base64': base64.b64encode(img_bytes).decode('utf-8'),
                     'ext': ext,
+                    # Where this image sits on the page — lets the classifier map a
+                    # question to the figure in the matching region instead of
+                    # guessing between look-alike diagrams. May be None.
+                    'bbox_pct': _embedded_image_bbox_pct(page, xref),
                 })
 
         # Render the full page as a screenshot (captures tables, charts, diagrams).
@@ -198,7 +272,8 @@ Your task:
    as text (see IMAGE NECESSITY below). When a visual IS needed, attach it in ONE of two ways:
    a. If the visual IS one of the embedded images listed in the input (e.g. "page1_img1.png"),
       set image_ref to that reference and leave image_page/image_box null. Only use embedded
-      image refs — never full-page screenshots.
+      image refs — never full-page screenshots. Pick the RIGHT ref by POSITION (see
+      MATCHING THE RIGHT IMAGE below), not by how the figure looks.
    b. If the visual is DRAWN into the page and has no embedded image reference (most shapes,
       geometry figures and number lines are like this), leave image_ref null and instead set
       image_page to the page it is on and image_box to its bounding box as percentages of that
@@ -221,6 +296,23 @@ IMAGE NECESSITY (important — most questions need NO image):
 - If a graphic only shows HOW to lay out the working (long-division "bus stop" bracket, stacked
   column arithmetic), transcribe it into the structured fields/text below and set image_ref to null.
 - When unsure, prefer NO image. A wrongly-attached image is worse than none.
+
+MATCHING THE RIGHT IMAGE TO EACH QUESTION (important — this is the #1 cause of wrong figures):
+- Every embedded image is listed with its POSITION on the page: its x/y bounding box in
+  percentages plus a region hint like "top-left" or "bottom-right", and its size.
+- When a page holds several similar-looking figures (a 2x2 grid of angle diagrams, a row of
+  shapes, etc.) do NOT decide which is which from appearance — the diagrams look alike and you
+  WILL mismatch them. Map by POSITION: a question's figure sits in the same region of the page
+  as that question's number and text, almost always directly below or beside it.
+- So: locate where the question's own text/number is on the page, then attach the embedded image
+  whose box is in that same region. Question 1 (top-left) → the top-left image; question 4
+  (bottom-right) → the bottom-right image; and so on.
+- Never attach the SAME embedded image to two different questions, and never attach a figure whose
+  region does not match the question's region. Each distinct figure belongs to exactly one question.
+- Ignore images flagged "small — likely a decorative marker" when choosing a question's figure;
+  they are angle arcs / right-angle squares, not the diagram. Pick the main figure for that region.
+- If two candidate images share a region, prefer the larger one (the full diagram) and the one
+  directly adjacent to the question text.
 
 SPLIT MULTI-PART QUESTIONS (important):
 - When a single question contains multiple sub-parts labelled a), b), c) (or i, ii, iii / 1, 2, 3),
@@ -624,7 +716,8 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
             })
             content_blocks.append({
                 "type": "text",
-                "text": f"[Embedded image: {img['ref']}]",
+                "text": _embedded_image_label(
+                    img['ref'], page['page_num'], img.get('bbox_pct')),
             })
 
     content_blocks.append({
