@@ -1,9 +1,10 @@
 """Unit tests for question_source_page — resolving the 1-based page a question
-maps to, so the "Adjust image" crop modal opens on the right page.
+maps to, so the "Adjust image" crop modal opens on the right page — and for
+answer_review_warning — flagging answer keys that disagree with their explanation.
 """
 from django.test import SimpleTestCase
 
-from worksheets.services import question_source_page
+from worksheets.services import answer_review_warning, question_source_page
 
 
 class QuestionSourcePageTests(SimpleTestCase):
@@ -52,3 +53,62 @@ class QuestionSourcePageTests(SimpleTestCase):
 
     def test_string_numbers_are_coerced(self):
         self.assertEqual(question_source_page({'image_page': '5'}), 5)
+
+
+class AnswerReviewWarningTests(SimpleTestCase):
+    def test_scratch_work_in_explanation_flags(self):
+        # The real failure: explanation reasons correctly but second-guesses, and
+        # the ticked answer (Oslo) disagrees with its conclusion (Buenos Aires).
+        q = {
+            'question_type': 'short_answer',
+            'answers': [{'text': 'Oslo', 'is_correct': True}],
+            'explanation': ('The differences are: Buenos Aires 45, Oslo 44. Wait — '
+                            'Buenos Aires is 45 and Oslo is 44, so Buenos Aires is largest.'),
+        }
+        self.assertIsNotNone(answer_review_warning(q))
+
+    def test_clean_explanation_does_not_flag(self):
+        q = {
+            'question_type': 'short_answer',
+            'answers': [{'text': 'Buenos Aires', 'is_correct': True}],
+            'explanation': 'Buenos Aires has the largest range at 45 degrees.',
+        }
+        self.assertIsNone(answer_review_warning(q))
+
+    def test_mc_explanation_names_other_option_flags(self):
+        q = {
+            'question_type': 'multiple_choice',
+            'answers': [
+                {'text': 'Marrakesh', 'is_correct': True},
+                {'text': 'Buenos Aires', 'is_correct': False},
+            ],
+            'explanation': 'Buenos Aires has the largest temperature range, so it is correct.',
+        }
+        self.assertIsNotNone(answer_review_warning(q))
+
+    def test_mc_explanation_names_correct_option_ok(self):
+        q = {
+            'question_type': 'multiple_choice',
+            'answers': [
+                {'text': 'Buenos Aires', 'is_correct': True},
+                {'text': 'Marrakesh', 'is_correct': False},
+            ],
+            'explanation': 'Buenos Aires has the largest range, so it is correct.',
+        }
+        self.assertIsNone(answer_review_warning(q))
+
+    def test_short_numeric_options_do_not_false_positive(self):
+        # "2" must not be "found" inside "12"; short options are skipped.
+        q = {
+            'question_type': 'multiple_choice',
+            'answers': [
+                {'text': '12', 'is_correct': True},
+                {'text': '2', 'is_correct': False},
+            ],
+            'explanation': 'Twelve is the product, so the answer is 12.',
+        }
+        self.assertIsNone(answer_review_warning(q))
+
+    def test_no_explanation_never_flags(self):
+        self.assertIsNone(answer_review_warning({'question_type': 'short_answer', 'explanation': ''}))
+        self.assertIsNone(answer_review_warning({'question_type': 'multiple_choice'}))

@@ -14,7 +14,7 @@ from accounts.models import Role
 from billing.entitlements import get_school_for_user, has_module, has_module_any_school, check_ai_import_quota
 from classroom.views import RoleRequiredMixin, _get_question_scope
 
-from worksheets.services import question_source_page
+from worksheets.services import answer_review_warning, question_source_page
 
 from .models import AIImportSession, AIImportUsage
 
@@ -325,6 +325,9 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
             # to (falls back through crop provenance, the ref filename, source_page).
             q['image_page'] = question_source_page(q)
             q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
+            # Flag a suspect answer key (explanation disagrees with / second-guesses
+            # the ticked answer) so the teacher checks it before confirming.
+            q['answer_warning'] = answer_review_warning(q)
 
         return render(request, 'ai_import/preview.html', {
             'session': session,

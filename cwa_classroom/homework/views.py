@@ -1953,7 +1953,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         questions = data.get('questions', [])
 
         from classroom.models import Topic, Level
-        from worksheets.services import question_source_page
+        from worksheets.services import answer_review_warning, question_source_page
         topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
         classrooms = _assignable_classrooms(request.user)
@@ -1973,6 +1973,9 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             # to (falls back through crop provenance, the ref filename, page_num).
             q['image_page'] = question_source_page(q)
             q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
+            # Flag a suspect answer key (explanation disagrees with / second-guesses
+            # the ticked answer) so the teacher checks it before confirming.
+            q['answer_warning'] = answer_review_warning(q)
             # Pre-format the structured-spec JSON for the editable textareas.
             if q.get('plane_spec'):
                 q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)

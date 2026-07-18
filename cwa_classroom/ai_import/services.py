@@ -420,6 +420,11 @@ shown in the question, then check it.
   recompute until it is.
 - The explanation must describe the SAME numbers as the answer. Never let the answer and
   the explanation disagree with each other or with the figure.
+- The explanation must be CLEAN and FINAL: do your working silently and write only the
+  verified conclusion. Never leave scratch work, self-corrections, or "wait, let me redo
+  this" notes in it. For multiple choice, the option you mark is_correct MUST be the exact
+  option the explanation concludes is right — if the explanation ends up favouring a
+  different option, change which option is ticked, not the explanation.
 - If you cannot determine the correct answer with confidence, leave the answer text empty
   rather than inventing one.
 

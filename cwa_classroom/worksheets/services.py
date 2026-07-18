@@ -79,6 +79,73 @@ def question_source_page(q):
     return 1
 
 
+# Phrases that betray unfinished / self-correcting reasoning the model left in an
+# explanation ("The differences are: … Wait — Buenos Aires is 45 and Oslo is 44").
+# Their presence means the model second-guessed itself, so the ticked answer is
+# suspect even when the reasoning eventually lands on the right value.
+_SCRATCH_WORK_RE = re.compile(
+    r'\b(?:wait|hold on|whoops|oops|scratch that|'
+    r'actually[,\s]|on second thought|i(?:\'m| am)? not sure|'
+    r'let me (?:re)?(?:check|do|redo|recompute|reconsider|try)|'
+    r'recompute|recalculate|correction|i made a mistake|'
+    r'that(?:\'s| is) (?:wrong|incorrect)|no[,\s]+(?:wait|actually))\b',
+    re.IGNORECASE,
+)
+
+
+def _norm_text(value):
+    return re.sub(r'\s+', ' ', (value or '').strip().lower())
+
+
+def answer_review_warning(q):
+    """Return a short reason to flag a question's answer key for review, else None.
+
+    Auto-graded questions are only as trustworthy as the answer key the model
+    produced. Two signals reliably indicate the key may be wrong even when the
+    explanation reasons its way to the right value — which is exactly the
+    "explanation is correct but the ticked answer isn't" failure:
+
+      1. The explanation contains scratch work / self-correction ("Wait —",
+         "let me redo") — the model wasn't sure, so its ticked answer is suspect.
+      2. (multiple choice) the explanation clearly names a DIFFERENT option than
+         the one ticked correct, and never names the ticked one.
+
+    Surfacing this in the review editor keeps a wrong key from shipping silently
+    (the teacher is already reviewing the question there).
+    """
+    explanation = (q.get('explanation') or '').strip()
+    if not explanation:
+        return None
+
+    if _SCRATCH_WORK_RE.search(explanation):
+        return ('The explanation contains second-guessing or scratch work — '
+                'check the ticked answer matches its final conclusion.')
+
+    if q.get('question_type') == 'multiple_choice':
+        expl = _norm_text(explanation)
+
+        def named(opt):
+            # Word-boundary match so a short option ("2") isn't found inside a
+            # longer number ("12"); skip trivially short option text entirely.
+            opt = _norm_text(opt)
+            if len(opt) < 3:
+                return None
+            return re.search(r'(?<!\w){}(?!\w)'.format(re.escape(opt)), expl) is not None
+
+        answers = q.get('answers') or []
+        correct = [named(a.get('text')) for a in answers if a.get('is_correct')]
+        others = [named(a.get('text')) for a in answers if not a.get('is_correct')]
+        # Only decide when at least one correct option was long enough to check.
+        if any(c is not None for c in correct):
+            correct_named = any(c for c in correct)
+            other_named = any(o for o in others)
+            if not correct_named and other_named:
+                return ('The explanation names a different option than the one '
+                        'ticked correct — verify the answer.')
+
+    return None
+
+
 # DPI for the page screenshots sent to Claude. 150 is the quality sweet spot —
 # lower values make Claude miss questions (small text becomes illegible). Tune
 # down via WORKSHEET_SCREENSHOT_DPI only if memory is tight (all page screenshots

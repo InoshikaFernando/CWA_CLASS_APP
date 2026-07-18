@@ -21,7 +21,7 @@ from billing.entitlements import get_school_for_user
 from classroom.views import RoleRequiredMixin
 
 from .grading_service import grade_extended_answer
-from .services import question_source_page
+from .services import answer_review_warning, question_source_page
 from .models import (
     Worksheet,
     WorksheetAssignment,
@@ -343,6 +343,9 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             # to (falls back through crop provenance, the ref filename, page_num).
             q['image_page'] = question_source_page(q)
             q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
+            # Flag a suspect answer key (explanation disagrees with / second-guesses
+            # the ticked answer) so the teacher checks it before confirming.
+            q['answer_warning'] = answer_review_warning(q)
 
         # Recovery: if every question ended up with include=False (stuck state
         # from a previous all-uncheck submission), re-apply the default selection
