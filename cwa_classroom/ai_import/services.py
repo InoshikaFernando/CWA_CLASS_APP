@@ -406,6 +406,26 @@ ANSWER BLANK FORMATTING (important):
 
 For difficulty, use: 1 (Easy), 2 (Medium), 3 (Hard)
 
+ANGLE-RELATIONSHIP QUESTIONS — DO NOT NAME THE PAIR YOURSELF (important):
+When a figure shows two parallel lines cut by a transversal and asks you to LABEL a marked
+pair of angles (corresponding, alternate interior / alt. int., alternate exterior / alt. ext.,
+or consecutive interior / co-interior), you are UNRELIABLE at naming it directly — so DON'T.
+Instead PERCEIVE the geometry and let the app compute the answer:
+- Keep question_type "multiple_choice" and still list the options shown (all four standard
+  labels when present). You do NOT need to tick the correct one — the app derives it from the
+  spec below and overrides is_correct.
+- Fill angle_relationship_spec (see its schema): the TWO parallel lines, the SINGLE transversal,
+  and the printed position of each marked angle's letter (x, y, ...), all as page-percentage
+  [x, y] coordinates.
+- Read those positions CAREFULLY off the figure — the whole answer hinges on whether each letter
+  sits BETWEEN the two lines (interior) or OUTSIDE them (exterior), and on which SIDE of the
+  transversal it lies. Do not approximate loosely; a letter above the top line or below the
+  bottom line is exterior.
+- If the figure has MORE THAN ONE transversal, or the two marked angles are not on the same
+  transversal cutting the same pair of parallel lines, the standard labels do NOT apply: leave
+  angle_relationship_spec null, set needs_review=true with a short review_reason, and do not
+  force a label.
+
 ACCURACY — VERIFY EVERY ANSWER BEFORE RETURNING IT:
 Do NOT guess answers. Re-derive each answer from the numbers and figures actually
 shown in the question, then check it.
@@ -500,6 +520,50 @@ CLASSIFICATION_TOOL = {
                                 "value(s) already marked with an arrow (read mode). The app draws the line."
                             ),
                         },
+                        "angle_relationship_spec": {
+                            "type": "object",
+                            "description": (
+                                "For 'label the marked pair of angles' questions ONLY (corresponding / "
+                                "alternate interior / alternate exterior / consecutive interior). Do NOT "
+                                "name the pair yourself — the app computes the correct option from this "
+                                "geometry and overrides is_correct. Coordinates are page percentages "
+                                "[x, y] (0-100, origin top-left). lines = the TWO parallel lines, each "
+                                "{p1, p2}; transversal = the SINGLE crossing line {p1, p2}; angles = the "
+                                "two MARKED angles, each {label, pos} where pos is where that angle's "
+                                "letter is printed. Leave null (and set needs_review) when the figure has "
+                                "more than one transversal or the two marked angles are not on the same "
+                                "transversal cutting the same pair of lines."
+                            ),
+                            "properties": {
+                                "lines": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "p1": {"type": "array", "items": {"type": "number"}},
+                                            "p2": {"type": "array", "items": {"type": "number"}},
+                                        },
+                                    },
+                                },
+                                "transversal": {
+                                    "type": "object",
+                                    "properties": {
+                                        "p1": {"type": "array", "items": {"type": "number"}},
+                                        "p2": {"type": "array", "items": {"type": "number"}},
+                                    },
+                                },
+                                "angles": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {"type": "string"},
+                                            "pos": {"type": "array", "items": {"type": "number"}},
+                                        },
+                                    },
+                                },
+                            },
+                        },
                         "numeric_answer": {
                             "type": "number",
                             "description": "For read_graph and measure: the value to read off / measure (e.g. 135 for a 135° angle).",
@@ -533,6 +597,20 @@ CLASSIFICATION_TOOL = {
                         "difficulty": {"type": "integer", "enum": [1, 2, 3]},
                         "points": {"type": "integer", "default": 1},
                         "explanation": {"type": "string", "description": "Brief explanation of the answer"},
+                        "needs_review": {
+                            "type": "boolean",
+                            "description": (
+                                "Set true when this question's answer could NOT be determined with "
+                                "confidence and a teacher should double-check it before use — e.g. an "
+                                "angle-relationship figure with multiple transversals, an unreadable or "
+                                "ambiguous diagram, or a pair with no standard name. Prefer flagging over "
+                                "guessing."
+                            ),
+                        },
+                        "review_reason": {
+                            "type": "string",
+                            "description": "When needs_review is true, one short sentence on what is uncertain.",
+                        },
                         "image_ref": {
                             "type": "string",
                             "description": "Reference to an EMBEDDED image (e.g. page1_img1.png) listed in the input. Set only when the question's visual is one of those embedded images. Null otherwise.",
@@ -777,6 +855,66 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
     return result
 
 
+def _apply_computed_angle_answer(q):
+    """Derive an angle-relationship question's correct option from its geometry.
+
+    For "label the marked pair of angles" questions the model fills
+    ``angle_relationship_spec`` (line/transversal/label positions) but does NOT
+    name the pair — naming proved unreliable. Here we compute the label
+    deterministically, tick the matching multiple-choice option (overriding the
+    model's is_correct guesses), and rewrite the explanation so it can never
+    contradict the answer.
+
+    Anything the geometry can't resolve — a malformed spec, an ambiguous mark, a
+    multi-transversal figure the model flagged, or a pair with no standard name —
+    sets ``needs_review`` so the teacher checks it in preview rather than a wrong
+    answer being saved silently. Mutates ``q`` in place; no-op when there is no
+    spec.
+    """
+    spec = q.get('angle_relationship_spec')
+    if not spec:
+        return
+
+    from maths.angle_relationship import (
+        build_explanation, canonical_label, classify_angle_pair,
+    )
+
+    try:
+        result = classify_angle_pair(spec)
+    except ValueError as exc:
+        q['needs_review'] = True
+        q['review_reason'] = f'angle diagram could not be read: {exc}'
+        return
+
+    if result['needs_review']:
+        q['needs_review'] = True
+        q['review_reason'] = result['reason']
+        return
+
+    label = result['label']
+    answers = q.get('answers') or []
+    matched = False
+    for ans in answers:
+        is_match = canonical_label(ans.get('text')) == label
+        ans['is_correct'] = is_match
+        matched = matched or is_match
+
+    if not matched:
+        # The computed answer isn't among the extracted options — add it rather
+        # than lose it, and flag so the teacher can fix the option list.
+        answers.append({'text': label, 'is_correct': True})
+        q['answers'] = answers
+        q['needs_review'] = True
+        q['review_reason'] = (
+            f'computed answer "{label}" was not among the extracted options; '
+            'added it — please verify the options.'
+        )
+
+    explanation = build_explanation(result)
+    if explanation:
+        q['explanation'] = explanation
+
+
 def classify_questions(extracted_content, existing_topics, existing_levels):
     """
     Send extracted PDF content to Claude API for classification.
@@ -837,11 +975,14 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
         raise ValueError("AI did not return structured question data. Please try again.")
 
     # Safety nets: strip any leading question-number/section label the model copied
-    # in, then ensure a missing left operand renders as a blank.
+    # in, then ensure a missing left operand renders as a blank. Then, for
+    # angle-relationship figures, DERIVE the correct option from the model's
+    # perceived geometry instead of trusting the label it guessed.
     for q in merged.get('questions', []):
         q['question_text'] = _normalize_answer_blank(
             _strip_question_label(q.get('question_text', ''))
         )
+        _apply_computed_angle_answer(q)
 
     merged['usage'] = {
         'input_tokens': in_tok,
