@@ -174,6 +174,20 @@ DIGITALOCEAN_API_TOKEN = os.environ.get('DIGITALOCEAN_API_TOKEN', '')
 # the same secret the retired ops-dashboard Action used. Inert when empty.
 OPS_ALERT_WEBHOOK = os.environ.get('DEPLOY_ALERT_WEBHOOK', '')
 
+# Managed-DB (DigitalOcean DBaaS) metrics for the Ops dashboard. DO exposes DB
+# metrics only as a Prometheus scrape at https://<host>:9273/metrics behind
+# basic auth — NOT the /v2/monitoring REST API. The basic-auth creds are
+# long-lived per cluster: fetch them ONCE with a write-scoped token
+#   curl -H "Authorization: Bearer <write-token>" \
+#        https://api.digitalocean.com/v2/databases/metrics/credentials
+# then store user/password here. The recurring scrape needs only these creds and
+# the droplet added to the DB's Trusted Sources — no API token. Feature is inert
+# unless both user and password are set, so dev/test/local never call out.
+DO_DB_METRICS_HOST = os.environ.get('DO_DB_METRICS_HOST', os.environ.get('DB_HOST', ''))
+DO_DB_METRICS_PORT = int(os.environ.get('DO_DB_METRICS_PORT', '9273'))
+DO_DB_METRICS_USER = os.environ.get('DO_DB_METRICS_USER', '')
+DO_DB_METRICS_PASSWORD = os.environ.get('DO_DB_METRICS_PASSWORD', '')
+
 # Live AI usage dashboard — after each AI call the worker rewrites a pinned
 # GitHub issue with the latest usage/cost. Best-effort: stays disabled (no-op)
 # until a token + repo are configured, so dev/test/local never call out.

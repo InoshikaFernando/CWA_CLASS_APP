@@ -80,6 +80,28 @@
   </div>
   {% endif %}
 
+  <!-- Managed-DB (DigitalOcean DBaaS) tiles -->
+  {% if latest and latest.db_metrics_available %}
+  <div class="mb-8">
+    <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Managed database (DigitalOcean)</h3>
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if latest.db_mem_pct >= 90 %}border-red-500/40{% elif latest.db_mem_pct >= 80 %}border-amber-500/40{% else %}border-slate-700{% endif %}">
+        <p class="text-sm text-slate-400">DB memory</p>
+        <p class="text-2xl font-bold mt-1 {% if latest.db_mem_pct >= 90 %}text-red-400{% elif latest.db_mem_pct >= 80 %}text-amber-400{% else %}text-white{% endif %}">{{ latest.db_mem_pct|default_if_none:"—" }}%</p>
+        <p class="text-xs text-slate-500 mt-1">high memory is normal — the buffer pool fills RAM by design</p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">DB CPU</p>
+        <p class="text-2xl font-bold text-white mt-1">{{ latest.db_cpu_pct|default_if_none:"—" }}%</p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">DB disk</p>
+        <p class="text-2xl font-bold text-white mt-1">{{ latest.db_disk_pct|default_if_none:"—" }}%</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Charts -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
     <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
@@ -88,9 +110,10 @@
         <div class="flex items-center gap-3 text-xs text-slate-400">
           <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-sky-400"></span> RAM</span>
           <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-fuchsia-400"></span> Swap</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-emerald-400"></span> DB RAM</span>
         </div>
       </div>
-      <p class="text-xs text-slate-500 mb-5">Peak % used per {{ bucket_label }}</p>
+      <p class="text-xs text-slate-500 mb-5">Peak % used per {{ bucket_label }} — droplet RAM/swap + managed-DB RAM</p>
       <div class="relative h-64"><canvas id="opsMemChart" role="img" aria-label="Peak RAM and swap percent used over time"></canvas></div>
     </div>
 
@@ -150,7 +173,13 @@
         });
       }
 
-      mk('opsMemChart', [line('RAM', d.mem_pct, '#38bdf8'), line('Swap', d.swap_pct, '#e879f9')], pctAxis(), '%');
+      // DB RAM line is added only when at least one bucket has a value, so the
+      // chart stays a clean two-line droplet view until DB metrics start flowing.
+      var memSets = [line('RAM', d.mem_pct, '#38bdf8'), line('Swap', d.swap_pct, '#e879f9')];
+      if (d.db_mem_pct && d.db_mem_pct.some(function (v) { return v !== null; })) {
+        memSets.push(line('DB RAM', d.db_mem_pct, '#34d399'));
+      }
+      mk('opsMemChart', memSets, pctAxis(), '%');
       mk('opsDiskChart', [line('Disk', d.disk_pct, '#fbbf24')], pctAxis(), '%');
       mk('opsRqChart', [line('default', d.rq_default, '#10b981'), line('high', d.rq_high, '#ef4444')], countAxis(), '');
     })();

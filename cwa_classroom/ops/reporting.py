@@ -90,17 +90,19 @@ def get_ops_series(window):
         .filter(created_at__gte=start)
         .values_list(
             'created_at', 'mem_total', 'mem_used', 'swap_total', 'swap_used',
-            'disk_used_pct', 'rq_default', 'rq_high',
+            'disk_used_pct', 'rq_default', 'rq_high', 'db_mem_pct',
         )
         .order_by('created_at')
     )
 
     fmt = '%Y-%m-%d %H:00' if cfg['bucket'] == 'hour' else '%Y-%m-%d'
     buckets = OrderedDict()
-    for created, mt, mu, st, su, disk, rqd, rqh in rows:
+    for created, mt, mu, st, su, disk, rqd, rqh, dbm in rows:
         key = timezone.localtime(created).strftime(fmt)
         b = buckets.setdefault(
-            key, {'mem': 0, 'swap': 0, 'disk': 0, 'rqd': None, 'rqh': None},
+            key,
+            {'mem': 0, 'swap': 0, 'disk': 0, 'rqd': None, 'rqh': None,
+             'dbm': None},
         )
         b['mem'] = max(b['mem'], round(mu / mt * 100) if mt else 0)
         b['swap'] = max(b['swap'], round(su / st * 100) if st else 0)
@@ -112,6 +114,10 @@ def get_ops_series(window):
             b['rqd'] = rqd if b['rqd'] is None else max(b['rqd'], rqd)
         if rqh is not None:
             b['rqh'] = rqh if b['rqh'] is None else max(b['rqh'], rqh)
+        # DB memory %: null (metrics unconfigured / scrape failed) stays a gap,
+        # never a healthy 0.
+        if dbm is not None:
+            b['dbm'] = dbm if b['dbm'] is None else max(b['dbm'], dbm)
 
     labels = list(buckets.keys())
     return {
@@ -121,5 +127,6 @@ def get_ops_series(window):
         'disk_pct': [buckets[k]['disk'] for k in labels],
         'rq_default': [buckets[k]['rqd'] for k in labels],
         'rq_high': [buckets[k]['rqh'] for k in labels],
+        'db_mem_pct': [buckets[k]['dbm'] for k in labels],
         'window': window if window in WINDOWS else DEFAULT_WINDOW,
     }

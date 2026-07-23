@@ -1,7 +1,7 @@
 """Tests for the Ops dashboard: metric classification, chart aggregation, the
 collector command (with edge-triggered alerting), and the superuser view."""
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -9,6 +9,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from ops import digitalocean as do_metrics
 from ops.models import OpsSnapshot
 from ops.reporting import classify, get_ops_series, WINDOWS
 
@@ -89,6 +90,86 @@ class SeriesTests(TestCase):
         s = get_ops_series('bogus')
         self.assertEqual(s['window'], 'day')
 
+    def test_db_mem_series_peaks_and_keeps_null_gap(self):
+        # A captured DB reading is charted (peak per bucket); an unconfigured /
+        # failed scrape (None) stays a gap, never a healthy 0.
+        OpsSnapshot.objects.create(mem_total=1000, mem_used=500, db_mem_pct=85)
+        OpsSnapshot.objects.create(mem_total=1000, mem_used=500, db_mem_pct=91)
+        s = get_ops_series('day')
+        self.assertEqual(s['db_mem_pct'][-1], 91)
+
+        OpsSnapshot.objects.all().delete()
+        OpsSnapshot.objects.create(mem_total=1000, mem_used=500, db_mem_pct=None)
+        s = get_ops_series('day')
+        self.assertIsNone(s['db_mem_pct'][-1])
+
+
+class DigitalOceanMetricsTests(TestCase):
+    """Prometheus parsing + best-effort scrape of the managed-DB metrics."""
+
+    TELEGRAF = (
+        '# HELP mem_used_percent memory used\n'
+        '# TYPE mem_used_percent gauge\n'
+        'mem_used_percent 87.4\n'
+        'mem_total 1.048576e+09\n'
+        'mem_available 1.31072e+08\n'
+        'disk_used_percent{path="/",device="sda"} 43.2\n'
+        'disk_used_percent{path="/tmp"} 5.0\n'
+        'cpu_usage_idle{cpu="cpu-total"} 12.5\n'
+        'cpu_usage_idle{cpu="cpu0"} 30.0\n'
+    )
+
+    def test_parse_and_extract(self):
+        e = do_metrics.parse_prometheus(self.TELEGRAF)
+        self.assertEqual(do_metrics.db_memory_pct(e), 87)   # used_percent wins
+        self.assertEqual(do_metrics.db_disk_pct(e), 43)      # max across mounts
+        self.assertEqual(do_metrics.db_cpu_pct(e), 88)       # 100 - cpu-total idle
+
+    def test_memory_from_available_bytes(self):
+        e = do_metrics.parse_prometheus('mem_total 1000\nmem_available 250\n')
+        self.assertEqual(do_metrics.db_memory_pct(e), 75)
+
+    def test_memory_available_percent_variant(self):
+        e = do_metrics.parse_prometheus('mem_available_percent 30\n')
+        self.assertEqual(do_metrics.db_memory_pct(e), 70)
+
+    def test_memory_node_exporter_fallback(self):
+        e = do_metrics.parse_prometheus(
+            'node_memory_MemTotal_bytes 1000\nnode_memory_MemAvailable_bytes 100\n')
+        self.assertEqual(do_metrics.db_memory_pct(e), 90)
+
+    def test_unknown_metrics_return_none(self):
+        e = do_metrics.parse_prometheus('# just a comment\nsomething_else 5\n')
+        self.assertIsNone(do_metrics.db_memory_pct(e))
+        self.assertIsNone(do_metrics.db_disk_pct(e))
+        self.assertIsNone(do_metrics.db_cpu_pct(e))
+
+    def test_nan_and_inf_are_dropped(self):
+        e = do_metrics.parse_prometheus('mem_used_percent NaN\nmem_total +Inf\n')
+        self.assertIsNone(do_metrics.db_memory_pct(e))
+
+    def test_fetch_returns_none_without_creds(self):
+        self.assertIsNone(do_metrics.fetch_db_metrics('', '', ''))
+        self.assertIsNone(do_metrics.fetch_db_metrics('host', '', 'pw'))
+
+    @patch('requests.get')
+    def test_fetch_scrapes_and_parses(self, mock_get):
+        resp = MagicMock()
+        resp.text = 'mem_used_percent 91\ndisk_used_percent{path="/"} 40\n'
+        resp.raise_for_status.return_value = None
+        mock_get.return_value = resp
+        out = do_metrics.fetch_db_metrics('h', 'u', 'p')
+        self.assertEqual(out['mem'], 91)
+        self.assertEqual(out['disk'], 40)
+        # Basic auth + the :9273 metrics URL were used.
+        _, kwargs = mock_get.call_args
+        self.assertEqual(kwargs['auth'], ('u', 'p'))
+        self.assertIn(':9273/metrics', mock_get.call_args[0][0])
+
+    @patch('requests.get', side_effect=RuntimeError('unreachable'))
+    def test_fetch_failure_returns_none(self, _mock_get):
+        self.assertIsNone(do_metrics.fetch_db_metrics('h', 'u', 'p'))
+
 
 class RecordCommandTests(TestCase):
     """The collector is patched so it never touches the real OS/Redis."""
@@ -134,6 +215,26 @@ class RecordCommandTests(TestCase):
         with self.settings(OPS_ALERT_WEBHOOK=''):
             self._run_with(mem_avail=50)
         self.assertEqual(OpsSnapshot.objects.count(), 1)
+
+    def test_db_metrics_null_when_unconfigured(self):
+        # No DO_DB_METRICS_* creds → no scrape, DB fields stay null.
+        self._run_with()
+        snap = OpsSnapshot.objects.get()
+        self.assertIsNone(snap.db_mem_pct)
+        self.assertFalse(snap.db_metrics_available)
+
+    def test_db_metrics_stored_when_configured(self):
+        with self.settings(DO_DB_METRICS_USER='u', DO_DB_METRICS_PASSWORD='p',
+                           DO_DB_METRICS_HOST='dbhost'):
+            with patch(f'{self.PATCH}.fetch_db_metrics',
+                       return_value={'mem': 88, 'cpu': 10, 'disk': 40}) as m:
+                self._run_with()
+        snap = OpsSnapshot.objects.latest('created_at')
+        self.assertEqual(snap.db_mem_pct, 88)
+        self.assertEqual(snap.db_cpu_pct, 10)
+        self.assertEqual(snap.db_disk_pct, 40)
+        self.assertTrue(snap.db_metrics_available)
+        m.assert_called_once()
 
 
 class PruneCommandTests(TestCase):
@@ -202,6 +303,22 @@ class OpsDashboardViewTests(TestCase):
         resp = self.client.get(reverse('ops_admin_dashboard'))
         self.assertTrue(resp.context['latest_stale'])
         self.assertContains(resp, 'Stale data')
+
+    def test_db_tiles_shown_when_metrics_present(self):
+        OpsSnapshot.objects.create(
+            mem_total=2000, mem_used=1000, mem_avail=1000,
+            db_mem_pct=91, db_cpu_pct=12, db_disk_pct=40, status='ok')
+        self.client.login(username='boss', password='Pass123!')
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+        self.assertContains(resp, 'Managed database')
+        self.assertContains(resp, '91%')  # DB memory tile
+
+    def test_db_tiles_hidden_without_metrics(self):
+        OpsSnapshot.objects.create(
+            mem_total=2000, mem_used=1000, mem_avail=1000, status='ok')
+        self.client.login(username='boss', password='Pass123!')
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+        self.assertNotContains(resp, 'Managed database')
 
     def test_stale_banner_hides_status_banner(self):
         # A stale critical reading isn't the current state, so the crit banner
