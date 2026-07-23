@@ -359,6 +359,10 @@ urlpatterns = [
     path('invoicing/<int:invoice_id>/cancel/', views_invoicing.CancelInvoiceView.as_view(), name='cancel_invoice'),
     path('invoicing/<int:invoice_id>/resend/', views_invoicing.ResendInvoiceView.as_view(), name='resend_invoice'),
     path('invoicing/<int:invoice_id>/pay/', views_invoicing.RecordManualPaymentView.as_view(), name='record_manual_payment'),
+    path('invoicing/<int:invoice_id>/zero-balance/', views_invoicing.ZeroInvoiceBalanceView.as_view(), name='zero_invoice_balance'),
+    path('invoicing/zero-balances/', views_invoicing.ZeroBalancesView.as_view(), name='zero_balances'),
+    path('invoicing/payment/<int:payment_id>/reverse/', views_invoicing.ReverseInvoicePaymentView.as_view(), name='reverse_invoice_payment'),
+    path('invoicing/zero-balances/batch/<int:batch_id>/reverse/', views_invoicing.ReverseZeroingBatchView.as_view(), name='reverse_zeroing_batch'),
 
     # Inbound webhooks (unauthenticated, signature-verified)
     path('webhooks/resend/', views_webhooks.ResendWebhookView.as_view(), name='resend_webhook'),

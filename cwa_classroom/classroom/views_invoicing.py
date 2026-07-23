@@ -24,6 +24,7 @@ from .models import (
     DepartmentFee, StudentFeeOverride, Invoice, InvoiceLineItem,
     CSVColumnTemplate, CSVImport, PaymentReferenceMapping,
     InvoicePayment, CreditTransaction, Term, AcademicYear, EmailLog,
+    BalanceZeroingBatch,
 )
 from .views import RoleRequiredMixin
 from . import invoicing_services as svc
@@ -1406,6 +1407,218 @@ class RecordManualPaymentView(RoleRequiredMixin, View):
         )
         messages.success(request, f'Payment of ${amount} recorded.')
         return redirect('invoice_detail', invoice_id=invoice.id)
+
+
+class ZeroInvoiceBalanceView(RoleRequiredMixin, View):
+    """Manually settle an invoice's outstanding balance to zero.
+
+    For when the institute is too busy to upload existing bank transactions and
+    reconcile payments — records a manual settlement for the full amount due so
+    the invoice is marked paid without importing a CSV.
+    """
+    required_roles = INVOICING_ROLES
+
+    def post(self, request, invoice_id):
+        school = _get_single_school(request.user)
+        invoice = get_object_or_404(Invoice, id=invoice_id, school=school)
+
+        if invoice.status not in ('issued', 'partially_paid'):
+            messages.error(request, 'Only issued or partially paid invoices can be zeroed.')
+            return redirect('invoice_detail', invoice_id=invoice.id)
+
+        outstanding = invoice.amount_due
+        if outstanding <= 0:
+            messages.info(request, 'This invoice has no outstanding balance.')
+            return redirect('invoice_detail', invoice_id=invoice.id)
+
+        notes = request.POST.get('notes', '').strip()
+        svc.zero_invoice_balance(invoice, created_by=request.user, notes=notes)
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='invoice_balance_zeroed',
+            detail={'invoice_id': invoice.id, 'invoice_number': invoice.invoice_number,
+                    'amount': str(outstanding), 'notes': notes},
+            request=request,
+        )
+        messages.success(
+            request,
+            f'Balance of ${outstanding} zeroed for invoice {invoice.invoice_number}.',
+        )
+        return redirect('invoice_detail', invoice_id=invoice.id)
+
+
+class ReverseInvoicePaymentView(RoleRequiredMixin, View):
+    """Undo a manual balance-adjustment settlement, restoring the balance.
+
+    Reverses a payment created by the Zero Balance action (single or bulk) so
+    the invoice returns to issued / partially-paid. Only manual settlements can
+    be reversed here — real recorded payments are left untouched.
+    """
+    required_roles = INVOICING_ROLES
+
+    def post(self, request, payment_id):
+        school = _get_single_school(request.user)
+        payment = get_object_or_404(InvoicePayment, id=payment_id, school=school)
+        invoice = payment.invoice
+
+        if invoice is None:
+            messages.error(request, 'This payment is no longer linked to an invoice and cannot be reversed.')
+            return redirect('invoice_list')
+
+        result = svc.reverse_manual_settlement(payment, reversed_by=request.user)
+        if result is None:
+            messages.error(request, 'This payment is not a reversible manual settlement.')
+            return redirect('invoice_detail', invoice_id=invoice.id)
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='invoice_settlement_reversed',
+            detail={'invoice_id': invoice.id, 'invoice_number': invoice.invoice_number,
+                    'payment_id': payment.id, 'amount': str(payment.amount)},
+            request=request,
+        )
+        messages.success(
+            request,
+            f'Manual settlement of ${payment.amount} reversed — balance restored.',
+        )
+        return redirect('invoice_detail', invoice_id=invoice.id)
+
+
+class ZeroBalancesView(RoleRequiredMixin, View):
+    """Bulk-zero outstanding balances for a chosen scope.
+
+    Scope cascades like Generate Invoices: whole institute → department →
+    class → specific students. A POST with action='preview' shows the affected
+    invoices and total; action='confirm' applies the zeroing. For when the
+    institute is too busy to upload bank transactions and reconcile payments.
+    """
+    required_roles = INVOICING_ROLES
+
+    def _scope_from_post(self, request):
+        return {
+            'department_id': request.POST.get('department_id') or None,
+            'classroom_id': request.POST.get('classroom_id') or None,
+            'student_ids': request.POST.getlist('student_ids'),
+            'notes': request.POST.get('notes', '').strip(),
+        }
+
+    def _scope_label(self, school, scope):
+        if scope['student_ids']:
+            n = len(scope['student_ids'])
+            return f'{n} student{"s" if n != 1 else ""}'
+        if scope['classroom_id']:
+            cls = ClassRoom.objects.filter(id=scope['classroom_id'], school=school).first()
+            return f'Class: {cls.name}' if cls else 'Class'
+        if scope['department_id']:
+            dept = Department.objects.filter(id=scope['department_id'], school=school).first()
+            return f'Department: {dept.name}' if dept else 'Department'
+        return 'Whole institute'
+
+    def _recent_batches(self, school):
+        return BalanceZeroingBatch.objects.filter(
+            school=school,
+        ).select_related('created_by', 'reversed_by')[:10]
+
+    def get(self, request):
+        school = _get_single_school(request.user)
+        if not school:
+            messages.error(request, 'No school found.')
+            return redirect('subjects_hub')
+
+        departments = Department.objects.filter(school=school, is_active=True)
+        return render(request, 'invoicing/zero_balances.html', {
+            'school': school,
+            'departments': departments,
+            'recent_batches': self._recent_batches(school),
+        })
+
+    def post(self, request):
+        school = _get_single_school(request.user)
+        if not school:
+            messages.error(request, 'No school found.')
+            return redirect('subjects_hub')
+
+        action = request.POST.get('action', 'preview')
+        scope = self._scope_from_post(request)
+        departments = Department.objects.filter(school=school, is_active=True)
+
+        if action == 'confirm':
+            count, total, batch = svc.zero_balances_in_scope(
+                school, created_by=request.user,
+                department_id=scope['department_id'],
+                classroom_id=scope['classroom_id'],
+                student_ids=scope['student_ids'] or None,
+                notes=scope['notes'],
+                scope_label=self._scope_label(school, scope),
+            )
+            if count == 0:
+                messages.info(request, 'No outstanding balances found in the selected scope.')
+                return redirect('zero_balances')
+
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='balances_zeroed_bulk',
+                detail={'count': count, 'total': str(total),
+                        'batch_id': batch.id if batch else None,
+                        'department_id': scope['department_id'],
+                        'classroom_id': scope['classroom_id'],
+                        'student_ids': scope['student_ids'],
+                        'notes': scope['notes']},
+                request=request,
+            )
+            messages.success(
+                request,
+                f'Zeroed {count} invoice balance{"s" if count != 1 else ""} '
+                f'totalling ${total}. You can undo this batch below.',
+            )
+            return redirect('zero_balances')
+
+        # action == 'preview'
+        invoices = svc.get_outstanding_invoices_in_scope(
+            school,
+            department_id=scope['department_id'],
+            classroom_id=scope['classroom_id'],
+            student_ids=scope['student_ids'] or None,
+        )
+        total = sum((inv.outstanding for inv in invoices), Decimal('0.00'))
+        return render(request, 'invoicing/zero_balances.html', {
+            'school': school,
+            'departments': departments,
+            'preview': True,
+            'preview_invoices': invoices,
+            'preview_total': total,
+            'preview_count': len(invoices),
+            'scope': scope,
+        })
+
+
+class ReverseZeroingBatchView(RoleRequiredMixin, View):
+    """Undo a whole bulk zeroing run in one click — reverses every settlement
+    in the batch and restores each invoice's balance."""
+    required_roles = INVOICING_ROLES
+
+    def post(self, request, batch_id):
+        school = _get_single_school(request.user)
+        batch = get_object_or_404(BalanceZeroingBatch, id=batch_id, school=school)
+
+        if batch.is_reversed:
+            messages.info(request, 'This batch has already been reversed.')
+            return redirect('zero_balances')
+
+        count, total = svc.reverse_zeroing_batch(batch, reversed_by=request.user)
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='balances_zeroed_bulk_reversed',
+            detail={'batch_id': batch.id, 'count': count, 'total': str(total)},
+            request=request,
+        )
+        messages.success(
+            request,
+            f'Reversed {count} settlement{"s" if count != 1 else ""} '
+            f'totalling ${total} — balances restored.',
+        )
+        return redirect('zero_balances')
 
 
 # ===========================================================================
