@@ -107,23 +107,23 @@ class SeriesTests(TestCase):
 class DigitalOceanMetricsTests(TestCase):
     """Prometheus parsing + best-effort scrape of the managed-DB metrics."""
 
+    # Mirrors the real db-mysql-syd1-cwa exposition (labels + telegraf names).
     TELEGRAF = (
-        '# HELP mem_used_percent memory used\n'
-        '# TYPE mem_used_percent gauge\n'
-        'mem_used_percent 87.4\n'
-        'mem_total 1.048576e+09\n'
-        'mem_available 1.31072e+08\n'
-        'disk_used_percent{path="/",device="sda"} 43.2\n'
-        'disk_used_percent{path="/tmp"} 5.0\n'
-        'cpu_usage_idle{cpu="cpu-total"} 12.5\n'
-        'cpu_usage_idle{cpu="cpu0"} 30.0\n'
+        '# HELP mem_available_percent available memory\n'
+        '# TYPE mem_available_percent gauge\n'
+        'mem_used_percent{host="db-1"} 60.0\n'       # excludes cache — must LOSE
+        'mem_available_percent{host="db-1"} 10.0\n'  # DO's basis — must WIN
+        'disk_used_percent{path="/var/lib/mysql"} 8.9\n'
+        'cpu_usage_idle{cpu="cpu-total"} 92.34\n'
+        'cpu_usage_idle{cpu="cpu0"} 92.34\n'
     )
 
     def test_parse_and_extract(self):
         e = do_metrics.parse_prometheus(self.TELEGRAF)
-        self.assertEqual(do_metrics.db_memory_pct(e), 87)   # used_percent wins
-        self.assertEqual(do_metrics.db_disk_pct(e), 43)      # max across mounts
-        self.assertEqual(do_metrics.db_cpu_pct(e), 88)       # 100 - cpu-total idle
+        # Available-based (100 - 10) matches DO's alert, NOT mem_used_percent 60.
+        self.assertEqual(do_metrics.db_memory_pct(e), 90)
+        self.assertEqual(do_metrics.db_disk_pct(e), 9)       # round(8.9)
+        self.assertEqual(do_metrics.db_cpu_pct(e), 8)        # 100 - 92.34 -> 8
 
     def test_memory_from_available_bytes(self):
         e = do_metrics.parse_prometheus('mem_total 1000\nmem_available 250\n')
@@ -132,6 +132,11 @@ class DigitalOceanMetricsTests(TestCase):
     def test_memory_available_percent_variant(self):
         e = do_metrics.parse_prometheus('mem_available_percent 30\n')
         self.assertEqual(do_metrics.db_memory_pct(e), 70)
+
+    def test_memory_falls_back_to_used_percent(self):
+        # Only telegraf "used" present (no available metric) → use it as-is.
+        e = do_metrics.parse_prometheus('mem_used_percent 55\n')
+        self.assertEqual(do_metrics.db_memory_pct(e), 55)
 
     def test_memory_node_exporter_fallback(self):
         e = do_metrics.parse_prometheus(

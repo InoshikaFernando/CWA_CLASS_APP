@@ -71,10 +71,15 @@ def _first(entries, name, labels=None):
 
 
 def db_memory_pct(entries):
-    """Percent RAM used (0-100), or None if no known memory metric is present."""
-    used_p = _first(entries, 'mem_used_percent')
-    if used_p is not None:
-        return round(used_p)
+    """Percent RAM in use (0-100), matching DO's "Memory Utilization" alert.
+
+    DO computes utilisation from *available* memory — reclaimable cache/buffers
+    count as free — which is what the console alert pages on (its emails read
+    ~90 here, i.e. 100 - mem_available_percent). We mirror that: prefer the
+    available-based figures, and fall back to telegraf's ``mem_used_percent``
+    (which excludes reclaimable cache and so reads much lower) only when no
+    available metric is present. Returns None if nothing known matches.
+    """
     avail_p = _first(entries, 'mem_available_percent')
     if avail_p is not None:
         return round(100 - avail_p)
@@ -87,6 +92,10 @@ def db_memory_pct(entries):
     navail = _first(entries, 'node_memory_MemAvailable_bytes')
     if ntotal and navail is not None:
         return round((1 - navail / ntotal) * 100)
+    # Last resort: telegraf "used" (excludes cache; lower than DO's figure).
+    used_p = _first(entries, 'mem_used_percent')
+    if used_p is not None:
+        return round(used_p)
     return None
 
 
