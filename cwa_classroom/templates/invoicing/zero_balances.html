@@ -190,6 +190,51 @@
         </div>
       </form>
     </div>
+
+    <!-- ── Recent bulk zeroing runs (undo) ───────────────────────────────── -->
+    {% if recent_batches %}
+      <div class="mt-8 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200">
+          <h2 class="text-lg font-semibold text-gray-900">Recent bulk zeroing</h2>
+          <p class="text-xs text-gray-500 mt-1">Undo a whole run in one click — this restores every balance it zeroed.</p>
+        </div>
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-slate-100">
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">When</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Scope</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Invoices</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Total</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for batch in recent_batches %}
+              <tr class="border-b border-slate-50">
+                <td class="px-6 py-3 text-sm text-gray-900">{{ batch.created_at|date:"M d, Y H:i" }}</td>
+                <td class="px-6 py-3 text-sm text-gray-600">{{ batch.scope_label|default:"—" }}</td>
+                <td class="px-6 py-3 text-sm text-gray-600 text-right">{{ batch.invoice_count }}</td>
+                <td class="px-6 py-3 text-sm font-medium text-gray-900 text-right">${{ batch.total_amount }}</td>
+                <td class="px-6 py-3 text-right">
+                  {% if batch.is_reversed %}
+                    <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Reversed</span>
+                  {% else %}
+                    <form method="post" action="{% url 'reverse_zeroing_batch' batch_id=batch.id %}"
+                          onsubmit="return confirm('Undo this whole batch? {{ batch.invoice_count }} balance{{ batch.invoice_count|pluralize }} totalling ${{ batch.total_amount }} will be restored.')">
+                      {% csrf_token %}
+                      <button type="submit"
+                        class="text-xs font-medium text-amber-700 hover:text-amber-900 hover:underline">
+                        Undo batch
+                      </button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
   {% endif %}
 </div>
 

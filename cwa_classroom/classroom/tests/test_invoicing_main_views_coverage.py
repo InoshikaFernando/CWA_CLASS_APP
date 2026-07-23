@@ -890,6 +890,107 @@ class ReverseInvoicePaymentViewTests(TestCase):
         self.assertEqual(self.invoice.status, 'issued')
 
 
+class ReverseZeroingBatchViewTests(TestCase):
+    def setUp(self):
+        self.owner, self.school = _setup_school()
+        self.student_a = _setup_student(self.school, username='batch_a')
+        self.student_b = _setup_student(self.school, username='batch_b')
+        self.inv_a = _make_invoice(self.school, self.student_a, status='issued',
+                                   amount='100.00', created_by=self.owner)
+        self.inv_b = _make_invoice(self.school, self.student_b, status='issued',
+                                   amount='40.00', created_by=self.owner)
+        self.client = Client()
+        self.client.login(username='testowner', password='password1!')
+
+    def _bulk_zero(self, data=None):
+        self.client.post(reverse('zero_balances'), data or {'action': 'confirm'})
+
+    def test_bulk_zero_creates_batch_with_totals(self):
+        from classroom.models import BalanceZeroingBatch, InvoicePayment
+        self._bulk_zero()
+        batch = BalanceZeroingBatch.objects.get(school=self.school)
+        self.assertEqual(batch.invoice_count, 2)
+        self.assertEqual(batch.total_amount, Decimal('140.00'))
+        self.assertEqual(batch.scope_label, 'Whole institute')
+        # Both settlements are linked to the batch.
+        self.assertEqual(
+            InvoicePayment.objects.filter(zeroing_batch=batch).count(), 2)
+
+    def test_undo_batch_restores_all(self):
+        from classroom.models import BalanceZeroingBatch
+        self._bulk_zero()
+        batch = BalanceZeroingBatch.objects.get(school=self.school)
+
+        resp = self.client.post(reverse('reverse_zeroing_batch', args=[batch.id]))
+        self.assertEqual(resp.status_code, 302)
+        self.inv_a.refresh_from_db()
+        self.inv_b.refresh_from_db()
+        self.assertEqual(self.inv_a.status, 'issued')
+        self.assertEqual(self.inv_b.status, 'issued')
+        self.assertEqual(self.inv_a.amount_due, Decimal('100.00'))
+        self.assertEqual(self.inv_b.amount_due, Decimal('40.00'))
+        batch.refresh_from_db()
+        self.assertTrue(batch.is_reversed)
+        self.assertEqual(batch.reversed_by, self.owner)
+
+    def test_undo_batch_twice_is_noop(self):
+        from classroom.models import BalanceZeroingBatch
+        self._bulk_zero()
+        batch = BalanceZeroingBatch.objects.get(school=self.school)
+        self.client.post(reverse('reverse_zeroing_batch', args=[batch.id]))
+        # Second call: already reversed, invoices stay restored.
+        resp = self.client.post(reverse('reverse_zeroing_batch', args=[batch.id]))
+        self.assertEqual(resp.status_code, 302)
+        self.inv_a.refresh_from_db()
+        self.assertEqual(self.inv_a.status, 'issued')
+
+    def test_undo_batch_leaves_manual_partial_payment_intact(self):
+        # A real partial payment on inv_a made before the bulk zero must survive
+        # the batch undo (only the settlement is reversed).
+        InvoicePayment.objects.create(
+            invoice=self.inv_a, student=self.student_a, school=self.school,
+            amount=Decimal('30.00'), payment_date=datetime.date(2025, 1, 10),
+            payment_method='cash', status='confirmed',
+        )
+        from classroom.models import BalanceZeroingBatch
+        self._bulk_zero()
+        batch = BalanceZeroingBatch.objects.get(school=self.school)
+        self.client.post(reverse('reverse_zeroing_batch', args=[batch.id]))
+        self.inv_a.refresh_from_db()
+        self.assertEqual(self.inv_a.status, 'partially_paid')
+        self.assertEqual(self.inv_a.amount_due, Decimal('70.00'))
+
+    def test_undo_scoped_batch_only_touches_its_invoices(self):
+        from classroom.models import BalanceZeroingBatch
+        # Zero only student_a, then undo — student_b never zeroed, untouched.
+        self._bulk_zero({'action': 'confirm', 'student_ids': [str(self.student_a.id)]})
+        batch = BalanceZeroingBatch.objects.get(school=self.school)
+        self.assertEqual(batch.scope_label, '1 student')
+        self.inv_b.refresh_from_db()
+        self.assertEqual(self.inv_b.status, 'issued')
+        self.client.post(reverse('reverse_zeroing_batch', args=[batch.id]))
+        self.inv_a.refresh_from_db()
+        self.assertEqual(self.inv_a.status, 'issued')
+
+    def test_reverse_other_school_batch_404(self):
+        from classroom.models import BalanceZeroingBatch
+        self._bulk_zero()
+        batch = BalanceZeroingBatch.objects.get(school=self.school)
+        other_owner = CustomUser.objects.create_user(
+            'batch_other', 'wlhtestmails+bo@gmail.com', 'password1!')
+        _assign_role(other_owner, Role.INSTITUTE_OWNER)
+        School.objects.create(name='Other B', slug='other-b', admin=other_owner)
+        self.client.login(username='batch_other', password='password1!')
+        resp = self.client.post(reverse('reverse_zeroing_batch', args=[batch.id]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_get_lists_recent_batches(self):
+        self._bulk_zero()
+        resp = self.client.get(reverse('zero_balances'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.context['recent_batches']), 1)
+
+
 class CSVUploadViewTests(TestCase):
     def setUp(self):
         self.owner, self.school = _setup_school()

@@ -24,7 +24,7 @@ from .models import (
     Invoice, InvoiceLineItem, InvoicePayment, CreditTransaction,
     PaymentReferenceMapping, CSVImport, SchoolStudent,
     SchoolHoliday, PublicHoliday,
-    ParentStudent, StudentGuardian,
+    ParentStudent, StudentGuardian, BalanceZeroingBatch,
 )
 from .fee_utils import get_effective_fee_for_student, get_fee_source_label
 
@@ -1313,7 +1313,7 @@ def reverse_manual_settlement(payment, reversed_by=None):
     return invoice
 
 
-def zero_invoice_balance(invoice, created_by=None, notes=''):
+def zero_invoice_balance(invoice, created_by=None, notes='', batch=None):
     """
     Manually settle an invoice's outstanding balance to zero.
 
@@ -1321,6 +1321,9 @@ def zero_invoice_balance(invoice, created_by=None, notes=''):
     and reconcile payments — instead of importing a CSV, the balance is cleared
     by recording a confirmed settlement payment for the exact amount still due.
     The invoice is marked 'paid' by the normal status update.
+
+    If `batch` is given, the settlement is linked to it so a bulk run can be
+    reversed in one click.
 
     Returns the created InvoicePayment, or None if there was nothing to settle.
     """
@@ -1332,7 +1335,7 @@ def zero_invoice_balance(invoice, created_by=None, notes=''):
     if notes:
         note_text = f'{note_text} — {notes}'
 
-    return record_payment(
+    payment = record_payment(
         invoice=invoice,
         amount=outstanding,
         payment_date=timezone.now().date(),
@@ -1342,6 +1345,10 @@ def zero_invoice_balance(invoice, created_by=None, notes=''):
         created_by=created_by,
         status='confirmed',
     )
+    if batch is not None:
+        payment.zeroing_batch = batch
+        payment.save(update_fields=['zeroing_batch'])
+    return payment
 
 
 def get_outstanding_invoices_in_scope(school, department_id=None,
@@ -1396,11 +1403,16 @@ def get_outstanding_invoices_in_scope(school, department_id=None,
 
 
 def zero_balances_in_scope(school, created_by, department_id=None,
-                           classroom_id=None, student_ids=None, notes=''):
+                           classroom_id=None, student_ids=None, notes='',
+                           scope_label=''):
     """
     Zero every outstanding invoice balance in the given scope (see
     get_outstanding_invoices_in_scope). Each invoice is settled with a manual
-    payment via zero_invoice_balance. Returns (count, total_amount) zeroed.
+    payment via zero_invoice_balance, all linked to one BalanceZeroingBatch so
+    the run can be reversed in one click.
+
+    Returns (count, total_amount, batch). `batch` is None when nothing was
+    zeroed (no batch is created for an empty run).
     """
     invoices = get_outstanding_invoices_in_scope(
         school, department_id=department_id,
@@ -1408,14 +1420,46 @@ def zero_balances_in_scope(school, created_by, department_id=None,
     )
     count = 0
     total = Decimal('0.00')
+    batch = None
     with transaction.atomic():
         for invoice in invoices:
+            if batch is None:
+                batch = BalanceZeroingBatch.objects.create(
+                    school=school, created_by=created_by,
+                    scope_label=scope_label, notes=notes,
+                )
             payment = zero_invoice_balance(
-                invoice, created_by=created_by, notes=notes,
+                invoice, created_by=created_by, notes=notes, batch=batch,
             )
             if payment:
                 count += 1
                 total += payment.amount
+        if batch is not None:
+            batch.invoice_count = count
+            batch.total_amount = total
+            batch.save(update_fields=['invoice_count', 'total_amount'])
+    return count, total, batch
+
+
+def reverse_zeroing_batch(batch, reversed_by=None):
+    """
+    Reverse every still-confirmed settlement in a bulk zeroing batch, restoring
+    each invoice's balance. Marks the batch reversed. Returns (count, total).
+    """
+    count = 0
+    total = Decimal('0.00')
+    with transaction.atomic():
+        settlements = batch.settlements.filter(
+            status='confirmed', reference_name=MANUAL_SETTLEMENT_REFERENCE,
+        )
+        for payment in settlements:
+            amount = payment.amount
+            if reverse_manual_settlement(payment, reversed_by=reversed_by):
+                count += 1
+                total += amount
+        batch.reversed_at = timezone.now()
+        batch.reversed_by = reversed_by
+        batch.save(update_fields=['reversed_at', 'reversed_by'])
     return count, total
 
 

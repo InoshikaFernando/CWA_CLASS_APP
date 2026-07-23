@@ -191,3 +191,24 @@ class TestBulkZeroBalances:
         self.invoice.refresh_from_db()
         assert self.invoice.status == "paid"
         assert self.invoice.amount_due == Decimal("0.00")
+
+    def test_bulk_zero_then_undo_batch(self):
+        """A whole bulk run can be undone in one click from Recent bulk zeroing."""
+        self.page.on("dialog", lambda dialog: dialog.accept())
+        self.page.get_by_role("button", name=re.compile(r"^Preview$", re.IGNORECASE)).click()
+        self.page.wait_for_load_state("domcontentloaded")
+        self.page.get_by_role("button", name=re.compile(r"Zero \d+ Balance", re.IGNORECASE)).click()
+        self.page.wait_for_load_state("domcontentloaded")
+        self.invoice.refresh_from_db()
+        assert self.invoice.status == "paid"
+
+        # Back on the scope page, the batch appears with an Undo batch button.
+        assert_page_has_text(self.page, "Recent bulk zeroing")
+        undo = self.page.get_by_role("button", name=re.compile(r"Undo batch", re.IGNORECASE))
+        expect(undo.first).to_be_visible()
+        undo.first.click()
+        self.page.wait_for_load_state("domcontentloaded")
+
+        self.invoice.refresh_from_db()
+        assert self.invoice.status == "issued"
+        assert self.invoice.amount_due == Decimal("120.00")
