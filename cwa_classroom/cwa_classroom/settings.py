@@ -174,6 +174,20 @@ DIGITALOCEAN_API_TOKEN = os.environ.get('DIGITALOCEAN_API_TOKEN', '')
 # the same secret the retired ops-dashboard Action used. Inert when empty.
 OPS_ALERT_WEBHOOK = os.environ.get('DEPLOY_ALERT_WEBHOOK', '')
 
+# Managed-DB (DigitalOcean DBaaS) metrics for the Ops dashboard. DO exposes DB
+# metrics only as a Prometheus scrape at https://<host>:9273/metrics behind
+# basic auth — NOT the /v2/monitoring REST API. The basic-auth creds are
+# long-lived per cluster: fetch them ONCE with a write-scoped token
+#   curl -H "Authorization: Bearer <write-token>" \
+#        https://api.digitalocean.com/v2/databases/metrics/credentials
+# then store user/password here. The recurring scrape needs only these creds and
+# the droplet added to the DB's Trusted Sources — no API token. Feature is inert
+# unless both user and password are set, so dev/test/local never call out.
+DO_DB_METRICS_HOST = os.environ.get('DO_DB_METRICS_HOST', os.environ.get('DB_HOST', ''))
+DO_DB_METRICS_PORT = int(os.environ.get('DO_DB_METRICS_PORT', '9273'))
+DO_DB_METRICS_USER = os.environ.get('DO_DB_METRICS_USER', '')
+DO_DB_METRICS_PASSWORD = os.environ.get('DO_DB_METRICS_PASSWORD', '')
+
 # Live AI usage dashboard — after each AI call the worker rewrites a pinned
 # GitHub issue with the latest usage/cost. Best-effort: stays disabled (no-op)
 # until a token + repo are configured, so dev/test/local never call out.
@@ -244,6 +258,15 @@ MIDDLEWARE = [
     'cwa_classroom.middleware.ProfileCompletionMiddleware',
     'usage.middleware.UsageTrackingMiddleware',  # last: records final page-view status
 ]
+
+# Slow-query diagnostics: wrap the request early (near the top of MIDDLEWARE) so
+# it counts queries from every downstream layer, not just the view.
+MIDDLEWARE.insert(1, 'cwa_classroom.middleware.SlowQueryLoggingMiddleware')
+
+# Thresholds for SlowQueryLoggingMiddleware. Env-overridable so they can be tuned
+# on the server without a deploy. SLOW_QUERY_MS <= 0 disables the middleware.
+SLOW_QUERY_MS = int(os.environ.get('SLOW_QUERY_MS', '500'))
+QUERY_COUNT_WARN = int(os.environ.get('QUERY_COUNT_WARN', '50'))
 
 AUTHENTICATION_BACKENDS = [
     'accounts.backends.EmailOrUsernameBackend',
@@ -715,9 +738,21 @@ if _log_dir_exists:
         'level': 'WARNING',
         'delay': True,
     }
+    # Slow queries / N+1 warnings live in their own file so they can be tailed
+    # and analysed without wading through the general app log.
+    _handlers['slow_query_file'] = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': str(LOG_DIR / 'slow-queries.log'),
+        'maxBytes': 10 * 1024 * 1024,  # 10 MB
+        'backupCount': 3,
+        'formatter': 'verbose',
+        'level': 'WARNING',
+        'delay': True,
+    }
 
 _err_handlers  = ['console'] + (['error_file'] if _log_dir_exists else [])
 _app_handlers  = ['console'] + (['app_file', 'error_file'] if _log_dir_exists else [])
+_slow_handlers = ['console'] + (['slow_query_file'] if _log_dir_exists else [])
 
 LOGGING = {
     'version': 1,
@@ -752,5 +787,7 @@ LOGGING = {
         # INFO so successful logins (which clear the rate-limit counter) are
         # visible alongside the WARNING-level failures and lockouts.
         'accounts':   {'handlers': _app_handlers, 'level': 'INFO', 'propagate': False},
+        # Slow-query / N+1 diagnostics (SlowQueryLoggingMiddleware) → own file.
+        'slow_queries': {'handlers': _slow_handlers, 'level': 'WARNING', 'propagate': False},
     },
 }

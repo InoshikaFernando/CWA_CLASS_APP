@@ -44,6 +44,14 @@ class OpsSnapshot(models.Model):
     rq_default = models.IntegerField(null=True, blank=True)
     rq_high = models.IntegerField(null=True, blank=True)
 
+    # Managed DB (DigitalOcean DBaaS) utilisation %, scraped from the cluster's
+    # Prometheus endpoint. Null when DB metrics aren't configured or the scrape
+    # failed — distinct from a real 0 — so the dashboard can omit DB tiles
+    # rather than plot a misleading zero.
+    db_mem_pct = models.PositiveSmallIntegerField(null=True, blank=True)
+    db_cpu_pct = models.PositiveSmallIntegerField(null=True, blank=True)
+    db_disk_pct = models.PositiveSmallIntegerField(null=True, blank=True)
+
     # systemd service state: active / inactive / failed / unknown.
     svc_gunicorn = models.CharField(max_length=12, default='unknown')
     svc_worker = models.CharField(max_length=12, default='unknown')
@@ -70,6 +78,14 @@ class OpsSnapshot(models.Model):
     @property
     def swap_used_pct(self):
         return round(self.swap_used / self.swap_total * 100) if self.swap_total else 0
+
+    @property
+    def db_metrics_available(self):
+        """True when at least one managed-DB metric was captured."""
+        return any(
+            v is not None
+            for v in (self.db_mem_pct, self.db_cpu_pct, self.db_disk_pct)
+        )
 
     @property
     def services(self):
