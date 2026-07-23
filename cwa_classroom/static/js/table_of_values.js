@@ -74,6 +74,13 @@
   }
 
   if (typeof MutationObserver !== "undefined") {
+    // NOTE: this observer block is duplicated in number_line.js. If a THIRD
+    // observer-mounted interactive type is added (or draw_on_grid / plot_points /
+    // shape_select move off their inline scripts onto the quiz/worksheet
+    // surfaces), consolidate all of them into one shared maths_mounts.js registry
+    // — register({selector, mount}) + a single debounced observer — instead of
+    // copying this again. Not worth it for two files today.
+    //
     // Coalesce a burst of mutations into one requestAnimationFrame-batched pass,
     // and only scan the subtrees that were actually added — not the whole
     // document on every mutation (the quiz/worksheet surfaces mutate a lot).
