@@ -245,6 +245,15 @@ MIDDLEWARE = [
     'usage.middleware.UsageTrackingMiddleware',  # last: records final page-view status
 ]
 
+# Slow-query diagnostics: wrap the request early (near the top of MIDDLEWARE) so
+# it counts queries from every downstream layer, not just the view.
+MIDDLEWARE.insert(1, 'cwa_classroom.middleware.SlowQueryLoggingMiddleware')
+
+# Thresholds for SlowQueryLoggingMiddleware. Env-overridable so they can be tuned
+# on the server without a deploy. SLOW_QUERY_MS <= 0 disables the middleware.
+SLOW_QUERY_MS = int(os.environ.get('SLOW_QUERY_MS', '500'))
+QUERY_COUNT_WARN = int(os.environ.get('QUERY_COUNT_WARN', '50'))
+
 AUTHENTICATION_BACKENDS = [
     'accounts.backends.EmailOrUsernameBackend',
 ]
@@ -715,9 +724,21 @@ if _log_dir_exists:
         'level': 'WARNING',
         'delay': True,
     }
+    # Slow queries / N+1 warnings live in their own file so they can be tailed
+    # and analysed without wading through the general app log.
+    _handlers['slow_query_file'] = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': str(LOG_DIR / 'slow-queries.log'),
+        'maxBytes': 10 * 1024 * 1024,  # 10 MB
+        'backupCount': 3,
+        'formatter': 'verbose',
+        'level': 'WARNING',
+        'delay': True,
+    }
 
 _err_handlers  = ['console'] + (['error_file'] if _log_dir_exists else [])
 _app_handlers  = ['console'] + (['app_file', 'error_file'] if _log_dir_exists else [])
+_slow_handlers = ['console'] + (['slow_query_file'] if _log_dir_exists else [])
 
 LOGGING = {
     'version': 1,
@@ -752,5 +773,7 @@ LOGGING = {
         # INFO so successful logins (which clear the rate-limit counter) are
         # visible alongside the WARNING-level failures and lockouts.
         'accounts':   {'handlers': _app_handlers, 'level': 'INFO', 'propagate': False},
+        # Slow-query / N+1 diagnostics (SlowQueryLoggingMiddleware) → own file.
+        'slow_queries': {'handlers': _slow_handlers, 'level': 'WARNING', 'propagate': False},
     },
 }
