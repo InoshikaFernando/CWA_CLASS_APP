@@ -2418,6 +2418,8 @@ class InvoicePayment(models.Model):
     bank_transaction_id = models.CharField(max_length=255, blank=True)
     csv_import = models.ForeignKey('CSVImport', on_delete=models.SET_NULL,
                                     null=True, blank=True, related_name='payments')
+    zeroing_batch = models.ForeignKey('BalanceZeroingBatch', on_delete=models.SET_NULL,
+                                       null=True, blank=True, related_name='settlements')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='matched')
     notes = models.TextField(blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
@@ -2451,6 +2453,36 @@ class CreditTransaction(models.Model):
 
     def __str__(self):
         return f'{self.student} — ${self.amount} ({self.reason})'
+
+
+class BalanceZeroingBatch(models.Model):
+    """A single bulk 'Zero Balances' run — groups the manual settlements it
+    created so the whole batch can be undone in one click."""
+    school = models.ForeignKey('School', on_delete=models.CASCADE,
+                                related_name='balance_zeroing_batches')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    scope_label = models.CharField(max_length=255, blank=True,
+                                   help_text='Human-readable scope, e.g. "Whole institute"')
+    invoice_count = models.PositiveIntegerField(default=0)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2,
+                                       default=0)
+    notes = models.TextField(blank=True)
+    reversed_at = models.DateTimeField(null=True, blank=True)
+    reversed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                     null=True, blank=True, related_name='+')
+
+    class Meta:
+        ordering = ['-created_at']
+
+    @property
+    def is_reversed(self):
+        return self.reversed_at is not None
+
+    def __str__(self):
+        state = 'reversed' if self.is_reversed else 'active'
+        return f'Zeroing batch #{self.id} — {self.invoice_count} invoices (${self.total_amount}, {state})'
 
 
 # ---------------------------------------------------------------------------

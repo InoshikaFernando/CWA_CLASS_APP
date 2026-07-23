@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block title %}Zero Balances{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Zero Balances</h1>
+    <p class="text-gray-500 mt-1">{{ school.name }} — Manually clear outstanding invoice balances</p>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="mb-4 p-4 rounded-xl text-sm font-medium
+        {% if message.tags == 'success' %}bg-emerald-50 text-emerald-700 border border-emerald-200
+        {% elif message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
+        {% elif message.tags == 'warning' %}bg-amber-50 text-amber-700 border border-amber-200
+        {% else %}bg-blue-50 text-blue-700 border border-blue-200{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="mb-6 bg-amber-50 border border-amber-300 rounded-2xl p-4 flex items-start gap-3">
+    <svg class="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+    </svg>
+    <div class="text-sm text-amber-800">
+      <p class="font-semibold">This writes off money owed.</p>
+      <p class="mt-1">
+        Use it only when there's no time to upload bank statements and reconcile payments.
+        It records a manual settlement for every outstanding balance in the chosen scope and
+        marks those invoices <span class="font-semibold">paid</span>.
+        Each settlement can be <span class="font-semibold">reversed</span> afterwards from that
+        invoice's Payment History.
+      </p>
+    </div>
+  </div>
+
+  {% if preview %}
+    <!-- ── Preview + Confirm ─────────────────────────────────────────────── -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-gray-900">Review before zeroing</h2>
+        <span class="text-sm text-gray-500">{{ preview_count }} invoice{{ preview_count|pluralize }}</span>
+      </div>
+
+      {% if preview_invoices %}
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-slate-100">
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Student</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Invoice</th>
+              <th class="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Status</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Outstanding</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for inv in preview_invoices %}
+              <tr class="border-b border-slate-50">
+                <td class="px-6 py-3 text-sm text-gray-900">{{ inv.student.get_full_name|default:inv.student.username }}</td>
+                <td class="px-6 py-3 text-sm text-gray-600">{{ inv.invoice_number }}</td>
+                <td class="px-6 py-3 text-center text-xs text-gray-600">{{ inv.get_status_display }}</td>
+                <td class="px-6 py-3 text-sm font-medium text-gray-900 text-right">${{ inv.outstanding }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="bg-slate-50">
+              <td colspan="3" class="px-6 py-3 text-sm font-semibold text-gray-900 text-right">Total to be zeroed</td>
+              <td class="px-6 py-3 text-sm font-bold text-gray-900 text-right">${{ preview_total }}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div class="px-6 pt-4">
+          <div class="bg-red-50 border border-red-300 rounded-xl p-4 flex items-start gap-3">
+            <svg class="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+            </svg>
+            <div class="text-sm text-red-800">
+              <p class="font-semibold">
+                You are about to zero {{ preview_count }} invoice balance{{ preview_count|pluralize }} totalling ${{ preview_total }}.
+              </p>
+              <p class="mt-1">These invoices will be marked paid and the outstanding amounts written off. You can reverse each settlement individually from the invoice's Payment History.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-6 py-4 flex items-center justify-between gap-3">
+          <a href="{% url 'zero_balances' %}"
+             class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 font-medium">Cancel</a>
+          <form method="post" action="{% url 'zero_balances' %}"
+                onsubmit="return confirm('Zero {{ preview_count }} invoice balance{{ preview_count|pluralize }} totalling ${{ preview_total }}? Each settlement can be reversed later from the invoice.')">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="confirm">
+            {% if scope.department_id %}<input type="hidden" name="department_id" value="{{ scope.department_id }}">{% endif %}
+            {% if scope.classroom_id %}<input type="hidden" name="classroom_id" value="{{ scope.classroom_id }}">{% endif %}
+            {% for sid in scope.student_ids %}<input type="hidden" name="student_ids" value="{{ sid }}">{% endfor %}
+            <input type="hidden" name="notes" value="{{ scope.notes }}">
+            <button type="submit"
+              class="px-6 py-2.5 bg-slate-700 text-white font-semibold rounded-xl hover:bg-slate-800 transition shadow-sm">
+              Zero {{ preview_count }} Balance{{ preview_count|pluralize }}
+            </button>
+          </form>
+        </div>
+      {% else %}
+        <div class="px-6 py-10 text-center">
+          <p class="text-gray-500">No outstanding balances found in the selected scope.</p>
+          <a href="{% url 'zero_balances' %}"
+             class="inline-block mt-3 text-sm text-indigo-600 hover:underline">Choose a different scope</a>
+        </div>
+      {% endif %}
+    </div>
+
+  {% else %}
+    <!-- ── Scope picker ──────────────────────────────────────────────────── -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <form method="post" action="{% url 'zero_balances' %}" class="space-y-6">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="preview">
+
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold text-gray-700">Scope</h3>
+
+          <!-- Department → updates class dropdown -->
+          <div>
+            <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Department</label>
+            <select id="scope-dept" name="department_id"
+              hx-get="{% url 'invoicing_scope_classes' %}"
+              hx-target="#scope-class"
+              hx-swap="innerHTML"
+              hx-trigger="change"
+              class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+              <option value="">Whole institute</option>
+              {% for dept in departments %}
+                <option value="{{ dept.id }}">{{ dept.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Class → updates student list -->
+          <div>
+            <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Class</label>
+            <select id="scope-class" name="classroom_id"
+              hx-get="{% url 'invoicing_scope_students' %}"
+              hx-target="#scope-student-list"
+              hx-swap="innerHTML"
+              hx-trigger="change"
+              class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+              <option value="">All Classes</option>
+            </select>
+          </div>
+
+          <!-- Students (populated by HTMX when class is chosen) -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide">Students</label>
+              <div class="flex gap-3 text-xs text-indigo-600">
+                <button type="button" id="students-select-all" class="hover:underline">Select all</button>
+                <span class="text-gray-300">|</span>
+                <button type="button" id="students-clear-all" class="hover:underline">Clear all</button>
+              </div>
+            </div>
+            <div id="scope-student-list"
+                 class="border border-slate-200 rounded-xl max-h-56 overflow-y-auto">
+              <p class="px-3 py-3 text-sm text-gray-400 italic">
+                Select a class above to pick individual students, or leave blank to include all.
+              </p>
+            </div>
+            <p class="text-xs text-gray-400 mt-1">Leave all unchecked = zero everyone in the scope above.</p>
+          </div>
+
+          <!-- Reason -->
+          <div>
+            <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Reason (optional)</label>
+            <input type="text" name="notes" placeholder="e.g. paid in cash, bank import pending..."
+              class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+          </div>
+        </div>
+
+        <div class="flex justify-end pt-4 border-t border-slate-200">
+          <button type="submit"
+            class="px-6 py-2.5 bg-slate-700 text-white font-semibold rounded-xl hover:bg-slate-800 transition shadow-sm">
+            Preview
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- ── Recent bulk zeroing runs (undo) ───────────────────────────────── -->
+    {% if recent_batches %}
+      <div class="mt-8 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200">
+          <h2 class="text-lg font-semibold text-gray-900">Recent bulk zeroing</h2>
+          <p class="text-xs text-gray-500 mt-1">Undo a whole run in one click — this restores every balance it zeroed.</p>
+        </div>
+        <table class="w-full">
+          <thead>
+            <tr class="border-b border-slate-100">
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">When</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Scope</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Invoices</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Total</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for batch in recent_batches %}
+              <tr class="border-b border-slate-50">
+                <td class="px-6 py-3 text-sm text-gray-900">{{ batch.created_at|date:"M d, Y H:i" }}</td>
+                <td class="px-6 py-3 text-sm text-gray-600">{{ batch.scope_label|default:"—" }}</td>
+                <td class="px-6 py-3 text-sm text-gray-600 text-right">{{ batch.invoice_count }}</td>
+                <td class="px-6 py-3 text-sm font-medium text-gray-900 text-right">${{ batch.total_amount }}</td>
+                <td class="px-6 py-3 text-right">
+                  {% if batch.is_reversed %}
+                    <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Reversed</span>
+                  {% else %}
+                    <form method="post" action="{% url 'reverse_zeroing_batch' batch_id=batch.id %}"
+                          onsubmit="return confirm('Undo this whole batch? {{ batch.invoice_count }} balance{{ batch.invoice_count|pluralize }} totalling ${{ batch.total_amount }} will be restored.')">
+                      {% csrf_token %}
+                      <button type="submit"
+                        class="text-xs font-medium text-amber-700 hover:text-amber-900 hover:underline">
+                        Undo batch
+                      </button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  {% endif %}
+</div>
+
+<script>
+  document.addEventListener('click', function (e) {
+    if (e.target && e.target.id === 'students-select-all') {
+      document.querySelectorAll('#scope-student-list .student-checkbox').forEach(function (cb) { cb.checked = true; });
+    }
+    if (e.target && e.target.id === 'students-clear-all') {
+      document.querySelectorAll('#scope-student-list .student-checkbox').forEach(function (cb) { cb.checked = false; });
+    }
+  });
+</script>
+{% endblock %}

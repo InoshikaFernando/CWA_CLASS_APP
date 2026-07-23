@@ -605,6 +605,15 @@ the arrow(s) and takes a typed value. Mirrors the measure tool include.
 {% endcomment %}
 {% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_number_line_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
 
+{% elif q.question_type == 'table_of_values' and q.table_data %}
+{% comment %}
+Table of values: the student fills the blank cells (e.g. compute y for each given
+x). The shared widget serialises the blank cells to JSON in answer_<id> via
+static/js/table_of_values.js; graded server-side by numeric tolerance
+(grade_table). Correct answers are never emitted into the page.
+{% endcomment %}
+{% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_table_of_values_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
+
 {% else %}
 <input type="text" name="answer_{{ q.id }}"
        class="cwa-exp-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"

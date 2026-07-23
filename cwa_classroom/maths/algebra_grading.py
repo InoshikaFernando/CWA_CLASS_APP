@@ -287,3 +287,257 @@ def is_algebraic_answer_correct(user_answer: str, correct_answer: str) -> bool:
             if normalize_notation(user_answer) == normalize_notation(alternative):
                 return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Equation-equivalence grading (answer_format = 'equation')
+# ---------------------------------------------------------------------------
+# For "write the equation of this parabola" questions, the answer key is vertex
+# form (e.g. ``y = 2(x-1)^2 - 2``) but a student may legitimately give the same
+# curve in factored or expanded form. Unlike ``is_algebraic_answer_correct``
+# (which enforces the *expand & simplify* objective and so rejects brackets),
+# this grades by algebraic EQUIVALENCE: it parses each side into a polynomial —
+# brackets, powers and implicit multiplication supported — isolates ``y`` from
+# the equation, and compares the resulting ``f(x)``. Any two spellings of the
+# same function grade equal.
+#
+# Still dependency-free (no SymPy): a tiny recursive-descent parser builds the
+# polynomial directly, so numerically-equal-but-differently-written answers
+# (2(x-1)^2 - 2 == 2x^2 - 4x) are accepted while genuinely different curves are
+# not.
+
+
+def _sig_mul(s1: Signature, s2: Signature) -> Signature:
+    """Multiply two monomial signatures (sum the exponents per variable)."""
+    exps: Dict[str, int] = {}
+    for v, e in s1:
+        exps[v] = exps.get(v, 0) + e
+    for v, e in s2:
+        exps[v] = exps.get(v, 0) + e
+    return tuple(sorted((v, e) for v, e in exps.items() if e != 0))
+
+
+def _poly_const(value: Fraction) -> Polynomial:
+    return {(): value} if value != 0 else {}
+
+
+def _poly_scale(poly: Polynomial, factor: Fraction) -> Polynomial:
+    if factor == 0:
+        return {}
+    return {sig: c * factor for sig, c in poly.items()}
+
+
+def _poly_add(a: Polynomial, b: Polynomial) -> Polynomial:
+    out: Polynomial = dict(a)
+    for sig, c in b.items():
+        out[sig] = out.get(sig, Fraction(0)) + c
+    return {sig: c for sig, c in out.items() if c != 0}
+
+
+def _poly_mul(a: Polynomial, b: Polynomial) -> Polynomial:
+    out: Polynomial = {}
+    for s1, c1 in a.items():
+        for s2, c2 in b.items():
+            sig = _sig_mul(s1, s2)
+            out[sig] = out.get(sig, Fraction(0)) + c1 * c2
+    return {sig: c for sig, c in out.items() if c != 0}
+
+
+def _poly_pow(base: Polynomial, n: int) -> Polynomial:
+    result: Polynomial = {(): Fraction(1)}
+    for _ in range(n):
+        result = _poly_mul(result, base)
+    return result
+
+
+def _poly_div(a: Polynomial, b: Polynomial) -> Polynomial:
+    """Divide by a constant polynomial only (all we need for coefficients like
+    ``3/4`` or ``x^2/2``). A non-constant or zero divisor is unparseable."""
+    if set(b) - {()}:
+        raise MathAnswerError("Cannot divide by a non-constant expression")
+    denom = b.get((), Fraction(0))
+    if denom == 0:
+        raise MathAnswerError("Division by zero")
+    return {sig: c / denom for sig, c in a.items()}
+
+
+class _ExprParser:
+    """Recursive-descent parser: normalized string → multivariable Polynomial.
+
+    Grammar (implicit multiplication by adjacency):
+        expr   := ('+'|'-')? term (('+'|'-') term)*
+        term   := factor (('*'|'/'| adjacency) factor)*
+        factor := base ('^' <int>)?
+        base   := number | letter | '(' expr ')'
+    """
+
+    def __init__(self, s: str):
+        self.s = s
+        self.i = 0
+
+    def _peek(self) -> str:
+        return self.s[self.i] if self.i < len(self.s) else ""
+
+    def parse(self) -> Polynomial:
+        poly = self._expr()
+        if self.i != len(self.s):
+            raise MathAnswerError(f"Unexpected {self.s[self.i:]!r}")
+        return poly
+
+    def _expr(self) -> Polynomial:
+        # NB: membership tests use tuples, not the string "+-", because
+        # ``"" in "+-"`` is True in Python (empty substring) — an EOF peek must
+        # NOT be mistaken for an operator.
+        neg = False
+        if self._peek() in ("+", "-"):
+            neg = self._peek() == "-"
+            self.i += 1
+        result = self._term()
+        if neg:
+            result = _poly_scale(result, Fraction(-1))
+        while self._peek() in ("+", "-"):
+            op = self._peek()
+            self.i += 1
+            term = self._term()
+            result = _poly_add(result, term if op == "+" else _poly_scale(term, Fraction(-1)))
+        return result
+
+    def _term(self) -> Polynomial:
+        result = self._factor()
+        while True:
+            c = self._peek()
+            if c in ("*", "/"):
+                self.i += 1
+                factor = self._factor()
+                result = _poly_mul(result, factor) if c == "*" else _poly_div(result, factor)
+            elif c and (c == "(" or c == "." or c.isdigit() or c.isalpha()):
+                result = _poly_mul(result, self._factor())  # implicit multiplication
+            else:
+                break
+        return result
+
+    def _factor(self) -> Polynomial:
+        base = self._base()
+        if self._peek() == "^":
+            self.i += 1
+            base = _poly_pow(base, self._integer())
+        return base
+
+    def _base(self) -> Polynomial:
+        c = self._peek()
+        if c == "(":
+            self.i += 1
+            inner = self._expr()
+            if self._peek() != ")":
+                raise MathAnswerError("Missing closing bracket")
+            self.i += 1
+            return inner
+        if c.isdigit() or c == ".":
+            return _poly_const(self._number())
+        if c.isalpha():
+            self.i += 1
+            return {((c, 1),): Fraction(1)}
+        raise MathAnswerError(f"Unexpected character {c!r}")
+
+    def _number(self) -> Fraction:
+        start = self.i
+        while self._peek().isdigit():
+            self.i += 1
+        if self._peek() == ".":
+            self.i += 1
+            while self._peek().isdigit():
+                self.i += 1
+        token = self.s[start:self.i]
+        try:
+            return Fraction(token)
+        except (ValueError, ZeroDivisionError):
+            raise MathAnswerError(f"Bad number {token!r}")
+
+    def _integer(self) -> int:
+        start = self.i
+        while self._peek().isdigit():
+            self.i += 1
+        if start == self.i:
+            raise MathAnswerError("Exponent must be a non-negative integer")
+        return int(self.s[start:self.i])
+
+
+_Y_SIGNATURE: Signature = (("y", 1),)
+
+
+def _equation_fx(text: str) -> Polynomial:
+    """Reduce an equation/expression to the polynomial ``f(x)`` where ``y = f(x)``.
+
+    Accepts ``y = <expr>``, ``f(x) = <expr>``, a bare ``<expr>``, or any single
+    equation linear in ``y`` (e.g. ``y + 3 = 3/4(x-4)^2``). Raises
+    ``MathAnswerError`` for anything not reducible to a single-variable ``f(x)``
+    (nonlinear in y, an x·y cross term, a stray variable, malformed input).
+    """
+    s = normalize_notation(text)
+    s = re.sub(r"^f\(x\)=", "y=", s)  # f(x)= is just another way to write y=
+    if not s:
+        raise MathAnswerError("Empty expression")
+
+    if "=" in s:
+        sides = s.split("=")
+        if len(sides) != 2 or not sides[0] or not sides[1]:
+            raise MathAnswerError("Malformed equation")
+        poly = _poly_add(
+            _ExprParser(sides[0]).parse(),
+            _poly_scale(_ExprParser(sides[1]).parse(), Fraction(-1)),
+        )
+    else:
+        poly = _ExprParser(s).parse()
+
+    # Any y must appear only as the linear term y^1 (no y^2, no x*y).
+    for sig in poly:
+        if any(v == "y" for v, _ in sig) and sig != _Y_SIGNATURE:
+            raise MathAnswerError("Equation is not of the form y = f(x)")
+
+    cy = poly.get(_Y_SIGNATURE, Fraction(0))
+    if cy != 0:
+        rest = {sig: c for sig, c in poly.items() if sig != _Y_SIGNATURE}
+        fx = _poly_scale(rest, Fraction(-1) / cy)  # y = -(rest)/cy
+    else:
+        fx = poly  # a bare expression is already f(x)
+
+    for sig in fx:
+        for v, _ in sig:
+            if v != "x":
+                raise MathAnswerError(f"Unexpected variable {v!r}")
+    return fx
+
+
+def is_equation_answer_correct(user_answer: str, correct_answer: str) -> bool:
+    """Return True iff ``user_answer`` describes the same ``y = f(x)`` as
+    ``correct_answer`` (which may list ``|`` separated acceptable forms).
+
+    Graded by algebraic equivalence — vertex, factored and expanded forms of the
+    same curve are all accepted; a genuinely different curve is not.
+
+    >>> is_equation_answer_correct("y = 2(x-1)^2 - 2", "y = 2(x-1)^2 - 2")
+    True
+    >>> is_equation_answer_correct("y = 2x^2 - 4x", "y = 2(x-1)^2 - 2")
+    True
+    >>> is_equation_answer_correct("y = 2(x-1)^2 + 1", "y = 2(x-1)^2 - 2")
+    False
+    """
+    if not user_answer or not correct_answer:
+        return False
+    try:
+        student = _equation_fx(user_answer)
+    except MathAnswerError:
+        return False
+    for alternative in correct_answer.split("|"):
+        alternative = alternative.strip()
+        if not alternative:
+            continue
+        try:
+            if student == _equation_fx(alternative):
+                return True
+        except MathAnswerError:
+            # A misconfigured expected answer: fall back to a forgiving literal
+            # compare so the question is not silently unanswerable.
+            if normalize_notation(user_answer) == normalize_notation(alternative):
+                return True
+    return False

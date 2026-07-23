@@ -1,7 +1,10 @@
-"""Tests for project-level views (health check)."""
+"""Tests for project-level views (health check) and middleware."""
 
-from django.test import TestCase
+from django.db import connection
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
+
+from cwa_classroom.middleware import SlowQueryLoggingMiddleware
 
 
 class HealthCheckTests(TestCase):
@@ -64,3 +67,54 @@ class HealthCheckTests(TestCase):
         self.assertEqual(body["status"], "degraded")
         self.assertFalse(body["checks"]["cache"]["ok"])
         self.assertEqual(body["checks"]["cache"]["detail"], "boom")
+
+
+class SlowQueryLoggingMiddlewareTests(TestCase):
+    """The slow-query/N+1 diagnostic middleware."""
+
+    def setUp(self):
+        self.rf = RequestFactory()
+
+    def _view_running(self, n_queries):
+        """A fake view that issues n trivial queries then returns a response."""
+        from django.http import HttpResponse
+
+        def view(request):
+            for _ in range(n_queries):
+                with connection.cursor() as cur:
+                    cur.execute('SELECT 1')
+            return HttpResponse('ok')
+        return view
+
+    def test_logs_high_query_count(self):
+        mw = SlowQueryLoggingMiddleware(self._view_running(6))
+        mw.count_warn = 5          # trip the N+1 guard at 5 queries
+        mw.slow_ms = 10_000        # don't trip the slow-query path
+        req = self.rf.get('/some/path')
+        with self.assertLogs('slow_queries', level='WARNING') as cm:
+            mw(req)
+        self.assertTrue(any('high query count' in m for m in cm.output))
+
+    def test_logs_slow_query(self):
+        mw = SlowQueryLoggingMiddleware(self._view_running(1))
+        mw.slow_ms = -1            # every query counts as "slow" (>= -1 ms)
+        mw.count_warn = 10_000     # don't trip the count path
+        req = self.rf.get('/slow/path')
+        with self.assertLogs('slow_queries', level='WARNING') as cm:
+            mw(req)
+        self.assertTrue(any('slow query' in m and 'SELECT 1' in m for m in cm.output))
+
+    def test_quiet_request_logs_nothing(self):
+        mw = SlowQueryLoggingMiddleware(self._view_running(2))
+        mw.slow_ms = 10_000
+        mw.count_warn = 50
+        req = self.rf.get('/fast/path')
+        with self.assertNoLogs('slow_queries', level='WARNING'):
+            mw(req)
+
+    def test_disabled_when_threshold_non_positive(self):
+        from django.core.exceptions import MiddlewareNotUsed
+
+        with self.settings(SLOW_QUERY_MS=0):
+            with self.assertRaises(MiddlewareNotUsed):
+                SlowQueryLoggingMiddleware(self._view_running(0))

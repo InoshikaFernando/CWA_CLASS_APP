@@ -152,6 +152,31 @@
               <span class="text-xs text-emerald-700">{% if d.mode == 'read' %}Reads: {% else %}Mark: {% endif %}{% for v in d.target_values %}{{ v }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
             </div>
             {% endwith %}
+            {% elif q.question_type == 'table_of_values' and q.table_data %}
+            {% comment %}
+            Printable table of values (teacher detail view): the table with the
+            correct answer cells filled in (emerald) so the teacher has the key.
+            {% endcomment %}
+            {% with d=q.table_data %}
+            <div class="my-2 max-w-full overflow-x-auto">
+              <table class="border-collapse text-sm">
+                <thead>
+                  <tr>{% for h in d.headers %}<th class="border border-gray-300 bg-gray-50 px-3 py-1.5 font-semibold text-gray-700">{{ h|exponents }}</th>{% endfor %}</tr>
+                </thead>
+                <tbody>
+                  {% for row in d.rows %}
+                  <tr>
+                    {% for cell in row %}
+                    <td class="border border-gray-300 px-3 py-1 text-center">
+                      {% if cell.given %}<span class="text-gray-800">{{ cell.value|exponents }}</span>{% else %}<span class="text-emerald-700 font-medium">{{ cell.answer|exponents }}</span>{% endif %}
+                    </td>
+                    {% endfor %}
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% endwith %}
             {% endif %}
             {% endwith %}
             {% endif %}

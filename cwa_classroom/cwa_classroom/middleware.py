@@ -15,10 +15,16 @@ natively, so no /etc/hosts editing is needed:
 In production, add ALLOWED_HOSTS entries and set BASE_DOMAIN in the environment.
 """
 
+import logging
+import time
+
 from django.conf import settings
 from django.contrib.auth import logout
+from django.db import connection
 from django.shortcuts import redirect
 from django.utils import timezone
+
+_slow_query_log = logging.getLogger('slow_queries')
 
 # Map subdomain slug → URL conf module path.
 # Add entries here as new subject apps are created.
@@ -399,3 +405,63 @@ class ProfileCompletionMiddleware:
             return redirect('complete_profile')
 
         return self.get_response(request)
+
+
+class SlowQueryLoggingMiddleware:
+    """Log slow DB queries and query-heavy requests to the 'slow_queries' logger.
+
+    Diagnostic instrumentation for DB pressure: without EXPLAIN access to the
+    managed DB, this is how we find WHICH queries are expensive rather than
+    guessing. Uses ``connection.execute_wrapper`` so it works with DEBUG off
+    (``connection.queries`` is empty in production) at ~one time() call per
+    query. Only the SQL *text* (placeholders, no bound params) is logged, so no
+    row values / PII leak into the logs.
+
+    Two signals, both threshold-gated so a healthy request logs nothing:
+      * any single query >= SLOW_QUERY_MS (default 500 ms)
+      * a request issuing >= QUERY_COUNT_WARN queries (default 50) — the classic
+        N+1 fingerprint.
+
+    Set SLOW_QUERY_MS <= 0 to disable entirely.
+    """
+
+    #: SQL is truncated to this many chars in the log line.
+    _SQL_MAX = 500
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.slow_ms = getattr(settings, 'SLOW_QUERY_MS', 500)
+        self.count_warn = getattr(settings, 'QUERY_COUNT_WARN', 50)
+        # Let Django drop this middleware from the chain when disabled, so there
+        # is zero per-query overhead rather than a wrapper that checks a flag.
+        if self.slow_ms <= 0:
+            from django.core.exceptions import MiddlewareNotUsed
+            raise MiddlewareNotUsed()
+
+    def __call__(self, request):
+        state = {'count': 0}
+        slow_ms = self.slow_ms
+
+        def wrapper(execute, sql, params, many, context):
+            start = time.monotonic()
+            try:
+                return execute(sql, params, many, context)
+            finally:
+                state['count'] += 1
+                elapsed_ms = (time.monotonic() - start) * 1000
+                if elapsed_ms >= slow_ms:
+                    _slow_query_log.warning(
+                        'slow query %.0fms on %s %s: %s',
+                        elapsed_ms, request.method, request.path,
+                        sql[:self._SQL_MAX],
+                    )
+
+        with connection.execute_wrapper(wrapper):
+            response = self.get_response(request)
+
+        if state['count'] >= self.count_warn:
+            _slow_query_log.warning(
+                'high query count: %d queries on %s %s',
+                state['count'], request.method, request.path,
+            )
+        return response
