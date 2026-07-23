@@ -1260,6 +1260,37 @@ def _update_invoice_payment_status(invoice):
         invoice.save(update_fields=['status', 'updated_at'])
 
 
+def zero_invoice_balance(invoice, created_by=None, notes=''):
+    """
+    Manually settle an invoice's outstanding balance to zero.
+
+    Used when the institute is too busy to upload existing bank transactions
+    and reconcile payments — instead of importing a CSV, the balance is cleared
+    by recording a confirmed settlement payment for the exact amount still due.
+    The invoice is marked 'paid' by the normal status update.
+
+    Returns the created InvoicePayment, or None if there was nothing to settle.
+    """
+    outstanding = invoice.amount_due
+    if outstanding <= 0:
+        return None
+
+    note_text = 'Balance zeroed manually'
+    if notes:
+        note_text = f'{note_text} — {notes}'
+
+    return record_payment(
+        invoice=invoice,
+        amount=outstanding,
+        payment_date=timezone.now().date(),
+        payment_method='other',
+        reference_name='Manual balance adjustment',
+        notes=note_text,
+        created_by=created_by,
+        status='confirmed',
+    )
+
+
 # ---------------------------------------------------------------------------
 # Credit Balance
 # ---------------------------------------------------------------------------

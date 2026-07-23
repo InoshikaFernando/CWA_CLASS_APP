@@ -634,6 +634,82 @@ class RecordManualPaymentViewTests(TestCase):
         self.assertEqual(resp.status_code, 302)
 
 
+class ZeroInvoiceBalanceViewTests(TestCase):
+    def setUp(self):
+        self.owner, self.school = _setup_school()
+        self.student = _setup_student(self.school)
+        self.invoice = _make_invoice(
+            self.school, self.student, status='issued',
+            amount='100.00', created_by=self.owner,
+        )
+        self.client = Client()
+        self.client.login(username='testowner', password='password1!')
+
+    def test_zero_balance_marks_invoice_paid(self):
+        resp = self.client.post(
+            reverse('zero_invoice_balance', args=[self.invoice.id]),
+            {'notes': 'Bank import pending'},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'paid')
+        self.assertEqual(self.invoice.amount_due, Decimal('0.00'))
+        payment = InvoicePayment.objects.get(invoice=self.invoice)
+        self.assertEqual(payment.amount, Decimal('100.00'))
+        self.assertEqual(payment.status, 'confirmed')
+        self.assertIn('Bank import pending', payment.notes)
+
+    def test_zero_balance_settles_only_the_remainder(self):
+        # Pay part of it first, then zero the rest.
+        InvoicePayment.objects.create(
+            invoice=self.invoice, student=self.student, school=self.school,
+            amount=Decimal('30.00'), payment_date=datetime.date(2025, 1, 10),
+            payment_method='cash', status='confirmed',
+        )
+        resp = self.client.post(
+            reverse('zero_invoice_balance', args=[self.invoice.id]),
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'paid')
+        self.assertEqual(self.invoice.amount_due, Decimal('0.00'))
+        settlement = InvoicePayment.objects.get(
+            invoice=self.invoice, reference_name='Manual balance adjustment',
+        )
+        self.assertEqual(settlement.amount, Decimal('70.00'))
+
+    def test_zero_balance_on_draft_rejected(self):
+        self.invoice.status = 'draft'
+        self.invoice.save()
+        resp = self.client.post(
+            reverse('zero_invoice_balance', args=[self.invoice.id]),
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(InvoicePayment.objects.filter(invoice=self.invoice).exists())
+
+    def test_zero_balance_on_cancelled_rejected(self):
+        self.invoice.status = 'cancelled'
+        self.invoice.save()
+        resp = self.client.post(
+            reverse('zero_invoice_balance', args=[self.invoice.id]),
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(InvoicePayment.objects.filter(invoice=self.invoice).exists())
+
+    def test_zero_balance_when_already_settled_is_noop(self):
+        InvoicePayment.objects.create(
+            invoice=self.invoice, student=self.student, school=self.school,
+            amount=Decimal('100.00'), payment_date=datetime.date(2025, 1, 10),
+            payment_method='cash', status='confirmed',
+        )
+        resp = self.client.post(
+            reverse('zero_invoice_balance', args=[self.invoice.id]),
+        )
+        self.assertEqual(resp.status_code, 302)
+        # No extra settlement payment created.
+        self.assertEqual(InvoicePayment.objects.filter(invoice=self.invoice).count(), 1)
+
+
 class CSVUploadViewTests(TestCase):
     def setUp(self):
         self.owner, self.school = _setup_school()

@@ -330,6 +330,33 @@
         </div>
       {% endif %}
 
+      <!-- Zero Balance -->
+      {% if invoice.status == 'issued' or invoice.status == 'partially_paid' %}
+        {% if invoice.amount_due > 0 %}
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+          <h3 class="text-base font-semibold text-gray-900 mb-2">Zero Balance</h3>
+          <p class="text-xs text-gray-500 mb-4">
+            Manually clear the outstanding balance of
+            <span class="font-medium text-gray-700">{{ invoice.amount_due|format_currency:effective_currency }}</span>
+            without importing bank transactions. Records a manual settlement and marks the invoice paid.
+          </p>
+          <form method="post" action="{% url 'zero_invoice_balance' invoice_id=invoice.id %}"
+                onsubmit="return confirm('Zero the outstanding balance of this invoice? This records a manual settlement and marks the invoice paid.')">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="block text-xs font-medium text-gray-600 mb-1">Reason (optional)</label>
+              <input type="text" name="notes" placeholder="e.g. paid in cash, bank import pending..."
+                class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <button type="submit"
+              class="w-full px-4 py-2 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition font-medium">
+              Zero Balance
+            </button>
+          </form>
+        </div>
+        {% endif %}
+      {% endif %}
+
       <!-- Cancel Invoice -->
       {% if invoice.status != 'cancelled' and invoice.status != 'draft' %}
         <div class="bg-white rounded-2xl border border-red-200 shadow-sm p-6">

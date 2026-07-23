@@ -1408,6 +1408,45 @@ class RecordManualPaymentView(RoleRequiredMixin, View):
         return redirect('invoice_detail', invoice_id=invoice.id)
 
 
+class ZeroInvoiceBalanceView(RoleRequiredMixin, View):
+    """Manually settle an invoice's outstanding balance to zero.
+
+    For when the institute is too busy to upload existing bank transactions and
+    reconcile payments — records a manual settlement for the full amount due so
+    the invoice is marked paid without importing a CSV.
+    """
+    required_roles = INVOICING_ROLES
+
+    def post(self, request, invoice_id):
+        school = _get_single_school(request.user)
+        invoice = get_object_or_404(Invoice, id=invoice_id, school=school)
+
+        if invoice.status not in ('issued', 'partially_paid'):
+            messages.error(request, 'Only issued or partially paid invoices can be zeroed.')
+            return redirect('invoice_detail', invoice_id=invoice.id)
+
+        outstanding = invoice.amount_due
+        if outstanding <= 0:
+            messages.info(request, 'This invoice has no outstanding balance.')
+            return redirect('invoice_detail', invoice_id=invoice.id)
+
+        notes = request.POST.get('notes', '').strip()
+        svc.zero_invoice_balance(invoice, created_by=request.user, notes=notes)
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='invoice_balance_zeroed',
+            detail={'invoice_id': invoice.id, 'invoice_number': invoice.invoice_number,
+                    'amount': str(outstanding), 'notes': notes},
+            request=request,
+        )
+        messages.success(
+            request,
+            f'Balance of ${outstanding} zeroed for invoice {invoice.invoice_number}.',
+        )
+        return redirect('invoice_detail', invoice_id=invoice.id)
+
+
 # ===========================================================================
 # CSV Import Pipeline
 # ===========================================================================

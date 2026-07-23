@@ -99,3 +99,34 @@ class TestRecordManualPayment:
         """Submit/record button should be visible."""
         btn = self.page.get_by_role("button", name=re.compile(r"Record|Pay", re.IGNORECASE))
         expect(btn.first).to_be_visible()
+
+
+class TestZeroInvoiceBalance:
+    """Tests for the Zero Balance action on the invoice detail page."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, live_server, page, hoi_user, hoi_school_setup, department, classroom, enrolled_student, issued_invoice):
+        self.url = live_server.url
+        self.page = page
+        self.invoice = issued_invoice
+        do_login(page, self.url, hoi_user)
+        page.goto(f"{self.url}/invoicing/{self.invoice.id}/")
+        page.wait_for_load_state("domcontentloaded")
+
+    def test_zero_balance_card_visible(self):
+        """The Zero Balance card should be shown for an unpaid issued invoice."""
+        assert_page_has_text(self.page, "Zero Balance")
+
+    def test_zero_balance_button_visible(self):
+        btn = self.page.get_by_role("button", name=re.compile(r"Zero Balance", re.IGNORECASE))
+        expect(btn.first).to_be_visible()
+
+    def test_zero_balance_settles_invoice(self):
+        """Clicking Zero Balance marks the invoice paid with no balance due."""
+        self.page.on("dialog", lambda dialog: dialog.accept())
+        self.page.get_by_role("button", name=re.compile(r"Zero Balance", re.IGNORECASE)).first.click()
+        self.page.wait_for_load_state("domcontentloaded")
+
+        self.invoice.refresh_from_db()
+        assert self.invoice.status == "paid"
+        assert self.invoice.amount_due == Decimal("0.00")
