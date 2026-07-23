@@ -181,3 +181,40 @@ class OpsDashboardViewTests(TestCase):
         resp = self.client.get(reverse('ops_admin_dashboard'))
         self.assertEqual(resp.status_code, 200)
         self.assertIsNone(resp.context['latest'])
+        self.assertFalse(resp.context['latest_stale'])
+
+    def test_fresh_snapshot_is_not_stale(self):
+        OpsSnapshot.objects.create(
+            mem_total=2000, mem_used=1000, mem_avail=1000, status='ok')
+        self.client.login(username='boss', password='Pass123!')
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+        self.assertFalse(resp.context['latest_stale'])
+        self.assertNotContains(resp, 'Stale data')
+
+    def test_old_snapshot_is_flagged_stale(self):
+        # A snapshot older than the threshold means the recorder cron has
+        # stalled; the dashboard must warn rather than present it as current.
+        snap = OpsSnapshot.objects.create(
+            mem_total=2000, mem_used=1000, mem_avail=1000, status='ok')
+        OpsSnapshot.objects.filter(pk=snap.pk).update(
+            created_at=timezone.now() - timedelta(hours=6))
+        self.client.login(username='boss', password='Pass123!')
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+        self.assertTrue(resp.context['latest_stale'])
+        self.assertContains(resp, 'Stale data')
+
+    def test_stale_banner_hides_status_banner(self):
+        # A stale critical reading isn't the current state, so the crit banner
+        # is suppressed in favour of the stale warning.
+        snap = OpsSnapshot.objects.create(
+            mem_total=2000, mem_used=1990, mem_avail=10, status='crit',
+            issues='RAM critically low (10 MB free)')
+        OpsSnapshot.objects.filter(pk=snap.pk).update(
+            created_at=timezone.now() - timedelta(hours=6))
+        self.client.login(username='boss', password='Pass123!')
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+        self.assertContains(resp, 'Stale data')
+        # The status banner renders "Critical: <issues>" as one run of text;
+        # the incidents table splits status and details across cells, so this
+        # contiguous string is unique to the (now-suppressed) banner.
+        self.assertNotContains(resp, 'Critical: RAM critically low (10 MB free)')

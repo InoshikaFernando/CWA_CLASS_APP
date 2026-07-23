@@ -12,7 +12,7 @@
       <h1 class="text-2xl font-display font-bold text-white">Ops — Droplet Health</h1>
       <p class="text-slate-400 mt-1">Server resources, services &amp; queue depth (prod + test share one box)</p>
       {% if latest %}
-      <p class="text-xs text-slate-500 mt-1">Last snapshot: {{ latest.created_at|date:"D d M Y, H:i" }}</p>
+      <p class="text-xs mt-1 {% if latest_stale %}text-amber-400{% else %}text-slate-500{% endif %}">Last snapshot: {{ latest.created_at|date:"D d M Y, H:i" }} ({{ latest.created_at|timesince }} ago)</p>
       {% else %}
       <p class="text-xs text-amber-400 mt-1">No snapshots yet — the <code>record_ops_metrics</code> cron hasn't run. Charts fill in as data is collected.</p>
       {% endif %}
@@ -29,7 +29,13 @@
     </div>
   </div>
 
-  {% if latest and latest.status != 'ok' %}
+  {% if latest_stale %}
+  <div class="mb-6 px-4 py-3 rounded-xl text-sm bg-amber-500/10 border border-amber-500/30 text-amber-300">
+    ⚠️ Stale data — the newest snapshot is {{ latest.created_at|timesince }} old (expected every ~10&nbsp;min). The tiles below show that old reading, not the current state. The <code>record_ops_metrics</code> cron on the droplet has likely stopped; check <code>crontab -l</code> and <code>/var/log/cwa/ops_metrics.log</code>.
+  </div>
+  {% endif %}
+
+  {% if latest and not latest_stale and latest.status != 'ok' %}
   <div class="mb-6 px-4 py-3 rounded-xl text-sm {% if latest.status == 'crit' %}bg-red-500/10 border border-red-500/30 text-red-300{% else %}bg-amber-500/10 border border-amber-500/30 text-amber-300{% endif %}">
     {% if latest.status == 'crit' %}🔴 Critical{% else %}🟡 Watch{% endif %}: {{ latest.issues }}
   </div>

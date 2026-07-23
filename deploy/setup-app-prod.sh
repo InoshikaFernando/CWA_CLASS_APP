@@ -101,6 +101,20 @@ cat > /etc/logrotate.d/cwa <<'LOGROTATE'
 }
 LOGROTATE
 
+# ── Ops metrics cron ─────────────────────────────────────────────────────────
+# Powers the in-app Ops dashboard (/admin-dashboard/ops/). Without this the
+# dashboard silently shows empty charts, so install it here rather than relying
+# on a manual `crontab -e`. A /etc/cron.d drop-in is idempotent (re-running
+# setup overwrites it) and leaves the cwa user's personal crontab untouched.
+echo "==> Installing ops-metrics cron..."
+cat > /etc/cron.d/cwa-ops <<'OPSCRON'
+# CWA ops metrics — record droplet health every 10 min; prune old rows daily.
+# Managed by deploy/setup-app-prod.sh; edit there, not here.
+*/10 * * * * cwa /home/cwa/CWA_CLASS_APP/scripts/record_ops_metrics.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/ops_metrics.log 2>&1
+30 3 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/record_ops_metrics.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env prune >> /var/log/cwa/ops_metrics.log 2>&1
+OPSCRON
+chmod 644 /etc/cron.d/cwa-ops
+
 # ── Sudoers for deploy ───────────────────────────────────────────────────────
 echo "==> Granting cwa user restart permissions..."
 cat > /etc/sudoers.d/cwa <<'SUDOERS'

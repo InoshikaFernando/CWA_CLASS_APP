@@ -19,6 +19,12 @@ WINDOWS = OrderedDict([
 ])
 DEFAULT_WINDOW = 'day'
 
+# The recorder cron runs every ~10 min. If the newest snapshot is older than
+# this, the dashboard warns that data collection has likely stalled rather than
+# presenting a stale reading as the current state (silent-failure guard: an
+# uninstalled/broken cron must be visible, not disguised as a healthy chart).
+STALE_AFTER_MINUTES = 30
+
 
 def classify(metrics):
     """Classify a metrics dict into (status, crit_reasons, warn_reasons).
