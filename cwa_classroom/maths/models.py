@@ -139,17 +139,20 @@ class Question(models.Model):
     # How a typed (short_answer / calculation) answer is matched.
     ANSWER_FORMAT_TEXT = 'text'
     ANSWER_FORMAT_ALGEBRA = 'algebra'
+    ANSWER_FORMAT_EQUATION = 'equation'
     ANSWER_FORMAT_CHOICES = [
         ('text', 'Text — exact match (case/space-insensitive)'),
         ('algebra', 'Algebra — simplified polynomial (e.g. expand & simplify)'),
+        ('equation', 'Equation — algebraic equivalence (accepts vertex / factored / expanded form)'),
     ]
     answer_format = models.CharField(
         max_length=10, choices=ANSWER_FORMAT_CHOICES, default='text',
         help_text=(
             'For short_answer / calculation questions. "Algebra" grades the answer as a '
             'fully simplified, expanded polynomial — e.g. (2x+3)(x-5) must be entered as '
-            '"2x^2 - 7x - 15". Term order and spacing are ignored, but un-combined like '
-            'terms and un-expanded brackets are marked wrong even when algebraically equal.'
+            '"2x^2 - 7x - 15". "Equation" grades by algebraic equivalence — for '
+            '"write the equation" questions any spelling of the same curve is accepted '
+            '(y=2(x-1)^2-2 == y=2x^2-4x). Term order and spacing are always ignored.'
         ),
     )
 
@@ -292,6 +295,12 @@ class Question(models.Model):
         if self.answer_format == self.ANSWER_FORMAT_ALGEBRA:
             from maths.algebra_grading import is_algebraic_answer_correct
             return any(is_algebraic_answer_correct(text_answer, c) for c in correct)
+
+        if self.answer_format == self.ANSWER_FORMAT_EQUATION:
+            # "Write the equation" — accept any algebraically equivalent form
+            # (vertex / factored / expanded) of the same curve.
+            from maths.algebra_grading import is_equation_answer_correct
+            return any(is_equation_answer_correct(text_answer, c) for c in correct)
 
         # Exact match, but exponent-, inequality- and degree-insensitive so the
         # keypad buttons are usable on ordinary maths answers: the x² button
