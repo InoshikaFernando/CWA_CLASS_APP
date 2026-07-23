@@ -147,6 +147,11 @@ class TestBulkZeroBalances:
     def test_page_loads(self):
         assert_page_has_text(self.page, "Zero Balances")
 
+    def test_irreversible_warning_shown(self):
+        """The scope page must warn the action cannot be undone."""
+        body = self.page.locator("body").inner_text().lower()
+        assert "cannot be undone" in body
+
     def test_scope_dropdowns_present(self):
         """Whole-institute / department + class scope selectors exist."""
         assert_page_has_text(self.page, "Whole institute")

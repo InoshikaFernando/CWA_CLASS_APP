@@ -24,10 +24,19 @@
     {% endfor %}
   {% endif %}
 
-  <div class="mb-6 bg-blue-50 border border-blue-200 rounded-2xl p-4 text-sm text-blue-800">
-    Use this when there's no time to upload bank statements and reconcile payments.
-    It records a manual settlement for every outstanding balance in the chosen scope
-    and marks those invoices <span class="font-semibold">paid</span>. This cannot be undone.
+  <div class="mb-6 bg-amber-50 border border-amber-300 rounded-2xl p-4 flex items-start gap-3">
+    <svg class="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+    </svg>
+    <div class="text-sm text-amber-800">
+      <p class="font-semibold">This permanently clears money owed.</p>
+      <p class="mt-1">
+        Use it only when there's no time to upload bank statements and reconcile payments.
+        It records a manual settlement for every outstanding balance in the chosen scope and
+        marks those invoices <span class="font-semibold">paid</span>.
+        <span class="font-semibold">This cannot be undone.</span>
+      </p>
+    </div>
   </div>
 
   {% if preview %}
@@ -66,7 +75,21 @@
           </tfoot>
         </table>
 
-        <div class="px-6 py-4 border-t border-slate-200 flex items-center justify-between gap-3">
+        <div class="px-6 pt-4">
+          <div class="bg-red-50 border border-red-300 rounded-xl p-4 flex items-start gap-3">
+            <svg class="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+            </svg>
+            <div class="text-sm text-red-800">
+              <p class="font-semibold">
+                You are about to zero {{ preview_count }} invoice balance{{ preview_count|pluralize }} totalling ${{ preview_total }}.
+              </p>
+              <p class="mt-1">These invoices will be marked paid and the outstanding amounts written off. <span class="font-semibold">This action cannot be undone.</span></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-6 py-4 flex items-center justify-between gap-3">
           <a href="{% url 'zero_balances' %}"
              class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 font-medium">Cancel</a>
           <form method="post" action="{% url 'zero_balances' %}"
