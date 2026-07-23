@@ -1,0 +1,9 @@
+{% comment %}
+Worksheet table-of-values answer: the shared table widget. The student fills the
+blank cells (given cells are shown read-only); the blanks serialise to text_answer
+as {"cells":{"r,c":"value"}} via static/js/table_of_values.js, graded server-side
+by grade_table. Context: question
+{% endcomment %}
+<div>
+  {% include "maths/partials/_table_of_values_tool.html" with q=question field_name='text_answer' %}
+</div>

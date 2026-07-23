@@ -608,78 +608,11 @@ the arrow(s) and takes a typed value. Mirrors the measure tool include.
 {% elif q.question_type == 'table_of_values' and q.table_data %}
 {% comment %}
 Table of values: the student fills the blank cells (e.g. compute y for each given
-x). Given cells are shown read-only; blank cells serialise to JSON in the hidden
-answer_{id} input as {"cells":{"r,c":"value"}}. Mirrors the hidden-field-sync
-pattern of the column-arithmetic / draw-on-grid partials; graded server-side by
-numeric tolerance (grade_table). Blank-cell correct answers are never emitted.
+x). The shared widget serialises the blank cells to JSON in answer_<id> via
+static/js/table_of_values.js; graded server-side by numeric tolerance
+(grade_table). Correct answers are never emitted into the page.
 {% endcomment %}
-{% with d=q.table_data %}
-<input type="hidden" name="answer_{{ q.id }}" data-tv-hidden="{{ q.id }}" value='{"cells":{}}' />
-<table data-tv-wrap="{{ q.id }}" class="border-collapse text-sm mb-2">
-  <thead>
-    <tr>
-      {% for h in d.headers %}
-      <th class="border border-gray-300 bg-gray-50 px-3 py-1.5 font-semibold text-gray-700">{{ h|exponents }}</th>
-      {% endfor %}
-    </tr>
-  </thead>
-  <tbody>
-    {% for row in d.rows %}
-    <tr>
-      {% for cell in row %}
-      <td class="border border-gray-300 px-2 py-1 text-center">
-        {% if cell.given %}
-          <span class="font-medium text-gray-800">{{ cell.value|exponents }}</span>
-        {% else %}
-          <input type="text" inputmode="decimal" data-tv-cell="{{ q.id }}" data-rc="{{ cell.rc }}"
-                 aria-label="row/column {{ cell.rc }}"
-                 class="w-16 text-center bg-blue-50 border-2 border-blue-200 rounded font-bold text-blue-700 px-1 py-1 focus:border-primary focus:bg-white focus:outline-none" />
-        {% endif %}
-      </td>
-      {% endfor %}
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-<script>
-(function(){
-  var id = "{{ q.id }}";
-  var wrap = document.querySelector('[data-tv-wrap="' + id + '"]');
-  var h = document.querySelector('[data-tv-hidden="' + id + '"]');
-  if (!wrap || !h) return;
-  var cells = wrap.querySelectorAll('[data-tv-cell="' + id + '"]');
-  function refresh(){
-    var out = {};
-    cells.forEach(function(el){
-      var v = (el.value || '').trim();
-      if (v !== '') out[el.dataset.rc] = v;
-    });
-    h.value = JSON.stringify({cells: out});
-  }
-  cells.forEach(function(el){
-    el.addEventListener('input', refresh);
-    el.addEventListener('change', refresh);
-    el.addEventListener('blur', refresh);
-  });
-  var form = wrap.closest('form');
-  if (form) form.addEventListener('submit', refresh, true);
-  refresh();
-  // Resume support: refill the cells from a saved answer so a restored draft
-  // survives the on-submit rebuild above.
-  (window.__hwRehydrateMaths = window.__hwRehydrateMaths || []).push(function(){
-    try {
-      var saved = JSON.parse(h.value || '{}');
-      if (saved && saved.cells){
-        cells.forEach(function(el){
-          if (saved.cells[el.dataset.rc] != null) el.value = saved.cells[el.dataset.rc];
-        });
-        refresh();
-      }
-    } catch (e) {}
-  });
-})();
-</script>
-{% endwith %}
+{% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_table_of_values_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
 
 {% else %}
 <input type="text" name="answer_{{ q.id }}"
