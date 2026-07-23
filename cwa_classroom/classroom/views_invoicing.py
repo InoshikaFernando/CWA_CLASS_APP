@@ -1447,6 +1447,94 @@ class ZeroInvoiceBalanceView(RoleRequiredMixin, View):
         return redirect('invoice_detail', invoice_id=invoice.id)
 
 
+class ZeroBalancesView(RoleRequiredMixin, View):
+    """Bulk-zero outstanding balances for a chosen scope.
+
+    Scope cascades like Generate Invoices: whole institute → department →
+    class → specific students. A POST with action='preview' shows the affected
+    invoices and total; action='confirm' applies the zeroing. For when the
+    institute is too busy to upload bank transactions and reconcile payments.
+    """
+    required_roles = INVOICING_ROLES
+
+    def _scope_from_post(self, request):
+        return {
+            'department_id': request.POST.get('department_id') or None,
+            'classroom_id': request.POST.get('classroom_id') or None,
+            'student_ids': request.POST.getlist('student_ids'),
+            'notes': request.POST.get('notes', '').strip(),
+        }
+
+    def get(self, request):
+        school = _get_single_school(request.user)
+        if not school:
+            messages.error(request, 'No school found.')
+            return redirect('subjects_hub')
+
+        departments = Department.objects.filter(school=school, is_active=True)
+        return render(request, 'invoicing/zero_balances.html', {
+            'school': school,
+            'departments': departments,
+        })
+
+    def post(self, request):
+        school = _get_single_school(request.user)
+        if not school:
+            messages.error(request, 'No school found.')
+            return redirect('subjects_hub')
+
+        action = request.POST.get('action', 'preview')
+        scope = self._scope_from_post(request)
+        departments = Department.objects.filter(school=school, is_active=True)
+
+        if action == 'confirm':
+            count, total = svc.zero_balances_in_scope(
+                school, created_by=request.user,
+                department_id=scope['department_id'],
+                classroom_id=scope['classroom_id'],
+                student_ids=scope['student_ids'] or None,
+                notes=scope['notes'],
+            )
+            if count == 0:
+                messages.info(request, 'No outstanding balances found in the selected scope.')
+                return redirect('zero_balances')
+
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='balances_zeroed_bulk',
+                detail={'count': count, 'total': str(total),
+                        'department_id': scope['department_id'],
+                        'classroom_id': scope['classroom_id'],
+                        'student_ids': scope['student_ids'],
+                        'notes': scope['notes']},
+                request=request,
+            )
+            messages.success(
+                request,
+                f'Zeroed {count} invoice balance{"s" if count != 1 else ""} '
+                f'totalling ${total}.',
+            )
+            return redirect('invoice_list')
+
+        # action == 'preview'
+        invoices = svc.get_outstanding_invoices_in_scope(
+            school,
+            department_id=scope['department_id'],
+            classroom_id=scope['classroom_id'],
+            student_ids=scope['student_ids'] or None,
+        )
+        total = sum((inv.outstanding for inv in invoices), Decimal('0.00'))
+        return render(request, 'invoicing/zero_balances.html', {
+            'school': school,
+            'departments': departments,
+            'preview': True,
+            'preview_invoices': invoices,
+            'preview_total': total,
+            'preview_count': len(invoices),
+            'scope': scope,
+        })
+
+
 # ===========================================================================
 # CSV Import Pipeline
 # ===========================================================================

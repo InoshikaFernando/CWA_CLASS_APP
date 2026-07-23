@@ -12,6 +12,8 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models, transaction
+from django.db.models import Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -1289,6 +1291,81 @@ def zero_invoice_balance(invoice, created_by=None, notes=''):
         created_by=created_by,
         status='confirmed',
     )
+
+
+def get_outstanding_invoices_in_scope(school, department_id=None,
+                                      classroom_id=None, student_ids=None):
+    """
+    Return issued / partially-paid invoices that still have an outstanding
+    balance for the students in the given scope.
+
+    Scope cascades (most specific wins): explicit student_ids → classroom →
+    department → whole institute (no filter). Mirrors the Generate Invoices
+    scope picker.
+
+    Returns a queryset annotated with `outstanding` (amount − confirmed
+    payments), filtered to outstanding > 0, ordered by student then invoice.
+    """
+    students_qs = SchoolStudent.objects.filter(school=school, is_active=True)
+
+    if student_ids:
+        students_qs = students_qs.filter(student_id__in=student_ids)
+    elif classroom_id:
+        enrolled_ids = ClassStudent.objects.filter(
+            classroom_id=classroom_id, classroom__school=school, is_active=True,
+        ).values_list('student_id', flat=True)
+        students_qs = students_qs.filter(student_id__in=enrolled_ids)
+    elif department_id:
+        enrolled_ids = ClassStudent.objects.filter(
+            classroom__school=school, classroom__department_id=department_id,
+            is_active=True,
+        ).values_list('student_id', flat=True)
+        students_qs = students_qs.filter(student_id__in=enrolled_ids)
+
+    student_user_ids = list(students_qs.values_list('student_id', flat=True))
+
+    return Invoice.objects.filter(
+        school=school,
+        student_id__in=student_user_ids,
+        status__in=['issued', 'partially_paid'],
+    ).annotate(
+        _paid=Coalesce(
+            models.Sum('payments__amount',
+                       filter=models.Q(payments__status='confirmed')),
+            Value(Decimal('0.00')),
+            output_field=models.DecimalField(max_digits=10, decimal_places=2),
+        ),
+    ).annotate(
+        outstanding=models.F('amount') - models.F('_paid'),
+    ).filter(
+        outstanding__gt=0,
+    ).select_related('student').order_by(
+        'student__first_name', 'student__last_name', 'invoice_number',
+    )
+
+
+def zero_balances_in_scope(school, created_by, department_id=None,
+                           classroom_id=None, student_ids=None, notes=''):
+    """
+    Zero every outstanding invoice balance in the given scope (see
+    get_outstanding_invoices_in_scope). Each invoice is settled with a manual
+    payment via zero_invoice_balance. Returns (count, total_amount) zeroed.
+    """
+    invoices = get_outstanding_invoices_in_scope(
+        school, department_id=department_id,
+        classroom_id=classroom_id, student_ids=student_ids,
+    )
+    count = 0
+    total = Decimal('0.00')
+    with transaction.atomic():
+        for invoice in invoices:
+            payment = zero_invoice_balance(
+                invoice, created_by=created_by, notes=notes,
+            )
+            if payment:
+                count += 1
+                total += payment.amount
+    return count, total
 
 
 # ---------------------------------------------------------------------------

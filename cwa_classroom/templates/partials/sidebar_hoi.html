@@ -379,6 +379,15 @@
       <span>Invoices</span>
     </a>
 
+    <a href="{% url 'zero_balances' %}"
+       class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+              {% if 'zero-balances' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <span>Zero Balances</span>
+    </a>
+
   </div>
 
   <!-- ── SALARIES ── -->

@@ -130,3 +130,40 @@ class TestZeroInvoiceBalance:
         self.invoice.refresh_from_db()
         assert self.invoice.status == "paid"
         assert self.invoice.amount_due == Decimal("0.00")
+
+
+class TestBulkZeroBalances:
+    """Tests for /invoicing/zero-balances/ — scoped bulk zeroing."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, live_server, page, hoi_user, hoi_school_setup, department, classroom, enrolled_student, issued_invoice):
+        self.url = live_server.url
+        self.page = page
+        self.invoice = issued_invoice
+        do_login(page, self.url, hoi_user)
+        page.goto(f"{self.url}/invoicing/zero-balances/")
+        page.wait_for_load_state("domcontentloaded")
+
+    def test_page_loads(self):
+        assert_page_has_text(self.page, "Zero Balances")
+
+    def test_scope_dropdowns_present(self):
+        """Whole-institute / department + class scope selectors exist."""
+        assert_page_has_text(self.page, "Whole institute")
+        assert self.page.locator("#scope-dept").count() == 1
+        assert self.page.locator("#scope-class").count() == 1
+
+    def test_preview_then_confirm_zeroes_balance(self):
+        # Whole institute (no scope selected) → Preview.
+        self.page.get_by_role("button", name=re.compile(r"^Preview$", re.IGNORECASE)).click()
+        self.page.wait_for_load_state("domcontentloaded")
+        assert_page_has_text(self.page, self.invoice.invoice_number)
+
+        # Confirm.
+        self.page.on("dialog", lambda dialog: dialog.accept())
+        self.page.get_by_role("button", name=re.compile(r"Zero \d+ Balance", re.IGNORECASE)).click()
+        self.page.wait_for_load_state("domcontentloaded")
+
+        self.invoice.refresh_from_db()
+        assert self.invoice.status == "paid"
+        assert self.invoice.amount_due == Decimal("0.00")

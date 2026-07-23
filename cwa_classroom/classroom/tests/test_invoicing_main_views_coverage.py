@@ -710,6 +710,99 @@ class ZeroInvoiceBalanceViewTests(TestCase):
         self.assertEqual(InvoicePayment.objects.filter(invoice=self.invoice).count(), 1)
 
 
+class ZeroBalancesViewTests(TestCase):
+    def setUp(self):
+        self.owner, self.school = _setup_school()
+        self.dept, self.subj = _setup_department(self.school, head=self.owner)
+        self.classroom = _setup_classroom(self.school, self.dept, self.subj)
+        self.student_a = _setup_student(self.school, username='stud_a')
+        self.student_b = _setup_student(self.school, username='stud_b')
+        ClassStudent.objects.create(classroom=self.classroom, student=self.student_a, is_active=True)
+        self.inv_a = _make_invoice(self.school, self.student_a, status='issued',
+                                   amount='100.00', created_by=self.owner)
+        self.inv_b = _make_invoice(self.school, self.student_b, status='issued',
+                                   amount='40.00', created_by=self.owner)
+        self.client = Client()
+        self.client.login(username='testowner', password='password1!')
+
+    def test_get_renders_form(self):
+        resp = self.client.get(reverse('zero_balances'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context.get('preview'))
+
+    def test_preview_whole_institute(self):
+        resp = self.client.post(reverse('zero_balances'), {'action': 'preview'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context['preview'])
+        self.assertEqual(resp.context['preview_count'], 2)
+        self.assertEqual(resp.context['preview_total'], Decimal('140.00'))
+        # Nothing zeroed yet — preview is read-only.
+        self.assertFalse(InvoicePayment.objects.exists())
+
+    def test_confirm_zeroes_whole_institute(self):
+        resp = self.client.post(reverse('zero_balances'), {'action': 'confirm'})
+        self.assertEqual(resp.status_code, 302)
+        self.inv_a.refresh_from_db()
+        self.inv_b.refresh_from_db()
+        self.assertEqual(self.inv_a.status, 'paid')
+        self.assertEqual(self.inv_b.status, 'paid')
+        self.assertEqual(self.inv_a.amount_due, Decimal('0.00'))
+        self.assertEqual(self.inv_b.amount_due, Decimal('0.00'))
+
+    def test_confirm_scoped_to_single_student(self):
+        resp = self.client.post(reverse('zero_balances'), {
+            'action': 'confirm', 'student_ids': [str(self.student_a.id)],
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.inv_a.refresh_from_db()
+        self.inv_b.refresh_from_db()
+        self.assertEqual(self.inv_a.status, 'paid')
+        self.assertEqual(self.inv_b.status, 'issued')  # out of scope, untouched
+
+    def test_confirm_scoped_to_class(self):
+        resp = self.client.post(reverse('zero_balances'), {
+            'action': 'confirm', 'classroom_id': str(self.classroom.id),
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.inv_a.refresh_from_db()
+        self.inv_b.refresh_from_db()
+        self.assertEqual(self.inv_a.status, 'paid')      # enrolled in class
+        self.assertEqual(self.inv_b.status, 'issued')    # not enrolled
+
+    def test_confirm_scoped_to_department(self):
+        resp = self.client.post(reverse('zero_balances'), {
+            'action': 'confirm', 'department_id': str(self.dept.id),
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.inv_a.refresh_from_db()
+        self.inv_b.refresh_from_db()
+        self.assertEqual(self.inv_a.status, 'paid')
+        self.assertEqual(self.inv_b.status, 'issued')
+
+    def test_confirm_no_outstanding_is_noop(self):
+        # Cancel both so nothing is outstanding.
+        self.inv_a.status = 'cancelled'
+        self.inv_a.save()
+        self.inv_b.status = 'cancelled'
+        self.inv_b.save()
+        resp = self.client.post(reverse('zero_balances'), {'action': 'confirm'})
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(InvoicePayment.objects.exists())
+
+    def test_service_scope_excludes_settled_invoices(self):
+        from classroom import invoicing_services as isvc
+        # Fully pay inv_a — it should drop out of the outstanding scope.
+        InvoicePayment.objects.create(
+            invoice=self.inv_a, student=self.student_a, school=self.school,
+            amount=Decimal('100.00'), payment_date=datetime.date(2025, 1, 10),
+            payment_method='cash', status='confirmed',
+        )
+        outstanding = list(isvc.get_outstanding_invoices_in_scope(self.school))
+        ids = {inv.id for inv in outstanding}
+        self.assertIn(self.inv_b.id, ids)
+        self.assertNotIn(self.inv_a.id, ids)
+
+
 class CSVUploadViewTests(TestCase):
     def setUp(self):
         self.owner, self.school = _setup_school()
