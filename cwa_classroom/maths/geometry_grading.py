@@ -753,3 +753,152 @@ def grade_number_line(spec, payload):
             return False
         remaining.remove(hit)
     return not remaining
+
+
+# ---------------------------------------------------------------------------
+# table_of_values — fill in a table of values (e.g. compute y for each x)
+# ---------------------------------------------------------------------------
+
+# Cap the table size so an absurd spec can't emit a huge DOM / grade forever. A
+# worksheet table of values is small — a handful of columns, a dozen-odd rows.
+_MAX_TABLE_COLS = 8
+_MAX_TABLE_ROWS = 20
+
+
+def _table_cell_kind(cell):
+    """Classify one table cell, or return ``None`` if malformed.
+
+    A cell is a JSON object carrying EXACTLY ONE of ``given`` (a value shown
+    pre-filled and read-only, e.g. the x column) or ``answer`` (the value the
+    student must type, e.g. the y column). Returns ``(role, value)`` where
+    ``role`` is ``'given'`` or ``'answer'``, else ``None`` (missing both, or
+    carrying both — an ambiguous cell). Shared by the validator, the grader and
+    the model render helper so "what a cell means" is defined once.
+    """
+    if not isinstance(cell, dict):
+        return None
+    has_given = 'given' in cell
+    has_answer = 'answer' in cell
+    if has_given == has_answer:  # neither, or both → malformed
+        return None
+    return ('given', cell['given']) if has_given else ('answer', cell['answer'])
+
+
+def validate_table_spec(table_spec):
+    """Validate a ``table_of_values`` ``table_spec``; raise ``ValueError`` if bad.
+
+    Pure and framework-agnostic (no Django import) so it is reused by the model's
+    ``clean()`` AND by any importer before persisting, so a malformed spec can't
+    slip in through either path. Mirrors ``validate_number_line_spec``.
+
+    Shape::
+
+        {"headers": ["x", "y"],
+         "rows": [[{"given": "-3"}, {"answer": "7"}], ...],
+         "tolerance": 0}
+
+    Every row must carry one cell per header; each cell has exactly one of
+    ``given`` (shown, read-only) or ``answer`` (a blank the student fills). Every
+    ``answer`` value must be numeric (grading is numeric-within-tolerance) and at
+    least one ``answer`` cell must exist (else the table is unanswerable).
+    """
+    if not isinstance(table_spec, dict):
+        raise ValueError('table_spec must be a JSON object.')
+
+    headers = table_spec.get('headers')
+    if not isinstance(headers, list) or not headers:
+        raise ValueError('table_spec.headers must be a non-empty list.')
+    if len(headers) > _MAX_TABLE_COLS:
+        raise ValueError(f'table_spec.headers must not exceed {_MAX_TABLE_COLS} columns.')
+    for h in headers:
+        if not isinstance(h, str):
+            raise ValueError(f'table_spec.headers value must be a string; got {h!r}.')
+    ncols = len(headers)
+
+    rows = table_spec.get('rows')
+    if not isinstance(rows, list) or not rows:
+        raise ValueError('table_spec.rows must be a non-empty list.')
+    if len(rows) > _MAX_TABLE_ROWS:
+        raise ValueError(f'table_spec.rows must not exceed {_MAX_TABLE_ROWS} rows.')
+
+    answer_count = 0
+    for r, row in enumerate(rows):
+        if not isinstance(row, list) or len(row) != ncols:
+            raise ValueError(
+                f'table_spec.rows[{r}] must be a list of {ncols} cells (one per header).'
+            )
+        for c, cell in enumerate(row):
+            kind = _table_cell_kind(cell)
+            if kind is None:
+                raise ValueError(
+                    f'table_spec cell [{r},{c}] must have exactly one of "given" or "answer".'
+                )
+            role, value = kind
+            if role == 'answer':
+                if _to_decimal(value) is None:
+                    raise ValueError(
+                        f'table_spec answer cell [{r},{c}] value must be numeric; got {value!r}.'
+                    )
+                answer_count += 1
+
+    if answer_count == 0:
+        raise ValueError('table_spec must have at least one "answer" cell.')
+
+    tol = table_spec.get('tolerance')
+    if tol is not None and (not _is_number(tol) or tol < 0):
+        raise ValueError('table_spec.tolerance must be a non-negative number.')
+
+
+def grade_table(table_spec, payload):
+    """Grade a ``table_of_values`` answer. Returns ``True``/``False``, never raises.
+
+    All-or-nothing: correct when EVERY ``answer`` cell's typed value is within
+    ``tolerance`` of the stored value (``tolerance`` 0 = exact). This matches the
+    boolean per-question grading used everywhere else — a table is right only when
+    fully right. ``payload`` is the JSON the client serialises,
+    ``{"cells": {"<r>,<c>": "<typed>"}}`` keyed by each answer cell's row,col. A
+    malformed spec/payload or a missing/blank/unparseable cell simply grades wrong.
+    """
+    if not isinstance(table_spec, dict):
+        return False
+    headers = table_spec.get('headers')
+    rows = table_spec.get('rows')
+    if not isinstance(headers, list) or not isinstance(rows, list):
+        return False
+
+    try:
+        data = json.loads(payload) if isinstance(payload, str) else payload
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    cells = data.get('cells')
+    if not isinstance(cells, dict):
+        return False
+
+    tol = table_spec.get('tolerance') or 0
+    try:
+        tol = Decimal(str(tol))
+    except (InvalidOperation, ValueError):
+        tol = Decimal('0')
+
+    answer_seen = 0
+    for r, row in enumerate(rows):
+        if not isinstance(row, list):
+            return False
+        for c, cell in enumerate(row):
+            kind = _table_cell_kind(cell)
+            if kind is None:
+                return False
+            role, value = kind
+            if role != 'answer':
+                continue
+            answer_seen += 1
+            want = _to_decimal(value)
+            if want is None:
+                return False
+            got = _to_decimal(cells.get(f'{r},{c}'))
+            if got is None or abs(got - want) > tol:
+                return False
+    # A spec with no answer cells is unanswerable — never silently "correct".
+    return answer_seen > 0

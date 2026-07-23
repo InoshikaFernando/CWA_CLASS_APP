@@ -57,6 +57,7 @@ class Question(models.Model):
     IDENTIFY_COORDS = 'identify_coords'
     READ_GRAPH = 'read_graph'
     NUMBER_LINE = 'number_line'
+    TABLE_OF_VALUES = 'table_of_values'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -76,6 +77,7 @@ class Question(models.Model):
         ('identify_coords', 'Identify Coordinates (type the point)'),
         ('read_graph', 'Read a Graph (read off a value)'),
         ('number_line', 'Number Line (mark or read a value)'),
+        ('table_of_values', 'Table of Values (fill in the x/y table)'),
     ]
 
     # Validation mode — how student answers are graded
@@ -239,6 +241,19 @@ class Question(models.Model):
     number_line_spec = models.JSONField(
         null=True, blank=True,
         help_text="number_line only. Scale + mode + correct target set (mark: set-comparison; read: numeric tolerance).",
+    )
+
+    # Table-of-values question data: a table of headers + rows where each cell is
+    # either a shown value the student reads (``given``, e.g. the x column) or a
+    # blank the student fills (``answer``, e.g. the y column computed from a rule).
+    # Graded all-or-nothing by numeric tolerance (every answer cell must match).
+    # Schema validation lives in Question.clean() (validate_table_spec). Shape:
+    #   {"headers": ["x", "y"],
+    #    "rows": [[{"given": "-3"}, {"answer": "7"}], ...],
+    #    "tolerance": 0}
+    table_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="table_of_values only. Headers + rows of given/answer cells (numeric-tolerance graded).",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -459,6 +474,26 @@ class Question(models.Model):
                     'question_type': (
                         'Number-line questions are graded by the marked/typed '
                         'values and must not have answer options.'
+                    )
+                })
+
+        # Table-of-values questions are graded by numeric tolerance on the filled
+        # cells (the correct values live in the spec), never answer options.
+        if self.question_type == self.TABLE_OF_VALUES:
+            if not self.table_spec:
+                raise ValidationError({
+                    'table_spec': 'Table-of-values questions require a table_spec.'
+                })
+            from maths.geometry_grading import validate_table_spec
+            try:
+                validate_table_spec(self.table_spec)
+            except ValueError as exc:
+                raise ValidationError({'table_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Table-of-values questions are graded by the filled cells '
+                        'and must not have answer options.'
                     )
                 })
 
@@ -717,6 +752,43 @@ class Question(models.Model):
             'target_values': [t['value'] for t in answer],
             'tolerance': spec.get('tolerance') or 0,
         }
+
+    @property
+    def table_data(self):
+        """Render-ready data for a table_of_values question, or None.
+
+        Maps ``table_spec`` to the rows the take-item template draws: each cell is
+        either a shown value (``given``) or a blank input carrying its ``r,c`` key
+        for the serialise-to-JSON JS. The ``answer`` value is kept on blank cells
+        so the worksheets answer-key surface can show the correct value — the
+        student take template renders only the empty input and never prints it.
+        Returns None when there's nothing renderable, so templates guard with a
+        single check. Mirrors ``plane_data`` / ``number_line_data`` — render data
+        on the model, no per-view plumbing.
+        """
+        if self.question_type != self.TABLE_OF_VALUES or not self.table_spec:
+            return None
+        from maths.geometry_grading import _table_cell_kind
+        headers = self.table_spec.get('headers')
+        rows = self.table_spec.get('rows')
+        if not isinstance(headers, list) or not isinstance(rows, list):
+            return None
+        out_rows = []
+        for r, row in enumerate(rows):
+            if not isinstance(row, list):
+                return None
+            out_cells = []
+            for c, cell in enumerate(row):
+                kind = _table_cell_kind(cell)
+                if kind is None:
+                    return None
+                role, value = kind
+                if role == 'given':
+                    out_cells.append({'given': True, 'value': value})
+                else:
+                    out_cells.append({'given': False, 'rc': f'{r},{c}', 'answer': value})
+            out_rows.append(out_cells)
+        return {'headers': headers, 'rows': out_rows}
 
     @property
     def prime_factorization_rows(self):
