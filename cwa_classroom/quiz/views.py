@@ -905,7 +905,9 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             correct_answer_text = ', '.join(
                 str(v) for v in (q.number_line_data or {}).get('target_values', [])
             )
-        elif q.answer_format == 'algebra':
+        elif q.answer_format in ('algebra', 'equation'):
+            # Algebra (expand & simplify) and equation (algebraic-equivalence)
+            # answers are both graded on the model, which routes by answer_format.
             raw = data.get('text_answer', '').strip()
             is_correct = q.grade_text_answer(raw)
             correct_ans = q.answers.filter(is_correct=True).first()

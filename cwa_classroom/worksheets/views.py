@@ -46,6 +46,7 @@ ANSWER_PARTIAL_MAP = {
     'prime_factorization': _PARTIAL + '_answer_prime_factorization.html',
     'measure':            _PARTIAL + '_answer_measure.html',
     'number_line':        _PARTIAL + '_answer_number_line.html',
+    'table_of_values':    _PARTIAL + '_answer_table_of_values.html',
 }
 _ANSWER_PARTIAL_DEFAULT = _PARTIAL + '_answer_text.html'
 
@@ -993,6 +994,15 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                 from maths.geometry_grading import grade_number_line
                 text_answer = request.POST.get('text_answer', '')
                 is_correct = grade_number_line(question.number_line_spec, text_answer)
+                if is_correct:
+                    points_earned = float(question.points)
+
+            elif question.question_type == 'table_of_values' and question.table_spec:
+                # The filled cells post as JSON {"cells":{"r,c":"value"}} in
+                # text_answer; graded all-or-nothing by numeric tolerance.
+                from maths.geometry_grading import grade_table
+                text_answer = request.POST.get('text_answer', '')
+                is_correct = grade_table(question.table_spec, text_answer)
                 if is_correct:
                     points_earned = float(question.points)
 

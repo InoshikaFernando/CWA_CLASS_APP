@@ -1,0 +1,42 @@
+{% load maths_format %}
+{% comment %}
+Shared table-of-values widget. The student fills the blank cells (e.g. compute y
+for each given x); given cells are shown read-only. Blank cells serialise to JSON
+in the hidden ``field_name`` input as {"cells":{"r,c":"value"}} via
+static/js/table_of_values.js — no inline script, so it survives the innerHTML
+question swap on the quiz / worksheet surfaces. The correct answers live in the
+spec and are never emitted into the page.
+Context: q (the Question), field_name (the hidden input's name — "answer_<id>" on
+homework, "text_answer" on quiz / worksheets).
+{% endcomment %}
+{% if q.table_data %}{% with d=q.table_data %}
+<div data-tv-stage>
+  <input type="hidden" name="{{ field_name }}" data-tv-hidden value='{"cells":{}}' />
+  <table data-tv-wrap class="border-collapse text-sm mb-2">
+    <thead>
+      <tr>
+        {% for h in d.headers %}
+        <th class="border border-gray-300 bg-gray-50 px-3 py-1.5 font-semibold text-gray-700">{{ h|exponents }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in d.rows %}
+      <tr>
+        {% for cell in row %}
+        <td class="border border-gray-300 px-2 py-1 text-center">
+          {% if cell.given %}
+            <span class="font-medium text-gray-800">{{ cell.value|exponents }}</span>
+          {% else %}
+            <input type="text" inputmode="decimal" data-tv-cell data-rc="{{ cell.rc }}"
+                   aria-label="row/column {{ cell.rc }}"
+                   class="w-16 text-center bg-blue-50 border-2 border-blue-200 rounded font-bold text-blue-700 px-1 py-1 focus:border-primary focus:bg-white focus:outline-none" />
+          {% endif %}
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endwith %}{% endif %}

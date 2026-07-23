@@ -253,6 +253,13 @@ class MathsPlugin(SubjectPlugin):
             from maths.geometry_grading import grade_number_line
             text_answer = post_data.get(f'answer_{q.id}', '')
             is_correct = grade_number_line(q.number_line_spec, text_answer)
+        elif q.question_type == Question.TABLE_OF_VALUES and q.table_spec:
+            # Fill-in table of values (e.g. compute y for each x). The client
+            # serialises the typed cells to JSON in answer_{id} as
+            # {"cells":{"r,c":"value"}}; graded all-or-nothing by numeric tolerance.
+            from maths.geometry_grading import grade_table
+            text_answer = post_data.get(f'answer_{q.id}', '')
+            is_correct = grade_table(q.table_spec, text_answer)
         else:
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
             # Routes to algebra grading when q.answer_format == 'algebra',

@@ -57,6 +57,7 @@ class Question(models.Model):
     IDENTIFY_COORDS = 'identify_coords'
     READ_GRAPH = 'read_graph'
     NUMBER_LINE = 'number_line'
+    TABLE_OF_VALUES = 'table_of_values'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -76,6 +77,7 @@ class Question(models.Model):
         ('identify_coords', 'Identify Coordinates (type the point)'),
         ('read_graph', 'Read a Graph (read off a value)'),
         ('number_line', 'Number Line (mark or read a value)'),
+        ('table_of_values', 'Table of Values (fill in the x/y table)'),
     ]
 
     # Validation mode — how student answers are graded
@@ -137,17 +139,20 @@ class Question(models.Model):
     # How a typed (short_answer / calculation) answer is matched.
     ANSWER_FORMAT_TEXT = 'text'
     ANSWER_FORMAT_ALGEBRA = 'algebra'
+    ANSWER_FORMAT_EQUATION = 'equation'
     ANSWER_FORMAT_CHOICES = [
         ('text', 'Text — exact match (case/space-insensitive)'),
         ('algebra', 'Algebra — simplified polynomial (e.g. expand & simplify)'),
+        ('equation', 'Equation — algebraic equivalence (accepts vertex / factored / expanded form)'),
     ]
     answer_format = models.CharField(
         max_length=10, choices=ANSWER_FORMAT_CHOICES, default='text',
         help_text=(
             'For short_answer / calculation questions. "Algebra" grades the answer as a '
             'fully simplified, expanded polynomial — e.g. (2x+3)(x-5) must be entered as '
-            '"2x^2 - 7x - 15". Term order and spacing are ignored, but un-combined like '
-            'terms and un-expanded brackets are marked wrong even when algebraically equal.'
+            '"2x^2 - 7x - 15". "Equation" grades by algebraic equivalence — for '
+            '"write the equation" questions any spelling of the same curve is accepted '
+            '(y=2(x-1)^2-2 == y=2x^2-4x). Term order and spacing are always ignored.'
         ),
     )
 
@@ -241,6 +246,19 @@ class Question(models.Model):
         help_text="number_line only. Scale + mode + correct target set (mark: set-comparison; read: numeric tolerance).",
     )
 
+    # Table-of-values question data: a table of headers + rows where each cell is
+    # either a shown value the student reads (``given``, e.g. the x column) or a
+    # blank the student fills (``answer``, e.g. the y column computed from a rule).
+    # Graded all-or-nothing by numeric tolerance (every answer cell must match).
+    # Schema validation lives in Question.clean() (validate_table_spec). Shape:
+    #   {"headers": ["x", "y"],
+    #    "rows": [[{"given": "-3"}, {"answer": "7"}], ...],
+    #    "tolerance": 0}
+    table_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="table_of_values only. Headers + rows of given/answer cells (numeric-tolerance graded).",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -277,6 +295,12 @@ class Question(models.Model):
         if self.answer_format == self.ANSWER_FORMAT_ALGEBRA:
             from maths.algebra_grading import is_algebraic_answer_correct
             return any(is_algebraic_answer_correct(text_answer, c) for c in correct)
+
+        if self.answer_format == self.ANSWER_FORMAT_EQUATION:
+            # "Write the equation" — accept any algebraically equivalent form
+            # (vertex / factored / expanded) of the same curve.
+            from maths.algebra_grading import is_equation_answer_correct
+            return any(is_equation_answer_correct(text_answer, c) for c in correct)
 
         # Exact match, but exponent-, inequality- and degree-insensitive so the
         # keypad buttons are usable on ordinary maths answers: the x² button
@@ -459,6 +483,26 @@ class Question(models.Model):
                     'question_type': (
                         'Number-line questions are graded by the marked/typed '
                         'values and must not have answer options.'
+                    )
+                })
+
+        # Table-of-values questions are graded by numeric tolerance on the filled
+        # cells (the correct values live in the spec), never answer options.
+        if self.question_type == self.TABLE_OF_VALUES:
+            if not self.table_spec:
+                raise ValidationError({
+                    'table_spec': 'Table-of-values questions require a table_spec.'
+                })
+            from maths.geometry_grading import validate_table_spec
+            try:
+                validate_table_spec(self.table_spec)
+            except ValueError as exc:
+                raise ValidationError({'table_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Table-of-values questions are graded by the filled cells '
+                        'and must not have answer options.'
                     )
                 })
 
@@ -717,6 +761,43 @@ class Question(models.Model):
             'target_values': [t['value'] for t in answer],
             'tolerance': spec.get('tolerance') or 0,
         }
+
+    @property
+    def table_data(self):
+        """Render-ready data for a table_of_values question, or None.
+
+        Maps ``table_spec`` to the rows the take-item template draws: each cell is
+        either a shown value (``given``) or a blank input carrying its ``r,c`` key
+        for the serialise-to-JSON JS. The ``answer`` value is kept on blank cells
+        so the worksheets answer-key surface can show the correct value — the
+        student take template renders only the empty input and never prints it.
+        Returns None when there's nothing renderable, so templates guard with a
+        single check. Mirrors ``plane_data`` / ``number_line_data`` — render data
+        on the model, no per-view plumbing.
+        """
+        if self.question_type != self.TABLE_OF_VALUES or not self.table_spec:
+            return None
+        from maths.geometry_grading import _table_cell_kind
+        headers = self.table_spec.get('headers')
+        rows = self.table_spec.get('rows')
+        if not isinstance(headers, list) or not isinstance(rows, list):
+            return None
+        out_rows = []
+        for r, row in enumerate(rows):
+            if not isinstance(row, list):
+                return None
+            out_cells = []
+            for c, cell in enumerate(row):
+                kind = _table_cell_kind(cell)
+                if kind is None:
+                    return None
+                role, value = kind
+                if role == 'given':
+                    out_cells.append({'given': True, 'value': value})
+                else:
+                    out_cells.append({'given': False, 'rc': f'{r},{c}', 'answer': value})
+            out_rows.append(out_cells)
+        return {'headers': headers, 'rows': out_rows}
 
     @property
     def prime_factorization_rows(self):
