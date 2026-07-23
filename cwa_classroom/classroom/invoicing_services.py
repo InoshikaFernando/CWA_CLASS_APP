@@ -1262,6 +1262,57 @@ def _update_invoice_payment_status(invoice):
         invoice.save(update_fields=['status', 'updated_at'])
 
 
+# Marker set on the InvoicePayment created when a balance is zeroed manually.
+# Used to identify (and later reverse) these settlements.
+MANUAL_SETTLEMENT_REFERENCE = 'Manual balance adjustment'
+
+
+def _recompute_invoice_status(invoice):
+    """
+    Recompute an invoice's status from its confirmed payments in BOTH
+    directions (unlike _update_invoice_payment_status, which only upgrades).
+
+    Used when a payment is reversed: paid → partially_paid / issued as the
+    balance reappears. Never touches draft or cancelled invoices.
+    """
+    if invoice.status in ('draft', 'cancelled'):
+        return
+    total_paid = invoice.amount_paid
+    if invoice.amount > 0 and total_paid >= invoice.amount:
+        new_status = 'paid'
+    elif total_paid > 0:
+        new_status = 'partially_paid'
+    else:
+        new_status = 'issued'
+    if invoice.status != new_status:
+        invoice.status = new_status
+        invoice.save(update_fields=['status', 'updated_at'])
+
+
+def reverse_manual_settlement(payment, reversed_by=None):
+    """
+    Undo a manual balance-adjustment settlement (see zero_invoice_balance).
+
+    Voids the payment (status → 'rejected') so it no longer counts toward
+    amount_paid, then recomputes the invoice status so the outstanding balance
+    reappears. Returns the invoice, or None if the payment isn't a reversible
+    manual settlement (wrong reference, not confirmed, or already unlinked).
+    """
+    if (payment.status != 'confirmed'
+            or payment.reference_name != MANUAL_SETTLEMENT_REFERENCE
+            or payment.invoice_id is None):
+        return None
+
+    invoice = payment.invoice
+    with transaction.atomic():
+        payment.status = 'rejected'
+        note = 'Settlement reversed'
+        payment.notes = f'{payment.notes} — {note}' if payment.notes else note
+        payment.save(update_fields=['status', 'notes'])
+        _recompute_invoice_status(invoice)
+    return invoice
+
+
 def zero_invoice_balance(invoice, created_by=None, notes=''):
     """
     Manually settle an invoice's outstanding balance to zero.
@@ -1286,7 +1337,7 @@ def zero_invoice_balance(invoice, created_by=None, notes=''):
         amount=outstanding,
         payment_date=timezone.now().date(),
         payment_method='other',
-        reference_name='Manual balance adjustment',
+        reference_name=MANUAL_SETTLEMENT_REFERENCE,
         notes=note_text,
         created_by=created_by,
         status='confirmed',

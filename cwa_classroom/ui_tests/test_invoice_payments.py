@@ -131,6 +131,24 @@ class TestZeroInvoiceBalance:
         assert self.invoice.status == "paid"
         assert self.invoice.amount_due == Decimal("0.00")
 
+    def test_zero_then_undo_restores_balance(self):
+        """After zeroing, an Undo button reverses the settlement."""
+        self.page.on("dialog", lambda dialog: dialog.accept())
+        self.page.get_by_role("button", name=re.compile(r"Zero Balance", re.IGNORECASE)).first.click()
+        self.page.wait_for_load_state("domcontentloaded")
+        self.invoice.refresh_from_db()
+        assert self.invoice.status == "paid"
+
+        # Undo from the payment history.
+        undo = self.page.get_by_role("button", name=re.compile(r"^Undo$", re.IGNORECASE))
+        expect(undo.first).to_be_visible()
+        undo.first.click()
+        self.page.wait_for_load_state("domcontentloaded")
+
+        self.invoice.refresh_from_db()
+        assert self.invoice.status == "issued"
+        assert self.invoice.amount_due == Decimal("120.00")
+
 
 class TestBulkZeroBalances:
     """Tests for /invoicing/zero-balances/ — scoped bulk zeroing."""
@@ -147,10 +165,11 @@ class TestBulkZeroBalances:
     def test_page_loads(self):
         assert_page_has_text(self.page, "Zero Balances")
 
-    def test_irreversible_warning_shown(self):
-        """The scope page must warn the action cannot be undone."""
+    def test_warning_shown(self):
+        """The scope page must warn it writes off money and note reversibility."""
         body = self.page.locator("body").inner_text().lower()
-        assert "cannot be undone" in body
+        assert "writes off money owed" in body
+        assert "reversed" in body
 
     def test_scope_dropdowns_present(self):
         """Whole-institute / department + class scope selectors exist."""

@@ -1447,6 +1447,43 @@ class ZeroInvoiceBalanceView(RoleRequiredMixin, View):
         return redirect('invoice_detail', invoice_id=invoice.id)
 
 
+class ReverseInvoicePaymentView(RoleRequiredMixin, View):
+    """Undo a manual balance-adjustment settlement, restoring the balance.
+
+    Reverses a payment created by the Zero Balance action (single or bulk) so
+    the invoice returns to issued / partially-paid. Only manual settlements can
+    be reversed here — real recorded payments are left untouched.
+    """
+    required_roles = INVOICING_ROLES
+
+    def post(self, request, payment_id):
+        school = _get_single_school(request.user)
+        payment = get_object_or_404(InvoicePayment, id=payment_id, school=school)
+        invoice = payment.invoice
+
+        if invoice is None:
+            messages.error(request, 'This payment is no longer linked to an invoice and cannot be reversed.')
+            return redirect('invoice_list')
+
+        result = svc.reverse_manual_settlement(payment, reversed_by=request.user)
+        if result is None:
+            messages.error(request, 'This payment is not a reversible manual settlement.')
+            return redirect('invoice_detail', invoice_id=invoice.id)
+
+        log_event(
+            user=request.user, school=school, category='data_change',
+            action='invoice_settlement_reversed',
+            detail={'invoice_id': invoice.id, 'invoice_number': invoice.invoice_number,
+                    'payment_id': payment.id, 'amount': str(payment.amount)},
+            request=request,
+        )
+        messages.success(
+            request,
+            f'Manual settlement of ${payment.amount} reversed — balance restored.',
+        )
+        return redirect('invoice_detail', invoice_id=invoice.id)
+
+
 class ZeroBalancesView(RoleRequiredMixin, View):
     """Bulk-zero outstanding balances for a chosen scope.
 

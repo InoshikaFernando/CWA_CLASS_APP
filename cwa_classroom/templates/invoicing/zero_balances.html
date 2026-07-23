@@ -29,12 +29,13 @@
       <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
     </svg>
     <div class="text-sm text-amber-800">
-      <p class="font-semibold">This permanently clears money owed.</p>
+      <p class="font-semibold">This writes off money owed.</p>
       <p class="mt-1">
         Use it only when there's no time to upload bank statements and reconcile payments.
         It records a manual settlement for every outstanding balance in the chosen scope and
         marks those invoices <span class="font-semibold">paid</span>.
-        <span class="font-semibold">This cannot be undone.</span>
+        Each settlement can be <span class="font-semibold">reversed</span> afterwards from that
+        invoice's Payment History.
       </p>
     </div>
   </div>
@@ -84,7 +85,7 @@
               <p class="font-semibold">
                 You are about to zero {{ preview_count }} invoice balance{{ preview_count|pluralize }} totalling ${{ preview_total }}.
               </p>
-              <p class="mt-1">These invoices will be marked paid and the outstanding amounts written off. <span class="font-semibold">This action cannot be undone.</span></p>
+              <p class="mt-1">These invoices will be marked paid and the outstanding amounts written off. You can reverse each settlement individually from the invoice's Payment History.</p>
             </div>
           </div>
         </div>
@@ -93,7 +94,7 @@
           <a href="{% url 'zero_balances' %}"
              class="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 font-medium">Cancel</a>
           <form method="post" action="{% url 'zero_balances' %}"
-                onsubmit="return confirm('Zero {{ preview_count }} invoice balance{{ preview_count|pluralize }} totalling ${{ preview_total }}? This cannot be undone.')">
+                onsubmit="return confirm('Zero {{ preview_count }} invoice balance{{ preview_count|pluralize }} totalling ${{ preview_total }}? Each settlement can be reversed later from the invoice.')">
             {% csrf_token %}
             <input type="hidden" name="action" value="confirm">
             {% if scope.department_id %}<input type="hidden" name="department_id" value="{{ scope.department_id }}">{% endif %}

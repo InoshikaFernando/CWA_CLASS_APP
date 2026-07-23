@@ -221,6 +221,7 @@
                 <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Reference</th>
                 <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Amount</th>
                 <th class="px-6 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Status</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -237,6 +238,20 @@
                       {% else %}bg-gray-100 text-gray-600{% endif %}">
                       {{ payment.get_status_display }}
                     </span>
+                  </td>
+                  <td class="px-6 py-3 text-right">
+                    {% if payment.status == 'confirmed' and payment.reference_name == 'Manual balance adjustment' %}
+                      <form method="post" action="{% url 'reverse_invoice_payment' payment_id=payment.id %}"
+                            onsubmit="return confirm('Reverse this manual settlement? The outstanding balance will be restored.')">
+                        {% csrf_token %}
+                        <button type="submit"
+                          class="text-xs font-medium text-amber-700 hover:text-amber-900 hover:underline">
+                          Undo
+                        </button>
+                      </form>
+                    {% else %}
+                      <span class="text-xs text-gray-300">&mdash;</span>
+                    {% endif %}
                   </td>
                 </tr>
               {% endfor %}
@@ -340,7 +355,7 @@
             <span class="font-medium text-gray-700">{{ invoice.amount_due|format_currency:effective_currency }}</span>
             without importing bank transactions. Records a manual settlement and marks the invoice paid.
           </p>
-          <p class="text-xs font-medium text-amber-700 mb-4">⚠ This writes off the amount owed and cannot be undone.</p>
+          <p class="text-xs font-medium text-amber-700 mb-4">⚠ This writes off the amount owed. You can reverse it afterwards from the Payment History above.</p>
           <form method="post" action="{% url 'zero_invoice_balance' invoice_id=invoice.id %}"
                 onsubmit="return confirm('Zero the outstanding balance of this invoice? This records a manual settlement and marks the invoice paid.')">
             {% csrf_token %}

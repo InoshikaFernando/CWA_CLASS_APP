@@ -803,6 +803,93 @@ class ZeroBalancesViewTests(TestCase):
         self.assertNotIn(self.inv_a.id, ids)
 
 
+class ReverseInvoicePaymentViewTests(TestCase):
+    def setUp(self):
+        self.owner, self.school = _setup_school()
+        self.student = _setup_student(self.school)
+        self.invoice = _make_invoice(self.school, self.student, status='issued',
+                                     amount='100.00', created_by=self.owner)
+        self.client = Client()
+        self.client.login(username='testowner', password='password1!')
+
+    def _zero_it(self):
+        """Zero the invoice via the per-invoice action and return the settlement."""
+        self.client.post(reverse('zero_invoice_balance', args=[self.invoice.id]))
+        self.invoice.refresh_from_db()
+        return InvoicePayment.objects.get(
+            invoice=self.invoice, reference_name='Manual balance adjustment',
+        )
+
+    def test_undo_restores_balance(self):
+        settlement = self._zero_it()
+        self.assertEqual(self.invoice.status, 'paid')
+
+        resp = self.client.post(reverse('reverse_invoice_payment', args=[settlement.id]))
+        self.assertEqual(resp.status_code, 302)
+        self.invoice.refresh_from_db()
+        settlement.refresh_from_db()
+        self.assertEqual(settlement.status, 'rejected')
+        self.assertEqual(self.invoice.status, 'issued')
+        self.assertEqual(self.invoice.amount_due, Decimal('100.00'))
+
+    def test_undo_restores_to_partially_paid(self):
+        # Pay 30 first, then zero the remaining 70, then undo → back to partial.
+        InvoicePayment.objects.create(
+            invoice=self.invoice, student=self.student, school=self.school,
+            amount=Decimal('30.00'), payment_date=datetime.date(2025, 1, 10),
+            payment_method='cash', status='confirmed',
+        )
+        settlement = self._zero_it()
+        self.assertEqual(self.invoice.status, 'paid')
+
+        self.client.post(reverse('reverse_invoice_payment', args=[settlement.id]))
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'partially_paid')
+        self.assertEqual(self.invoice.amount_due, Decimal('70.00'))
+
+    def test_cannot_reverse_a_real_payment(self):
+        real = InvoicePayment.objects.create(
+            invoice=self.invoice, student=self.student, school=self.school,
+            amount=Decimal('100.00'), payment_date=datetime.date(2025, 1, 10),
+            payment_method='cash', reference_name='John Smith', status='confirmed',
+        )
+        resp = self.client.post(reverse('reverse_invoice_payment', args=[real.id]))
+        self.assertEqual(resp.status_code, 302)
+        real.refresh_from_db()
+        self.assertEqual(real.status, 'confirmed')  # untouched
+
+    def test_cannot_reverse_twice(self):
+        settlement = self._zero_it()
+        self.client.post(reverse('reverse_invoice_payment', args=[settlement.id]))
+        # Second attempt is a no-op (already rejected).
+        resp = self.client.post(reverse('reverse_invoice_payment', args=[settlement.id]))
+        self.assertEqual(resp.status_code, 302)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'issued')
+
+    def test_reverse_other_school_payment_404(self):
+        other_owner = CustomUser.objects.create_user(
+            'other_owner', 'wlhtestmails+oo@gmail.com', 'password1!')
+        _assign_role(other_owner, Role.INSTITUTE_OWNER)
+        other_school = School.objects.create(
+            name='Other', slug='other-school', admin=other_owner)
+        settlement = self._zero_it()
+        self.client.login(username='other_owner', password='password1!')
+        resp = self.client.post(reverse('reverse_invoice_payment', args=[settlement.id]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_bulk_zero_then_undo_roundtrip(self):
+        # Bulk-zero the whole institute, then undo the one settlement.
+        self.client.post(reverse('zero_balances'), {'action': 'confirm'})
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'paid')
+        settlement = InvoicePayment.objects.get(
+            invoice=self.invoice, reference_name='Manual balance adjustment')
+        self.client.post(reverse('reverse_invoice_payment', args=[settlement.id]))
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, 'issued')
+
+
 class CSVUploadViewTests(TestCase):
     def setUp(self):
         self.owner, self.school = _setup_school()
