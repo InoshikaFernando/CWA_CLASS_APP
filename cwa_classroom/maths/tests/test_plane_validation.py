@@ -100,6 +100,17 @@ def test_plane_bool_not_a_coord():
         validate_plane_spec(_plane(points=[[True, 2]]))
 
 
+def test_plane_curve_flag_accepted():
+    validate_plane_spec(_plane(curve=True))        # must not raise
+    validate_plane_spec(_plane(curve=False))       # must not raise
+    validate_plane_spec(_plane())                  # absent is fine (default off)
+
+
+def test_plane_curve_flag_must_be_boolean():
+    with pytest.raises(ValueError, match='curve'):
+        validate_plane_spec(_plane(curve='yes'))
+
+
 # ── validate_graph_spec ──────────────────────────────────────────────────
 
 def test_valid_graph_passes():
@@ -185,3 +196,25 @@ def test_model_clean_requires_numeric_answer_for_read_graph():
     with pytest.raises(ValidationError) as exc:
         q.full_clean()
     assert 'numeric_answer' in exc.value.error_dict
+
+
+@pytest.mark.django_db
+def test_plane_data_exposes_curve_flag():
+    from classroom.models import Level
+    from maths.models import Question
+
+    level, _ = Level.objects.get_or_create(
+        level_number=984, defaults={'display_name': 'plane validation fixture'},
+    )
+    base = {'bounds': {'xmin': -2, 'xmax': 8, 'ymin': -6, 'ymax': 6},
+            'mode': 'points', 'target': {'points': [[-1, 4], [1, -2], [3, -4]]}}
+
+    on = Question(level=level, question_text='Plot + curve.',
+                  question_type=Question.PLOT_POINTS, plane_spec={**base, 'curve': True})
+    on.full_clean()
+    assert on.plane_data['curve'] is True
+
+    off = Question(level=level, question_text='Plot only.',
+                   question_type=Question.PLOT_POINTS, plane_spec=base)
+    off.full_clean()
+    assert off.plane_data['curve'] is False  # default: no curve, unchanged behaviour

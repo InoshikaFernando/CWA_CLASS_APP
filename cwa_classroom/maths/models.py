@@ -689,6 +689,9 @@ class Question(models.Model):
             'xmin': xmin, 'xmax': xmax, 'ymin': ymin, 'ymax': ymax,
             'mode': self.plane_spec.get('mode') or 'points',
             'dots': dots, 'given': given, 'interactive': interactive,
+            # Opt-in: render a smooth curve through the plotted points (plot_points
+            # only — a "join the dots into a parabola" visual aid; grading unchanged).
+            'curve': bool(self.plane_spec.get('curve')),
         }
 
     @property
