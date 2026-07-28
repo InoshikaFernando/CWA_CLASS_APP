@@ -36,6 +36,19 @@ MAX_PARENTS_PER_STUDENT = 2
 logger = logging.getLogger(__name__)
 
 
+def _redirect_after_student_action(request, school):
+    """Redirect back to the page a student remove/restore was triggered from.
+
+    Honours a ``next`` param but only for the whitelisted student views so it
+    can never be used as an open redirect. Defaults to the main manage page.
+    """
+    allowed = {'admin_school_students', 'admin_school_students_recent'}
+    target = request.POST.get('next') or request.GET.get('next')
+    if target in allowed:
+        return redirect(target, school_id=school.id)
+    return redirect('admin_school_students', school_id=school.id)
+
+
 def _subscription_or_none(user):
     """Return the user's billing.Subscription, or None (no exception) — the
     OneToOne reverse accessor raises DoesNotExist when there is no row."""
@@ -2217,6 +2230,62 @@ class StudentDiscountClearView(RoleRequiredMixin, View):
         return redirect('admin_school_students', school_id=school.id)
 
 
+class RecentStudentsView(RoleRequiredMixin, View):
+    """Audit view: students most-recently added to a school, newest first.
+
+    Built for the case where students were added by mistake and there is no
+    easy way to tell *which* ones. It shows each student's exact add date and
+    time (``SchoolStudent.joined_at``) and offers a one-click deactivate so the
+    wrong records can be removed. Inactive (already-removed) students are shown
+    too — greyed out with a restore action — so an accidental removal is easy
+    to undo.
+    """
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.TEACHER,
+    ]
+
+    # Quick time-window filters. Value is number of days, or None for "all".
+    WINDOW_CHOICES = [
+        ('1', 'Last 24 hours', 1),
+        ('7', 'Last 7 days', 7),
+        ('30', 'Last 30 days', 30),
+        ('all', 'All time', None),
+    ]
+    DEFAULT_WINDOW = '7'
+
+    def get(self, request, school_id):
+        school = SchoolStudentManageView._get_school(self, request, school_id)
+
+        window = request.GET.get('window', self.DEFAULT_WINDOW)
+        window_map = {key: days for key, _label, days in self.WINDOW_CHOICES}
+        if window not in window_map:
+            window = self.DEFAULT_WINDOW
+        days = window_map[window]
+
+        qs = (
+            SchoolStudent.objects.filter(school=school)
+            .select_related('student')
+            .order_by('-joined_at')
+        )
+        if days is not None:
+            since = timezone.now() - timedelta(days=days)
+            qs = qs.filter(joined_at__gte=since)
+
+        paginator = Paginator(qs, 25)
+        page = paginator.get_page(request.GET.get('page'))
+
+        ctx = {
+            'school': school,
+            'school_students': page,
+            'page': page,
+            'window': window,
+            'window_choices': self.WINDOW_CHOICES,
+            'total_count': paginator.count,
+        }
+        return render(request, 'admin_dashboard/recent_students.html', ctx)
+
+
 class SchoolStudentExportCSVView(RoleRequiredMixin, View):
     """Download a CSV of every student in a school.
 
@@ -2726,18 +2795,37 @@ class SchoolStudentRemoveView(RoleRequiredMixin, View):
                 ClassStudent.objects.filter(
                     id__in=deactivated_class_student_ids
                 ).update(is_active=False)
+            # If this was the student's last active school, convert them to an
+            # individual student (role swap) and end any *partial* school
+            # discount so they pay CWA full monthly. A 100% free discount is
+            # preserved. No-op while they still belong to another school — their
+            # single per-user subscription is shared and left untouched.
+            from .student_lifecycle import convert_to_individual_if_last_school
+            try:
+                conversion = convert_to_individual_if_last_school(
+                    student_user, actor=request.user)
+            except Exception:
+                logger.exception(
+                    'Post-removal individual conversion failed for user %s', student_id)
+                conversion = {'converted': False, 'reason': 'error', 'discount': 'none'}
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='student_removed', detail={
                     'student_id': student_id, 'student_name': name,
                     'class_student_ids': deactivated_class_student_ids,
+                    'conversion': conversion,
                 },
                 request=request,
             )
-            messages.success(request, f'{name} has been removed from {school.name}.')
+            msg = f'{name} has been removed from {school.name}.'
+            if conversion.get('converted'):
+                msg += ' They are no longer in any school and are now an individual student.'
+                if conversion.get('discount') == 'cleared':
+                    msg += ' Their school discount was cleared — they will pay the full amount on next login.'
+            messages.success(request, msg)
         else:
             messages.warning(request, 'Student was not found at this school.')
-        return redirect('admin_school_students', school_id=school.id)
+        return _redirect_after_student_action(request, school)
 
 
 class SchoolStudentRestoreView(RoleRequiredMixin, View):
@@ -2763,6 +2851,10 @@ class SchoolStudentRestoreView(RoleRequiredMixin, View):
                 ClassStudent.objects.filter(
                     classroom__school=school, student=student_user, is_active=False
                 ).update(is_active=True)
+            # If they were converted to an individual student on removal, swap
+            # the role back so a restored account is a school student again.
+            from .student_lifecycle import restore_school_student_role
+            restore_school_student_role(student_user)
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='student_restored', detail={
@@ -2773,7 +2865,7 @@ class SchoolStudentRestoreView(RoleRequiredMixin, View):
             messages.success(request, f'{name} has been restored to {school.name}.')
         else:
             messages.warning(request, 'Inactive student was not found at this school.')
-        return redirect('admin_school_students', school_id=school.id)
+        return _redirect_after_student_action(request, school)
 
 
 # ── Custom Level CRUD ─────────────────────────────────────────────────────────
