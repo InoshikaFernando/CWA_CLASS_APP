@@ -5,11 +5,12 @@ sees students newest-first with their add date/time, deactivates a wrongly-added
 student (with confirm), then restores them — all without leaving the page.
 """
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from django.utils import timezone
 
-from .conftest import do_login
+from .conftest import do_login, do_logout, TEST_PASSWORD
 from .helpers import assert_page_has_text
 
 pytestmark = pytest.mark.dashboard
@@ -155,3 +156,63 @@ class TestRecentStudentsUI:
         assert ss.is_active is False
         assert "/students/recent/" in self.page.url
         assert_page_has_text(self.page, "Removed")
+
+    def test_e2e_add_remove_last_school_then_login_as_individual(self):
+        """add via UI -> remove from last school -> log in as the converted
+        individual student and confirm they can use the app."""
+        from accounts.models import CustomUser, Role, UserRole
+        from billing.models import Package, Subscription
+        from classroom.models import SchoolStudent
+
+        # 1. Add a student through the real Add Student modal.
+        self.page.goto(
+            f"{self.url}/admin-dashboard/schools/{self.school.id}/students/")
+        self.page.wait_for_load_state("domcontentloaded")
+        self.page.get_by_role("button", name="Add Student").first.click()
+        add_form = self.page.locator("form:has(#first_name)")
+        add_form.locator("#first_name").fill("Ada")
+        add_form.locator("#last_name").fill("Lovelace")
+        add_form.locator("#email").fill("ada.lovelace.e2e@school.com")
+        add_form.locator("#password").fill(TEST_PASSWORD)
+        add_form.locator("button[type='submit']").click()
+        self.page.wait_for_load_state("domcontentloaded")
+
+        user = CustomUser.objects.get(email="ada.lovelace.e2e@school.com")
+        # Represent a student who has since completed onboarding and holds an
+        # active (100% free) CWA subscription — so an individual student is not
+        # walled by the payment gate after conversion.
+        user.profile_completed = True
+        user.must_change_password = False
+        user.save(update_fields=["profile_completed", "must_change_password"])
+        pkg = Package.objects.create(
+            name="IndE2E", price=Decimal("19.90"), stripe_price_id="price_e2eind")
+        Subscription.objects.create(
+            user=user, package=pkg, status=Subscription.STATUS_ACTIVE,
+            discount_percent_snapshot=100)
+
+        # 2. Remove from their only (last) school via Recently Added.
+        self.page.goto(self._recent_url())
+        self.page.wait_for_load_state("domcontentloaded")
+        self.page.on("dialog", lambda d: d.accept())
+        remove_action = (
+            f"/admin-dashboard/schools/{self.school.id}/students/{user.id}/remove/")
+        self.page.locator(
+            f"form[action='{remove_action}'] button[type='submit']").click()
+        self.page.wait_for_load_state("domcontentloaded")
+
+        # Converted to an individual student.
+        assert UserRole.objects.filter(
+            user=user, role__name=Role.INDIVIDUAL_STUDENT).exists()
+        assert not UserRole.objects.filter(
+            user=user, role__name=Role.STUDENT).exists()
+        assert not SchoolStudent.objects.filter(student=user, is_active=True).exists()
+
+        # 3. Log in as the now-individual student.
+        do_logout(self.page, self.url)
+        do_login(self.page, self.url, user)
+
+        # 4. They can use the app — not bounced to login or the payment wall.
+        self.page.goto(f"{self.url}/homework/")
+        self.page.wait_for_load_state("domcontentloaded")
+        assert "/accounts/login" not in self.page.url
+        assert "trial-expired" not in self.page.url
