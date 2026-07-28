@@ -2795,15 +2795,34 @@ class SchoolStudentRemoveView(RoleRequiredMixin, View):
                 ClassStudent.objects.filter(
                     id__in=deactivated_class_student_ids
                 ).update(is_active=False)
+            # If this was the student's last active school, convert them to an
+            # individual student (role swap) and end any *partial* school
+            # discount so they pay CWA full monthly. A 100% free discount is
+            # preserved. No-op while they still belong to another school — their
+            # single per-user subscription is shared and left untouched.
+            from .student_lifecycle import convert_to_individual_if_last_school
+            try:
+                conversion = convert_to_individual_if_last_school(
+                    student_user, actor=request.user)
+            except Exception:
+                logger.exception(
+                    'Post-removal individual conversion failed for user %s', student_id)
+                conversion = {'converted': False, 'reason': 'error', 'discount': 'none'}
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='student_removed', detail={
                     'student_id': student_id, 'student_name': name,
                     'class_student_ids': deactivated_class_student_ids,
+                    'conversion': conversion,
                 },
                 request=request,
             )
-            messages.success(request, f'{name} has been removed from {school.name}.')
+            msg = f'{name} has been removed from {school.name}.'
+            if conversion.get('converted'):
+                msg += ' They are no longer in any school and are now an individual student.'
+                if conversion.get('discount') == 'cleared':
+                    msg += ' Their school discount was cleared — they will pay the full amount on next login.'
+            messages.success(request, msg)
         else:
             messages.warning(request, 'Student was not found at this school.')
         return _redirect_after_student_action(request, school)
@@ -2832,6 +2851,10 @@ class SchoolStudentRestoreView(RoleRequiredMixin, View):
                 ClassStudent.objects.filter(
                     classroom__school=school, student=student_user, is_active=False
                 ).update(is_active=True)
+            # If they were converted to an individual student on removal, swap
+            # the role back so a restored account is a school student again.
+            from .student_lifecycle import restore_school_student_role
+            restore_school_student_role(student_user)
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='student_restored', detail={
