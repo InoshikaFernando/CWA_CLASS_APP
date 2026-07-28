@@ -110,3 +110,48 @@ class TestRecentStudentsUI:
             f"{self.url}/admin-dashboard/schools/{self.school.id}/students/")
         self.page.wait_for_load_state("domcontentloaded")
         assert f"/students/recent/" in self.page.content()
+
+    def test_e2e_add_via_ui_then_find_and_deactivate(self):
+        """Full flow: add a student through the real Add Student modal, then
+        find them on Recently Added and deactivate — the MHM scenario end to end."""
+        from accounts.models import CustomUser
+        from classroom.models import SchoolStudent
+
+        # 1. Add a brand-new student through the Manage Students UI.
+        self.page.goto(
+            f"{self.url}/admin-dashboard/schools/{self.school.id}/students/")
+        self.page.wait_for_load_state("domcontentloaded")
+        self.page.get_by_role("button", name="Add Student").first.click()
+
+        add_form = self.page.locator("form:has(#first_name)")
+        add_form.locator("#first_name").fill("Grace")
+        add_form.locator("#last_name").fill("Hopper")
+        add_form.locator("#email").fill("grace.hopper.e2e@school.com")
+        add_form.locator("#password").fill("TestPass123!")
+        add_form.locator("button[type='submit']").click()
+        self.page.wait_for_load_state("domcontentloaded")
+
+        # The account really exists now (created via the UI, not the ORM fixture).
+        new_user = CustomUser.objects.get(email="grace.hopper.e2e@school.com")
+        assert SchoolStudent.objects.filter(
+            school=self.school, student=new_user, is_active=True).exists()
+
+        # 2. It appears on Recently Added (default 7-day window — just added).
+        self.page.goto(self._recent_url())
+        self.page.wait_for_load_state("domcontentloaded")
+        assert_page_has_text(self.page, "Grace Hopper")
+
+        # 3. Deactivate it from the recent page.
+        self.page.on("dialog", lambda d: d.accept())
+        remove_action = (
+            f"/admin-dashboard/schools/{self.school.id}/students/"
+            f"{new_user.id}/remove/"
+        )
+        self.page.locator(
+            f"form[action='{remove_action}'] button[type='submit']").click()
+        self.page.wait_for_load_state("domcontentloaded")
+
+        ss = SchoolStudent.objects.get(school=self.school, student=new_user)
+        assert ss.is_active is False
+        assert "/students/recent/" in self.page.url
+        assert_page_has_text(self.page, "Removed")
