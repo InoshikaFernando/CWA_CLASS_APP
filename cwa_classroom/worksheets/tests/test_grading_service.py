@@ -202,6 +202,24 @@ class TestGradeExtendedAnswer:
         assert 'error' not in result  # parsing succeeded, did not hit the except path
 
     @patch('anthropic.Anthropic')
+    def test_call_claude_grade_refusal_hands_off_to_teacher(self, mock_anthropic):
+        """A content-safety refusal (stop_reason == 'refusal') must NOT be scored —
+        it falls through to the teacher-review fallback rather than fabricating a
+        grade from empty content."""
+        resp = MagicMock(stop_reason='refusal')
+        resp.content = []
+        resp.usage = MagicMock(input_tokens=10, output_tokens=0)
+        mock_anthropic.return_value.messages.create.return_value = resp
+
+        q = self._make_question()
+        result = _call_claude_grade(q, 'answer', 'answer')
+
+        assert result['is_correct'] is False
+        assert result['score_fraction'] == 0.0
+        assert 'teacher' in result['feedback'].lower()
+        assert 'error' in result  # took the fallback path, did not score empty output
+
+    @patch('anthropic.Anthropic')
     def test_call_claude_grade_tolerates_prose_before_json(self, mock_anthropic):
         """Opus with thinking off can prepend reasoning prose; _call_claude_grade
         still recovers the JSON object."""

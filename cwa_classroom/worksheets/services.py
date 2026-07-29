@@ -647,11 +647,14 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
 
     # Stream so a long generation doesn't trip the SDK read timeout.
     # claude-sonnet-4-20250514 is deprecated; default to Opus (env-overridable via
-    # WORKSHEET_MODEL). No adaptive thinking here — it is incompatible with the
-    # forced tool_choice below.
+    # WORKSHEET_MODEL). Thinking is explicitly disabled — it is incompatible with
+    # the forced tool_choice below, and on Opus 5 (and later) adaptive thinking is
+    # ON by default, so omitting the parameter would 400. Disabled thinking is
+    # valid at the default effort ("high").
     with client.messages.stream(
-        model=os.environ.get('WORKSHEET_MODEL', 'claude-opus-4-8'),
+        model=os.environ.get('WORKSHEET_MODEL', 'claude-opus-5'),
         max_tokens=WORKSHEET_MAX_TOKENS,
+        thinking={"type": "disabled"},
         system=system,
         tools=[WORKSHEET_CLASSIFICATION_TOOL],
         tool_choice={"type": "tool", "name": "classify_worksheet_questions"},
@@ -679,6 +682,11 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
             raise ValueError(
                 'A section of the worksheet is too dense to process in one chunk. '
                 'Try a smaller WORKSHEET_CHUNK_SIZE.'
+            )
+        if stop_reason == 'refusal':
+            raise ValueError(
+                'The AI declined to process this worksheet (content safety). '
+                'Please review the source and try again.'
             )
         raise ValueError("AI did not return structured question data. Please try again.")
 

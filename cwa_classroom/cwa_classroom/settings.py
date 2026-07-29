@@ -142,10 +142,11 @@ FEEDBACK_DISCORD_WEBHOOK = os.environ.get('FEEDBACK_DISCORD_WEBHOOK', '')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
 # Claude pricing (USD per 1M tokens) used to estimate per-upload AI cost in the
-# usage ledger. Defaults match Claude Opus 4.8 list price — the model both AI
-# pipelines actually run (AI_IMPORT_MODEL / WORKSHEET_MODEL). Override via env
-# when the model or list price changes. (Was $3/$15 Sonnet 4, which understated
-# true cost ~1.67x while the pipelines ran on Opus.)
+# usage ledger. Defaults match the Claude Opus list price ($5/$25) — the model
+# both AI pipelines actually run (AI_IMPORT_MODEL / WORKSHEET_MODEL default to
+# Opus 5, same list price as Opus 4.8). Override via env when the model or list
+# price changes. (Was $3/$15 Sonnet 4, which understated true cost ~1.67x while
+# the pipelines ran on Opus.)
 CLAUDE_INPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_INPUT_COST_PER_MTOK', '5.0'))
 CLAUDE_OUTPUT_COST_PER_MTOK = float(
