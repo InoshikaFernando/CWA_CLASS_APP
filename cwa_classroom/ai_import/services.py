@@ -309,13 +309,28 @@ MATCHING THE RIGHT IMAGE TO EACH QUESTION (important — this is the #1 cause of
 - So: locate where the question's own text/number is on the page, then attach the embedded image
   whose box is in that same region. Question 1 (top-left) → the top-left image; question 4
   (bottom-right) → the bottom-right image; and so on.
-- Never attach the SAME embedded image to two different questions, and never attach a figure whose
-  region does not match the question's region. Each distinct figure belongs to exactly one question.
+- Never attach a figure whose region does not match the question's region. Each distinct figure
+  belongs to exactly one question — EXCEPT for a group of consecutive questions that genuinely share
+  ONE visual (see GROUP QUESTIONS SHARING ONE IMAGE below).
 - Ignore images flagged "small — likely a decorative marker" (angle arcs / right-angle squares)
   and any flagged "covers the whole page" (a scanned page or poster background) when choosing a
   question's figure — neither is that question's diagram. Pick the main figure for the region.
 - If two candidate images share a region, prefer the larger one (the full diagram) and the one
   directly adjacent to the question text.
+
+GROUP QUESTIONS SHARING ONE IMAGE (important):
+- Sometimes several CONSECUTIVE questions all refer to the SAME single visual — e.g. a heading like
+  "Use the diagram below to answer questions 3–6", or a graph/table/figure followed by several
+  questions about it. Treat these as an image group.
+- Attach the shared visual to the FIRST question of the group only, the normal way (image_ref if it
+  is an embedded image, otherwise image_page + image_box). That first question must have
+  shares_image_with_previous null/false.
+- For every FOLLOWING question in the same group, set shares_image_with_previous to true and leave
+  image_ref, image_page and image_box all null — the shared image is carried over from the previous
+  question automatically. Do NOT re-box or re-reference the same figure on each question.
+- This applies ONLY to a consecutive run of questions on the SAME visual. Do NOT set
+  shares_image_with_previous for scattered questions that merely happen to look alike or sit near
+  similar figures — only for a true shared-image group.
 
 SPLIT MULTI-PART QUESTIONS (important):
 - When a single question contains multiple sub-parts labelled a), b), c) (or i, ii, iii / 1, 2, 3),
@@ -629,6 +644,21 @@ CLASSIFICATION_TOOL = {
                                 "y2": {"type": "number"},
                             },
                         },
+                        "shares_image_with_previous": {
+                            "type": "boolean",
+                            "description": (
+                                "Set true ONLY when this question belongs to a GROUP that shares ONE "
+                                "visual with the question IMMEDIATELY BEFORE it — e.g. 'Use the diagram "
+                                "below to answer questions 3–6', or several sub-questions hanging off a "
+                                "single shared graph/table/figure. When true, leave image_ref, image_page "
+                                "and image_box all null: the shared image is carried over from the "
+                                "previous question automatically. The FIRST question in the group still "
+                                "carries the image normally (image_ref OR image_page+image_box) and must "
+                                "have shares_image_with_previous false/null. Only use this for a "
+                                "consecutive run of questions on the SAME shared visual — never for "
+                                "unrelated questions that merely happen to look similar."
+                            ),
+                        },
                         "year_level": {
                             "type": "integer",
                             "description": "Override year level for this question if different from default",
@@ -810,13 +840,13 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
     # read timeout (anthropic.APITimeoutError). get_final_message() returns the
     # same Message a non-streaming create() would.
     #
-    # Default to Opus (far stronger arithmetic — it reliably solves the
-    # missing-digit / worked-solution questions that Sonnet 4 guessed wrong) with
-    # adaptive thinking so it works each computation out before answering. Override
-    # the model via AI_IMPORT_MODEL (must be a model that supports adaptive
-    # thinking — Opus/Sonnet 4.6+).
+    # Default to Opus (far stronger arithmetic and vision — it reliably solves the
+    # missing-digit / worked-solution questions that Sonnet 4 guessed wrong, and
+    # reads diagrams more reliably) with adaptive thinking so it works each
+    # computation out before answering. Override the model via AI_IMPORT_MODEL
+    # (must be a model that supports adaptive thinking — Opus/Sonnet 4.6+).
     with client.messages.stream(
-        model=os.environ.get('AI_IMPORT_MODEL', 'claude-opus-4-8'),
+        model=os.environ.get('AI_IMPORT_MODEL', 'claude-opus-5'),
         # Generous cap so a question-dense / multi-page PDF doesn't get its
         # extracted-question list truncated (override via AI_IMPORT_MAX_TOKENS).
         max_tokens=int(os.environ.get('AI_IMPORT_MAX_TOKENS', '32000')),
@@ -845,6 +875,14 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
                     pass
 
     if not result:
+        # A safety refusal (stop_reason "refusal") returns no tool_use and no
+        # parseable text — surface it clearly instead of the generic message so a
+        # blocked document is distinguishable from a parse failure.
+        if getattr(response, 'stop_reason', None) == 'refusal':
+            raise ValueError(
+                "The AI declined to process this document (content safety). "
+                "Please review the PDF and try again."
+            )
         raise ValueError("AI did not return structured question data. Please try again.")
 
     result['usage'] = {
@@ -1164,101 +1202,184 @@ def crop_figure_boxes(extracted_content, result, pdf_bytes=None):
 
 
 def _crop_figure_boxes_inner(result, pages, crops, decoded, doc, Image, io):
+    # Track the image assigned to the immediately-preceding question so a group of
+    # consecutive questions that share ONE visual (e.g. "use the diagram below to
+    # answer questions 3–6") reuses that image instead of re-cropping it. prev_image
+    # is reset to None the moment a question ends up with no image, so "previous"
+    # only ever means the question directly before this one — never a scattered
+    # earlier figure.
+    prev_image = None
     for idx, q in enumerate(result.get('questions', []), 1):
-        # An embedded image already covers this question — prefer it (raster
-        # fidelity beats a screenshot crop).
-        if q.get('image_ref'):
-            q.pop('image_page', None)
+        shares = bool(q.pop('shares_image_with_previous', False))
+
+        # Explicit group signal, or an unflagged question that boxed essentially the
+        # same region as the previous question's crop (a shared figure the model
+        # re-boxed instead of flagging) → reuse the previous image verbatim.
+        if prev_image is not None and (
+                shares or _reuses_prev_figure(q, prev_image)):
             q.pop('image_box', None)
+            q.pop('image_page', None)
+            q['image_ref'] = prev_image['ref']
+            if prev_image.get('page') is not None:
+                q['image_page'] = prev_image['page']
+            if prev_image.get('bbox_frac') is not None:
+                q['image_bbox_frac'] = prev_image['bbox_frac']
+            # prev_image is unchanged so the whole group keeps sharing it.
             continue
 
-        box = q.get('image_box')
-        page_num = q.get('image_page')
-        # Clear the transient box fields regardless of outcome so they never
-        # get persisted on the session / shown in the editor.
-        q.pop('image_box', None)
-        q.pop('image_page', None)
-        if not box or not page_num:
-            continue
+        _assign_figure_to_question(q, idx, pages, crops, decoded, doc, Image, io)
 
-        try:
-            page = pages.get(int(page_num))
-            x1, y1 = float(box['x1']), float(box['y1'])
-            x2, y2 = float(box['x2']), float(box['y2'])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if not page or not page.get('screenshot'):
-            continue
-
-        # Normalise corner order and clamp to the page.
-        lo_x, hi_x = sorted((x1, x2))
-        lo_y, hi_y = sorted((y1, y2))
-        lo_x, hi_x = max(0.0, lo_x), min(100.0, hi_x)
-        lo_y, hi_y = max(0.0, lo_y), min(100.0, hi_y)
-
-        # Snap to the actual drawn-figure bounds when we detected vector clusters
-        # on the page — corrects boxes that clip the figure or grab adjacent text.
-        regions = page.get('figure_regions') or []
-        overlapping = [r for r in regions
-                       if _boxes_overlap([lo_x, lo_y, hi_x, hi_y], r)]
-        if overlapping:
-            lo_x, lo_y, hi_x, hi_y = _snap_box_to_figures(
-                [lo_x, lo_y, hi_x, hi_y], regions)
-        elif not page.get('images'):
-            # No detected figure cluster overlaps the box and there's no embedded
-            # raster image. The box may still cover a real figure that was filtered
-            # out of figure_regions (e.g. a page-sized diagram >80% area), so when
-            # the PDF is available confirm against the page's actual drawings and
-            # drop only when there is genuinely nothing drawn there (the model
-            # pointed at plain text — the "totally irrelevant image" failure mode).
-            has_drawing = _box_has_drawing(doc, int(page_num),
-                                           [lo_x, lo_y, hi_x, hi_y])
-            if has_drawing is False:
-                continue            # confirmed: no figure here → spurious text crop
-            if has_drawing is None and regions:
-                # No PDF to check; fall back to the cluster heuristic — figures
-                # exist on the page but none overlap the box → treat as spurious.
-                continue
-            # else: a real drawing (incl. large filtered figures) or unknown
-            # without regions → keep cropping.
-
-        if hi_x - lo_x < 1 or hi_y - lo_y < 1:
-            continue  # degenerate / empty box
-
-        img_bytes = None
-        # Prefer a crisp re-render straight from the PDF vectors at high DPI;
-        # falls back to cropping the 150-DPI screenshot when the PDF isn't
-        # available or the render fails.
-        if doc is not None:
-            img_bytes = _render_pdf_region(doc, int(page_num),
-                                           [lo_x, lo_y, hi_x, hi_y])
-        if img_bytes is None:
-            try:
-                img = decoded.get(int(page_num))
-                if img is None:
-                    img = Image.open(io.BytesIO(base64.b64decode(page['screenshot'])))
-                    decoded[int(page_num)] = img
-                w, h = img.size
-                crop = img.crop((
-                    int(lo_x / 100 * w), int(lo_y / 100 * h),
-                    int(hi_x / 100 * w), int(hi_y / 100 * h),
-                ))
-                buf = io.BytesIO()
-                crop.save(buf, format='PNG')
-                img_bytes = buf.getvalue()
-            except Exception:
-                # A bad box / unreadable screenshot shouldn't sink the whole import.
-                continue
-
-        ref = f'page{int(page_num)}_figure{idx}.png'
-        crops[ref] = base64.b64encode(img_bytes).decode('utf-8')
-        q['image_ref'] = ref
-        # Crop provenance for the "Adjust image" editor (box was in % of page).
-        q['image_page'] = int(page_num)
-        q['image_bbox_frac'] = [round(lo_x / 100, 4), round(lo_y / 100, 4),
-                                round(hi_x / 100, 4), round(hi_y / 100, 4)]
+        if q.get('image_ref'):
+            prev_image = {
+                'ref': q['image_ref'],
+                'page': q.get('image_page'),
+                'bbox_frac': q.get('image_bbox_frac'),
+            }
+        else:
+            # No image on this question breaks the run — a following
+            # shares_image_with_previous has nothing to carry over.
+            prev_image = None
 
     return crops
+
+
+def _reuses_prev_figure(q, prev_image):
+    """Safety net for group images the model boxed on every question instead of
+    setting shares_image_with_previous.
+
+    Returns True only when this question's drawn box sits on the same page as the
+    previous question's crop AND overlaps it almost completely (IoU ≥ 0.7) — a
+    strong signal it is the SAME shared figure, not a different figure that merely
+    sits nearby. Embedded-image refs and cross-page boxes never match here.
+    """
+    if not prev_image.get('bbox_frac') or prev_image.get('page') is None:
+        return False
+    box = q.get('image_box')
+    page_num = q.get('image_page')
+    if not box or page_num is None:
+        return False
+    try:
+        if int(page_num) != int(prev_image['page']):
+            return False
+        cur = [float(box['x1']) / 100, float(box['y1']) / 100,
+               float(box['x2']) / 100, float(box['y2']) / 100]
+    except (KeyError, TypeError, ValueError):
+        return False
+    return _frac_box_iou(cur, prev_image['bbox_frac']) >= 0.7
+
+
+def _frac_box_iou(a, b):
+    """Intersection-over-union of two [x1, y1, x2, y2] boxes (any shared unit)."""
+    ax1, ay1 = min(a[0], a[2]), min(a[1], a[3])
+    ax2, ay2 = max(a[0], a[2]), max(a[1], a[3])
+    bx1, by1 = min(b[0], b[2]), min(b[1], b[3])
+    bx2, by2 = max(b[0], b[2]), max(b[1], b[3])
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0.0, ix2 - ix1), max(0.0, iy2 - iy1)
+    inter = iw * ih
+    if inter <= 0:
+        return 0.0
+    union = (ax2 - ax1) * (ay2 - ay1) + (bx2 - bx1) * (by2 - by1) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _assign_figure_to_question(q, idx, pages, crops, decoded, doc, Image, io):
+    """Resolve one question's own figure: keep an embedded image_ref, or crop the
+    drawn image_box into a new image. Mutates ``q`` in place; ``crops`` gains any
+    new crop. No-op when the question needs no figure."""
+    # An embedded image already covers this question — prefer it (raster
+    # fidelity beats a screenshot crop).
+    if q.get('image_ref'):
+        q.pop('image_page', None)
+        q.pop('image_box', None)
+        return
+
+    box = q.get('image_box')
+    page_num = q.get('image_page')
+    # Clear the transient box fields regardless of outcome so they never
+    # get persisted on the session / shown in the editor.
+    q.pop('image_box', None)
+    q.pop('image_page', None)
+    if not box or not page_num:
+        return
+
+    try:
+        page = pages.get(int(page_num))
+        x1, y1 = float(box['x1']), float(box['y1'])
+        x2, y2 = float(box['x2']), float(box['y2'])
+    except (KeyError, TypeError, ValueError):
+        return
+    if not page or not page.get('screenshot'):
+        return
+
+    # Normalise corner order and clamp to the page.
+    lo_x, hi_x = sorted((x1, x2))
+    lo_y, hi_y = sorted((y1, y2))
+    lo_x, hi_x = max(0.0, lo_x), min(100.0, hi_x)
+    lo_y, hi_y = max(0.0, lo_y), min(100.0, hi_y)
+
+    # Snap to the actual drawn-figure bounds when we detected vector clusters
+    # on the page — corrects boxes that clip the figure or grab adjacent text.
+    regions = page.get('figure_regions') or []
+    overlapping = [r for r in regions
+                   if _boxes_overlap([lo_x, lo_y, hi_x, hi_y], r)]
+    if overlapping:
+        lo_x, lo_y, hi_x, hi_y = _snap_box_to_figures(
+            [lo_x, lo_y, hi_x, hi_y], regions)
+    elif not page.get('images'):
+        # No detected figure cluster overlaps the box and there's no embedded
+        # raster image. The box may still cover a real figure that was filtered
+        # out of figure_regions (e.g. a page-sized diagram >80% area), so when
+        # the PDF is available confirm against the page's actual drawings and
+        # drop only when there is genuinely nothing drawn there (the model
+        # pointed at plain text — the "totally irrelevant image" failure mode).
+        has_drawing = _box_has_drawing(doc, int(page_num),
+                                       [lo_x, lo_y, hi_x, hi_y])
+        if has_drawing is False:
+            return              # confirmed: no figure here → spurious text crop
+        if has_drawing is None and regions:
+            # No PDF to check; fall back to the cluster heuristic — figures
+            # exist on the page but none overlap the box → treat as spurious.
+            return
+        # else: a real drawing (incl. large filtered figures) or unknown
+        # without regions → keep cropping.
+
+    if hi_x - lo_x < 1 or hi_y - lo_y < 1:
+        return  # degenerate / empty box
+
+    img_bytes = None
+    # Prefer a crisp re-render straight from the PDF vectors at high DPI;
+    # falls back to cropping the 150-DPI screenshot when the PDF isn't
+    # available or the render fails.
+    if doc is not None:
+        img_bytes = _render_pdf_region(doc, int(page_num),
+                                       [lo_x, lo_y, hi_x, hi_y])
+    if img_bytes is None:
+        try:
+            img = decoded.get(int(page_num))
+            if img is None:
+                img = Image.open(io.BytesIO(base64.b64decode(page['screenshot'])))
+                decoded[int(page_num)] = img
+            w, h = img.size
+            crop = img.crop((
+                int(lo_x / 100 * w), int(lo_y / 100 * h),
+                int(hi_x / 100 * w), int(hi_y / 100 * h),
+            ))
+            buf = io.BytesIO()
+            crop.save(buf, format='PNG')
+            img_bytes = buf.getvalue()
+        except Exception:
+            # A bad box / unreadable screenshot shouldn't sink the whole import.
+            return
+
+    ref = f'page{int(page_num)}_figure{idx}.png'
+    crops[ref] = base64.b64encode(img_bytes).decode('utf-8')
+    q['image_ref'] = ref
+    # Crop provenance for the "Adjust image" editor (box was in % of page).
+    q['image_page'] = int(page_num)
+    q['image_bbox_frac'] = [round(lo_x / 100, 4), round(lo_y / 100, 4),
+                            round(hi_x / 100, 4), round(hi_y / 100, 4)]
 
 
 # ---------------------------------------------------------------------------

@@ -196,3 +196,82 @@ class PdfReRenderTests(SimpleTestCase):
         size_pdf = Image.open(io.BytesIO(base64.b64decode(crops_pdf[q_pdf['image_ref']]))).size
 
         self.assertGreater(size_pdf[0] * size_pdf[1], size_ss[0] * size_ss[1])
+
+
+class SharedImageGroupTests(SimpleTestCase):
+    """Group questions that share one visual reuse the previous question's image
+    instead of producing a duplicate crop."""
+
+    def test_flagged_question_reuses_previous_crop(self):
+        q1 = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+        q2 = {'shares_image_with_previous': True}  # no box of its own
+        crops = crop_figure_boxes(
+            _extracted(width=200, height=100), {'questions': [q1, q2]})
+
+        # One crop produced, shared by both questions.
+        self.assertEqual(len(crops), 1)
+        self.assertEqual(q1['image_ref'], q2['image_ref'])
+        self.assertEqual(q2['image_page'], 1)
+        self.assertEqual(q2['image_bbox_frac'], q1['image_bbox_frac'])
+        # The transient flag is never persisted.
+        self.assertNotIn('shares_image_with_previous', q2)
+
+    def test_flag_chains_across_a_whole_group(self):
+        q1 = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+        q2 = {'shares_image_with_previous': True}
+        q3 = {'shares_image_with_previous': True}
+        crops = crop_figure_boxes(
+            _extracted(width=200, height=100), {'questions': [q1, q2, q3]})
+
+        self.assertEqual(len(crops), 1)
+        self.assertEqual(q1['image_ref'], q2['image_ref'])
+        self.assertEqual(q2['image_ref'], q3['image_ref'])
+
+    def test_flag_with_no_previous_image_is_ignored(self):
+        # First question has no image; a following flagged question has nothing to
+        # carry over and gets no image (rather than crashing).
+        q1 = {'question_text': 'no visual'}
+        q2 = {'shares_image_with_previous': True}
+        crops = crop_figure_boxes(_extracted(), {'questions': [q1, q2]})
+        self.assertEqual(crops, {})
+        self.assertNotIn('image_ref', q2)
+
+    def test_no_image_question_breaks_the_group(self):
+        # A gap question with no image resets "previous" — a later flagged
+        # question does not reach back to an earlier figure.
+        q1 = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+        q2 = {'question_text': 'unrelated, no visual'}
+        q3 = {'shares_image_with_previous': True}
+        crops = crop_figure_boxes(
+            _extracted(width=200, height=100), {'questions': [q1, q2, q3]})
+        self.assertEqual(len(crops), 1)
+        self.assertIn('image_ref', q1)
+        self.assertNotIn('image_ref', q3)
+
+    def test_near_identical_box_reuses_without_flag(self):
+        # The model re-boxed the same shared figure on the next question but forgot
+        # the flag — the near-identical box is detected and reused (one crop).
+        q1 = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+        q2 = {'image_page': 1, 'image_box': {'x1': 1, 'y1': 0, 'x2': 49, 'y2': 100}}
+        crops = crop_figure_boxes(
+            _extracted(width=200, height=100), {'questions': [q1, q2]})
+        self.assertEqual(len(crops), 1)
+        self.assertEqual(q1['image_ref'], q2['image_ref'])
+
+    def test_distinct_boxes_are_not_merged(self):
+        # Two questions with clearly different figures (left half vs right half)
+        # each get their own crop — the reuse net must not merge them.
+        q1 = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+        q2 = {'image_page': 1, 'image_box': {'x1': 50, 'y1': 0, 'x2': 100, 'y2': 100}}
+        crops = crop_figure_boxes(
+            _extracted(width=200, height=100), {'questions': [q1, q2]})
+        self.assertEqual(len(crops), 2)
+        self.assertNotEqual(q1['image_ref'], q2['image_ref'])
+
+    def test_flag_reuses_embedded_ref(self):
+        # The shared visual is an embedded image; the group carries the ref over.
+        q1 = {'image_ref': 'page1_img1.png'}
+        q2 = {'shares_image_with_previous': True}
+        crops = crop_figure_boxes(_extracted(), {'questions': [q1, q2]})
+        self.assertEqual(crops, {})
+        self.assertEqual(q2['image_ref'], 'page1_img1.png')
