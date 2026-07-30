@@ -935,6 +935,24 @@ class ClassDetailView(RoleRequiredMixin, View):
             classroom=classroom, is_active=True,
         ).values_list('student_id', flat=True)
 
+        # Candidate classes to move a student into: other active classes in the
+        # same school this user manages. The move view re-validates scope, so
+        # this only shapes the dropdown. Only school classes offer a move.
+        move_target_classes = []
+        if classroom.school_id:
+            if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+                target_qs = ClassRoom.objects.filter(school_id=classroom.school_id, is_active=True)
+            elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+                target_qs = ClassRoom.objects.filter(
+                    Q(department__head=user) | Q(teachers=user),
+                    school_id=classroom.school_id, is_active=True,
+                ).distinct()
+            else:
+                target_qs = ClassRoom.objects.filter(
+                    school_id=classroom.school_id, is_active=True, teachers=user,
+                )
+            move_target_classes = list(target_qs.exclude(id=classroom.id).order_by('name'))
+
         # Bulk "Resend Welcome" is available to admin/HoI and the class's teachers.
         can_resend_welcome = bool(classroom.school_id)
 
@@ -950,6 +968,7 @@ class ClassDetailView(RoleRequiredMixin, View):
             'class_effective_fee': class_effective_fee,
             'can_edit_fee': can_edit_fee,
             'effective_currency': classroom.get_effective_currency(),
+            'move_target_classes': move_target_classes,
         })
 
 
@@ -4613,6 +4632,108 @@ class ClassStudentRemoveView(RoleRequiredMixin, View):
             messages.success(request, f'{name} has been removed from {classroom.name}.')
         else:
             messages.warning(request, 'Student not found in this class.')
+        return redirect('class_detail', class_id=class_id)
+
+
+class ClassStudentMoveView(RoleRequiredMixin, View):
+    """Move a student from one class to another, keeping their old homework.
+
+    Unlike :class:`ClassStudentRemoveView` (a plain removal that revokes
+    everything), a move deactivates the source enrolment but stamps
+    ``moved_at``/``moved_to`` on it, so the student retains access to the source
+    class's homework while gaining an active enrolment in the target class.
+    Source and target must belong to the same school. The teacher/admin scope
+    mirrors the remove view, and the target class is re-validated against the
+    same scope so a move can never reach a class outside the user's remit.
+    """
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT,
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+    ]
+
+    def _resolve_class(self, request, class_id):
+        """Resolve a class the requesting user may manage, or raise Http404."""
+        from django.db.models import Q
+        user = request.user
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            return get_object_or_404(ClassRoom, id=class_id, school__admin=user)
+        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
+            return classroom
+        return get_object_or_404(ClassRoom, id=class_id, teachers=user)
+
+    def post(self, request, class_id, student_id):
+        from django.utils import timezone
+        source = self._resolve_class(request, class_id)
+
+        target_id = request.POST.get('target_class_id')
+        if not target_id or not str(target_id).isdigit() or int(target_id) == source.id:
+            messages.error(request, 'Please choose a different class to move the student to.')
+            return redirect('class_detail', class_id=class_id)
+
+        target = self._resolve_class(request, int(target_id))
+
+        # A move stays within one school — a cross-school transfer would leave
+        # the SchoolStudent link and billing inconsistent, so block it.
+        if target.school_id != source.school_id:
+            messages.error(request, 'You can only move a student to a class in the same school.')
+            return redirect('class_detail', class_id=class_id)
+
+        source_cs = ClassStudent.objects.filter(
+            classroom=source, student_id=student_id, is_active=True,
+        ).select_related('student').first()
+        if not source_cs:
+            messages.warning(request, 'Student not found in this class.')
+            return redirect('class_detail', class_id=class_id)
+
+        student = source_cs.student
+        name = student.get_full_name() or student.username
+
+        with transaction.atomic():
+            # Activate (or create) the target enrolment. Clear any stale move
+            # markers so an active member is never treated as "moved out".
+            target_cs, _ = ClassStudent.objects.get_or_create(
+                classroom=target, student=student,
+            )
+            if not target_cs.is_active or target_cs.moved_at is not None:
+                target_cs.is_active = True
+                target_cs.moved_at = None
+                target_cs.save(update_fields=['is_active', 'moved_at'])
+
+            # Deactivate the source enrolment but retain homework access.
+            source_cs.is_active = False
+            source_cs.moved_at = timezone.now()
+            source_cs.save(update_fields=['is_active', 'moved_at'])
+
+            # Retire the source enrolment request so the student can re-request
+            # the old class later if they ever want back in.
+            Enrollment.objects.filter(
+                classroom=source, student=student, status='approved',
+            ).update(status='removed')
+
+        log_event(
+            user=request.user, school=source.school, category='data_change',
+            action='class_student_moved',
+            detail={
+                'student_id': student.id, 'student_name': name,
+                'from_class_id': source.id, 'from_class_name': source.name,
+                'to_class_id': target.id, 'to_class_name': target.name,
+                'homework_access_retained': True,
+            },
+            request=request,
+        )
+
+        messages.success(
+            request,
+            f'{name} moved to {target.name}. They keep access to '
+            f'{source.name} homework.',
+        )
         return redirect('class_detail', class_id=class_id)
 
 

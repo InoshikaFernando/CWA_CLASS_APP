@@ -2101,9 +2101,12 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                         cs, _ = ClassStudent.objects.get_or_create(
                             classroom_id=int(cid_str), student=user,
                         )
-                        if not cs.is_active:
+                        # Re-enrolling clears any retained "moved out" marker —
+                        # an active member is not a moved-out one.
+                        if not cs.is_active or cs.moved_at is not None:
                             cs.is_active = True
-                            cs.save(update_fields=['is_active'])
+                            cs.moved_at = None
+                            cs.save(update_fields=['is_active', 'moved_at'])
 
                 # Optional inline parent
                 parent_action = request.POST.get('parent_action', '').strip()
@@ -2635,9 +2638,12 @@ class SchoolStudentEditView(RoleRequiredMixin, View):
                         cs, _ = ClassStudent.objects.get_or_create(
                             classroom_id=cid, student=student,
                         )
-                        if not cs.is_active:
+                        # Re-enrolling clears any retained "moved out" marker —
+                        # an active member is not a moved-out one.
+                        if not cs.is_active or cs.moved_at is not None:
                             cs.is_active = True
-                            cs.save(update_fields=['is_active'])
+                            cs.moved_at = None
+                            cs.save(update_fields=['is_active', 'moved_at'])
                     if to_remove:
                         ClassStudent.objects.filter(
                             student=student,
@@ -2795,6 +2801,13 @@ class SchoolStudentRemoveView(RoleRequiredMixin, View):
                 ClassStudent.objects.filter(
                     id__in=deactivated_class_student_ids
                 ).update(is_active=False)
+                # Leaving the school also revokes any retained (moved-out)
+                # homework access — a moved-out row is already inactive, so it
+                # isn't in the set above; clear its move markers explicitly.
+                ClassStudent.objects.filter(
+                    classroom__school=school, student=student_user,
+                    moved_at__isnull=False,
+                ).update(moved_at=None)
             # If this was the student's last active school, convert them to an
             # individual student (role swap) and end any *partial* school
             # discount so they pay CWA full monthly. A 100% free discount is
