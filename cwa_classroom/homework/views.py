@@ -1058,8 +1058,12 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
         # Find classrooms the student belongs to, keeping the join date per
         # classroom so "overdue" can be judged relative to when this student
         # actually enrolled (a late joiner never sees pre-join work as overdue).
+        # A student *moved* out of a class (moved_at set) keeps that class's
+        # homework, so we include those alongside active enrolments — but not a
+        # plainly removed student (inactive, moved_at None).
         memberships = ClassStudent.objects.filter(
-            student=request.user, is_active=True
+            Q(is_active=True) | Q(moved_at__isnull=False),
+            student=request.user,
         ).values_list('classroom_id', 'joined_at')
         joined_at_by_class = {cid: joined for cid, joined in memberships}
         class_ids = list(joined_at_by_class.keys())
@@ -1567,8 +1571,11 @@ def _student_enrollment_redirect(request, classroom):
 
     user = request.user
 
+    # Active enrolment — or a retained *move* out of this class, which keeps the
+    # student's homework access — lets them proceed. A plain removal does not.
     if ClassStudent.objects.filter(
-        student=user, classroom=classroom, is_active=True,
+        Q(is_active=True) | Q(moved_at__isnull=False),
+        student=user, classroom=classroom,
     ).exists():
         return None
 

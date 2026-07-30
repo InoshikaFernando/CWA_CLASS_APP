@@ -304,6 +304,7 @@ urlpatterns = [
     # Per-student billing start date (CPP-342)
     path('class/<int:class_id>/student/<int:student_id>/billing-start/', views.UpdateStudentBillingStartView.as_view(), name='update_student_billing_start'),
     path('class/<int:class_id>/student/<int:student_id>/remove/', views.ClassStudentRemoveView.as_view(), name='class_student_remove'),
+    path('class/<int:class_id>/student/<int:student_id>/move/', views.ClassStudentMoveView.as_view(), name='class_student_move'),
     path('class/<int:class_id>/teacher/<int:teacher_id>/remove/', views.ClassTeacherRemoveView.as_view(), name='class_teacher_remove'),
 
     # API
