@@ -4616,9 +4616,15 @@ class ClassStudentRemoveView(RoleRequiredMixin, View):
         ).select_related('student').first()
 
         if cs:
+            from django.utils import timezone
             name = cs.student.get_full_name() or cs.student.username
+            # Taking a student out of a single class (while they remain in the
+            # school) is treated as a class change, not a revocation: we stamp
+            # ``moved_at`` so they keep this class's homework. Only removal from
+            # the whole school (SchoolStudentRemoveView) revokes homework access.
             cs.is_active = False
-            cs.save(update_fields=['is_active'])
+            cs.moved_at = timezone.now()
+            cs.save(update_fields=['is_active', 'moved_at'])
             # Mark enrollment as removed so the student can re-request later
             Enrollment.objects.filter(
                 classroom=classroom, student_id=student_id, status='approved',
@@ -4629,7 +4635,11 @@ class ClassStudentRemoveView(RoleRequiredMixin, View):
                 detail={'class_id': classroom.id, 'class_name': classroom.name, 'student_id': student_id, 'student_name': name},
                 request=request,
             )
-            messages.success(request, f'{name} has been removed from {classroom.name}.')
+            messages.success(
+                request,
+                f'{name} has been removed from {classroom.name}. '
+                f'They keep access to its homework while they remain in the school.',
+            )
         else:
             messages.warning(request, 'Student not found in this class.')
         return redirect('class_detail', class_id=class_id)

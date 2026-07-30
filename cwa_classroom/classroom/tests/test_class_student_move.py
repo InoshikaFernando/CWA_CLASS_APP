@@ -90,6 +90,26 @@ class ClassStudentMoveTests(TestCase):
         self.assertFalse(
             ClassStudent.objects.filter(classroom=other_class, student=self.student).exists())
 
+    def test_unselecting_a_class_retains_homework_access(self):
+        # Put the student in both classes, then unselect Year 4 in the student
+        # class editor. Unselecting one class (while they stay in the school) is
+        # a class change: Year 4 becomes a retained (moved_at) enrolment, not a
+        # revocation — they keep its homework.
+        ClassStudent.objects.create(
+            classroom=self.junior, student=self.student, is_active=True)
+        self.client.post(
+            reverse('admin_school_student_edit', kwargs={
+                'school_id': self.school.id, 'student_id': self.student.id}),
+            {'manage_classes': '1', 'class_ids': [str(self.junior.id)]},
+        )
+        year4 = self._cs(self.year4)
+        self.assertFalse(year4.is_active)
+        self.assertIsNotNone(year4.moved_at)
+        self.assertTrue(year4.has_homework_access)
+        # The class they stayed in is untouched.
+        junior = self._cs(self.junior)
+        self.assertTrue(junior.is_active)
+
     def test_moving_back_clears_retained_marker(self):
         self._move(self.year4, self.junior)
         self._move(self.junior, self.year4)

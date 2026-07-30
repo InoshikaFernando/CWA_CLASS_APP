@@ -2645,11 +2645,16 @@ class SchoolStudentEditView(RoleRequiredMixin, View):
                             cs.moved_at = None
                             cs.save(update_fields=['is_active', 'moved_at'])
                     if to_remove:
+                        from django.utils import timezone
+                        # Unselecting a class here is a class change, not a
+                        # revocation: the student stays in the school, so stamp
+                        # ``moved_at`` to keep the class's homework. Only removal
+                        # from the whole school revokes homework access.
                         ClassStudent.objects.filter(
                             student=student,
                             classroom_id__in=to_remove,
                             is_active=True,
-                        ).update(is_active=False)
+                        ).update(is_active=False, moved_at=timezone.now())
                 log_event(
                     user=request.user, school=school, category='data_change',
                     action='student_classes_updated',

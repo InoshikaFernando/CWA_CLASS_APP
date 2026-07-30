@@ -97,17 +97,18 @@ class MovedStudentKeepsHomeworkTests(TestCase):
         # Access is granted (not bounced back to the list as "not enrolled").
         self.assertEqual(resp.status_code, 200)
 
-    def test_plain_removal_still_revokes_homework(self):
-        # Contrast with a move: a plain removal leaves moved_at None, so the old
-        # class's homework disappears from the student's list.
+    def test_single_class_removal_retains_homework(self):
+        # Removing a student from a single class (while they stay in the school)
+        # is a class change, not a revocation: moved_at is stamped and the old
+        # class's homework stays visible.
         self.client.login(username='mv_admin', password='password1!')
         self.client.post(reverse('class_student_remove', kwargs={
             'class_id': self.year4.id, 'student_id': self.student.id}))
         self.client.logout()
         self.cs.refresh_from_db()
         self.assertFalse(self.cs.is_active)
-        self.assertIsNone(self.cs.moved_at)
-        self.assertNotIn('Year 4 fractions', self._visible_titles())
+        self.assertIsNotNone(self.cs.moved_at)
+        self.assertIn('Year 4 fractions', self._visible_titles())
 
     def test_leaving_school_revokes_moved_access(self):
         self._move_to_junior()
