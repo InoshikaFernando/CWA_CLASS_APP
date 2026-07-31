@@ -481,6 +481,18 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
             school=school, is_current=True,
         ).first()
 
+        # Optional deep-link pre-scoping (e.g. the "Generate Invoices" link on a
+        # class page passes ?classroom_id=&department_id=). Validate against this
+        # school so a stray/foreign id just falls back to "all".
+        preselected_classroom_id = ''
+        preselected_department_id = ''
+        req_classroom_id = request.GET.get('classroom_id')
+        req_department_id = request.GET.get('department_id')
+        if req_classroom_id and classrooms.filter(id=req_classroom_id).exists():
+            preselected_classroom_id = str(req_classroom_id)
+        if req_department_id and departments.filter(id=req_department_id).exists():
+            preselected_department_id = str(req_department_id)
+
         return render(request, 'invoicing/generate_invoices.html', {
             'school': school,
             'departments': departments,
@@ -491,6 +503,8 @@ class GenerateInvoicesView(RoleRequiredMixin, View):
             'next_month_label': next_month_label,
             'next_term': next_term,
             'current_year': current_year,
+            'preselected_classroom_id': preselected_classroom_id,
+            'preselected_department_id': preselected_department_id,
         })
 
     def post(self, request):
