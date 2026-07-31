@@ -1025,20 +1025,21 @@ class ClassStudent(models.Model):
             'will not be billed.'
         ),
     )
-    # Move vs remove: a plain removal deactivates this row and revokes
-    # everything. A *move* to another class also deactivates it (so rosters,
-    # billing and attendance treat the student as gone from this class) but
-    # records ``moved_at`` so the student keeps homework access to this class —
-    # they don't lose their work when reassigned. ``moved_at`` is None for a
-    # plain removal, so a removed/left student never retains access. (The move
-    # destination is recorded in the audit log, not here, to avoid a second FK
-    # into ClassRoom clashing with the ``students`` through-relation.)
+    # Leaving one class vs leaving the school. Taking a student out of a single
+    # class while they remain in the school — unselecting the class, the class
+    # page's Remove button, or a dedicated Move — is a class change: this row is
+    # deactivated (so rosters, billing and attendance treat them as gone from
+    # this class) but ``moved_at`` is stamped so they keep this class's
+    # homework and don't lose their work. Only removal from the whole school
+    # revokes: it leaves ``moved_at`` None and clears it on any retained rows,
+    # so a student who has left the school never keeps access.
     moved_at = models.DateTimeField(
         null=True, blank=True, db_index=True,
         help_text=(
-            'Set when the student was deactivated here via a Move (not a plain '
-            'Remove). While set, the student retains homework access to this '
-            'class. Cleared on re-enrolment or when the student leaves the school.'
+            'Set when the student left THIS class but is still in the school '
+            '(a class change / move), so they retain the class’s homework. '
+            'Stays None for a whole-school removal (which revokes). Cleared on '
+            're-enrolment or when the student leaves the school.'
         ),
     )
 
@@ -1055,9 +1056,10 @@ class ClassStudent(models.Model):
     def has_homework_access(self):
         """Whether this enrolment grants homework access to the class.
 
-        True for an active enrolment, and also for a student who was *moved*
-        out (``moved_at`` set) so they keep the class's homework. A plainly
-        removed student (inactive, ``moved_at`` None) has no access.
+        True for an active enrolment, and also for a student who left this
+        class but is still in the school (``moved_at`` set) so they keep the
+        class's homework. Only a whole-school removal clears/withholds
+        ``moved_at``, and that student has no access.
         """
         return self.is_active or self.moved_at is not None
 
