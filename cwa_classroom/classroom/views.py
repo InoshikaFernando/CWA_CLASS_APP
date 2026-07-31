@@ -956,10 +956,20 @@ class ClassDetailView(RoleRequiredMixin, View):
         # Bulk "Resend Welcome" is available to admin/HoI and the class's teachers.
         can_resend_welcome = bool(classroom.school_id)
 
+        # Deep link into the existing invoice generator, pre-scoped to this class.
+        # Gate on the same roles the generator itself requires so teachers don't
+        # see a link that would 403 (INVOICING_ROLES in views_invoicing.py).
+        can_generate_invoices = (
+            user.has_role(Role.INSTITUTE_OWNER)
+            or user.has_role(Role.HEAD_OF_INSTITUTE)
+            or user.has_role(Role.ACCOUNTANT)
+        )
+
         return render(request, 'teacher/class_detail.html', {
             'classroom': classroom,
             'students': CustomUser.objects.filter(id__in=active_student_ids),
             'can_resend_welcome': can_resend_welcome,
+            'can_generate_invoices': can_generate_invoices,
             'teachers': classroom.teachers.all(),
             'sessions': sessions,
             'todays_session': todays_session,
