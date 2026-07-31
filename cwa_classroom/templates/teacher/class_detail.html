@@ -59,6 +59,12 @@
         Bank / GST Settings
       </a>
       {% endif %}
+      {% if can_generate_invoices %}
+      <a href="{% url 'generate_invoices' %}?classroom_id={{ classroom.id }}{% if classroom.department_id %}&department_id={{ classroom.department_id }}{% endif %}"
+         class="bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-semibold rounded-xl px-4 py-2.5 transition">
+        Generate Invoices
+      </a>
+      {% endif %}
       <a href="{% url 'progress_criteria_list' %}"
          class="bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-semibold rounded-xl px-4 py-2.5 transition">
         Progress Criteria
