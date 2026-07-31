@@ -22,14 +22,19 @@ belong to.
 
 ## Fix
 
-Introduce a first-class **move** that is distinct from a **remove**, so homework
-access can key off it without leaking access to removed students.
+The rule the school actually wanted: **leaving one class while still in the
+school is a class change and keeps that class's homework; only removal from the
+whole school revokes.** So homework access keys off "left this class but still
+in the school", set on every single-class exit and cleared only when the student
+leaves the school.
 
 ### 1. `ClassStudent.moved_at` (model)
 
-A nullable, indexed `moved_at` timestamp. It is set **only** when the row is
-deactivated via a Move; a plain Remove leaves it `None`. A
-`has_homework_access` property expresses the rule:
+A nullable, indexed `moved_at` timestamp. It is set whenever the student leaves
+**this** class while remaining in the school — the class page's Remove button,
+unselecting the class in the student class editor, or a dedicated Move. It stays
+`None` for a whole-school removal (which revokes). A `has_homework_access`
+property expresses the rule:
 
 ```python
 @property
@@ -53,10 +58,23 @@ ClassStudent.objects.filter(
 )
 ```
 
-This gives a moved student full access to the old class's homework — visible in
-the list and attemptable/submittable (the take, submit and save-progress views
-all gate through `_student_enrollment_redirect`). A plainly removed student
-(`moved_at=None`) is unaffected and still sees nothing.
+This gives a student who left the class (but is still in the school) full access
+to its homework — visible in the list and attemptable/submittable (the take,
+submit and save-progress views all gate through `_student_enrollment_redirect`).
+Only a whole-school removal leaves `moved_at=None`, and that student sees
+nothing.
+
+### 2b. Every single-class exit retains; only whole-school removal revokes
+
+The three ways to take a student out of one class all now stamp `moved_at`:
+
+- **Class page → Remove** (`ClassStudentRemoveView`)
+- **Unselect the class** in the student class editor (`SchoolStudentEditView`)
+- **Move to…** (`ClassStudentMoveView`)
+
+`SchoolStudentRemoveView` (remove from the whole school) is the only revoking
+path: it deactivates the class rows without stamping `moved_at` and clears it on
+any already-retained rows.
 
 ### 3. `ClassStudentMoveView` (action + UI)
 
@@ -94,11 +112,11 @@ students on the old class's monitor is deferred.
 
 ## Tests
 
-- `homework/test_moved_student_homework.py` — moved student still sees and can
-  open the old class's homework; a plain removal still revokes it; leaving the
-  school revokes retained access.
+- `homework/test_moved_student_homework.py` — student still sees and can open
+  the old class's homework after a move and after a single-class removal;
+  leaving the school revokes retained access.
 - `classroom/tests/test_class_student_move.py` — move transfers the enrolment
-  and retains the source; can't move to the same class or to an out-of-scope
-  class; moving back clears the retained marker.
+  and retains the source; unselecting a class retains it; can't move to the same
+  class or to an out-of-scope class; moving back clears the retained marker.
 - `ui_tests/test_student_move.py` — admin performs a move on the class page and
   the student then sees the old class's homework in their list.
