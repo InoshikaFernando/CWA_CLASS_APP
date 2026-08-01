@@ -105,7 +105,12 @@
   </div>
 
   <!-- Section heading + Search -->
-  <h2 class="text-lg font-semibold text-gray-900 mb-4">All Classes</h2>
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-lg font-semibold text-gray-900">All Classes</h2>
+    {% if classes %}
+      {% include "partials/view_toggle.html" with container_id="hod-classes" storage_key="cwa-view:hod-classes" default_view="list" %}
+    {% endif %}
+  </div>
 
   {% if classes %}
     <div x-data="{ search: '', page: 1, perPage: 10, total: {{ classes|length }} }" x-effect="if (search !== '') page = 1">
@@ -119,12 +124,12 @@
         </div>
       </div>
 
-      <div class="space-y-4">
+      <div id="hod-classes" data-cwa-container class="cwa-list">
         {% for classroom in classes %}
           <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 cursor-pointer hover:border-accent/40 hover:shadow-md transition"
                x-show="(search !== '' && '{{ classroom.name|escapejs }}'.toLowerCase().includes(search.toLowerCase())) || (search === '' && {{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage)"
                onclick="if(!event.target.closest('a,button')){window.location='{% url 'class_detail' class_id=classroom.id %}'}">
-            <div class="flex items-center justify-between mb-3">
+            <div class="flex flex-wrap items-center justify-between gap-y-3 mb-3">
               <div>
                 <a href="{% url 'class_detail' class_id=classroom.id %}" class="font-bold text-gray-800 hover:text-accent transition">{{ classroom.name }}</a>
                 {% if classroom.department %}
@@ -137,7 +142,7 @@
                 </p>
                 {% endif %}
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 <span class="text-xs font-mono text-gray-400 bg-slate-100 px-2 py-0.5 rounded">{{ classroom.code }}</span>
                 <a href="{% url 'edit_class' class_id=classroom.id %}?next={% url 'hod_manage_classes' %}"
                    class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 bg-white border border-slate-200 rounded-xl transition">

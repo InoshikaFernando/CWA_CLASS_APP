@@ -48,15 +48,21 @@
 
   <!-- Enrolled classes -->
   {% if enrolled_entries %}
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold text-gray-500">Enrolled Classes ({{ enrolled_entries|length }})</h2>
+      {% include "partials/view_toggle.html" with container_id="student-classes" storage_key="cwa-view:student-classes" default_view="grid" %}
+    </div>
+    <div id="student-classes" data-cwa-container class="cwa-grid">
       {% for entry in enrolled_entries %}
         <a href="{% url 'student_class_detail' entry.classroom.id %}"
-           class="bg-white rounded-2xl p-5 border border-emerald-100 shadow-sm hover:shadow-lg hover:shadow-emerald-100 hover:border-emerald-300 transition group">
-          <h3 class="font-semibold text-gray-900 group-hover:text-emerald-600 transition">{{ entry.classroom.name }}</h3>
-          {% if entry.classroom.subject %}
-            <p class="text-sm text-emerald-500 mt-1">{{ entry.classroom.subject.name }}</p>
-          {% endif %}
-          <div class="flex items-center gap-3 mt-3 text-xs text-gray-400">
+           class="cwa-card--split bg-white rounded-2xl p-5 border border-emerald-100 shadow-sm hover:shadow-lg hover:shadow-emerald-100 hover:border-emerald-300 transition group">
+          <div class="cwa-card-main">
+            <h3 class="font-semibold text-gray-900 group-hover:text-emerald-600 transition">{{ entry.classroom.name }}</h3>
+            {% if entry.classroom.subject %}
+              <p class="text-sm text-emerald-500 mt-1">{{ entry.classroom.subject.name }}</p>
+            {% endif %}
+          </div>
+          <div class="cwa-card-aside flex items-center gap-3 mt-3 text-xs text-gray-400">
             <span class="bg-emerald-100 text-emerald-600 px-2 py-0.5 rounded-full font-semibold">{{ entry.classroom.code }}</span>
             <span>Joined {{ entry.joined_at|timesince }} ago</span>
           </div>
