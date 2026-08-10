@@ -1027,6 +1027,17 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
         'output_tokens': out_tok,
         'total_tokens': in_tok + out_tok,
     }
+
+    # Second opinion: an independent GPT verifier re-solves each text-answerable
+    # question and flags disagreements needs_review for the teacher. Best-effort
+    # and self-gating — a no-op when OPENAI_API_KEY isn't configured, and it
+    # never fails the import. Kept out of merged['usage'] (Claude token ledger)
+    # because GPT is priced separately; reported under merged['verification'].
+    from .verification import verify_answers
+    verification = verify_answers(merged.get('questions', []))
+    if verification is not None:
+        merged['verification'] = verification
+
     return merged
 
 
