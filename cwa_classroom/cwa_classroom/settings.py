@@ -152,6 +152,17 @@ CLAUDE_INPUT_COST_PER_MTOK = float(
 CLAUDE_OUTPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '25.0'))
 
+# ---------------------------------------------------------------------------
+# AI / OpenAI (second-opinion answer verification for AI Import)
+# ---------------------------------------------------------------------------
+# When set, the AI-import pipeline runs a GPT "verifier" pass after Claude
+# classification: GPT independently re-solves each text-answerable question and
+# any disagreement is flagged needs_review for the teacher to check. Empty key
+# leaves the verifier off and imports run Claude-only, exactly as before. Tune
+# the model with AI_IMPORT_VERIFY_MODEL and disable explicitly with
+# AI_IMPORT_VERIFY_ENABLED=0.
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+
 # USD->NZD conversion used by the income-vs-expense dashboard to convert
 # USD-billed costs (Anthropic AI grading) into the dashboard's base currency
 # (NZD). Manual vendor bills are converted by the operator on entry; this only
