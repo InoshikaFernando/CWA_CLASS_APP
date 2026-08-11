@@ -760,7 +760,7 @@ CLASSIFICATION_TOOL = {
                             },
                         },
                     },
-                    "required": ["question_text", "question_type", "difficulty", "answers"],
+                    "required": ["question_text", "question_type", "difficulty", "answers", "source_page"],
                 },
             },
         },
@@ -1114,10 +1114,23 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
         for p in pages
         if p.get('page_num') is not None and p.get('screenshot')
     }
-    from .verification import verify_answers
+    from .verification import verify_answers, flag_visual_comparisons
+
+    # Deterministic guard first (no API): "which figure is larger / are they
+    # equal" questions are routed to review unconditionally. Both Claude and the
+    # GPT verifier read these coarse figures the same wrong way, so they agree on
+    # a wrong answer and the disagreement-based verifier below never catches it.
+    # Running this first also means those questions are already flagged, so the
+    # paid GPT pass skips them.
+    comparison_flags = flag_visual_comparisons(merged.get('questions', []))
+
     verification = verify_answers(merged.get('questions', []), page_images=page_images)
     if verification is not None:
+        verification['comparison_flags'] = comparison_flags
         merged['verification'] = verification
+    elif comparison_flags:
+        # Verifier disabled (no OpenAI key) but the deterministic guard still ran.
+        merged['verification'] = {'comparison_flags': comparison_flags}
 
     return merged
 
