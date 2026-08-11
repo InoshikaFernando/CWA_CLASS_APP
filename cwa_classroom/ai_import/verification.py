@@ -534,6 +534,96 @@ def verify_answers(questions, page_images=None, client=None, *, force=False):
 
 
 # ---------------------------------------------------------------------------
+# Visual comparison guard (deterministic, no API)
+# ---------------------------------------------------------------------------
+#
+# The answer verifier above flags a question only when the second model
+# DISAGREES with Claude. That leaves one class exposed: "which of these two
+# figures is larger, if any" questions, where BOTH models routinely read the
+# same wrong value off a coarse figure and so agree on a wrong answer — the
+# disagreement detector never fires. Deciding whether two angles / lengths drawn
+# on a grid are equal is at the edge of vision-model reliability, and "equal" is
+# the worst case: the true difference is zero, so any noise tips the model to one
+# side. It fails BOTH ways in practice — "larger" when they are equal, "equal"
+# when they are not — so the answer cannot be trusted in either direction. Rather
+# than try to correct it, we route the whole class to a human. This runs
+# deterministically (no OpenAI key needed) and only touches questions that carry
+# a figure, so pure-text comparisons ("which is larger, 2/3 or 3/5?") — which the
+# models DO handle reliably — are left alone.
+
+# Comparative / superlative language that marks a "which figure is bigger" ask.
+# Bare "equal" is deliberately NOT here (it appears in plenty of non-comparison
+# prompts, e.g. "a triangle with equal sides"); the equal-as-an-option signal
+# below carries that case instead.
+_COMPARISON_RE = re.compile(
+    r'\b(?:'
+    r'larger|largest|bigger|biggest|greater|greatest|'
+    r'smaller|smallest|longer|longest|shorter|shortest|'
+    r'wider|widest|narrower|narrowest|taller|tallest|steeper|steepest|'
+    r'same\s+size|compare|comparison'
+    r')\b',
+    re.IGNORECASE,
+)
+
+# Answer-option text that marks a multiple-choice question as a comparison with
+# an "equal / neither" choice (e.g. "They are the same size", "Equal").
+_EQUAL_OPTION_RE = re.compile(
+    r'\b(?:equal|same(?:\s+size)?|neither|identical)\b', re.IGNORECASE)
+
+
+def _has_figure(q):
+    """Whether a question carries a drawn or embedded figure to read off."""
+    return bool(q.get('image_ref') or q.get('image_page'))
+
+
+def _is_visual_comparison(q):
+    """A "which figure is larger / are they equal" question that has a figure.
+
+    Requires an attached figure AND comparison language — either in the question
+    text (comparative/superlative wording) or as an "equal / same / neither"
+    answer option. The figure requirement keeps text-only comparisons, which the
+    models answer reliably, out of the net.
+    """
+    if not _has_figure(q):
+        return False
+    if _COMPARISON_RE.search(q.get('question_text') or ''):
+        return True
+    for a in (q.get('answers') or []):
+        if _EQUAL_OPTION_RE.search(a.get('text') or ''):
+            return True
+    return False
+
+
+def flag_visual_comparisons(questions):
+    """Route figure-comparison questions to human review, unconditionally.
+
+    A deterministic safety net for the answer verifier's blind spot — two models
+    sharing the same wrong read of a figure, so nothing disagrees and nothing is
+    flagged. Sets ``needs_review`` (with a reason) on every not-already-flagged
+    visual-comparison question and returns how many it flagged. Runs without an
+    OpenAI key and never edits answers — it only routes.
+
+    Args:
+        questions: the classified question dicts (mutated in place).
+
+    Returns:
+        The number of questions newly flagged for review.
+    """
+    flagged = 0
+    for q in (questions or []):
+        if q.get('needs_review') or not _is_visual_comparison(q):
+            continue
+        q['needs_review'] = True
+        q['review_reason'] = (
+            'Figure-comparison question (e.g. comparing angles or lengths in a '
+            'diagram): the AI cannot reliably judge these from the image, so it '
+            'has been routed to you to confirm the correct answer.'
+        )
+        flagged += 1
+    return flagged
+
+
+# ---------------------------------------------------------------------------
 # Image validation (vision second opinion)
 # ---------------------------------------------------------------------------
 #
