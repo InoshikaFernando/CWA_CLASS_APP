@@ -314,3 +314,98 @@ def test_types_conflict(claude, gpt, conflict):
 ])
 def test_resolve_page(q, page):
     assert _resolve_page(q) == page
+
+
+# ---------------------------------------------------------------------------
+# Visual comparison guard (deterministic, no API): "which figure is larger / are
+# they equal" questions with a figure are routed to review unconditionally,
+# because both models read the same coarse figure the same wrong way and so
+# agree on a wrong answer that the disagreement check never catches.
+# ---------------------------------------------------------------------------
+
+from ai_import.verification import _is_visual_comparison, flag_visual_comparisons
+
+
+def test_comparison_with_figure_flagged_even_when_equal_is_marked():
+    # The reported case #1: answer marked "A is larger" but truly equal, and #2:
+    # marked "They are the same size" but not — either way the class is flagged.
+    q = _mc(
+        'Decide which of the angles A and B is larger, if any, in this case.',
+        'They are the same size',
+        ['They are the same size', 'A is larger', 'B is larger'],
+        image_ref='page1_img1.png',
+    )
+
+    flagged = flag_visual_comparisons([q])
+
+    assert flagged == 1
+    assert q['needs_review'] is True
+    assert 'confirm the correct answer' in q['review_reason']
+
+
+def test_comparison_with_figure_flagged_when_larger_is_marked():
+    q = _mc(
+        'Decide which of the angles A and B is larger, if any, in this case.',
+        'A is larger',
+        ['A is larger', 'B is larger', 'Equal'],
+        image_ref='page1_img1.png',
+    )
+
+    assert flag_visual_comparisons([q]) == 1
+    assert q['needs_review'] is True
+
+
+def test_equal_option_alone_triggers_flag_without_comparison_wording():
+    # Terse stem, but the "same size" option marks it as a figure comparison.
+    q = _mc(
+        'Angles A and B?',
+        'They are the same size',
+        ['They are the same size', 'They are different'],
+        image_page=2,
+    )
+
+    assert flag_visual_comparisons([q]) == 1
+    assert q['needs_review'] is True
+
+
+def test_text_only_comparison_is_not_flagged():
+    # No figure → the models handle it reliably, so leave it alone.
+    q = _mc('Which is larger, 2/3 or 3/5?', '2/3', ['2/3', '3/5'])
+
+    assert flag_visual_comparisons([q]) == 0
+    assert 'needs_review' not in q
+
+
+def test_figure_without_comparison_language_is_not_flagged():
+    # A plain read-off question with a figure but no comparison wording.
+    q = {
+        'question_text': 'Measure the angle shown.',
+        'question_type': 'measure',
+        'numeric_answer': '45',
+        'image_ref': 'page1_img2.png',
+    }
+
+    assert flag_visual_comparisons([q]) == 0
+    assert 'needs_review' not in q
+
+
+def test_already_flagged_question_is_left_untouched():
+    q = _mc(
+        'Which angle is larger?', 'A is larger',
+        ['A is larger', 'B is larger'],
+        image_ref='page1_img1.png', needs_review=True,
+        review_reason='pre-existing reason',
+    )
+
+    assert flag_visual_comparisons([q]) == 0
+    assert q['review_reason'] == 'pre-existing reason'
+
+
+@pytest.mark.parametrize('q, expected', [
+    ({'question_text': 'which is bigger?', 'image_ref': 'p.png'}, True),
+    ({'question_text': 'compare the two shapes', 'image_page': 1}, True),
+    ({'question_text': 'which is bigger?'}, False),                  # no figure
+    ({'question_text': 'name this shape', 'image_ref': 'p.png'}, False),  # no comparison
+])
+def test_is_visual_comparison(q, expected):
+    assert _is_visual_comparison(q) is expected
