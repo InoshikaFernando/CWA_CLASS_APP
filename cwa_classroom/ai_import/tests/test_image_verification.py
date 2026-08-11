@@ -8,7 +8,8 @@ from unittest.mock import MagicMock
 
 from ai_import import verification
 from ai_import.verification import (
-    _image_media_type, _image_verifiable, verify_images,
+    _image_media_type, _image_ref_page, _image_verifiable,
+    flag_cross_page_images, verify_images,
 )
 
 
@@ -139,3 +140,65 @@ def test_media_type_from_ref_extension():
     assert _image_media_type('page1_img1.jpeg') == 'image/jpeg'
     assert _image_media_type('page1_img1.jpg') == 'image/jpeg'
     assert _image_media_type('weird') == 'image/png'  # default
+
+
+# ---------------------------------------------------------------------------
+# Deterministic page-locality guard (no API call)
+
+def test_image_ref_page_parses_both_conventions():
+    assert _image_ref_page('page5_img2.jpeg') == 5          # embedded raster
+    assert _image_ref_page('page12_figure3.png') == 12      # cropped figure
+    assert _image_ref_page('missing.png') is None           # no page encoded
+    assert _image_ref_page(None) is None
+
+
+def test_cross_page_image_is_flagged():
+    # The real bug: a page-1 title-page engraving attached to a page-5 question.
+    q = _q(ref='page1_img1.jpeg', source_page=5)
+
+    flagged = flag_cross_page_images([q])
+
+    assert flagged == 1
+    assert q['needs_review'] is True
+    assert 'page 1' in q['review_reason'] and 'page 5' in q['review_reason']
+    assert q['review_reason'].startswith('Image check:')
+
+
+def test_same_page_image_is_not_flagged():
+    q = _q(ref='page5_img1.jpeg', source_page=5)
+    assert flag_cross_page_images([q]) == 0
+    assert 'needs_review' not in q
+
+
+def test_adjacent_page_allowed_by_default():
+    # A figure at a page break shared onto the next page is legitimate (gap 1).
+    q = _q(ref='page4_figure2.png', source_page=5)
+    assert flag_cross_page_images([q]) == 0
+    assert 'needs_review' not in q
+
+
+def test_gap_of_two_is_flagged():
+    q = _q(ref='page3_img1.jpeg', source_page=5)
+    assert flag_cross_page_images([q]) == 1
+    assert q['needs_review'] is True
+
+
+def test_max_gap_is_env_tunable(monkeypatch):
+    monkeypatch.setenv('AI_IMPORT_MAX_IMAGE_PAGE_GAP', '0')
+    # With no slack even an adjacent page counts as a mismatch.
+    q = _q(ref='page4_img1.jpeg', source_page=5)
+    assert flag_cross_page_images([q]) == 1
+
+
+def test_guard_skips_already_flagged_and_pageless(monkeypatch):
+    already = _q(ref='page1_img1.jpeg', source_page=5, needs_review=True,
+                 review_reason='pre-existing')
+    no_source = _q(ref='page1_img1.jpeg')                 # source_page absent
+    drawn_ref = _q(ref='sketch.png', source_page=5)       # no page encoded in ref
+
+    flagged = flag_cross_page_images([already, no_source, drawn_ref])
+
+    assert flagged == 0
+    assert already['review_reason'] == 'pre-existing'     # untouched
+    assert 'needs_review' not in no_source
+    assert 'needs_review' not in drawn_ref
