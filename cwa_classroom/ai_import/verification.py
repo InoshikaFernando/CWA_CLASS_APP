@@ -671,6 +671,75 @@ def _image_verifiable(q):
     return bool(q.get('image_ref'))
 
 
+# ---------------------------------------------------------------------------
+# Deterministic page-locality guard (no API call)
+#
+# Both an embedded image and a cropped figure encode their source page in the ref
+# name the extractor generates — ``page5_img2.png`` / ``page5_figure3.png`` — and
+# every classified question carries ``source_page``. When those two pages are far
+# apart the attachment is almost certainly wrong: a page-1 title-page engraving
+# stuck onto a page-5 angle question, or a neighbour's figure grabbed across a
+# page break. This pass catches that for free, before (and regardless of) the paid
+# vision verifier, so a deployment with no OpenAI key still routes the obvious
+# cross-page mismatches to the teacher instead of silently letting them through.
+
+_IMAGE_REF_PAGE_RE = re.compile(r'^page(\d+)_')
+
+
+def _image_ref_page(ref):
+    """The 1-based page number encoded in an image ref, or None if not encoded.
+
+    Matches both extractor conventions: ``page{N}_img{M}.ext`` (embedded raster)
+    and ``page{N}_figure{idx}.png`` (cropped drawn figure)."""
+    match = _IMAGE_REF_PAGE_RE.match(str(ref or ''))
+    return int(match.group(1)) if match else None
+
+
+def flag_cross_page_images(questions, *, max_gap=None):
+    """Flag questions whose attached image comes from a far-off page.
+
+    Deterministic and free — no API call — so it runs on every import even when
+    the vision verifier is disabled or unconfigured. A confident wrong-page
+    attachment sets ``needs_review`` with a ``review_reason`` so the teacher
+    checks it on the preview screen, exactly like ``verify_images``.
+
+    Adjacent pages are allowed by default (``max_gap=1``): a figure sitting at a
+    page break can legitimately be shared onto the following page. The allowed gap
+    is tunable via ``AI_IMPORT_MAX_IMAGE_PAGE_GAP``. Questions already flagged for
+    another reason, text-only questions, and refs / source pages that don't carry
+    a page number are left untouched.
+
+    Mutates the question dicts in place. Returns the number of questions flagged.
+    """
+    if max_gap is None:
+        try:
+            max_gap = int(os.environ.get('AI_IMPORT_MAX_IMAGE_PAGE_GAP', '1'))
+        except (TypeError, ValueError):
+            max_gap = 1
+    max_gap = max(0, max_gap)
+
+    flagged = 0
+    for q in questions or []:
+        if q.get('needs_review'):
+            continue  # already going to the teacher — don't pile on
+        image_page = _image_ref_page(q.get('image_ref'))
+        source_page = q.get('source_page')
+        if image_page is None or source_page is None:
+            continue
+        try:
+            gap = abs(image_page - int(source_page))
+        except (TypeError, ValueError):
+            continue
+        if gap > max_gap:
+            q['needs_review'] = True
+            q['review_reason'] = (
+                f'Image check: attached image is from page {image_page} but this '
+                f'question is on page {source_page} — likely the wrong image.'
+            )
+            flagged += 1
+    return flagged
+
+
 _VERIFY_IMAGE_SYSTEM_PROMPT = (
     "You are a meticulous maths teacher checking that the RIGHT picture was "
     "attached to each question when a worksheet was digitised. For each item you "

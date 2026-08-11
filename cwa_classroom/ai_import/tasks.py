@@ -58,17 +58,33 @@ def process_pdf_import(session_id):
         # image pool and save like any other.
         extracted_images.update(crop_figure_boxes(extracted, result, pdf_bytes=pdf_bytes))
 
-        # Vision second opinion: now that every question's image is finalised
-        # (embedded ref or fresh crop), an independent model checks each attached
-        # image actually belongs to its question and flags mismatches (decorative
-        # art, a neighbour's figure, a wrong crop) needs_review for the teacher.
-        # Best-effort and self-gating — a no-op without OPENAI_API_KEY, and never
-        # fails the import. Reported separately from the Claude token ledger.
-        from .verification import verify_images
+        # Image checks, now that every question's image is finalised (embedded ref
+        # or fresh crop). Two layers route a wrong attachment to the teacher via
+        # needs_review, which the preview badge already renders:
+        #   1. A deterministic page-locality guard — free, always on — flags any
+        #      image whose ref page is far from the question's source_page (e.g. a
+        #      page-1 decoration attached to a page-5 question). It runs first so
+        #      it also spares the paid verifier a call on anything it already caught.
+        #   2. The vision second opinion looks at each still-unflagged question with
+        #      its attached image and flags mismatches a page check can't see
+        #      (same-page decorative art, a bad crop). Self-gating on OPENAI_API_KEY;
+        #      never fails the import; reported apart from the Claude token ledger.
+        from .verification import (
+            flag_cross_page_images, image_verification_enabled, verify_images,
+        )
+        cross_page_flagged = flag_cross_page_images(result.get('questions', []))
         image_verification = verify_images(
             result.get('questions', []), extracted_images)
-        if image_verification is not None:
-            result['image_verification'] = image_verification
+        # Always record an image-verification summary — no silent pass. When the
+        # vision layer didn't run (no key / disabled / nothing left to check) say
+        # so, and always report the deterministic guard's tally.
+        if image_verification is None:
+            image_verification = {
+                'status': ('disabled' if not image_verification_enabled()
+                           else 'nothing_to_check'),
+            }
+        image_verification['cross_page_flagged'] = cross_page_flagged
+        result['image_verification'] = image_verification
 
         # Preserve any pre-set classroom selection stored at enqueue time.
         existing = session.extracted_data or {}
