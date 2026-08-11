@@ -164,6 +164,21 @@ def test_cross_page_image_is_flagged():
     assert q['review_reason'].startswith('Image check:')
 
 
+def test_far_apart_pages_are_flagged():
+    # The exact worry: image on page 1, question on page 10.
+    q = _q(ref='page1_img1.jpeg', source_page=10)
+    assert flag_cross_page_images([q]) == 1
+    assert q['needs_review'] is True
+    assert 'page 1' in q['review_reason'] and 'page 10' in q['review_reason']
+
+
+def test_source_page_as_string_is_handled():
+    # The model may return source_page as a string; it must still compare numerically.
+    q = _q(ref='page1_img1.jpeg', source_page='10')
+    assert flag_cross_page_images([q]) == 1
+    assert q['needs_review'] is True
+
+
 def test_same_page_image_is_not_flagged():
     q = _q(ref='page5_img1.jpeg', source_page=5)
     assert flag_cross_page_images([q]) == 0

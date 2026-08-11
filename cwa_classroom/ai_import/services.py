@@ -760,7 +760,7 @@ CLASSIFICATION_TOOL = {
                             },
                         },
                     },
-                    "required": ["question_text", "question_type", "difficulty", "answers"],
+                    "required": ["question_text", "question_type", "difficulty", "answers", "source_page"],
                 },
             },
         },
