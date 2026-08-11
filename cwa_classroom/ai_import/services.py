@@ -286,6 +286,9 @@ Your task:
    If a question has no visual, leave image_ref, image_page, and image_box all null.
 4. Do NOT embed table/chart data as text in the question — keep question_text concise and
    reference the image instead when the question depends on a visual.
+5. Set source_page on EVERY question to the 1-based page number it appears on (the page whose
+   screenshot shows it). This is separate from image_page — it is required even for text-only
+   questions that carry no figure, so the answer verifier can pull up the right page.
 
 IMAGE NECESSITY (important — most questions need NO image):
 - Set image_ref to null whenever the question can be fully understood and answered from text alone
@@ -625,6 +628,10 @@ CLASSIFICATION_TOOL = {
                         "review_reason": {
                             "type": "string",
                             "description": "When needs_review is true, one short sentence on what is uncertain.",
+                        },
+                        "source_page": {
+                            "type": "integer",
+                            "description": "1-based page number on which this question appears (the page whose screenshot shows it). Set this for EVERY question — it lets the answer verifier pull up the exact page.",
                         },
                         "image_ref": {
                             "type": "string",
@@ -1028,13 +1035,20 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
         'total_tokens': in_tok + out_tok,
     }
 
-    # Second opinion: an independent GPT verifier re-solves each text-answerable
-    # question and flags disagreements needs_review for the teacher. Best-effort
-    # and self-gating — a no-op when OPENAI_API_KEY isn't configured, and it
-    # never fails the import. Kept out of merged['usage'] (Claude token ledger)
-    # because GPT is priced separately; reported under merged['verification'].
+    # Second opinion: an independent GPT verifier re-examines each question
+    # against its source-page screenshot — validating Claude's classification and
+    # answer and checking the transcription — and flags disagreements
+    # needs_review for the teacher. Best-effort and self-gating: a no-op when
+    # OPENAI_API_KEY isn't configured, and it never fails the import. Kept out of
+    # merged['usage'] (Claude token ledger) because GPT is priced separately;
+    # reported under merged['verification'].
+    page_images = {
+        p['page_num']: p['screenshot']
+        for p in pages
+        if p.get('page_num') is not None and p.get('screenshot')
+    }
     from .verification import verify_answers
-    verification = verify_answers(merged.get('questions', []))
+    verification = verify_answers(merged.get('questions', []), page_images=page_images)
     if verification is not None:
         merged['verification'] = verification
 
