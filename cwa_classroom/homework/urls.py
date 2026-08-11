@@ -21,6 +21,7 @@ urlpatterns = [
     path('homework/pdf/preview/<int:session_id>/', views.HomeworkPDFPreviewView.as_view(), name='pdf_preview'),
     path('homework/pdf/preview/<int:session_id>/page-image/', views.HomeworkPDFPageImageView.as_view(), name='pdf_page_image'),
     path('homework/pdf/preview/<int:session_id>/recrop/', views.HomeworkPDFRecropView.as_view(), name='pdf_recrop'),
+    path('homework/pdf/preview/<int:session_id>/reuse-image/', views.HomeworkPDFReuseImageView.as_view(), name='pdf_reuse_image'),
     path('homework/pdf/confirm/<int:session_id>/', views.HomeworkPDFConfirmView.as_view(), name='pdf_confirm'),
     # Teacher: authored JSON/ZIP upload (skips AI extraction + preview)
     path('homework/json/confirm/<int:session_id>/', views.HomeworkJSONConfirmView.as_view(), name='json_confirm'),
