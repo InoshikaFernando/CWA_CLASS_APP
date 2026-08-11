@@ -43,28 +43,40 @@ path('ai-import/', include('ai_import.urls', namespace='ai_import')),
 ## Second-opinion answer verification
 
 After Claude classifies the questions, an optional **GPT verifier** independently
-re-solves each *text-answerable* question (`ai_import/verification.py`). Where
-GPT's answer disagrees with Claude's, the question is flagged `needs_review` (with
-a `review_reason`) so the teacher checks it on the preview screen before it enters
-the bank. This targets the main accuracy risk — a wrong answer slipping through —
-without merging two full extractions.
+re-examines *every* question against its source-page screenshot
+(`ai_import/verification.py`). For each question GPT does three things:
+
+1. **classifies** it (its own `question_type`) — validating Claude's classification;
+2. **solves** it from scratch and reports its answer — validating Claude's answer;
+3. **transcription-checks** the extracted text against the page image.
+
+A confident disagreement on any of the three — a cross-bucket type mismatch, a
+different answer, or a mis-transcribed question — flags it `needs_review` (with a
+`review_reason`) so the teacher checks it on the preview screen before it enters
+the bank. Questions are grouped by page so each page image is sent once.
 
 It is best-effort and self-gating:
 
 - Runs only when `OPENAI_API_KEY` is set (and `AI_IMPORT_VERIFY_ENABLED` isn't
   `0`). With no key, imports run Claude-only, exactly as before.
-- Only `multiple_choice`, `true_false`, `short_answer`, and `fill_blank`
-  questions are checked. Computed/structured types (`column_operation`,
-  `long_division`, `plot_*`, `measure`, `number_line`, …) are graded
-  deterministically, and image-dependent questions can't be fairly re-solved from
-  text alone, so both are skipped.
+- **All** question types are covered. Computed (`column_operation`,
+  `long_division`, …) and image-dependent / visual (`plot_*`, `read_graph`,
+  `measure`, `number_line`) questions — which a text-only pass had to skip — are
+  handled by attaching the page image (GPT vision). Set `AI_IMPORT_VERIFY_VISION=0`
+  to force a cheaper text-only pass (no images; the transcription check is then
+  skipped). To attach the right page, the classifier stamps each question with a
+  `source_page`; it falls back to `image_page` / the ref's page, then to text-only.
+- Type-mismatch flagging is *coarse* (cross-bucket only) so interchangeable types
+  (`short_answer` vs `calculation`) don't produce noise.
 - A verifier failure logs a warning and lets the import proceed unverified — a
   flaky second opinion never sinks a teacher's upload.
-- GPT usage is reported under `extracted_data['verification']`, kept separate
+- GPT usage is reported under `extracted_data['verification']` (with
+  `type_flags` / `answer_flags` / `transcription_flags` counts), kept separate
   from Claude's token ledger (`usage`) because GPT is priced differently.
 
-Tuning env vars: `AI_IMPORT_VERIFY_MODEL` (default `gpt-4o`),
+Tuning env vars: `AI_IMPORT_VERIFY_MODEL` (default `gpt-4o`, must support vision),
 `AI_IMPORT_VERIFY_CHUNK` (questions per request, default 40),
+`AI_IMPORT_VERIFY_VISION` (`0` to force text-only),
 `AI_IMPORT_VERIFY_ENABLED` (`0` to force off).
 
 ## External services

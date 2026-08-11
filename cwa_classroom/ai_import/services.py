@@ -22,6 +22,51 @@ from django.utils import timezone
 # AI_IMPORT_MAX_IMAGE_DIM.
 MAX_EMBEDDED_IMAGE_DIM = int(os.environ.get('AI_IMPORT_MAX_IMAGE_DIM', '1568'))
 
+# A photographic / painted illustration (a clip-art header, a scanned photo, a
+# decorative drawing) is continuous-tone: it fills its frame edge-to-edge with
+# many subtly-different colours and almost no pure-white background. A maths
+# figure — a line diagram, chart, number line, geometry drawing — is the
+# opposite: it sits on white with a handful of flat colours. These two knobs
+# separate the former from the latter so a decorative illustration is never
+# attached in place of a question's real diagram. Tune via env if needed.
+PHOTO_MAX_WHITE_FRACTION = float(os.environ.get('AI_IMPORT_PHOTO_MAX_WHITE', '0.55'))
+PHOTO_MIN_DISTINCT_COLOURS = int(os.environ.get('AI_IMPORT_PHOTO_MIN_COLOURS', '180'))
+
+
+def _looks_photographic(img_bytes):
+    """Best-effort guess: is this embedded image a decorative photo/illustration
+    rather than a maths line-figure?
+
+    Line diagrams, charts and geometry drawings sit on a white page with a few
+    flat colours; a photographic or painted illustration fills the frame with
+    continuous tone and little pure white. We downsample to a tiny thumbnail and
+    flag an image as photographic only when it is BOTH light on white AND rich in
+    distinct colours — so a colourful bar chart (flat fills on white) or a shaded
+    diagram (few colours) is spared, while a full-bleed illustration is caught.
+
+    Returns False on any decode error (never fatal — an unknown image is treated
+    as a normal figure, exactly as before this check existed).
+    """
+    try:
+        import io
+
+        from PIL import Image
+
+        im = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+        im = im.resize((64, 64))
+        px = list(im.getdata())
+        if not px:
+            return False
+        white = sum(1 for r, g, b in px if r >= 235 and g >= 235 and b >= 235)
+        white_fraction = white / len(px)
+        # Quantise to 4 bits/channel so near-identical tones collapse together;
+        # a continuous-tone photo still leaves hundreds of buckets, flat art a few.
+        distinct = len({(r >> 4, g >> 4, b >> 4) for r, g, b in px})
+        return (white_fraction < PHOTO_MAX_WHITE_FRACTION
+                and distinct >= PHOTO_MIN_DISTINCT_COLOURS)
+    except Exception:
+        return False
+
 
 def _downscale_embedded_image(img_bytes, ext):
     """Shrink an embedded image so its longest side <= MAX_EMBEDDED_IMAGE_DIM.
@@ -124,16 +169,25 @@ def _position_hint(cx, cy):
     return f'{vert}-{horiz}'
 
 
-def _embedded_image_label(ref, page_num, bbox_pct):
+def _embedded_image_label(ref, page_num, bbox_pct, photo_like=False):
     """Build the descriptive text block that accompanies an embedded image.
 
     Without position the model can only tell look-alike figures apart by guessing;
     with it, it can map each question to the image in the matching region. Small
     images are flagged as probable decorative markers (angle arcs, right-angle
-    squares) so the model doesn't attach one in place of the real diagram.
+    squares), and continuous-tone photos / illustrations are flagged as probable
+    decoration, so the model doesn't attach one in place of the real diagram.
     """
+    photo_note = (
+        "; looks like a photo / decorative illustration, not a maths line-figure - "
+        "do NOT attach unless the question genuinely depends on interpreting a "
+        "photograph or picture"
+    )
     if not bbox_pct:
-        return f"[Embedded image: {ref}]"
+        label = f"[Embedded image: {ref}"
+        if photo_like:
+            label += photo_note
+        return label + "]"
     x0, y0, x1, y1 = bbox_pct
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
     w, h = x1 - x0, y1 - y0
@@ -146,6 +200,8 @@ def _embedded_image_label(ref, page_num, bbox_pct):
         label += "; small - likely a decorative marker (arc / right-angle), not a full figure"
     elif w >= 85 and h >= 85:
         label += "; covers the whole page - a scanned page / background, not a single question's figure"
+    elif photo_like:
+        label += photo_note
     return label + "]"
 
 
@@ -214,6 +270,10 @@ def extract_pdf_content(pdf_file):
                     # question to the figure in the matching region instead of
                     # guessing between look-alike diagrams. May be None.
                     'bbox_pct': _embedded_image_bbox_pct(page, xref),
+                    # Whether it looks like a decorative photo/illustration rather
+                    # than a maths line-figure — surfaced to the model so it isn't
+                    # attached in place of a question's real diagram.
+                    'photo_like': _looks_photographic(img_bytes),
                 })
 
         # Render the full page as a screenshot (captures tables, charts, diagrams).
@@ -286,6 +346,9 @@ Your task:
    If a question has no visual, leave image_ref, image_page, and image_box all null.
 4. Do NOT embed table/chart data as text in the question — keep question_text concise and
    reference the image instead when the question depends on a visual.
+5. Set source_page on EVERY question to the 1-based page number it appears on (the page whose
+   screenshot shows it). This is separate from image_page — it is required even for text-only
+   questions that carry no figure, so the answer verifier can pull up the right page.
 
 IMAGE NECESSITY (important — most questions need NO image):
 - Set image_ref to null whenever the question can be fully understood and answered from text alone
@@ -315,6 +378,12 @@ MATCHING THE RIGHT IMAGE TO EACH QUESTION (important — this is the #1 cause of
 - Ignore images flagged "small — likely a decorative marker" (angle arcs / right-angle squares)
   and any flagged "covers the whole page" (a scanned page or poster background) when choosing a
   question's figure — neither is that question's diagram. Pick the main figure for the region.
+- An image flagged "looks like a photo / decorative illustration" is almost never a maths
+  question's figure (it is clip-art, a header picture, or a decorative drawing). Do NOT attach it
+  in place of a real diagram — if the question needs a diagram that is DRAWN into the page (a
+  shape, geometry figure, number line, angle-turn figure), use approach (b) with image_page +
+  image_box instead. Attach a photo-flagged image ONLY when the question genuinely depends on
+  interpreting that photograph / picture.
 - If two candidate images share a region, prefer the larger one (the full diagram) and the one
   directly adjacent to the question text.
 
@@ -626,6 +695,10 @@ CLASSIFICATION_TOOL = {
                             "type": "string",
                             "description": "When needs_review is true, one short sentence on what is uncertain.",
                         },
+                        "source_page": {
+                            "type": "integer",
+                            "description": "1-based page number on which this question appears (the page whose screenshot shows it). Set this for EVERY question — it lets the answer verifier pull up the exact page.",
+                        },
                         "image_ref": {
                             "type": "string",
                             "description": "Reference to an EMBEDDED image (e.g. page1_img1.png) listed in the input. Set only when the question's visual is one of those embedded images. Null otherwise.",
@@ -828,7 +901,8 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
             content_blocks.append({
                 "type": "text",
                 "text": _embedded_image_label(
-                    img['ref'], page['page_num'], img.get('bbox_pct')),
+                    img['ref'], page['page_num'], img.get('bbox_pct'),
+                    img.get('photo_like', False)),
             })
 
     content_blocks.append({
@@ -1028,13 +1102,20 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
         'total_tokens': in_tok + out_tok,
     }
 
-    # Second opinion: an independent GPT verifier re-solves each text-answerable
-    # question and flags disagreements needs_review for the teacher. Best-effort
-    # and self-gating — a no-op when OPENAI_API_KEY isn't configured, and it
-    # never fails the import. Kept out of merged['usage'] (Claude token ledger)
-    # because GPT is priced separately; reported under merged['verification'].
+    # Second opinion: an independent GPT verifier re-examines each question
+    # against its source-page screenshot — validating Claude's classification and
+    # answer and checking the transcription — and flags disagreements
+    # needs_review for the teacher. Best-effort and self-gating: a no-op when
+    # OPENAI_API_KEY isn't configured, and it never fails the import. Kept out of
+    # merged['usage'] (Claude token ledger) because GPT is priced separately;
+    # reported under merged['verification'].
+    page_images = {
+        p['page_num']: p['screenshot']
+        for p in pages
+        if p.get('page_num') is not None and p.get('screenshot')
+    }
     from .verification import verify_answers
-    verification = verify_answers(merged.get('questions', []))
+    verification = verify_answers(merged.get('questions', []), page_images=page_images)
     if verification is not None:
         merged['verification'] = verification
 

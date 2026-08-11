@@ -58,6 +58,18 @@ def process_pdf_import(session_id):
         # image pool and save like any other.
         extracted_images.update(crop_figure_boxes(extracted, result, pdf_bytes=pdf_bytes))
 
+        # Vision second opinion: now that every question's image is finalised
+        # (embedded ref or fresh crop), an independent model checks each attached
+        # image actually belongs to its question and flags mismatches (decorative
+        # art, a neighbour's figure, a wrong crop) needs_review for the teacher.
+        # Best-effort and self-gating — a no-op without OPENAI_API_KEY, and never
+        # fails the import. Reported separately from the Claude token ledger.
+        from .verification import verify_images
+        image_verification = verify_images(
+            result.get('questions', []), extracted_images)
+        if image_verification is not None:
+            result['image_verification'] = image_verification
+
         # Preserve any pre-set classroom selection stored at enqueue time.
         existing = session.extracted_data or {}
         if existing.get('classroom_id'):
