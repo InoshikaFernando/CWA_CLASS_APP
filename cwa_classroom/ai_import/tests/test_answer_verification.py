@@ -174,6 +174,50 @@ def test_transcription_ignored_without_image():
 
 
 # ---------------------------------------------------------------------------
+# Read-off numeric answers (read_graph / measure): answer lives in
+# numeric_answer, compared with the question's tolerance band
+# ---------------------------------------------------------------------------
+
+def test_read_graph_numeric_answer_disagreement_flags():
+    # Real case: a protractor read-off Claude extracted as 75° (±4); the verifier,
+    # reading the page image, gets 110° — outside tolerance → flag for review.
+    q = {
+        'question_text': 'Using the protractor, read off the value of the marked angle:',
+        'question_type': 'read_graph', 'numeric_answer': 75,
+        'answer_tolerance': 4, 'answer_unit': '°', 'answers': [], 'source_page': 1,
+    }
+    client = _fake_client([{
+        'index': 0, 'question_type': 'read_graph', 'answer': '110°',
+        'confident': True, 'transcription_ok': True,
+    }])
+
+    summary = verify_answers([q], page_images={1: 'ZmFrZQ=='},
+                             client=client, force=True)
+
+    assert q['needs_review'] is True
+    assert '110' in q['review_reason'] and '75' in q['review_reason']
+    assert summary['answer_flags'] == 1
+
+
+def test_read_graph_within_tolerance_stays_quiet():
+    q = {
+        'question_text': 'Read the dial:', 'question_type': 'measure',
+        'numeric_answer': 110, 'answer_tolerance': 4, 'answer_unit': '°',
+        'answers': [], 'source_page': 1,
+    }
+    client = _fake_client([{
+        'index': 0, 'question_type': 'measure', 'answer': '108',
+        'confident': True, 'transcription_ok': True,
+    }])
+
+    summary = verify_answers([q], page_images={1: 'ZmFrZQ=='},
+                             client=client, force=True)
+
+    assert 'needs_review' not in q          # 108 within ±4 of 110
+    assert summary['answer_flags'] == 0
+
+
+# ---------------------------------------------------------------------------
 # Coverage now includes computed / image-dependent types
 # ---------------------------------------------------------------------------
 

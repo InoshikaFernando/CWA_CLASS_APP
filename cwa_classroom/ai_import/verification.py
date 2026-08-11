@@ -57,9 +57,10 @@ _TYPE_BUCKET = {
     'short_answer': 'free', 'fill_blank': 'free', 'calculation': 'free',
     'column_operation': 'free', 'long_division': 'free',
     'plot_points': 'plot', 'plot_line': 'plot', 'identify_coords': 'plot',
-    'read_graph': 'graph',
-    'number_line': 'number_line',
-    'measure': 'measure',
+    # read_graph / measure / number_line all "read a numeric value off a visual"
+    # and are easily confused with one another — one bucket so a read_graph↔measure
+    # slip isn't reported as a classification disagreement.
+    'read_graph': 'readoff', 'measure': 'readoff', 'number_line': 'readoff',
 }
 
 # The full type list handed to GPT so its independent classification uses the same
@@ -101,6 +102,32 @@ def _correct_texts(q):
         for a in (q.get('answers') or [])
         if a.get('is_correct') and (a.get('text') or '').strip()
     ]
+
+
+def _expected_answers(q):
+    """Every accepted correct-answer form to compare GPT against.
+
+    Covers both storage shapes: the ``is_correct`` option texts (multiple_choice /
+    short_answer / …) AND the ``numeric_answer`` used by ``read_graph`` /
+    ``measure`` — whose value lives in a numeric field, not the ``answers`` array,
+    so without this the verifier could never check a protractor / dial read-off.
+    """
+    forms = _correct_texts(q)
+    na = q.get('numeric_answer')
+    if na is not None and str(na).strip():
+        forms = forms + [str(na).strip()]
+    return forms
+
+
+def _answer_tolerance(q):
+    """The question's ± band as a float (read_graph / measure), or None for exact."""
+    raw = q.get('answer_tolerance')
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    try:
+        return abs(float(raw))
+    except (TypeError, ValueError):
+        return None
 
 
 def _resolve_page(q):
@@ -163,13 +190,14 @@ def _norm(text):
     return text.rstrip('.')
 
 
-def _answers_agree(gpt_answer, correct_texts):
+def _answers_agree(gpt_answer, correct_texts, tolerance=None):
     """Whether GPT's answer matches any of Claude's accepted answer forms.
 
     Agreement is deliberately lenient (exact-after-normalisation OR equal leading
-    number) because a disagreement only routes the question to a teacher — a
-    missed nuance costs a glance, a false disagreement costs trust. When in doubt
-    we treat it as agreement and stay quiet.
+    number, OR within ``tolerance`` when one is given for a read-off type) because
+    a disagreement only routes the question to a teacher — a missed nuance costs a
+    glance, a false disagreement costs trust. When in doubt we treat it as
+    agreement and stay quiet.
     """
     g = _norm(gpt_answer)
     if not g:
@@ -180,8 +208,11 @@ def _answers_agree(gpt_answer, correct_texts):
         if g == cn:
             return True
         cnum = _leading_number(cn)
-        if gnum is not None and cnum is not None and gnum == cnum:
-            return True
+        if gnum is not None and cnum is not None:
+            if gnum == cnum:
+                return True
+            if tolerance is not None and abs(gnum - cnum) <= tolerance:
+                return True
     return False
 
 
@@ -459,10 +490,13 @@ def verify_answers(questions, page_images=None, client=None, *, force=False):
                 f'not "{q.get("question_type")}".')
             type_flags += 1
 
-        # 3. Answer — only where Claude has a stored answer to compare against.
-        correct = _correct_texts(q)
+        # 3. Answer — only where Claude has a stored answer to compare against
+        # (the is_correct options, or the numeric_answer of a read-off type),
+        # honouring the question's tolerance band when it has one.
+        correct = _expected_answers(q)
         if verdict['confident'] and verdict['answer'] and correct \
-                and not _answers_agree(verdict['answer'], correct):
+                and not _answers_agree(verdict['answer'], correct,
+                                       tolerance=_answer_tolerance(q)):
             reasons.append(
                 f'Second-opinion check disagreed: verifier answered '
                 f'"{verdict["answer"]}" vs "{correct[0]}".')
