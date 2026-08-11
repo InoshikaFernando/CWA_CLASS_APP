@@ -1,11 +1,19 @@
 """
-Second-opinion answer verification for AI Import.
+Second-opinion verification for AI Import.
 
-After Claude classifies the extracted questions, an independent OpenAI (GPT)
-model re-solves each *text-answerable* question. When GPT's answer disagrees
-with the one Claude produced, the question is flagged ``needs_review`` (with a
-short ``review_reason``) so the teacher double-checks it on the preview screen
-before it enters the question bank.
+Two independent OpenAI (GPT) passes catch the two failures Claude is most prone
+to on figure-heavy worksheets, each flagging a suspect question ``needs_review``
+(with a short ``review_reason``) so the teacher double-checks it on the preview
+screen before it enters the question bank:
+
+- ``verify_answers`` re-solves each *text-answerable* question and flags answers
+  the second model disagrees with (below);
+- ``verify_images`` looks at each question together with its *attached image* and
+  flags pictures that don't belong — decorative art, a neighbour's figure, a bad
+  crop, or an image on a question that needs none (further down this module).
+
+Both are best-effort and self-gating (a no-op without ``OPENAI_API_KEY``) and
+never fail the import. The answer verifier is documented first:
 
 This is a best-effort accuracy net, never a hard gate:
 
@@ -334,6 +342,260 @@ def verify_answers(questions, client=None, *, force=False):
             f'Second-opinion check disagreed: verifier answered '
             f'"{verdict["answer"]}" vs "{correct[0]}".'
         )
+        flagged += 1
+
+    return {
+        'model': model,
+        'checked': len(all_results),
+        'flagged': flagged,
+        'input_tokens': in_tok,
+        'output_tokens': out_tok,
+        'error': error,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Image validation (vision second opinion)
+# ---------------------------------------------------------------------------
+#
+# The answer verifier above re-solves TEXT questions. This pass tackles the other
+# recurring failure: the WRONG picture attached to a question. After the classifier
+# has finalised every question's image (embedded ref or a fresh crop), an
+# independent vision model looks at each question together with the image the
+# system attached to it and judges whether the image genuinely belongs. A confident
+# "no" (decorative clip-art, a neighbouring question's figure, a bad crop, or an
+# image on a question that needs none) flags the question ``needs_review`` so the
+# teacher checks it on the preview screen. Like the answer verifier it is
+# best-effort and self-gating — a no-op without an OpenAI key, and a failed call
+# never sinks the import.
+
+
+_IMAGE_MEDIA_TYPES = {
+    'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+    'gif': 'image/gif', 'webp': 'image/webp',
+}
+
+
+def image_verification_enabled():
+    """Whether the vision image-validator should run.
+
+    On only when an OpenAI key is configured AND the feature isn't explicitly
+    switched off (``AI_IMPORT_VERIFY_IMAGES_ENABLED=0``). Gated separately from
+    the answer verifier so a deployment can run either pass without the other.
+    """
+    if os.environ.get('AI_IMPORT_VERIFY_IMAGES_ENABLED', '1') == '0':
+        return False
+    return bool(getattr(settings, 'OPENAI_API_KEY', ''))
+
+
+def _image_media_type(ref):
+    """MIME type for a data: URL from an image ref's extension (default PNG)."""
+    ext = ref.rsplit('.', 1)[-1].lower() if '.' in (ref or '') else ''
+    return _IMAGE_MEDIA_TYPES.get(ext, 'image/png')
+
+
+def _image_verifiable(q):
+    """A question is checkable when it carries a final attached image and isn't
+    already going to the teacher for another reason."""
+    if q.get('needs_review'):
+        return False  # already flagged — a second reason adds nothing
+    return bool(q.get('image_ref'))
+
+
+_VERIFY_IMAGE_SYSTEM_PROMPT = (
+    "You are a meticulous maths teacher checking that the RIGHT picture was "
+    "attached to each question when a worksheet was digitised. For each item you "
+    "get the question text and the single image the system attached to it. Decide "
+    "whether that image is genuinely the figure this question needs.\n"
+    "- matches=true when the image IS the diagram / graph / figure / picture the "
+    "question refers to and needs to be answered.\n"
+    "- matches=false when the image does NOT belong: it is decorative (clip-art, a "
+    "photo, a header / border, a logo or mascot), it is clearly a DIFFERENT "
+    "question's figure, it is the wrong crop or only a fragment of the figure, or "
+    "the question can be fully answered from its text and needs no image at all.\n"
+    "- Only report matches=false when you are CONFIDENT the image is wrong — set "
+    "confident=false (and matches=true) whenever you are unsure, because a false "
+    "alarm wastes a teacher's time. Give a one-line reason whenever matches=false.\n"
+    "Report every item via the report_image_matches tool."
+)
+
+
+_VERIFY_IMAGE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "report_image_matches",
+        "description": "Report whether each question's attached image is the right one.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "index": {
+                                "type": "integer",
+                                "description": "The item's index from the input.",
+                            },
+                            "matches": {
+                                "type": "boolean",
+                                "description": "True if the attached image is the figure this question needs.",
+                            },
+                            "confident": {
+                                "type": "boolean",
+                                "description": "True only if you are confident in this judgement.",
+                            },
+                            "reason": {
+                                "type": "string",
+                                "description": "One short sentence; required when matches is false.",
+                            },
+                        },
+                        "required": ["index", "matches", "confident"],
+                    },
+                },
+            },
+            "required": ["results"],
+        },
+    },
+}
+
+
+def _verify_image_batch(client, model, batch, images_by_ref):
+    """One vision request over a batch of ``(index, question)`` items.
+
+    Interleaves each question's text with its attached image, then asks the model
+    to report a match verdict per item. Returns ``(results_by_index, usage)`` where
+    a result is ``{'matches': bool, 'confident': bool, 'reason': str}``. Raises on
+    transport / parse failure so the orchestrator can log it and move on.
+    """
+    content = [{
+        "type": "text",
+        "text": (
+            "Check each question below against the ONE image attached directly "
+            "beneath it, then report every item via report_image_matches."
+        ),
+    }]
+    for idx, q in batch:
+        ref = q.get('image_ref')
+        b64 = images_by_ref.get(ref)
+        content.append({
+            "type": "text",
+            "text": (
+                f"\nItem {idx} — question_type: {q.get('question_type')}\n"
+                f"Question: {q.get('question_text', '')}\nAttached image:"
+            ),
+        })
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{_image_media_type(ref)};base64,{b64}"},
+        })
+
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": _VERIFY_IMAGE_SYSTEM_PROMPT},
+            {"role": "user", "content": content},
+        ],
+        tools=[_VERIFY_IMAGE_TOOL],
+        tool_choice={"type": "function", "function": {"name": "report_image_matches"}},
+    )
+
+    message = resp.choices[0].message
+    tool_calls = getattr(message, 'tool_calls', None) or []
+    if not tool_calls:
+        raise ValueError('image verifier returned no tool call')
+
+    data = json.loads(tool_calls[0].function.arguments)
+    results = {}
+    for r in data.get('results', []):
+        try:
+            results[int(r['index'])] = {
+                # Default matches=True so a malformed row never wrongly flags.
+                'matches': bool(r.get('matches', True)),
+                'confident': bool(r.get('confident')),
+                'reason': (r.get('reason') or '').strip(),
+            }
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    usage = getattr(resp, 'usage', None)
+    token_usage = {
+        'input_tokens': getattr(usage, 'prompt_tokens', 0) or 0,
+        'output_tokens': getattr(usage, 'completion_tokens', 0) or 0,
+    }
+    return results, token_usage
+
+
+def verify_images(questions, images_by_ref, client=None, *, force=False):
+    """Vision-check each question's attached image, flagging mismatches in place.
+
+    For every question with a final ``image_ref`` present in ``images_by_ref``, an
+    independent vision model judges whether the image is the figure the question
+    needs. A confident "no" sets ``needs_review=True`` and a ``review_reason`` so
+    the teacher checks it. Never edits the image or the answer — it only routes
+    questionable attachments to a human.
+
+    Args:
+        questions: the classified question dicts (mutated in place). Run this AFTER
+            crop_figure_boxes so drawn figures already carry their final image_ref.
+        images_by_ref: {ref: base64} for every embedded image and crop.
+        client: an OpenAI client (injected in tests); built on demand otherwise.
+        force: run even if ``image_verification_enabled()`` is False (tests only).
+
+    Returns:
+        A summary dict ``{'model', 'checked', 'flagged', 'input_tokens',
+        'output_tokens', 'error'}`` when the pass ran, or ``None`` when the
+        validator is disabled / there was nothing to check.
+    """
+    if not force and not image_verification_enabled():
+        return None
+
+    images_by_ref = images_by_ref or {}
+    candidates = [
+        (i, q) for i, q in enumerate(questions or [])
+        if _image_verifiable(q) and images_by_ref.get(q.get('image_ref'))
+    ]
+    if not candidates:
+        return None
+
+    model = os.environ.get('AI_IMPORT_VERIFY_IMAGE_MODEL', 'gpt-4o')
+    # Images are token-heavy, so batch fewer per request than the text verifier.
+    chunk_size = max(1, int(os.environ.get('AI_IMPORT_VERIFY_IMAGE_CHUNK', '6')))
+
+    try:
+        client = client or _get_openai_client()
+    except Exception as exc:  # missing SDK / bad key construction
+        logger.warning('AI import image verifier unavailable, skipping: %s', exc)
+        return {'model': model, 'checked': 0, 'flagged': 0,
+                'input_tokens': 0, 'output_tokens': 0, 'error': str(exc)}
+
+    by_index = {i: q for i, q in candidates}
+    all_results = {}
+    in_tok = out_tok = 0
+    error = None
+
+    for start in range(0, len(candidates), chunk_size):
+        batch = candidates[start:start + chunk_size]
+        try:
+            results, usage = _verify_image_batch(client, model, batch, images_by_ref)
+        except Exception as exc:
+            # Best-effort: a failed batch leaves its images unchecked rather than
+            # sinking the whole import. Surfaced in logs and the summary.
+            logger.warning('AI import image verifier batch failed: %s', exc)
+            error = str(exc)
+            continue
+        all_results.update(results)
+        in_tok += usage['input_tokens']
+        out_tok += usage['output_tokens']
+
+    flagged = 0
+    for idx, verdict in all_results.items():
+        q = by_index.get(idx)
+        if q is None or not verdict['confident'] or verdict['matches']:
+            continue
+        q['needs_review'] = True
+        reason = verdict['reason'] or 'the attached image may not match this question'
+        q['review_reason'] = f'Image check: {reason}'
         flagged += 1
 
     return {
