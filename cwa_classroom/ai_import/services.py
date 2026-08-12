@@ -361,6 +361,15 @@ IMAGE NECESSITY (important — most questions need NO image):
 - If a graphic only shows HOW to lay out the working (long-division "bus stop" bracket, stacked
   column arithmetic), transcribe it into the structured fields/text below and set image_ref to null.
 - When unsure, prefer NO image. A wrongly-attached image is worse than none.
+- BUT when the question TEXT itself explicitly points at a figure it depends on — "the diagram
+  shows…", "the plan of…", "this shape", "the shape below", "the graph/table/spinner shown",
+  "use the diagram", or any answer that cannot be worked out without seeing it (e.g. "find the area
+  of this shape", "what is the shaded angle shown") — you MUST attach that figure: an embedded
+  image_ref if one matches, otherwise image_page + image_box for the drawn figure. Do NOT leave such
+  a question imageless. This is the ONE case where you must not default to null: the "prefer NO
+  image" rule above is for questions whose text does NOT reference a figure. If the referenced
+  figure is drawn into the page (an L-shaped plan, a shape on a grid, a spinner, a number line),
+  box it with image_page + image_box even though it has no embedded image_ref.
 
 MATCHING THE RIGHT IMAGE TO EACH QUESTION (important — this is the #1 cause of wrong figures):
 - Every embedded image is listed with its POSITION on the page: its x/y bounding box in
