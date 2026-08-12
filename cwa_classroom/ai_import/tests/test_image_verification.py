@@ -8,8 +8,9 @@ from unittest.mock import MagicMock
 
 from ai_import import verification
 from ai_import.verification import (
-    _image_media_type, _image_ref_page, _image_verifiable,
-    flag_cross_page_images, verify_images,
+    _count_verifiable, _image_media_type, _image_ref_page, _image_verifiable,
+    flag_cross_page_images, flag_missing_figures,
+    flag_photo_images_on_diagrams, verify_counts, verify_images,
 )
 
 
@@ -140,6 +141,177 @@ def test_media_type_from_ref_extension():
     assert _image_media_type('page1_img1.jpeg') == 'image/jpeg'
     assert _image_media_type('page1_img1.jpg') == 'image/jpeg'
     assert _image_media_type('weird') == 'image/png'  # default
+
+
+# ---------------------------------------------------------------------------
+# Missing-figure guard (no API call)
+
+def _text_q(text, **extra):
+    """A question with NO attached image (image_ref/image_page absent)."""
+    return {'question_text': text, 'question_type': 'short_answer', **extra}
+
+
+def test_missing_figure_is_flagged():
+    # The reported case: a perimeter question about a shape it can't show.
+    q = _text_q('This shape has been made using identical squares. One square '
+                'has a perimeter of 20cm. What is the perimeter of the whole shape?')
+
+    flagged = flag_missing_figures([q])
+
+    assert flagged == 1
+    assert q['needs_review'] is True
+    assert q['review_reason'].startswith('Image check:')
+    assert 'no image' in q['review_reason']
+
+
+def test_various_figure_references_are_flagged():
+    for text in [
+        'What is the area of the diagram below?',
+        'Read the value shown on the number line.',
+        'Use the graph to answer the question.',
+        'Plot the points on the grid.',
+        'What time is shown on the clock face?',
+    ]:
+        q = _text_q(text)
+        assert flag_missing_figures([q]) == 1, text
+
+
+def test_text_only_question_is_not_flagged():
+    # A rectangle fully described in words points at no picture.
+    q = _text_q('A rectangle has a perimeter of 20cm and a length of 6cm. '
+                'What is its width?')
+    assert flag_missing_figures([q]) == 0
+    assert 'needs_review' not in q
+
+
+def test_question_with_attached_figure_is_not_flagged():
+    # "this shape" wording but a crop was attached → nothing missing.
+    q = _text_q('What is the perimeter of this shape?', image_ref='page3_figure2.png')
+    assert flag_missing_figures([q]) == 0
+    assert 'needs_review' not in q
+
+
+def test_scaffolding_visual_types_are_exempt():
+    # "grid" here is the column-arithmetic layout, transcribed into fields.
+    q = _text_q('Work out the answer using the grid.', question_type='column_operation')
+    assert flag_missing_figures([q]) == 0
+    assert 'needs_review' not in q
+
+
+def test_group_shared_and_already_flagged_are_skipped():
+    shared = _text_q('What is the area of this shape?', shares_image_with_previous=True)
+    already = _text_q('Name the diagram shown.', needs_review=True,
+                      review_reason='pre-existing')
+
+    flagged = flag_missing_figures([shared, already])
+
+    assert flagged == 0
+    assert 'needs_review' not in shared            # image carried from previous
+    assert already['review_reason'] == 'pre-existing'  # untouched
+
+
+# ---------------------------------------------------------------------------
+# Photo-on-diagram guard (no API call)
+
+def test_photo_on_perimeter_question_is_flagged():
+    # The reported case: a supermarket illustration attached to a perimeter question.
+    q = _q('Find the perimeter of this shape made of squares (each 1cm by 1cm).',
+           ref='page6_img2.jpeg')
+
+    flagged = flag_photo_images_on_diagrams([q], {'page6_img2.jpeg'})
+
+    assert flagged == 1
+    assert q['needs_review'] is True
+    assert 'photo' in q['review_reason']
+    assert q['review_reason'].startswith('Image check:')
+
+
+def test_non_photo_image_on_diagram_is_not_flagged():
+    # Same question, but its image was NOT flagged photo_like → left alone.
+    q = _q('Find the perimeter of this shape.', ref='page6_img2.jpeg')
+    assert flag_photo_images_on_diagrams([q], set()) == 0
+    assert 'needs_review' not in q
+
+
+def test_photo_on_non_diagram_question_is_not_flagged():
+    # A genuine picture-interpretation question keeps its photo.
+    q = _q('What item is shown in the photograph?', ref='page6_img2.jpeg')
+    assert flag_photo_images_on_diagrams([q], {'page6_img2.jpeg'}) == 0
+    assert 'needs_review' not in q
+
+
+def test_photo_guard_skips_already_flagged():
+    q = _q('Find the area of this triangle.', ref='page6_img2.jpeg',
+           needs_review=True, review_reason='pre-existing')
+    assert flag_photo_images_on_diagrams([q], {'page6_img2.jpeg'}) == 0
+    assert q['review_reason'] == 'pre-existing'
+
+
+# ---------------------------------------------------------------------------
+# Vision count re-check ("count the squares")
+
+def _count_q(text='Find the area of this shape by counting the squares.',
+             answer='24cm²', ref='page6_figure1.png', **extra):
+    return {'question_text': text, 'question_type': 'short_answer',
+            'image_ref': ref,
+            'answers': [{'text': answer, 'is_correct': True}], **extra}
+
+
+COUNT_IMAGES = {'page6_figure1.png': 'GRIDGRID'}
+
+
+def test_count_verifiable_detects_counting_questions():
+    assert _count_verifiable(_count_q())                                   # "counting the squares"
+    assert _count_verifiable(_count_q('Perimeter of this shape made of squares?'))
+    assert not _count_verifiable(_count_q('What is 6 x 4?', ref=None))     # no figure
+    assert not _count_verifiable(_count_q('Find the angle shown.'))        # not a square count
+
+
+def test_count_disagreement_flags_needs_review():
+    q = _count_q(answer='24cm²')                       # imported says 24
+    client = _fake_client([{'index': 0, 'answer': '18', 'confident': True}])
+
+    summary = verify_counts([q], COUNT_IMAGES, client=client, force=True)
+
+    assert q['needs_review'] is True
+    assert '18' in q['review_reason'] and '24' in q['review_reason']
+    assert summary['flagged'] == 1
+
+
+def test_count_agreement_stays_quiet():
+    q = _count_q(answer='24cm²')
+    client = _fake_client([{'index': 0, 'answer': '24', 'confident': True}])
+
+    summary = verify_counts([q], COUNT_IMAGES, client=client, force=True)
+
+    assert 'needs_review' not in q
+    assert summary['flagged'] == 0
+
+
+def test_count_unconfident_does_not_flag():
+    q = _count_q(answer='24cm²')
+    client = _fake_client([{'index': 0, 'answer': '', 'confident': False}])
+
+    summary = verify_counts([q], COUNT_IMAGES, client=client, force=True)
+
+    assert 'needs_review' not in q
+    assert summary['flagged'] == 0
+
+
+def test_count_disabled_without_key(monkeypatch):
+    monkeypatch.setattr(verification.settings, 'OPENAI_API_KEY', '', raising=False)
+    q = _count_q()
+    assert verify_counts([q], COUNT_IMAGES, client=MagicMock()) is None
+    assert 'needs_review' not in q
+
+
+def test_count_non_counting_questions_are_skipped():
+    # A plain short-answer question with a figure but no square-count wording.
+    q = _q('What is the angle?', ref='page6_img1.jpeg')
+    client = MagicMock()
+    assert verify_counts([q], {'page6_img1.jpeg': 'X'}, client=client,
+                         force=True) is None
+    client.chat.completions.create.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

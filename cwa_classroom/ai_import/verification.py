@@ -623,6 +623,131 @@ def flag_visual_comparisons(questions):
     return flagged
 
 
+# Deictic references to a concrete visual the question is meant to read off —
+# "this shape", "the diagram", "the graph below", "shown opposite". A question
+# whose text points at a figure like this but ends up with NO attached image has
+# almost certainly had its figure skipped (the model boxed nothing, or the crop
+# was dropped), so it can't be answered as imported. Indefinite descriptions ("a
+# rectangle with perimeter 20cm") are deliberately excluded — those are spelled
+# out in the text and point at no picture, so requiring a definite/deictic marker
+# in front of the visual noun keeps the false-positive rate down.
+_NEEDS_FIGURE_RE = re.compile(
+    r'\b(?:'
+    r'(?:this|these|the)\s+'
+    r'(?:shape|shapes|diagram|figure|pattern|net|graph|grid|'
+    r'number\s+line|clock(?:\s+face)?|picture|image|table|chart|'
+    r'arrangement|tiles?|solid)'
+    r'|shown\s+(?:below|above|opposite|here|in|on)'
+    r'|as\s+shown'
+    r')\b',
+    re.IGNORECASE,
+)
+
+# Types whose "grid" / "bracket" visual is scaffolding transcribed into the
+# structured fields (never attached as a figure), so a figure reference in their
+# text is not a missing image.
+_FIGURE_OPTIONAL_TYPES = {'long_division', 'column_operation'}
+
+
+def _needs_figure_but_missing(q):
+    """A question that references a figure in its text but carries no image.
+
+    Run AFTER figure cropping so a drawn figure that WAS attached (or dropped as
+    spurious) is reflected in ``image_ref``. Scaffolding-visual types and
+    group-shared questions (their image is carried over) are exempt."""
+    if _has_figure(q) or q.get('shares_image_with_previous'):
+        return False
+    if q.get('question_type') in _FIGURE_OPTIONAL_TYPES:
+        return False
+    return bool(_NEEDS_FIGURE_RE.search(q.get('question_text') or ''))
+
+
+def flag_missing_figures(questions):
+    """Route figure-dependent questions that ended up with NO image to review.
+
+    The mirror image of ``verify_images`` (which checks a WRONG image): here the
+    figure the question needs was skipped entirely, so the question is unanswerable
+    as imported. Deterministic, no API call, so it runs regardless of whether the
+    vision verifier is configured, and it never edits answers — it only routes to a
+    human via ``needs_review``, which the preview badge already renders.
+
+    Must run after ``crop_figure_boxes`` so an attached crop counts as a figure.
+    Mutates the question dicts in place. Returns the number of questions flagged.
+    """
+    flagged = 0
+    for q in (questions or []):
+        if q.get('needs_review') or not _needs_figure_but_missing(q):
+            continue
+        q['needs_review'] = True
+        q['review_reason'] = (
+            'Image check: this question refers to a figure (e.g. "this shape" / '
+            '"the diagram") but no image was attached — the figure may have been '
+            'skipped on import. Crop or add the correct image, or confirm none is '
+            'needed.'
+        )
+        flagged += 1
+    return flagged
+
+
+# Wording that marks a question as needing a DRAWN maths figure (a shape, angle,
+# coordinate grid, number line …) rather than a photograph to interpret. A photo /
+# decorative illustration attached to one of these is the wrong image: the model
+# grabbed a header picture or a neighbouring word-problem's graphic instead of the
+# question's diagram. Deliberately positive/specific so genuine picture questions
+# (maps, clocks, "what is shown in the photograph") are NOT swept in.
+_DIAGRAM_WORDING_RE = re.compile(
+    r'\b(?:'
+    r'perimeter|area|angle|angles|degrees|diagram|'
+    r'coordinate\w*|co-ordinate\w*|plot|axis|axes|'
+    r'number\s+line|symmetr\w*|parallel|perpendicular|'
+    r'vertices|vertex|edges|faces|net|'
+    r'quadrilateral|triangle|rectangle|square|squares|pentagon|hexagon|polygon'
+    r')\b',
+    re.IGNORECASE,
+)
+
+
+def flag_photo_images_on_diagrams(questions, photo_like_refs):
+    """Flag a decorative photo/illustration attached to a maths-figure question.
+
+    A deterministic backstop for the vision verifier's job, using the ``photo_like``
+    signal already computed at extraction: when a question whose text needs a drawn
+    figure (perimeter, angle, coordinate grid, …) has an embedded image that was
+    flagged as a continuous-tone photo/illustration, that image is almost certainly
+    wrong (a header picture or a neighbouring word-problem's graphic). It is routed
+    to review via ``needs_review``. No API call, so it runs even when the vision
+    pass is unconfigured; it never edits answers.
+
+    Cropped figures are never in ``photo_like_refs`` (only embedded rasters are
+    scored), so a legitimate drawn crop is never flagged here.
+
+    Args:
+        questions: classified question dicts (mutated in place).
+        photo_like_refs: the set of image refs flagged ``photo_like`` at extraction.
+
+    Returns:
+        The number of questions newly flagged for review.
+    """
+    photo_like_refs = photo_like_refs or set()
+    flagged = 0
+    for q in (questions or []):
+        if q.get('needs_review'):
+            continue
+        ref = q.get('image_ref')
+        if not ref or ref not in photo_like_refs:
+            continue
+        if not _DIAGRAM_WORDING_RE.search(q.get('question_text') or ''):
+            continue
+        q['needs_review'] = True
+        q['review_reason'] = (
+            'Image check: a photo / decorative illustration is attached to a '
+            'question that needs a drawn maths figure (e.g. perimeter, angle or '
+            'coordinate diagram) — this is very likely the wrong image.'
+        )
+        flagged += 1
+    return flagged
+
+
 # ---------------------------------------------------------------------------
 # Image validation (vision second opinion)
 # ---------------------------------------------------------------------------
@@ -934,6 +1059,251 @@ def verify_images(questions, images_by_ref, client=None, *, force=False):
         q['needs_review'] = True
         reason = verdict['reason'] or 'the attached image may not match this question'
         q['review_reason'] = f'Image check: {reason}'
+        flagged += 1
+
+    return {
+        'model': model,
+        'checked': len(all_results),
+        'flagged': flagged,
+        'input_tokens': in_tok,
+        'output_tokens': out_tok,
+        'error': error,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Count verification (vision re-count of "count the squares" questions)
+# ---------------------------------------------------------------------------
+#
+# "Find the area/perimeter of this shape by counting the squares" answers are a
+# read-off Claude has to eyeball, and a miscount passes silently — both the
+# classifier and the text answer verifier can read a coarse grid the same wrong
+# way. This pass re-counts each such question independently, looking at the
+# question's OWN cropped grid (clearer and unambiguous, unlike the whole-page
+# screenshot the answer verifier uses), and flags needs_review when its count
+# disagrees with the imported answer. Same contract as the other vision passes:
+# best-effort, self-gating on OPENAI_API_KEY, batched, never edits the answer or
+# fails the import — it only routes a suspect count to the teacher.
+
+# A "count the squares" question: an area/perimeter (or bare) task whose figure is
+# drawn on / made of unit squares. Matches "count the squares", "made of squares",
+# "each square is 1cm" — the phrasings that mark a unit-square read-off.
+_COUNT_SQUARES_RE = re.compile(
+    r'(?:\bcount\w*\b[^.]*\bsquares?\b)'
+    r'|(?:\bsquares?\b[^.]*\bcount\w*\b)'
+    r'|(?:\b(?:made\s+(?:of|up\s+of|using)|each)\b[^.]*\bsquares?\b)',
+    re.IGNORECASE,
+)
+
+
+def count_verification_enabled():
+    """Whether the vision count re-check should run.
+
+    On only when an OpenAI key is configured AND the feature isn't explicitly
+    switched off (``AI_IMPORT_VERIFY_COUNTS_ENABLED=0``). Gated separately from the
+    other passes so a deployment can run any subset."""
+    if os.environ.get('AI_IMPORT_VERIFY_COUNTS_ENABLED', '1') == '0':
+        return False
+    return bool(getattr(settings, 'OPENAI_API_KEY', ''))
+
+
+def _count_verifiable(q):
+    """A question whose answer is obtained by counting unit squares off a figure.
+
+    Needs a checkable numeric answer, an attached figure, "count the squares"
+    wording, and no existing review flag (a second reason adds nothing)."""
+    if q.get('needs_review'):
+        return False
+    if not q.get('image_ref') or not _expected_answers(q):
+        return False
+    return bool(_COUNT_SQUARES_RE.search(q.get('question_text') or ''))
+
+
+_VERIFY_COUNT_SYSTEM_PROMPT = (
+    "You are a meticulous maths teacher checking 'count the squares' answers that "
+    "were auto-extracted from a worksheet. For each item you get the question and "
+    "the image of its shape drawn on a unit-square grid. Count the unit squares "
+    "carefully and work the answer out YOURSELF: for an AREA question the answer is "
+    "the number of unit squares the shape covers; for a PERIMETER question it is "
+    "the number of unit edges around the outside. Report the final numeric answer "
+    "only (just the number). If the grid is too unclear to count reliably, set "
+    "confident=false and leave answer empty — never guess. Report every item via "
+    "report_counts."
+)
+
+
+_VERIFY_COUNT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "report_counts",
+        "description": "Report your independently counted answer for each question.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "index": {
+                                "type": "integer",
+                                "description": "The item's index from the input.",
+                            },
+                            "answer": {
+                                "type": "string",
+                                "description": "Your counted answer as a number, e.g. \"24\". Empty if not confident.",
+                            },
+                            "confident": {
+                                "type": "boolean",
+                                "description": "True only if you counted the grid reliably.",
+                            },
+                        },
+                        "required": ["index", "confident"],
+                    },
+                },
+            },
+            "required": ["results"],
+        },
+    },
+}
+
+
+def _verify_count_batch(client, model, batch, images_by_ref):
+    """One vision request re-counting a batch of ``(index, question)`` items.
+
+    Returns ``(results_by_index, usage)`` where a result is
+    ``{'answer': str, 'confident': bool}``. Raises on transport / parse failure."""
+    content = [{
+        "type": "text",
+        "text": (
+            "Count the unit squares in each question's image and report your own "
+            "answer for every item via report_counts."
+        ),
+    }]
+    for idx, q in batch:
+        ref = q.get('image_ref')
+        b64 = images_by_ref.get(ref)
+        content.append({
+            "type": "text",
+            "text": (
+                f"\nItem {idx} — question_type: {q.get('question_type')}\n"
+                f"Question: {q.get('question_text', '')}\nGrid image:"
+            ),
+        })
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{_image_media_type(ref)};base64,{b64}"},
+        })
+
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": _VERIFY_COUNT_SYSTEM_PROMPT},
+            {"role": "user", "content": content},
+        ],
+        tools=[_VERIFY_COUNT_TOOL],
+        tool_choice={"type": "function", "function": {"name": "report_counts"}},
+    )
+
+    message = resp.choices[0].message
+    tool_calls = getattr(message, 'tool_calls', None) or []
+    if not tool_calls:
+        raise ValueError('count verifier returned no tool call')
+
+    data = json.loads(tool_calls[0].function.arguments)
+    results = {}
+    for r in data.get('results', []):
+        try:
+            results[int(r['index'])] = {
+                'answer': (r.get('answer') or '').strip(),
+                'confident': bool(r.get('confident')),
+            }
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    usage = getattr(resp, 'usage', None)
+    token_usage = {
+        'input_tokens': getattr(usage, 'prompt_tokens', 0) or 0,
+        'output_tokens': getattr(usage, 'completion_tokens', 0) or 0,
+    }
+    return results, token_usage
+
+
+def verify_counts(questions, images_by_ref, client=None, *, force=False):
+    """Vision re-count of "count the squares" questions, flagging disagreements.
+
+    For each area/perimeter-by-counting question with an attached grid crop, an
+    independent vision model recounts the squares. A confident count that differs
+    from the imported answer sets ``needs_review`` (with both values in the reason)
+    so the teacher confirms it. Never edits the answer — it only routes.
+
+    Args:
+        questions: classified question dicts (mutated in place). Run AFTER
+            crop_figure_boxes so each grid crop is in ``images_by_ref``.
+        images_by_ref: {ref: base64} for every embedded image and crop.
+        client: an OpenAI client (injected in tests); built on demand otherwise.
+        force: run even if ``count_verification_enabled()`` is False (tests only).
+
+    Returns:
+        A summary dict ``{'model', 'checked', 'flagged', 'input_tokens',
+        'output_tokens', 'error'}`` when the pass ran, or ``None`` when it is
+        disabled / there was nothing to check.
+    """
+    if not force and not count_verification_enabled():
+        return None
+
+    images_by_ref = images_by_ref or {}
+    candidates = [
+        (i, q) for i, q in enumerate(questions or [])
+        if _count_verifiable(q) and images_by_ref.get(q.get('image_ref'))
+    ]
+    if not candidates:
+        return None
+
+    model = os.environ.get('AI_IMPORT_VERIFY_COUNT_MODEL',
+                           os.environ.get('AI_IMPORT_VERIFY_IMAGE_MODEL', 'gpt-4o'))
+    chunk_size = max(1, int(os.environ.get('AI_IMPORT_VERIFY_COUNT_CHUNK', '6')))
+
+    try:
+        client = client or _get_openai_client()
+    except Exception as exc:
+        logger.warning('AI import count verifier unavailable, skipping: %s', exc)
+        return {'model': model, 'checked': 0, 'flagged': 0,
+                'input_tokens': 0, 'output_tokens': 0, 'error': str(exc)}
+
+    by_index = {i: q for i, q in candidates}
+    all_results = {}
+    in_tok = out_tok = 0
+    error = None
+
+    for start in range(0, len(candidates), chunk_size):
+        batch = candidates[start:start + chunk_size]
+        try:
+            results, usage = _verify_count_batch(client, model, batch, images_by_ref)
+        except Exception as exc:
+            logger.warning('AI import count verifier batch failed: %s', exc)
+            error = str(exc)
+            continue
+        all_results.update(results)
+        in_tok += usage['input_tokens']
+        out_tok += usage['output_tokens']
+
+    flagged = 0
+    for idx, verdict in all_results.items():
+        q = by_index.get(idx)
+        if q is None or not verdict['confident'] or not verdict['answer']:
+            continue
+        # Exact-count comparison (tolerance 0): a square count is a whole number,
+        # so any difference is a real disagreement worth a teacher's glance.
+        if _answers_agree(verdict['answer'], _expected_answers(q), tolerance=0):
+            continue
+        q['needs_review'] = True
+        imported = (_correct_texts(q) or _expected_answers(q) or ['?'])[0]
+        q['review_reason'] = (
+            f'Image check: a second AI counted the squares and got '
+            f'{verdict["answer"]}, but the imported answer is {imported} — '
+            f'please confirm the count.'
+        )
         flagged += 1
 
     return {
