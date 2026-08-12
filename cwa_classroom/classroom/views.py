@@ -3852,6 +3852,34 @@ class HoDManageClassesView(RoleRequiredMixin, View):
         for st in SchoolTeacher.objects.filter(school_id__in=school_ids, is_active=True):
             specialty_map[st.teacher_id] = st.specialty
 
+        # The tiles now show the school (location) and levels, so pull those in
+        # eagerly to avoid a per-card query.
+        classes = classes.select_related('school').prefetch_related('levels')
+
+        # Ordering (name / level / date-time). Sort by the class schedule for
+        # "date/time" — the day + start time shown on each tile — mapping the
+        # weekday choice to an index so Monday sorts before Tuesday (and blank
+        # days sort last).
+        from django.db.models import Case, When, Value, IntegerField, Min
+        sort = request.GET.get('sort', 'name')
+        if sort == 'level':
+            classes = classes.annotate(
+                _min_level=Min('levels__level_number'),
+            ).order_by('_min_level', 'name')
+        elif sort == 'schedule':
+            _day_order = Case(
+                *[When(day=value, then=Value(idx))
+                  for idx, (value, _label) in enumerate(ClassRoom.DAY_CHOICES)],
+                default=Value(len(ClassRoom.DAY_CHOICES)),
+                output_field=IntegerField(),
+            )
+            classes = classes.annotate(_day_order=_day_order).order_by(
+                '_day_order', 'start_time', 'name',
+            )
+        else:
+            sort = 'name'
+            classes = classes.order_by('name')
+
         paginator = Paginator(classes, 25)
         page = paginator.get_page(request.GET.get('page'))
 
@@ -3874,6 +3902,7 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             'unassigned_classes': unassigned_classes,
             'specialty_map': specialty_map,
             'deleted_classes': deleted_classes,
+            'selected_sort': sort,
         })
 
 

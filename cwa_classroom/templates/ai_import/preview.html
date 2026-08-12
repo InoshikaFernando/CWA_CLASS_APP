@@ -202,6 +202,12 @@
                 <button type="button" class="mt-1 text-xs text-indigo-600 hover:underline font-medium"
                         data-adjust="{{ forloop.counter0 }}" data-page="{{ q.image_page }}"
                         data-frac="{{ q.image_bbox_frac_json }}">✥ Adjust / crop from page</button>
+                {% if not forloop.first %}
+                <button type="button" onclick="reuseLastImage({{ forloop.counter0 }})"
+                        class="mt-1 ml-3 text-xs text-teal-600 hover:underline font-medium reuse-last-image-btn"
+                        data-reuse="{{ forloop.counter0 }}"
+                        title="Assign the same image as the nearest previous question that has one">⧉ Same image as previous</button>
+                {% endif %}
                 <div id="img-wrap-{{ forloop.counter0 }}" class="hidden mt-1">
                   <img id="img-preview-{{ forloop.counter0 }}" alt="Crop preview"
                        class="max-h-40 rounded border border-gray-200 object-contain bg-white">
@@ -438,6 +444,32 @@ function removeImage(btn, ref) {
       opt.remove();
     }
   });
+}
+
+// --- Reuse Last Image ---
+// Assign this question the image already chosen on the nearest earlier question
+// that has one — the manual counterpart to the extractor's automatic
+// "shares_image_with_previous" carry-over, for when a shared figure was missed.
+function reuseLastImage(qIdx) {
+  var target = document.getElementById('img-ref-' + qIdx);
+  if (!target) return;
+  for (var i = qIdx - 1; i >= 0; i--) {
+    var prev = document.getElementById('img-ref-' + i);
+    if (prev && prev.value && prev.value !== 'none') {
+      target.value = prev.value;
+      // Fire change so any dependent UI (e.g. crop preview) can react.
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+  }
+  // Nothing earlier carried an image — give brief, non-blocking feedback.
+  var btn = document.querySelector('.reuse-last-image-btn[data-reuse="' + qIdx + '"]');
+  if (btn && !btn.dataset.flashing) {
+    var orig = btn.textContent;
+    btn.dataset.flashing = '1';
+    btn.textContent = 'No earlier image to reuse';
+    setTimeout(function () { btn.textContent = orig; delete btn.dataset.flashing; }, 1500);
+  }
 }
 
 // --- Select / Deselect All ---
