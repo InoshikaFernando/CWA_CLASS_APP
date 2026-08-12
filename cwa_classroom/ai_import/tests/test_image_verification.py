@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 from ai_import import verification
 from ai_import.verification import (
     _image_media_type, _image_ref_page, _image_verifiable,
-    flag_cross_page_images, verify_images,
+    flag_cross_page_images, flag_missing_figures, verify_images,
 )
 
 
@@ -140,6 +140,73 @@ def test_media_type_from_ref_extension():
     assert _image_media_type('page1_img1.jpeg') == 'image/jpeg'
     assert _image_media_type('page1_img1.jpg') == 'image/jpeg'
     assert _image_media_type('weird') == 'image/png'  # default
+
+
+# ---------------------------------------------------------------------------
+# Missing-figure guard (no API call)
+
+def _text_q(text, **extra):
+    """A question with NO attached image (image_ref/image_page absent)."""
+    return {'question_text': text, 'question_type': 'short_answer', **extra}
+
+
+def test_missing_figure_is_flagged():
+    # The reported case: a perimeter question about a shape it can't show.
+    q = _text_q('This shape has been made using identical squares. One square '
+                'has a perimeter of 20cm. What is the perimeter of the whole shape?')
+
+    flagged = flag_missing_figures([q])
+
+    assert flagged == 1
+    assert q['needs_review'] is True
+    assert q['review_reason'].startswith('Image check:')
+    assert 'no image' in q['review_reason']
+
+
+def test_various_figure_references_are_flagged():
+    for text in [
+        'What is the area of the diagram below?',
+        'Read the value shown on the number line.',
+        'Use the graph to answer the question.',
+        'Plot the points on the grid.',
+        'What time is shown on the clock face?',
+    ]:
+        q = _text_q(text)
+        assert flag_missing_figures([q]) == 1, text
+
+
+def test_text_only_question_is_not_flagged():
+    # A rectangle fully described in words points at no picture.
+    q = _text_q('A rectangle has a perimeter of 20cm and a length of 6cm. '
+                'What is its width?')
+    assert flag_missing_figures([q]) == 0
+    assert 'needs_review' not in q
+
+
+def test_question_with_attached_figure_is_not_flagged():
+    # "this shape" wording but a crop was attached → nothing missing.
+    q = _text_q('What is the perimeter of this shape?', image_ref='page3_figure2.png')
+    assert flag_missing_figures([q]) == 0
+    assert 'needs_review' not in q
+
+
+def test_scaffolding_visual_types_are_exempt():
+    # "grid" here is the column-arithmetic layout, transcribed into fields.
+    q = _text_q('Work out the answer using the grid.', question_type='column_operation')
+    assert flag_missing_figures([q]) == 0
+    assert 'needs_review' not in q
+
+
+def test_group_shared_and_already_flagged_are_skipped():
+    shared = _text_q('What is the area of this shape?', shares_image_with_previous=True)
+    already = _text_q('Name the diagram shown.', needs_review=True,
+                      review_reason='pre-existing')
+
+    flagged = flag_missing_figures([shared, already])
+
+    assert flagged == 0
+    assert 'needs_review' not in shared            # image carried from previous
+    assert already['review_reason'] == 'pre-existing'  # untouched
 
 
 # ---------------------------------------------------------------------------

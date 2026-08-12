@@ -59,31 +59,37 @@ def process_pdf_import(session_id):
         extracted_images.update(crop_figure_boxes(extracted, result, pdf_bytes=pdf_bytes))
 
         # Image checks, now that every question's image is finalised (embedded ref
-        # or fresh crop). Two layers route a wrong attachment to the teacher via
+        # or fresh crop). Three layers route a suspect attachment to the teacher via
         # needs_review, which the preview badge already renders:
         #   1. A deterministic page-locality guard — free, always on — flags any
         #      image whose ref page is far from the question's source_page (e.g. a
-        #      page-1 decoration attached to a page-5 question). It runs first so
-        #      it also spares the paid verifier a call on anything it already caught.
-        #   2. The vision second opinion looks at each still-unflagged question with
+        #      page-1 decoration attached to a page-5 question).
+        #   2. A deterministic missing-figure guard — free, always on — flags a
+        #      question whose text points at a figure ("this shape", "the diagram")
+        #      but that ended up with NO image, i.e. its figure was skipped.
+        #      Both run before the paid pass, sparing it a call on what they caught.
+        #   3. The vision second opinion looks at each still-unflagged question with
         #      its attached image and flags mismatches a page check can't see
         #      (same-page decorative art, a bad crop). Self-gating on OPENAI_API_KEY;
         #      never fails the import; reported apart from the Claude token ledger.
         from .verification import (
-            flag_cross_page_images, image_verification_enabled, verify_images,
+            flag_cross_page_images, flag_missing_figures,
+            image_verification_enabled, verify_images,
         )
-        cross_page_flagged = flag_cross_page_images(result.get('questions', []))
-        image_verification = verify_images(
-            result.get('questions', []), extracted_images)
+        questions = result.get('questions', [])
+        cross_page_flagged = flag_cross_page_images(questions)
+        missing_figure_flagged = flag_missing_figures(questions)
+        image_verification = verify_images(questions, extracted_images)
         # Always record an image-verification summary — no silent pass. When the
         # vision layer didn't run (no key / disabled / nothing left to check) say
-        # so, and always report the deterministic guard's tally.
+        # so, and always report the deterministic guards' tallies.
         if image_verification is None:
             image_verification = {
                 'status': ('disabled' if not image_verification_enabled()
                            else 'nothing_to_check'),
             }
         image_verification['cross_page_flagged'] = cross_page_flagged
+        image_verification['missing_figure_flagged'] = missing_figure_flagged
         result['image_verification'] = image_verification
 
         # Preserve any pre-set classroom selection stored at enqueue time.

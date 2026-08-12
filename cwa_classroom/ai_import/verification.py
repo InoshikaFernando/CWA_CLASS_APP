@@ -623,6 +623,72 @@ def flag_visual_comparisons(questions):
     return flagged
 
 
+# Deictic references to a concrete visual the question is meant to read off —
+# "this shape", "the diagram", "the graph below", "shown opposite". A question
+# whose text points at a figure like this but ends up with NO attached image has
+# almost certainly had its figure skipped (the model boxed nothing, or the crop
+# was dropped), so it can't be answered as imported. Indefinite descriptions ("a
+# rectangle with perimeter 20cm") are deliberately excluded — those are spelled
+# out in the text and point at no picture, so requiring a definite/deictic marker
+# in front of the visual noun keeps the false-positive rate down.
+_NEEDS_FIGURE_RE = re.compile(
+    r'\b(?:'
+    r'(?:this|these|the)\s+'
+    r'(?:shape|shapes|diagram|figure|pattern|net|graph|grid|'
+    r'number\s+line|clock(?:\s+face)?|picture|image|table|chart|'
+    r'arrangement|tiles?|solid)'
+    r'|shown\s+(?:below|above|opposite|here|in|on)'
+    r'|as\s+shown'
+    r')\b',
+    re.IGNORECASE,
+)
+
+# Types whose "grid" / "bracket" visual is scaffolding transcribed into the
+# structured fields (never attached as a figure), so a figure reference in their
+# text is not a missing image.
+_FIGURE_OPTIONAL_TYPES = {'long_division', 'column_operation'}
+
+
+def _needs_figure_but_missing(q):
+    """A question that references a figure in its text but carries no image.
+
+    Run AFTER figure cropping so a drawn figure that WAS attached (or dropped as
+    spurious) is reflected in ``image_ref``. Scaffolding-visual types and
+    group-shared questions (their image is carried over) are exempt."""
+    if _has_figure(q) or q.get('shares_image_with_previous'):
+        return False
+    if q.get('question_type') in _FIGURE_OPTIONAL_TYPES:
+        return False
+    return bool(_NEEDS_FIGURE_RE.search(q.get('question_text') or ''))
+
+
+def flag_missing_figures(questions):
+    """Route figure-dependent questions that ended up with NO image to review.
+
+    The mirror image of ``verify_images`` (which checks a WRONG image): here the
+    figure the question needs was skipped entirely, so the question is unanswerable
+    as imported. Deterministic, no API call, so it runs regardless of whether the
+    vision verifier is configured, and it never edits answers — it only routes to a
+    human via ``needs_review``, which the preview badge already renders.
+
+    Must run after ``crop_figure_boxes`` so an attached crop counts as a figure.
+    Mutates the question dicts in place. Returns the number of questions flagged.
+    """
+    flagged = 0
+    for q in (questions or []):
+        if q.get('needs_review') or not _needs_figure_but_missing(q):
+            continue
+        q['needs_review'] = True
+        q['review_reason'] = (
+            'Image check: this question refers to a figure (e.g. "this shape" / '
+            '"the diagram") but no image was attached — the figure may have been '
+            'skipped on import. Crop or add the correct image, or confirm none is '
+            'needed.'
+        )
+        flagged += 1
+    return flagged
+
+
 # ---------------------------------------------------------------------------
 # Image validation (vision second opinion)
 # ---------------------------------------------------------------------------
