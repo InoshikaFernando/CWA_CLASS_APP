@@ -24,7 +24,7 @@ from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
     DepartmentTeacher, SchoolStudent, Level, Subject, Term, ClassStudent,
-    SchoolHoliday, PublicHoliday, Currency, ParentStudent,
+    SchoolHoliday, PublicHoliday, Currency, ParentStudent, Location,
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
@@ -448,6 +448,7 @@ class SchoolDetailView(RoleRequiredMixin, View):
         custom_levels = Level.objects.filter(school=school).order_by('level_number')
         terms = Term.objects.filter(school=school).select_related('academic_year')
         holidays = SchoolHoliday.objects.filter(school=school).select_related('academic_year')
+        locations = Location.objects.filter(school=school)
         return render(request, 'admin_dashboard/school_detail.html', {
             'school': school,
             'teachers': teachers,
@@ -459,6 +460,7 @@ class SchoolDetailView(RoleRequiredMixin, View):
             'custom_levels': custom_levels,
             'terms': terms,
             'holidays': holidays,
+            'locations': locations,
         })
 
 
@@ -3479,6 +3481,96 @@ class TermManageView(RoleRequiredMixin, View):
             messages.info(request, f'Sessions synced: {", ".join(parts)}.')
 
         return redirect('admin_school_terms', school_id=school.id)
+
+
+class LocationManageView(RoleRequiredMixin, View):
+    """Manage class locations for an institute: list, create, edit, delete.
+
+    Locations are the physical (or online) venues where classes are held —
+    separate from the institute's own registered address. An institute can add
+    as many as it needs; the address is optional and a location can be flagged
+    as online.
+    """
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        locations = Location.objects.filter(school=school)
+        return render(request, 'admin_dashboard/school_locations.html', {
+            'school': school,
+            'locations': locations,
+        })
+
+    def post(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        action = request.POST.get('action')
+
+        if action == 'create':
+            name = request.POST.get('name', '').strip()
+            address = request.POST.get('address', '').strip()
+            is_online = request.POST.get('is_online') == 'on'
+
+            if not name:
+                messages.error(request, 'Location name is required.')
+                return redirect('admin_school_locations', school_id=school.id)
+
+            location = Location.objects.create(
+                school=school,
+                name=name,
+                address=address,
+                is_online=is_online,
+            )
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='location_created',
+                detail={'location_id': location.id, 'location_name': name},
+                request=request,
+            )
+            messages.success(request, f'Location "{name}" added.')
+
+        elif action == 'edit':
+            location_id = request.POST.get('location_id')
+            location = get_object_or_404(Location, id=location_id, school=school)
+            name = request.POST.get('name', '').strip()
+            if not name:
+                messages.error(request, 'Location name is required.')
+                return redirect('admin_school_locations', school_id=school.id)
+            location.name = name
+            location.address = request.POST.get('address', '').strip()
+            location.is_online = request.POST.get('is_online') == 'on'
+            location.save()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='location_edited',
+                detail={'location_id': location.id, 'location_name': location.name},
+                request=request,
+            )
+            messages.success(request, f'Location "{location.name}" updated.')
+
+        elif action == 'delete':
+            location_id = request.POST.get('location_id')
+            location = get_object_or_404(Location, id=location_id, school=school)
+            location_name = location.name
+            # Detach from any classes first so the classes are not deleted.
+            class_count = location.classrooms.count()
+            location.delete()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='location_deleted',
+                detail={'location_id': location_id, 'location_name': location_name,
+                        'detached_classes': class_count},
+                request=request,
+            )
+            if class_count:
+                messages.success(
+                    request,
+                    f'Location "{location_name}" deleted. '
+                    f'{class_count} class(es) had their location cleared.',
+                )
+            else:
+                messages.success(request, f'Location "{location_name}" deleted.')
+
+        return redirect('admin_school_locations', school_id=school.id)
 
 
 class DatabaseBackupView(LoginRequiredMixin, View):

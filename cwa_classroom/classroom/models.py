@@ -813,6 +813,48 @@ class SubTopic(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Location
+# ---------------------------------------------------------------------------
+
+
+class Location(models.Model):
+    """A place where an institute's classes are held.
+
+    Distinct from the institute's own registered address (``School.address`` /
+    the structured company address). An institute can define as many locations
+    as it needs — e.g. separate branches or rooms — each with a name and an
+    optional address. A location may also be marked ``is_online`` to represent
+    a virtual/online venue.
+
+    All locations belong to a :class:`School` (the institute).
+    """
+    school = models.ForeignKey(
+        School,
+        on_delete=models.CASCADE,
+        related_name='locations',
+        help_text='The institute this location belongs to.',
+    )
+    name = models.CharField(max_length=200)
+    address = models.TextField(
+        blank=True,
+        help_text='Optional. The street address of this location.',
+    )
+    is_online = models.BooleanField(
+        default=False,
+        help_text='Mark this location as an online / virtual venue.',
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+# ---------------------------------------------------------------------------
 # ClassRoom (updated with school FK)
 # ---------------------------------------------------------------------------
 
@@ -832,6 +874,18 @@ class ClassRoom(models.Model):
     day = models.CharField(max_length=10, choices=DAY_CHOICES, blank=True)
     start_time = models.TimeField(null=True, blank=True)
     end_time = models.TimeField(null=True, blank=True)
+    location = models.ForeignKey(
+        'Location',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='classrooms',
+        help_text='Where this class is held. Optional.',
+    )
+    is_online = models.BooleanField(
+        default=False,
+        help_text='Mark this class as delivered online. Combine with a '
+                  'location for hybrid (mixed) delivery.',
+    )
     description = models.TextField(blank=True)
     # Stored for a future "post to the class WhatsApp group" backend. The
     # official WhatsApp Business API cannot post to groups, so this is unused by
@@ -983,6 +1037,30 @@ class ClassRoom(models.Model):
 
     def get_accessible_levels(self):
         return self.levels.all()
+
+    @property
+    def delivery_mode(self):
+        """Delivery mode derived from ``location`` and ``is_online``.
+
+        Returns one of ``'hybrid'`` (a location *and* online), ``'online'``
+        (online only), ``'in_person'`` (a location only), or ``''`` when
+        neither has been set.
+        """
+        if self.is_online and self.location_id:
+            return 'hybrid'
+        if self.is_online:
+            return 'online'
+        if self.location_id:
+            return 'in_person'
+        return ''
+
+    def get_delivery_mode_display(self):
+        """Human-readable label for :attr:`delivery_mode`."""
+        return {
+            'hybrid': 'Hybrid (in-person + online)',
+            'online': 'Online',
+            'in_person': 'In-person',
+        }.get(self.delivery_mode, '')
 
 
 class ClassTeacher(models.Model):

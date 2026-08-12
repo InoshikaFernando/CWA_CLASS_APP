@@ -55,7 +55,7 @@ from .models import (
     School, SchoolTeacher, SchoolStudent, ClassSession, StudentAttendance,
     TeacherAttendance, Department, DepartmentLevel, DepartmentSubject, Enrollment,
     Invoice, InvoicePayment, InvoiceLineItem, SalarySlip, SalarySlipLineItem,
-    SchoolHoliday, PublicHoliday,
+    SchoolHoliday, PublicHoliday, Location,
 )
 
 logger = logging.getLogger(__name__)
@@ -791,10 +791,16 @@ class CreateClassView(RoleRequiredMixin, View):
             return Department.objects.filter(school=school_membership.school, is_active=True).select_related('school')
         return Department.objects.none()
 
+    def _get_locations(self, departments):
+        """Active locations for the schools of the given departments."""
+        school_ids = departments.values_list('school_id', flat=True)
+        return Location.objects.filter(school_id__in=school_ids, is_active=True)
+
     def get(self, request):
         departments = self._get_departments(request.user)
         return render(request, 'teacher/create_class.html', {
             'departments': departments,
+            'locations': self._get_locations(departments),
         })
 
     def post(self, request):
@@ -804,6 +810,8 @@ class CreateClassView(RoleRequiredMixin, View):
         day = request.POST.get('day', '').strip()
         start_time = request.POST.get('start_time', '').strip() or None
         end_time = request.POST.get('end_time', '').strip() or None
+        location_id = request.POST.get('location', '').strip()
+        is_online = request.POST.get('is_online') == 'on'
         description = request.POST.get('description', '').strip()
 
         if not name:
@@ -815,6 +823,13 @@ class CreateClassView(RoleRequiredMixin, View):
         if not department:
             messages.error(request, 'Please select a department.')
             return redirect('create_class')
+
+        # Resolve location (must belong to the department's institute)
+        location = None
+        if location_id:
+            location = Location.objects.filter(
+                id=location_id, school=department.school,
+            ).first()
 
         # Check class limit before creating
         from billing.entitlements import check_class_limit
@@ -849,6 +864,8 @@ class CreateClassView(RoleRequiredMixin, View):
                 day=day,
                 start_time=start_time,
                 end_time=end_time,
+                location=location,
+                is_online=is_online,
                 description=description,
                 created_by=request.user,
             )
@@ -1076,6 +1093,9 @@ class EditClassView(RoleRequiredMixin, View):
             parent_fee, fee_source = None, ''
 
         back_url = request.GET.get('next', '')
+        locations = Location.objects.none()
+        if classroom.school_id:
+            locations = Location.objects.filter(school=classroom.school, is_active=True)
         return render(request, 'teacher/edit_class.html', {
             'classroom': classroom,
             'subject_groups': subject_groups,
@@ -1086,6 +1106,7 @@ class EditClassView(RoleRequiredMixin, View):
             'fee_source': fee_source,
             'can_edit_fee': can_edit_fee,
             'effective_currency': classroom.get_effective_currency(),
+            'locations': locations,
         })
 
     def post(self, request, class_id):
@@ -1095,6 +1116,8 @@ class EditClassView(RoleRequiredMixin, View):
         day = request.POST.get('day', '').strip()
         start_time = request.POST.get('start_time', '').strip() or None
         end_time = request.POST.get('end_time', '').strip() or None
+        location_id = request.POST.get('location', '').strip()
+        is_online = request.POST.get('is_online') == 'on'
         description = request.POST.get('description', '').strip()
         next_url = request.POST.get('next', '').strip()
 
@@ -1111,6 +1134,14 @@ class EditClassView(RoleRequiredMixin, View):
         classroom.day = day
         classroom.start_time = start_time
         classroom.end_time = end_time
+        classroom.is_online = is_online
+        # Location must belong to this class's institute; blank clears it.
+        if location_id and classroom.school_id:
+            classroom.location = Location.objects.filter(
+                id=location_id, school=classroom.school,
+            ).first()
+        else:
+            classroom.location = None
         classroom.description = description
 
         # Fee override (HoI / Accountant only)
@@ -4846,9 +4877,12 @@ class HoDCreateClassView(RoleRequiredMixin, View):
     def get(self, request):
         departments = self._get_departments(request.user)
         selected_dept = request.GET.get('department', '')
+        school_ids = departments.values_list('school_id', flat=True)
+        locations = Location.objects.filter(school_id__in=school_ids, is_active=True)
         return render(request, 'hod/create_class.html', {
             'departments': departments,
             'selected_dept': selected_dept,
+            'locations': locations,
         })
 
     def post(self, request):
@@ -4858,6 +4892,8 @@ class HoDCreateClassView(RoleRequiredMixin, View):
         day = request.POST.get('day', '').strip()
         start_time = request.POST.get('start_time', '').strip() or None
         end_time = request.POST.get('end_time', '').strip() or None
+        location_id = request.POST.get('location', '').strip()
+        is_online = request.POST.get('is_online') == 'on'
         description = request.POST.get('description', '').strip()
 
         if not name:
@@ -4870,6 +4906,13 @@ class HoDCreateClassView(RoleRequiredMixin, View):
         if not department:
             messages.error(request, 'Please select a valid department.')
             return redirect('hod_create_class')
+
+        # Resolve location (must belong to the department's institute)
+        location = None
+        if location_id:
+            location = Location.objects.filter(
+                id=location_id, school=department.school,
+            ).first()
 
         # Check class limit before creating
         from billing.entitlements import check_class_limit
@@ -4904,6 +4947,8 @@ class HoDCreateClassView(RoleRequiredMixin, View):
                 day=day,
                 start_time=start_time,
                 end_time=end_time,
+                location=location,
+                is_online=is_online,
                 description=description,
                 created_by=request.user,
             )

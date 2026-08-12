@@ -97,8 +97,8 @@
   <!-- Quick stats -->
   <div class="space-y-3 mb-8">
 
-    <!-- Row 1: Staff / Classes / Contact -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <!-- Row 1: Staff / Classes / Locations / Contact -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
       <a href="{% url 'admin_school_teachers' school.id %}" class="bg-white rounded-xl p-3 border border-slate-200 hover:border-accent hover:shadow-sm transition">
         <p class="text-[10px] text-gray-400 uppercase tracking-wide font-semibold">Staff</p>
         <p class="text-sm font-bold text-gray-900 mt-0.5">{{ teachers|length }}</p>
@@ -106,6 +106,10 @@
       <a href="{% url 'admin_school_departments' school.id %}" class="bg-white rounded-xl p-3 border border-slate-200 hover:border-accent hover:shadow-sm transition">
         <p class="text-[10px] text-gray-400 uppercase tracking-wide font-semibold">Classes</p>
         <p class="text-sm font-bold text-gray-900 mt-0.5">{{ classes|length }}</p>
+      </a>
+      <a href="{% url 'admin_school_locations' school.id %}" class="bg-white rounded-xl p-3 border border-slate-200 hover:border-accent hover:shadow-sm transition">
+        <p class="text-[10px] text-gray-400 uppercase tracking-wide font-semibold">Locations</p>
+        <p class="text-sm font-bold text-gray-900 mt-0.5">{{ locations|length }}</p>
       </a>
       {% if school.email %}
       <a href="mailto:{{ school.email }}" class="bg-white rounded-xl p-3 border border-slate-200 hover:border-accent hover:shadow-sm transition">
