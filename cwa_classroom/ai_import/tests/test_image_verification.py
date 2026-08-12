@@ -267,15 +267,49 @@ def test_count_verifiable_detects_counting_questions():
     assert not _count_verifiable(_count_q('Find the angle shown.'))        # not a square count
 
 
-def test_count_disagreement_flags_needs_review():
+def test_confident_disagreement_auto_corrects_by_default():
     q = _count_q(answer='24cm²')                       # imported says 24
     client = _fake_client([{'index': 0, 'answer': '18', 'confident': True}])
 
     summary = verify_counts([q], COUNT_IMAGES, client=client, force=True)
 
+    # Answer key rewritten to the verifier's count, unit preserved; audited; not
+    # routed to a human.
+    assert q['answers'][0]['text'] == '18cm²'
+    assert q['answer_auto_corrected'] == {
+        'from': '24cm²', 'to': '18cm²', 'source': 'count-recheck'}
+    assert 'needs_review' not in q
+    assert summary['corrected'] == 1 and summary['flagged'] == 0
+    assert summary['corrections'] == [{'from': '24cm²', 'to': '18cm²'}]
+
+
+def test_confident_disagreement_flags_when_autocorrect_disabled(monkeypatch):
+    monkeypatch.setenv('AI_IMPORT_VERIFY_COUNTS_AUTOCORRECT', '0')
+    q = _count_q(answer='24cm²')
+    client = _fake_client([{'index': 0, 'answer': '18', 'confident': True}])
+
+    summary = verify_counts([q], COUNT_IMAGES, client=client, force=True)
+
+    # Flag-only fallback: answer untouched, routed to a human.
+    assert q['answers'][0]['text'] == '24cm²'
+    assert 'answer_auto_corrected' not in q
     assert q['needs_review'] is True
     assert '18' in q['review_reason'] and '24' in q['review_reason']
-    assert summary['flagged'] == 1
+    assert summary['flagged'] == 1 and summary['corrected'] == 0
+
+
+def test_auto_correct_rewrites_all_correct_forms():
+    # Both "24cm²" and "24" are ticked correct; both get the new count.
+    q = _count_q(answer='24cm²')
+    q['answers'].append({'text': '24', 'is_correct': True})
+    q['numeric_answer'] = 24
+    client = _fake_client([{'index': 0, 'answer': '18', 'confident': True}])
+
+    verify_counts([q], COUNT_IMAGES, client=client, force=True)
+
+    assert q['answers'][0]['text'] == '18cm²'
+    assert q['answers'][1]['text'] == '18'
+    assert q['numeric_answer'] == 18
 
 
 def test_count_agreement_stays_quiet():
