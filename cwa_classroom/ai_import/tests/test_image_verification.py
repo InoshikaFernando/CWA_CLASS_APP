@@ -8,9 +8,9 @@ from unittest.mock import MagicMock
 
 from ai_import import verification
 from ai_import.verification import (
-    _image_media_type, _image_ref_page, _image_verifiable,
+    _count_verifiable, _image_media_type, _image_ref_page, _image_verifiable,
     flag_cross_page_images, flag_missing_figures,
-    flag_photo_images_on_diagrams, verify_images,
+    flag_photo_images_on_diagrams, verify_counts, verify_images,
 )
 
 
@@ -245,6 +245,73 @@ def test_photo_guard_skips_already_flagged():
            needs_review=True, review_reason='pre-existing')
     assert flag_photo_images_on_diagrams([q], {'page6_img2.jpeg'}) == 0
     assert q['review_reason'] == 'pre-existing'
+
+
+# ---------------------------------------------------------------------------
+# Vision count re-check ("count the squares")
+
+def _count_q(text='Find the area of this shape by counting the squares.',
+             answer='24cm²', ref='page6_figure1.png', **extra):
+    return {'question_text': text, 'question_type': 'short_answer',
+            'image_ref': ref,
+            'answers': [{'text': answer, 'is_correct': True}], **extra}
+
+
+COUNT_IMAGES = {'page6_figure1.png': 'GRIDGRID'}
+
+
+def test_count_verifiable_detects_counting_questions():
+    assert _count_verifiable(_count_q())                                   # "counting the squares"
+    assert _count_verifiable(_count_q('Perimeter of this shape made of squares?'))
+    assert not _count_verifiable(_count_q('What is 6 x 4?', ref=None))     # no figure
+    assert not _count_verifiable(_count_q('Find the angle shown.'))        # not a square count
+
+
+def test_count_disagreement_flags_needs_review():
+    q = _count_q(answer='24cm²')                       # imported says 24
+    client = _fake_client([{'index': 0, 'answer': '18', 'confident': True}])
+
+    summary = verify_counts([q], COUNT_IMAGES, client=client, force=True)
+
+    assert q['needs_review'] is True
+    assert '18' in q['review_reason'] and '24' in q['review_reason']
+    assert summary['flagged'] == 1
+
+
+def test_count_agreement_stays_quiet():
+    q = _count_q(answer='24cm²')
+    client = _fake_client([{'index': 0, 'answer': '24', 'confident': True}])
+
+    summary = verify_counts([q], COUNT_IMAGES, client=client, force=True)
+
+    assert 'needs_review' not in q
+    assert summary['flagged'] == 0
+
+
+def test_count_unconfident_does_not_flag():
+    q = _count_q(answer='24cm²')
+    client = _fake_client([{'index': 0, 'answer': '', 'confident': False}])
+
+    summary = verify_counts([q], COUNT_IMAGES, client=client, force=True)
+
+    assert 'needs_review' not in q
+    assert summary['flagged'] == 0
+
+
+def test_count_disabled_without_key(monkeypatch):
+    monkeypatch.setattr(verification.settings, 'OPENAI_API_KEY', '', raising=False)
+    q = _count_q()
+    assert verify_counts([q], COUNT_IMAGES, client=MagicMock()) is None
+    assert 'needs_review' not in q
+
+
+def test_count_non_counting_questions_are_skipped():
+    # A plain short-answer question with a figure but no square-count wording.
+    q = _q('What is the angle?', ref='page6_img1.jpeg')
+    client = MagicMock()
+    assert verify_counts([q], {'page6_img1.jpeg': 'X'}, client=client,
+                         force=True) is None
+    client.chat.completions.create.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

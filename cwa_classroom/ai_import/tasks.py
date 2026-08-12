@@ -82,10 +82,13 @@ def process_pdf_import(session_id):
         #      (a same-page wrong crop, art that isn't photo_like). Self-gating on
         #      OPENAI_API_KEY; never fails the import; reported apart from the
         #      Claude token ledger.
+        #   5. A vision count re-check independently counts "count the squares"
+        #      area/perimeter questions against their OWN grid crop and flags a
+        #      count that disagrees with the imported answer. Also self-gating.
         from .verification import (
             flag_cross_page_images, flag_missing_figures,
             flag_photo_images_on_diagrams, image_verification_enabled,
-            verify_images,
+            verify_counts, verify_images,
         )
         questions = result.get('questions', [])
         cross_page_flagged = flag_cross_page_images(questions)
@@ -104,6 +107,12 @@ def process_pdf_import(session_id):
         image_verification['cross_page_flagged'] = cross_page_flagged
         image_verification['missing_figure_flagged'] = missing_figure_flagged
         image_verification['photo_mismatch_flagged'] = photo_mismatch_flagged
+
+        # Vision re-count of "count the squares" questions (own crop, not the full
+        # page). Reported separately; kept out of the Claude token ledger.
+        count_verification = verify_counts(questions, extracted_images)
+        if count_verification is not None:
+            result['count_verification'] = count_verification
         result['image_verification'] = image_verification
 
         # Preserve any pre-set classroom selection stored at enqueue time.

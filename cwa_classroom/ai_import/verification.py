@@ -1069,3 +1069,248 @@ def verify_images(questions, images_by_ref, client=None, *, force=False):
         'output_tokens': out_tok,
         'error': error,
     }
+
+
+# ---------------------------------------------------------------------------
+# Count verification (vision re-count of "count the squares" questions)
+# ---------------------------------------------------------------------------
+#
+# "Find the area/perimeter of this shape by counting the squares" answers are a
+# read-off Claude has to eyeball, and a miscount passes silently — both the
+# classifier and the text answer verifier can read a coarse grid the same wrong
+# way. This pass re-counts each such question independently, looking at the
+# question's OWN cropped grid (clearer and unambiguous, unlike the whole-page
+# screenshot the answer verifier uses), and flags needs_review when its count
+# disagrees with the imported answer. Same contract as the other vision passes:
+# best-effort, self-gating on OPENAI_API_KEY, batched, never edits the answer or
+# fails the import — it only routes a suspect count to the teacher.
+
+# A "count the squares" question: an area/perimeter (or bare) task whose figure is
+# drawn on / made of unit squares. Matches "count the squares", "made of squares",
+# "each square is 1cm" — the phrasings that mark a unit-square read-off.
+_COUNT_SQUARES_RE = re.compile(
+    r'(?:\bcount\w*\b[^.]*\bsquares?\b)'
+    r'|(?:\bsquares?\b[^.]*\bcount\w*\b)'
+    r'|(?:\b(?:made\s+(?:of|up\s+of|using)|each)\b[^.]*\bsquares?\b)',
+    re.IGNORECASE,
+)
+
+
+def count_verification_enabled():
+    """Whether the vision count re-check should run.
+
+    On only when an OpenAI key is configured AND the feature isn't explicitly
+    switched off (``AI_IMPORT_VERIFY_COUNTS_ENABLED=0``). Gated separately from the
+    other passes so a deployment can run any subset."""
+    if os.environ.get('AI_IMPORT_VERIFY_COUNTS_ENABLED', '1') == '0':
+        return False
+    return bool(getattr(settings, 'OPENAI_API_KEY', ''))
+
+
+def _count_verifiable(q):
+    """A question whose answer is obtained by counting unit squares off a figure.
+
+    Needs a checkable numeric answer, an attached figure, "count the squares"
+    wording, and no existing review flag (a second reason adds nothing)."""
+    if q.get('needs_review'):
+        return False
+    if not q.get('image_ref') or not _expected_answers(q):
+        return False
+    return bool(_COUNT_SQUARES_RE.search(q.get('question_text') or ''))
+
+
+_VERIFY_COUNT_SYSTEM_PROMPT = (
+    "You are a meticulous maths teacher checking 'count the squares' answers that "
+    "were auto-extracted from a worksheet. For each item you get the question and "
+    "the image of its shape drawn on a unit-square grid. Count the unit squares "
+    "carefully and work the answer out YOURSELF: for an AREA question the answer is "
+    "the number of unit squares the shape covers; for a PERIMETER question it is "
+    "the number of unit edges around the outside. Report the final numeric answer "
+    "only (just the number). If the grid is too unclear to count reliably, set "
+    "confident=false and leave answer empty — never guess. Report every item via "
+    "report_counts."
+)
+
+
+_VERIFY_COUNT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "report_counts",
+        "description": "Report your independently counted answer for each question.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "index": {
+                                "type": "integer",
+                                "description": "The item's index from the input.",
+                            },
+                            "answer": {
+                                "type": "string",
+                                "description": "Your counted answer as a number, e.g. \"24\". Empty if not confident.",
+                            },
+                            "confident": {
+                                "type": "boolean",
+                                "description": "True only if you counted the grid reliably.",
+                            },
+                        },
+                        "required": ["index", "confident"],
+                    },
+                },
+            },
+            "required": ["results"],
+        },
+    },
+}
+
+
+def _verify_count_batch(client, model, batch, images_by_ref):
+    """One vision request re-counting a batch of ``(index, question)`` items.
+
+    Returns ``(results_by_index, usage)`` where a result is
+    ``{'answer': str, 'confident': bool}``. Raises on transport / parse failure."""
+    content = [{
+        "type": "text",
+        "text": (
+            "Count the unit squares in each question's image and report your own "
+            "answer for every item via report_counts."
+        ),
+    }]
+    for idx, q in batch:
+        ref = q.get('image_ref')
+        b64 = images_by_ref.get(ref)
+        content.append({
+            "type": "text",
+            "text": (
+                f"\nItem {idx} — question_type: {q.get('question_type')}\n"
+                f"Question: {q.get('question_text', '')}\nGrid image:"
+            ),
+        })
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{_image_media_type(ref)};base64,{b64}"},
+        })
+
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": _VERIFY_COUNT_SYSTEM_PROMPT},
+            {"role": "user", "content": content},
+        ],
+        tools=[_VERIFY_COUNT_TOOL],
+        tool_choice={"type": "function", "function": {"name": "report_counts"}},
+    )
+
+    message = resp.choices[0].message
+    tool_calls = getattr(message, 'tool_calls', None) or []
+    if not tool_calls:
+        raise ValueError('count verifier returned no tool call')
+
+    data = json.loads(tool_calls[0].function.arguments)
+    results = {}
+    for r in data.get('results', []):
+        try:
+            results[int(r['index'])] = {
+                'answer': (r.get('answer') or '').strip(),
+                'confident': bool(r.get('confident')),
+            }
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    usage = getattr(resp, 'usage', None)
+    token_usage = {
+        'input_tokens': getattr(usage, 'prompt_tokens', 0) or 0,
+        'output_tokens': getattr(usage, 'completion_tokens', 0) or 0,
+    }
+    return results, token_usage
+
+
+def verify_counts(questions, images_by_ref, client=None, *, force=False):
+    """Vision re-count of "count the squares" questions, flagging disagreements.
+
+    For each area/perimeter-by-counting question with an attached grid crop, an
+    independent vision model recounts the squares. A confident count that differs
+    from the imported answer sets ``needs_review`` (with both values in the reason)
+    so the teacher confirms it. Never edits the answer — it only routes.
+
+    Args:
+        questions: classified question dicts (mutated in place). Run AFTER
+            crop_figure_boxes so each grid crop is in ``images_by_ref``.
+        images_by_ref: {ref: base64} for every embedded image and crop.
+        client: an OpenAI client (injected in tests); built on demand otherwise.
+        force: run even if ``count_verification_enabled()`` is False (tests only).
+
+    Returns:
+        A summary dict ``{'model', 'checked', 'flagged', 'input_tokens',
+        'output_tokens', 'error'}`` when the pass ran, or ``None`` when it is
+        disabled / there was nothing to check.
+    """
+    if not force and not count_verification_enabled():
+        return None
+
+    images_by_ref = images_by_ref or {}
+    candidates = [
+        (i, q) for i, q in enumerate(questions or [])
+        if _count_verifiable(q) and images_by_ref.get(q.get('image_ref'))
+    ]
+    if not candidates:
+        return None
+
+    model = os.environ.get('AI_IMPORT_VERIFY_COUNT_MODEL',
+                           os.environ.get('AI_IMPORT_VERIFY_IMAGE_MODEL', 'gpt-4o'))
+    chunk_size = max(1, int(os.environ.get('AI_IMPORT_VERIFY_COUNT_CHUNK', '6')))
+
+    try:
+        client = client or _get_openai_client()
+    except Exception as exc:
+        logger.warning('AI import count verifier unavailable, skipping: %s', exc)
+        return {'model': model, 'checked': 0, 'flagged': 0,
+                'input_tokens': 0, 'output_tokens': 0, 'error': str(exc)}
+
+    by_index = {i: q for i, q in candidates}
+    all_results = {}
+    in_tok = out_tok = 0
+    error = None
+
+    for start in range(0, len(candidates), chunk_size):
+        batch = candidates[start:start + chunk_size]
+        try:
+            results, usage = _verify_count_batch(client, model, batch, images_by_ref)
+        except Exception as exc:
+            logger.warning('AI import count verifier batch failed: %s', exc)
+            error = str(exc)
+            continue
+        all_results.update(results)
+        in_tok += usage['input_tokens']
+        out_tok += usage['output_tokens']
+
+    flagged = 0
+    for idx, verdict in all_results.items():
+        q = by_index.get(idx)
+        if q is None or not verdict['confident'] or not verdict['answer']:
+            continue
+        # Exact-count comparison (tolerance 0): a square count is a whole number,
+        # so any difference is a real disagreement worth a teacher's glance.
+        if _answers_agree(verdict['answer'], _expected_answers(q), tolerance=0):
+            continue
+        q['needs_review'] = True
+        imported = (_correct_texts(q) or _expected_answers(q) or ['?'])[0]
+        q['review_reason'] = (
+            f'Image check: a second AI counted the squares and got '
+            f'{verdict["answer"]}, but the imported answer is {imported} — '
+            f'please confirm the count.'
+        )
+        flagged += 1
+
+    return {
+        'model': model,
+        'checked': len(all_results),
+        'flagged': flagged,
+        'input_tokens': in_tok,
+        'output_tokens': out_tok,
+        'error': error,
+    }
