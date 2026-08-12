@@ -1167,6 +1167,31 @@ def _apply_count_correction(q, new_answer):
     return old_display, new_display
 
 
+def _count_consensus(values, samples):
+    """The agreed count across independent re-count samples, or None.
+
+    ``values`` are the numeric counts from the *confident* samples (unconfident
+    samples abstain). A value is the consensus only when a strict majority of the
+    samples that ran agree on it — i.e. it appears at least ``samples // 2 + 1``
+    times. This is what a single confident-but-wrong read cannot satisfy: it needs
+    the majority to independently land on the same number.
+
+    Returns ``(value, agreement, samples)`` where ``value`` is the majority count
+    (float) and ``agreement`` how many samples produced it; None when no value
+    reaches a majority (the models disagreed among themselves → genuinely uncertain).
+    """
+    if not values:
+        return None
+    majority = samples // 2 + 1
+    counts = {}
+    for v in values:
+        counts[v] = counts.get(v, 0) + 1
+    best_value, agreement = max(counts.items(), key=lambda kv: kv[1])
+    if agreement < majority:
+        return None
+    return best_value, agreement, samples
+
+
 def _count_verifiable(q):
     """A question whose answer is obtained by counting unit squares off a figure.
 
@@ -1228,7 +1253,7 @@ _VERIFY_COUNT_TOOL = {
 }
 
 
-def _verify_count_batch(client, model, batch, images_by_ref):
+def _verify_count_batch(client, model, batch, images_by_ref, temperature=None):
     """One vision request re-counting a batch of ``(index, question)`` items.
 
     Returns ``(results_by_index, usage)`` where a result is
@@ -1255,15 +1280,20 @@ def _verify_count_batch(client, model, batch, images_by_ref):
             "image_url": {"url": f"data:{_image_media_type(ref)};base64,{b64}"},
         })
 
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
+    kwargs = {
+        'model': model,
+        'messages': [
             {"role": "system", "content": _VERIFY_COUNT_SYSTEM_PROMPT},
             {"role": "user", "content": content},
         ],
-        tools=[_VERIFY_COUNT_TOOL],
-        tool_choice={"type": "function", "function": {"name": "report_counts"}},
-    )
+        'tools': [_VERIFY_COUNT_TOOL],
+        'tool_choice': {"type": "function", "function": {"name": "report_counts"}},
+    }
+    # A non-zero temperature is only useful for consensus (multiple samples that
+    # must differ to be worth taking a majority of); left unset for a single pass.
+    if temperature is not None:
+        kwargs['temperature'] = temperature
+    resp = client.chat.completions.create(**kwargs)
 
     message = resp.choices[0].message
     tool_calls = getattr(message, 'tool_calls', None) or []
@@ -1323,6 +1353,12 @@ def verify_counts(questions, images_by_ref, client=None, *, force=False):
     model = os.environ.get('AI_IMPORT_VERIFY_COUNT_MODEL',
                            os.environ.get('AI_IMPORT_VERIFY_IMAGE_MODEL', 'gpt-4o'))
     chunk_size = max(1, int(os.environ.get('AI_IMPORT_VERIFY_COUNT_CHUNK', '6')))
+    # Consensus: recount each question this many times and only trust a value a
+    # majority independently agree on. >1 hardens accuracy at a proportional cost.
+    samples = max(1, int(os.environ.get('AI_IMPORT_VERIFY_COUNT_SAMPLES', '3')))
+    # Vary the samples so a majority is meaningful; a single pass stays deterministic.
+    temperature = (None if samples == 1
+                   else float(os.environ.get('AI_IMPORT_VERIFY_COUNT_TEMPERATURE', '0.4')))
 
     try:
         client = client or _get_openai_client()
@@ -1332,58 +1368,80 @@ def verify_counts(questions, images_by_ref, client=None, *, force=False):
                 'input_tokens': 0, 'output_tokens': 0, 'error': str(exc)}
 
     by_index = {i: q for i, q in candidates}
-    all_results = {}
+    # Per question, the confident counts across all samples (unconfident abstain).
+    votes = {i: [] for i, _ in candidates}
+    seen = set()
     in_tok = out_tok = 0
     error = None
 
-    for start in range(0, len(candidates), chunk_size):
-        batch = candidates[start:start + chunk_size]
-        try:
-            results, usage = _verify_count_batch(client, model, batch, images_by_ref)
-        except Exception as exc:
-            logger.warning('AI import count verifier batch failed: %s', exc)
-            error = str(exc)
-            continue
-        all_results.update(results)
-        in_tok += usage['input_tokens']
-        out_tok += usage['output_tokens']
+    for _ in range(samples):
+        for start in range(0, len(candidates), chunk_size):
+            batch = candidates[start:start + chunk_size]
+            try:
+                results, usage = _verify_count_batch(
+                    client, model, batch, images_by_ref, temperature=temperature)
+            except Exception as exc:
+                logger.warning('AI import count verifier batch failed: %s', exc)
+                error = str(exc)
+                continue
+            for idx, verdict in results.items():
+                seen.add(idx)
+                if verdict['confident'] and verdict['answer']:
+                    num = _leading_number(verdict['answer'])
+                    if num is not None:
+                        votes[idx].append(num)
+            in_tok += usage['input_tokens']
+            out_tok += usage['output_tokens']
 
     autocorrect = count_autocorrect_enabled()
     flagged = 0
     corrected = 0
     corrections = []
-    for idx, verdict in all_results.items():
-        q = by_index.get(idx)
-        if q is None or not verdict['confident'] or not verdict['answer']:
+    for idx, q in candidates:
+        if q is None:
             continue
-        # Exact-count comparison (tolerance 0): a square count is a whole number,
-        # so any difference is a real disagreement.
-        if _answers_agree(verdict['answer'], _expected_answers(q), tolerance=0):
+        consensus = _count_consensus(votes.get(idx, []), samples)
+        if consensus is None:
+            # No majority agreed. If several samples DID answer but split, the
+            # count is genuinely uncertain — route it to a human rather than guess.
+            if len(votes.get(idx, [])) >= 2:
+                q['needs_review'] = True
+                q['review_reason'] = (
+                    'Image check: the second AI could not agree with itself on the '
+                    'square count across repeated tries — please confirm it.'
+                )
+                flagged += 1
+            continue
+
+        value, agreement, total = consensus
+        value_str = _format_number(value)
+        # Agrees with the imported answer → nothing to do.
+        if _answers_agree(value_str, _expected_answers(q), tolerance=0):
             continue
 
         if autocorrect:
-            # Trust the confident count: replace the answer key and record the
-            # change (never silent) instead of routing it to a human.
-            result = _apply_count_correction(q, verdict['answer'])
-            if result is not None:
-                old, new = result
+            applied = _apply_count_correction(q, value_str)
+            if applied is not None:
+                old, new = applied
                 corrected += 1
-                corrections.append({'from': old, 'to': new})
+                corrections.append(
+                    {'from': old, 'to': new, 'agreement': f'{agreement}/{total}'})
                 continue
             # Fall through to flagging if the correction couldn't be applied.
 
         q['needs_review'] = True
         imported = (_correct_texts(q) or _expected_answers(q) or ['?'])[0]
         q['review_reason'] = (
-            f'Image check: a second AI counted the squares and got '
-            f'{verdict["answer"]}, but the imported answer is {imported} — '
-            f'please confirm the count.'
+            f'Image check: a second AI counted the squares and got {value_str} '
+            f'({agreement}/{total} agreed), but the imported answer is {imported} '
+            f'— please confirm the count.'
         )
         flagged += 1
 
     return {
         'model': model,
-        'checked': len(all_results),
+        'samples': samples,
+        'checked': len(seen),
         'flagged': flagged,
         'corrected': corrected,
         'corrections': corrections,
