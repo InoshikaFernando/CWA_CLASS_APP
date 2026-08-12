@@ -462,6 +462,18 @@ class WorksheetRecropView(RoleRequiredMixin, View):
         return recrop_response(session, request)
 
 
+class WorksheetReuseImageView(RoleRequiredMixin, View):
+    """AJAX: copy an earlier question's image onto this question (shared figure)."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, session_id):
+        from .image_adjust import reuse_previous_image_response
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return reuse_previous_image_response(session, request)
+
+
 class WorksheetConfirmView(RoleRequiredMixin, View):
     """Step 3: Save questions to DB and create Worksheet record."""
     required_roles = TEACHER_ROLES
