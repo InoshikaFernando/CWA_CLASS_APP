@@ -689,6 +689,65 @@ def flag_missing_figures(questions):
     return flagged
 
 
+# Wording that marks a question as needing a DRAWN maths figure (a shape, angle,
+# coordinate grid, number line …) rather than a photograph to interpret. A photo /
+# decorative illustration attached to one of these is the wrong image: the model
+# grabbed a header picture or a neighbouring word-problem's graphic instead of the
+# question's diagram. Deliberately positive/specific so genuine picture questions
+# (maps, clocks, "what is shown in the photograph") are NOT swept in.
+_DIAGRAM_WORDING_RE = re.compile(
+    r'\b(?:'
+    r'perimeter|area|angle|angles|degrees|diagram|'
+    r'coordinate\w*|co-ordinate\w*|plot|axis|axes|'
+    r'number\s+line|symmetr\w*|parallel|perpendicular|'
+    r'vertices|vertex|edges|faces|net|'
+    r'quadrilateral|triangle|rectangle|square|squares|pentagon|hexagon|polygon'
+    r')\b',
+    re.IGNORECASE,
+)
+
+
+def flag_photo_images_on_diagrams(questions, photo_like_refs):
+    """Flag a decorative photo/illustration attached to a maths-figure question.
+
+    A deterministic backstop for the vision verifier's job, using the ``photo_like``
+    signal already computed at extraction: when a question whose text needs a drawn
+    figure (perimeter, angle, coordinate grid, …) has an embedded image that was
+    flagged as a continuous-tone photo/illustration, that image is almost certainly
+    wrong (a header picture or a neighbouring word-problem's graphic). It is routed
+    to review via ``needs_review``. No API call, so it runs even when the vision
+    pass is unconfigured; it never edits answers.
+
+    Cropped figures are never in ``photo_like_refs`` (only embedded rasters are
+    scored), so a legitimate drawn crop is never flagged here.
+
+    Args:
+        questions: classified question dicts (mutated in place).
+        photo_like_refs: the set of image refs flagged ``photo_like`` at extraction.
+
+    Returns:
+        The number of questions newly flagged for review.
+    """
+    photo_like_refs = photo_like_refs or set()
+    flagged = 0
+    for q in (questions or []):
+        if q.get('needs_review'):
+            continue
+        ref = q.get('image_ref')
+        if not ref or ref not in photo_like_refs:
+            continue
+        if not _DIAGRAM_WORDING_RE.search(q.get('question_text') or ''):
+            continue
+        q['needs_review'] = True
+        q['review_reason'] = (
+            'Image check: a photo / decorative illustration is attached to a '
+            'question that needs a drawn maths figure (e.g. perimeter, angle or '
+            'coordinate diagram) — this is very likely the wrong image.'
+        )
+        flagged += 1
+    return flagged
+
+
 # ---------------------------------------------------------------------------
 # Image validation (vision second opinion)
 # ---------------------------------------------------------------------------

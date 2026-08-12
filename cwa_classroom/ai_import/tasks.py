@@ -47,11 +47,15 @@ def process_pdf_import(session_id):
 
         result = classify_questions(extracted, existing_topics, existing_levels)
 
-        # Collect embedded images keyed by ref.
+        # Collect embedded images keyed by ref, and the subset flagged at
+        # extraction as decorative photos/illustrations (photo_like).
         extracted_images = {}
+        photo_like_refs = set()
         for page in extracted['pages']:
             for img in page['images']:
                 extracted_images[img['ref']] = img['base64']
+                if img.get('photo_like'):
+                    photo_like_refs.add(img['ref'])
 
         # Crop drawn figures (shapes/diagrams with no embedded raster); rendered
         # straight from the PDF vectors at high DPI when possible. These join the
@@ -67,18 +71,27 @@ def process_pdf_import(session_id):
         #   2. A deterministic missing-figure guard — free, always on — flags a
         #      question whose text points at a figure ("this shape", "the diagram")
         #      but that ended up with NO image, i.e. its figure was skipped.
-        #      Both run before the paid pass, sparing it a call on what they caught.
-        #   3. The vision second opinion looks at each still-unflagged question with
-        #      its attached image and flags mismatches a page check can't see
-        #      (same-page decorative art, a bad crop). Self-gating on OPENAI_API_KEY;
-        #      never fails the import; reported apart from the Claude token ledger.
+        #   3. A deterministic photo-mismatch guard — free, always on — flags a
+        #      question needing a drawn maths figure (perimeter, angle, coordinate
+        #      grid) whose attached image was flagged photo_like at extraction, i.e.
+        #      a decorative header/word-problem picture grabbed by mistake.
+        #      These three run before the paid pass, sparing it a call on what they
+        #      caught.
+        #   4. The vision second opinion looks at each still-unflagged question with
+        #      its attached image and flags mismatches the checks above can't see
+        #      (a same-page wrong crop, art that isn't photo_like). Self-gating on
+        #      OPENAI_API_KEY; never fails the import; reported apart from the
+        #      Claude token ledger.
         from .verification import (
             flag_cross_page_images, flag_missing_figures,
-            image_verification_enabled, verify_images,
+            flag_photo_images_on_diagrams, image_verification_enabled,
+            verify_images,
         )
         questions = result.get('questions', [])
         cross_page_flagged = flag_cross_page_images(questions)
         missing_figure_flagged = flag_missing_figures(questions)
+        photo_mismatch_flagged = flag_photo_images_on_diagrams(
+            questions, photo_like_refs)
         image_verification = verify_images(questions, extracted_images)
         # Always record an image-verification summary — no silent pass. When the
         # vision layer didn't run (no key / disabled / nothing left to check) say
@@ -90,6 +103,7 @@ def process_pdf_import(session_id):
             }
         image_verification['cross_page_flagged'] = cross_page_flagged
         image_verification['missing_figure_flagged'] = missing_figure_flagged
+        image_verification['photo_mismatch_flagged'] = photo_mismatch_flagged
         result['image_verification'] = image_verification
 
         # Preserve any pre-set classroom selection stored at enqueue time.

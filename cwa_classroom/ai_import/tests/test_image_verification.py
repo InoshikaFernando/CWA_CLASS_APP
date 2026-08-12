@@ -9,7 +9,8 @@ from unittest.mock import MagicMock
 from ai_import import verification
 from ai_import.verification import (
     _image_media_type, _image_ref_page, _image_verifiable,
-    flag_cross_page_images, flag_missing_figures, verify_images,
+    flag_cross_page_images, flag_missing_figures,
+    flag_photo_images_on_diagrams, verify_images,
 )
 
 
@@ -207,6 +208,43 @@ def test_group_shared_and_already_flagged_are_skipped():
     assert flagged == 0
     assert 'needs_review' not in shared            # image carried from previous
     assert already['review_reason'] == 'pre-existing'  # untouched
+
+
+# ---------------------------------------------------------------------------
+# Photo-on-diagram guard (no API call)
+
+def test_photo_on_perimeter_question_is_flagged():
+    # The reported case: a supermarket illustration attached to a perimeter question.
+    q = _q('Find the perimeter of this shape made of squares (each 1cm by 1cm).',
+           ref='page6_img2.jpeg')
+
+    flagged = flag_photo_images_on_diagrams([q], {'page6_img2.jpeg'})
+
+    assert flagged == 1
+    assert q['needs_review'] is True
+    assert 'photo' in q['review_reason']
+    assert q['review_reason'].startswith('Image check:')
+
+
+def test_non_photo_image_on_diagram_is_not_flagged():
+    # Same question, but its image was NOT flagged photo_like → left alone.
+    q = _q('Find the perimeter of this shape.', ref='page6_img2.jpeg')
+    assert flag_photo_images_on_diagrams([q], set()) == 0
+    assert 'needs_review' not in q
+
+
+def test_photo_on_non_diagram_question_is_not_flagged():
+    # A genuine picture-interpretation question keeps its photo.
+    q = _q('What item is shown in the photograph?', ref='page6_img2.jpeg')
+    assert flag_photo_images_on_diagrams([q], {'page6_img2.jpeg'}) == 0
+    assert 'needs_review' not in q
+
+
+def test_photo_guard_skips_already_flagged():
+    q = _q('Find the area of this triangle.', ref='page6_img2.jpeg',
+           needs_review=True, review_reason='pre-existing')
+    assert flag_photo_images_on_diagrams([q], {'page6_img2.jpeg'}) == 0
+    assert q['review_reason'] == 'pre-existing'
 
 
 # ---------------------------------------------------------------------------
