@@ -1107,6 +1107,66 @@ def count_verification_enabled():
     return bool(getattr(settings, 'OPENAI_API_KEY', ''))
 
 
+def count_autocorrect_enabled():
+    """Whether a confident count re-check may auto-correct the imported answer.
+
+    When on (default), a confident disagreement REPLACES the answer key with the
+    verifier's count and records the change (``answer_auto_corrected``) instead of
+    only flagging — fewer manual reviews, at the cost of trusting a confident
+    second opinion. Set ``AI_IMPORT_VERIFY_COUNTS_AUTOCORRECT=0`` to fall back to
+    flag-only (never rewrites, routes every disagreement to a human)."""
+    return os.environ.get('AI_IMPORT_VERIFY_COUNTS_AUTOCORRECT', '1') != '0'
+
+
+def _format_number(num):
+    """A clean string for a corrected value: ``24`` not ``24.0``, ``2.5`` kept."""
+    if num == int(num):
+        return str(int(num))
+    return str(num)
+
+
+def _rewrite_leading_number(text, new_num_str):
+    """Replace the FIRST number in ``text`` with ``new_num_str``, keeping the rest.
+
+    Preserves any unit / surrounding words so "24cm²" becomes "18cm²", not "18".
+    If there is no number to replace, returns ``new_num_str`` alone."""
+    m = re.search(r'-?\d+(?:\.\d+)?', text or '')
+    if not m:
+        return new_num_str
+    return text[:m.start()] + new_num_str + text[m.end():]
+
+
+def _apply_count_correction(q, new_answer):
+    """Rewrite a question's correct answer(s) to the verifier's count in place.
+
+    Replaces the numeric part of every ``is_correct`` answer (keeping units) and
+    the ``numeric_answer`` field, and records ``answer_auto_corrected`` = {from,
+    to, source} for the audit trail. Returns ``(old, new)`` display strings, or
+    None if the new answer has no usable number (nothing changed)."""
+    new_num = _leading_number(new_answer or '')
+    if new_num is None:
+        return None
+    new_num_str = _format_number(new_num)
+
+    old_display = (_correct_texts(q) or _expected_answers(q) or [''])[0]
+    changed = False
+    for a in (q.get('answers') or []):
+        if a.get('is_correct') and (a.get('text') or '').strip():
+            a['text'] = _rewrite_leading_number(a['text'], new_num_str)
+            changed = True
+    if q.get('numeric_answer') is not None and str(q.get('numeric_answer')).strip():
+        q['numeric_answer'] = new_num
+        changed = True
+    if not changed:
+        return None
+
+    new_display = (_correct_texts(q) or [new_num_str])[0]
+    q['answer_auto_corrected'] = {
+        'from': old_display, 'to': new_display, 'source': 'count-recheck',
+    }
+    return old_display, new_display
+
+
 def _count_verifiable(q):
     """A question whose answer is obtained by counting unit squares off a figure.
 
@@ -1288,15 +1348,30 @@ def verify_counts(questions, images_by_ref, client=None, *, force=False):
         in_tok += usage['input_tokens']
         out_tok += usage['output_tokens']
 
+    autocorrect = count_autocorrect_enabled()
     flagged = 0
+    corrected = 0
+    corrections = []
     for idx, verdict in all_results.items():
         q = by_index.get(idx)
         if q is None or not verdict['confident'] or not verdict['answer']:
             continue
         # Exact-count comparison (tolerance 0): a square count is a whole number,
-        # so any difference is a real disagreement worth a teacher's glance.
+        # so any difference is a real disagreement.
         if _answers_agree(verdict['answer'], _expected_answers(q), tolerance=0):
             continue
+
+        if autocorrect:
+            # Trust the confident count: replace the answer key and record the
+            # change (never silent) instead of routing it to a human.
+            result = _apply_count_correction(q, verdict['answer'])
+            if result is not None:
+                old, new = result
+                corrected += 1
+                corrections.append({'from': old, 'to': new})
+                continue
+            # Fall through to flagging if the correction couldn't be applied.
+
         q['needs_review'] = True
         imported = (_correct_texts(q) or _expected_answers(q) or ['?'])[0]
         q['review_reason'] = (
@@ -1310,6 +1385,9 @@ def verify_counts(questions, images_by_ref, client=None, *, force=False):
         'model': model,
         'checked': len(all_results),
         'flagged': flagged,
+        'corrected': corrected,
+        'corrections': corrections,
+        'autocorrect': autocorrect,
         'input_tokens': in_tok,
         'output_tokens': out_tok,
         'error': error,
