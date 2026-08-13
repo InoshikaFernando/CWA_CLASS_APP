@@ -1,5 +1,6 @@
 import uuid
 from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 from django.db import models
 from django.conf import settings
 
@@ -817,6 +818,13 @@ class SubTopic(models.Model):
 # ---------------------------------------------------------------------------
 
 
+#: Validates a ``#rrggbb`` hex colour (blank is allowed by the field itself).
+HEX_COLOR_VALIDATOR = RegexValidator(
+    regex=r'^#[0-9a-fA-F]{6}$',
+    message='Enter a colour as a hex value like #4f46e5.',
+)
+
+
 class Location(models.Model):
     """A place where an institute's classes are held.
 
@@ -838,6 +846,14 @@ class Location(models.Model):
     address = models.TextField(
         blank=True,
         help_text='Optional. The street address of this location.',
+    )
+    color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='',
+        validators=[HEX_COLOR_VALIDATOR],
+        help_text='Optional accent colour as a hex value (e.g. #4f46e5). Used '
+                  "to tint this location's class tiles on the Classes page.",
     )
     is_online = models.BooleanField(
         default=False,
