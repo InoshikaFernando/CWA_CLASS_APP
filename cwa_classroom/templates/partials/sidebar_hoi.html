@@ -66,6 +66,16 @@
       <span>Classes</span>
     </a>
 
+    <a href="{% url 'admin_select_school_locations' %}"
+       class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+              {% if 'locations' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/>
+      </svg>
+      <span>Locations</span>
+    </a>
+
     <a href="{% url 'admin_manage_terms' %}"
        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
               {% if 'terms' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
