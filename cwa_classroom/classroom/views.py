@@ -3883,9 +3883,9 @@ class HoDManageClassesView(RoleRequiredMixin, View):
         for st in SchoolTeacher.objects.filter(school_id__in=school_ids, is_active=True):
             specialty_map[st.teacher_id] = st.specialty
 
-        # The tiles now show the school (location) and levels, so pull those in
+        # The tiles now show the venue (location) and levels, so pull those in
         # eagerly to avoid a per-card query.
-        classes = classes.select_related('school').prefetch_related('levels')
+        classes = classes.select_related('location').prefetch_related('levels')
 
         # Ordering (name / level / date-time). Sort by the class schedule for
         # "date/time" — the day + start time shown on each tile — mapping the

@@ -36,10 +36,12 @@ is 4 × 10 = 40 tiles.
 
 ### 3. Tiles show location + level
 
-Each tile now shows the class's **school name** (with a map-pin icon) as its
-location, and a row of **level badges** from `ClassRoom.levels`, in addition to
-the existing name, department, code, schedule and staff. The view eager-loads
-these (`select_related('school').prefetch_related('levels')`) to avoid an N+1.
+Each tile now shows the class's **venue** (`ClassRoom.location`, the CPP-371
+`Location`) with a map-pin icon, and a row of **level badges** from
+`ClassRoom.levels`, in addition to the existing name, department, code, schedule
+and staff. Online-only classes (`is_online` with no location) show a globe icon
+and "Online"; hybrid classes show `<venue> · Online`. The view eager-loads these
+(`select_related('location').prefetch_related('levels')`) to avoid an N+1.
 
 ### 4. Icon-only buttons in grid
 
