@@ -43,6 +43,12 @@
         {% if classroom.start_time %}
           <span class="bg-gray-100 text-gray-600 rounded-full px-2.5 py-0.5 text-xs font-semibold">{{ classroom.start_time|time:"g:ia" }}{% if classroom.end_time %} – {{ classroom.end_time|time:"g:ia" }}{% endif %}</span>
         {% endif %}
+        {% if classroom.location %}
+          <span class="bg-emerald-50 text-emerald-700 rounded-full px-2.5 py-0.5 text-xs font-semibold">📍 {{ classroom.location.name }}</span>
+        {% endif %}
+        {% if classroom.is_online %}
+          <span class="bg-indigo-50 text-indigo-700 rounded-full px-2.5 py-0.5 text-xs font-semibold">Online</span>
+        {% endif %}
       </div>
       {% if classroom.description %}
       <p class="text-sm text-gray-500 mt-2">{{ classroom.description }}</p>

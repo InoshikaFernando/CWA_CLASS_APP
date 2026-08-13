@@ -39,9 +39,11 @@
       function applyFilters() {
         var school = document.getElementById('school-select') ? document.getElementById('school-select').value : '';
         var dept = document.getElementById('dept-select') ? document.getElementById('dept-select').value : '';
+        var sortEl = document.getElementById('sort-select');
         var params = new URLSearchParams();
         if (school) params.set('school', school);
         if (dept) params.set('department', dept);
+        if (sortEl && sortEl.value && sortEl.value !== 'name') params.set('sort', sortEl.value);
         window.location.href = '{% url "hod_manage_classes" %}' + (params.toString() ? '?' + params.toString() : '');
       }
       </script>
@@ -104,16 +106,37 @@
     </div>
   </div>
 
+  {% comment %}
+    Page-scoped grid overrides for this Classes page (CPP-372):
+      • 4 columns on wide screens (the shared partial caps at 2) so a full
+        page is 4 × 10 = 40 tiles.
+      • Grid tiles show icon-only actions — the `.cwa-btn-label` captions are
+        hidden in grid and shown again in list view.
+  {% endcomment %}
+  <style>
+    @media (min-width: 1024px) { #hod-classes.cwa-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (min-width: 1280px) { #hod-classes.cwa-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+    #hod-classes.cwa-grid .cwa-btn-label { display: none; }
+  </style>
+
   <!-- Section heading + Search -->
-  <div class="flex items-center justify-between mb-4">
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
     <h2 class="text-lg font-semibold text-gray-900">All Classes</h2>
     {% if classes %}
-      {% include "partials/view_toggle.html" with container_id="hod-classes" storage_key="cwa-view:hod-classes" default_view="list" %}
+    <div class="flex items-center gap-2">
+      <select id="sort-select" aria-label="Sort classes" onchange="applyFilters()"
+              class="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:ring-2 focus:ring-accent focus:border-accent">
+        <option value="name" {% if selected_sort == 'name' %}selected{% endif %}>Sort: Name</option>
+        <option value="level" {% if selected_sort == 'level' %}selected{% endif %}>Sort: Level</option>
+        <option value="schedule" {% if selected_sort == 'schedule' %}selected{% endif %}>Sort: Date/Time</option>
+      </select>
+      {% include "partials/view_toggle.html" with container_id="hod-classes" storage_key="cwa-view:hod-classes" default_view="grid" %}
+    </div>
     {% endif %}
   </div>
 
   {% if classes %}
-    <div x-data="{ search: '', page: 1, perPage: 10, total: {{ classes|length }} }" x-effect="if (search !== '') page = 1">
+    <div x-data="{ search: '', page: 1, perPage: 40, total: {{ classes|length }} }" x-effect="if (search !== '') page = 1">
       <div class="mb-6">
         <div class="relative">
           <svg class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -124,7 +147,7 @@
         </div>
       </div>
 
-      <div id="hod-classes" data-cwa-container class="cwa-list">
+      <div id="hod-classes" data-cwa-container class="cwa-grid">
         {% for classroom in classes %}
           <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 cursor-pointer hover:border-accent/40 hover:shadow-md transition"
                x-show="(search !== '' && '{{ classroom.name|escapejs }}'.toLowerCase().includes(search.toLowerCase())) || (search === '' && {{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage)"
@@ -141,32 +164,53 @@
                   {% if classroom.start_time %} {{ classroom.start_time|time:"g:ia" }}{% if classroom.end_time %} – {{ classroom.end_time|time:"g:ia" }}{% endif %}{% endif %}
                 </p>
                 {% endif %}
+                {% if classroom.school %}
+                <p class="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/>
+                  </svg>
+                  <span class="truncate">{{ classroom.school.name }}</span>
+                </p>
+                {% endif %}
+                {% with class_levels=classroom.levels.all %}
+                {% if class_levels %}
+                <div class="flex flex-wrap gap-1 mt-1.5">
+                  {% for lvl in class_levels %}
+                  <span class="text-[11px] font-medium bg-slate-100 text-gray-600 rounded px-1.5 py-0.5">{{ lvl.display_name }}</span>
+                  {% endfor %}
+                </div>
+                {% endif %}
+                {% endwith %}
               </div>
               <div class="flex flex-wrap items-center gap-2">
                 <span class="text-xs font-mono text-gray-400 bg-slate-100 px-2 py-0.5 rounded">{{ classroom.code }}</span>
                 <a href="{% url 'edit_class' class_id=classroom.id %}?next={% url 'hod_manage_classes' %}"
+                   title="Edit" aria-label="Edit {{ classroom.name }}"
                    class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 bg-white border border-slate-200 rounded-xl transition">
                   <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>
                   </svg>
-                  Edit
+                  <span class="cwa-btn-label">Edit</span>
                 </a>
                 <a href="{% url 'assign_teachers' class_id=classroom.id %}"
+                   title="Assign Staff" aria-label="Assign staff to {{ classroom.name }}"
                    class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-dark rounded-xl transition">
                   <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z"/>
                   </svg>
-                  Assign Staff
+                  <span class="cwa-btn-label">Assign Staff</span>
                 </a>
                 <form method="post" action="{% url 'hod_delete_class' class_id=classroom.id %}"
                       onsubmit="return confirm('Are you sure you want to delete {{ classroom.name|escapejs }}? It can be restored later.')">
                   {% csrf_token %}
                   <button type="submit"
+                          title="Delete" aria-label="Delete {{ classroom.name }}"
                           class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-red-600 hover:text-white hover:bg-red-500 bg-white border border-red-200 rounded-xl transition">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/>
                     </svg>
-                    Delete
+                    <span class="cwa-btn-label">Delete</span>
                   </button>
                 </form>
               </div>

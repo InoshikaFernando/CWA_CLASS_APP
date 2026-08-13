@@ -117,6 +117,7 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/public-holidays/', views_admin.PublicHolidayManageView.as_view(), name='admin_public_holidays'),
     path('admin-dashboard/schools/<int:school_id>/terms/', views_admin.TermManageView.as_view(), name='admin_school_terms'),
     path('admin-dashboard/schools/<int:school_id>/holidays/', views_admin.HolidayManageView.as_view(), name='admin_school_holidays'),
+    path('admin-dashboard/schools/<int:school_id>/locations/', views_admin.LocationManageView.as_view(), name='admin_school_locations'),
 
     # Global questions management (superuser only)
     path('admin-dashboard/global-questions/', views_admin.GlobalQuestionsView.as_view(), name='admin_global_questions'),

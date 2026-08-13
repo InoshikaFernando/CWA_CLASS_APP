@@ -29,6 +29,26 @@ def _fake_client(results):
     return client
 
 
+def _seq_client(result_lists):
+    """A client whose successive completion calls return successive result lists.
+
+    Lets a test drive the consensus sampler with a different per-call verdict —
+    e.g. [[{18}], [{18}], [{24}]] for three samples that split 2-to-1."""
+    import json
+
+    def _resp(results):
+        tool_call = MagicMock()
+        tool_call.function.arguments = json.dumps({'results': results})
+        message = MagicMock(tool_calls=[tool_call])
+        resp = MagicMock(choices=[MagicMock(message=message)])
+        resp.usage = MagicMock(prompt_tokens=20, completion_tokens=8)
+        return resp
+
+    client = MagicMock()
+    client.chat.completions.create.side_effect = [_resp(r) for r in result_lists]
+    return client
+
+
 def _q(text='Find the angle', ref='page7_img1.jpeg', **extra):
     return {'question_text': text, 'question_type': 'short_answer',
             'image_ref': ref, **extra}
@@ -280,7 +300,8 @@ def test_confident_disagreement_auto_corrects_by_default():
         'from': '24cm²', 'to': '18cm²', 'source': 'count-recheck'}
     assert 'needs_review' not in q
     assert summary['corrected'] == 1 and summary['flagged'] == 0
-    assert summary['corrections'] == [{'from': '24cm²', 'to': '18cm²'}]
+    assert summary['corrections'][0]['from'] == '24cm²'
+    assert summary['corrections'][0]['to'] == '18cm²'
 
 
 def test_confident_disagreement_flags_when_autocorrect_disabled(monkeypatch):
@@ -346,6 +367,60 @@ def test_count_non_counting_questions_are_skipped():
     assert verify_counts([q], {'page6_img1.jpeg': 'X'}, client=client,
                          force=True) is None
     client.chat.completions.create.assert_not_called()
+
+
+# --- Consensus (multiple samples) ---
+
+def test_consensus_majority_auto_corrects(monkeypatch):
+    monkeypatch.setenv('AI_IMPORT_VERIFY_COUNT_SAMPLES', '3')
+    q = _count_q(answer='24cm²')
+    # Three independent recounts split 2-to-1 on 18 → majority wins, corrects to 18.
+    client = _seq_client([
+        [{'index': 0, 'answer': '18', 'confident': True}],
+        [{'index': 0, 'answer': '18', 'confident': True}],
+        [{'index': 0, 'answer': '24', 'confident': True}],
+    ])
+
+    summary = verify_counts([q], COUNT_IMAGES, client=client, force=True)
+
+    assert q['answers'][0]['text'] == '18cm²'
+    assert summary['corrected'] == 1
+    assert summary['corrections'][0]['agreement'] == '2/3'
+
+
+def test_consensus_split_routes_to_review(monkeypatch):
+    monkeypatch.setenv('AI_IMPORT_VERIFY_COUNT_SAMPLES', '3')
+    q = _count_q(answer='24cm²')
+    # All three disagree with each other → no majority → uncertain → flag, no rewrite.
+    client = _seq_client([
+        [{'index': 0, 'answer': '18', 'confident': True}],
+        [{'index': 0, 'answer': '20', 'confident': True}],
+        [{'index': 0, 'answer': '30', 'confident': True}],
+    ])
+
+    summary = verify_counts([q], COUNT_IMAGES, client=client, force=True)
+
+    assert q['answers'][0]['text'] == '24cm²'          # untouched
+    assert 'answer_auto_corrected' not in q
+    assert q['needs_review'] is True
+    assert 'could not agree' in q['review_reason']
+    assert summary['corrected'] == 0 and summary['flagged'] == 1
+
+
+def test_consensus_majority_agrees_with_import_stays_quiet(monkeypatch):
+    monkeypatch.setenv('AI_IMPORT_VERIFY_COUNT_SAMPLES', '3')
+    q = _count_q(answer='24cm²')
+    client = _seq_client([
+        [{'index': 0, 'answer': '24', 'confident': True}],
+        [{'index': 0, 'answer': '24', 'confident': True}],
+        [{'index': 0, 'answer': '18', 'confident': True}],
+    ])
+
+    summary = verify_counts([q], COUNT_IMAGES, client=client, force=True)
+
+    assert q['answers'][0]['text'] == '24cm²'
+    assert 'needs_review' not in q
+    assert summary['corrected'] == 0 and summary['flagged'] == 0
 
 
 # ---------------------------------------------------------------------------
