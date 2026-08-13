@@ -3883,9 +3883,10 @@ class HoDManageClassesView(RoleRequiredMixin, View):
         for st in SchoolTeacher.objects.filter(school_id__in=school_ids, is_active=True):
             specialty_map[st.teacher_id] = st.specialty
 
-        # The tiles now show the school (location) and levels, so pull those in
-        # eagerly to avoid a per-card query. ``location`` is joined too so the
-        # per-location tile border colour (CPP-373) costs no extra query.
+        # The tiles now show the venue (location) and levels, so pull those in
+        # eagerly to avoid a per-card query. ``school`` and ``location`` are both
+        # joined so the per-location tile border colour (CPP-373) costs no extra
+        # query.
         classes = classes.select_related('school', 'location').prefetch_related('levels')
 
         # Ordering (name / level / date-time). Sort by the class schedule for
