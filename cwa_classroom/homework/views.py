@@ -2216,6 +2216,20 @@ class HomeworkPDFRecropView(RoleRequiredMixin, View):
         return recrop_response(session, request)
 
 
+class HomeworkPDFReuseImageView(RoleRequiredMixin, View):
+    """AJAX: copy an earlier question's image onto this question (shared figure)."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, session_id):
+        from worksheets.image_adjust import reuse_previous_image_response
+
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(
+            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return reuse_previous_image_response(session, request)
+
+
 class HomeworkPDFConfirmView(RoleRequiredMixin, View):
     """Step 3 — create Homework + questions in DB and notify students."""
     required_roles = TEACHER_ROLES
