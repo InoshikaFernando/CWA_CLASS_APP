@@ -245,3 +245,52 @@ class ClassCreationWithLocationTest(LocationTestBase):
         cls.refresh_from_db()
         self.assertIsNone(cls.location)
         self.assertFalse(cls.is_online)
+
+
+class LocationsRedirectViewTest(LocationTestBase):
+    """The school-less sidebar entry (admin_select_school_locations)."""
+
+    def setUp(self):
+        self.client = Client()
+        self.url = reverse('admin_select_school_locations')
+
+    def test_single_school_owner_redirects_to_locations(self):
+        """An institute owner of exactly one school lands on its page directly."""
+        owner_role, _ = Role.objects.get_or_create(
+            name=Role.INSTITUTE_OWNER, defaults={'display_name': 'Institute Owner'},
+        )
+        owner = CustomUser.objects.create_user(
+            'solo_owner', 'wlhtestmails+soloowner@gmail.com', 'password1!',
+        )
+        owner.roles.add(owner_role)
+        solo_school = School.objects.create(
+            name='Solo School', slug='solo-school', admin=owner,
+        )
+        self.client.login(username='solo_owner', password='password1!')
+
+        resp = self.client.get(self.url)
+        self.assertRedirects(
+            resp,
+            reverse('admin_school_locations', kwargs={'school_id': solo_school.id}),
+            fetch_redirect_response=False,
+        )
+
+    def test_multi_school_admin_sees_picker(self):
+        """An admin over several schools gets the school picker, not a redirect."""
+        self.client.login(username='loc_admin', password='password1!')
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTemplateUsed(resp, 'admin_dashboard/school_picker.html')
+        # Picker links point at the per-school locations page.
+        self.assertContains(
+            resp,
+            reverse('admin_school_locations', kwargs={'school_id': self.school.id}),
+        )
+
+    def test_requires_login(self):
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 302)
+        self.assertNotIn(
+            reverse('admin_school_locations', kwargs={'school_id': self.school.id}),
+            resp['Location'],
+        )

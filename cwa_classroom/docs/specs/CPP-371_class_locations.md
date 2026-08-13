@@ -86,6 +86,15 @@ inline Alpine edit rows, matching the Terms page.
 card (count + link to the manage page) in the top stats row;
 `SchoolDetailView` passes `locations` to the context.
 
+A top-level **Locations** item also sits in the admin/institute sidebars
+(`sidebar_admin.html`, `sidebar_hoi.html` — the sidebars for the roles the
+manage page allows: Admin, Institute Owner, Head of Institute). Because
+locations are school-scoped, the link points at a school-less entry
+`admin_select_school_locations` (`LocationsRedirectView`), which mirrors the
+teacher/student pickers: it redirects straight to `admin_school_locations` when
+the user manages a single school, shows the shared `school_picker.html` when
+they manage several, and prompts to create a school when they have none.
+
 ## Class create / edit
 
 All three class create/edit surfaces gain a **Location** picker (options are the

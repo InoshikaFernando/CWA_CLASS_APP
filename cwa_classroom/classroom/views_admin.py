@@ -3483,6 +3483,31 @@ class TermManageView(RoleRequiredMixin, View):
         return redirect('admin_school_terms', school_id=school.id)
 
 
+class LocationsRedirectView(RoleRequiredMixin, View):
+    """Top-level Locations entry: redirects to the school's locations page.
+
+    Locations are school-scoped, so the sidebar link has no school_id. Mirror
+    the teacher/student pickers: redirect straight through when the user manages
+    a single school, otherwise show the school picker; prompt to create a school
+    when there are none.
+    """
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request):
+        schools = list(_get_user_schools(request.user))
+        if len(schools) == 1:
+            return redirect('admin_school_locations', school_id=schools[0].id)
+        if not schools:
+            messages.info(request, 'Create a school first before managing locations.')
+            return redirect('admin_school_create')
+        return render(request, 'admin_dashboard/school_picker.html', {
+            'schools': schools,
+            'section': 'locations',
+            'title': 'Select a School — Locations',
+            'dest_url_name': 'admin_school_locations',
+        })
+
+
 class LocationManageView(RoleRequiredMixin, View):
     """Manage class locations for an institute: list, create, edit, delete.
 

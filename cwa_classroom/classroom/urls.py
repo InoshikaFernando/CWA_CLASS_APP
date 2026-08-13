@@ -89,6 +89,7 @@ urlpatterns = [
     # New clean URLs (school picker or direct redirect)
     path('admin-dashboard/schools/teachers/', views_admin.ManageTeachersRedirectView.as_view(), name='admin_select_school_teachers'),
     path('admin-dashboard/schools/students/', views_admin.ManageStudentsRedirectView.as_view(), name='admin_select_school_students'),
+    path('admin-dashboard/schools/locations/', views_admin.LocationsRedirectView.as_view(), name='admin_select_school_locations'),
     path('admin-dashboard/manage-departments/', views_admin.ManageDepartmentsRedirectView.as_view(), name='admin_manage_departments'),
     path('admin-dashboard/manage-subjects/', views_admin.ManageSubjectsRedirectView.as_view(), name='admin_manage_subjects'),
     path('admin-dashboard/manage-terms/', views_admin.ManageTermsRedirectView.as_view(), name='admin_manage_terms'),
