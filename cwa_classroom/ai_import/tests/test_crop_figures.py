@@ -1,11 +1,21 @@
 """Unit tests for crop_figure_boxes — cropping drawn figures from page screenshots."""
 import base64
 import io
+import os
+from unittest import mock
 
 from django.test import SimpleTestCase
 from PIL import Image
 
 from ai_import.services import crop_figure_boxes
+
+
+def _two_pages():
+    """Two blank page screenshots (pages 1 and 2), like extract_pdf_content emits."""
+    return {'pages': [
+        {'page_num': 1, 'screenshot': _screenshot_b64(width=200, height=100)},
+        {'page_num': 2, 'screenshot': _screenshot_b64(width=200, height=100)},
+    ]}
 
 
 def _screenshot_b64(width=200, height=100, colour=(255, 255, 255)):
@@ -68,6 +78,46 @@ class CropFigureBoxesTests(SimpleTestCase):
         crops = crop_figure_boxes(_extracted(), {'questions': [q]})
         self.assertEqual(crops, {})
         self.assertNotIn('image_ref', q)
+
+    def test_cross_page_crop_is_dropped(self):
+        # The reported bug: a page-6 "the table shows…" question whose box points at
+        # a chart two pages back. A drawn figure lives on the question's own page,
+        # so a cross-page box is a wrong-page grab and must not be cropped in.
+        q = {'question_text': 'The table shows the highest temperature...',
+             'source_page': 1, 'image_page': 2,
+             'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+
+        crops = crop_figure_boxes(_two_pages(), {'questions': [q]})
+
+        self.assertEqual(crops, {})
+        self.assertNotIn('image_ref', q)   # no wrong figure attached
+
+    def test_same_page_crop_still_made(self):
+        # image_page == source_page → a legitimate crop, unaffected by the guard.
+        q = {'question_text': 'Q', 'source_page': 1, 'image_page': 1,
+             'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+
+        crops = crop_figure_boxes(_two_pages(), {'questions': [q]})
+
+        self.assertIn(q['image_ref'], crops)
+        self.assertTrue(q['image_ref'].startswith('page1_'))
+
+    def test_missing_source_page_does_not_drop(self):
+        # No source_page (older data) → can't judge cross-page → keep the crop.
+        q = {'image_page': 2, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+
+        crops = crop_figure_boxes(_two_pages(), {'questions': [q]})
+
+        self.assertIn(q['image_ref'], crops)
+
+    def test_cross_page_drop_can_be_disabled(self):
+        q = {'source_page': 1, 'image_page': 2,
+             'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+
+        with mock.patch.dict(os.environ, {'AI_IMPORT_DROP_CROSS_PAGE_CROPS': '0'}):
+            crops = crop_figure_boxes(_two_pages(), {'questions': [q]})
+
+        self.assertIn(q.get('image_ref'), crops)   # guard off → crop still made
 
     def test_missing_box_or_page_is_noop(self):
         q = {'question_text': 'no visual'}
