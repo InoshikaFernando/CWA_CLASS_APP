@@ -368,8 +368,12 @@ IMAGE NECESSITY (important — most questions need NO image):
   image_ref if one matches, otherwise image_page + image_box for the drawn figure. Do NOT leave such
   a question imageless. This is the ONE case where you must not default to null: the "prefer NO
   image" rule above is for questions whose text does NOT reference a figure. If the referenced
-  figure is drawn into the page (an L-shaped plan, a shape on a grid, a spinner, a number line),
-  box it with image_page + image_box even though it has no embedded image_ref.
+  figure is drawn into the page (an L-shaped plan, a shape on a grid, a spinner, a number line,
+  a data TABLE), box it with image_page + image_box even though it has no embedded image_ref.
+  The referenced figure is ALWAYS on the SAME page as the question — set image_page to the
+  question's own page (its source_page) and box the figure THERE. NEVER box or attach a figure
+  from a different page; if you cannot find the referenced figure on the question's own page,
+  leave the question with no image rather than grabbing a figure from elsewhere.
 
 MATCHING THE RIGHT IMAGE TO EACH QUESTION (important — this is the #1 cause of wrong figures):
 - Every embedded image is listed with its POSITION on the page: its x/y bounding box in
@@ -1417,6 +1421,21 @@ def _assign_figure_to_question(q, idx, pages, crops, decoded, doc, Image, io):
     q.pop('image_page', None)
     if not box or not page_num:
         return
+
+    # A drawn figure lives on the question's OWN page. A box pointing at a
+    # different page is a wrong-page grab — e.g. a neighbouring question's chart on
+    # another page cropped onto this one (a "table shows…" question ending up with
+    # a bar chart from two pages back). Refuse it so a wrong figure is never
+    # cropped in; the missing-figure guard then surfaces the question if it needs
+    # one. Same-page crops are unaffected. Toggle off with
+    # AI_IMPORT_DROP_CROSS_PAGE_CROPS=0.
+    if os.environ.get('AI_IMPORT_DROP_CROSS_PAGE_CROPS', '1') != '0':
+        source_page = q.get('source_page')
+        try:
+            if source_page is not None and int(page_num) != int(source_page):
+                return
+        except (TypeError, ValueError):
+            pass
 
     try:
         page = pages.get(int(page_num))
