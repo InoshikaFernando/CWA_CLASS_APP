@@ -26,8 +26,8 @@ MANAGE_URL = "/department/manage-classes/"
 
 @pytest.fixture
 def two_classes(db, school, department, subject):
-    """Two classes in the HoD's department with different names and levels."""
-    from classroom.models import ClassRoom, Level
+    """Two classes in the HoD's department with different names, levels, venues."""
+    from classroom.models import ClassRoom, Level, Location
 
     lvl3, _ = Level.objects.get_or_create(
         level_number=3, defaults={"display_name": "Level 3", "subject": subject},
@@ -35,15 +35,17 @@ def two_classes(db, school, department, subject):
     lvl6, _ = Level.objects.get_or_create(
         level_number=6, defaults={"display_name": "Level 6", "subject": subject},
     )
+    campus = Location.objects.create(school=school, name="Downtown Campus")
+    branch = Location.objects.create(school=school, name="Eastside Branch")
     # "Zed" carries the lower level so name-order and level-order differ.
     zed = ClassRoom.objects.create(
         name="Zed Class", school=school, department=department, subject=subject,
-        day="tuesday", start_time=time(11, 0),
+        day="tuesday", start_time=time(11, 0), location=campus,
     )
     zed.levels.add(lvl3)
     amy = ClassRoom.objects.create(
         name="Amy Class", school=school, department=department, subject=subject,
-        day="thursday", start_time=time(13, 0),
+        day="thursday", start_time=time(13, 0), location=branch,
     )
     amy.levels.add(lvl6)
     return zed, amy
@@ -79,14 +81,15 @@ class TestManageClassesUI:
         expect(page.locator("#hod-classes .cwa-btn-label").first).to_be_visible()
 
     @pytest.mark.django_db(transaction=True)
-    def test_tile_shows_location_and_level(self, page: Page, live_server, hod_user, school, two_classes):
+    def test_tile_shows_location_and_level(self, page: Page, live_server, hod_user, two_classes):
         do_login(page, live_server.url, hod_user)
         page.goto(f"{live_server.url}{MANAGE_URL}")
         page.wait_for_load_state("domcontentloaded")
 
         body = page.locator("#hod-classes")
-        expect(body).to_contain_text(school.name)   # location
-        expect(body).to_contain_text("Level 3")     # level
+        expect(body).to_contain_text("Downtown Campus")   # location (venue)
+        expect(body).to_contain_text("Eastside Branch")
+        expect(body).to_contain_text("Level 3")           # level
         expect(body).to_contain_text("Level 6")
 
     @pytest.mark.django_db(transaction=True)

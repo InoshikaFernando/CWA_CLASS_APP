@@ -19,7 +19,7 @@ from django.urls import reverse
 from accounts.models import CustomUser, Role, UserRole
 from billing.models import InstitutePlan, SchoolSubscription
 from classroom.models import (
-    School, Department, ClassRoom, Level, SchoolTeacher,
+    School, Department, ClassRoom, Level, Location, SchoolTeacher,
     Subject, DepartmentSubject, DepartmentTeacher,
 )
 
@@ -73,21 +73,32 @@ class ManageClassesUITests(TestCase):
         self.lvl5 = Level.objects.create(level_number=5, display_name='Year 5')
         self.lvl8 = Level.objects.create(level_number=8, display_name='Year 8')
 
+        # Venues (the "location" shown on each tile).
+        self.main_campus = Location.objects.create(
+            school=self.school, name='Main Campus',
+        )
+        self.north_branch = Location.objects.create(
+            school=self.school, name='North Branch',
+        )
+
         # Three classes with deliberately mismatched name / level / schedule
         # orderings so each sort mode produces a distinct sequence.
         self.alpha = ClassRoom.objects.create(
             name='Alpha', school=self.school, department=self.dept,
             subject=self.subject, day='wednesday', start_time=time(10, 0),
+            location=self.main_campus,
         )
         self.alpha.levels.add(self.lvl5)
         self.beta = ClassRoom.objects.create(
             name='Beta', school=self.school, department=self.dept,
             subject=self.subject, day='monday', start_time=time(9, 0),
+            location=self.north_branch,
         )
         self.beta.levels.add(self.lvl2)
         self.gamma = ClassRoom.objects.create(
             name='Gamma', school=self.school, department=self.dept,
             subject=self.subject, day='friday', start_time=time(14, 0),
+            is_online=True,
         )
         self.gamma.levels.add(self.lvl8)
 
@@ -119,7 +130,11 @@ class ManageClassesUITests(TestCase):
     def test_tile_shows_location_and_level(self):
         resp = self.client.get(reverse('hod_manage_classes'))
         html = resp.content.decode()
-        self.assertIn('Riverside Academy', html)   # location (school)
+        # Location = the class venue (not the school).
+        self.assertIn('Main Campus', html)
+        self.assertIn('North Branch', html)
+        # An online-only class shows "Online" as its location.
+        self.assertIn('Online', html)
         self.assertIn('Year 5', html)              # level display name
         self.assertIn('Year 2', html)
         self.assertIn('Year 8', html)
