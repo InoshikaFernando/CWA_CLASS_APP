@@ -73,6 +73,41 @@ def test_confident_mismatch_flags_needs_review():
     assert summary['checked'] == 1
 
 
+def test_confident_mismatch_detaches_the_wrong_image():
+    # The reported bug: a multiplication card left showing on a "how many diamonds
+    # on this playing card?" question. A confident mismatch must REMOVE the image,
+    # not merely badge it (default behaviour).
+    q = _q(text='How many diamonds are on this playing card?')
+    client = _fake_client([
+        {'index': 0, 'matches': False, 'confident': True,
+         'reason': 'a multiplication problem, not a playing card'},
+    ])
+
+    summary = verify_images([q], IMAGES, client=client, force=True)
+
+    assert 'image_ref' not in q          # wrong image removed
+    assert 'image_page' not in q
+    assert q['needs_review'] is True
+    assert 'removed' in q['review_reason']
+    assert summary['detached'] == 1
+    assert summary['flagged'] == 1
+
+
+def test_autodetach_off_flags_but_keeps_image(monkeypatch):
+    monkeypatch.setenv('AI_IMPORT_VERIFY_IMAGES_AUTODETACH', '0')
+    q = _q()
+    client = _fake_client([
+        {'index': 0, 'matches': False, 'confident': True, 'reason': 'wrong figure'},
+    ])
+
+    summary = verify_images([q], IMAGES, client=client, force=True)
+
+    assert q['image_ref'] == 'page7_img1.jpeg'   # left in place
+    assert q['needs_review'] is True
+    assert summary['flagged'] == 1
+    assert summary['detached'] == 0
+
+
 def test_match_leaves_question_untouched():
     q = _q()
     client = _fake_client([{'index': 0, 'matches': True, 'confident': True}])
@@ -443,6 +478,27 @@ def test_cross_page_image_is_flagged():
     assert q['needs_review'] is True
     assert 'page 1' in q['review_reason'] and 'page 5' in q['review_reason']
     assert q['review_reason'].startswith('Image check:')
+
+
+def test_cross_page_image_is_detached_by_default():
+    # A far cross-page image is REMOVED, not just badged, so the wrong picture
+    # never shows in preview.
+    q = _q(ref='page1_img1.jpeg', source_page=5)
+
+    flag_cross_page_images([q])
+
+    assert 'image_ref' not in q
+    assert q['needs_review'] is True
+    assert 'removed' in q['review_reason']
+
+
+def test_cross_page_autodrop_off_keeps_image(monkeypatch):
+    monkeypatch.setenv('AI_IMPORT_DROP_CROSS_PAGE_IMAGES', '0')
+    q = _q(ref='page1_img1.jpeg', source_page=5)
+
+    assert flag_cross_page_images([q]) == 1
+    assert q['image_ref'] == 'page1_img1.jpeg'   # left in place
+    assert q['needs_review'] is True
 
 
 def test_far_apart_pages_are_flagged():
