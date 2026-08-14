@@ -10,6 +10,7 @@ from django.utils.text import slugify
 from django.utils import timezone
 from django.http import StreamingHttpResponse, HttpResponseForbidden, HttpResponse
 from django.conf import settings as django_settings
+from django.core.exceptions import ValidationError
 import csv
 import logging
 import subprocess
@@ -3508,6 +3509,29 @@ class LocationsRedirectView(RoleRequiredMixin, View):
         })
 
 
+def _clean_location_color(request):
+    """Pull the location colour from a POST and validate it server-side.
+
+    A native ``<input type="color">`` always submits a value, so a separate
+    ``use_color`` checkbox decides whether the colour is stored at all — leaving
+    it unchecked clears the colour (the class tiles fall back to the default
+    border). Returns ``(color, error_message)``; ``error_message`` is ``None``
+    when the value is valid.
+    """
+    from .models import HEX_COLOR_VALIDATOR
+
+    if request.POST.get('use_color') != 'on':
+        return '', None
+    color = request.POST.get('color', '').strip().lower()
+    if not color:
+        return '', None
+    try:
+        HEX_COLOR_VALIDATOR(color)
+    except ValidationError:
+        return color, f'"{color}" is not a valid colour. Use a hex value like #4f46e5.'
+    return color, None
+
+
 class LocationManageView(RoleRequiredMixin, View):
     """Manage class locations for an institute: list, create, edit, delete.
 
@@ -3539,10 +3563,16 @@ class LocationManageView(RoleRequiredMixin, View):
                 messages.error(request, 'Location name is required.')
                 return redirect('admin_school_locations', school_id=school.id)
 
+            color, color_error = _clean_location_color(request)
+            if color_error:
+                messages.error(request, color_error)
+                return redirect('admin_school_locations', school_id=school.id)
+
             location = Location.objects.create(
                 school=school,
                 name=name,
                 address=address,
+                color=color,
                 is_online=is_online,
             )
             log_event(
@@ -3560,8 +3590,13 @@ class LocationManageView(RoleRequiredMixin, View):
             if not name:
                 messages.error(request, 'Location name is required.')
                 return redirect('admin_school_locations', school_id=school.id)
+            color, color_error = _clean_location_color(request)
+            if color_error:
+                messages.error(request, color_error)
+                return redirect('admin_school_locations', school_id=school.id)
             location.name = name
             location.address = request.POST.get('address', '').strip()
+            location.color = color
             location.is_online = request.POST.get('is_online') == 'on'
             location.save()
             log_event(

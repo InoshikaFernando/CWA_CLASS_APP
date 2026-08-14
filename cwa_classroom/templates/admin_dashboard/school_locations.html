@@ -24,7 +24,7 @@
   <!-- Add New Location -->
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8">
     <h2 class="text-lg font-semibold text-gray-900 mb-5">Add New Location</h2>
-    <form method="post" class="space-y-4">
+    <form method="post" class="space-y-4" x-data="{ useColor: false }">
       {% csrf_token %}
       <input type="hidden" name="action" value="create">
       <div>
@@ -36,6 +36,18 @@
         <label class="block text-sm font-medium text-gray-700 mb-1">Address <span class="text-gray-400 font-normal">(optional)</span></label>
         <textarea name="address" rows="2" placeholder="Street address of this location"
                   class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition resize-none"></textarea>
+      </div>
+      <div>
+        <label class="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" name="use_color" x-model="useColor"
+                 class="w-4 h-4 rounded border-slate-300 text-accent focus:ring-accent">
+          <span class="text-sm font-medium text-gray-700">Colour-code this location</span>
+        </label>
+        <div x-show="useColor" x-cloak class="flex items-center gap-3 mt-2">
+          <input type="color" name="color" value="#4f46e5"
+                 class="h-10 w-16 p-1 border border-slate-300 rounded-lg cursor-pointer bg-white">
+          <span class="text-xs text-gray-400">Tints this location's class tiles on the Classes page.</span>
+        </div>
       </div>
       <label class="flex items-center gap-2 cursor-pointer select-none">
         <input type="checkbox" name="is_online"
@@ -64,6 +76,11 @@
             <div x-show="!editing" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div class="min-w-0">
                 <div class="flex items-center gap-2">
+                  {% if location.color %}
+                    <span class="inline-block w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0"
+                          style="background-color: {{ location.color }};"
+                          title="Tile colour {{ location.color }}"></span>
+                  {% endif %}
                   <p class="font-medium text-gray-900">{{ location.name }}</p>
                   {% if location.is_online %}
                     <span class="inline-flex items-center gap-1 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full">Online</span>
@@ -97,7 +114,7 @@
 
             <!-- Edit Mode -->
             <div x-show="editing" x-cloak>
-              <form method="post" class="space-y-4">
+              <form method="post" class="space-y-4" x-data="{ useColor: {% if location.color %}true{% else %}false{% endif %} }">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="edit">
                 <input type="hidden" name="location_id" value="{{ location.id }}">
@@ -110,6 +127,18 @@
                   <label class="block text-sm font-medium text-gray-700 mb-1">Address <span class="text-gray-400 font-normal">(optional)</span></label>
                   <textarea name="address" rows="2"
                             class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent focus:border-accent transition resize-none">{{ location.address }}</textarea>
+                </div>
+                <div>
+                  <label class="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" name="use_color" x-model="useColor"
+                           class="w-4 h-4 rounded border-slate-300 text-accent focus:ring-accent">
+                    <span class="text-sm font-medium text-gray-700">Colour-code this location</span>
+                  </label>
+                  <div x-show="useColor" x-cloak class="flex items-center gap-3 mt-2">
+                    <input type="color" name="color" value="{{ location.color|default:'#4f46e5' }}"
+                           class="h-10 w-16 p-1 border border-slate-300 rounded-lg cursor-pointer bg-white">
+                    <span class="text-xs text-gray-400">Tints this location's class tiles on the Classes page.</span>
+                  </div>
                 </div>
                 <label class="flex items-center gap-2 cursor-pointer select-none">
                   <input type="checkbox" name="is_online" {% if location.is_online %}checked{% endif %}
