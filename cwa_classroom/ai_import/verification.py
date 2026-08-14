@@ -820,6 +820,30 @@ def _image_ref_page(ref):
     return int(match.group(1)) if match else None
 
 
+def _detach_image(q, reason):
+    """Remove a wrong attached image from a question and route it to the teacher.
+
+    Clears every image field so the wrong picture is neither shown in preview nor
+    saved, and sets ``needs_review`` with ``reason`` so the teacher attaches the
+    correct figure. Used when a guard is CONFIDENT an image doesn't belong —
+    leaving a known-wrong picture attached (merely badged) was the recurring
+    complaint: teachers still saw e.g. a multiplication card on a "how many
+    diamonds on this playing card?" question. Removing it is reversible (re-attach
+    in the editor) and strictly better than displaying a wrong figure."""
+    q.pop('image_ref', None)
+    q.pop('image_page', None)
+    q.pop('image_bbox_frac', None)
+    q['needs_review'] = True
+    q['review_reason'] = reason
+
+
+def cross_page_autodrop_enabled():
+    """Whether a far cross-page image is DETACHED (removed) rather than only
+    flagged. Default on so a wrong-page picture is never shown; set
+    ``AI_IMPORT_DROP_CROSS_PAGE_IMAGES=0`` to fall back to flag-only."""
+    return os.environ.get('AI_IMPORT_DROP_CROSS_PAGE_IMAGES', '1') != '0'
+
+
 def flag_cross_page_images(questions, *, max_gap=None):
     """Flag questions whose attached image comes from a far-off page.
 
@@ -856,11 +880,17 @@ def flag_cross_page_images(questions, *, max_gap=None):
         except (TypeError, ValueError):
             continue
         if gap > max_gap:
-            q['needs_review'] = True
-            q['review_reason'] = (
+            reason = (
                 f'Image check: attached image is from page {image_page} but this '
-                f'question is on page {source_page} — likely the wrong image.'
+                f'question is on page {source_page} — likely the wrong image'
             )
+            if cross_page_autodrop_enabled():
+                _detach_image(
+                    q, reason + '; it was removed — attach the correct figure '
+                    'if one is needed.')
+            else:
+                q['needs_review'] = True
+                q['review_reason'] = reason + '.'
             flagged += 1
     return flagged
 
@@ -989,14 +1019,26 @@ def _verify_image_batch(client, model, batch, images_by_ref):
     return results, token_usage
 
 
+def image_autodetach_enabled():
+    """Whether a CONFIDENT image mismatch DETACHES (removes) the wrong image rather
+    than only flagging it.
+
+    Default on — mirroring the count re-check's autocorrect — so a confidently-wrong
+    picture (a neighbour's figure, a decorative graphic, a bad crop) is never left
+    showing on the question. Set ``AI_IMPORT_VERIFY_IMAGES_AUTODETACH=0`` to fall
+    back to flag-only (keeps the image attached, routes the question to a human)."""
+    return os.environ.get('AI_IMPORT_VERIFY_IMAGES_AUTODETACH', '1') != '0'
+
+
 def verify_images(questions, images_by_ref, client=None, *, force=False):
-    """Vision-check each question's attached image, flagging mismatches in place.
+    """Vision-check each question's attached image, removing mismatches in place.
 
     For every question with a final ``image_ref`` present in ``images_by_ref``, an
     independent vision model judges whether the image is the figure the question
-    needs. A confident "no" sets ``needs_review=True`` and a ``review_reason`` so
-    the teacher checks it. Never edits the image or the answer — it only routes
-    questionable attachments to a human.
+    needs. A confident "no" DETACHES the wrong image (``image_autodetach_enabled``,
+    default on) and sets ``needs_review=True`` with a ``review_reason`` so the
+    teacher attaches the right figure; with autodetach off it only flags and leaves
+    the image in place. It never edits the answer — only the attached picture.
 
     Args:
         questions: the classified question dicts (mutated in place). Run this AFTER
@@ -1052,19 +1094,28 @@ def verify_images(questions, images_by_ref, client=None, *, force=False):
         out_tok += usage['output_tokens']
 
     flagged = 0
+    detached = 0
+    autodetach = image_autodetach_enabled()
     for idx, verdict in all_results.items():
         q = by_index.get(idx)
         if q is None or not verdict['confident'] or verdict['matches']:
             continue
-        q['needs_review'] = True
         reason = verdict['reason'] or 'the attached image may not match this question'
-        q['review_reason'] = f'Image check: {reason}'
+        if autodetach:
+            _detach_image(
+                q, f'Image check: {reason} — the image was removed; attach the '
+                'correct figure if one is needed.')
+            detached += 1
+        else:
+            q['needs_review'] = True
+            q['review_reason'] = f'Image check: {reason}'
         flagged += 1
 
     return {
         'model': model,
         'checked': len(all_results),
         'flagged': flagged,
+        'detached': detached,
         'input_tokens': in_tok,
         'output_tokens': out_tok,
         'error': error,
