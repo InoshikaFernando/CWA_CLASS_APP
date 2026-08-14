@@ -149,7 +149,9 @@
 
       <div id="hod-classes" data-cwa-container class="cwa-grid">
         {% for classroom in classes %}
-          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 cursor-pointer hover:border-accent/40 hover:shadow-md transition"
+          {% with tile_color=classroom.location.color %}
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 cursor-pointer hover:border-accent/40 hover:shadow-md transition{% if tile_color %} border-l-4{% endif %}"
+               {% if tile_color %}style="border-left-color: {{ tile_color }};" data-location-color="{{ tile_color }}"{% endif %}
                x-show="(search !== '' && '{{ classroom.name|escapejs }}'.toLowerCase().includes(search.toLowerCase())) || (search === '' && {{ forloop.counter }} > (page - 1) * perPage && {{ forloop.counter }} <= page * perPage)"
                onclick="if(!event.target.closest('a,button')){window.location='{% url 'class_detail' class_id=classroom.id %}'}">
             <div class="flex flex-wrap items-center justify-between gap-y-3 mb-3">
@@ -239,6 +241,7 @@
               {% endfor %}
             </div>
           </div>
+          {% endwith %}
         {% endfor %}
       </div>
       <template x-if="search === ''">
