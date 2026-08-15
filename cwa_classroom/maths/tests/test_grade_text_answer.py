@@ -171,6 +171,56 @@ class GradeTextAnswerRoutingTests(TestCase):
         self.assertTrue(q.grade_text_answer('-5'))
         self.assertFalse(q.grade_text_answer('5'))
 
+    # ── "Select all that apply": option labels grade as a set (CPP-374) ─────
+    def test_option_labels_accepted_in_any_order(self):
+        # A "which of these are correct?" question is authored as a typed answer
+        # listing the option labels. The student picks the same two options but
+        # types them in their own order / with their own separator.
+        q = self._question(
+            'text', ['D and E'], question_type=Question.SHORT_ANSWER,
+        )
+        for ans in ['D and E', 'E and D', 'D,E', 'E,D', 'E, D', 'D E', 'e d',
+                    'D & E']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+
+    def test_option_label_set_spares_single_letter_operators(self):
+        # "/" and "-" are operators, not separators: "x/y" must not be satisfied
+        # by "y/x", and "a-b" must not be satisfied by "b-a".
+        q = self._question('text', ['x/y'], question_type=Question.CALCULATION)
+        self.assertTrue(q.grade_text_answer('x/y'))
+        self.assertFalse(q.grade_text_answer('y/x'))
+        q2 = self._question('text', ['a-b'], question_type=Question.CALCULATION)
+        self.assertTrue(q2.grade_text_answer('a-b'))
+        self.assertFalse(q2.grade_text_answer('b-a'))
+
+    def test_option_labels_require_the_whole_selection(self):
+        # Order-insensitive, not lenient: a partial or wrong selection is wrong.
+        q = self._question(
+            'text', ['D and E'], question_type=Question.SHORT_ANSWER,
+        )
+        self.assertFalse(q.grade_text_answer('D'))        # only half of it
+        self.assertFalse(q.grade_text_answer('E'))
+        self.assertFalse(q.grade_text_answer('D, F'))     # one wrong label
+        self.assertFalse(q.grade_text_answer('A, B'))
+        self.assertFalse(q.grade_text_answer('D, E, F'))  # an extra label
+
+    def test_option_label_set_does_not_reorder_worded_answers(self):
+        # The set rule is bounded to lists of single letters, so a worded answer
+        # keeps its exact match and can't be satisfied by reordering.
+        q = self._question(
+            'text', ['red, green'], question_type=Question.SHORT_ANSWER,
+        )
+        self.assertTrue(q.grade_text_answer('red green'))
+        self.assertFalse(q.grade_text_answer('green red'))
+
+    def test_option_label_set_does_not_reorder_a_sequence(self):
+        # "Write these numbers in order" — reversing the answer must stay wrong.
+        q = self._question(
+            'text', ['3, 5, 7'], question_type=Question.SHORT_ANSWER,
+        )
+        self.assertTrue(q.grade_text_answer('3, 5, 7'))
+        self.assertFalse(q.grade_text_answer('7, 5, 3'))
+
     # ── Defensive ───────────────────────────────────────────────────────────
     def test_empty_and_missing(self):
         q = self._question('algebra', ['2x^2 - 7x - 15'])
