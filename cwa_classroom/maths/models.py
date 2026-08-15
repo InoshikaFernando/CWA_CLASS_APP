@@ -16,6 +16,47 @@ from django.utils import timezone
 QUESTION_IMAGE_PATH_RE = re.compile(r'^questions/year[0-9]+/[a-zA-Z0-9_-]+/.+')
 
 
+# A "list every value" answer ("54, 63" / "54 and 63" / "54; 63") split into
+# its values. A comma that groups digits ("1,000", "12,345,678") is part of the
+# number, not a separator, so it is protected before the split — otherwise
+# "1,000" would read as the two values 1 and 000.
+_DIGIT_GROUP_COMMA_RE = re.compile(r'(?<=\d),(?=\d{3}\b)')
+_ANSWER_LIST_SEP_RE = re.compile(r'\s*(?:,|;|\band\b)\s*', re.IGNORECASE)
+_GROUP_COMMA_SENTINEL = '\x00'
+_PLAIN_NUMBER_RE = re.compile(r'^-?\d+(?:\.\d+)?$')
+
+
+def _split_answer_list(value):
+    """Split a list-style answer into its values, preserving digit grouping.
+
+    >>> _split_answer_list('54, 63')
+    ['54', '63']
+    >>> _split_answer_list('54 and 63')
+    ['54', '63']
+    >>> _split_answer_list('1,000')
+    ['1,000']
+    >>> _split_answer_list('54 63')
+    ['54', '63']
+    >>> _split_answer_list('nine dollars fifty three cents')
+    ['nine dollars fifty three cents']
+    """
+    protected = _DIGIT_GROUP_COMMA_RE.sub(_GROUP_COMMA_SENTINEL, value)
+    parts = [
+        part.replace(_GROUP_COMMA_SENTINEL, ',').strip()
+        for part in _ANSWER_LIST_SEP_RE.split(protected)
+        if part.strip()
+    ]
+    # A student may separate the values with nothing but a space ("54 63").
+    # Space is only a separator when every token is a plain number, so word
+    # answers ("nine dollars fifty three cents") and mixed numbers ("2 1/4")
+    # stay whole — their words must not be treated as reorderable values.
+    if len(parts) == 1:
+        tokens = parts[0].split()
+        if len(tokens) > 1 and all(_PLAIN_NUMBER_RE.match(t) for t in tokens):
+            return tokens
+    return parts
+
+
 def generate_class_code():
     """Retained for historical migration compatibility — not used by any model."""
     return uuid.uuid4().hex[:8]
@@ -341,7 +382,46 @@ class Question(models.Model):
             return fold_exponents(fold_inequalities(fold_degrees(value)))
 
         user = _fold(text_answer)
-        return any(user == _fold(c) for c in correct)
+        if any(user == _fold(c) for c in correct):
+            return True
+
+        # "List every value" answers ("What are the multiples of 9 between 50
+        # and 70?" → 54 and 63) are a *set*, so the order the student lists them
+        # in must not decide the mark: "63, 54" is the same answer as "54, 63".
+        # The fold above concatenates a list into one string ("5463"), which
+        # only matches the stored order, so compare the values as a set too.
+        # Purely additive — an answer already accepted above stays accepted.
+        user_parts = _split_answer_list(text_answer)
+        if len(user_parts) > 1:
+            user_set = sorted(_fold(p) for p in user_parts)
+            # (a) the values of a single stored list answer, in any order, and
+            # (b) the whole set of correct rows, for content that entered one
+            #     value per Answer row rather than one comma-separated row.
+            for c in correct:
+                parts = _split_answer_list(c)
+                if len(parts) > 1 and sorted(_fold(p) for p in parts) == user_set:
+                    return True
+            if len(correct) > 1 and sorted(_fold(c) for c in correct) == user_set:
+                return True
+
+        return False
+
+    def correct_answer_display(self):
+        """The correct answer as it should be *shown* to a student.
+
+        Every correct Answer row, not just the first — a question whose answer
+        is a list of values may store one value per row, and showing only
+        ``.first()`` tells the student "54" when the answer is "54 and 63"
+        (CPP-376). Separate rows are alternatives (see ``grade_text_answer``),
+        so they are joined with " or "; a single row is shown verbatim, commas
+        and all. Returns '' when the question has no stored correct answer.
+        """
+        texts = [
+            a.answer_text.strip()
+            for a in self.answers.filter(is_correct=True)
+            if a.answer_text and a.answer_text.strip()
+        ]
+        return ' or '.join(texts)
 
     class Meta:
         ordering = ['level', 'difficulty', 'created_at']

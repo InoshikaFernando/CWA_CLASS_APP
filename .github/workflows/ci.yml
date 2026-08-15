@@ -208,6 +208,29 @@ jobs:
         # dir too or they silently never run in CI.
         run: pytest homework/tests.py homework/ -n auto --dist=loadscope -v --tb=short
 
+  quiz-tests:
+    name: Quiz Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run quiz tests
+        working-directory: cwa_classroom
+        # quiz/tests.py is outside pytest.ini's testpaths AND is not matched by
+        # pytest's default python_files (test_*.py), so it must be named
+        # explicitly — otherwise the quiz suite (audit logging, attempt
+        # persistence, answer grading) silently never runs in CI.
+        run: pytest quiz/tests.py quiz/ -n auto --dist=loadscope -v --tb=short
+
   brainbuzz-tests:
     name: BrainBuzz Tests
     runs-on: ubuntu-latest

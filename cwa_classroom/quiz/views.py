@@ -718,28 +718,25 @@ class MixedQuizView(LoginRequiredMixin, View):
                 is_correct = q.grade_text_answer(raw)
                 student_answer = raw
             else:
-                from quiz.basic_facts import check_answer as _ca
-                from maths.algebra_grading import fold_exponents, fold_inequalities
+                # Graded on the model, same as the topic quiz and homework —
+                # see the note in SubmitTopicAnswerView about the comma-split
+                # this replaces (CPP-376).
                 raw = request.POST.get(f'text_{q.id}', '').strip()
                 student_answer = raw
-                correct_ans = q.answers.filter(is_correct=True).first()
-                if correct_ans:
-                    # Match grade_text_answer: exponent- and inequality-insensitive.
-                    _fold = lambda v: fold_exponents(fold_inequalities(v))
-                    alts = [_fold(a) for a in correct_ans.answer_text.split(',')]
-                    is_correct = _fold(raw) in alts
+                is_correct = q.grade_text_answer(raw)
 
             if is_correct:
                 correct_count += 1
                 topic_results[topic_name]['correct'] += 1
 
-            correct_ans = q.answers.filter(is_correct=True).first()
             review_data.append({
                 'id': q.id,
                 'question': q.question_text,
                 'topic': topic_name,
                 'student_answer': student_answer,
-                'correct_answer': correct_ans.answer_text if correct_ans else '',
+                # Every correct row, not just the first — a list answer must not
+                # be shown to the student as only its first value.
+                'correct_answer': q.correct_answer_display(),
                 'is_correct': is_correct,
             })
 
@@ -910,26 +907,33 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             # answers are both graded on the model, which routes by answer_format.
             raw = data.get('text_answer', '').strip()
             is_correct = q.grade_text_answer(raw)
-            correct_ans = q.answers.filter(is_correct=True).first()
-            correct_answer_text = correct_ans.answer_text if correct_ans else ''
+            correct_answer_text = q.correct_answer_display()
         else:
-            from maths.algebra_grading import fold_exponents, fold_inequalities
+            # Typed short answer / calculation. Graded on the model so this
+            # surface marks identically to homework and worksheets — it used to
+            # split the *first* correct row on commas and treat the pieces as
+            # alternatives, which marked a full list answer ("54, 63") wrong
+            # while accepting half of it ("54"), and ignored every correct row
+            # after the first (CPP-376).
             raw = data.get('text_answer', '').strip()
-            correct_ans = q.answers.filter(is_correct=True).first()
-            if correct_ans:
-                # Match grade_text_answer: exponent- and inequality-insensitive.
-                _fold = lambda v: fold_exponents(fold_inequalities(v))
-                alts_raw = [a.strip() for a in correct_ans.answer_text.split(',')]
-                alts = [_fold(a) for a in alts_raw]
-                from django.conf import settings
-                tolerance = getattr(settings, 'ANSWER_NUMERIC_TOLERANCE', 0.05)
-                is_correct = _fold(raw) in alts
+            correct_answers = list(q.answers.filter(is_correct=True))
+            if correct_answers:
+                is_correct = q.grade_text_answer(raw)
                 if not is_correct:
-                    try:
-                        is_correct = abs(float(raw) - float(alts_raw[0])) <= tolerance
-                    except ValueError:
-                        pass
-                correct_answer_text = alts_raw[0]
+                    # Numeric near-miss tolerance, unchanged: a typed decimal
+                    # within tolerance of any accepted answer still counts.
+                    from django.conf import settings
+                    tolerance = getattr(settings, 'ANSWER_NUMERIC_TOLERANCE', 0.05)
+                    for candidate in correct_answers:
+                        try:
+                            is_correct = abs(
+                                float(raw) - float(candidate.answer_text)
+                            ) <= tolerance
+                        except ValueError:
+                            continue
+                        if is_correct:
+                            break
+                correct_answer_text = q.correct_answer_display()
 
         # Capture the student's submitted answer (as text) for later review.
         if q.question_type in ('multiple_choice', 'true_false'):

@@ -722,3 +722,132 @@ class TimesTablesSelectViewTest(TestCase):
         resp = self.client.get(url)
         self.assertIn('year', resp.context)
         self.assertEqual(resp.context['year'], 4)
+
+
+class ListAnswerQuizGradingTests(TestCase):
+    """CPP-376 — "What are the multiples of 9 between 50 and 70?" (54 and 63).
+
+    The topic quiz used to split the first correct answer row on commas and
+    treat the pieces as alternatives, so it marked the *full* answer wrong,
+    accepted *half* of it, and told the student the answer was "54". It now
+    grades on the model, like homework and worksheets do.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.student = User.objects.create_user(
+            username='liststudent', password='pass1234', email='ls@test.com',
+        )
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        cls.level = Level.objects.create(level_number=6, display_name='Year 6')
+        cls.topic = Topic.objects.create(
+            subject=cls.subject, name='Multiples', slug='multiples', is_active=True,
+        )
+        cls.topic.levels.add(cls.level)
+        cls.question = Question.objects.create(
+            question_text='What are the multiples of 9 between 50 and 70?',
+            question_type='short_answer',
+            answer_format='text',
+            topic=cls.topic,
+            level=cls.level,
+        )
+        Answer.objects.create(
+            question=cls.question, answer_text='54, 63', is_correct=True, order=1,
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='liststudent', password='pass1234')
+
+    def _submit(self, text_answer):
+        """Run the quiz far enough to POST one typed answer; return the JSON."""
+        self.client.get(reverse('topic_quiz', kwargs={
+            'subject': 'mathematics',
+            'level_number': self.level.level_number,
+            'topic_id': self.topic.id,
+        }))
+        session = self.client.session
+        key = next(k for k in session.keys()
+                   if k.startswith('tq_') and not k.startswith('tq_result_'))
+        resp = self.client.post(
+            reverse('api_submit_topic_answer'),
+            data=json.dumps({
+                'session_id': key[3:],
+                'question_id': self.question.id,
+                'text_answer': text_answer,
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()
+
+    def test_full_list_answer_is_marked_correct(self):
+        for ans in ['54, 63', '63, 54', '54 and 63', '54 63']:
+            self.assertTrue(self._submit(ans)['is_correct'], ans)
+
+    def test_half_the_list_is_marked_wrong(self):
+        # The old comma-splitting accepted this — listing one of the two
+        # multiples is not the answer to "what ARE the multiples".
+        self.assertFalse(self._submit('54')['is_correct'])
+        self.assertFalse(self._submit('63')['is_correct'])
+
+    def test_feedback_shows_the_whole_answer(self):
+        # The reported symptom: the student was told the answer was "54".
+        self.assertEqual(self._submit('54')['correct_answer_text'], '54, 63')
+
+    def test_every_correct_row_is_honoured(self):
+        # Content that stored one value per row must grade and display the same.
+        q = Question.objects.create(
+            question_text='Which multiples of 9 lie between 50 and 70?',
+            question_type='short_answer', answer_format='text',
+            topic=self.topic, level=self.level,
+        )
+        Answer.objects.create(question=q, answer_text='54', is_correct=True, order=1)
+        Answer.objects.create(question=q, answer_text='63', is_correct=True, order=2)
+        self.client.get(reverse('topic_quiz', kwargs={
+            'subject': 'mathematics',
+            'level_number': self.level.level_number,
+            'topic_id': self.topic.id,
+        }))
+        session = self.client.session
+        key = next(k for k in session.keys()
+                   if k.startswith('tq_') and not k.startswith('tq_result_'))
+        resp = self.client.post(
+            reverse('api_submit_topic_answer'),
+            data=json.dumps({
+                'session_id': key[3:], 'question_id': q.id,
+                'text_answer': '63 and 54',
+            }),
+            content_type='application/json',
+        )
+        payload = resp.json()
+        self.assertTrue(payload['is_correct'])
+        self.assertEqual(payload['correct_answer_text'], '54 or 63')
+
+    def test_numeric_tolerance_still_applies(self):
+        # A single numeric answer keeps its near-miss tolerance.
+        q = Question.objects.create(
+            question_text='What is 1 divided by 2?',
+            question_type='calculation', answer_format='text',
+            topic=self.topic, level=self.level,
+        )
+        Answer.objects.create(question=q, answer_text='0.5', is_correct=True, order=1)
+        self.client.get(reverse('topic_quiz', kwargs={
+            'subject': 'mathematics',
+            'level_number': self.level.level_number,
+            'topic_id': self.topic.id,
+        }))
+        session = self.client.session
+        key = next(k for k in session.keys()
+                   if k.startswith('tq_') and not k.startswith('tq_result_'))
+        resp = self.client.post(
+            reverse('api_submit_topic_answer'),
+            data=json.dumps({
+                'session_id': key[3:], 'question_id': q.id, 'text_answer': '0.50',
+            }),
+            content_type='application/json',
+        )
+        self.assertTrue(resp.json()['is_correct'])
