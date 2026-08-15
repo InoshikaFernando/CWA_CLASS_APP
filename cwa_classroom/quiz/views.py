@@ -65,7 +65,7 @@ def _correct_answer_texts(question):
     ]
 
 
-def _grade_short_answer(raw, correct_texts):
+def _grade_short_answer(question, raw, correct_texts):
     """Grade a typed short answer against *every* accepted answer.
 
     Two rules, either of which accepts:
@@ -78,13 +78,21 @@ def _grade_short_answer(raw, correct_texts):
       ``"D and E"`` is accepted however the student orders it — ``"E,D"``,
       ``"E D"`` (CPP-374). Only lists of single letters qualify, so an ordered
       answer stays order-sensitive.
+
+    A question marked ``answer_format='set'`` — "list every value", where the
+    student must give them all in any order (CPP-376) — is graded on the model
+    instead, so the comma-as-alternatives rule above can't accept half of it.
     """
     from maths.algebra_grading import (
         fold_exponents, fold_inequalities, option_label_set,
     )
+    from maths.models import Question
 
     if not raw or not correct_texts:
         return False
+
+    if question.answer_format == Question.ANSWER_FORMAT_SET:
+        return question.grade_text_answer(raw)
 
     def _fold(value):
         return fold_exponents(fold_inequalities(value))
@@ -767,19 +775,20 @@ class MixedQuizView(LoginRequiredMixin, View):
             else:
                 raw = request.POST.get(f'text_{q.id}', '').strip()
                 student_answer = raw
-                is_correct = _grade_short_answer(raw, _correct_answer_texts(q))
+                is_correct = _grade_short_answer(q, raw, _correct_answer_texts(q))
 
             if is_correct:
                 correct_count += 1
                 topic_results[topic_name]['correct'] += 1
 
-            correct_ans = q.answers.filter(is_correct=True).first()
             review_data.append({
                 'id': q.id,
                 'question': q.question_text,
                 'topic': topic_name,
                 'student_answer': student_answer,
-                'correct_answer': correct_ans.answer_text if correct_ans else '',
+                # Every correct row, not just the first — a list answer must not
+                # be shown to the student as only its first value.
+                'correct_answer': q.correct_answer_display(),
                 'is_correct': is_correct,
             })
 
@@ -950,15 +959,16 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             # answers are both graded on the model, which routes by answer_format.
             raw = data.get('text_answer', '').strip()
             is_correct = q.grade_text_answer(raw)
-            correct_ans = q.answers.filter(is_correct=True).first()
-            correct_answer_text = correct_ans.answer_text if correct_ans else ''
+            correct_answer_text = q.correct_answer_display()
         else:
             raw = data.get('text_answer', '').strip()
             correct_texts = _correct_answer_texts(q)
             if correct_texts:
-                is_correct = _grade_short_answer(raw, correct_texts)
-                if not is_correct:
-                    # Numeric answers also grade within a small tolerance.
+                is_correct = _grade_short_answer(q, raw, correct_texts)
+                if not is_correct and q.answer_format != Question.ANSWER_FORMAT_SET:
+                    # Numeric answers also grade within a small tolerance. Not
+                    # for a set answer — comparing against its first value would
+                    # accept "54" for "54, 63", which is half the answer.
                     tolerance = getattr(settings, 'ANSWER_NUMERIC_TOLERANCE', 0.05)
                     for text in correct_texts:
                         try:
@@ -967,7 +977,9 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                                 break
                         except ValueError:
                             continue
-                correct_answer_text = correct_texts[0].split(',')[0].strip()
+                # Every correct row, in full — showing only the first value told
+                # the student the answer was "54" when it is 54 and 63 (CPP-376).
+                correct_answer_text = q.correct_answer_display()
 
         # Capture the student's submitted answer (as text) for later review.
         if q.question_type in ('multiple_choice', 'true_false'):
