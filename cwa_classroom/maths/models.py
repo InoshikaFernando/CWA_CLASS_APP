@@ -181,10 +181,12 @@ class Question(models.Model):
     ANSWER_FORMAT_TEXT = 'text'
     ANSWER_FORMAT_ALGEBRA = 'algebra'
     ANSWER_FORMAT_EQUATION = 'equation'
+    ANSWER_FORMAT_SET = 'set'
     ANSWER_FORMAT_CHOICES = [
         ('text', 'Text — exact match (case/space-insensitive)'),
         ('algebra', 'Algebra — simplified polynomial (e.g. expand & simplify)'),
         ('equation', 'Equation — algebraic equivalence (accepts vertex / factored / expanded form)'),
+        ('set', 'Set — list every value, any order (e.g. "what are the multiples of 9 between 50 and 70?")'),
     ]
     answer_format = models.CharField(
         max_length=10, choices=ANSWER_FORMAT_CHOICES, default='text',
@@ -193,7 +195,11 @@ class Question(models.Model):
             'fully simplified, expanded polynomial — e.g. (2x+3)(x-5) must be entered as '
             '"2x^2 - 7x - 15". "Equation" grades by algebraic equivalence — for '
             '"write the equation" questions any spelling of the same curve is accepted '
-            '(y=2(x-1)^2-2 == y=2x^2-4x). Term order and spacing are always ignored.'
+            '(y=2(x-1)^2-2 == y=2x^2-4x). Term order and spacing are always ignored. '
+            '"Set" is for "list every value" questions — store the values as one '
+            'comma-separated answer ("54, 63"); the student must give them all, in any '
+            'order. Leave as "Text" when the order of the values is part of the answer '
+            '(e.g. "write these numbers in order").'
         ),
     )
 
@@ -353,6 +359,7 @@ class Question(models.Model):
             fold_degrees,
             fold_exponents,
             fold_inequalities,
+            option_label_set,
         )
 
         def _fold(value):
@@ -385,26 +392,37 @@ class Question(models.Model):
         if any(user == _fold(c) for c in correct):
             return True
 
-        # "List every value" answers ("What are the multiples of 9 between 50
-        # and 70?" → 54 and 63) are a *set*, so the order the student lists them
-        # in must not decide the mark: "63, 54" is the same answer as "54, 63".
-        # The fold above concatenates a list into one string ("5463"), which
-        # only matches the stored order, so compare the values as a set too.
-        # Purely additive — an answer already accepted above stays accepted.
-        user_parts = _split_answer_list(text_answer)
-        if len(user_parts) > 1:
-            user_set = sorted(_fold(p) for p in user_parts)
-            # (a) the values of a single stored list answer, in any order, and
-            # (b) the whole set of correct rows, for content that entered one
-            #     value per Answer row rather than one comma-separated row.
+        # A "list every value" answer is a *set*: the student must give every
+        # value, but the order they list them in must not decide the mark —
+        # "63, 54" is the same answer as "54, 63" (CPP-376). The fold above
+        # concatenates a list into one string ("5463"), which only matches the
+        # stored order, so the values are compared as a set instead.
+        #
+        # This is opt-in per question (answer_format='set') rather than inferred
+        # from the presence of a comma, because a comma-separated answer is not
+        # always a set — "write these numbers in order" stores "3, 5, 7" and
+        # must stay order-sensitive (CPP-374).
+        if self.answer_format == self.ANSWER_FORMAT_SET:
+            user_values = sorted(_fold(p) for p in _split_answer_list(text_answer))
             for c in correct:
-                parts = _split_answer_list(c)
-                if len(parts) > 1 and sorted(_fold(p) for p in parts) == user_set:
+                if user_values == sorted(_fold(p) for p in _split_answer_list(c)):
                     return True
-            if len(correct) > 1 and sorted(_fold(c) for c in correct) == user_set:
-                return True
+            # Content that entered one value per Answer row rather than one
+            # comma-separated row: the required set is every ticked row.
+            if len(correct) > 1:
+                return user_values == sorted(_fold(c) for c in correct)
+            return False
 
-        return False
+        # "Select all that apply" questions are authored as a typed answer that
+        # lists the option labels ("D and E"). The student picks the same options
+        # but types them in their own order / with their own separator ("E,D"),
+        # so those are compared as a set of labels rather than as a string
+        # (CPP-374). option_label_set returns None for anything that isn't a
+        # list of single letters, which keeps ordered answers order-sensitive.
+        user_labels = option_label_set(text_answer)
+        if user_labels is None:
+            return False
+        return any(user_labels == option_label_set(c) for c in correct)
 
     def correct_answer_display(self):
         """The correct answer as it should be *shown* to a student.
@@ -412,9 +430,9 @@ class Question(models.Model):
         Every correct Answer row, not just the first — a question whose answer
         is a list of values may store one value per row, and showing only
         ``.first()`` tells the student "54" when the answer is "54 and 63"
-        (CPP-376). Separate rows are alternatives (see ``grade_text_answer``),
-        so they are joined with " or "; a single row is shown verbatim, commas
-        and all. Returns '' when the question has no stored correct answer.
+        (CPP-376). Separate rows are alternatives, so they are joined with
+        " or "; a single row is shown verbatim, commas and all. Returns '' when
+        the question has no stored correct answer.
         """
         texts = [
             a.answer_text.strip()

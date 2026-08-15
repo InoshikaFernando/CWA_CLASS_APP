@@ -6,10 +6,11 @@ Reported by a student on
     "What are the multiples of 9 between 50 and 70?
      Answer is 54 and 63 but it says 54 only"
 
-The quiz used to split the stored answer "54, 63" on the comma and treat the
-two values as *alternatives*, so typing the full answer was marked wrong,
-typing half of it was marked right, and the feedback named only "54" as the
-correct answer. These tests drive the real quiz page to prove all three.
+The quiz split the stored answer "54, 63" on the comma and treated the two
+values as *alternatives*, so typing the full answer was marked wrong, typing
+half of it was marked right, and the feedback named only "54" as the correct
+answer. The question now carries answer_format='set' — every value required,
+any order. These tests drive the real quiz page to prove all three.
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ def multiples_question(db, level, topic):
         level=level, topic=topic,
         question_text='What are the multiples of 9 between 50 and 70?',
         question_type=Question.SHORT_ANSWER,
-        answer_format='text',
+        answer_format=Question.ANSWER_FORMAT_SET,
         difficulty=1, points=1,
     )
     Answer.objects.create(question=q, answer_text='54, 63', is_correct=True, order=1)

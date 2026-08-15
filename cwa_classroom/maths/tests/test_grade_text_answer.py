@@ -171,6 +171,56 @@ class GradeTextAnswerRoutingTests(TestCase):
         self.assertTrue(q.grade_text_answer('-5'))
         self.assertFalse(q.grade_text_answer('5'))
 
+    # ── "Select all that apply": option labels grade as a set (CPP-374) ─────
+    def test_option_labels_accepted_in_any_order(self):
+        # A "which of these are correct?" question is authored as a typed answer
+        # listing the option labels. The student picks the same two options but
+        # types them in their own order / with their own separator.
+        q = self._question(
+            'text', ['D and E'], question_type=Question.SHORT_ANSWER,
+        )
+        for ans in ['D and E', 'E and D', 'D,E', 'E,D', 'E, D', 'D E', 'e d',
+                    'D & E']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+
+    def test_option_label_set_spares_single_letter_operators(self):
+        # "/" and "-" are operators, not separators: "x/y" must not be satisfied
+        # by "y/x", and "a-b" must not be satisfied by "b-a".
+        q = self._question('text', ['x/y'], question_type=Question.CALCULATION)
+        self.assertTrue(q.grade_text_answer('x/y'))
+        self.assertFalse(q.grade_text_answer('y/x'))
+        q2 = self._question('text', ['a-b'], question_type=Question.CALCULATION)
+        self.assertTrue(q2.grade_text_answer('a-b'))
+        self.assertFalse(q2.grade_text_answer('b-a'))
+
+    def test_option_labels_require_the_whole_selection(self):
+        # Order-insensitive, not lenient: a partial or wrong selection is wrong.
+        q = self._question(
+            'text', ['D and E'], question_type=Question.SHORT_ANSWER,
+        )
+        self.assertFalse(q.grade_text_answer('D'))        # only half of it
+        self.assertFalse(q.grade_text_answer('E'))
+        self.assertFalse(q.grade_text_answer('D, F'))     # one wrong label
+        self.assertFalse(q.grade_text_answer('A, B'))
+        self.assertFalse(q.grade_text_answer('D, E, F'))  # an extra label
+
+    def test_option_label_set_does_not_reorder_worded_answers(self):
+        # The set rule is bounded to lists of single letters, so a worded answer
+        # keeps its exact match and can't be satisfied by reordering.
+        q = self._question(
+            'text', ['red, green'], question_type=Question.SHORT_ANSWER,
+        )
+        self.assertTrue(q.grade_text_answer('red green'))
+        self.assertFalse(q.grade_text_answer('green red'))
+
+    def test_option_label_set_does_not_reorder_a_sequence(self):
+        # "Write these numbers in order" — reversing the answer must stay wrong.
+        q = self._question(
+            'text', ['3, 5, 7'], question_type=Question.SHORT_ANSWER,
+        )
+        self.assertTrue(q.grade_text_answer('3, 5, 7'))
+        self.assertFalse(q.grade_text_answer('7, 5, 3'))
+
     # ── Defensive ───────────────────────────────────────────────────────────
     def test_empty_and_missing(self):
         q = self._question('algebra', ['2x^2 - 7x - 15'])
@@ -185,13 +235,17 @@ class GradeTextAnswerRoutingTests(TestCase):
         self.assertFalse(q.grade_text_answer('2x^2 - 7x - 15'))
 
 
-class ListAnswerGradingTests(TestCase):
-    """CPP-376 — "list every value" answers are a set, not an ordered string.
+class SetAnswerGradingTests(TestCase):
+    """CPP-376 — answer_format='set' grades a "list every value" answer.
 
     "What are the multiples of 9 between 50 and 70?" has two correct values.
     Whichever order the student lists them in, and whichever way the content
     stores them (one comma-separated row, or one row per value), the answer is
     the same answer and must grade the same.
+
+    The format is opt-in per question: a comma alone does not mean "set", so an
+    ordered answer ("write these numbers in order") keeps its exact match — see
+    GradeTextAnswerRoutingTests for that side of the contract (CPP-374).
     """
 
     @classmethod
@@ -206,7 +260,7 @@ class ListAnswerGradingTests(TestCase):
             level=self.level,
             question_text=text,
             question_type=Question.SHORT_ANSWER,
-            answer_format='text',
+            answer_format=Question.ANSWER_FORMAT_SET,
             difficulty=1,
             points=1,
         )
@@ -238,6 +292,21 @@ class ListAnswerGradingTests(TestCase):
             self.assertTrue(q.grade_text_answer(ans), ans)
         self.assertFalse(q.grade_text_answer('54, 72'))
 
+    def test_set_grading_is_opt_in(self):
+        # The same stored answer on a plain text question keeps its exact
+        # match: a comma alone must never be read as "these are a set", or
+        # "write these numbers in order" would accept them reversed (CPP-374).
+        q = Question.objects.create(
+            level=self.level,
+            question_text='Write these numbers in order: 63, 54',
+            question_type=Question.SHORT_ANSWER,
+            answer_format=Question.ANSWER_FORMAT_TEXT,
+            difficulty=1, points=1,
+        )
+        Answer.objects.create(question=q, answer_text='54, 63', is_correct=True)
+        self.assertTrue(q.grade_text_answer('54, 63'))
+        self.assertFalse(q.grade_text_answer('63, 54'))
+
     def test_digit_grouping_comma_is_not_a_list_separator(self):
         # "1,000" is one number, so it must still match "1000" — and must not
         # be satisfied by its digit groups in the wrong order.
@@ -250,7 +319,8 @@ class ListAnswerGradingTests(TestCase):
         # A space only separates *values* when every token is a plain number.
         q = self._question(['54, 63'])
         self.assertTrue(q.grade_text_answer('63 54'))
-        # A word answer is one answer — its words must not be reorderable.
+        # A word answer is one value — its words must not be reorderable, even
+        # inside a set question.
         words = self._question(
             ['nine dollars fifty three cents'],
             text='Write $9.53 in words',
