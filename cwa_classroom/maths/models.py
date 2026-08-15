@@ -312,6 +312,7 @@ class Question(models.Model):
             fold_degrees,
             fold_exponents,
             fold_inequalities,
+            option_label_set,
         )
 
         def _fold(value):
@@ -341,7 +342,19 @@ class Question(models.Model):
             return fold_exponents(fold_inequalities(fold_degrees(value)))
 
         user = _fold(text_answer)
-        return any(user == _fold(c) for c in correct)
+        if any(user == _fold(c) for c in correct):
+            return True
+
+        # "Select all that apply" questions are authored as a typed answer that
+        # lists the option labels ("D and E"). The student picks the same options
+        # but types them in their own order / with their own separator ("E,D"),
+        # so those are compared as a set of labels rather than as a string
+        # (CPP-374). option_label_set returns None for anything that isn't a
+        # list of single letters, which keeps ordered answers order-sensitive.
+        user_labels = option_label_set(text_answer)
+        if user_labels is None:
+            return False
+        return any(user_labels == option_label_set(c) for c in correct)
 
     class Meta:
         ordering = ['level', 'difficulty', 'created_at']

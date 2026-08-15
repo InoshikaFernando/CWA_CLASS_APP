@@ -157,6 +157,48 @@ def fold_degrees(text: str) -> str:
     return text.replace("°", "")
 
 
+# Separators a student (or a teacher) may use between the option labels of a
+# "select every correct option" answer: commas, "and", "&", ";" or plain spaces.
+# Kept here next to the folds because every grading surface needs the same
+# split. Deliberately NOT "/" or "-": those are operators, and treating "x/y" or
+# "a-b" as an unordered pair would accept the reversed (unequal) expression.
+_LABEL_SEPARATOR_RE = re.compile(r"[,&;]|\band\b|\s+", re.IGNORECASE)
+_OPTION_LABEL_RE = re.compile(r"^[A-Za-z]$")
+
+
+def option_label_set(text: str):
+    """Return the set of option labels in a *pick-all-that-apply* answer, or
+    ``None`` when the text is not such a list.
+
+    The question bank has no multi-select question type: a "which of these are
+    correct?" question is authored as a typed short answer whose correct text
+    lists the option labels — ``"D and E"``. The student types the same labels
+    in whatever order and with whatever separator they reach for (``"E,D"``,
+    ``"e d"``), so those answers must be compared as a **set**, not as a string
+    (CPP-374).
+
+    Only lists of *single letters* qualify. Anything else — a worded answer, an
+    ordered sequence of numbers ("3, 5, 7" for "write these in order") — returns
+    ``None`` and keeps its order-sensitive exact match, so making selections
+    order-insensitive can't quietly accept a wrongly-ordered sequence.
+
+    >>> option_label_set("D and E") == {"d", "e"}
+    True
+    >>> option_label_set("E,D") == {"d", "e"}
+    True
+    >>> option_label_set("D") is None          # single label: plain match is enough
+    True
+    >>> option_label_set("3, 5, 7") is None    # order matters, not a label list
+    True
+    """
+    tokens = [t for t in _LABEL_SEPARATOR_RE.split(text.strip()) if t]
+    if len(tokens) < 2:
+        return None
+    if not all(_OPTION_LABEL_RE.match(t) for t in tokens):
+        return None
+    return {t.lower() for t in tokens}
+
+
 def _to_fraction(num: str) -> Fraction:
     """Parse an int/decimal/simple-fraction coefficient token into a Fraction."""
     if "/" in num:

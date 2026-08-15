@@ -682,6 +682,137 @@ class TestTopicQuizMeasureGrading(TestCase):
         self.assertIn('data-measure-tool="ruler"', html)
 
 
+class TestTopicQuizShortAnswerGrading(TestCase):
+    """SubmitTopicAnswerView grades typed short answers (CPP-374).
+
+    Two regressions guarded here:
+
+    - A "select all that apply" question is authored as a typed answer listing
+      the option labels ("D and E"). The student types the same labels in their
+      own order ("E,D") and must be marked correct.
+    - Only the FIRST ticked answer used to be consulted, so a question with
+      several accepted answers rejected all but one of them.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = School.objects.create(name='Short Answer School')
+        cls.student = User.objects.create_user(
+            username='sastudent', password='pass1234', email='sa@test.com',
+        )
+        SchoolStudent.objects.create(
+            school=cls.school, student=cls.student, is_active=True,
+        )
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        cls.level = Level.objects.create(level_number=7, display_name='Year 7')
+        cls.topic = Topic.objects.create(
+            subject=cls.subject, name='Multiples', slug='multiples',
+            is_active=True,
+        )
+        cls.topic.levels.add(cls.level)
+
+        # "Which of these are multiples of 3?" — the correct selection is two
+        # options, stored as one typed answer.
+        cls.multi = Question.objects.create(
+            question_text='Which of these are multiples of 3? (A-E)',
+            question_type='short_answer',
+            topic=cls.topic, level=cls.level,
+        )
+        Answer.objects.create(
+            question=cls.multi, answer_text='D and E', is_correct=True,
+        )
+
+        # A question whose second ticked row is the one the student types.
+        cls.alts = Question.objects.create(
+            question_text='Write 2.25 as a fraction.',
+            question_type='short_answer',
+            topic=cls.topic, level=cls.level,
+        )
+        Answer.objects.create(question=cls.alts, answer_text='9/4', is_correct=True)
+        Answer.objects.create(question=cls.alts, answer_text='2 1/4', is_correct=True)
+        Answer.objects.create(question=cls.alts, answer_text='4/9', is_correct=False)
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='sastudent', password='pass1234')
+
+    def _submit(self, question, text_answer):
+        """Inject a topic-quiz session and POST one typed answer.
+
+        Two questions in the list so this submission is never 'last' — keeps the
+        quiz-completion machinery out of the way.
+        """
+        session_id = str(uuid.uuid4())
+        session = self.client.session
+        session[f'tq_{session_id}'] = {
+            'current': 0,
+            'questions': [{'id': question.id}, {'id': question.id}],
+            'correct': 0,
+            'start_time': time.time(),
+            'level_number': 7,
+            'subject': 'mathematics',
+        }
+        session.save()
+        resp = self.client.post(
+            reverse('api_submit_topic_answer'),
+            data=json.dumps({
+                'session_id': session_id,
+                'question_id': question.id,
+                'text_answer': text_answer,
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()
+
+    def test_option_labels_accepted_in_any_order(self):
+        for ans in ['D and E', 'E,D', 'E, D', 'e d', 'E and D']:
+            self.assertTrue(self._submit(self.multi, ans)['is_correct'], ans)
+
+    def test_partial_or_wrong_selection_still_incorrect(self):
+        for ans in ['D', 'D, F', 'A and B', 'D, E, F']:
+            self.assertFalse(self._submit(self.multi, ans)['is_correct'], ans)
+
+    def test_every_ticked_answer_is_accepted(self):
+        # Both rows are correct answers — not just the first.
+        self.assertTrue(self._submit(self.alts, '9/4')['is_correct'])
+        self.assertTrue(self._submit(self.alts, '2 1/4')['is_correct'])
+        self.assertFalse(self._submit(self.alts, '4/9')['is_correct'])
+
+    def test_correct_answer_text_still_reported(self):
+        data = self._submit(self.multi, 'A')
+        self.assertEqual(data['correct_answer_text'], 'D and E')
+
+    def _submit_mixed(self, text_answer):
+        """POST the whole-page mixed quiz (MixedQuizView.post) — the second
+        grading path, which had its own copy of the comparison."""
+        session_id = str(uuid.uuid4())
+        session = self.client.session
+        session[f'mq_{session_id}'] = {
+            'level_number': 7,
+            'question_ids': [self.multi.id],
+            'start_time': time.time(),
+        }
+        session.save()
+        resp = self.client.post(
+            reverse('mixed_quiz', kwargs={
+                'subject': 'mathematics', 'level_number': 7,
+            }),
+            data={'session_id': session_id, f'text_{self.multi.id}': text_answer},
+        )
+        self.assertIn(resp.status_code, (200, 302))
+        return StudentFinalAnswer.objects.filter(student=self.student).latest('id')
+
+    def test_mixed_quiz_grades_labels_in_any_order(self):
+        self.assertEqual(self._submit_mixed('E,D').score, 1)
+
+    def test_mixed_quiz_still_rejects_a_wrong_selection(self):
+        self.assertEqual(self._submit_mixed('A and B').score, 0)
+
+
 class TimesTablesSelectViewTest(TestCase):
     """CPP-304: 'Pick Another Table' was rendering a blank page because
     TimesTablesSelectView didn't pass all_tables or year to the template."""
