@@ -110,7 +110,7 @@ class IncludeDefaultByValidationTypeTests(SimpleTestCase):
                    return_value={'questions': classified_questions,
                                  'usage': {'total_tokens': 0}}), \
              patch('worksheets.services.render_question_images',
-                   side_effect=lambda doc, pages, result: (result, {})):
+                   side_effect=lambda doc, pages, result, progress=None: (result, {})):
             output = services.extract_and_classify_worksheet(
                 MagicMock(read=lambda: b'%PDF-1.4'), [], [])
         return output['result']['questions']

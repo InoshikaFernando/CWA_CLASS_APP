@@ -25,9 +25,15 @@
       <p class="text-sm text-gray-500 mb-1">
         <span class="font-medium text-gray-700">{{ session.pdf_filename }}</span>
       </p>
-      <p class="text-sm text-gray-400 mb-8">
-        This usually takes under a minute, a bit longer for large documents. Please don't close this tab.
+      <p class="text-sm text-gray-400 mb-6">
+        A short worksheet takes about a minute; a long or image-heavy one takes several.
+        Please don't close this tab.
       </p>
+
+      <!-- Live worker progress — refreshed by the poll below -->
+      <div id="pdf-progress" class="mb-8 min-h-[2.5rem]">
+        {% include "homework/_partials/upload_progress.html" with elapsed_minutes=0 %}
+      </div>
 
       <!-- Animated progress bar (indeterminate) -->
       <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden mb-8">
@@ -37,10 +43,13 @@
                     background-size: 200% 100%;"></div>
       </div>
 
-      <!-- HTMX polling: hits the status endpoint every 3s -->
+      <!-- HTMX polling: hits the status endpoint every 3s. The response is the
+           progress partial (swapped into #pdf-progress) until the session
+           settles, at which point it carries an HX-Redirect instead. -->
       <div hx-get="{% url 'homework:pdf_status' session.pk %}"
            hx-trigger="every 3s"
-           hx-swap="none">
+           hx-target="#pdf-progress"
+           hx-swap="innerHTML">
       </div>
 
       <p class="text-xs text-gray-300 mt-4">Session #{{ session.pk }}</p>

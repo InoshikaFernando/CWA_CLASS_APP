@@ -48,6 +48,14 @@ SHAPE_NAMING_DPI = int(os.environ.get('WORKSHEET_SHAPE_NAMING_DPI', '200'))
 # 300 ≈ print quality. A single small crop at 300 DPI is cheap on memory.
 IMAGE_RENDER_DPI = int(os.environ.get('WORKSHEET_IMAGE_DPI', '300'))
 
+# Longest-edge pixel cap for a rendered question image. IMAGE_RENDER_DPI alone
+# is unbounded in pixels: a full-width figure (500 pt across) comes out over
+# 2000 px, and every crop is held in memory, base64'd into the session row and
+# then inlined into the preview page — on an image-heavy worksheet that is the
+# main driver of worker memory (and an OOM-killed worker is what leaves an
+# upload stuck). 1600 px stays sharper than any screen or print use of these.
+IMAGE_MAX_PX = int(os.environ.get('WORKSHEET_IMAGE_MAX_PX', '1600'))
+
 # Max output tokens for the classification call. Each extracted question is a
 # sizeable structured object (text, type, answers, bbox, rubric), so a dense
 # multi-page worksheet can exceed a small cap and get its question list
@@ -59,7 +67,11 @@ WORKSHEET_MAX_TOKENS = int(os.environ.get('WORKSHEET_MAX_TOKENS', '32000'))
 # they run at the same time, so wall-clock ≈ the slowest chunk rather than the
 # sum — e.g. a 13-page worksheet drops from ~6 min to ~2 min.
 WORKSHEET_CHUNK_SIZE = int(os.environ.get('WORKSHEET_CHUNK_SIZE', '4'))   # pages per request
-WORKSHEET_MAX_PARALLEL = int(os.environ.get('WORKSHEET_MAX_PARALLEL', '4'))  # concurrent requests
+# Concurrent classification requests. A chunk is dominated by output-token
+# generation (minutes for a dense chunk), so wall-clock is ~ceil(chunks/parallel)
+# × chunk time: at 4-wide a 40-page worksheet (10 chunks) needs 3 waves, at
+# 8-wide only 2. Raise further only if the Anthropic account's rate limits allow.
+WORKSHEET_MAX_PARALLEL = int(os.environ.get('WORKSHEET_MAX_PARALLEL', '8'))  # concurrent requests
 WORKSHEET_PAGE_CAP = int(os.environ.get('WORKSHEET_PAGE_CAP', '40'))      # hard ceiling on pages processed
 
 
@@ -496,9 +508,14 @@ def _get_anthropic_client():
     import anthropic
     # PDF classification can take 60-90s for large worksheets — raise the
     # default httpx timeout (30s) so the request isn't killed mid-flight.
+    # max_retries above the SDK default of 2 because chunks run WORKSHEET_MAX_PARALLEL
+    # -wide: a burst can trip a rate limit, and one chunk exhausting its retries
+    # fails the whole upload. Retries are backed off, so this trades a slower
+    # worst case for not losing the run.
     return anthropic.Anthropic(
         api_key=settings.ANTHROPIC_API_KEY,
         timeout=120.0,
+        max_retries=int(os.environ.get('WORKSHEET_MAX_RETRIES', '5')),
     )
 
 
@@ -734,7 +751,7 @@ def _merge_chunk_results(results):
 
 
 def classify_worksheet_questions(extracted_pages, existing_topics, existing_levels,
-                                 shape_naming=False):
+                                 shape_naming=False, progress=None):
     """Send page screenshots to Claude and get structured questions with image bboxes.
 
     Multi-page worksheets are split into page-chunks classified *concurrently*
@@ -744,7 +761,11 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
 
     ``shape_naming`` switches to the name-the-shape prompt: one auto-generated
     "What is the name of this shape?" question per individual shape.
+
+    ``progress`` is an optional ``callable(message)`` invoked as each chunk lands,
+    so a caller can surface live progress (and prove the job is still alive).
     """
+    report = progress or (lambda _msg: None)
     client = _get_anthropic_client()
     system = _build_system_prompt(existing_topics, existing_levels, shape_naming=shape_naming)
 
@@ -758,8 +779,10 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
 
     # One chunk → no thread-pool overhead.
     if len(chunks) == 1:
+        report(f'Reading {len(pages)} page(s)…')
         return _classify_page_chunk(client, system, chunks[0], total, shape_naming=shape_naming)
 
+    report(f'Reading {len(pages)} pages in {len(chunks)} sections…')
     ordered = [None] * len(chunks)
     with ThreadPoolExecutor(max_workers=min(WORKSHEET_MAX_PARALLEL, len(chunks))) as pool:
         futures = {
@@ -767,8 +790,9 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
                         shape_naming=shape_naming): idx
             for idx, chunk in enumerate(chunks)
         }
-        for fut in as_completed(futures):
+        for done, fut in enumerate(as_completed(futures), start=1):
             ordered[futures[fut]] = fut.result()  # re-raises any chunk failure
+            report(f'Read {done} of {len(chunks)} sections…')
 
     logger.info('Classified %s pages across %s parallel chunks', len(pages), len(chunks))
     return _merge_chunk_results(ordered)
@@ -778,43 +802,87 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
 # Image rendering: PyMuPDF clip — render region directly from PDF vectors
 # ---------------------------------------------------------------------------
 
+def _bleeding_text_blocks(fitz_page, clip_rect):
+    """Text blocks that START above *clip_rect* but hang DOWN into it.
+
+    Only these can dirty the crop: a block that starts above the clip and ends
+    above it too is outside the rendered region and invisible either way, so
+    redacting it would be pure cost. Returns a list of fitz.Rect.
+    """
+    import fitz
+
+    bleeding = []
+    # (x0, y0, x1, y1, text, block_no, block_type)
+    for b in fitz_page.get_text('blocks'):
+        bx0, by0, bx1, by1 = b[0], b[1], b[2], b[3]
+        if by0 < clip_rect.y0 < by1:
+            block_rect = fitz.Rect(bx0, by0, bx1, by1)
+            if block_rect.intersects(clip_rect):
+                bleeding.append(block_rect)
+    return bleeding
+
+
+def _capped_render_dpi(clip_rect, dpi=None):
+    """DPI to render *clip_rect* at, lowered so the crop stays under IMAGE_MAX_PX.
+
+    Small figures — the common case — keep the full IMAGE_RENDER_DPI; only a
+    large region is scaled back, and only as far as the cap requires.
+    """
+    target = dpi or IMAGE_RENDER_DPI
+    longest_pt = max(clip_rect.width, clip_rect.height)
+    if longest_pt <= 0:
+        return target
+    return max(72, min(target, int(IMAGE_MAX_PX * 72 / longest_pt)))
+
+
 def _render_clean_diagram(fitz_page, clip_rect, dpi=150):
     """
-    Render *clip_rect* from *fitz_page* with any text blocks that sit
-    ABOVE the clip region whited out.
+    Render *clip_rect* from *fitz_page* with any text block that starts ABOVE
+    the clip region and hangs into it whited out.
 
     This removes page headers / section titles (e.g. "Questions") that bleed
     into the top of the crop while keeping the diagram's own angle labels,
     tick marks and other text that are INSIDE the clip region.
 
     Strategy:
-      1. Find all text blocks whose bottom edge is above clip_rect.y0 + a small
-         tolerance — these are headers sitting above the diagram.
-      2. Apply white redaction rectangles over those blocks on a scratch copy
-         of the page.
-      3. Render the scratch page, clipped to clip_rect.
+      1. Find the text blocks that straddle clip_rect's top edge — headers
+         sitting above the diagram whose bottom half hangs into it.
+      2. If there are none (the common case), render the page directly: copying
+         the page and rewriting its content stream to redact text outside the
+         rendered region cannot change a pixel of the output, and it roughly
+         doubles the cost of every question image.
+      3. Otherwise apply white redaction rectangles on a scratch copy of the
+         page and render that, clipped to clip_rect.
 
     Returns a fitz.Pixmap.
     """
     import fitz
+
+    bleeding = _bleeding_text_blocks(fitz_page, clip_rect)
+    if not bleeding:
+        return fitz_page.get_pixmap(clip=clip_rect, dpi=dpi)
 
     # Work on a scratch document so we never mutate the original.
     scratch_doc = fitz.open()
     scratch_doc.insert_pdf(fitz_page.parent, from_page=fitz_page.number, to_page=fitz_page.number)
     scratch_page = scratch_doc[0]
 
-    # Redact any text block whose TOP edge starts above the clip region.
-    # This catches headers like "Questions" that begin above the diagram but
-    # whose bottom half hangs into it. Diagram labels (a, b, c …) start
-    # inside the clip so they are never redacted.
-    blocks = scratch_page.get_text('blocks')  # (x0, y0, x1, y1, text, block_no, block_type)
-    for b in blocks:
-        bx0, by0, bx1, by1 = b[0], b[1], b[2], b[3]
-        block_rect = fitz.Rect(bx0, by0, bx1, by1)
-        if by0 < clip_rect.y0:   # block starts above the diagram — redact it
-            scratch_page.add_redact_annot(block_rect, fill=(1, 1, 1))
+    for block_rect in bleeding:
+        scratch_page.add_redact_annot(block_rect, fill=(1, 1, 1))
 
-    scratch_page.apply_redactions()
+    # Redact TEXT ONLY. The defaults also rewrite the pixels of every image the
+    # redaction rect touches and delete line art under it — neither is wanted
+    # here (we are hiding a header, not censoring the figure), and the image
+    # path aborts the whole process on some real worksheets: PyMuPDF 1.24.3
+    # corrupts the heap in apply_redactions(images=PDF_REDACT_IMAGE_PIXELS) on a
+    # page whose redaction rect overlaps certain embedded images ("malloc():
+    # unaligned tcache chunk detected", SIGABRT). In the RQ worker that kills the
+    # work-horse outright, so the upload session is never marked failed and the
+    # teacher's page polls a dead job forever.
+    scratch_page.apply_redactions(
+        images=fitz.PDF_REDACT_IMAGE_NONE,
+        graphics=fitz.PDF_REDACT_LINE_ART_NONE,
+    )
     pix = scratch_page.get_pixmap(clip=clip_rect, dpi=dpi)
     scratch_doc.close()
     return pix
@@ -1015,6 +1083,33 @@ def _region_has_drawing(fitz_page, search_rect, min_area_pts=50):
     return False
 
 
+def _content_bounds(samples, w, h, n):
+    """(top, bottom, left, right) of the non-blank content in a pixmap buffer.
+
+    A pixel is blank when its average RGB value is >= 248 (almost white); a
+    row/column is blank when every pixel in it is. Returns None when the whole
+    buffer is blank (nothing to trim to).
+
+    Vectorised to bound the worst case. The scalar scan walked the buffer a
+    pixel at a time in Python and stopped at the first non-blank row, so it was
+    free on a tight crop but took ~0.9 s on a 6 MP crop with wide white margins
+    (and ~0.5 s on an all-white one) — per question image, that made a big
+    worksheet's render phase wildly unpredictable. This costs ~0.15 s flat on
+    the same input.
+    """
+    import numpy as np
+
+    arr = np.frombuffer(samples, dtype=np.uint8).reshape(h, w, n)[:, :, :3]
+    # Same test as before: a pixel is blank when (r + g + b) // 3 >= 248.
+    blank_px = (arr.sum(axis=2, dtype=np.uint16) // 3) >= 248
+    content_rows = np.flatnonzero(~blank_px.all(axis=1))
+    content_cols = np.flatnonzero(~blank_px.all(axis=0))
+    if not content_rows.size or not content_cols.size:
+        return None
+    return (int(content_rows[0]), int(content_rows[-1]),
+            int(content_cols[0]), int(content_cols[-1]))
+
+
 def _trim_whitespace(pix):
     """
     Remove rows/columns of near-white pixels from all four edges of a
@@ -1023,42 +1118,16 @@ def _trim_whitespace(pix):
     Threshold: a row/column is considered blank if every pixel's average
     RGB value is >= 248 (almost white).
     """
-    import fitz
-
     samples = pix.samples  # raw bytes: w * h * n (n=3 for RGB)
     w, h, n = pix.width, pix.height, pix.n
 
     if n < 3:
         return pix  # greyscale or alpha-only — skip
 
-    def row_blank(y):
-        off = y * w * n
-        for x in range(w):
-            r, g, b = samples[off + x * n], samples[off + x * n + 1], samples[off + x * n + 2]
-            if (r + g + b) // 3 < 248:
-                return False
-        return True
-
-    def col_blank(x):
-        for y in range(h):
-            off = y * w * n + x * n
-            r, g, b = samples[off], samples[off + 1], samples[off + 2]
-            if (r + g + b) // 3 < 248:
-                return False
-        return True
-
-    top = 0
-    while top < h and row_blank(top):
-        top += 1
-    bottom = h - 1
-    while bottom > top and row_blank(bottom):
-        bottom -= 1
-    left = 0
-    while left < w and col_blank(left):
-        left += 1
-    right = w - 1
-    while right > left and col_blank(right):
-        right -= 1
+    bounds = _content_bounds(samples, w, h, n)
+    if bounds is None:
+        return pix  # nothing but whitespace — leave the crop as it is
+    top, bottom, left, right = bounds
 
     if top == 0 and bottom == h - 1 and left == 0 and right == w - 1:
         return pix  # nothing to trim
@@ -1093,7 +1162,7 @@ def _trim_whitespace(pix):
         return pix
 
 
-def render_question_images(doc, extracted_pages, classified_result):
+def render_question_images(doc, extracted_pages, classified_result, progress=None):
     """
     For every question where has_image=True:
       1. Convert Claude's rough bbox from screenshot pixel space → PDF points.
@@ -1104,20 +1173,29 @@ def render_question_images(doc, extracted_pages, classified_result):
       4. Trim residual whitespace from all edges.
       5. Store as PNG base64.
 
+    ``progress`` is an optional ``callable(message)`` invoked per rendered image,
+    so a caller can surface live progress during this (single-threaded) phase.
+
     Returns:
         (classified_result, extracted_images dict)
     """
     import fitz
 
+    report = progress or (lambda _msg: None)
     pages_by_num = {p['page_num']: p for p in extracted_pages['pages']}
     extracted_images = {}
 
     questions = classified_result.get('questions', [])
+    with_images = sum(1 for q in questions if q.get('has_image'))
+    rendered = 0
     for idx, q in enumerate(questions):
         q.setdefault('image_ref', None)
 
         if not q.get('has_image'):
             continue
+
+        rendered += 1
+        report(f'Preparing question images ({rendered} of {with_images})…')
 
         bbox = q.get('image_bbox')
         page_num = q.get('page_num', 1)
@@ -1188,10 +1266,12 @@ def render_question_images(doc, extracted_pages, classified_result):
                     q['has_image'] = False
                     continue
 
-            # Render at print-quality DPI with any header text above the crop
-            # redacted (whited out). This removes "Questions" / section headings
-            # while keeping angle labels and other text inside the diagram itself.
-            pix = _render_clean_diagram(fitz_page, clip_rect, dpi=IMAGE_RENDER_DPI)
+            # Render at print-quality DPI (capped in pixels for big regions) with
+            # any header text bleeding into the crop redacted (whited out). This
+            # removes "Questions" / section headings while keeping angle labels
+            # and other text inside the diagram itself.
+            pix = _render_clean_diagram(
+                fitz_page, clip_rect, dpi=_capped_render_dpi(clip_rect))
 
             # Trim residual whitespace
             trimmed = _trim_whitespace(pix)
@@ -1311,7 +1391,7 @@ def recrop_pdf_region(pdf_bytes, page_index, frac_box, dpi=None, snap=False):
 # ---------------------------------------------------------------------------
 
 def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
-                                   shape_naming=False):
+                                   shape_naming=False, progress=None):
     """
     Full pipeline: PDF → page screenshots → AI classify → render image regions.
 
@@ -1320,6 +1400,10 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
 
     ``shape_naming`` enables name-the-shape mode: pages are rendered at a higher
     DPI and Claude emits one "name this shape" question per individual shape.
+
+    ``progress`` is an optional ``callable(message)`` called as each stage lands.
+    Callers use it to show the teacher what's happening and to record a heartbeat
+    proving the job is still alive.
 
     Returns:
         {
@@ -1330,11 +1414,13 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
     """
     import fitz
 
+    report = progress or (lambda _msg: None)
     pdf_bytes = pdf_file.read()
     doc = fitz.open(stream=pdf_bytes, filetype='pdf')
 
     try:
         # Step 1: render pages + collect text (higher DPI in shape mode for tighter crops)
+        report(f'Opening the PDF ({len(doc)} page(s))…')
         extracted_pages = extract_worksheet_pages(
             doc, screenshot_dpi=SHAPE_NAMING_DPI if shape_naming else None,
         )
@@ -1342,6 +1428,7 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
         # Step 2: AI classification (gets question text, type, answers, image bboxes)
         result = classify_worksheet_questions(
             extracted_pages, existing_topics, existing_levels, shape_naming=shape_naming,
+            progress=report,
         )
 
         for q in result.get('questions', []):
@@ -1350,7 +1437,9 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
             q.setdefault('include', q.get('validation_type') != 'human_graded')
 
         # Step 3: render image regions from PDF vectors (not screenshot crops)
-        result, extracted_images = render_question_images(doc, extracted_pages, result)
+        result, extracted_images = render_question_images(
+            doc, extracted_pages, result, progress=report,
+        )
 
     finally:
         doc.close()

@@ -152,6 +152,16 @@ CLAUDE_INPUT_COST_PER_MTOK = float(
 CLAUDE_OUTPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '25.0'))
 
+# Homework PDF upload (teacher uploads a worksheet → AI extracts the questions).
+# HOMEWORK_PDF_JOB_TIMEOUT bounds the RQ work-horse: a long worksheet is several
+# waves of multi-minute Claude calls plus image rendering, so the 10-minute
+# queue default killed big uploads mid-flight. HOMEWORK_PDF_STALL_MINUTES is how
+# long the upload page waits for a heartbeat from that worker before declaring
+# the job dead — an OOM-killed work-horse never runs its failure handler, so
+# without this the page polls a 'processing' session forever.
+HOMEWORK_PDF_JOB_TIMEOUT = int(os.environ.get('HOMEWORK_PDF_JOB_TIMEOUT', '2700'))
+HOMEWORK_PDF_STALL_MINUTES = int(os.environ.get('HOMEWORK_PDF_STALL_MINUTES', '10'))
+
 # ---------------------------------------------------------------------------
 # AI / OpenAI (second-opinion answer verification for AI Import)
 # ---------------------------------------------------------------------------
