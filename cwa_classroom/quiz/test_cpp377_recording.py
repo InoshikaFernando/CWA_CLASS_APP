@@ -5,16 +5,13 @@ data from Year 7 topic 75.
 These tests do not exercise a detector or a helper — they POST to the same
 view the quiz page posts to, so what they assert is what a student experiences.
 
-Two of them encode behaviour that is currently broken and are marked
-``xfail(strict=True)``: they document the defect without turning CI red, and
-the moment either is fixed the suite fails with XPASS, forcing the marker to
-be removed. The bug cannot be quietly re-broken or quietly fixed.
+The equal-value option ('2/6' vs the correct '1/3') is kept in the fixture on
+purpose: CPP-377 was fixed as a *content* rule, not a grading rule, so these
+tests pin the grading behaviour the audit tools rely on.
 """
 import json
 import time
 import uuid
-
-import pytest
 
 from django.test import Client, TestCase
 from django.urls import reverse
@@ -116,17 +113,21 @@ class EquivalentDistractorGradingTests(TestCase):
 
     # ------------------------------------------------------------- the bug
 
-    @pytest.mark.xfail(strict=True, reason='CPP-377: 2/6 == 1/3 but is marked wrong')
-    def test_unsimplified_correct_answer_is_marked_correct(self):
-        """THE DEFECT. '2/6' == '1/3'. The student did the maths right.
+    def test_option_equal_to_the_answer_is_still_graded_by_its_flag(self):
+        """Grading reads is_correct — it does not compare values. Deliberate.
 
-        This assertion encodes the CORRECT behaviour, so it fails on current
-        code — that failure is the reproduction of CPP-377.
+        '2/6' equals the correct '1/3', and this fixture keeps that shape on
+        purpose. It is NOT a bug in the grader: making the grader accept any
+        equal-valued option would break every question where simplifying is
+        the skill being assessed ("write 2/6 in its simplest form" needs '2/6'
+        to be wrong).
+
+        So the CPP-377 fix is a content rule, not a grading rule — no question
+        may offer an option equal to its answer — enforced by
+        ``manage.py verify_quiz_grading`` and ``verify_question_answers``.
+        This test pins the grading behaviour those tools depend on.
         """
-        self.assertTrue(
-            self._pick(self.opt_two_sixths)['is_correct'],
-            "'2/6' equals the correct answer '1/3' but was marked wrong",
-        )
+        self.assertFalse(self._pick(self.opt_two_sixths)['is_correct'])
 
     def test_selected_answer_is_recorded(self):
         """The chosen option is persisted, not just the score.

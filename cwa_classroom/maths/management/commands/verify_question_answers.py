@@ -11,14 +11,21 @@ Checks applied to each choice question:
     TOO-FEW-OPTIONS    fewer than --min-options options
     BLANK-OPTION       an option with no text
     WRONG-ANSWER-KEY   the question's own arithmetic disagrees with the answer
+    DUPLICATE-VALUE    two distractors are worth the same number (advisory)
 
-The last one is the only check that can catch a wrong answer key, and it only
-applies to self-contained expressions ("Calculate: 9/10 - 3/5"). Word problems
-cannot be machine-verified, so the summary reports how many questions were
-actually checked arithmetically rather than implying full coverage.
+All but DUPLICATE-VALUE mean a student can be marked wrongly, and fail the run.
+DUPLICATE-VALUE cannot mismark anyone — both options are wrong — it just means
+the question offers fewer real choices than it appears to. It is reported but
+does not fail the run unless --strict is given, so the weekly job does not cry
+wolf over a presentation issue.
 
-Read-only. Exits non-zero when any issue is found (same CI/cron contract as
-audit_question_image_paths).
+WRONG-ANSWER-KEY is the only check that can catch a wrong answer key, and it
+only applies to self-contained expressions ("Calculate: 9/10 - 3/5"). Word
+problems cannot be machine-verified, so the summary reports how many questions
+were actually checked arithmetically rather than implying full coverage.
+
+Read-only. Exits non-zero when any non-advisory issue is found (same CI/cron
+contract as audit_question_image_paths).
 
 Usage:
     python manage.py verify_question_answers                     # whole DB
@@ -33,7 +40,11 @@ from collections import Counter
 
 from django.core.management.base import BaseCommand
 
-from maths.answer_verification import verify_question
+from maths.answer_verification import DUPLICATE_VALUE, verify_question
+
+# Codes that mean a student can be marked wrongly. Anything here fails the run;
+# DUPLICATE-VALUE is advisory (see the module docstring).
+ADVISORY_CODES = {DUPLICATE_VALUE}
 
 
 class Command(BaseCommand):
@@ -54,6 +65,8 @@ class Command(BaseCommand):
                                  'machine-verified, instead of the issues.')
         parser.add_argument('--quiet', action='store_true',
                             help='Print only the summary.')
+        parser.add_argument('--strict', action='store_true',
+                            help='Fail on advisory issues (DUPLICATE-VALUE) too.')
 
     def handle(self, *args, **options):
         from maths.models import Question
@@ -74,6 +87,7 @@ class Command(BaseCommand):
             questions = questions.filter(level__level_number=options['level'])
 
         scanned = 0
+        advisory_only = 0
         arithmetic_checked = 0
         unverified = []
         flagged = 0
@@ -93,7 +107,10 @@ class Command(BaseCommand):
             if not issues:
                 continue
 
-            flagged += 1
+            if any(i.code not in ADVISORY_CODES for i in issues) or options['strict']:
+                flagged += 1
+            else:
+                advisory_only += 1
             for issue in issues:
                 by_code[issue.code] += 1
 
@@ -123,6 +140,10 @@ class Command(BaseCommand):
             f'({(arithmetic_checked / scanned * 100) if scanned else 0:.0f}%) '
             f'— the rest are word problems needing human review')
         self.stdout.write(f'Questions flagged  : {flagged}')
+        if advisory_only:
+            self.stdout.write(
+                f'Advisory only      : {advisory_only} '
+                f'(no student is mismarked — pass --strict to fail on these)')
         for code, count in sorted(by_code.items()):
             self.stdout.write(f'    {code:<18} {count}')
 

@@ -33,6 +33,7 @@ NO_CORRECT = 'NO-CORRECT'
 MULTI_CORRECT = 'MULTI-CORRECT'
 DUPLICATE_OPTION = 'DUPLICATE-OPTION'
 EQUIVALENT_OPTION = 'EQUIVALENT-OPTION'
+DUPLICATE_VALUE = 'DUPLICATE-VALUE'
 TOO_FEW_OPTIONS = 'TOO-FEW-OPTIONS'
 BLANK_OPTION = 'BLANK-OPTION'
 WRONG_ANSWER_KEY = 'WRONG-ANSWER-KEY'
@@ -273,6 +274,28 @@ def verify_question(question, min_options=2):
             EQUIVALENT_OPTION,
             f'distractor {distractor.answer_text!r} == '
             f'correct {correct_answer.answer_text!r}'))
+
+    # Two *distractors* worth the same number, e.g. '1/2' alongside '3/6'.
+    # Nobody is mismarked — both are wrong — so this is not the CPP-377 defect,
+    # and neither of the checks above sees it: EQUIVALENT-OPTION compares only
+    # against the correct answer, and DUPLICATE-OPTION compares text. But the
+    # question then offers fewer real choices than it appears to, and showing a
+    # student the same number twice is confusing. Worth reporting, distinctly.
+    seen_values = {}
+    for option in options:
+        if option.is_correct:
+            continue
+        value = parse_answer_value(option.answer_text)
+        if value is None:
+            continue
+        twin = seen_values.get(value)
+        if twin is not None:
+            issues.append(Issue(
+                DUPLICATE_VALUE,
+                f'{option.answer_text!r} and {twin.answer_text!r} are both '
+                f'{value} — the question offers fewer choices than it appears'))
+        else:
+            seen_values[value] = option
 
     # ---- arithmetic -------------------------------------------------------
     expression = extract_expression(question.question_text)

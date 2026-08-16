@@ -12,6 +12,7 @@ from django.test import TestCase
 
 from classroom.models import Level
 from maths.answer_verification import (
+    DUPLICATE_VALUE,
     EQUIVALENT_OPTION,
     MULTI_CORRECT,
     NO_CORRECT,
@@ -128,6 +129,45 @@ class VerifyQuestionTests(TestCase):
         ])
         self.assertIn(EQUIVALENT_OPTION, self._codes(q))
 
+    def test_two_distractors_with_the_same_value_are_flagged(self):
+        """Production Q6009 after the content fix: '1/2' and '3/6' co-exist.
+
+        Nobody is mismarked — both are wrong — so this is not the CPP-377
+        defect. But the question offers three real choices while appearing to
+        offer four, and neither EQUIVALENT-OPTION (compares against the correct
+        answer) nor DUPLICATE-OPTION (compares text) sees it.
+        """
+        q = self._question('5/6 kg less 1/2 kg?', [
+            ('1/2', False), ('1/6', False), ('3/6', False), ('1/3', True),
+        ])
+        self.assertIn(DUPLICATE_VALUE, self._codes(q))
+
+    def test_duplicate_value_flagged_for_mixed_and_improper_forms(self):
+        # Production Q6017 after the fix: '3 1/3 kg' and '10/3 kg' are both 10/3.
+        q = self._question('1/3 kg per cake, 9 cakes?', [
+            ('3 1/3 kg', False), ('3 kg', True),
+            ('2 2/3 kg', False), ('10/3 kg', False),
+        ])
+        self.assertIn(DUPLICATE_VALUE, self._codes(q))
+
+    def test_distinct_distractors_are_not_flagged(self):
+        # Production Q6019 after the fix — every option a different number.
+        q = self._question('2/7 litre a day for 14 days?', [
+            ('2 litres', False), ('3 6/7 litres', False),
+            ('26/7 litres', False), ('4 litres', True),
+        ])
+        self.assertNotIn(DUPLICATE_VALUE, self._codes(q))
+
+    def test_equal_to_correct_reports_only_the_mismark(self):
+        # An option equal to the CORRECT answer is EQUIVALENT-OPTION, the real
+        # defect — it must not also be reported as a duplicate distractor.
+        q = self._question('5/6 kg less 1/2 kg?', [
+            ('2/6', False), ('1/3', True),
+        ])
+        codes = self._codes(q)
+        self.assertIn(EQUIVALENT_OPTION, codes)
+        self.assertNotIn(DUPLICATE_VALUE, codes)
+
     def test_no_correct_option(self):
         q = self._question('Calculate: 1/2 + 1/2', [('1', False), ('2', False)])
         self.assertIn(NO_CORRECT, self._codes(q))
@@ -178,6 +218,22 @@ class VerifyCommandTests(TestCase):
     def test_exits_zero_when_clean(self):
         self._question('Calculate: 1/2 + 1/4', [('3/4', True), ('1/4', False)])
         call_command('verify_question_answers', '--level', 991)
+
+    def test_duplicate_value_alone_does_not_fail_the_run(self):
+        # Two wrong options worth the same number mismark nobody, so the
+        # weekly job must not go red over it.
+        self._question('5/6 kg less 1/2 kg?', [
+            ('1/2', False), ('3/6', False), ('1/3', True),
+        ])
+        call_command('verify_question_answers', '--level', 991)   # no SystemExit
+
+    def test_duplicate_value_fails_under_strict(self):
+        self._question('5/6 kg less 1/2 kg?', [
+            ('1/2', False), ('3/6', False), ('1/3', True),
+        ])
+        with self.assertRaises(SystemExit) as ctx:
+            call_command('verify_question_answers', '--level', 991, '--strict')
+        self.assertEqual(ctx.exception.code, 1)
 
     def test_check_filter_narrows_reporting(self):
         # A question with only an EQUIVALENT-OPTION issue passes a run
