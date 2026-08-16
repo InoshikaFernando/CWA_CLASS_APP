@@ -37,3 +37,9 @@ bulk-fill script: [`Runbooks/jira-story-points.md`](Runbooks/jira-story-points.m
   site, `main` deploys to production. Open a PR; never push to `main` directly.
 - No silent failure — surface errors (blank data, swallowed 4xx, no-op commands)
   rather than hiding them.
+- Verify before concluding — don't state a diagnosis (e.g. "the key is missing",
+  "the verifier never ran", "this test is flaky") from a single indirect signal
+  or a UI screen. Run the actual check, confirm the check itself is sound (a
+  failing command can produce a misleading result — e.g. sourcing an env file in
+  bash vs. how systemd loads it), and only then draw the conclusion. When a
+  result is surprising, suspect the test before the system.
