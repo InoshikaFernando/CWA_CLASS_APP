@@ -189,3 +189,77 @@ class UploadJobTimeoutTests(_TeacherFixture):
         self.client.post(reverse('homework:pdf_upload'), {'pdf_file': pdf})
 
         self.assertEqual(mock_queue.enqueue.call_args.kwargs['job_timeout'], 2700)
+
+
+class SkippedPagesNoticeTests(_TeacherFixture):
+    """Pages the extractor skipped are shown, not silently dropped."""
+
+    def setUp(self):
+        self.client.force_login(self.user)
+
+    def test_preview_names_the_skipped_pages(self):
+        session = self._session(
+            status=HomeworkUploadSession.STATUS_DONE,
+            page_count=24,
+            extracted_data={
+                'questions': [],
+                'skipped_pages': [
+                    {'page': 1, 'reason': 'answer_sheet'},
+                    {'page': 21, 'reason': 'answer_key'},
+                ],
+            },
+        )
+
+        resp = self.client.get(reverse('homework:pdf_preview', args=[session.pk]))
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        self.assertIn('Skipped 2 pages', body)
+        self.assertIn('page 1 (multiple-choice answer sheet)', body)
+        self.assertIn('page 21 (answer key)', body)
+
+    def test_preview_says_nothing_when_no_page_was_skipped(self):
+        session = self._session(
+            status=HomeworkUploadSession.STATUS_DONE,
+            extracted_data={'questions': []},
+        )
+
+        resp = self.client.get(reverse('homework:pdf_preview', args=[session.pk]))
+
+        self.assertNotIn('with no questions on', resp.content.decode())
+
+
+@patch('homework.tasks.HEARTBEAT_MIN_INTERVAL_S', 0)
+class HeartbeatThreadSafetyTests(_TeacherFixture):
+    """The pipeline reports from its classification threads, not just the main one."""
+
+    def test_a_worker_thread_closes_the_connection_it_opened(self):
+        """Django opens a connection per thread; a worker never closes them."""
+        import threading
+
+        from homework.tasks import _progress_reporter
+
+        session = self._session()
+        report = _progress_reporter(session.pk)
+
+        with patch('homework.tasks.connection') as mock_connection:
+            done = threading.Event()
+
+            def in_thread():
+                report('Read 1 of 4 sections…')
+                done.set()
+
+            worker = threading.Thread(target=in_thread)
+            worker.start()
+            worker.join(5)
+            self.assertTrue(done.is_set())
+            mock_connection.close.assert_called_once()
+
+    def test_the_main_thread_keeps_its_connection(self):
+        from homework.tasks import _progress_reporter
+
+        session = self._session()
+        with patch('homework.tasks.connection') as mock_connection:
+            _progress_reporter(session.pk)('Read 2 of 4 sections…')
+
+        mock_connection.close.assert_not_called()

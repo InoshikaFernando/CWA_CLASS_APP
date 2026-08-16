@@ -592,6 +592,115 @@ def _strip_question_label(question_text):
     return text if text.strip() else question_text
 
 
+# ---------------------------------------------------------------------------
+# Page roles — which pages carry questions, and which are the exam's scaffolding
+# ---------------------------------------------------------------------------
+
+PAGE_ROLE_QUESTIONS = 'questions'
+PAGE_ROLE_ANSWER_SHEET = 'answer_sheet'
+PAGE_ROLE_ANSWER_KEY = 'answer_key'
+
+PAGE_ROLE_LABELS = {
+    PAGE_ROLE_ANSWER_SHEET: 'multiple-choice answer sheet',
+    PAGE_ROLE_ANSWER_KEY: 'answer key',
+}
+
+# Skipping is deterministic and free (plain text, no AI call), but keep an escape
+# hatch: a paper whose question pages somehow trip a detector can be imported in
+# full by setting WORKSHEET_SKIP_NON_QUESTION_PAGES=0, no deploy needed.
+SKIP_NON_QUESTION_PAGES = os.environ.get(
+    'WORKSHEET_SKIP_NON_QUESTION_PAGES', '1') != '0'
+
+# A bubble answer sheet repeats "12. A B C D" down the page — the letters are the
+# options to shade, not questions. Whitespace is normalised first because the PDF
+# text layer puts each letter on its own line.
+_ANSWER_GRID_RE = re.compile(r'\d{1,3}\s*[.)]?\s+A\s+B\s+C\s+D', re.IGNORECASE)
+
+# An answer key lists "44" then the letter, either stacked or on one line, usually
+# followed by working. Both forms are anchored to the line start so a question's
+# own options ("A. 194mm") can't be mistaken for them.
+_ANSWER_KEY_STACKED_RE = re.compile(r'(?m)^[ \t]*(\d{1,3})[ \t]*\n[ \t]*([A-D])[ \t]*$')
+_ANSWER_KEY_INLINE_RE = re.compile(r'(?m)^[ \t]*(\d{1,3})[ \t]+([A-D])\b')
+
+# How many rows a page needs before it counts as a grid / key rather than a
+# coincidence. Real sheets and keys run to dozens of rows.
+_PAGE_ROLE_MIN_ROWS = 5
+
+
+def detect_page_role(text):
+    """Classify a page from its text alone: questions, answer sheet, or key.
+
+    Papers routinely ship with a bubble answer sheet at the front and a worked
+    answer key at the back. Neither holds questions, but both used to be sent to
+    Claude and imported as nonsense "questions" the teacher had to untick — while
+    being paid for. This runs before any AI call, so the pages are never sent.
+    """
+    if not text:
+        return PAGE_ROLE_QUESTIONS
+
+    normalised = re.sub(r'\s+', ' ', text)
+    if len(_ANSWER_GRID_RE.findall(normalised)) >= _PAGE_ROLE_MIN_ROWS:
+        return PAGE_ROLE_ANSWER_SHEET
+
+    key_rows = (len(_ANSWER_KEY_STACKED_RE.findall(text))
+                + len(_ANSWER_KEY_INLINE_RE.findall(text)))
+    if key_rows >= _PAGE_ROLE_MIN_ROWS:
+        return PAGE_ROLE_ANSWER_KEY
+
+    return PAGE_ROLE_QUESTIONS
+
+
+def describe_skipped_pages(extracted_data):
+    """[{'page', 'label'}] for the preview notice, from a classification result.
+
+    Shared by the homework and worksheet previews so a skipped page is always
+    told to the teacher — a page silently missing from an import is exactly the
+    kind of blank data this project doesn't ship.
+    """
+    return [
+        {'page': skip.get('page'),
+         'label': PAGE_ROLE_LABELS.get(skip.get('reason'), skip.get('reason'))}
+        for skip in (extracted_data or {}).get('skipped_pages') or []
+    ]
+
+
+def _split_question_pages(pages):
+    """(pages to classify, [{'page', 'reason'}]) — drop answer sheets and keys.
+
+    Never returns an empty list of pages to classify: if every page looks like
+    scaffolding the detector is the thing that's wrong, so classify the lot
+    rather than import nothing.
+    """
+    if not SKIP_NON_QUESTION_PAGES:
+        return pages, []
+
+    keep, skipped = [], []
+    for page in pages:
+        role = detect_page_role(page.get('text', ''))
+        if role == PAGE_ROLE_QUESTIONS:
+            keep.append(page)
+        else:
+            skipped.append({'page': page['page_num'], 'reason': role})
+
+    if not keep:
+        logger.warning(
+            'Every page looked like an answer sheet/key — classifying all %s '
+            'pages rather than importing nothing.', len(pages),
+        )
+        return pages, []
+    return keep, skipped
+
+
+class ChunkTooDenseError(ValueError):
+    """One classification call hit max_tokens — its pages need splitting.
+
+    Recoverable, and handled by _classify_chunk_adaptive: an answer key or a
+    packed question page can generate more structured output than a single call
+    can return, which used to fail the entire upload with a message telling the
+    teacher to change an environment variable.
+    """
+
+
 def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=False):
     """Classify one chunk of pages in a single streamed Claude call.
 
@@ -696,9 +805,10 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
         stop_reason = getattr(response, 'stop_reason', 'unknown')
         logger.error('classify chunk: no structured result. stop_reason=%s', stop_reason)
         if stop_reason == 'max_tokens':
-            raise ValueError(
-                'A section of the worksheet is too dense to process in one chunk. '
-                'Try a smaller WORKSHEET_CHUNK_SIZE.'
+            # Recoverable: the caller retries these pages in smaller pieces.
+            raise ChunkTooDenseError(
+                'Pages {}-{} produced more output than one call can return.'.format(
+                    pages[0]['page_num'], pages[-1]['page_num'])
             )
         if stop_reason == 'refusal':
             raise ValueError(
@@ -720,6 +830,45 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
         'total_tokens': response.usage.input_tokens + response.usage.output_tokens,
     }
     return result
+
+
+def _classify_chunk_adaptive(client, system, pages, total_page_count,
+                             shape_naming=False, report=None):
+    """Classify a chunk, halving it and retrying if the model runs out of output.
+
+    A chunk that overflows max_tokens returns nothing usable, and one such chunk
+    used to fail the whole upload. Splitting costs an extra call for that chunk
+    only — each half generates half the output — and the halves merge back
+    exactly as separate chunks do, because page numbers are absolute.
+
+    A single page that still overflows cannot be split further, so that raises
+    with the page number the teacher needs to act on.
+    """
+    report = report or (lambda _msg: None)
+    try:
+        return _classify_page_chunk(client, system, pages, total_page_count,
+                                    shape_naming=shape_naming)
+    except ChunkTooDenseError:
+        if len(pages) == 1:
+            raise ValueError(
+                f'Page {pages[0]["page_num"]} has more content than the AI can '
+                f'return in one go. Please split that page, or remove it and '
+                f'upload the rest.'
+            ) from None
+        mid = len(pages) // 2
+        halves = [pages[:mid], pages[mid:]]
+        logger.warning(
+            'Chunk pages %s-%s too dense; retrying as %s + %s pages',
+            pages[0]['page_num'], pages[-1]['page_num'],
+            len(halves[0]), len(halves[1]),
+        )
+        report(f'Page {pages[0]["page_num"]}–{pages[-1]["page_num"]} is dense — '
+               f'reading it in smaller pieces…')
+        return _merge_chunk_results([
+            _classify_chunk_adaptive(client, system, half, total_page_count,
+                                     shape_naming=shape_naming, report=report)
+            for half in halves
+        ])
 
 
 def _merge_chunk_results(results):
@@ -762,6 +911,11 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
     ``shape_naming`` switches to the name-the-shape prompt: one auto-generated
     "What is the name of this shape?" question per individual shape.
 
+    Pages that carry no questions — a bubble answer sheet, a worked answer key —
+    are detected from their text and never sent, so they cost nothing and can't
+    be imported as junk questions. What was skipped is reported back on the
+    result as ``skipped_pages`` rather than dropped silently.
+
     ``progress`` is an optional ``callable(message)`` invoked as each chunk lands,
     so a caller can surface live progress (and prove the job is still alive).
     """
@@ -774,20 +928,32 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
         raise ValueError("No page screenshots to classify.")
     total = extracted_pages['page_count']
 
+    pages, skipped_pages = _split_question_pages(pages)
+    if skipped_pages:
+        logger.info(
+            'Skipping %s non-question page(s): %s',
+            len(skipped_pages),
+            ', '.join(f'p{s["page"]} ({s["reason"]})' for s in skipped_pages),
+        )
+        report(f'Skipping {len(skipped_pages)} page(s) with no questions…')
+
     chunks = [pages[i:i + WORKSHEET_CHUNK_SIZE]
               for i in range(0, len(pages), WORKSHEET_CHUNK_SIZE)]
 
     # One chunk → no thread-pool overhead.
     if len(chunks) == 1:
         report(f'Reading {len(pages)} page(s)…')
-        return _classify_page_chunk(client, system, chunks[0], total, shape_naming=shape_naming)
+        result = _classify_chunk_adaptive(
+            client, system, chunks[0], total, shape_naming=shape_naming, report=report)
+        result['skipped_pages'] = skipped_pages
+        return result
 
     report(f'Reading {len(pages)} pages in {len(chunks)} sections…')
     ordered = [None] * len(chunks)
     with ThreadPoolExecutor(max_workers=min(WORKSHEET_MAX_PARALLEL, len(chunks))) as pool:
         futures = {
-            pool.submit(_classify_page_chunk, client, system, chunk, total,
-                        shape_naming=shape_naming): idx
+            pool.submit(_classify_chunk_adaptive, client, system, chunk, total,
+                        shape_naming=shape_naming, report=report): idx
             for idx, chunk in enumerate(chunks)
         }
         for done, fut in enumerate(as_completed(futures), start=1):
@@ -795,7 +961,9 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
             report(f'Read {done} of {len(chunks)} sections…')
 
     logger.info('Classified %s pages across %s parallel chunks', len(pages), len(chunks))
-    return _merge_chunk_results(ordered)
+    result = _merge_chunk_results(ordered)
+    result['skipped_pages'] = skipped_pages
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -90,3 +90,20 @@ class WorksheetAdjustImageTests(TestCase):
         self.assertEqual(r.status_code, 302)
         s.refresh_from_db()
         self.assertEqual(s.extracted_data['questions'][0]['image_ref'], 'orig.png')
+
+
+class WorksheetSkippedPagesNoticeTests(WorksheetAdjustImageTests):
+    """The worksheet preview reports skipped answer sheets / keys too."""
+
+    def test_preview_names_the_skipped_pages(self):
+        s = self._session()
+        data = s.extracted_data
+        data['skipped_pages'] = [{'page': 1, 'reason': 'answer_sheet'}]
+        s.extracted_data = data
+        s.save(update_fields=['extracted_data'])
+
+        self.client.force_login(self.teacher)
+        html = self.client.get(reverse('worksheets:preview', args=[s.pk])).content.decode()
+
+        self.assertIn('Skipped 1 page', html)
+        self.assertIn('page 1 (multiple-choice answer sheet)', html)

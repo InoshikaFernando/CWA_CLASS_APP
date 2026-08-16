@@ -2053,6 +2053,12 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             if q.get('number_line_spec'):
                 q['number_line_spec_json'] = json.dumps(q['number_line_spec'], indent=2)
 
+        # Pages the extractor deliberately skipped (answer sheet / answer key).
+        # Told to the teacher rather than silently dropped, so "50 questions but
+        # only 43 imported" is never a mystery.
+        from worksheets.services import describe_skipped_pages
+        skipped_pages = describe_skipped_pages(data)
+
         return render(request, self.template_name, {
             'session': session,
             'data': data,
@@ -2060,6 +2066,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             'topics': topics,
             'levels': levels,
             'classrooms': classrooms,
+            'skipped_pages': skipped_pages,
             'question_types': [
                 ('multiple_choice', 'Multiple Choice'),
                 ('true_false', 'True / False'),

@@ -40,6 +40,8 @@
     {% endfor %}
     {% endif %}
 
+    {% include "_partials/skipped_pages_notice.html" %}
+
     <form method="post" enctype="multipart/form-data" id="preview-form">
       {% csrf_token %}
 

@@ -5,9 +5,11 @@ Replaces the previous daemon-thread approach with durable RQ jobs that survive
 gunicorn worker restarts. Runs in an RQ worker process.
 """
 import logging
+import threading
 import time
 from io import BytesIO
 
+from django.db import connection
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -27,16 +29,23 @@ def _progress_reporter(session_id):
     what lets the UI tell "still working" from "the worker died" — a work-horse
     killed by the OOM killer never runs its failure handler, so a stale
     heartbeat is the only evidence the job is gone.
+
+    Thread-safe by necessity: the pipeline classifies page-chunks in a thread
+    pool and reports from those threads. Django opens a *separate* connection
+    per thread and nothing in a worker closes it, so each write off the main
+    thread closes its connection rather than leaking one per pool thread.
     """
     from .models import HomeworkUploadSession
 
     state = {'last': 0.0}
+    lock = threading.Lock()
 
     def report(message, force=False):
         now = time.monotonic()
-        if not force and now - state['last'] < HEARTBEAT_MIN_INTERVAL_S:
-            return
-        state['last'] = now
+        with lock:
+            if not force and now - state['last'] < HEARTBEAT_MIN_INTERVAL_S:
+                return
+            state['last'] = now
         try:
             HomeworkUploadSession.objects.filter(pk=session_id).update(
                 progress_message=str(message)[:200],
@@ -44,6 +53,9 @@ def _progress_reporter(session_id):
             )
         except Exception:
             logger.warning('Heartbeat write failed for session=%s', session_id, exc_info=True)
+        finally:
+            if threading.current_thread() is not threading.main_thread():
+                connection.close()
 
     return report
 
