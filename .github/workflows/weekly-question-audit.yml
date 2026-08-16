@@ -117,7 +117,7 @@ jobs:
         run: |
           if [ -z "$SWEEP_USERNAME" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::SWEEP_USERNAME/SWEEP_PASSWORD not set — skipping the browser sweep. Create a student account on the test site and add them as secrets."
+            echo "::notice::SWEEP_USERNAME/SWEEP_PASSWORD not set — skipping the browser sweep. Create the account on the TEST droplet with 'manage.py create_sweep_account --username sweepbot' and store the credentials as repository secrets."
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi

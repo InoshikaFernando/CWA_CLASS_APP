@@ -88,7 +88,7 @@ jobs:
 
       - name: Run quiz tests
         working-directory: cwa_classroom
-        run: pytest quiz/tests.py quiz/test_cpp377_recording.py quiz/test_verify_quiz_grading.py -n auto --dist=loadscope -v --tb=short
+        run: pytest quiz/tests.py quiz/test_cpp377_recording.py quiz/test_verify_quiz_grading.py quiz/test_create_sweep_account.py -n auto --dist=loadscope -v --tb=short
 
   puzzles-tests:
     name: Number Puzzles Tests
