@@ -8,8 +8,11 @@ password reset, log access). The supporting scripts live in
 ## TL;DR
 
 - **Test site:** every merge to `test` auto-deploys (`deploy-test.yml`).
-- **Production:** scheduled weekly release, Sunday ~03:00 NZ, of `main`
-  (`deploy-prod.yml`); also runnable manually. See § 2 for the full model.
+- **Production:** every push to `main` auto-deploys (`deploy-prod.yml`) — in
+  practice, merging the weekly release PR. Also runnable on demand via
+  `workflow_dispatch`. See § 2 for the full model.
+  (There is no cron for this: the release *cadence* is weekly by convention,
+  but the *trigger* is the push to `main`, not a schedule.)
 
 Both run the same script the manual path does:
 
