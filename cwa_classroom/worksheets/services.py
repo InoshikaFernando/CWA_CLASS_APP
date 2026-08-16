@@ -267,6 +267,16 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                             "type": "integer",
                             "description": "1-based page number this question appears on.",
                         },
+                        "source_number": {
+                            "type": "integer",
+                            "description": (
+                                "The question's own number as printed on the paper — 46 for "
+                                "'Question 46', '46.' or 'Q46'. This is the paper's numbering, "
+                                "NOT the position in your list, so keep it even when you skip "
+                                "something. Omit only if the question is genuinely unnumbered. "
+                                "Used to match the paper's answer key onto its questions."
+                            ),
+                        },
                         "has_image": {
                             "type": "boolean",
                             "description": (
@@ -592,6 +602,22 @@ def _strip_question_label(question_text):
     return text if text.strip() else question_text
 
 
+def _label_question_number(question_text):
+    """The number in a leading label ("Question 46", "46.", "Q46") — or None.
+
+    A fallback for source_number: when the model copies the paper's numbering
+    into question_text we can recover it before _strip_question_label discards
+    it, and the paper's answer key can still be matched to the question.
+    """
+    if not question_text:
+        return None
+    label = _QUESTION_LABEL_RE.match(question_text)
+    if not label:
+        return None
+    digits = re.search(r'\d{1,3}', label.group(0))
+    return int(digits.group()) if digits else None
+
+
 # ---------------------------------------------------------------------------
 # Page roles — which pages carry questions, and which are the exam's scaffolding
 # ---------------------------------------------------------------------------
@@ -665,7 +691,11 @@ def describe_skipped_pages(extracted_data):
 
 
 def _split_question_pages(pages):
-    """(pages to classify, [{'page', 'reason'}]) — drop answer sheets and keys.
+    """(pages to classify, [(page, role)]) — set answer sheets and keys aside.
+
+    The skipped pages come back whole rather than as bare page numbers: an
+    answer key is not junk, it holds the paper's official answers, and
+    answer_key.apply_answer_key needs its text.
 
     Never returns an empty list of pages to classify: if every page looks like
     scaffolding the detector is the thing that's wrong, so classify the lot
@@ -680,7 +710,7 @@ def _split_question_pages(pages):
         if role == PAGE_ROLE_QUESTIONS:
             keep.append(page)
         else:
-            skipped.append({'page': page['page_num'], 'reason': role})
+            skipped.append((page, role))
 
     if not keep:
         logger.warning(
@@ -823,7 +853,15 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
     # not part of the question.
     for q in result['questions']:
         if isinstance(q, dict):
-            q['question_text'] = _strip_question_label(q.get('question_text', '') or '')
+            raw_text = q.get('question_text', '') or ''
+            # Recover the paper's numbering from the label before it is stripped,
+            # so an answer key can still be matched when the model omitted
+            # source_number.
+            if not q.get('source_number'):
+                from_label = _label_question_number(raw_text)
+                if from_label:
+                    q['source_number'] = from_label
+            q['question_text'] = _strip_question_label(raw_text)
     result['usage'] = {
         'input_tokens': response.usage.input_tokens,
         'output_tokens': response.usage.output_tokens,
@@ -928,14 +966,14 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
         raise ValueError("No page screenshots to classify.")
     total = extracted_pages['page_count']
 
-    pages, skipped_pages = _split_question_pages(pages)
-    if skipped_pages:
+    pages, skipped = _split_question_pages(pages)
+    if skipped:
         logger.info(
             'Skipping %s non-question page(s): %s',
-            len(skipped_pages),
-            ', '.join(f'p{s["page"]} ({s["reason"]})' for s in skipped_pages),
+            len(skipped),
+            ', '.join(f'p{page["page_num"]} ({role})' for page, role in skipped),
         )
-        report(f'Skipping {len(skipped_pages)} page(s) with no questions…')
+        report(f'Skipping {len(skipped)} page(s) with no questions…')
 
     chunks = [pages[i:i + WORKSHEET_CHUNK_SIZE]
               for i in range(0, len(pages), WORKSHEET_CHUNK_SIZE)]
@@ -945,24 +983,34 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
         report(f'Reading {len(pages)} page(s)…')
         result = _classify_chunk_adaptive(
             client, system, chunks[0], total, shape_naming=shape_naming, report=report)
-        result['skipped_pages'] = skipped_pages
-        return result
+    else:
+        report(f'Reading {len(pages)} pages in {len(chunks)} sections…')
+        ordered = [None] * len(chunks)
+        with ThreadPoolExecutor(max_workers=min(WORKSHEET_MAX_PARALLEL, len(chunks))) as pool:
+            futures = {
+                pool.submit(_classify_chunk_adaptive, client, system, chunk, total,
+                            shape_naming=shape_naming, report=report): idx
+                for idx, chunk in enumerate(chunks)
+            }
+            for done, fut in enumerate(as_completed(futures), start=1):
+                ordered[futures[fut]] = fut.result()  # re-raises any chunk failure
+                report(f'Read {done} of {len(chunks)} sections…')
 
-    report(f'Reading {len(pages)} pages in {len(chunks)} sections…')
-    ordered = [None] * len(chunks)
-    with ThreadPoolExecutor(max_workers=min(WORKSHEET_MAX_PARALLEL, len(chunks))) as pool:
-        futures = {
-            pool.submit(_classify_chunk_adaptive, client, system, chunk, total,
-                        shape_naming=shape_naming, report=report): idx
-            for idx, chunk in enumerate(chunks)
-        }
-        for done, fut in enumerate(as_completed(futures), start=1):
-            ordered[futures[fut]] = fut.result()  # re-raises any chunk failure
-            report(f'Read {done} of {len(chunks)} sections…')
+        logger.info('Classified %s pages across %s parallel chunks', len(pages), len(chunks))
+        result = _merge_chunk_results(ordered)
 
-    logger.info('Classified %s pages across %s parallel chunks', len(pages), len(chunks))
-    result = _merge_chunk_results(ordered)
-    result['skipped_pages'] = skipped_pages
+    result['skipped_pages'] = [
+        {'page': page['page_num'], 'reason': role} for page, role in skipped
+    ]
+
+    # The paper's own answer key beats the AI's attempt at answering, so apply it
+    # to the questions it names (see worksheets/answer_key.py).
+    key_pages = [page for page, role in skipped if role == PAGE_ROLE_ANSWER_KEY]
+    if key_pages and result.get('questions'):
+        report('Applying the paper’s answer key…')
+        from .answer_key import apply_answer_key
+        result['answer_key'] = apply_answer_key(result['questions'], key_pages)
+
     return result
 
 

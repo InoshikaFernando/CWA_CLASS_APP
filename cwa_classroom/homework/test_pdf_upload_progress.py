@@ -263,3 +263,59 @@ class HeartbeatThreadSafetyTests(_TeacherFixture):
             _progress_reporter(session.pk)('Read 2 of 4 sections…')
 
         mock_connection.close.assert_not_called()
+
+
+class AnswerKeyNoticeTests(_TeacherFixture):
+    """The preview says the answers came from the paper's key, and what to check."""
+
+    def setUp(self):
+        self.client.force_login(self.user)
+
+    def _preview(self, answer_key, questions=None):
+        session = self._session(
+            status=HomeworkUploadSession.STATUS_DONE,
+            extracted_data={'questions': questions or [], 'answer_key': answer_key},
+        )
+        return self.client.get(
+            reverse('homework:pdf_preview', args=[session.pk])).content.decode()
+
+    def test_it_reports_what_the_key_supplied_and_corrected(self):
+        body = self._preview({
+            'pages': [21, 22], 'rows_found': 50, 'applied': 50,
+            'agreed': 48, 'corrected': 2, 'explanation_only': 0,
+            'unmatched_rows': [], 'questions_without_number': 0,
+        })
+
+        self.assertIn('Used the answer key on pages', body)
+        self.assertIn('50 of 50 answers', body)
+        self.assertIn('applied to the questions', body)
+        self.assertIn('2</strong> disagreed', body)
+
+    def test_it_reports_rows_and_questions_that_could_not_be_matched(self):
+        body = self._preview({
+            'pages': [12], 'rows_found': 10, 'applied': 6,
+            'agreed': 6, 'corrected': 0, 'explanation_only': 1,
+            'unmatched_rows': [7, 8], 'questions_without_number': 3,
+        })
+
+        self.assertIn('No question matched answers', body)
+        self.assertIn('3 questions', body)
+
+    def test_a_flagged_question_shows_the_review_badge(self):
+        body = self._preview(
+            {'pages': [21], 'rows_found': 1, 'applied': 1, 'agreed': 0,
+             'corrected': 1, 'explanation_only': 0, 'unmatched_rows': [],
+             'questions_without_number': 0},
+            questions=[{
+                'question_text': 'What is 2 + 2?', 'question_type': 'multiple_choice',
+                'needs_review': True, 'review_reason': "The paper's answer key says C.",
+                'answers': [{'text': '4', 'is_correct': True}],
+            }],
+        )
+
+        self.assertIn('⚠ Review', body)
+        self.assertIn("The paper&#x27;s answer key says C.", body)
+
+    def test_no_banner_without_a_key(self):
+        body = self._preview({})
+        self.assertNotIn('Used the answer key', body)

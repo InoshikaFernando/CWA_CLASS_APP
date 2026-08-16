@@ -2058,6 +2058,9 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         # only 43 imported" is never a mystery.
         from worksheets.services import describe_skipped_pages
         skipped_pages = describe_skipped_pages(data)
+        # The paper's own answer key, where it had one: how many answers it
+        # supplied and which questions it disagreed with the AI about.
+        answer_key = data.get('answer_key') or {}
 
         return render(request, self.template_name, {
             'session': session,
@@ -2067,6 +2070,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             'levels': levels,
             'classrooms': classrooms,
             'skipped_pages': skipped_pages,
+            'answer_key': answer_key,
             'question_types': [
                 ('multiple_choice', 'Multiple Choice'),
                 ('true_false', 'True / False'),

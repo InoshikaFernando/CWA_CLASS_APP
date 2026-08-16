@@ -372,6 +372,7 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             # Answer sheets / answer keys the extractor skipped — reported, not
             # silently missing from the import.
             'skipped_pages': describe_skipped_pages(data),
+            'answer_key': data.get('answer_key') or {},
             'levels': levels,
             'parent_topics_json': json.dumps(parent_topics),
             'subtopics_json': json.dumps(subtopics_map),

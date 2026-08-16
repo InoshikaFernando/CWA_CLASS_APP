@@ -92,10 +92,13 @@ def test_split_keeps_questions_and_reports_what_it_dropped():
     keep, skipped = _split_question_pages(pages)
 
     assert [p['page_num'] for p in keep] == [2, 3]
-    assert skipped == [
-        {'page': 1, 'reason': PAGE_ROLE_ANSWER_SHEET},
-        {'page': 4, 'reason': PAGE_ROLE_ANSWER_KEY},
+    # Skipped pages come back whole, not as bare numbers — an answer key still
+    # has its text read for the answers it holds.
+    assert [(page['page_num'], role) for page, role in skipped] == [
+        (1, PAGE_ROLE_ANSWER_SHEET),
+        (4, PAGE_ROLE_ANSWER_KEY),
     ]
+    assert skipped[1][0]['text'] == ANSWER_KEY
 
 
 def test_split_never_drops_every_page():
