@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.17.6'         # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-08-15'     # ISO date of this release
+APP_VERSION       = '1.17.7'         # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-08-16'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -151,6 +151,16 @@ CLAUDE_INPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_INPUT_COST_PER_MTOK', '5.0'))
 CLAUDE_OUTPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '25.0'))
+
+# Homework PDF upload (teacher uploads a worksheet → AI extracts the questions).
+# HOMEWORK_PDF_JOB_TIMEOUT bounds the RQ work-horse: a long worksheet is several
+# waves of multi-minute Claude calls plus image rendering, so the 10-minute
+# queue default killed big uploads mid-flight. HOMEWORK_PDF_STALL_MINUTES is how
+# long the upload page waits for a heartbeat from that worker before declaring
+# the job dead — an OOM-killed work-horse never runs its failure handler, so
+# without this the page polls a 'processing' session forever.
+HOMEWORK_PDF_JOB_TIMEOUT = int(os.environ.get('HOMEWORK_PDF_JOB_TIMEOUT', '2700'))
+HOMEWORK_PDF_STALL_MINUTES = int(os.environ.get('HOMEWORK_PDF_STALL_MINUTES', '10'))
 
 # ---------------------------------------------------------------------------
 # AI / OpenAI (second-opinion answer verification for AI Import)

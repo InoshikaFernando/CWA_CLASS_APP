@@ -37,6 +37,13 @@ class HomeworkUploadSession(models.Model):
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PROCESSING)
     error_message = models.TextField(blank=True)
+    # Live heartbeat from the background worker: what it is doing right now, and
+    # when it last said so. Shown on the polling page, and — more importantly —
+    # used to detect a dead job: a work-horse killed by OOM/SIGKILL never runs
+    # its failure handler, so without a heartbeat the session would sit in
+    # 'processing' and the page would poll forever.
+    progress_message = models.CharField(max_length=200, blank=True)
+    progress_updated_at = models.DateTimeField(null=True, blank=True)
     extracted_data = models.JSONField(default=dict)
     extracted_images = models.JSONField(default=dict)
     page_count = models.PositiveIntegerField(default=0)

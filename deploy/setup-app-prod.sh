@@ -115,6 +115,19 @@ cat > /etc/cron.d/cwa-ops <<'OPSCRON'
 OPSCRON
 chmod 644 /etc/cron.d/cwa-ops
 
+# ── Stuck-upload reaper cron ─────────────────────────────────────────────────
+# A work-horse killed by the OOM killer never runs its failure handler, leaving
+# the PDF upload session in 'processing' — the teacher's page then polls a job
+# that will never finish. The reaper flips those to failed so the page self-heals
+# into a retry. Install it here; without the cron the command never runs.
+echo "==> Installing stuck-upload reaper cron..."
+cat > /etc/cron.d/cwa-uploads <<'REAPCRON'
+# CWA stuck-upload reaper — self-heal PDF uploads whose worker died.
+# Managed by deploy/setup-app-prod.sh; edit there, not here.
+*/5 * * * * cwa /home/cwa/CWA_CLASS_APP/scripts/reap_stuck_uploads.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env 30 >> /var/log/cwa/reap_uploads.log 2>&1
+REAPCRON
+chmod 644 /etc/cron.d/cwa-uploads
+
 # ── Sudoers for deploy ───────────────────────────────────────────────────────
 echo "==> Granting cwa user restart permissions..."
 cat > /etc/sudoers.d/cwa <<'SUDOERS'

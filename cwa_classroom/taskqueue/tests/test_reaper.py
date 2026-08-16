@@ -60,6 +60,37 @@ class ReapStuckUploadsTests(TestCase):
         s.refresh_from_db()
         self.assertEqual(s.status, HomeworkUploadSession.STATUS_ERROR)
 
+    def test_homework_still_heartbeating_is_spared(self):
+        """A long worksheet that is still reporting progress is not dead."""
+        from homework.models import HomeworkUploadSession
+        s = HomeworkUploadSession.objects.create(
+            user=self.user, school=self.school, pdf_filename='h.pdf',
+            status=HomeworkUploadSession.STATUS_PROCESSING,
+            progress_message='Read 3 of 9 sections…')
+        self._age(s, 40)
+        HomeworkUploadSession.objects.filter(pk=s.pk).update(
+            progress_updated_at=timezone.now())
+
+        call_command('reap_stuck_uploads', '--minutes', '10', stdout=StringIO())
+
+        s.refresh_from_db()
+        self.assertEqual(s.status, HomeworkUploadSession.STATUS_PROCESSING)
+
+    def test_homework_with_a_stale_heartbeat_is_failed(self):
+        from homework.models import HomeworkUploadSession
+        s = HomeworkUploadSession.objects.create(
+            user=self.user, school=self.school, pdf_filename='h.pdf',
+            status=HomeworkUploadSession.STATUS_PROCESSING,
+            progress_message='Read 3 of 9 sections…')
+        self._age(s, 40)
+        HomeworkUploadSession.objects.filter(pk=s.pk).update(
+            progress_updated_at=timezone.now() - timedelta(minutes=20))
+
+        call_command('reap_stuck_uploads', '--minutes', '10', stdout=StringIO())
+
+        s.refresh_from_db()
+        self.assertEqual(s.status, HomeworkUploadSession.STATUS_ERROR)
+
     def test_ai_import_processing_is_failed(self):
         from ai_import.models import AIImportSession
         s = AIImportSession.objects.create(
