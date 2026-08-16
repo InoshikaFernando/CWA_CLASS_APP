@@ -128,13 +128,14 @@ class EquivalentDistractorGradingTests(TestCase):
             "'2/6' equals the correct answer '1/3' but was marked wrong",
         )
 
-    @pytest.mark.xfail(strict=True, reason='CPP-377: selected_answer is never saved')
     def test_selected_answer_is_recorded(self):
-        """Second defect: quiz/views.py saves only is_correct, never
-        selected_answer, so there is no record of what the student clicked.
+        """The chosen option is persisted, not just the score.
 
-        This is why CPP-377 could not be diagnosed from the data — we know
-        which questions were marked wrong, but not which option was chosen.
+        quiz/views.py used to save only is_correct, so a StudentAnswer row
+        recorded *that* an answer scored zero but never *what* was chosen.
+        That is why CPP-377 could not be checked against the data: we knew
+        which questions were marked wrong and had no way to see which option
+        the student picked. Guards the fix.
         """
         from maths.models import StudentAnswer
 
@@ -142,8 +143,25 @@ class EquivalentDistractorGradingTests(TestCase):
         row = StudentAnswer.objects.filter(
             student=self.student, question=self.question,
         ).latest('answered_at')
-        self.assertIsNotNone(
-            row.selected_answer,
-            'StudentAnswer.selected_answer was not recorded — the chosen '
-            'option is unrecoverable',
+        self.assertEqual(
+            row.selected_answer_id, self.opt_two_sixths.id,
+            'the option the student clicked must be recoverable from the row',
         )
+
+    def test_recorded_option_distinguishes_between_wrong_answers(self):
+        """Two different wrong picks must be tellable apart afterwards.
+
+        Recording only is_correct=False collapses 'picked the unsimplified
+        correct value' and 'picked a genuinely wrong value' into the same row.
+        Telling those apart is the entire diagnostic value.
+        """
+        from maths.models import StudentAnswer
+
+        self._pick(self.opt_sixth)
+        self._pick(self.opt_two_sixths)
+        picked = set(
+            StudentAnswer.objects
+            .filter(student=self.student, question=self.question)
+            .values_list('selected_answer_id', flat=True)
+        )
+        self.assertEqual(picked, {self.opt_sixth.id, self.opt_two_sixths.id})
