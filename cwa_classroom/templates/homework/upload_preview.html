@@ -40,6 +40,9 @@
     {% endfor %}
     {% endif %}
 
+    {% include "_partials/skipped_pages_notice.html" %}
+    {% include "_partials/answer_key_notice.html" %}
+
     <form method="post" enctype="multipart/form-data" id="preview-form">
       {% csrf_token %}
 
@@ -106,6 +109,11 @@
               {% elif q.validation_type == 'human_graded' %}👩‍🏫 Teacher graded
               {% else %}✓ Auto{% endif %}
             </span>
+
+            {% if q.needs_review %}
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700"
+                  title="{{ q.review_reason|default:'Please double-check this answer.' }}">⚠ Review</span>
+            {% endif %}
 
             <button type="button" class="text-gray-400 hover:text-gray-600 toggle-btn" data-target="body-{{ q_idx }}">
               <svg class="w-4 h-4 chevron" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">

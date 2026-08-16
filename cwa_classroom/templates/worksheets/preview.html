@@ -10,6 +10,9 @@
     <span class="px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold">Step 2 of 3</span>
   </div>
 
+  {% include "_partials/skipped_pages_notice.html" %}
+  {% include "_partials/answer_key_notice.html" %}
+
   <script>
     var WS_TOPICS    = {{ parent_topics_json|safe }};
     var WS_SUBTOPICS = {{ subtopics_json|safe }};
