@@ -98,9 +98,77 @@ jobs:
              fi
              echo 'AUDIT PASSED'"
 
+  content-sweep:
+    name: Browser sweep — every level and topic
+    needs: audit
+    if: always() && needs.audit.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check sweep credentials
+        id: creds
+        env:
+          SWEEP_USERNAME: ${{ secrets.SWEEP_USERNAME }}
+        run: |
+          if [ -z "$SWEEP_USERNAME" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SWEEP_USERNAME/SWEEP_PASSWORD not set — skipping the browser sweep. Create a student account on the test site and add them as secrets."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Collect the level/topic targets from the test database
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          TEST_DEPLOY_HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+          TEST_DEPLOY_USER: ${{ secrets.TEST_DEPLOY_USER }}
+          TEST_DEPLOY_SSH_KEY: ${{ secrets.TEST_DEPLOY_SSH_KEY }}
+          TEST_DEPLOY_PATH: ${{ secrets.TEST_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$TEST_DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$TEST_DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          REPO="${TEST_DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP_TEST}"
+          # A student only ever sees their own level, so the quiz pages cannot
+          # be discovered by crawling — the database supplies the target list.
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
+            "${TEST_DEPLOY_USER:-cwa}@${TEST_DEPLOY_HOST}" \
+            "cd ${REPO} && ./venv/bin/python cwa_classroom/manage.py list_quiz_targets" \
+            > targets.json
+          python -c "import json;d=json.load(open('targets.json'));print(f'{len(d)} level/topic quizzes to sweep')"
+
+      - name: Install Playwright + Chromium
+        if: steps.creds.outputs.configured == 'true'
+        run: |
+          pip install -r cwa_classroom/requirements-test.txt
+          playwright install --with-deps chromium
+
+      - name: Sweep every level and topic
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          QUIZ_TARGETS_FILE: ${{ github.workspace }}/targets.json
+          SWEEP_USERNAME: ${{ secrets.SWEEP_USERNAME }}
+          SWEEP_PASSWORD: ${{ secrets.SWEEP_PASSWORD }}
+          SWEEP_QUESTIONS_PER_TOPIC: "3"
+          TEST_SMOKE_URL: ${{ secrets.TEST_SMOKE_URL }}
+        working-directory: cwa_classroom
+        run: |
+          URL="${TEST_SMOKE_URL:-https://test.wizardslearninghub.co.nz}"
+          # -n 0: one browser, one session — the sweep walks targets in order
+          # and collects every finding rather than stopping at the first.
+          pytest ui_tests/test_content_sweep.py -m live -n 0 -v --tb=short \
+            --live-url "$URL"
+
   notify-failure:
     name: Alert on failed audit
-    needs: audit
+    needs: [audit, content-sweep]
     if: failure() && needs.audit.outputs.configured == 'true'
     runs-on: ubuntu-latest
     steps:
