@@ -867,3 +867,112 @@ def sync_digitalocean_expenses():
         ).delete()
         touched += 1
     return touched
+
+
+# ---------------------------------------------------------------------------
+# Billed AI cost (CPP-383) — the vendor's own figure, not an estimate
+# ---------------------------------------------------------------------------
+def apportion_billed_cost(billed_usd, usage_rows):
+    """Split a vendor's billed total across usage rows by their token share.
+
+    Returns ``{row_id: Decimal}``. The *total* is the vendor's, so the accounts
+    are exact; the *split* is derived from measured tokens, so attribution
+    survives without anybody maintaining a price list.
+
+    Deliberately approximate in one respect, and it should be labelled as such
+    wherever it is shown: vendors charge more for output than input tokens,
+    while this weighs them equally. A feature with an unusual output ratio is
+    therefore slightly mis-attributed. That is an acceptable trade for a
+    breakdown — it would not be for a total.
+
+    Rounding remainder goes to the largest row, so the parts always sum to the
+    billed figure rather than drifting a cent below it.
+    """
+    rows = [(row_id, int(tokens or 0)) for row_id, tokens in usage_rows]
+    total_tokens = sum(tokens for _, tokens in rows)
+    if not rows or total_tokens <= 0 or not billed_usd:
+        return {}
+
+    billed = Decimal(billed_usd)
+    shares = {}
+    running = Decimal('0')
+    for row_id, tokens in rows:
+        share = (billed * Decimal(tokens) / Decimal(total_tokens)
+                 ).quantize(Decimal('0.00001'))
+        shares[row_id] = share
+        running += share
+
+    # Hand the rounding difference to the biggest consumer.
+    drift = billed.quantize(Decimal('0.00001')) - running
+    if drift and shares:
+        biggest = max(rows, key=lambda r: r[1])[0]
+        shares[biggest] += drift
+    return shares
+
+
+def sync_ai_vendor_expenses(months=3):
+    """Upsert Expense rows from what the AI vendors actually billed.
+
+    Mirrors sync_digitalocean_expenses: fetch the vendor's own figure, convert
+    USD->NZD, upsert one row per vendor per month, idempotently.
+
+    A vendor that cannot supply a figure — no admin key, API error — is skipped
+    and reported. Its month simply has no row, so the dashboard can say the
+    number is unavailable. It must never fall back to the token estimate and
+    present that as billed.
+
+    Returns ``{'written': n, 'skipped': [(provider, reason), ...]}``.
+    """
+    from .ai_vendor_costs import FETCHERS, VendorCostUnavailable
+    from .models import (
+        Expense, ExpenseCategory, EXPENSE_SOURCE_AI_VENDOR,
+    )
+
+    today = timezone.localdate()
+    start = _first_of_month(today)
+    for _ in range(max(0, months - 1)):
+        start = _first_of_month((start - timedelta(days=1)))
+
+    rate, _ = get_usd_to_nzd_rate()
+    written = 0
+    skipped = []
+
+    for provider, fetch in FETCHERS.items():
+        mapping = _AI_PROVIDER_EXPENSE.get(provider)
+        if mapping is None:
+            skipped.append((provider, 'no expense mapping'))
+            continue
+        category_name, vendor, _description = mapping
+
+        try:
+            daily = fetch(start, today)
+        except VendorCostUnavailable as exc:
+            logger.warning('Billed cost unavailable for %s: %s', provider, exc)
+            skipped.append((provider, str(exc)))
+            continue
+        if daily is None:
+            skipped.append((provider, 'no admin API key configured'))
+            continue
+
+        buckets = {}
+        for entry in daily:
+            key = _first_of_month(entry.on)
+            buckets[key] = buckets.get(key, Decimal('0')) + entry.amount_usd
+
+        for month_start, usd in sorted(buckets.items()):
+            nzd = (usd * rate).quantize(Decimal('0.01'))
+            Expense.objects.update_or_create(
+                source=EXPENSE_SOURCE_AI_VENDOR,
+                incurred_on=month_start,
+                category=getattr(ExpenseCategory, category_name),
+                defaults={
+                    'vendor': vendor,
+                    'description': f'{vendor} billed usage (auto)',
+                    'amount': nzd,
+                    'original_amount': usd.quantize(Decimal('0.000001')),
+                    'original_currency': 'USD',
+                },
+            )
+            written += 1
+
+    return {'written': written, 'skipped': skipped}
