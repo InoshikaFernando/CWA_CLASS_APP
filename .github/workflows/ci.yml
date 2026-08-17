@@ -88,7 +88,7 @@ jobs:
 
       - name: Run quiz tests
         working-directory: cwa_classroom
-        run: pytest quiz/tests.py -n auto --dist=loadscope -v --tb=short
+        run: pytest quiz/tests.py quiz/test_cpp377_recording.py quiz/test_verify_quiz_grading.py quiz/test_create_sweep_account.py -n auto --dist=loadscope -v --tb=short
 
   puzzles-tests:
     name: Number Puzzles Tests
@@ -202,7 +202,7 @@ jobs:
 
       - name: Run billing tests
         working-directory: cwa_classroom
-        run: pytest billing/tests.py billing/tests_admin.py billing/tests_finance.py billing/tests_gaps.py billing/tests_parent_invoice_payment.py billing/tests_stripe.py billing/tests_views_coverage.py billing/tests_webhook_handlers.py -n auto --dist=loadscope -v --tb=short
+        run: pytest billing/tests.py billing/tests_admin.py billing/tests_finance.py billing/tests_gaps.py billing/tests_parent_invoice_payment.py billing/tests_stripe.py billing/tests_views_coverage.py billing/tests_webhook_handlers.py billing/tests_ai_vendor_costs.py -n auto --dist=loadscope -v --tb=short
 
   homework-tests:
     name: Homework Tests
@@ -221,11 +221,16 @@ jobs:
 
       - name: Run homework tests
         working-directory: cwa_classroom
-        # homework/tests.py holds the legacy suite; the app-root test_*.py files
-        # (PDF-import wiring for measure/geometry/plane/column/number_line, etc.)
-        # are NOT matched by pytest's default python_files, so pass the package
-        # dir too or they silently never run in CI.
-        run: pytest homework/tests.py homework/ -n auto --dist=loadscope -v --tb=short
+        # Two invocations on purpose. homework/tests.py holds the legacy suite;
+        # the app-root test_*.py files (PDF-import wiring, second-opinion
+        # verification, etc.) live beside it. Passing BOTH to one pytest run
+        # (`pytest homework/tests.py homework/`) silently collects only
+        # homework/tests.py — pytest drops the directory argument once a module
+        # inside that package has been collected, so 140 tests never ran. Two
+        # runs each collect in full, and `set -e` still fails the job on either.
+        run: |
+          pytest homework/tests.py -n auto --dist=loadscope -v --tb=short
+          pytest homework/ -n auto --dist=loadscope -v --tb=short
 
   brainbuzz-tests:
     name: BrainBuzz Tests

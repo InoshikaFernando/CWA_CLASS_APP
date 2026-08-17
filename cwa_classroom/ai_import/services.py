@@ -1138,8 +1138,10 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
     # answer and checking the transcription — and flags disagreements
     # needs_review for the teacher. Best-effort and self-gating: a no-op when
     # OPENAI_API_KEY isn't configured, and it never fails the import. Kept out of
-    # merged['usage'] (Claude token ledger) because GPT is priced separately;
-    # reported under merged['verification'].
+    # merged['usage'] (the Claude token ledger) because GPT is priced
+    # separately; reported under merged['verification'], from where
+    # ai_import.tasks records it as its own OpenAI row in the usage ledger so it
+    # reaches the finance dashboard (CPP-382).
     page_images = {
         p['page_num']: p['screenshot']
         for p in pages

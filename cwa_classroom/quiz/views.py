@@ -762,19 +762,26 @@ class MixedQuizView(LoginRequiredMixin, View):
 
             is_correct = False
             student_answer = ''
+            # What the student actually chose/typed, kept for the StudentAnswer
+            # row below — see the note on the topic-quiz save path (CPP-377).
+            selected_answer_obj = None
+            typed_answer = ''
             if q.question_type in ('multiple_choice', 'true_false'):
                 answer_id = request.POST.get(f'answer_{q.id}')
                 if answer_id:
                     answer = Answer.objects.filter(id=answer_id, question=q).first()
                     is_correct = bool(answer and answer.is_correct)
                     student_answer = answer.answer_text if answer else ''
+                    selected_answer_obj = answer
             elif q.answer_format == 'algebra':
                 raw = request.POST.get(f'text_{q.id}', '').strip()
                 is_correct = q.grade_text_answer(raw)
                 student_answer = raw
+                typed_answer = raw
             else:
                 raw = request.POST.get(f'text_{q.id}', '').strip()
                 student_answer = raw
+                typed_answer = raw
                 is_correct = _grade_short_answer(q, raw, _correct_answer_texts(q))
 
             if is_correct:
@@ -795,6 +802,8 @@ class MixedQuizView(LoginRequiredMixin, View):
             answer_records.append(StudentAnswer(
                 student=request.user,
                 question=q,
+                selected_answer=selected_answer_obj,
+                text_answer=typed_answer,
                 is_correct=is_correct,
             ))
 
@@ -887,11 +896,17 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         is_correct = False
         correct_answer_text = ''
         correct_answer_id = None
+        # The option the student actually clicked. Persisted on StudentAnswer
+        # below: without it the row records only *that* an answer scored zero,
+        # never *what* was chosen, which makes a "this was marked wrong
+        # unfairly" report impossible to check against the data (CPP-377).
+        selected_answer_obj = None
 
         if q.question_type in ('multiple_choice', 'true_false'):
             answer_id = data.get('answer_id')
             answer = Answer.objects.filter(id=answer_id, question=q).first()
             is_correct = bool(answer and answer.is_correct)
+            selected_answer_obj = answer
             correct_ans = q.answers.filter(is_correct=True).first()
             if correct_ans:
                 correct_answer_text = correct_ans.answer_text
@@ -981,17 +996,26 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                 # the student the answer was "54" when it is 54 and 63 (CPP-376).
                 correct_answer_text = q.correct_answer_display()
 
-        # Capture the student's submitted answer (as text) for later review.
+        # Capture the student's submitted answer (as text) for later review, and
+        # in the typed/ordered forms the StudentAnswer row stores.
+        ordered_answer_ids = None
+        typed_answer = ''
         if q.question_type in ('multiple_choice', 'true_false'):
-            _sel = Answer.objects.filter(id=data.get('answer_id'), question=q).first()
-            student_answer_text = _sel.answer_text if _sel else ''
+            # Reuses the Answer already fetched by the grader above rather than
+            # re-querying it.
+            student_answer_text = (
+                selected_answer_obj.answer_text if selected_answer_obj else ''
+            )
         elif q.question_type == 'drag_drop':
             _texts = dict(q.answers.values_list('id', 'answer_text'))
+            _raw_ids = data.get('ordered_answer_ids', [])
             student_answer_text = ' -> '.join(
-                str(_texts.get(int(i), i)) for i in data.get('ordered_answer_ids', [])
+                str(_texts.get(int(i), i)) for i in _raw_ids
             )
+            ordered_answer_ids = [int(i) for i in _raw_ids]
         else:
-            student_answer_text = data.get('text_answer', '').strip()
+            typed_answer = data.get('text_answer', '').strip()
+            student_answer_text = typed_answer
 
         # Update session
         if is_correct:
@@ -1019,7 +1043,12 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             student=request.user,
             question=q,
             attempt_id=attempt,
-            defaults={'is_correct': is_correct},
+            defaults={
+                'is_correct': is_correct,
+                'selected_answer': selected_answer_obj,
+                'text_answer': typed_answer,
+                'ordered_answer_ids': ordered_answer_ids,
+            },
         )
 
         is_last = session_data['current'] >= len(questions)

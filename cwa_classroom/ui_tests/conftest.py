@@ -16,7 +16,9 @@ and the ``live_server`` fixture returns the provided URL.
 
 from __future__ import annotations
 
+import glob
 import os
+import re
 
 # ---------------------------------------------------------------------------
 # --live-url support: detect early so we can skip the SQLite override
@@ -65,6 +67,54 @@ def pytest_configure(config):
     if live_url:
         # Disable parallel execution — tests share the remote DB
         config.option.numprocesses = 0
+
+
+# ---------------------------------------------------------------------------
+# Browser executable — tolerate a pre-installed Chromium of another build
+# ---------------------------------------------------------------------------
+def _preinstalled_chromium():
+    """Return an explicit Chromium path when browsers are pre-baked, else None.
+
+    Managed environments (Claude Code on the web, some CI images) ship Chromium
+    under ``PLAYWRIGHT_BROWSERS_PATH`` and block re-downloading. That build will
+    not always match the one this ``playwright`` release looks for, and the
+    mismatch fails every UI test with a bare "Executable doesn't exist at
+    .../chromium_headless_shell-<build>/..." — which reads like a broken test
+    rather than a missing browser.
+
+    When the variable is set we therefore point Playwright at the newest build
+    actually present. With the variable unset (local dev, CI running
+    ``playwright install``) this returns None and nothing changes.
+    """
+    root = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if not root or not os.path.isdir(root):
+        return None
+
+    # Headless shell first: that is what pytest-playwright launches by default.
+    for pattern in ("chromium_headless_shell-*/chrome-linux/headless_shell",
+                    "chromium-*/chrome-linux/chrome"):
+        matches = sorted(
+            glob.glob(os.path.join(root, pattern)),
+            key=lambda path: _build_number(path),
+        )
+        if matches:
+            return matches[-1]
+    return None
+
+
+def _build_number(path):
+    """Sort key: the numeric build id in a browser directory name."""
+    match = re.search(r"-(\d+)/", path)
+    return int(match.group(1)) if match else 0
+
+
+@pytest.fixture(scope="session")
+def browser_type_launch_args(browser_type_launch_args):
+    """Launch the pre-installed Chromium when one is provided by the image."""
+    executable = _preinstalled_chromium()
+    if not executable:
+        return browser_type_launch_args
+    return {**browser_type_launch_args, "executable_path": executable}
 
 
 # ---------------------------------------------------------------------------

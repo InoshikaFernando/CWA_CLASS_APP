@@ -728,6 +728,7 @@ class ExpenseCategory(models.TextChoices):
     """Vendor buckets for operating costs. Stripe income is the counterpart."""
     CLAUDE_API = 'claude_api', 'Claude API (Anthropic)'
     CLAUDE_CODE = 'claude_code', 'Claude Code'
+    OPENAI_API = 'openai_api', 'OpenAI API (GPT)'
     DIGITALOCEAN = 'digitalocean', 'DigitalOcean'
     RESEND = 'resend', 'Resend (email)'
     GODADDY = 'godaddy', 'GoDaddy (domain)'
@@ -742,11 +743,16 @@ EXPENSE_SOURCE_MANUAL = 'manual'
 EXPENSE_SOURCE_RECURRING = 'recurring'
 EXPENSE_SOURCE_AI_GRADING = 'ai_grading'
 EXPENSE_SOURCE_DIGITALOCEAN = 'digitalocean_api'
+# Billed AI spend fetched from the vendor's own API (CPP-383). Kept distinct
+# from EXPENSE_SOURCE_AI_GRADING (the token estimate) so the two can coexist
+# during the switchover and the authoritative one is identifiable.
+EXPENSE_SOURCE_AI_VENDOR = 'ai_vendor_api'
 EXPENSE_SOURCE_CHOICES = [
     (EXPENSE_SOURCE_MANUAL, 'Manual entry'),
     (EXPENSE_SOURCE_RECURRING, 'Recurring template'),
     (EXPENSE_SOURCE_AI_GRADING, 'AI usage (auto)'),
     (EXPENSE_SOURCE_DIGITALOCEAN, 'DigitalOcean API (auto)'),
+    (EXPENSE_SOURCE_AI_VENDOR, 'AI vendor billed (auto)'),
 ]
 
 # Sources a human owns and may edit/delete in the UI. Everything else is
@@ -806,16 +812,20 @@ class Expense(models.Model):
         indexes = [models.Index(fields=['incurred_on'])]
         constraints = [
             # One auto row per template per month, and one ai_grading row per
-            # month — makes re-running the sync command a no-op.
+            # vendor per month — makes re-running the sync command a no-op.
             models.UniqueConstraint(
                 fields=['recurring', 'incurred_on'],
                 condition=models.Q(recurring__isnull=False),
                 name='uniq_recurring_expense_per_date',
             ),
+            # Category is part of the key because AI spend is now expensed per
+            # provider: one Anthropic row and one OpenAI row can share a month.
+            # Without the category the schema silently enforced "exactly one AI
+            # vendor", which is how OpenAI spend had nowhere to go (CPP-382).
             models.UniqueConstraint(
-                fields=['source', 'incurred_on'],
+                fields=['source', 'incurred_on', 'category'],
                 condition=models.Q(source='ai_grading'),
-                name='uniq_ai_grading_expense_per_month',
+                name='uniq_ai_grading_expense_per_month_vendor',
             ),
         ]
 
