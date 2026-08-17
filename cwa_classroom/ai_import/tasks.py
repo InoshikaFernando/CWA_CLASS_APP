@@ -135,11 +135,29 @@ def process_pdf_import(session_id):
         from taskqueue.services import record_ai_usage
         record_ai_usage(
             school=session.school,
+            provider=AIUsageLog.PROVIDER_ANTHROPIC,
             source=AIUsageLog.SOURCE_AI_IMPORT,
             session_id=session.pk,
             pages=extracted['page_count'],
             usage=result.get('usage', {}),
         )
+
+        # The GPT second-opinion verifier is a separate bill. Its tokens are
+        # deliberately kept out of the Claude ledger above (they are priced
+        # differently) — but they used to be dropped entirely, which is why
+        # OpenAI spend never reached the finance dashboard (CPP-382). Recorded
+        # here as its own provider row so both vendors are visible and
+        # separable.
+        verification = result.get('verification') or {}
+        if verification.get('input_tokens') or verification.get('output_tokens'):
+            record_ai_usage(
+                school=session.school,
+                provider=AIUsageLog.PROVIDER_OPENAI,
+                source=AIUsageLog.SOURCE_AI_IMPORT,
+                session_id=session.pk,
+                pages=extracted['page_count'],
+                usage=verification,
+            )
 
         logger.info(
             'AI import session=%s processed: %s pages, %s questions',

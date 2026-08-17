@@ -469,3 +469,71 @@ class FinanceDashboardViewTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         row.refresh_from_db()
         self.assertEqual(row.amount, Decimal('56.74'))
+
+
+class AIExpenseProviderSplitTests(TestCase):
+    """AI spend is expensed per vendor, not as one merged figure (CPP-382)."""
+
+    def _usage(self, provider, cost, **kwargs):
+        return AIUsageLog.objects.create(
+            provider=provider,
+            source=AIUsageLog.SOURCE_AI_IMPORT,
+            pages=1, input_tokens=100, output_tokens=10,
+            est_cost_usd=Decimal(cost), **kwargs)
+
+    def test_each_provider_gets_its_own_expense_line(self):
+        from billing.models import Expense, ExpenseCategory
+        from billing.reporting import sync_ai_usage_expenses
+
+        self._usage(AIUsageLog.PROVIDER_ANTHROPIC, '10.00')
+        self._usage(AIUsageLog.PROVIDER_OPENAI, '4.00')
+
+        sync_ai_usage_expenses()
+
+        claude = Expense.objects.filter(category=ExpenseCategory.CLAUDE_API)
+        openai = Expense.objects.filter(category=ExpenseCategory.OPENAI_API)
+        self.assertEqual(claude.count(), 1)
+        self.assertEqual(openai.count(), 1)
+        self.assertEqual(claude.first().vendor, 'Anthropic')
+        self.assertEqual(openai.first().vendor, 'OpenAI')
+
+    def test_openai_spend_is_not_folded_into_the_anthropic_line(self):
+        # The bug: OpenAI cost invisible, or worse, misattributed to Anthropic.
+        from billing.models import Expense, ExpenseCategory
+        from billing.reporting import sync_ai_usage_expenses
+
+        self._usage(AIUsageLog.PROVIDER_ANTHROPIC, '10.00')
+        self._usage(AIUsageLog.PROVIDER_OPENAI, '4.00')
+        sync_ai_usage_expenses()
+
+        claude = Expense.objects.get(category=ExpenseCategory.CLAUDE_API)
+        openai = Expense.objects.get(category=ExpenseCategory.OPENAI_API)
+        # 10 and 4 in USD, kept apart rather than summed to 14 on one row.
+        self.assertEqual(claude.original_amount, Decimal('10.000000'))
+        self.assertEqual(openai.original_amount, Decimal('4.000000'))
+
+    def test_sync_is_idempotent_per_provider(self):
+        from billing.models import Expense
+        from billing.reporting import sync_ai_usage_expenses
+
+        self._usage(AIUsageLog.PROVIDER_ANTHROPIC, '10.00')
+        self._usage(AIUsageLog.PROVIDER_OPENAI, '4.00')
+        sync_ai_usage_expenses()
+        sync_ai_usage_expenses()
+
+        self.assertEqual(Expense.objects.count(), 2)
+
+    def test_rows_without_a_provider_are_treated_as_anthropic(self):
+        # Historical rows predate the column; they are all Claude.
+        from billing.models import Expense, ExpenseCategory
+        from billing.reporting import sync_ai_usage_expenses
+
+        AIUsageLog.objects.create(
+            source=AIUsageLog.SOURCE_WORKSHEET, pages=1,
+            input_tokens=100, output_tokens=10, est_cost_usd=Decimal('3.00'))
+        sync_ai_usage_expenses()
+
+        self.assertTrue(Expense.objects.filter(
+            category=ExpenseCategory.CLAUDE_API).exists())
+        self.assertFalse(Expense.objects.filter(
+            category=ExpenseCategory.OPENAI_API).exists())

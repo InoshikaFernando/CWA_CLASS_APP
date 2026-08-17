@@ -1490,3 +1490,74 @@ class QuestionHealthSnapshot(models.Model):
         if self.questions_advisory:
             return 'warn'
         return 'ok'
+
+
+class QuestionAIReview(models.Model):
+    """One semantic review of one question by an independent model (CPP-380).
+
+    The deterministic audits prove things about the data — a distractor equal to
+    the answer, an answer key that fails its own arithmetic. They cannot judge
+    whether a question is *sensible*: ambiguous wording, an answer that does not
+    follow from the stem, information missing from a word problem.
+
+    This is the record of a model having looked. It is deliberately a *review*,
+    not a verdict on truth: two models agreeing is a second opinion, and the
+    row exists to route a human's attention, never to bless content. Nothing in
+    this app edits question text on the strength of it.
+
+    The row is the single source of truth for review state — there is no
+    denormalised flag on Question to drift out of sync. ``question_updated_at``
+    snapshots the content version reviewed, so an edit after review makes the
+    review stale rather than silently vouching for text nobody checked.
+    """
+
+    VERDICT_OK = 'ok'
+    VERDICT_FLAGGED = 'flagged'
+    VERDICT_ERROR = 'error'
+    VERDICT_CHOICES = [
+        (VERDICT_OK, 'Reviewed — no objection'),
+        (VERDICT_FLAGGED, 'Flagged for human review'),
+        (VERDICT_ERROR, 'Review failed'),
+    ]
+
+    question = models.ForeignKey(
+        Question, on_delete=models.CASCADE, related_name='ai_reviews')
+    reviewed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    verdict = models.CharField(max_length=10, choices=VERDICT_CHOICES)
+    reason = models.TextField(
+        blank=True, default='',
+        help_text='Short human-readable explanation, shown to whoever triages.')
+
+    # Which content version this review applies to. Compared against
+    # Question.updated_at to detect a review made stale by a later edit.
+    question_updated_at = models.DateTimeField(null=True, blank=True)
+
+    # Two-tier review: a cheap model looks at everything, and only what it
+    # doubts is escalated. Recorded so the escalation rate — the thing that
+    # actually drives cost — is measurable after the fact.
+    first_pass_model = models.CharField(max_length=100, blank=True, default='')
+    adjudicator_model = models.CharField(max_length=100, blank=True, default='')
+    escalated = models.BooleanField(default=False)
+
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    # Null when the model's rate is not configured — tokens are always known,
+    # cost is not, and guessing it would make the budget ceiling a lie.
+    cost_usd = models.DecimalField(
+        max_digits=10, decimal_places=6, null=True, blank=True)
+
+    class Meta:
+        ordering = ['-reviewed_at']
+        indexes = [models.Index(fields=['question', '-reviewed_at'])]
+        verbose_name = 'question AI review'
+
+    def __str__(self):
+        return f'Q{self.question_id} — {self.get_verdict_display()}'
+
+    @property
+    def is_stale(self):
+        """True if the question was edited after this review was made."""
+        if not self.question_updated_at or not self.question.updated_at:
+            return False
+        return self.question.updated_at > self.question_updated_at
