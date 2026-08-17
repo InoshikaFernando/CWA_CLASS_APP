@@ -3,12 +3,20 @@ Project-level views (health check, version info, etc.)
 """
 
 import datetime
+import logging
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.core.cache import cache
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponseRedirect
+from django.middleware.csrf import REASON_NO_CSRF_COOKIE
+from django.shortcuts import render
+from django.urls import reverse, NoReverseMatch
+from django.utils.http import url_has_allowed_host_and_scheme
+
+logger = logging.getLogger(__name__)
 
 
 def _utc_now_iso():
@@ -104,3 +112,55 @@ def health_check(request):
         return JsonResponse(body, status=503)
 
     return JsonResponse(body)
+
+
+def _auth_urls():
+    """(login_url, logout_url) — falls back to settings when a subdomain
+    urlconf doesn't route the accounts app."""
+    try:
+        return reverse('login'), reverse('logout')
+    except NoReverseMatch:
+        return settings.LOGIN_URL, None
+
+
+def csrf_failure(request, reason='', template_name='403_csrf.html'):
+    """CSRF_FAILURE_VIEW — let a stale sign-in be retried instead of dead-ending.
+
+    Signing in rotates the CSRF secret, so every form rendered *before* that
+    login — a second tab, a page the back button restored, anything the browser
+    kept — still carries a token the server no longer accepts. Logging out of
+    one account and into another from such a page used to land on Django's bare
+    "CSRF verification failed. Request aborted." page with no way forward
+    (CPP-36).
+
+    For the auth forms that means bouncing back to a freshly-tokened login page
+    that explains what happened. Everything else keeps its 403 — the point is a
+    branded page with a way out, not a hidden failure — and a blocked cookie
+    (as opposed to a stale token) is always reported rather than retried, since
+    a retry would fail identically.
+    """
+    logger.warning(
+        'CSRF failure on %s %s (reason=%s, referer=%s)',
+        request.method, request.path, reason, request.META.get('HTTP_REFERER', ''),
+    )
+
+    login_url, logout_url = _auth_urls()
+    cookies_blocked = reason == REASON_NO_CSRF_COOKIE
+
+    if not cookies_blocked and request.path in (login_url, logout_url):
+        params = {'expired': '1'}
+        next_url = request.POST.get('next') or request.GET.get('next')
+        if next_url and url_has_allowed_host_and_scheme(
+            next_url,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            params['next'] = next_url
+        return HttpResponseRedirect(f'{login_url}?{urlencode(params)}')
+
+    return render(
+        request,
+        template_name,
+        {'reason': reason, 'cookies_blocked': cookies_blocked, 'login_url': login_url},
+        status=403,
+    )
