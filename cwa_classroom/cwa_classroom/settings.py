@@ -176,6 +176,20 @@ HOMEWORK_PDF_STALL_MINUTES = int(os.environ.get('HOMEWORK_PDF_STALL_MINUTES', '1
 # to force a cheaper text-only pass (no page images, transcription check skipped).
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 
+# OpenAI list pricing, USD per 1M tokens, for the AI usage/cost ledger. No
+# default is baked in on purpose: an unset rate makes taskqueue.services raise
+# rather than price GPT tokens at Claude's rate, which is how OpenAI spend
+# stayed invisible on the finance dashboard (CPP-382). Set both to the current
+# published rates for the model in AI_IMPORT_VERIFY_MODEL.
+OPENAI_INPUT_COST_PER_MTOK = (
+    float(os.environ['OPENAI_INPUT_COST_PER_MTOK'])
+    if os.environ.get('OPENAI_INPUT_COST_PER_MTOK') else None
+)
+OPENAI_OUTPUT_COST_PER_MTOK = (
+    float(os.environ['OPENAI_OUTPUT_COST_PER_MTOK'])
+    if os.environ.get('OPENAI_OUTPUT_COST_PER_MTOK') else None
+)
+
 # USD->NZD conversion used by the income-vs-expense dashboard to convert
 # USD-billed costs (Anthropic AI grading) into the dashboard's base currency
 # (NZD). Manual vendor bills are converted by the operator on entry; this only

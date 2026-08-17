@@ -728,6 +728,7 @@ class ExpenseCategory(models.TextChoices):
     """Vendor buckets for operating costs. Stripe income is the counterpart."""
     CLAUDE_API = 'claude_api', 'Claude API (Anthropic)'
     CLAUDE_CODE = 'claude_code', 'Claude Code'
+    OPENAI_API = 'openai_api', 'OpenAI API (GPT)'
     DIGITALOCEAN = 'digitalocean', 'DigitalOcean'
     RESEND = 'resend', 'Resend (email)'
     GODADDY = 'godaddy', 'GoDaddy (domain)'
@@ -806,16 +807,20 @@ class Expense(models.Model):
         indexes = [models.Index(fields=['incurred_on'])]
         constraints = [
             # One auto row per template per month, and one ai_grading row per
-            # month — makes re-running the sync command a no-op.
+            # vendor per month — makes re-running the sync command a no-op.
             models.UniqueConstraint(
                 fields=['recurring', 'incurred_on'],
                 condition=models.Q(recurring__isnull=False),
                 name='uniq_recurring_expense_per_date',
             ),
+            # Category is part of the key because AI spend is now expensed per
+            # provider: one Anthropic row and one OpenAI row can share a month.
+            # Without the category the schema silently enforced "exactly one AI
+            # vendor", which is how OpenAI spend had nowhere to go (CPP-382).
             models.UniqueConstraint(
-                fields=['source', 'incurred_on'],
+                fields=['source', 'incurred_on', 'category'],
                 condition=models.Q(source='ai_grading'),
-                name='uniq_ai_grading_expense_per_month',
+                name='uniq_ai_grading_expense_per_month_vendor',
             ),
         ]
 

@@ -721,14 +721,34 @@ def get_usd_to_nzd_rate():
     return rate, 'live'
 
 
-def sync_ai_usage_expenses():
-    """Mirror the internal AI cost ledger into monthly Anthropic Expense rows.
+# How each AI provider appears on the finance dashboard. Keeping the vendors on
+# separate Expense rows is the point: one merged "AI" figure cannot answer "how
+# much is OpenAI costing us?", which is the question that exposed OpenAI spend
+# being missing altogether (CPP-382).
+_AI_PROVIDER_EXPENSE = {
+    'anthropic': (
+        'CLAUDE_API', 'Anthropic',
+        'AI usage: PDF scan + marking + worksheets (auto)',
+    ),
+    'openai': (
+        'OPENAI_API', 'OpenAI',
+        'AI usage: question verification + review (auto)',
+    ),
+}
 
-    Sums `taskqueue.AIUsageLog.est_cost_usd` per calendar month — covering EVERY
-    AI source (ai_import PDF scan, homework marking, worksheet classification) —
-    converts USD->NZD and upserts one `claude_api` Expense row per month. Because
-    it reads the ledger, any new AI feature that logs usage is captured with no
-    config change. Idempotent; returns rows created/updated.
+
+def sync_ai_usage_expenses():
+    """Mirror the internal AI cost ledger into monthly Expense rows per vendor.
+
+    Sums `taskqueue.AIUsageLog.est_cost_usd` per calendar month AND per provider
+    — covering EVERY AI source (ai_import PDF scan, homework marking, worksheet
+    classification, question review) — converts USD->NZD and upserts one Expense
+    row per month per provider. Because it reads the ledger, any new AI feature
+    that logs usage is captured with no config change.
+
+    Idempotent; returns rows created/updated. The upsert key includes the
+    category, so the pre-existing Anthropic rows keep matching and are updated
+    rather than duplicated.
     """
     from .models import (
         Expense, ExpenseCategory, EXPENSE_SOURCE_AI_GRADING,
@@ -740,27 +760,37 @@ def sync_ai_usage_expenses():
     # Bucket by calendar month in Python — avoids MySQL TruncMonth, which needs
     # the server's timezone tables loaded when USE_TZ is on.
     buckets = {}
-    rows = AIUsageLog.objects.values_list('created_at', 'est_cost_usd')
-    for created_at, cost in rows.iterator():
+    rows = AIUsageLog.objects.values_list('created_at', 'est_cost_usd', 'provider')
+    for created_at, cost, provider in rows.iterator():
         if not cost or cost <= 0:
             continue
         local = (
             timezone.localtime(created_at)
             if timezone.is_aware(created_at) else created_at
         )
-        key = _first_of_month(local.date())
+        key = (_first_of_month(local.date()), provider or 'anthropic')
         buckets[key] = buckets.get(key, Decimal('0')) + cost
 
     touched = 0
-    for month_start, usd in sorted(buckets.items()):
+    for (month_start, provider), usd in sorted(buckets.items()):
+        mapping = _AI_PROVIDER_EXPENSE.get(provider)
+        if mapping is None:
+            # A provider with no expense mapping would silently vanish from the
+            # dashboard — the exact failure this work exists to fix. Say so.
+            logger.warning(
+                'AI usage for unmapped provider %r ($%s in %s) is not being '
+                'expensed — add it to _AI_PROVIDER_EXPENSE',
+                provider, usd, month_start)
+            continue
+        category_name, vendor, description = mapping
         nzd = (usd * rate).quantize(Decimal('0.01'))
         Expense.objects.update_or_create(
             source=EXPENSE_SOURCE_AI_GRADING,
             incurred_on=month_start,
+            category=getattr(ExpenseCategory, category_name),
             defaults={
-                'category': ExpenseCategory.CLAUDE_API,
-                'vendor': 'Anthropic',
-                'description': 'AI usage: PDF scan + marking + worksheets (auto)',
+                'vendor': vendor,
+                'description': description,
                 'amount': nzd,
                 'original_amount': usd.quantize(Decimal('0.000001')),
                 'original_currency': 'USD',
