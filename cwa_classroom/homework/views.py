@@ -1789,6 +1789,20 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
 
         shape_naming = request.POST.get('shape_naming') == 'on'
 
+        # Which pages to extract ("2-7, 9"; blank = all). Validated here against
+        # the real PDF so a bad range is an immediate form error rather than a
+        # background job the teacher only sees fail minutes later.
+        from worksheets.page_selection import (
+            PageSelectionError, clean_upload_selection,
+        )
+        try:
+            page_selection, _selected, _total = clean_upload_selection(
+                request.POST.get('page_selection'), pdf_bytes,
+            )
+        except PageSelectionError as exc:
+            messages.error(request, str(exc))
+            return redirect('homework:pdf_upload')
+
         # Create session immediately so we can redirect to the polling page
         session = HomeworkUploadSession.objects.create(
             user=request.user,
@@ -1796,6 +1810,7 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             classroom=classroom,
             pdf_filename=pdf_file.name,
             homework_title=hw_title,
+            page_selection=page_selection,
             shape_naming=shape_naming,
             status=HomeworkUploadSession.STATUS_PROCESSING,
         )
@@ -2058,6 +2073,8 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         # only 43 imported" is never a mystery.
         from worksheets.services import describe_skipped_pages
         skipped_pages = describe_skipped_pages(data)
+        # Pages the teacher themselves excluded at upload time — same reasoning.
+        from worksheets.page_selection import describe_page_selection
         # The paper's own answer key, where it had one: how many answers it
         # supplied and which questions it disagreed with the AI about.
         answer_key = data.get('answer_key') or {}
@@ -2070,6 +2087,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             'levels': levels,
             'classrooms': classrooms,
             'skipped_pages': skipped_pages,
+            'page_selection': describe_page_selection(data),
             'answer_key': answer_key,
             'question_types': [
                 ('multiple_choice', 'Multiple Choice'),

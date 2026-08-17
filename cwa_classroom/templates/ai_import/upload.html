@@ -60,6 +60,8 @@
         <p class="text-xs text-gray-400 mt-1">Upload a PDF containing questions. AI will extract text and images automatically.</p>
       </div>
 
+      {% include "_partials/page_selection_field.html" %}
+
       <div class="flex gap-3">
         <button type="submit" id="ai-upload-btn"
                 {% if usage_percent >= 100 %}disabled{% endif %}

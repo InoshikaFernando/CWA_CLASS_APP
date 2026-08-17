@@ -159,10 +159,27 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
         else:
             remaining, limit, used = _get_remaining_pages(school) if school else (0, 0, 0)
 
+        # Which pages to extract ("2-7, 9"; blank = all). Validated before the
+        # quota check so a bad range is an immediate form error, and so an upload
+        # that skips a cover sheet or a marking scheme is only charged for the
+        # pages it actually reads.
+        from worksheets.page_selection import (
+            PageSelectionError, clean_upload_selection,
+        )
         try:
-            # Step 1: Cheap page count for the quota check (no rendering).
+            page_selection, selected_pages, _total = clean_upload_selection(
+                request.POST.get('page_selection'), pdf_file,
+            )
+        except PageSelectionError as exc:
+            messages.error(request, str(exc))
+            return redirect('ai_import:upload')
+
+        try:
+            # Step 1: Cheap page count for the quota check (no rendering). Only
+            # the selected pages are extracted, so only those are charged.
             from .services import get_pdf_page_count
-            page_count = get_pdf_page_count(pdf_file)
+            page_count = (len(selected_pages) if selected_pages is not None
+                          else get_pdf_page_count(pdf_file))
 
             if page_count > remaining:
                 if remaining == 0:
@@ -172,10 +189,12 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                         f'Please upgrade your plan or wait until next month.',
                     )
                 else:
+                    what = ('Your page selection covers' if page_selection
+                            else 'This PDF has')
                     messages.error(
                         request,
-                        f'This PDF has {page_count} pages but you only have {remaining} pages remaining this month. '
-                        f'Please upgrade your plan or upload a smaller file.',
+                        f'{what} {page_count} pages but you only have {remaining} pages remaining this month. '
+                        f'Please upgrade your plan, select fewer pages, or upload a smaller file.',
                     )
                 return redirect('ai_import:upload')
 
@@ -190,6 +209,7 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                 school=school,
                 pdf_filename=pdf_file.name,
                 pdf_file=pdf_file,
+                page_selection=page_selection,
                 page_count=page_count,
                 extracted_data=pre_data,
                 status=AIImportSession.STATUS_PROCESSING,
@@ -323,12 +343,16 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
             q['image_page'] = q.get('image_page') or q.get('page') or 1
             q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
 
+        from worksheets.page_selection import describe_page_selection
+
         return render(request, 'ai_import/preview.html', {
             'session': session,
             'data': data,
             'questions': questions,
             'topics': topics,
             'levels': levels,
+            # Pages the teacher chose not to extract — stated, not silently absent.
+            'page_selection': describe_page_selection(data),
             'image_list': image_list,
             'image_refs_json': json.dumps([img['ref'] for img in image_list]),
             'question_types': [

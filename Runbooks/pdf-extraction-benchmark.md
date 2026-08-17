@@ -77,6 +77,21 @@ count, tokens and estimated cost per paper.
 Requires `ANTHROPIC_API_KEY`. Budget for it — a 24-page paper is ~5 Claude
 calls.
 
+## 4b. Checking a page selection (free)
+
+Teachers can restrict an upload to certain pages (`docs/SPEC_PDF_PAGE_SELECTION.md`).
+`--pages` runs the bench over just those pages, print-dialog style, so you can see
+what a selection would actually send before spending tokens on it:
+
+```bash
+python manage.py check_pdf_extraction paper.pdf --pages "2-7, 9"
+python manage.py check_pdf_extraction paper.pdf --pages "2-"      # skip a cover sheet
+```
+
+The report gains **`pages_selected`** whenever it differs from `pages`. Everything
+else means the same thing, measured over the selection only — so `ai_calls` here is
+what that teacher's upload would really cost. Works with `--live` too.
+
 ## 5. Reading the results
 
 - **`errors` non-empty** — the paper failed to extract. Always a release
