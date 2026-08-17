@@ -103,3 +103,53 @@ class LedgerRowTests(TestCase):
                         usage={'input_tokens': 500, 'output_tokens': 100})
         self.assertTrue(AIUsageLog.objects.filter(
             source=AIUsageLog.SOURCE_QUESTION_REVIEW).exists())
+
+
+@override_settings(CLAUDE_INPUT_COST_PER_MTOK=5.0,
+                   CLAUDE_OUTPUT_COST_PER_MTOK=25.0,
+                   OPENAI_INPUT_COST_PER_MTOK=2.5,
+                   OPENAI_OUTPUT_COST_PER_MTOK=10.0)
+class UsageDashboardSplitTests(TestCase):
+    """The AI usage dashboard separates vendors (CPP-382)."""
+
+    def _row(self, provider, cost, source=AIUsageLog.SOURCE_AI_IMPORT):
+        return AIUsageLog.objects.create(
+            provider=provider, source=source, pages=1,
+            input_tokens=100, output_tokens=10, est_cost_usd=Decimal(cost))
+
+    def test_same_source_is_split_by_vendor(self):
+        # ai_import bills BOTH vendors; one merged row would hide that.
+        from taskqueue.dashboard import aggregate_usage
+
+        self._row(AIUsageLog.PROVIDER_ANTHROPIC, '6.00')
+        self._row(AIUsageLog.PROVIDER_OPENAI, '1.50')
+
+        rows, _ = aggregate_usage(AIUsageLog.objects.all())
+        providers = {r['provider'] for r in rows}
+        self.assertEqual(providers, {AIUsageLog.PROVIDER_ANTHROPIC,
+                                     AIUsageLog.PROVIDER_OPENAI})
+        self.assertEqual(len(rows), 2)
+
+    def test_totals_include_a_per_vendor_breakdown(self):
+        from taskqueue.dashboard import aggregate_usage
+
+        self._row(AIUsageLog.PROVIDER_ANTHROPIC, '6.00')
+        self._row(AIUsageLog.PROVIDER_OPENAI, '1.50')
+
+        _, totals = aggregate_usage(AIUsageLog.objects.all())
+        self.assertEqual(totals['cost'], Decimal('7.50'))
+        self.assertEqual(
+            totals['by_provider'][AIUsageLog.PROVIDER_OPENAI]['cost'],
+            Decimal('1.50'))
+        self.assertEqual(
+            totals['by_provider'][AIUsageLog.PROVIDER_ANTHROPIC]['cost'],
+            Decimal('6.00'))
+
+    def test_markdown_names_the_vendor(self):
+        from taskqueue.dashboard import aggregate_usage, render_markdown
+
+        self._row(AIUsageLog.PROVIDER_OPENAI, '1.50')
+        rows, totals = aggregate_usage(AIUsageLog.objects.all())
+        markdown = render_markdown(rows, totals, window='7d')
+        self.assertIn('OpenAI (GPT)', markdown)
+        self.assertIn('| Vendor |', markdown)
