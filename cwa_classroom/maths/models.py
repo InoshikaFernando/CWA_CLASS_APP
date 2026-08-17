@@ -1402,3 +1402,91 @@ class StudentFinalAnswer(models.Model):
         """Keep only the most recent attempts for ``instance``'s series."""
         from classroom.attempt_retention import prune_to_last_n
         return prune_to_last_n(cls, cls.attempt_series_filter(instance))
+
+
+class QuestionHealthSnapshot(models.Model):
+    """A point-in-time measurement of how sound the question bank is.
+
+    Written by ``manage.py record_question_health`` (cron) and read by the
+    super-admin dashboard, mirroring the OpsSnapshot → ops dashboard pattern.
+
+    Snapshots exist so question health can be seen as a *trend*: a single audit
+    run tells you today's count, but only a series tells you whether editing is
+    outpacing breakage. Rows are small and written at most daily, so they are
+    kept rather than pruned.
+
+    "Blocking" issues can mark a student wrong for correct work (CPP-377);
+    "advisory" ones cannot, and are tracked separately so a presentation nit
+    never dilutes the headline number.
+    """
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    # Scope of this run — blank means the whole bank.
+    level_number = models.PositiveSmallIntegerField(null=True, blank=True)
+    topic = models.ForeignKey(
+        'classroom.Topic', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='health_snapshots',
+    )
+
+    # Population
+    total_questions = models.PositiveIntegerField(default=0)
+    choice_questions = models.PositiveIntegerField(default=0)
+
+    # Coverage — how much of the bank the audit could actually judge.
+    arithmetic_verified = models.PositiveIntegerField(
+        default=0, help_text='Questions whose own maths was evaluated and checked.')
+    unverifiable = models.PositiveIntegerField(
+        default=0, help_text='Word problems etc. that need a human.')
+
+    # Findings
+    questions_blocking = models.PositiveIntegerField(
+        default=0, help_text='Questions with an issue that can mismark a student.')
+    questions_advisory = models.PositiveIntegerField(
+        default=0, help_text='Questions with only non-mismarking issues.')
+
+    # Per-code counts, so the dashboard can show what is actually wrong.
+    # Keyed by the issue codes in maths.answer_verification.
+    issue_counts = models.JSONField(
+        default=dict, blank=True,
+        help_text="e.g. {'EQUIVALENT-OPTION': 14, 'WRONG-ANSWER-KEY': 2}")
+
+    # Enough detail to jump straight to the offending questions.
+    flagged_questions = models.JSONField(
+        default=list, blank=True,
+        help_text="[{'id': 6017, 'codes': ['EQUIVALENT-OPTION'], 'text': '...'}]")
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'question health snapshot'
+
+    def __str__(self):
+        return f'{self.created_at:%Y-%m-%d %H:%M} — {self.questions_blocking} blocking'
+
+    @property
+    def health_percent(self):
+        """Share of choice questions with no blocking issue, 0-100."""
+        if not self.choice_questions:
+            return 100
+        sound = self.choice_questions - self.questions_blocking
+        return round(sound / self.choice_questions * 100, 1)
+
+    @property
+    def coverage_percent(self):
+        """Share of choice questions whose maths could be machine-checked.
+
+        Deliberately separate from health: a 100% healthy bank that could only
+        be verified 16% deep is not the same claim, and collapsing the two
+        would overstate what is actually known.
+        """
+        if not self.choice_questions:
+            return 0
+        return round(self.arithmetic_verified / self.choice_questions * 100, 1)
+
+    @property
+    def status(self):
+        if self.questions_blocking:
+            return 'crit'
+        if self.questions_advisory:
+            return 'warn'
+        return 'ok'
