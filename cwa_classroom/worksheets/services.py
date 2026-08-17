@@ -79,7 +79,7 @@ WORKSHEET_PAGE_CAP = int(os.environ.get('WORKSHEET_PAGE_CAP', '40'))      # hard
 # PDF page extraction (worksheet-specific — tracks screenshot dimensions)
 # ---------------------------------------------------------------------------
 
-def extract_worksheet_pages(doc, screenshot_dpi=None):
+def extract_worksheet_pages(doc, screenshot_dpi=None, selected_pages=None):
     """
     Render each page of an open fitz.Document.
 
@@ -87,11 +87,18 @@ def extract_worksheet_pages(doc, screenshot_dpi=None):
     SCREENSHOT_DPI). Name-the-shape mode passes a higher value so Claude can
     place tighter bounding boxes around small individual shapes.
 
+    ``selected_pages`` is an optional iterable of 1-based page numbers to render
+    (see ``worksheets/page_selection.py``); ``None`` renders every page. Only the
+    selected pages are rendered at all, so an excluded page costs no memory, no
+    screenshot and no AI tokens. Page numbers stay ABSOLUTE — page 7 of the PDF
+    is stamped ``page_num: 7`` whether or not pages 1–6 were selected — which is
+    what keeps image bboxes and the re-crop tooling working on a partial run.
+
     Returns:
         {
             'pages': [
                 {
-                    'page_num': int,          # 1-based
+                    'page_num': int,          # 1-based, absolute in the PDF
                     'text': str,
                     'screenshot': str,        # base64 JPEG of full page
                     'screenshot_w': int,      # pixel width  of screenshot
@@ -100,12 +107,20 @@ def extract_worksheet_pages(doc, screenshot_dpi=None):
                     'pdf_h': float,           # page height in PDF points
                 }
             ],
-            'page_count': int,
+            'page_count': int,        # pages actually rendered (what gets billed)
+            'total_page_count': int,  # pages in the PDF
+            'selected_pages': [int],  # the absolute page numbers rendered
         }
     """
     dpi = screenshot_dpi or SCREENSHOT_DPI
+    total = len(doc)
+    if selected_pages is None:
+        wanted = list(range(1, total + 1))
+    else:
+        wanted = [p for p in sorted(set(selected_pages)) if 1 <= p <= total]
+
     pages = []
-    for page_num in range(len(doc)):
+    for page_num in (p - 1 for p in wanted):
         page = doc[page_num]
         text = page.get_text('text')
 
@@ -125,7 +140,12 @@ def extract_worksheet_pages(doc, screenshot_dpi=None):
         # Release the raw pixmap buffer promptly — the base64 is already kept.
         pix = None
 
-    return {'pages': pages, 'page_count': len(pages)}
+    return {
+        'pages': pages,
+        'page_count': len(pages),
+        'total_page_count': total,
+        'selected_pages': wanted,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -625,10 +645,15 @@ def _label_question_number(question_text):
 PAGE_ROLE_QUESTIONS = 'questions'
 PAGE_ROLE_ANSWER_SHEET = 'answer_sheet'
 PAGE_ROLE_ANSWER_KEY = 'answer_key'
+# Not a detected role — the page selection was longer than WORKSHEET_PAGE_CAP and
+# the tail was dropped. Reported through the same notice so the cap can't silently
+# swallow pages the teacher explicitly asked for.
+PAGE_ROLE_OVER_CAP = 'over_cap'
 
 PAGE_ROLE_LABELS = {
     PAGE_ROLE_ANSWER_SHEET: 'multiple-choice answer sheet',
     PAGE_ROLE_ANSWER_KEY: 'answer key',
+    PAGE_ROLE_OVER_CAP: f'beyond the {WORKSHEET_PAGE_CAP}-page limit for one upload',
 }
 
 # Skipping is deterministic and free (plain text, no AI call), but keep an escape
@@ -961,10 +986,28 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
     client = _get_anthropic_client()
     system = _build_system_prompt(existing_topics, existing_levels, shape_naming=shape_naming)
 
-    pages = [p for p in extracted_pages['pages'][:WORKSHEET_PAGE_CAP] if p.get('screenshot')]
+    with_screenshots = [p for p in extracted_pages['pages'] if p.get('screenshot')]
+    pages = with_screenshots[:WORKSHEET_PAGE_CAP]
     if not pages:
         raise ValueError("No page screenshots to classify.")
-    total = extracted_pages['page_count']
+    # Page numbers in the prompt and in every returned bbox are absolute, so tell
+    # Claude the PDF's real length rather than how many pages this run selected.
+    total = extracted_pages.get('total_page_count') or extracted_pages['page_count']
+
+    # The cap used to drop the tail without a word. Carry the dropped pages into
+    # skipped_pages so the preview notice names them.
+    over_cap = [(p, PAGE_ROLE_OVER_CAP) for p in with_screenshots[WORKSHEET_PAGE_CAP:]]
+    if over_cap:
+        logger.warning(
+            'Page cap: only the first %s of %s selected pages are being '
+            'classified; dropped %s.',
+            WORKSHEET_PAGE_CAP, len(with_screenshots),
+            ', '.join(f'p{page["page_num"]}' for page, _role in over_cap),
+        )
+        report(
+            f'Only the first {WORKSHEET_PAGE_CAP} pages can be read in one '
+            f'upload — {len(over_cap)} page(s) will be left out…'
+        )
 
     pages, skipped = _split_question_pages(pages)
     if skipped:
@@ -974,6 +1017,10 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
             ', '.join(f'p{page["page_num"]} ({role})' for page, role in skipped),
         )
         report(f'Skipping {len(skipped)} page(s) with no questions…')
+
+    # Joined only now, after the "no questions on them" messages above: an
+    # over-cap page may be full of questions — it just doesn't fit this upload.
+    skipped += over_cap
 
     chunks = [pages[i:i + WORKSHEET_CHUNK_SIZE]
               for i in range(0, len(pages), WORKSHEET_CHUNK_SIZE)]
@@ -1607,7 +1654,8 @@ def recrop_pdf_region(pdf_bytes, page_index, frac_box, dpi=None, snap=False):
 # ---------------------------------------------------------------------------
 
 def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
-                                   shape_naming=False, progress=None):
+                                   shape_naming=False, progress=None,
+                                   page_selection=None):
     """
     Full pipeline: PDF → page screenshots → AI classify → render image regions.
 
@@ -1617,28 +1665,49 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
     ``shape_naming`` enables name-the-shape mode: pages are rendered at a higher
     DPI and Claude emits one "name this shape" question per individual shape.
 
+    ``page_selection`` is the teacher's print-dialog style page spec (``"2-7, 9"``;
+    blank/``None`` means every page — see ``worksheets/page_selection.py``). Only
+    the selected pages are rendered and classified, so skipping a cover sheet or a
+    marking scheme costs nothing and can't be imported as junk questions. What was
+    left out is recorded on ``result['page_selection']`` rather than dropped
+    silently. Raises ``PageSelectionError`` if the spec doesn't fit this PDF.
+
     ``progress`` is an optional ``callable(message)`` called as each stage lands.
     Callers use it to show the teacher what's happening and to record a heartbeat
     proving the job is still alive.
 
     Returns:
         {
-            'result': { year_level, subject, strand, topic, questions[], usage },
+            'result': { year_level, subject, strand, topic, questions[], usage,
+                        page_selection,
+                        verification },   # second-opinion summary, or None
             'extracted_images': { ref: base64_png_str, ... },
-            'page_count': int,
+            'page_count': int,   # pages actually extracted (what gets billed)
         }
     """
     import fitz
+
+    from .page_selection import parse_page_selection, selection_summary
 
     report = progress or (lambda _msg: None)
     pdf_bytes = pdf_file.read()
     doc = fitz.open(stream=pdf_bytes, filetype='pdf')
 
     try:
+        selected = parse_page_selection(page_selection, len(doc))
+        summary = selection_summary(page_selection, selected, len(doc))
+
         # Step 1: render pages + collect text (higher DPI in shape mode for tighter crops)
-        report(f'Opening the PDF ({len(doc)} page(s))…')
+        if summary['excluded']:
+            report(
+                f'Opening the PDF — reading page(s) {summary["selected_label"]} '
+                f'of {len(doc)}…'
+            )
+        else:
+            report(f'Opening the PDF ({len(doc)} page(s))…')
         extracted_pages = extract_worksheet_pages(
             doc, screenshot_dpi=SHAPE_NAMING_DPI if shape_naming else None,
+            selected_pages=selected,
         )
 
         # Step 2: AI classification (gets question text, type, answers, image bboxes)
@@ -1646,6 +1715,7 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
             extracted_pages, existing_topics, existing_levels, shape_naming=shape_naming,
             progress=report,
         )
+        result['page_selection'] = summary
 
         for q in result.get('questions', []):
             # Teacher-graded (human_graded) questions are deselected by default so
@@ -1657,6 +1727,25 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
             doc, extracted_pages, result, progress=report,
         )
 
+        # Step 4: independent second opinion (CPP-384).
+        #
+        # One model is not perfect, and a wrong answer that reaches the question
+        # bank costs far more to find later than a second opinion costs now —
+        # CPP-377 was 14 broken questions on one topic, found only when a Year 7
+        # student complained. This pass re-examines each question with an
+        # independent model and flags disagreements needs_review for the teacher;
+        # it never edits an answer.
+        #
+        # Runs here rather than in each caller because worksheets AND homework
+        # both come through this function (worksheets/tasks.py,
+        # homework/tasks.py), so one insertion point covers both paths.
+        #
+        # Best-effort and self-gating, exactly as in ai_import: a no-op without
+        # OPENAI_API_KEY, and a failure never sinks an upload that already
+        # classified successfully.
+        report('Double-checking the questions with a second model…')
+        result['verification'] = _second_opinion(result, extracted_pages)
+
     finally:
         doc.close()
 
@@ -1665,3 +1754,41 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
         'extracted_images': extracted_images,
         'page_count': extracted_pages['page_count'],
     }
+
+
+def _second_opinion(result, extracted_pages):
+    """Run the independent verifier over ``result['questions']`` in place.
+
+    Returns the verifier's summary dict (including its token usage, so the
+    caller can bill it to the right provider and source), or None when the
+    verifier is disabled or there was nothing to check.
+
+    Deliberately swallows every failure: this is a quality aid, not a gate. An
+    upload that classified successfully must not be lost because a second
+    opinion was unavailable.
+    """
+    try:
+        from ai_import.verification import flag_visual_comparisons, verify_answers
+
+        questions = result.get('questions') or []
+        if not questions:
+            return None
+
+        # Deterministic guard first, so the obvious cases are flagged without
+        # paying for an API call — and so the paid pass skips them.
+        flag_visual_comparisons(questions)
+
+        # Same {page_num: base64_jpeg} shape ai_import passes. Questions
+        # carrying a figure resolve to their page and are checked WITH the
+        # image; the rest fall back to a text-only check.
+        page_images = {
+            page['page_num']: page['screenshot']
+            for page in extracted_pages.get('pages', [])
+            if page.get('page_num') is not None and page.get('screenshot')
+        }
+        return verify_answers(questions, page_images=page_images)
+    except Exception:
+        logger.exception(
+            'Second-opinion verification failed; continuing with the '
+            'unverified extraction')
+        return None

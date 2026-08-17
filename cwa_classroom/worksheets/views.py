@@ -21,6 +21,7 @@ from billing.entitlements import get_school_for_user
 from classroom.views import RoleRequiredMixin
 
 from .grading_service import grade_extended_answer
+from .page_selection import describe_page_selection
 from .services import describe_skipped_pages
 from .models import (
     Worksheet,
@@ -114,6 +115,18 @@ class WorksheetUploadView(RoleRequiredMixin, View):
         if worksheet_name.lower().endswith('.pdf'):
             worksheet_name = worksheet_name[:-4]
 
+        # Which pages to extract ("2-7, 9"; blank = all). Validated here against
+        # the real PDF so a bad range is an immediate form error rather than a
+        # background job that fails minutes later.
+        from .page_selection import PageSelectionError, clean_upload_selection
+        try:
+            page_selection, _selected, _total = clean_upload_selection(
+                request.POST.get('page_selection'), pdf_file,
+            )
+        except PageSelectionError as exc:
+            messages.error(request, str(exc))
+            return redirect('worksheets:upload')
+
         # Persist the upload + create a PROCESSING session, then classify in the
         # background (CPP-327) so the request returns immediately.
         session = WorksheetUploadSession.objects.create(
@@ -122,6 +135,7 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             pdf_filename=pdf_file.name,
             pdf_file=pdf_file,
             worksheet_name=worksheet_name,
+            page_selection=page_selection,
             shape_naming=request.POST.get('shape_naming') == 'on',
             status=WorksheetUploadSession.STATUS_PROCESSING,
         )
@@ -372,6 +386,8 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             # Answer sheets / answer keys the extractor skipped — reported, not
             # silently missing from the import.
             'skipped_pages': describe_skipped_pages(data),
+            # Pages the teacher chose not to extract — stated, not silently absent.
+            'page_selection': describe_page_selection(data),
             'answer_key': data.get('answer_key') or {},
             'levels': levels,
             'parent_topics_json': json.dumps(parent_topics),

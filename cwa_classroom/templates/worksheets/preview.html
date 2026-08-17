@@ -10,6 +10,7 @@
     <span class="px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold">Step 2 of 3</span>
   </div>
 
+  {% include "_partials/page_selection_notice.html" %}
   {% include "_partials/skipped_pages_notice.html" %}
   {% include "_partials/answer_key_notice.html" %}
 
@@ -141,6 +142,13 @@
                  class="rounded text-primary focus:ring-primary w-4 h-4" />
           <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Q{{ forloop.counter }}</span>
         </label>
+        {% if q.needs_review %}
+        {# Second-opinion disagreement (CPP-384). The reason is the tooltip so the
+           teacher knows what to check, not just that something is off. #}
+        <span class="px-2 py-0.5 mt-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 whitespace-nowrap"
+              data-testid="review-badge-{{ forloop.counter0 }}"
+              title="{{ q.review_reason|default:'Please double-check this answer.' }}">⚠ Review</span>
+        {% endif %}
         <div class="flex-1 space-y-3">
           <textarea name="q_{{ forloop.counter0 }}_text" rows="2"
                     class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">{{ q.question_text }}</textarea>

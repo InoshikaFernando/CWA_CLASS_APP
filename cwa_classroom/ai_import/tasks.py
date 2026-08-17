@@ -35,7 +35,9 @@ def process_pdf_import(session_id):
             pdf_bytes = session.pdf_file.read()
         finally:
             session.pdf_file.close()
-        extracted = extract_pdf_content(BytesIO(pdf_bytes))
+        extracted = extract_pdf_content(
+            BytesIO(pdf_bytes), page_selection=session.page_selection,
+        )
 
         from classroom.models import Level, Topic
         existing_topics = list(Topic.objects.filter(
@@ -115,6 +117,10 @@ def process_pdf_import(session_id):
             result['count_verification'] = count_verification
         result['image_verification'] = image_verification
 
+        # Which pages were read and which the teacher left out — recorded so the
+        # preview can say so rather than leaving a missing page a mystery.
+        result['page_selection'] = extracted.get('page_selection')
+
         # Preserve any pre-set classroom selection stored at enqueue time.
         existing = session.extracted_data or {}
         if existing.get('classroom_id'):
@@ -135,11 +141,29 @@ def process_pdf_import(session_id):
         from taskqueue.services import record_ai_usage
         record_ai_usage(
             school=session.school,
+            provider=AIUsageLog.PROVIDER_ANTHROPIC,
             source=AIUsageLog.SOURCE_AI_IMPORT,
             session_id=session.pk,
             pages=extracted['page_count'],
             usage=result.get('usage', {}),
         )
+
+        # The GPT second-opinion verifier is a separate bill. Its tokens are
+        # deliberately kept out of the Claude ledger above (they are priced
+        # differently) — but they used to be dropped entirely, which is why
+        # OpenAI spend never reached the finance dashboard (CPP-382). Recorded
+        # here as its own provider row so both vendors are visible and
+        # separable.
+        verification = result.get('verification') or {}
+        if verification.get('input_tokens') or verification.get('output_tokens'):
+            record_ai_usage(
+                school=session.school,
+                provider=AIUsageLog.PROVIDER_OPENAI,
+                source=AIUsageLog.SOURCE_AI_IMPORT,
+                session_id=session.pk,
+                pages=extracted['page_count'],
+                usage=verification,
+            )
 
         logger.info(
             'AI import session=%s processed: %s pages, %s questions',

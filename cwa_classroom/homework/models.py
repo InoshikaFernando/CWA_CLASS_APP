@@ -31,6 +31,13 @@ class HomeworkUploadSession(models.Model):
         help_text='Stored temporarily while AI extraction runs in the background.',
     )
     homework_title = models.CharField(max_length=200, blank=True)
+    # Print-dialog style spec for which pages to extract ("2-7, 9"). Blank means
+    # every page. Kept as the teacher typed it so the worker re-parses one source
+    # of truth; see worksheets/page_selection.py.
+    page_selection = models.CharField(
+        max_length=200, blank=True,
+        help_text='Pages to extract, like "2-7, 9". Blank extracts every page.',
+    )
     shape_naming = models.BooleanField(
         default=False,
         help_text='Name-the-shape mode: AI generates one "name this shape" question per shape.',

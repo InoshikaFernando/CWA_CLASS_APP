@@ -1,0 +1,29 @@
+{% comment %}
+"Pages to extract" input for the PDF upload forms (worksheets, homework,
+ai_import). Print-dialog syntax; blank means every page, so the field is
+invisible in effect until a teacher uses it.
+
+Optional context:
+  ps_accent — Tailwind colour stem for focus/hover, e.g. "blue-500". Defaults to
+              the worksheets theme's "primary".
+{% endcomment %}
+<div>
+  <label for="page-selection-input" class="block text-sm font-semibold text-gray-700 mb-1.5">
+    Pages to extract
+    <span class="text-gray-400 font-normal">(optional — all pages by default)</span>
+  </label>
+  <input type="text" name="page_selection" id="page-selection-input"
+         maxlength="200" autocomplete="off" placeholder="All pages"
+         class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-{{ ps_accent|default:'primary' }}" />
+  <p class="text-xs text-gray-400 mt-1">
+    Same as a print dialog — leave blank for the whole PDF, or list the pages that
+    hold questions. Use this to skip a cover or instruction sheet at the front and a
+    marking scheme at the back. Excluded pages are never read, so they don't use up
+    your monthly page quota.
+  </p>
+  <p class="text-xs text-gray-400 mt-1">
+    <code class="text-gray-500">2-</code> page 2 to the end ·
+    <code class="text-gray-500">1-8</code> pages 1 to 8 ·
+    <code class="text-gray-500">2-7, 9, 11-</code> mix ranges and single pages
+  </p>
+</div>

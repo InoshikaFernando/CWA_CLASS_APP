@@ -40,6 +40,19 @@ path('ai-import/', include('ai_import.urls', namespace='ai_import')),
 - **classroom** — usage is scoped to `School`; imports write into `classroom.Question` and related curriculum models.
 - **billing** — entitlement gating uses the `ai_import_starter` / `ai_import_professional` / `ai_import_enterprise` module slugs.
 
+## Page selection
+
+The upload form takes an optional **"Pages to extract"** spec in print-dialog syntax
+(`2-7, 9`, `2-` for page 2 to the end; blank means every page), stored on
+`AIImportSession.page_selection` and re-parsed by the worker. Only the selected pages are
+rendered and sent, so skipping a cover sheet or a marking scheme costs no tokens — and the
+pre-enqueue quota check charges the *selected* count, not the whole file. Page numbers stay
+absolute, so image refs and bboxes are unaffected by a partial extraction. What was left
+out is recorded on `extracted_data['page_selection']` and stated on the preview screen.
+
+Parser and helpers: `worksheets/page_selection.py`. Full design:
+[`docs/SPEC_PDF_PAGE_SELECTION.md`](../../docs/SPEC_PDF_PAGE_SELECTION.md).
+
 ## Second-opinion answer verification
 
 After Claude classifies the questions, an optional **GPT verifier** independently

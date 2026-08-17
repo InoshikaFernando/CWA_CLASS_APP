@@ -223,31 +223,44 @@ def get_pdf_page_count(pdf_file):
     return count
 
 
-def extract_pdf_content(pdf_file):
+def extract_pdf_content(pdf_file, page_selection=None):
     """
     Extract text and images from a PDF file using PyMuPDF.
 
     Args:
         pdf_file: Django UploadedFile or file-like object
+        page_selection: the teacher's print-dialog style page spec ("2-7, 9");
+            blank/None extracts every page. See ``worksheets/page_selection.py``.
+            Only the selected pages are read at all, so skipping a cover sheet or
+            a marking scheme costs no screenshots and no AI tokens. Page numbers
+            stay ABSOLUTE, keeping image refs and bboxes valid on a partial run.
 
     Returns:
         {
             'pages': [
                 {'page_num': int, 'text': str, 'images': [{'ref': str, 'base64': str, 'ext': str}]}
             ],
-            'page_count': int,
+            'page_count': int,        # pages actually extracted (what gets billed)
+            'total_page_count': int,  # pages in the PDF
+            'page_selection': {...},  # what was read / left out, for the preview
             'all_text': str,  # concatenated text for AI
         }
     """
     import fitz  # PyMuPDF
 
+    from worksheets.page_selection import parse_page_selection, selection_summary
+
     pdf_bytes = pdf_file.read()
     doc = fitz.open(stream=pdf_bytes, filetype='pdf')
+
+    total_pages = len(doc)
+    selected = parse_page_selection(page_selection, total_pages)
+    summary = selection_summary(page_selection, selected, total_pages)
 
     pages = []
     all_text_parts = []
 
-    for page_num in range(len(doc)):
+    for page_num in (p - 1 for p in selected):
         page = doc[page_num]
         text = page.get_text('text')
         all_text_parts.append(text)
@@ -300,6 +313,8 @@ def extract_pdf_content(pdf_file):
     return {
         'pages': pages,
         'page_count': len(pages),
+        'total_page_count': total_pages,
+        'page_selection': summary,
         'all_text': '\n\n--- Page Break ---\n\n'.join(all_text_parts),
     }
 
@@ -1068,7 +1083,10 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
     system_prompt = _build_classification_prompt(existing_topics, existing_levels)
 
     pages = extracted_content.get('pages', [])
-    total = extracted_content.get('page_count', len(pages))
+    # Page labels are absolute, so quote the PDF's real length even when only
+    # some of its pages were selected for extraction.
+    total = (extracted_content.get('total_page_count')
+             or extracted_content.get('page_count', len(pages)))
     chunk_size = max(1, int(os.environ.get('AI_IMPORT_PAGE_CHUNK', '20')))
     batches = [pages[i:i + chunk_size] for i in range(0, len(pages), chunk_size)]
 
@@ -1120,8 +1138,10 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
     # answer and checking the transcription — and flags disagreements
     # needs_review for the teacher. Best-effort and self-gating: a no-op when
     # OPENAI_API_KEY isn't configured, and it never fails the import. Kept out of
-    # merged['usage'] (Claude token ledger) because GPT is priced separately;
-    # reported under merged['verification'].
+    # merged['usage'] (the Claude token ledger) because GPT is priced
+    # separately; reported under merged['verification'], from where
+    # ai_import.tasks records it as its own OpenAI row in the usage ledger so it
+    # reaches the finance dashboard (CPP-382).
     page_images = {
         p['page_num']: p['screenshot']
         for p in pages

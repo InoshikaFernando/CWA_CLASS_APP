@@ -1402,3 +1402,162 @@ class StudentFinalAnswer(models.Model):
         """Keep only the most recent attempts for ``instance``'s series."""
         from classroom.attempt_retention import prune_to_last_n
         return prune_to_last_n(cls, cls.attempt_series_filter(instance))
+
+
+class QuestionHealthSnapshot(models.Model):
+    """A point-in-time measurement of how sound the question bank is.
+
+    Written by ``manage.py record_question_health`` (cron) and read by the
+    super-admin dashboard, mirroring the OpsSnapshot → ops dashboard pattern.
+
+    Snapshots exist so question health can be seen as a *trend*: a single audit
+    run tells you today's count, but only a series tells you whether editing is
+    outpacing breakage. Rows are small and written at most daily, so they are
+    kept rather than pruned.
+
+    "Blocking" issues can mark a student wrong for correct work (CPP-377);
+    "advisory" ones cannot, and are tracked separately so a presentation nit
+    never dilutes the headline number.
+    """
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    # Scope of this run — blank means the whole bank.
+    level_number = models.PositiveSmallIntegerField(null=True, blank=True)
+    topic = models.ForeignKey(
+        'classroom.Topic', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='health_snapshots',
+    )
+
+    # Population
+    total_questions = models.PositiveIntegerField(default=0)
+    choice_questions = models.PositiveIntegerField(default=0)
+
+    # Coverage — how much of the bank the audit could actually judge.
+    arithmetic_verified = models.PositiveIntegerField(
+        default=0, help_text='Questions whose own maths was evaluated and checked.')
+    unverifiable = models.PositiveIntegerField(
+        default=0, help_text='Word problems etc. that need a human.')
+
+    # Findings
+    questions_blocking = models.PositiveIntegerField(
+        default=0, help_text='Questions with an issue that can mismark a student.')
+    questions_advisory = models.PositiveIntegerField(
+        default=0, help_text='Questions with only non-mismarking issues.')
+
+    # Per-code counts, so the dashboard can show what is actually wrong.
+    # Keyed by the issue codes in maths.answer_verification.
+    issue_counts = models.JSONField(
+        default=dict, blank=True,
+        help_text="e.g. {'EQUIVALENT-OPTION': 14, 'WRONG-ANSWER-KEY': 2}")
+
+    # Enough detail to jump straight to the offending questions.
+    flagged_questions = models.JSONField(
+        default=list, blank=True,
+        help_text="[{'id': 6017, 'codes': ['EQUIVALENT-OPTION'], 'text': '...'}]")
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'question health snapshot'
+
+    def __str__(self):
+        return f'{self.created_at:%Y-%m-%d %H:%M} — {self.questions_blocking} blocking'
+
+    @property
+    def health_percent(self):
+        """Share of choice questions with no blocking issue, 0-100."""
+        if not self.choice_questions:
+            return 100
+        sound = self.choice_questions - self.questions_blocking
+        return round(sound / self.choice_questions * 100, 1)
+
+    @property
+    def coverage_percent(self):
+        """Share of choice questions whose maths could be machine-checked.
+
+        Deliberately separate from health: a 100% healthy bank that could only
+        be verified 16% deep is not the same claim, and collapsing the two
+        would overstate what is actually known.
+        """
+        if not self.choice_questions:
+            return 0
+        return round(self.arithmetic_verified / self.choice_questions * 100, 1)
+
+    @property
+    def status(self):
+        if self.questions_blocking:
+            return 'crit'
+        if self.questions_advisory:
+            return 'warn'
+        return 'ok'
+
+
+class QuestionAIReview(models.Model):
+    """One semantic review of one question by an independent model (CPP-380).
+
+    The deterministic audits prove things about the data — a distractor equal to
+    the answer, an answer key that fails its own arithmetic. They cannot judge
+    whether a question is *sensible*: ambiguous wording, an answer that does not
+    follow from the stem, information missing from a word problem.
+
+    This is the record of a model having looked. It is deliberately a *review*,
+    not a verdict on truth: two models agreeing is a second opinion, and the
+    row exists to route a human's attention, never to bless content. Nothing in
+    this app edits question text on the strength of it.
+
+    The row is the single source of truth for review state — there is no
+    denormalised flag on Question to drift out of sync. ``question_updated_at``
+    snapshots the content version reviewed, so an edit after review makes the
+    review stale rather than silently vouching for text nobody checked.
+    """
+
+    VERDICT_OK = 'ok'
+    VERDICT_FLAGGED = 'flagged'
+    VERDICT_ERROR = 'error'
+    VERDICT_CHOICES = [
+        (VERDICT_OK, 'Reviewed — no objection'),
+        (VERDICT_FLAGGED, 'Flagged for human review'),
+        (VERDICT_ERROR, 'Review failed'),
+    ]
+
+    question = models.ForeignKey(
+        Question, on_delete=models.CASCADE, related_name='ai_reviews')
+    reviewed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    verdict = models.CharField(max_length=10, choices=VERDICT_CHOICES)
+    reason = models.TextField(
+        blank=True, default='',
+        help_text='Short human-readable explanation, shown to whoever triages.')
+
+    # Which content version this review applies to. Compared against
+    # Question.updated_at to detect a review made stale by a later edit.
+    question_updated_at = models.DateTimeField(null=True, blank=True)
+
+    # Two-tier review: a cheap model looks at everything, and only what it
+    # doubts is escalated. Recorded so the escalation rate — the thing that
+    # actually drives cost — is measurable after the fact.
+    first_pass_model = models.CharField(max_length=100, blank=True, default='')
+    adjudicator_model = models.CharField(max_length=100, blank=True, default='')
+    escalated = models.BooleanField(default=False)
+
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    # Null when the model's rate is not configured — tokens are always known,
+    # cost is not, and guessing it would make the budget ceiling a lie.
+    cost_usd = models.DecimalField(
+        max_digits=10, decimal_places=6, null=True, blank=True)
+
+    class Meta:
+        ordering = ['-reviewed_at']
+        indexes = [models.Index(fields=['question', '-reviewed_at'])]
+        verbose_name = 'question AI review'
+
+    def __str__(self):
+        return f'Q{self.question_id} — {self.get_verdict_display()}'
+
+    @property
+    def is_stale(self):
+        """True if the question was edited after this review was made."""
+        if not self.question_updated_at or not self.question.updated_at:
+            return False
+        return self.question.updated_at > self.question_updated_at

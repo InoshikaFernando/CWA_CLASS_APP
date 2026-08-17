@@ -87,6 +87,7 @@ def process_homework_pdf(session_id, existing_topics, existing_levels):
             pdf_io, existing_topics, existing_levels,
             shape_naming=session.shape_naming,
             progress=report,
+            page_selection=session.page_selection,
         )
         result = output['result']
 
@@ -110,6 +111,21 @@ def process_homework_pdf(session_id, existing_topics, existing_levels):
             pages=output['page_count'],
             usage=result.get('usage', {}),
         )
+
+        # The second-opinion verifier (CPP-384) is a different vendor at a
+        # different rate, so it gets its own row — kept out of the Claude usage
+        # above, but tagged with THIS path's source so homework's verification
+        # cost is attributable to homework.
+        verification = result.get('verification') or {}
+        if verification.get('input_tokens') or verification.get('output_tokens'):
+            record_ai_usage(
+                school=session.school,
+                provider=AIUsageLog.PROVIDER_OPENAI,
+                source=AIUsageLog.SOURCE_HOMEWORK,
+                session_id=session_id,
+                pages=output['page_count'],
+                usage=verification,
+            )
 
         logger.info(
             'Homework PDF session=%s processed: %s pages',

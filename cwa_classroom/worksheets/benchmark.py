@@ -74,12 +74,18 @@ def _pseudo_questions(doc, pages):
     return questions
 
 
-def measure_offline(pdf_path):
-    """Run everything up to the AI call over one PDF and report what happened."""
+def measure_offline(pdf_path, page_selection=None):
+    """Run everything up to the AI call over one PDF and report what happened.
+
+    ``page_selection`` is a print-dialog page spec ("2-7, 9"); None measures the
+    whole paper. Useful for checking what a partial extraction would actually
+    send to the AI before spending tokens on it.
+    """
     import fitz
 
     from . import services
     from .answer_key import parse_answer_key
+    from .page_selection import parse_page_selection
 
     result = {'mode': 'offline', 'errors': []}
     doc = None
@@ -88,9 +94,12 @@ def measure_offline(pdf_path):
         # not a reason to abandon the rest of the corpus.
         doc = fitz.open(str(pdf_path))
         result['pages'] = len(doc)
+        selected = parse_page_selection(page_selection, len(doc))
+        if len(selected) != len(doc):
+            result['pages_selected'] = len(selected)
 
         started = time.perf_counter()
-        extracted = services.extract_worksheet_pages(doc)
+        extracted = services.extract_worksheet_pages(doc, selected_pages=selected)
         result['extract_s'] = round(time.perf_counter() - started, 2)
         result['screenshot_mb'] = round(
             sum(len(p['screenshot']) for p in extracted['pages']) / 1e6, 2)
@@ -130,7 +139,8 @@ def measure_offline(pdf_path):
     return result
 
 
-def measure_live(pdf_path, existing_topics=None, existing_levels=None):
+def measure_live(pdf_path, existing_topics=None, existing_levels=None,
+                 page_selection=None):
     """Run the real pipeline over one PDF, scored against its own answer key.
 
     Spends tokens. The headline number is answer_accuracy_pct: of the answers
@@ -143,7 +153,8 @@ def measure_live(pdf_path, existing_topics=None, existing_levels=None):
     try:
         with open(pdf_path, 'rb') as handle:
             output = extract_and_classify_worksheet(
-                handle, existing_topics or [], existing_levels or [])
+                handle, existing_topics or [], existing_levels or [],
+                page_selection=page_selection)
     except Exception as exc:
         result['errors'].append(f'{type(exc).__name__}: {exc}')
         result['total_s'] = round(time.perf_counter() - started, 2)

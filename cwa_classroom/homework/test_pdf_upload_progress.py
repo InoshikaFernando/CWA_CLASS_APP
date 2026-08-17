@@ -54,7 +54,8 @@ class ProgressHeartbeatTests(_TeacherFixture):
         session = self._session()
         seen = {}
 
-        def fake_extract(pdf_io, topics, levels, shape_naming=False, progress=None):
+        def fake_extract(pdf_io, topics, levels, shape_naming=False, progress=None,
+                         page_selection=None):
             progress('Read 2 of 5 sections…')
             seen['session'] = HomeworkUploadSession.objects.get(pk=session.pk)
             return {'result': {'questions': [], 'usage': {}},
