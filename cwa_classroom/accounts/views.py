@@ -5,12 +5,15 @@ from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
-from django.contrib.auth import login, update_session_auth_hash
+from django.contrib.auth import login, logout as auth_logout, update_session_auth_hash
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
-from django.contrib.auth.views import LoginView, PasswordResetView
+from django.contrib.auth.views import LoginView, LogoutView, PasswordResetView
 from django.db import transaction
+from django.views.decorators.csrf import csrf_exempt
+from django.views.generic import TemplateView
 
+from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 
 from .models import CustomUser, Role, UserRole, PendingRegistration
@@ -133,6 +136,36 @@ class AuditLoginView(LoginView):
             request=self.request,
         )
         return super().form_invalid(form)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class CsrfExemptLogoutView(LogoutView):
+    """Log out without a CSRF check, so a stale token can't trap a user in a session.
+
+    ``csrf_exempt(LogoutView.as_view())`` — the original CPP-36 fix — looks like
+    it does this but doesn't: Django decorates ``LogoutView.post`` itself with
+    ``csrf_protect``, so the exemption only skipped ``CsrfViewMiddleware`` and
+    the view went on to reject the request on its own. Overriding ``post`` is
+    what actually drops that inner decorator.
+
+    Tokens go stale routinely: signing in rotates the CSRF secret, so a page
+    left open in another tab (or restored by the back button) still carries the
+    previous one and its Log Out button 403s. Exempting logout is safe — the
+    worst a forged request can do is sign someone out.
+    """
+
+    def post(self, request, *args, **kwargs):
+        auth_logout(request)
+        redirect_to = self.get_success_url()
+        if redirect_to != request.get_full_path():
+            return redirect(redirect_to)
+        # Nothing to redirect to — render the "logged out" page instead.
+        # (TemplateView, not super(), whose ``get`` is the csrf_protect-ed post.)
+        return TemplateView.get(self, request, *args, **kwargs)
+
+    # Django 4.2 still routes GET here (deprecated upstream) and a couple of
+    # templates link to logout with a plain <a href>, so keep both verbs.
+    get = post
 
 
 class SwitchRoleView(LoginRequiredMixin, View):

@@ -43,6 +43,11 @@ CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1',
 ]
 
+# Recover from a stale CSRF token (login page left open in another tab, or
+# restored by the back button) instead of dead-ending on Django's bare
+# "CSRF verification failed" page — see cwa_classroom.views.csrf_failure.
+CSRF_FAILURE_VIEW = 'cwa_classroom.views.csrf_failure'
+
 
 # ---------------------------------------------------------------------------
 # Applications

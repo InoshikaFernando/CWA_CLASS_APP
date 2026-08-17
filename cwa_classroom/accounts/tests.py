@@ -1,4 +1,5 @@
 """Tests for all registration flows: institute, school student, individual student."""
+import re
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
@@ -1089,3 +1090,122 @@ class AuditLoginLoggingTest(TestCase):
         self.assertTrue(
             any('Login success' in line for line in cm.output), cm.output,
         )
+
+
+class CsrfRecoveryTest(TestCase):
+    """Logging out of one account and into another must not 403 (CPP-36).
+
+    Signing in rotates the CSRF secret, so any page rendered before that login —
+    another tab, a page the back button restored — carries a token the server no
+    longer accepts. Submitting it used to land on Django's bare
+    "CSRF verification failed. Request aborted." page.
+    """
+
+    TOKEN_RE = re.compile(r'name="csrfmiddlewaretoken" value="([^"]+)"')
+
+    def setUp(self):
+        # enforce_csrf_checks makes the test client behave like a browser:
+        # the token in the form must match the csrftoken cookie.
+        self.client = Client(enforce_csrf_checks=True)
+        self.login_url = reverse('login')
+        self.logout_url = reverse('logout')
+        CustomUser.objects.create_user('alice', 'alice@test.com', 'AlicePass99')
+        CustomUser.objects.create_user('bob', 'bob@test.com', 'BobPass9999')
+
+    def _token(self, url=None):
+        """The CSRF token embedded in a freshly-rendered page."""
+        resp = self.client.get(url or self.login_url)
+        match = self.TOKEN_RE.search(resp.content.decode())
+        self.assertIsNotNone(match, f'no csrf token rendered on {url or self.login_url}')
+        return match.group(1)
+
+    def _sign_in(self, username, password):
+        return self.client.post(self.login_url, {
+            'csrfmiddlewaretoken': self._token(),
+            'username': username, 'password': password,
+        })
+
+    def _is_logged_in(self):
+        return '_auth_user_id' in self.client.session
+
+    # ── logout ───────────────────────────────────────────────
+
+    def test_logout_accepts_a_stale_csrf_token(self):
+        stale = self._token()                       # rendered before the login
+        self._sign_in('alice', 'AlicePass99')       # rotates the CSRF secret
+        resp = self.client.post(self.logout_url, {'csrfmiddlewaretoken': stale})
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(self._is_logged_in())
+
+    def test_logout_without_a_csrf_token_still_logs_out(self):
+        self._sign_in('alice', 'AlicePass99')
+        resp = self.client.post(self.logout_url)
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(self._is_logged_in())
+
+    # ── login ────────────────────────────────────────────────
+
+    def test_logout_then_login_as_another_user(self):
+        self.assertEqual(self._sign_in('alice', 'AlicePass99').status_code, 302)
+        self.client.post(self.logout_url)
+        resp = self._sign_in('bob', 'BobPass9999')
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(self._is_logged_in())
+
+    def test_login_with_a_stale_token_offers_a_retry(self):
+        stale = self._token()
+        self._sign_in('alice', 'AlicePass99')
+        self.client.post(self.logout_url)
+
+        # The back button brings back the pre-login sign-in page.
+        resp = self.client.post(self.login_url, {
+            'csrfmiddlewaretoken': stale,
+            'username': 'bob', 'password': 'BobPass9999',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp['Location'], f'{self.login_url}?expired=1')
+        self.assertContains(self.client.get(resp['Location']), 'session had already ended')
+
+        # ...and the retry from that page works.
+        self.assertEqual(self._sign_in('bob', 'BobPass9999').status_code, 302)
+        self.assertTrue(self._is_logged_in())
+
+    def test_stale_login_keeps_the_next_url(self):
+        stale = self._token()
+        self._sign_in('alice', 'AlicePass99')
+        self.client.post(self.logout_url)
+        resp = self.client.post(self.login_url, {
+            'csrfmiddlewaretoken': stale, 'next': '/hub/',
+            'username': 'bob', 'password': 'BobPass9999',
+        })
+        self.assertIn('next=%2Fhub%2F', resp['Location'])
+
+    def test_stale_login_drops_an_offsite_next_url(self):
+        stale = self._token()
+        self._sign_in('alice', 'AlicePass99')
+        self.client.post(self.logout_url)
+        resp = self.client.post(self.login_url, {
+            'csrfmiddlewaretoken': stale, 'next': 'https://evil.example.com/',
+            'username': 'bob', 'password': 'BobPass9999',
+        })
+        self.assertNotIn('evil.example.com', resp['Location'])
+
+    # ── everything else ──────────────────────────────────────
+
+    def test_stale_token_elsewhere_renders_the_branded_403(self):
+        stale = self._token()
+        self._sign_in('alice', 'AlicePass99')
+        resp = self.client.post(reverse('profile'), {'csrfmiddlewaretoken': stale})
+        self.assertEqual(resp.status_code, 403)
+        self.assertContains(resp, 'That page had expired', status_code=403)
+
+    def test_blocked_cookies_are_reported_not_retried(self):
+        """No csrftoken cookie means a retry would fail identically — say so."""
+        token = self._token()
+        del self.client.cookies['csrftoken']
+        resp = self.client.post(self.login_url, {
+            'csrfmiddlewaretoken': token,
+            'username': 'alice', 'password': 'AlicePass99',
+        })
+        self.assertEqual(resp.status_code, 403)
+        self.assertContains(resp, 'Cookies are switched off', status_code=403)
