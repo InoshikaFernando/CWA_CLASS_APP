@@ -25,7 +25,7 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.17.8'         # MAJOR.MINOR.PATCH
+APP_VERSION       = '1.17.9'         # MAJOR.MINOR.PATCH
 APP_VERSION_DATE  = '2026-08-17'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
@@ -42,6 +42,11 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost',
     'http://127.0.0.1',
 ]
+
+# Recover from a stale CSRF token (login page left open in another tab, or
+# restored by the back button) instead of dead-ending on Django's bare
+# "CSRF verification failed" page — see cwa_classroom.views.csrf_failure.
+CSRF_FAILURE_VIEW = 'cwa_classroom.views.csrf_failure'
 
 
 # ---------------------------------------------------------------------------

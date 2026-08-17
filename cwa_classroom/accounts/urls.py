@@ -1,13 +1,12 @@
 from django.urls import path
-from django.contrib.auth.views import LogoutView
-from django.views.decorators.csrf import csrf_exempt
 from . import views
 from .views_parent_join import ParentSelfJoinView
 
 urlpatterns = [
-    # CSRF-exempt logout: prevents 403 when CSRF token is stale due to
-    # login/logout in another tab (CPP-36).  Logging out is safe to exempt.
-    path('logout/', csrf_exempt(LogoutView.as_view()), name='logout'),
+    # CSRF-exempt logout: prevents 403 when the CSRF token is stale because of a
+    # login/logout in another tab (CPP-36).  Logging out is safe to exempt — see
+    # CsrfExemptLogoutView for why wrapping Django's LogoutView wasn't enough.
+    path('logout/', views.CsrfExemptLogoutView.as_view(), name='logout'),
 
     # Override Django's built-in login with audit logging
     path('login/', views.AuditLoginView.as_view(), name='login'),
