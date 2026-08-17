@@ -1623,7 +1623,8 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
 
     Returns:
         {
-            'result': { year_level, subject, strand, topic, questions[], usage },
+            'result': { year_level, subject, strand, topic, questions[], usage,
+                        verification },   # second-opinion summary, or None
             'extracted_images': { ref: base64_png_str, ... },
             'page_count': int,
         }
@@ -1657,6 +1658,25 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
             doc, extracted_pages, result, progress=report,
         )
 
+        # Step 4: independent second opinion (CPP-384).
+        #
+        # One model is not perfect, and a wrong answer that reaches the question
+        # bank costs far more to find later than a second opinion costs now —
+        # CPP-377 was 14 broken questions on one topic, found only when a Year 7
+        # student complained. This pass re-examines each question with an
+        # independent model and flags disagreements needs_review for the teacher;
+        # it never edits an answer.
+        #
+        # Runs here rather than in each caller because worksheets AND homework
+        # both come through this function (worksheets/tasks.py,
+        # homework/tasks.py), so one insertion point covers both paths.
+        #
+        # Best-effort and self-gating, exactly as in ai_import: a no-op without
+        # OPENAI_API_KEY, and a failure never sinks an upload that already
+        # classified successfully.
+        report('Double-checking the questions with a second model…')
+        result['verification'] = _second_opinion(result, extracted_pages)
+
     finally:
         doc.close()
 
@@ -1665,3 +1685,41 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
         'extracted_images': extracted_images,
         'page_count': extracted_pages['page_count'],
     }
+
+
+def _second_opinion(result, extracted_pages):
+    """Run the independent verifier over ``result['questions']`` in place.
+
+    Returns the verifier's summary dict (including its token usage, so the
+    caller can bill it to the right provider and source), or None when the
+    verifier is disabled or there was nothing to check.
+
+    Deliberately swallows every failure: this is a quality aid, not a gate. An
+    upload that classified successfully must not be lost because a second
+    opinion was unavailable.
+    """
+    try:
+        from ai_import.verification import flag_visual_comparisons, verify_answers
+
+        questions = result.get('questions') or []
+        if not questions:
+            return None
+
+        # Deterministic guard first, so the obvious cases are flagged without
+        # paying for an API call — and so the paid pass skips them.
+        flag_visual_comparisons(questions)
+
+        # Same {page_num: base64_jpeg} shape ai_import passes. Questions
+        # carrying a figure resolve to their page and are checked WITH the
+        # image; the rest fall back to a text-only check.
+        page_images = {
+            page['page_num']: page['screenshot']
+            for page in extracted_pages.get('pages', [])
+            if page.get('page_num') is not None and page.get('screenshot')
+        }
+        return verify_answers(questions, page_images=page_images)
+    except Exception:
+        logger.exception(
+            'Second-opinion verification failed; continuing with the '
+            'unverified extraction')
+        return None
