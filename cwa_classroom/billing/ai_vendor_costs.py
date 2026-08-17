@@ -210,6 +210,11 @@ def fetch_anthropic_costs(start, end):
             'starting_at': start.isoformat(),
             'ending_at': end.isoformat(),
             'bucket_width': '1d',
+            # Without this the report pages 7 days at a time, so a month costs
+            # five round trips. Verified honoured on 2026-08-17: limit=31
+            # returned the whole month with has_more false. Pagination is still
+            # followed regardless — this only reduces the number of requests.
+            'limit': 31,
         },
     )
     return _extract_daily_costs({'data': buckets},

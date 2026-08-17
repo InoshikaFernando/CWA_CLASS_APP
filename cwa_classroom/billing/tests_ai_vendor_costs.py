@@ -334,3 +334,39 @@ class AmountUnitTests(TestCase):
         # Documented as {value, currency}; unverified against non-zero data,
         # which is recorded in AMOUNT_TO_USD rather than left implicit.
         self.assertEqual(AMOUNT_TO_USD['openai'], Decimal('1'))
+
+
+class ReconciliationTests(TestCase):
+    """The figures were reconciled against the vendor's own billing page.
+
+    On 2026-08-17 the Console showed $41.49 spent for August, and a single
+    request with limit=31 returned 16 daily buckets totalling 4148.8985 in the
+    API's units. That is the evidence for the cents divisor — an exact match,
+    not an estimate — and it is pinned here so a future change to the divisor
+    has to explain itself.
+    """
+
+    def test_the_real_month_matches_the_console_to_the_cent(self):
+        from billing.ai_vendor_costs import AMOUNT_TO_USD
+
+        api_units_for_august = Decimal('4148.8985')
+        console_says = Decimal('41.49')
+        converted = api_units_for_august * AMOUNT_TO_USD['anthropic']
+        self.assertEqual(converted.quantize(Decimal('0.01')), console_says)
+
+    def test_anthropic_requests_a_full_month_per_page(self):
+        # The default page is 7 days; a month would otherwise take 5 requests.
+        from billing.ai_vendor_costs import fetch_anthropic_costs
+
+        captured = {}
+
+        def _fake_get(url, headers=None, params=None, timeout=None):
+            captured.update(params or {})
+            return mock.Mock(json=lambda: {'data': [], 'has_more': False},
+                             raise_for_status=lambda: None)
+
+        with override_settings(ANTHROPIC_ADMIN_API_KEY='sk-ant-admin-test'), \
+             mock.patch('billing.ai_vendor_costs.requests.get', _fake_get):
+            fetch_anthropic_costs(date(2026, 8, 1), date(2026, 8, 17))
+
+        self.assertEqual(captured['limit'], 31)
