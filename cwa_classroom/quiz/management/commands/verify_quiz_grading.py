@@ -17,8 +17,11 @@ checks the outcome against the maths:
 For typed questions it submits each stored correct answer and requires it to
 be accepted.
 
-Nothing is written: everything runs inside a transaction that is rolled back,
-including the throwaway student account. Question types whose correct
+Nothing is written. Each question's answer rows are rolled back in their own
+short transaction, and the throwaway student account is deleted at the end —
+per-question rather than one transaction around the whole run, so this stays
+safe to point at a PRODUCTION database without holding locks or generating
+replication lag. Question types whose correct
 submission cannot be synthesised from stored data (geometry specs, AI/human
 graded) are reported as UNSUPPORTED rather than counted as passing — a sweep
 that quietly skips half the catalogue is worse than no sweep.
@@ -200,58 +203,74 @@ class Command(BaseCommand):
         unsupported = Counter()
         failures = []
 
-        # Everything below is rolled back: the throwaway student, every
-        # StudentAnswer row the endpoint writes, all of it.
+        # Everything this sweep writes is rolled back — but the rollback is
+        # scoped to ONE QUESTION AT A TIME, not the whole run.
+        #
+        # A single transaction around the entire sweep would be correct and
+        # still safe on a small database, but on production it means tens of
+        # thousands of writes held open in one transaction for the duration:
+        # lock contention, a growing undo log, and replication lag on managed
+        # MySQL. Per-question savepoints keep each transaction to a handful of
+        # rows and milliseconds, which is what makes this safe to point at a
+        # live database.
+        user = None
         try:
+            password = uuid.uuid4().hex
             with transaction.atomic():
-                password = uuid.uuid4().hex
                 user = User.objects.create_user(
                     username=f'quiz-grading-sweep-{uuid.uuid4().hex[:8]}',
                     email='quiz-grading-sweep@example.invalid',
                     password=password,
                 )
-                client = Client()
-                client.force_login(user)
+            client = Client()
+            client.force_login(user)
 
-                # chunk_size is required to combine iterator() with
-                # prefetch_related() — without it Django 5 raises.
-                for question in questions.iterator(chunk_size=200):
-                    if getattr(question, 'needs_grading', False):
-                        unsupported[f'{question.question_type} (needs grading)'] += 1
-                        continue
+            # chunk_size is required to combine iterator() with
+            # prefetch_related() — without it Django 5 raises.
+            for question in questions.iterator(chunk_size=200):
+                if getattr(question, 'needs_grading', False):
+                    unsupported[f'{question.question_type} (needs grading)'] += 1
+                    continue
 
-                    if question.question_type in CHOICE_TYPES:
-                        problems = self._check_choice(client, question)
-                    elif question.question_type in TEXT_TYPES:
-                        problems = self._check_text(client, question)
-                    elif question.question_type == 'measure':
-                        problems = self._check_measure(client, question)
-                    elif question.answer_format in ('algebra', 'equation'):
-                        problems = self._check_text(client, question)
-                    else:
-                        unsupported[question.question_type] += 1
-                        continue
+                if question.question_type in CHOICE_TYPES:
+                    check = self._check_choice
+                elif question.question_type in TEXT_TYPES:
+                    check = self._check_text
+                elif question.question_type == 'measure':
+                    check = self._check_measure
+                elif question.answer_format in ('algebra', 'equation'):
+                    check = self._check_text
+                else:
+                    unsupported[question.question_type] += 1
+                    continue
 
-                    checked += 1
-                    if problems:
-                        failed += 1
-                        failures.append((question, problems))
-                        if not quiet:
-                            topic = (question.topic.name
-                                     if question.topic_id else '(no topic)')
-                            year = (question.level.level_number
-                                    if question.level_id else '?')
-                            self.stdout.write(
-                                f'  Q{question.id} [year {year} / {topic}] '
-                                f'{question.question_text[:65]}')
-                            for problem in problems:
-                                self.stdout.write(f'      {problem}')
+                with transaction.atomic():
+                    problems = check(client, question)
+                    # Undo this question's answer rows before moving on.
+                    transaction.set_rollback(True)
 
-                # Undo everything this sweep touched.
-                transaction.set_rollback(True)
+                checked += 1
+                if problems:
+                    failed += 1
+                    failures.append((question, problems))
+                    if not quiet:
+                        topic = (question.topic.name
+                                 if question.topic_id else '(no topic)')
+                        year = (question.level.level_number
+                                if question.level_id else '?')
+                        self.stdout.write(
+                            f'  Q{question.id} [year {year} / {topic}] '
+                            f'{question.question_text[:65]}')
+                        for problem in problems:
+                            self.stdout.write(f'      {problem}')
         except Exception as exc:                       # noqa: BLE001
             self.stderr.write(self.style.ERROR(f'Sweep aborted: {exc!r}'))
             raise
+        finally:
+            # The account is outside the per-question savepoints, so it is
+            # removed explicitly — including on abort.
+            if user is not None and user.pk:
+                user.delete()
 
         # ---- summary -------------------------------------------------------
         total_unsupported = sum(unsupported.values())
