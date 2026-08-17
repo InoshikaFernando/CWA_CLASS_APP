@@ -50,6 +50,24 @@ REQUEST_TIMEOUT = 30
 # returning a partial total.
 MAX_PAGES = 50
 
+# What one unit of a provider's `amount` is worth in USD. NOT a shared
+# assumption — the providers differ, and getting it wrong is a 100x error in
+# the accounts, which is the whole failure mode this module exists to avoid.
+#
+#   anthropic: CENTS. Verified 2026-08-17 — the cost report returned 2470.232
+#     for 10-16 Aug while the Console showed $41.49 spent for the whole month.
+#     As dollars that single week would be 60x the month; as cents it is
+#     $24.70, which fits.
+#
+#   openai: assumed DOLLARS, from the documented {value, currency} shape. NOT
+#     yet verified against real data — every bucket came back empty because
+#     nothing had been billed. Re-check this the first time a non-zero OpenAI
+#     figure appears; until then it scales 0 either way and cannot be wrong.
+AMOUNT_TO_USD = {
+    'anthropic': Decimal('0.01'),
+    'openai': Decimal('1'),
+}
+
 
 class VendorCostUnavailable(Exception):
     """The vendor's billed figure could not be obtained.
@@ -113,13 +131,13 @@ def _bucket_date(bucket):
         raise VendorCostUnavailable(f'Unreadable bucket start {raw!r}') from exc
 
 
-def _extract_daily_costs(payload):
+def _extract_daily_costs(payload, scale=Decimal('1')):
     """Pull [DailyCost] out of a bucketed cost response.
 
     Both providers return time buckets each holding cost entries; the entries
-    are summed per bucket. Written against that common shape and shared by both
-    adapters — if they diverge, split this rather than adding special cases,
-    so each remains obvious.
+    are summed per bucket and multiplied by ``scale`` to reach USD. The scale
+    is the caller's because the providers do not agree on units — see
+    AMOUNT_TO_USD.
     """
     buckets = payload.get('data')
     if buckets is None:
@@ -131,7 +149,7 @@ def _extract_daily_costs(payload):
         on = _bucket_date(bucket)
         entries = bucket.get('results', bucket.get('items', []))
         total = sum((_money(entry) for entry in entries), Decimal('0'))
-        costs.append(DailyCost(on=on, amount_usd=total))
+        costs.append(DailyCost(on=on, amount_usd=total * scale))
     return costs
 
 
@@ -194,7 +212,8 @@ def fetch_anthropic_costs(start, end):
             'bucket_width': '1d',
         },
     )
-    return _extract_daily_costs({'data': buckets})
+    return _extract_daily_costs({'data': buckets},
+                                scale=AMOUNT_TO_USD['anthropic'])
 
 
 def fetch_openai_costs(start, end):
@@ -217,7 +236,8 @@ def fetch_openai_costs(start, end):
             'limit': 180,
         },
     )
-    return _extract_daily_costs({'data': buckets})
+    return _extract_daily_costs({'data': buckets},
+                                scale=AMOUNT_TO_USD['openai'])
 
 
 # Keyed by AIUsageLog provider value, so the ledger and the invoices agree on

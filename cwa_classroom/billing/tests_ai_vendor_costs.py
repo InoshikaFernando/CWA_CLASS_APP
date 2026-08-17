@@ -294,3 +294,43 @@ class PaginationTests(TestCase):
                                                raise_for_status=lambda: None)):
             with self.assertRaises(VendorCostUnavailable):
                 fetch_openai_costs(date(2026, 8, 10), date(2026, 8, 17))
+
+
+class AmountUnitTests(TestCase):
+    """Providers do not agree on units; getting it wrong is a 100x error.
+
+    Anthropic reports CENTS — verified 2026-08-17 against the Console, which
+    showed $41.49 for the month while the API returned 2470.232 for a single
+    week of it.
+    """
+
+    @override_settings(ANTHROPIC_ADMIN_API_KEY='sk-ant-admin-test')
+    def test_anthropic_cents_become_dollars(self):
+        from billing.ai_vendor_costs import fetch_anthropic_costs
+
+        with mock.patch('billing.ai_vendor_costs.requests.get',
+                        return_value=mock.Mock(
+                            json=lambda: REAL_ANTHROPIC_PAGE,
+                            raise_for_status=lambda: None)):
+            costs = fetch_anthropic_costs(date(2026, 8, 10), date(2026, 8, 17))
+
+        # 326.237 cents -> $3.26237, not $326.24
+        self.assertEqual(costs[0].amount_usd, Decimal('3.26237'))
+        self.assertEqual(costs[1].amount_usd, Decimal('5.901895'))
+
+    @override_settings(ANTHROPIC_ADMIN_API_KEY='sk-ant-admin-test')
+    def test_a_real_week_totals_a_plausible_figure(self):
+        # The seven real days summed to 2470.232 in the API's units. Against a
+        # month-to-date spend of $41.49, only the cents reading is possible.
+        from billing.ai_vendor_costs import AMOUNT_TO_USD
+
+        week_in_api_units = Decimal('2470.232')
+        self.assertEqual(week_in_api_units * AMOUNT_TO_USD['anthropic'],
+                         Decimal('24.70232'))
+
+    def test_openai_amounts_are_treated_as_dollars(self):
+        from billing.ai_vendor_costs import AMOUNT_TO_USD
+
+        # Documented as {value, currency}; unverified against non-zero data,
+        # which is recorded in AMOUNT_TO_USD rather than left implicit.
+        self.assertEqual(AMOUNT_TO_USD['openai'], Decimal('1'))
