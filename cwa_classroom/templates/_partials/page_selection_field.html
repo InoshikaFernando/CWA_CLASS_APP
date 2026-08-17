@@ -1,29 +1,120 @@
 {% comment %}
-"Pages to extract" input for the PDF upload forms (worksheets, homework,
-ai_import). Print-dialog syntax; blank means every page, so the field is
-invisible in effect until a teacher uses it.
+"Pages to extract" control for the PDF upload forms (worksheets, homework,
+ai_import).
+
+Three modes, the way a print dialog offers them:
+
+  All pages   the default — nothing is excluded
+  Range       from/to boxes, e.g. 5 to 20
+  Custom      a free list, e.g. 5, 6, 8, 9-11
+
+Whichever mode is chosen, the form still posts ONE field — `page_selection`, a
+print-dialog spec string — so the server contract and the validated parser in
+worksheets/page_selection.py are unchanged. "All pages" posts an empty string,
+which is also what a browser with no JS posts, so the no-JS fallback is the old
+"extract everything" behaviour rather than a broken form.
 
 Optional context:
-  ps_accent — Tailwind colour stem for focus/hover, e.g. "blue-500". Defaults to
-              the worksheets theme's "primary".
+  ps_accent — Tailwind colour stem for focus rings, e.g. "blue-500".
+              Defaults to the worksheets/ai_import theme's "primary".
 {% endcomment %}
-<div>
-  <label for="page-selection-input" class="block text-sm font-semibold text-gray-700 mb-1.5">
+<div x-data="pageSelection()" class="rounded-xl border border-slate-200 p-4">
+  <p class="block text-sm font-semibold text-gray-700">
     Pages to extract
-    <span class="text-gray-400 font-normal">(optional — all pages by default)</span>
-  </label>
-  <input type="text" name="page_selection" id="page-selection-input"
-         maxlength="200" autocomplete="off" placeholder="All pages"
-         class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-{{ ps_accent|default:'primary' }}" />
-  <p class="text-xs text-gray-400 mt-1">
-    Same as a print dialog — leave blank for the whole PDF, or list the pages that
-    hold questions. Use this to skip a cover or instruction sheet at the front and a
-    marking scheme at the back. Excluded pages are never read, so they don't use up
-    your monthly page quota.
+    <span class="text-gray-400 font-normal">(optional)</span>
   </p>
-  <p class="text-xs text-gray-400 mt-1">
-    <code class="text-gray-500">2-</code> page 2 to the end ·
-    <code class="text-gray-500">1-8</code> pages 1 to 8 ·
-    <code class="text-gray-500">2-7, 9, 11-</code> mix ranges and single pages
+  <p class="text-xs text-gray-400 mt-1 mb-3">
+    Skip a cover or instruction sheet at the front and a marking scheme at the back.
+    Pages you leave out are never read, so they don't use AI tokens or your monthly
+    page quota.
   </p>
+
+  <!-- Mode picker -->
+  <div class="flex flex-wrap gap-2 mb-3">
+    <label class="flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition text-sm"
+           :class="mode === 'all' ? 'border-{{ ps_accent|default:"primary" }} bg-{{ ps_accent|default:"primary" }}/10 font-semibold text-gray-800' : 'border-slate-200 text-gray-600 hover:border-slate-300'">
+      <input type="radio" x-model="mode" value="all" name="page_selection_mode"
+             class="h-4 w-4 text-{{ ps_accent|default:'primary' }} focus:ring-{{ ps_accent|default:'primary' }}">
+      <span>All pages</span>
+    </label>
+    <label class="flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition text-sm"
+           :class="mode === 'range' ? 'border-{{ ps_accent|default:"primary" }} bg-{{ ps_accent|default:"primary" }}/10 font-semibold text-gray-800' : 'border-slate-200 text-gray-600 hover:border-slate-300'">
+      <input type="radio" x-model="mode" value="range" name="page_selection_mode"
+             class="h-4 w-4 text-{{ ps_accent|default:'primary' }} focus:ring-{{ ps_accent|default:'primary' }}">
+      <span>Range</span>
+    </label>
+    <label class="flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition text-sm"
+           :class="mode === 'custom' ? 'border-{{ ps_accent|default:"primary" }} bg-{{ ps_accent|default:"primary" }}/10 font-semibold text-gray-800' : 'border-slate-200 text-gray-600 hover:border-slate-300'">
+      <input type="radio" x-model="mode" value="custom" name="page_selection_mode"
+             class="h-4 w-4 text-{{ ps_accent|default:'primary' }} focus:ring-{{ ps_accent|default:'primary' }}">
+      <span>Custom</span>
+    </label>
+  </div>
+
+  <!-- Range: from / to -->
+  <div x-show="mode === 'range'" x-cloak class="flex items-center gap-2 flex-wrap">
+    <label for="page-selection-from" class="text-sm text-gray-600">Pages</label>
+    <input type="number" min="1" max="9999" id="page-selection-from" x-model="from"
+           placeholder="5" aria-label="First page to extract"
+           class="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-{{ ps_accent|default:'primary' }}">
+    <span class="text-sm text-gray-500">to</span>
+    <input type="number" min="1" max="9999" id="page-selection-to" x-model="to"
+           placeholder="20" aria-label="Last page to extract"
+           class="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-{{ ps_accent|default:'primary' }}">
+    <span class="text-xs text-gray-400">Leave “to” blank to read to the end of the PDF.</span>
+  </div>
+
+  <!-- Custom: free list -->
+  <div x-show="mode === 'custom'" x-cloak>
+    <input type="text" id="page-selection-custom" x-model="custom" maxlength="200"
+           autocomplete="off" placeholder="5, 6, 8, 9-11" aria-label="Custom page selection"
+           class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-{{ ps_accent|default:'primary' }}">
+    <p class="text-xs text-gray-400 mt-1">
+      Single pages and ranges, separated by commas —
+      <code class="text-gray-500">5, 6, 8, 9-11</code>. Use
+      <code class="text-gray-500">2-</code> for page 2 to the end.
+    </p>
+  </div>
+
+  <!-- What will actually be sent, in words. Never let the teacher guess. -->
+  <p class="text-xs mt-2" :class="spec() ? 'text-amber-700' : 'text-gray-400'"
+     x-text="summary()"></p>
+
+  <!-- The single field the server reads. Empty = every page. -->
+  <input type="hidden" name="page_selection" :value="spec()">
 </div>
+
+<script>
+  function pageSelection() {
+    return {
+      mode: 'all',
+      from: '',
+      to: '',
+      custom: '',
+
+      // The print-dialog spec string the server parses. Empty means all pages,
+      // so any incomplete input falls back to "extract everything" rather than
+      // silently dropping pages the teacher didn't mean to exclude.
+      spec() {
+        if (this.mode === 'range') {
+          const from = String(this.from || '').trim();
+          const to = String(this.to || '').trim();
+          if (from && to) return from + '-' + to;
+          if (from) return from + '-';
+          if (to) return '-' + to;
+          return '';
+        }
+        if (this.mode === 'custom') {
+          return String(this.custom || '').trim();
+        }
+        return '';
+      },
+
+      summary() {
+        const spec = this.spec();
+        if (!spec) return 'Every page of the PDF will be read.';
+        return 'Only page(s) ' + spec.replace(/-$/, ' onwards') + ' will be read.';
+      },
+    };
+  }
+</script>

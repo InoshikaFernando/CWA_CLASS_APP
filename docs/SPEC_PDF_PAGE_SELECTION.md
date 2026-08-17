@@ -28,9 +28,19 @@ just had no way to say so.
 
 ## Goal
 
-Let the teacher say which pages to extract, using **the same syntax as a print dialog**,
-on every PDF upload flow. Default to all pages, so nothing changes for anyone who ignores
-the field.
+Let the teacher say which pages to extract on every PDF upload flow, through the same
+three choices a print dialog offers. Default to all pages, so nothing changes for anyone
+who ignores the control.
+
+| Mode | Control | Posts |
+|------|---------|-------|
+| **All pages** (default) | — | `""` |
+| **Range** | from / to number boxes | `5-20`, or `2-` when "to" is blank |
+| **Custom** | free text list | `5, 6, 8, 9-11` |
+
+Whichever mode is chosen the form posts ONE field, `page_selection`, holding a
+print-dialog spec string, so the server contract and the parser below are the same for
+all three. The full spec grammar is therefore still available to anyone who types it:
 
 ```
 (blank)      every page — the default
@@ -143,6 +153,21 @@ migrations; blank default, no lock risk on these small staging tables.
 
 The spec is stored **as the teacher typed it** and re-parsed by the worker, so there is one
 source of truth rather than a stored page list that could drift from the spec beside it.
+
+### The control — `templates/_partials/page_selection_field.html`
+
+One shared partial, included by all three upload forms. An Alpine component holds the
+mode and its inputs and keeps a single hidden `page_selection` input in sync; a live line
+underneath states what will happen ("Every page of the PDF will be read." /
+"Only page(s) 5-20 will be read.") so the teacher never has to infer it.
+
+Two deliberate properties:
+
+- **No-JS fallback is the old behaviour.** The hidden input starts empty, so a browser
+  that never runs Alpine posts `""` — extract everything — rather than a broken form.
+- **Incomplete input means all pages, not a partial selection.** Range mode with both
+  boxes blank yields `""`, and switching back to *All pages* clears whatever was typed,
+  so a teacher who changes their mind can't silently keep excluding pages.
 
 ### Views
 
