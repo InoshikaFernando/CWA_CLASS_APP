@@ -1,9 +1,9 @@
 """Billed AI vendor cost and token-share apportionment (CPP-383).
 
-No test makes a live vendor call. The response parsers are exercised against
-fixtures because the real shapes could not be verified when this was written —
-which is precisely why they are isolated and why unparseable input must raise
-rather than quietly become zero.
+No test makes a live vendor call. The fixtures in RealResponseShapeTests are
+copied from actual API responses (2026-08-17); the rest cover variants the
+parsers tolerate. Unparseable input must raise rather than quietly become
+zero — a period we could not price has to read as unknown, never as free.
 """
 from datetime import date
 from decimal import Decimal
@@ -50,7 +50,7 @@ class ApportionmentTests(TestCase):
 
 
 class ResponseParsingTests(TestCase):
-    """Shapes are unverified against the live APIs — so they must fail loudly."""
+    """Variants the parsers accept, and the ones they must refuse."""
 
     def test_epoch_bucket_start(self):
         costs = _extract_daily_costs({'data': [
@@ -192,3 +192,105 @@ class SyncBilledExpensesTests(TestCase):
         self.assertEqual(
             Expense.objects.get(vendor='OpenAI').source,
             EXPENSE_SOURCE_AI_VENDOR)
+
+
+# ---------------------------------------------------------------------------
+# Fixtures copied from real API responses (2026-08-17), trimmed for length.
+# These are the shapes in production, not shapes I assumed.
+# ---------------------------------------------------------------------------
+REAL_OPENAI_PAGE = {
+    'object': 'page',
+    'data': [
+        {'object': 'bucket', 'start_time': 1786320000,
+         'start_time_iso': '2026-08-10T00:00:00+00:00',
+         'end_time': 1786406400, 'results': []},
+        {'object': 'bucket', 'start_time': 1786406400,
+         'start_time_iso': '2026-08-11T00:00:00+00:00',
+         'end_time': 1786492800, 'results': []},
+    ],
+    'has_more': True,
+    'next_page': 'page_AAAAAGqD469KskwwAAAAAGqCTwA=',
+}
+
+REAL_ANTHROPIC_PAGE = {
+    'data': [
+        {'starting_at': '2026-08-10T00:00:00Z',
+         'ending_at': '2026-08-11T00:00:00Z',
+         'results': [{'currency': 'USD', 'amount': '326.237',
+                      'workspace_id': None, 'description': None,
+                      'cost_type': None, 'model': None}]},
+        {'starting_at': '2026-08-11T00:00:00Z',
+         'ending_at': '2026-08-12T00:00:00Z',
+         'results': [{'currency': 'USD', 'amount': '590.1895',
+                      'workspace_id': None, 'model': None}]},
+    ],
+    'has_more': False,
+    'next_page': None,
+}
+
+
+class RealResponseShapeTests(TestCase):
+    """Locked to the payloads the live APIs actually returned."""
+
+    def test_anthropic_amount_is_a_string_beside_its_currency(self):
+        # {"currency": "USD", "amount": "326.237"} — not a nested money object.
+        costs = _extract_daily_costs(REAL_ANTHROPIC_PAGE)
+        self.assertEqual(costs[0].on, date(2026, 8, 10))
+        self.assertEqual(costs[0].amount_usd, Decimal('326.237'))
+        self.assertEqual(costs[1].amount_usd, Decimal('590.1895'))
+
+    def test_openai_epoch_buckets_with_no_spend_are_zero_not_an_error(self):
+        # Empty `results` is a real, legitimate answer: nothing billed that day.
+        costs = _extract_daily_costs(REAL_OPENAI_PAGE)
+        self.assertEqual(costs[0].on, date(2026, 8, 10))
+        self.assertEqual(costs[0].amount_usd, Decimal('0'))
+
+    def test_non_usd_sibling_currency_is_refused(self):
+        # The currency sits beside the amount in Anthropic's shape; converting
+        # a non-USD figure as if it were dollars would be silently wrong.
+        payload = {'data': [{'starting_at': '2026-08-10T00:00:00Z',
+                             'results': [{'currency': 'EUR',
+                                          'amount': '100.00'}]}]}
+        with self.assertRaises(VendorCostUnavailable):
+            _extract_daily_costs(payload)
+
+
+class PaginationTests(TestCase):
+    """Both endpoints page; a partial read must never pass as a total."""
+
+    @override_settings(OPENAI_ADMIN_API_KEY='sk-admin-test')
+    def test_all_pages_are_followed(self):
+        page_two = {
+            'object': 'page',
+            'data': [{'object': 'bucket', 'start_time': 1786492800,
+                      'results': [{'amount': {'value': 5, 'currency': 'usd'}}]}],
+            'has_more': False, 'next_page': None,
+        }
+        responses = [REAL_OPENAI_PAGE, page_two]
+        seen_params = []
+
+        def _fake_get(url, headers=None, params=None, timeout=None):
+            seen_params.append(dict(params or {}))
+            payload = responses[len(seen_params) - 1]
+            return mock.Mock(json=lambda: payload, raise_for_status=lambda: None)
+
+        with mock.patch('billing.ai_vendor_costs.requests.get', _fake_get):
+            costs = fetch_openai_costs(date(2026, 8, 10), date(2026, 8, 17))
+
+        # Two buckets from page one, one from page two — not just page one.
+        self.assertEqual(len(costs), 3)
+        self.assertEqual(costs[2].amount_usd, Decimal('5'))
+        # The cursor from page one was sent with the second request.
+        self.assertEqual(seen_params[1]['page'],
+                         'page_AAAAAGqD469KskwwAAAAAGqCTwA=')
+
+    @override_settings(OPENAI_ADMIN_API_KEY='sk-admin-test')
+    def test_endless_paging_raises_rather_than_returning_a_partial_total(self):
+        forever = {'data': [{'start_time': 1786320000, 'results': []}],
+                   'has_more': True, 'next_page': 'cursor'}
+
+        with mock.patch('billing.ai_vendor_costs.requests.get',
+                        return_value=mock.Mock(json=lambda: forever,
+                                               raise_for_status=lambda: None)):
+            with self.assertRaises(VendorCostUnavailable):
+                fetch_openai_costs(date(2026, 8, 10), date(2026, 8, 17))
