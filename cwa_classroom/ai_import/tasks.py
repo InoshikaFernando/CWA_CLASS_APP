@@ -35,7 +35,9 @@ def process_pdf_import(session_id):
             pdf_bytes = session.pdf_file.read()
         finally:
             session.pdf_file.close()
-        extracted = extract_pdf_content(BytesIO(pdf_bytes))
+        extracted = extract_pdf_content(
+            BytesIO(pdf_bytes), page_selection=session.page_selection,
+        )
 
         from classroom.models import Level, Topic
         existing_topics = list(Topic.objects.filter(
@@ -114,6 +116,10 @@ def process_pdf_import(session_id):
         if count_verification is not None:
             result['count_verification'] = count_verification
         result['image_verification'] = image_verification
+
+        # Which pages were read and which the teacher left out — recorded so the
+        # preview can say so rather than leaving a missing page a mystery.
+        result['page_selection'] = extracted.get('page_selection')
 
         # Preserve any pre-set classroom selection stored at enqueue time.
         existing = session.extracted_data or {}

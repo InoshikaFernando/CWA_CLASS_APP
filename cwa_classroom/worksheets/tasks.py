@@ -40,6 +40,7 @@ def process_worksheet_pdf(session_id):
             output = extract_and_classify_worksheet(
                 session.pdf_file, existing_topics, existing_levels,
                 shape_naming=session.shape_naming,
+                page_selection=session.page_selection,
             )
         finally:
             session.pdf_file.close()

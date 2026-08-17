@@ -14,6 +14,9 @@ large and gitignored, and --live spends tokens, so this never fires on a PR.
     # spends tokens — full pipeline, scored against each paper's own answer key
     python manage.py check_pdf_extraction --corpus ~/pdf-corpus --live --save live.json
 
+    # check what a teacher's page selection would actually extract (free)
+    python manage.py check_pdf_extraction paper.pdf --pages "2-7, 9"
+
 Full procedure: Runbooks/pdf-extraction-benchmark.md
 """
 import json
@@ -44,6 +47,10 @@ class Command(BaseCommand):
         parser.add_argument(
             '--baseline', default=None,
             help='Compare this run against a previously saved report.')
+        parser.add_argument(
+            '--pages', default=None,
+            help='Only extract these pages, print-dialog style ("2-7, 9", "2-"). '
+                 'Applies to every PDF in the run. Omit for all pages.')
 
     def handle(self, *args, **options):
         pdfs = [Path(p) for p in options['pdfs']]
@@ -61,6 +68,9 @@ class Command(BaseCommand):
             raise CommandError('Not found: ' + ', '.join(str(p) for p in missing))
 
         measure = measure_live if options['live'] else measure_offline
+        if options['pages']:
+            self.stdout.write(self.style.WARNING(
+                f'--pages {options["pages"]}: only those pages will be extracted.'))
         if options['live']:
             self.stdout.write(self.style.WARNING(
                 f'--live: running the real AI pipeline over {len(pdfs)} paper(s). '
@@ -70,7 +80,7 @@ class Command(BaseCommand):
         for pdf in pdfs:
             self.stdout.write(f'· {pdf.name} … ', ending='')
             self.stdout.flush()
-            result = measure(pdf)
+            result = measure(pdf, page_selection=options['pages'])
             report[pdf.name] = result
             if result['errors']:
                 self.stdout.write(self.style.ERROR('FAILED'))
