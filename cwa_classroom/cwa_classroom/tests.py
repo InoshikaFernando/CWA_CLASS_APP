@@ -4,7 +4,11 @@ from django.db import connection
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
+from django.contrib.auth.models import AnonymousUser
+from django.middleware.csrf import REASON_NO_CSRF_COOKIE
+
 from cwa_classroom.middleware import SlowQueryLoggingMiddleware
+from cwa_classroom.views import csrf_failure
 
 
 class HealthCheckTests(TestCase):
@@ -118,3 +122,45 @@ class SlowQueryLoggingMiddlewareTests(TestCase):
         with self.settings(SLOW_QUERY_MS=0):
             with self.assertRaises(MiddlewareNotUsed):
                 SlowQueryLoggingMiddleware(self._view_running(0))
+
+
+class CsrfFailureViewTests(TestCase):
+    """cwa_classroom.views.csrf_failure — the CSRF_FAILURE_VIEW (CPP-36)."""
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def _request(self, path, **post):
+        """A request shaped like the ones that reach the failure view.
+
+        CsrfViewMiddleware rejects from process_view, which runs after every
+        middleware's request phase — so request.user is always populated by the
+        time we render. RequestFactory skips that, hence the explicit user.
+        """
+        request = self.factory.post(path, post)
+        request.user = AnonymousUser()
+        return request
+
+    def test_wired_up_in_settings(self):
+        from django.conf import settings
+        self.assertEqual(settings.CSRF_FAILURE_VIEW, 'cwa_classroom.views.csrf_failure')
+
+    def test_login_failure_redirects_to_a_fresh_login_page(self):
+        request = self._request(reverse('login'), username='someone')
+        resp = csrf_failure(request, reason='CSRF token from POST incorrect.')
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp['Location'], f"{reverse('login')}?expired=1")
+
+    def test_other_paths_get_the_branded_403(self):
+        request = self._request('/hub/')
+        resp = csrf_failure(request, reason='CSRF token from POST incorrect.')
+        self.assertEqual(resp.status_code, 403)
+        self.assertIn(b'That page had expired', resp.content)
+        self.assertNotIn(b'Cookies are switched off', resp.content)
+
+    def test_a_missing_cookie_is_reported_never_retried(self):
+        """Redirecting a cookie-less browser back to the form would just loop."""
+        request = self._request(reverse('login'))
+        resp = csrf_failure(request, reason=REASON_NO_CSRF_COOKIE)
+        self.assertEqual(resp.status_code, 403)
+        self.assertIn(b'Cookies are switched off', resp.content)

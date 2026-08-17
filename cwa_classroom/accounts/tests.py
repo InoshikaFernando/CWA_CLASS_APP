@@ -1209,3 +1209,65 @@ class CsrfRecoveryTest(TestCase):
         })
         self.assertEqual(resp.status_code, 403)
         self.assertContains(resp, 'Cookies are switched off', status_code=403)
+
+    # ── logout behaviour preserved ───────────────────────────
+
+    def test_logout_still_records_the_audit_event(self):
+        """Exempting the view must not cost us the auth audit trail."""
+        from audit.models import AuditLog
+        self._sign_in('alice', 'AlicePass99')
+        AuditLog.objects.filter(action='logout').delete()
+        self.client.post(self.logout_url)
+        self.assertTrue(AuditLog.objects.filter(action='logout', category='auth').exists())
+
+    def test_logout_redirects_to_the_landing_page(self):
+        self._sign_in('alice', 'AlicePass99')
+        resp = self.client.post(self.logout_url)
+        self.assertEqual(resp['Location'], settings.LOGOUT_REDIRECT_URL)
+
+    def test_logout_by_link_still_signs_out(self):
+        """A couple of templates still log out with a plain <a href>."""
+        self._sign_in('alice', 'AlicePass99')
+        resp = self.client.get(self.logout_url)
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(self._is_logged_in())
+
+    def test_logout_honours_an_onsite_next(self):
+        self._sign_in('alice', 'AlicePass99')
+        resp = self.client.post(f'{self.logout_url}?next=/help/')
+        self.assertEqual(resp['Location'], '/help/')
+
+    def test_logout_ignores_an_offsite_next(self):
+        """The exemption must not turn logout into an open redirect."""
+        self._sign_in('alice', 'AlicePass99')
+        resp = self.client.post(f'{self.logout_url}?next=https://evil.example.com/')
+        self.assertEqual(resp['Location'], settings.LOGOUT_REDIRECT_URL)
+
+    # ── recovery page detail ─────────────────────────────────
+
+    def test_login_page_is_clean_without_a_failure(self):
+        self.assertNotContains(self.client.get(self.login_url), 'session had already ended')
+
+    def test_retry_page_keeps_the_next_url_in_the_form(self):
+        stale = self._token()
+        self._sign_in('alice', 'AlicePass99')
+        self.client.post(self.logout_url)
+        resp = self.client.post(self.login_url, {
+            'csrfmiddlewaretoken': stale, 'next': '/hub/',
+            'username': 'bob', 'password': 'BobPass9999',
+        })
+        self.assertContains(
+            self.client.get(resp['Location']),
+            'name="next" value="/hub/"',
+        )
+
+    def test_csrf_failures_are_logged(self):
+        """No silent failure — every rejection lands in the app log."""
+        stale = self._token()
+        self._sign_in('alice', 'AlicePass99')
+        with self.assertLogs('cwa_classroom.views', level='WARNING') as cm:
+            self.client.post(reverse('profile'), {'csrfmiddlewaretoken': stale})
+        self.assertTrue(
+            any('CSRF failure' in line and '/accounts/profile/' in line for line in cm.output),
+            cm.output,
+        )

@@ -75,6 +75,23 @@ class TestSwitchingAccounts:
         self.page.locator("button[type='submit'], input[type='submit']").first.click()
         self.page.wait_for_url(lambda url: "/accounts/login" not in url, timeout=10_000)
 
+    def test_log_out_button_then_sign_in_as_another_user(self):
+        """The reported journey, through the real UI: menu → Log Out → sign in."""
+        do_login(self.page, self.url, self.user_a)
+        self.page.goto(f"{self.url}/hub/")
+        self.page.wait_for_load_state("domcontentloaded")
+
+        logout_form = self.page.locator("form[action*='logout']").first
+        expect(logout_form).to_have_count(1)
+        # Submit the page's own Log Out form (its own, real CSRF token) rather
+        # than driving the dropdown, which varies by role and viewport.
+        logout_form.evaluate("form => form.submit()")
+        self.page.wait_for_load_state("domcontentloaded")
+        expect(self.page.locator("body")).not_to_contain_text("CSRF verification failed")
+
+        do_login(self.page, self.url, self.user_b)
+        expect(self.page.locator("body")).not_to_contain_text("CSRF verification failed")
+
     def test_stale_log_out_button_still_logs_out(self):
         """A tab left open from an earlier session must still be able to sign out."""
         self.page.goto(f"{self.url}/accounts/login/")
