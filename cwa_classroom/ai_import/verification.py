@@ -948,6 +948,16 @@ _VERIFY_IMAGE_SYSTEM_PROMPT = (
     "- Only report matches=false when you are CONFIDENT the image is wrong — set "
     "confident=false (and matches=true) whenever you are unsure, because a false "
     "alarm wastes a teacher's time. Give a one-line reason whenever matches=false.\n"
+    "When matches=true, ALSO check the crop's BOUNDARIES — the picture must contain "
+    "ALL of the figure's information and ONLY that (no more, no less):\n"
+    "- complete=false when the crop cuts something off: an axis number or scale, a "
+    "key/legend, a label, a shape's side length or angle, or part of the figure "
+    "itself is clipped at an edge or missing.\n"
+    "- clean=false when the crop includes content that is NOT part of this figure: "
+    "another question's text or diagram, a question number, a page header or "
+    "footer, or stray background text.\n"
+    "- Otherwise complete=true and clean=true. When unsure about a boundary, leave "
+    "both true. Give a one-line reason whenever complete or clean is false.\n"
     "Report every item via the report_image_matches tool."
 )
 
@@ -977,9 +987,27 @@ _VERIFY_IMAGE_TOOL = {
                                 "type": "boolean",
                                 "description": "True only if you are confident in this judgement.",
                             },
+                            "complete": {
+                                "type": "boolean",
+                                "description": (
+                                    "When matches=true: false if the crop cuts off "
+                                    "any of the figure's information (a label, axis "
+                                    "number, side length, or part of the figure). "
+                                    "True otherwise."
+                                ),
+                            },
+                            "clean": {
+                                "type": "boolean",
+                                "description": (
+                                    "When matches=true: false if the crop includes "
+                                    "content that is not part of this figure "
+                                    "(another question, a heading, stray text). "
+                                    "True otherwise."
+                                ),
+                            },
                             "reason": {
                                 "type": "string",
-                                "description": "One short sentence; required when matches is false.",
+                                "description": "One short sentence; required when matches, complete, or clean is false.",
                             },
                         },
                         "required": ["index", "matches", "confident"],
@@ -1045,6 +1073,10 @@ def _verify_image_batch(client, model, batch, images_by_ref):
                 # Default matches=True so a malformed row never wrongly flags.
                 'matches': bool(r.get('matches', True)),
                 'confident': bool(r.get('confident')),
+                # Crop-boundary quality (only meaningful when matches=True).
+                # Default True so a missing field never invents a problem.
+                'complete': bool(r.get('complete', True)),
+                'clean': bool(r.get('clean', True)),
                 'reason': (r.get('reason') or '').strip(),
             }
         except (KeyError, TypeError, ValueError):
@@ -1067,6 +1099,15 @@ def image_autodetach_enabled():
     showing on the question. Set ``AI_IMPORT_VERIFY_IMAGES_AUTODETACH=0`` to fall
     back to flag-only (keeps the image attached, routes the question to a human)."""
     return os.environ.get('AI_IMPORT_VERIFY_IMAGES_AUTODETACH', '1') != '0'
+
+
+def crop_quality_check_enabled():
+    """Whether verify_images also flags a RIGHT figure that is badly cropped —
+    clipped (missing a label/axis/edge) or bloated (extra content from another
+    question / the page) — for re-cropping. Default on; set
+    ``AI_IMPORT_VERIFY_CROP_QUALITY=0`` to disable just this sub-check while the
+    wrong-image detection keeps running."""
+    return os.environ.get('AI_IMPORT_VERIFY_CROP_QUALITY', '1') != '0'
 
 
 def verify_images(questions, images_by_ref, client=None, *, force=False):
@@ -1134,27 +1175,52 @@ def verify_images(questions, images_by_ref, client=None, *, force=False):
 
     flagged = 0
     detached = 0
+    recrop = 0
     autodetach = image_autodetach_enabled()
+    crop_quality = crop_quality_check_enabled()
     for idx, verdict in all_results.items():
         q = by_index.get(idx)
-        if q is None or not verdict['confident'] or verdict['matches']:
+        if q is None or not verdict['confident']:
             continue
-        reason = verdict['reason'] or 'the attached image may not match this question'
-        if autodetach:
-            _detach_image(
-                q, f'Image check: {reason} — the image was removed; attach the '
-                'correct figure if one is needed.')
-            detached += 1
-        else:
+
+        # Wrong picture entirely → remove it (or flag when autodetach is off).
+        if not verdict['matches']:
+            reason = verdict['reason'] or 'the attached image may not match this question'
+            if autodetach:
+                _detach_image(
+                    q, f'Image check: {reason} — the image was removed; attach the '
+                    'correct figure if one is needed.')
+                detached += 1
+            else:
+                q['needs_review'] = True
+                q['review_reason'] = f'Image check: {reason}'
+            flagged += 1
+            continue
+
+        # Right figure, but is the crop complete (nothing cut off) and clean
+        # (nothing extra)? Flag for re-cropping — do NOT detach, the figure is
+        # correct, its boundaries just need adjusting.
+        if crop_quality and (not verdict['complete'] or not verdict['clean']):
+            if not verdict['complete'] and not verdict['clean']:
+                what = 'is missing part of the figure AND includes extra content'
+            elif not verdict['complete']:
+                what = 'cuts off part of the figure (a label, axis number or edge is missing)'
+            else:
+                what = 'includes extra content that is not part of the figure'
+            detail = verdict['reason']
             q['needs_review'] = True
-            q['review_reason'] = f'Image check: {reason}'
-        flagged += 1
+            q['review_reason'] = (
+                f'Image check: the crop {what} — re-crop so it holds the whole '
+                'figure and only the figure.' + (f' ({detail})' if detail else ''))
+            recrop += 1
+            flagged += 1
 
     return {
         'model': model,
         'checked': len(all_results),
         'flagged': flagged,
         'detached': detached,
+        'recrop': recrop,
         'input_tokens': in_tok,
         'output_tokens': out_tok,
         'error': error,
