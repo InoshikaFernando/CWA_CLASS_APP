@@ -48,25 +48,83 @@ class TestPageSelectionField:
             page.goto(f"{live_server}{path}")
             page.wait_for_load_state("domcontentloaded")
 
+            # The posted field is hidden — the teacher drives it through the
+            # All / Range / Custom picker — so assert it EXISTS, not that it shows.
             field = page.locator('input[name="page_selection"]')
-            expect(field, f"{label}: page_selection input").to_be_visible()
-            # It must be optional — an upload that ignores it still works.
-            expect(field).not_to_have_attribute("required", "")
-            expect(page.get_by_text("Pages to extract").first).to_be_visible()
-            # And it must explain the syntax, not just accept it.
-            expect(page.get_by_text("print dialog").first).to_be_visible()
+            assert field.count() == 1, f"{label}: expected one page_selection input"
+            # Default is every page, so an upload that ignores the control is
+            # identical to one from before the control existed.
+            expect(field).to_have_value("")
+
+            expect(page.get_by_text("Pages to extract").first,
+                   f"{label}: heading").to_be_visible()
+            for mode in ("All pages", "Range", "Custom"):
+                expect(page.get_by_text(mode, exact=True).first,
+                       f"{label}: {mode} option").to_be_visible()
+            # And it must say what will happen, not just accept input.
+            expect(page.get_by_text("Every page of the PDF will be read.").first
+                   ).to_be_visible()
 
     @pytest.mark.django_db(transaction=True)
-    def test_field_accepts_a_typed_range(
+    def test_range_mode_builds_the_spec(
+        self, page: Page, live_server, school, teacher_user
+    ):
+        """"Pages 5 to 20" must post as the spec string "5-20"."""
+        do_login(page, str(live_server), teacher_user)
+        page.goto(f"{live_server}/worksheets/upload/")
+        page.wait_for_load_state("domcontentloaded")
+
+        page.get_by_text("Range", exact=True).first.click()
+        page.fill("#page-selection-from", "5")
+        page.fill("#page-selection-to", "20")
+
+        expect(page.locator('input[name="page_selection"]')).to_have_value("5-20")
+        expect(page.get_by_text("Only page(s) 5-20 will be read.").first).to_be_visible()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_range_with_no_end_reads_to_the_last_page(
+        self, page: Page, live_server, school, teacher_user
+    ):
+        """Leaving "to" blank is how a teacher skips only a cover sheet."""
+        do_login(page, str(live_server), teacher_user)
+        page.goto(f"{live_server}/worksheets/upload/")
+        page.wait_for_load_state("domcontentloaded")
+
+        page.get_by_text("Range", exact=True).first.click()
+        page.fill("#page-selection-from", "2")
+
+        expect(page.locator('input[name="page_selection"]')).to_have_value("2-")
+
+    @pytest.mark.django_db(transaction=True)
+    def test_custom_mode_passes_the_list_through(
         self, page: Page, live_server, school, teacher_user
     ):
         do_login(page, str(live_server), teacher_user)
         page.goto(f"{live_server}/worksheets/upload/")
         page.wait_for_load_state("domcontentloaded")
 
-        field = page.locator('input[name="page_selection"]')
-        field.fill("2-7, 9")
-        expect(field).to_have_value("2-7, 9")
+        page.get_by_text("Custom", exact=True).first.click()
+        page.fill("#page-selection-custom", "5, 6, 8, 9-11")
+
+        expect(page.locator('input[name="page_selection"]')
+               ).to_have_value("5, 6, 8, 9-11")
+
+    @pytest.mark.django_db(transaction=True)
+    def test_switching_back_to_all_clears_the_selection(
+        self, page: Page, live_server, school, teacher_user
+    ):
+        """A teacher who changes their mind must not silently keep excluding pages."""
+        do_login(page, str(live_server), teacher_user)
+        page.goto(f"{live_server}/worksheets/upload/")
+        page.wait_for_load_state("domcontentloaded")
+
+        page.get_by_text("Range", exact=True).first.click()
+        page.fill("#page-selection-from", "5")
+        page.fill("#page-selection-to", "20")
+        expect(page.locator('input[name="page_selection"]')).to_have_value("5-20")
+
+        page.get_by_text("All pages", exact=True).first.click()
+        expect(page.locator('input[name="page_selection"]')).to_have_value("")
 
     @pytest.mark.django_db(transaction=True)
     def test_a_range_past_the_end_is_refused_on_the_upload_screen(
@@ -87,7 +145,8 @@ class TestPageSelectionField:
                 "buffer": _pdf_bytes(4),
             }],
         )
-        page.fill('input[name="page_selection"]', "9-12")
+        page.get_by_text("Custom", exact=True).first.click()
+        page.fill("#page-selection-custom", "9-12")
         page.click("#upload-btn")
 
         # Bounced back with the reason (shown both as a toast and inline), and
@@ -105,7 +164,9 @@ class TestPageSelectionField:
         page.goto(f"{live_server}/worksheets/upload/")
         page.wait_for_load_state("domcontentloaded")
 
-        expect(page.locator('input[name="page_selection"]')).to_be_visible()
+        expect(page.get_by_text("Pages to extract").first).to_be_visible()
+        for mode in ("All pages", "Range", "Custom"):
+            expect(page.get_by_text(mode, exact=True).first).to_be_visible()
 
 
 class TestPageSelectionPreviewNotice:
