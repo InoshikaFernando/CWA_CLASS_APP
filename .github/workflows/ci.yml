@@ -514,7 +514,17 @@ jobs:
   ui-tests:
     name: UI Tests (Playwright)
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.ui == 'true' }}
+    # UI is by far the most expensive job (~33 min vs ~1 min for most suites), so
+    # it is the one job we do NOT run twice per release. It runs:
+    #   - on a PR only when UI-relevant files (templates/static/ui_tests) or a
+    #     shared file changed; and
+    #   - on the push to `test` (the full pre-production integration gate);
+    # but NOT on the push to `main`, because a test→main promotion ships the exact
+    # tree that just passed UI on `test` — re-running it on `main` is a redundant
+    # ~33 min. (Assumes the standard clean test→main promotion; a main push that
+    # is not a straight promotion of a green `test` would skip UI — acceptable
+    # given main is never pushed to directly.)
+    if: ${{ (github.event_name == 'pull_request' && (needs.changes.outputs.shared == 'true' || needs.changes.outputs.ui == 'true')) || (github.event_name == 'push' && github.ref == 'refs/heads/test') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
