@@ -513,18 +513,16 @@ jobs:
 
   ui-tests:
     name: UI Tests (Playwright)
-    needs: changes
-    # UI is by far the most expensive job (~33 min vs ~1 min for most suites), so
-    # it is the one job we do NOT run twice per release. It runs:
-    #   - on a PR only when UI-relevant files (templates/static/ui_tests) or a
-    #     shared file changed; and
-    #   - on the push to `test` (the full pre-production integration gate);
-    # but NOT on the push to `main`, because a test→main promotion ships the exact
-    # tree that just passed UI on `test` — re-running it on `main` is a redundant
-    # ~33 min. (Assumes the standard clean test→main promotion; a main push that
-    # is not a straight promotion of a green `test` would skip UI — acceptable
-    # given main is never pushed to directly.)
-    if: ${{ (github.event_name == 'pull_request' && (needs.changes.outputs.shared == 'true' || needs.changes.outputs.ui == 'true')) || (github.event_name == 'push' && github.ref == 'refs/heads/test') }}
+    # UI is by far the most expensive job (~33 min vs ~1 min for most suites) and,
+    # being end-to-end (templates + views + static across many apps), it can't be
+    # path-filtered cleanly. So instead of picking WHICH UI tests by changed files:
+    #   - every PR runs only the core-journey `-m smoke` subset (~a few min) —
+    #     enough to catch a broken login / dashboard / homework-load / worksheet /
+    #     upload on any change, including a pure-Python view change; and
+    #   - the push to `test` runs the FULL UI suite (the real pre-production gate);
+    #   - the push to `main` runs NOTHING here — that tree already passed the full
+    #     suite on `test`, so re-running ~33 min on main is pure waste.
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -549,7 +547,17 @@ jobs:
 
       - name: Run UI tests
         working-directory: cwa_classroom
-        # --reruns retries ONLY the known SQLite "database is locked" flake from
-        # parallel Playwright workers (see cwa_classroom/conftest.py); scoped via
-        # --only-rerun so genuine assertion failures still fail on the first run.
-        run: pytest ui_tests/ brainbuzz/tests/test_student_playwright_mobile.py -n auto -v --tb=short --reruns 2 --only-rerun "database is locked"
+        # PRs run only the core-journey `-m smoke` subset (fast); the push to
+        # `test` runs the full suite. --reruns retries ONLY the known SQLite
+        # "database is locked" flake from parallel Playwright workers (see
+        # cwa_classroom/conftest.py); scoped via --only-rerun so genuine assertion
+        # failures still fail on the first run.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "PR → core-journey smoke subset only (-m smoke)"
+            SELECT="-m smoke"
+          else
+            echo "Push to test → full UI suite"
+            SELECT=""
+          fi
+          pytest ui_tests/ brainbuzz/tests/test_student_playwright_mobile.py $SELECT -n auto -v --tb=short --reruns 2 --only-rerun "database is locked"

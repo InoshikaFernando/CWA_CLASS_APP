@@ -121,6 +121,7 @@ class TestUploadQuestionsMaths:
         selected = page.locator("select[name='subject']").input_value()
         assert selected == "mathematics"
 
+    @pytest.mark.smoke
     @pytest.mark.django_db(transaction=True)
     def test_json_upload_inserts_questions_and_answers(
         self, page: Page, live_server, teacher_user, classroom, level, tmp_path
