@@ -108,6 +108,81 @@ def test_autodetach_off_flags_but_keeps_image(monkeypatch):
     assert summary['detached'] == 0
 
 
+def test_incomplete_crop_is_flagged_for_recrop_not_detached():
+    # Right figure, but a label is cut off → flag to re-crop, keep the image.
+    q = _q(text='Find x in this triangle.')
+    client = _fake_client([{
+        'index': 0, 'matches': True, 'confident': True,
+        'complete': False, 'clean': True, 'reason': 'the 23.9 km label is cut off',
+    }])
+
+    summary = verify_images([q], IMAGES, client=client, force=True)
+
+    assert q['image_ref'] == 'page7_img1.jpeg'          # NOT detached — figure is right
+    assert q['needs_review'] is True
+    assert 're-crop' in q['review_reason']
+    assert 'cuts off' in q['review_reason']
+    assert '23.9 km' in q['review_reason']
+    assert summary['recrop'] == 1
+    assert summary['detached'] == 0
+    assert summary['flagged'] == 1
+
+
+def test_crop_with_extra_content_is_flagged():
+    q = _q()
+    client = _fake_client([{
+        'index': 0, 'matches': True, 'confident': True,
+        'complete': True, 'clean': False, 'reason': "the next question's text is included",
+    }])
+
+    summary = verify_images([q], IMAGES, client=client, force=True)
+
+    assert q['needs_review'] is True
+    assert 'extra content' in q['review_reason']
+    assert summary['recrop'] == 1
+
+
+def test_complete_and_clean_crop_stays_quiet():
+    q = _q()
+    client = _fake_client([{
+        'index': 0, 'matches': True, 'confident': True,
+        'complete': True, 'clean': True,
+    }])
+
+    summary = verify_images([q], IMAGES, client=client, force=True)
+
+    assert 'needs_review' not in q
+    assert summary['flagged'] == 0
+    assert summary['recrop'] == 0
+
+
+def test_crop_quality_check_can_be_disabled(monkeypatch):
+    monkeypatch.setenv('AI_IMPORT_VERIFY_CROP_QUALITY', '0')
+    q = _q()
+    client = _fake_client([{
+        'index': 0, 'matches': True, 'confident': True,
+        'complete': False, 'clean': False, 'reason': 'clipped',
+    }])
+
+    summary = verify_images([q], IMAGES, client=client, force=True)
+
+    assert 'needs_review' not in q          # sub-check off → not flagged
+    assert summary['recrop'] == 0
+
+
+def test_unconfident_crop_quality_is_ignored():
+    q = _q()
+    client = _fake_client([{
+        'index': 0, 'matches': True, 'confident': False,
+        'complete': False, 'clean': False, 'reason': 'maybe clipped',
+    }])
+
+    summary = verify_images([q], IMAGES, client=client, force=True)
+
+    assert 'needs_review' not in q
+    assert summary['recrop'] == 0
+
+
 def test_match_leaves_question_untouched():
     q = _q()
     client = _fake_client([{'index': 0, 'matches': True, 'confident': True}])
