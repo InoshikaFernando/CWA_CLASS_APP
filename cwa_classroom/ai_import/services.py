@@ -106,10 +106,25 @@ def _page_figure_regions(page):
         pw, ph = page.rect.width, page.rect.height
         if pw <= 0 or ph <= 0:
             return []
+        page_area = pw * ph
+        # A near-full-page rectangle is a page border / background panel, not a
+        # figure. Left in the input it BRIDGES otherwise-separate diagrams, so
+        # cluster_drawings merges the whole page into one blob that the >80% filter
+        # below then discards — losing every figure on the page (a grid of labelled
+        # triangles came back with zero regions). Drop those border strokes first,
+        # then cluster only the real content. On a page with no such border this is
+        # a no-op (content == all drawings), so existing pages are unaffected.
+        content = [
+            d for d in page.get_drawings()
+            if d.get('rect') is not None
+            and (d['rect'].width * d['rect'].height) / page_area <= 0.80
+        ]
+        clusters = (page.cluster_drawings(drawings=content)
+                    if content else page.cluster_drawings())
         regions = []
-        for r in page.cluster_drawings():
+        for r in clusters:
             w, h = r.width, r.height
-            area_frac = (w * h) / (pw * ph)
+            area_frac = (w * h) / page_area
             if area_frac > 0.80:
                 continue  # page border / full-page decoration, not a figure
             if (w / pw) < 0.02 and (h / ph) < 0.02:
@@ -389,6 +404,15 @@ IMAGE NECESSITY (important — most questions need NO image):
   question's own page (its source_page) and box the figure THERE. NEVER box or attach a figure
   from a different page; if you cannot find the referenced figure on the question's own page,
   leave the question with no image rather than grabbing a figure from elsewhere.
+- A page that is a GRID or ROW of small labelled diagrams — e.g. right-angled triangles labelled
+  a, b, c, … each drawn with its own side lengths and angles, or a set of shapes/graphs one per
+  part — is MANY separate questions, one per diagram, NOT one question. For EACH labelled diagram
+  create its own question and attach THAT diagram with image_page + image_box (box just the one
+  diagram and its labels, excluding the neighbours). These bare geometry prompts ("Find x", "Find
+  the angle θ", "Find all unknown sides and angles") are unanswerable without their triangle, so
+  the figure is mandatory — never emit such a question with no image because the page held a whole
+  grid of them. The triangles are drawn as vector lines (no embedded image_ref), so you must box
+  them with image_page + image_box.
 
 MATCHING THE RIGHT IMAGE TO EACH QUESTION (important — this is the #1 cause of wrong figures):
 - Every embedded image is listed with its POSITION on the page: its x/y bounding box in
