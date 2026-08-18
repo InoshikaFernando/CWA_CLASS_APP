@@ -257,7 +257,7 @@ _VERIFY_SYSTEM_PROMPT = (
     "You are a meticulous maths teacher independently auditing a colleague's "
     "answer key that was auto-extracted from a worksheet. When a page image is "
     "provided it is the ORIGINAL page the questions came from — trust the image "
-    "over the extracted text. For EACH question do THREE things:\n"
+    "over the extracted text. For EACH question do FOUR things:\n"
     "1. classify: choose the single best question_type from this list — "
     + ", ".join(_ALLOWED_TYPES) + ".\n"
     "2. solve: work it out YOURSELF from scratch and report your final answer. "
@@ -272,6 +272,15 @@ _VERIFY_SYSTEM_PROMPT = (
     "value an arrow/protractor points to). If it does not, set "
     "transcription_ok=false and give a one-line issue. If NO page image is "
     "provided, set transcription_ok=true (you cannot judge it).\n"
+    "4. needs_figure: set needs_figure=true if answering this question REQUIRES "
+    "reading a figure — a diagram, triangle or other shape, graph, number line, "
+    "geometric drawing, or a picture the question is about — whether or not the "
+    "extracted text mentions it. A bare prompt like \"Find x\" or \"Find the "
+    "angle\" that only makes sense next to a drawn triangle NEEDS a figure. Set "
+    "needs_figure=false when the question is fully answerable from its own text "
+    "(word problems whose numbers are all stated, plain arithmetic, definitions). "
+    "Judge from the printed question, not from whether an image happens to be "
+    "attached.\n"
     "Report every question via the report_answers tool."
 )
 
@@ -321,6 +330,15 @@ _VERIFY_TOOL = {
                                 "type": "string",
                                 "description": "One line on the transcription problem (empty if none).",
                             },
+                            "needs_figure": {
+                                "type": "boolean",
+                                "description": (
+                                    "True if answering REQUIRES reading a figure "
+                                    "(diagram, triangle/shape, graph, number line, "
+                                    "picture), judged from the printed question — "
+                                    "not from whether an image is attached."
+                                ),
+                            },
                         },
                         "required": [
                             "index", "question_type", "answer", "confident",
@@ -342,7 +360,8 @@ def _verify_batch(client, model, payload, image_b64=None, has_image=False):
     is attached so the model can see the questions as printed. Returns
     ``(results_by_index, usage)`` where each result is
     ``{'question_type', 'answer', 'confident', 'transcription_ok', 'issue',
-    'has_image'}`` and usage is ``{'input_tokens', 'output_tokens'}``. Raises on
+    'needs_figure', 'has_image'}`` and usage is ``{'input_tokens',
+    'output_tokens'}``. Raises on
     transport / parse failure so the orchestrator can log it and move on.
     """
     intro = (
@@ -389,6 +408,8 @@ def _verify_batch(client, model, payload, image_b64=None, has_image=False):
                 bool(r.get('transcription_ok', True)) if has_image else True
             ),
             'issue': (r.get('issue') or '').strip(),
+            # Only trustworthy when the model actually saw the page.
+            'needs_figure': bool(r.get('needs_figure', False)) and has_image,
             'has_image': has_image,
         }
 
@@ -479,6 +500,7 @@ def verify_answers(questions, page_images=None, client=None, *, force=False):
             out_tok += usage['output_tokens']
 
     flagged = type_flags = answer_flags = transcription_flags = 0
+    missing_figure_flags = 0
     for idx, verdict in all_results.items():
         q = by_index.get(idx)
         if q is None or q.get('needs_review'):
@@ -514,6 +536,22 @@ def verify_answers(questions, page_images=None, client=None, *, force=False):
                 f'"{verdict["answer"]}" vs "{correct[0]}".')
             answer_flags += 1
 
+        # 4. Missing figure — the verifier judged (from the printed page) that this
+        # question needs a figure to answer, but no image was attached / extracted.
+        # This catches figure-dependent questions whose bare wording ("Find x",
+        # "Find the angle") the deterministic text guard can't recognise, e.g. a
+        # trig triangle drawn on the page but never cropped in. Group-shared
+        # questions carry the group's image; figure-optional types transcribe their
+        # visual into structured fields, so both are exempt.
+        if verdict.get('needs_figure') and not _has_figure(q) \
+                and not q.get('shares_image_with_previous') \
+                and q.get('question_type') not in _FIGURE_OPTIONAL_TYPES:
+            reasons.append(
+                'Second-opinion (vision): this question needs a figure to answer '
+                '(e.g. a diagram or shape) but no image was attached — the figure '
+                'was likely not extracted. Crop or add the correct image.')
+            missing_figure_flags += 1
+
         if reasons:
             q['needs_review'] = True
             q['review_reason'] = ' '.join(reasons)
@@ -527,6 +565,7 @@ def verify_answers(questions, page_images=None, client=None, *, force=False):
         'type_flags': type_flags,
         'answer_flags': answer_flags,
         'transcription_flags': transcription_flags,
+        'missing_figure_flags': missing_figure_flags,
         'input_tokens': in_tok,
         'output_tokens': out_tok,
         'error': error,

@@ -174,6 +174,80 @@ def test_transcription_ignored_without_image():
 
 
 # ---------------------------------------------------------------------------
+# Missing figure (vision needs_figure): a question that needs a diagram to
+# answer but has no attached image — the figure was not extracted.
+# ---------------------------------------------------------------------------
+
+def test_needs_figure_without_attached_image_flags():
+    # The real trig case: "Find x" next to a drawn triangle, but the triangle was
+    # never cropped in and the bare wording has no "diagram" keyword to catch.
+    q = {'question_text': 'Find x, to 1 decimal place.',
+         'question_type': 'short_answer', 'answers': [], 'source_page': 1}
+    client = _fake_client([{
+        'index': 0, 'question_type': 'short_answer', 'answer': '',
+        'confident': False, 'transcription_ok': True, 'needs_figure': True,
+    }])
+
+    summary = verify_answers([q], page_images={1: 'ZmFrZQ=='},
+                             client=client, force=True)
+
+    assert q['needs_review'] is True
+    assert 'needs a figure' in q['review_reason']
+    assert summary['missing_figure_flags'] == 1
+    assert summary['flagged'] == 1
+
+
+def test_needs_figure_with_attached_image_not_flagged():
+    # Same verdict, but the question DOES carry a figure (image_page set pre-crop).
+    q = {'question_text': 'Find x, to 1 decimal place.',
+         'question_type': 'short_answer', 'answers': [], 'source_page': 1,
+         'image_page': 1}
+    client = _fake_client([{
+        'index': 0, 'question_type': 'short_answer', 'answer': '',
+        'confident': False, 'transcription_ok': True, 'needs_figure': True,
+    }])
+
+    summary = verify_answers([q], page_images={1: 'ZmFrZQ=='},
+                             client=client, force=True)
+
+    assert 'needs_review' not in q
+    assert summary['missing_figure_flags'] == 0
+
+
+def test_needs_figure_ignored_without_page_image():
+    # No page image → the model can't judge what's on the page, so needs_figure is
+    # not trusted (has_image False).
+    q = {'question_text': 'Find x, to 1 decimal place.',
+         'question_type': 'short_answer', 'answers': []}
+    client = _fake_client([{
+        'index': 0, 'question_type': 'short_answer', 'answer': '',
+        'confident': False, 'transcription_ok': True, 'needs_figure': True,
+    }])
+
+    summary = verify_answers([q], client=client, force=True)  # no page_images
+
+    assert 'needs_review' not in q
+    assert summary['missing_figure_flags'] == 0
+
+
+def test_needs_figure_shared_group_is_exempt():
+    # A group-shared question carries the group's image, so a missing own-image is
+    # not a problem.
+    q = {'question_text': 'Find x.', 'question_type': 'short_answer',
+         'answers': [], 'source_page': 1, 'shares_image_with_previous': True}
+    client = _fake_client([{
+        'index': 0, 'question_type': 'short_answer', 'answer': '',
+        'confident': False, 'transcription_ok': True, 'needs_figure': True,
+    }])
+
+    summary = verify_answers([q], page_images={1: 'ZmFrZQ=='},
+                             client=client, force=True)
+
+    assert 'needs_review' not in q
+    assert summary['missing_figure_flags'] == 0
+
+
+# ---------------------------------------------------------------------------
 # Read-off numeric answers (read_graph / measure): answer lives in
 # numeric_answer, compared with the question's tolerance band
 # ---------------------------------------------------------------------------
