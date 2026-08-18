@@ -1446,6 +1446,59 @@ def _frac_box_iou(a, b):
     return inter / union if union > 0 else 0.0
 
 
+def _expand_box_for_clipped_labels(doc, page_num, box_pct,
+                                   max_grow=6.0, min_inside=0.35):
+    """Grow a crop box just enough to include text labels it clips at the edge.
+
+    A figure crop that slices through an axis number or a shape's side label loses
+    information the question needs. Using the PDF's own text layout, any word that
+    overlaps the box but is not fully inside it — and is *mostly* inside (at least
+    ``min_inside`` of its area), i.e. a label the box clips rather than a
+    neighbour's word merely touching the edge — is unioned into the box. Growth is
+    capped at ``max_grow`` percent per side, so a run of adjacent text can never
+    balloon the crop into the next question. ``box_pct`` and the return value are
+    ``[lo_x, lo_y, hi_x, hi_y]`` in percent of the page. Best-effort: returns the
+    box unchanged on any failure or when the PDF isn't available.
+    """
+    if doc is None:
+        return box_pct
+    try:
+        page = doc[int(page_num) - 1]
+        pw, ph = page.rect.width, page.rect.height
+        if pw <= 0 or ph <= 0:
+            return box_pct
+        lo_x, lo_y, hi_x, hi_y = box_pct
+        # Box and the maximum grown envelope, in absolute (point) coordinates.
+        bx0, by0, bx1, by1 = (lo_x / 100 * pw, lo_y / 100 * ph,
+                              hi_x / 100 * pw, hi_y / 100 * ph)
+        gx0 = max(0.0, lo_x - max_grow) / 100 * pw
+        gy0 = max(0.0, lo_y - max_grow) / 100 * ph
+        gx1 = min(100.0, hi_x + max_grow) / 100 * pw
+        gy1 = min(100.0, hi_y + max_grow) / 100 * ph
+        nx0, ny0, nx1, ny1 = bx0, by0, bx1, by1
+        for word in page.get_text('words'):
+            wx0, wy0, wx1, wy1 = word[0], word[1], word[2], word[3]
+            wa = max(0.0, wx1 - wx0) * max(0.0, wy1 - wy0)
+            if wa <= 0:
+                continue
+            inter = (max(0.0, min(bx1, wx1) - max(bx0, wx0))
+                     * max(0.0, min(by1, wy1) - max(by0, wy0)))
+            if inter <= 0:
+                continue                     # word doesn't touch the box
+            if inter >= wa - 1e-6:
+                continue                     # already fully inside
+            if inter / wa < min_inside:
+                continue                     # sliver only → a neighbour's word
+            # A clipped label: union it in, clamped to the grown envelope.
+            nx0 = min(nx0, max(wx0, gx0))
+            ny0 = min(ny0, max(wy0, gy0))
+            nx1 = max(nx1, min(wx1, gx1))
+            ny1 = max(ny1, min(wy1, gy1))
+        return [nx0 / pw * 100, ny0 / ph * 100, nx1 / pw * 100, ny1 / ph * 100]
+    except Exception:
+        return box_pct
+
+
 def _assign_figure_to_question(q, idx, pages, crops, decoded, doc, Image, io):
     """Resolve one question's own figure: keep an embedded image_ref, or crop the
     drawn image_box into a new image. Mutates ``q`` in place; ``crops`` gains any
@@ -1521,6 +1574,15 @@ def _assign_figure_to_question(q, idx, pages, crops, decoded, doc, Image, io):
             return
         # else: a real drawing (incl. large filtered figures) or unknown
         # without regions → keep cropping.
+
+    # Grow the box to swallow any text label it CLIPS at the edge — an axis number,
+    # a shape's side length ("23.9 km"), a graph key — so the crop keeps ALL of the
+    # figure's information with no half-cut labels. Bounded per side so a run of
+    # text can't balloon the crop into the neighbouring question. Toggle off with
+    # AI_IMPORT_CROP_INCLUDE_LABELS=0.
+    if doc is not None and os.environ.get('AI_IMPORT_CROP_INCLUDE_LABELS', '1') != '0':
+        lo_x, lo_y, hi_x, hi_y = _expand_box_for_clipped_labels(
+            doc, int(page_num), [lo_x, lo_y, hi_x, hi_y])
 
     if hi_x - lo_x < 1 or hi_y - lo_y < 1:
         return  # degenerate / empty box
