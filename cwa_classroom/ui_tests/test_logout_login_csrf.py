@@ -49,6 +49,7 @@ class TestSwitchingAccounts:
         self.user_a = _make_user("csrf_switch_a", Role.TEACHER)
         self.user_b = _make_user("csrf_switch_b", Role.TEACHER)
 
+    @pytest.mark.smoke
     def test_logout_then_login_as_another_user(self):
         do_login(self.page, self.url, self.user_a)
         do_logout(self.page, self.url)

@@ -14,6 +14,97 @@ env:
   DB_ENGINE: sqlite
 
 jobs:
+  # Work out which areas a PR actually touched so we only run the relevant app
+  # suites instead of all ~20 every time (each job is a fresh runner + full pip
+  # install, so running the whole matrix on a one-app change burns Actions
+  # minutes for nothing). SAFETY NET: a push to main/test (i.e. a merge / release)
+  # ignores the filter and runs EVERY suite, so the promotion gate is always the
+  # full test matrix; only PR validation is narrowed. `shared` (project package,
+  # requirements, conftest, this workflow) forces the whole matrix even on a PR.
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      shared: ${{ steps.filter.outputs.shared }}
+      classroom: ${{ steps.filter.outputs.classroom }}
+      maths: ${{ steps.filter.outputs.maths }}
+      quiz: ${{ steps.filter.outputs.quiz }}
+      puzzles: ${{ steps.filter.outputs.puzzles }}
+      coding: ${{ steps.filter.outputs.coding }}
+      accounts: ${{ steps.filter.outputs.accounts }}
+      audit: ${{ steps.filter.outputs.audit }}
+      billing: ${{ steps.filter.outputs.billing }}
+      homework: ${{ steps.filter.outputs.homework }}
+      brainbuzz: ${{ steps.filter.outputs.brainbuzz }}
+      ai_import: ${{ steps.filter.outputs.ai_import }}
+      worksheets: ${{ steps.filter.outputs.worksheets }}
+      taskqueue: ${{ steps.filter.outputs.taskqueue }}
+      feedback: ${{ steps.filter.outputs.feedback }}
+      sprints: ${{ steps.filter.outputs.sprints }}
+      whatsapp: ${{ steps.filter.outputs.whatsapp }}
+      ops: ${{ steps.filter.outputs.ops }}
+      ui: ${{ steps.filter.outputs.ui }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared:
+              - 'cwa_classroom/requirements-test.txt'
+              - 'cwa_classroom/requirements.txt'
+              - 'cwa_classroom/cwa_classroom/**'
+              - 'cwa_classroom/conftest.py'
+              - 'cwa_classroom/pytest.ini'
+              - 'cwa_classroom/manage.py'
+              - '.github/workflows/ci.yml'
+            classroom:
+              - 'cwa_classroom/classroom/**'
+            maths:
+              - 'cwa_classroom/maths/**'
+            quiz:
+              - 'cwa_classroom/quiz/**'
+            puzzles:
+              - 'cwa_classroom/number_puzzles/**'
+            coding:
+              - 'cwa_classroom/coding/**'
+            accounts:
+              - 'cwa_classroom/accounts/**'
+            audit:
+              - 'cwa_classroom/audit/**'
+            billing:
+              - 'cwa_classroom/billing/**'
+            homework:
+              - 'cwa_classroom/homework/**'
+            brainbuzz:
+              - 'cwa_classroom/brainbuzz/**'
+            ai_import:
+              - 'cwa_classroom/ai_import/**'
+            worksheets:
+              - 'cwa_classroom/worksheets/**'
+            taskqueue:
+              - 'cwa_classroom/taskqueue/**'
+            feedback:
+              - 'cwa_classroom/feedback/**'
+            sprints:
+              - 'cwa_classroom/sprints/**'
+            whatsapp:
+              - 'cwa_classroom/whatsapp/**'
+            ops:
+              - 'cwa_classroom/ops/**'
+            ui:
+              - 'cwa_classroom/ui_tests/**'
+              - 'cwa_classroom/templates/**'
+              - 'cwa_classroom/**/templates/**'
+              - 'cwa_classroom/static/**'
+              - 'cwa_classroom/**/static/**'
+              - 'cwa_classroom/brainbuzz/tests/test_student_playwright_mobile.py'
+
+  # Always runs — missing/conflicting migrations must never slip through, and the
+  # check is cheap. Not gated on `changes`.
   migration-check:
     name: Migration Health
     runs-on: ubuntu-latest
@@ -35,6 +126,8 @@ jobs:
 
   classroom-tests:
     name: Classroom Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.classroom == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,6 +147,8 @@ jobs:
 
   maths-tests:
     name: Maths Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.maths == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,6 +168,8 @@ jobs:
 
   quiz-tests:
     name: Quiz Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.quiz == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -92,6 +189,8 @@ jobs:
 
   puzzles-tests:
     name: Number Puzzles Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.puzzles == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -111,6 +210,8 @@ jobs:
 
   coding-tests:
     name: Coding Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.coding == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -130,6 +231,8 @@ jobs:
 
   accounts-tests:
     name: Accounts Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.accounts == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -149,6 +252,8 @@ jobs:
 
   health-tests:
     name: Health Check Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -168,6 +273,8 @@ jobs:
 
   audit-tests:
     name: Audit Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.audit == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -187,6 +294,8 @@ jobs:
 
   billing-tests:
     name: Billing Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.billing == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -206,6 +315,8 @@ jobs:
 
   homework-tests:
     name: Homework Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.homework == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -234,6 +345,8 @@ jobs:
 
   brainbuzz-tests:
     name: BrainBuzz Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.brainbuzz == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -253,6 +366,8 @@ jobs:
 
   ai-import-tests:
     name: AI Import Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.ai_import == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -272,6 +387,8 @@ jobs:
 
   worksheets-tests:
     name: Worksheets Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.worksheets == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -291,6 +408,8 @@ jobs:
 
   taskqueue-tests:
     name: Taskqueue Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.taskqueue == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -310,6 +429,8 @@ jobs:
 
   feedback-tests:
     name: Feedback Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.feedback == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -329,6 +450,8 @@ jobs:
 
   sprints-tests:
     name: Sprints Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.sprints == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -348,6 +471,8 @@ jobs:
 
   whatsapp-tests:
     name: WhatsApp Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.whatsapp == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -367,6 +492,8 @@ jobs:
 
   ops-tests:
     name: Ops Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.ops == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -386,6 +513,16 @@ jobs:
 
   ui-tests:
     name: UI Tests (Playwright)
+    # UI is by far the most expensive job (~33 min vs ~1 min for most suites) and,
+    # being end-to-end (templates + views + static across many apps), it can't be
+    # path-filtered cleanly. So instead of picking WHICH UI tests by changed files:
+    #   - every PR runs only the core-journey `-m smoke` subset (~a few min) —
+    #     enough to catch a broken login / dashboard / homework-load / worksheet /
+    #     upload on any change, including a pure-Python view change; and
+    #   - the push to `test` runs the FULL UI suite (the real pre-production gate);
+    #   - the push to `main` runs NOTHING here — that tree already passed the full
+    #     suite on `test`, so re-running ~33 min on main is pure waste.
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -410,7 +547,17 @@ jobs:
 
       - name: Run UI tests
         working-directory: cwa_classroom
-        # --reruns retries ONLY the known SQLite "database is locked" flake from
-        # parallel Playwright workers (see cwa_classroom/conftest.py); scoped via
-        # --only-rerun so genuine assertion failures still fail on the first run.
-        run: pytest ui_tests/ brainbuzz/tests/test_student_playwright_mobile.py -n auto -v --tb=short --reruns 2 --only-rerun "database is locked"
+        # PRs run only the core-journey `-m smoke` subset (fast); the push to
+        # `test` runs the full suite. --reruns retries ONLY the known SQLite
+        # "database is locked" flake from parallel Playwright workers (see
+        # cwa_classroom/conftest.py); scoped via --only-rerun so genuine assertion
+        # failures still fail on the first run.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "PR → core-journey smoke subset only (-m smoke)"
+            SELECT="-m smoke"
+          else
+            echo "Push to test → full UI suite"
+            SELECT=""
+          fi
+          pytest ui_tests/ brainbuzz/tests/test_student_playwright_mobile.py $SELECT -n auto -v --tb=short --reruns 2 --only-rerun "database is locked"
