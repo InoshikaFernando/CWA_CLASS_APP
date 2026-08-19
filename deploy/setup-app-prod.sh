@@ -128,6 +128,22 @@ cat > /etc/cron.d/cwa-uploads <<'REAPCRON'
 REAPCRON
 chmod 644 /etc/cron.d/cwa-uploads
 
+# ── Email queue cron ─────────────────────────────────────────────────────────
+# Every invoice email is force-queued at issue time, so this command IS the
+# delivery path — without it invoices are marked issued and silently never sent.
+# Production once accrued 316 undelivered invoice emails over ten weeks because
+# the only crontab entry for it pointed at the CWA_CLASS_APP_TEST checkout, so
+# the production queue had no drainer. Installing it here (rather than by hand)
+# is what stops that recurring; the explicit app dir stops the path drifting to
+# another checkout.
+echo "==> Installing email-queue cron..."
+cat > /etc/cron.d/cwa-email <<'MAILCRON'
+# CWA email queue — deliver queued mail (all invoice email) every 2 min.
+# Managed by deploy/setup-app-prod.sh; edit there, not here.
+*/2 * * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_process_email_queue.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/email_queue.log 2>&1
+MAILCRON
+chmod 644 /etc/cron.d/cwa-email
+
 # ── Sudoers for deploy ───────────────────────────────────────────────────────
 echo "==> Granting cwa user restart permissions..."
 cat > /etc/sudoers.d/cwa <<'SUDOERS'
