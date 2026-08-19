@@ -209,13 +209,36 @@ class ResendInvoiceEmailServiceTest(TestCase):
         result = svc.resend_invoice_email(invoice)
         self.assertGreater(len(result['sent']), 0)
 
-    def test_resend_when_student_has_no_email(self):
-        """If student has no email, returns skipped_no_email=True (current early-return behavior)."""
+    def test_resend_when_student_has_no_email_still_reaches_the_parent(self):
+        """A student with no address of their own must not suppress the parent's copy.
+
+        This is the normal case for a young child: the parent is the intended
+        recipient. The old early return skipped everyone the moment the student
+        had no email, so those invoices reached nobody and nothing recorded it.
+        """
         student = self.ctx['student']
-        student.email = ''
+        student.email = None
         student.save(update_fields=['email'])
 
         result = svc.resend_invoice_email(self.ctx['invoice'])
+
+        self.assertFalse(result['skipped_no_email'])
+        self.assertEqual(
+            [e.lower() for e in result['sent']],
+            [self.ctx['parent'].email.lower()],
+        )
+
+    def test_resend_when_nobody_has_an_email_is_flagged(self):
+        """Only when NO contact has an address is the invoice reported as skipped."""
+        student = self.ctx['student']
+        student.email = None
+        student.save(update_fields=['email'])
+        parent = self.ctx['parent']
+        parent.email = None
+        parent.save(update_fields=['email'])
+
+        result = svc.resend_invoice_email(self.ctx['invoice'])
+
         self.assertTrue(result['skipped_no_email'])
         self.assertEqual(result['sent'], [])
 

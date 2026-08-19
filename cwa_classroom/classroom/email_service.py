@@ -169,6 +169,9 @@ def send_templated_email(
             reply_to=reply_to,
             notification_type=notification_type,
             campaign=campaign,
+            # Carried so the drain's EmailLog stays attributable to its invoice.
+            school=school,
+            invoice=invoice,
         )
         if force_queue:
             logger.info('Force-queued email to %s (type=%s).', recipient_email, notification_type)

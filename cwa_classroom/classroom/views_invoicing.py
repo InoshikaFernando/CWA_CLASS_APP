@@ -884,11 +884,29 @@ class IssueInvoicesView(RoleRequiredMixin, View):
                     'invoice_ids': [inv.id for inv in issued]},
             request=request,
         )
+        unreachable = [
+            inv for inv in issued
+            if getattr(inv, 'email_result', {}).get('skipped_no_email')
+        ]
         messages.success(
             request,
+            f'{len(issued) - len(unreachable)} invoice(s) issued and emailed. '
+            f'Emails have been queued and will be delivered shortly.'
+            if unreachable else
             f'{len(issued)} invoice(s) issued successfully. '
             f'Emails have been queued and will be delivered shortly.',
         )
+        if unreachable:
+            # Never let an un-emailable invoice hide inside a success message —
+            # the admin has to know which families were not reached.
+            messages.warning(
+                request,
+                f'{len(unreachable)} invoice(s) could not be emailed — no '
+                f'parent, guardian or student with an email address on file: '
+                f'{", ".join(inv.invoice_number for inv in unreachable[:10])}'
+                f'{"…" if len(unreachable) > 10 else ""}. '
+                f'Add contact details, then use Resend on each invoice.',
+            )
         return redirect('invoice_list')
 
 
@@ -1360,9 +1378,9 @@ class ResendInvoiceView(RoleRequiredMixin, View):
         elif skipped:
             messages.error(
                 request,
-                f'Invoice {invoice.invoice_number} could not be resent — '
-                f'the student has no email address on file. Update the '
-                f"student's email and try again.",
+                f'Invoice {invoice.invoice_number} could not be resent — no '
+                f'parent, guardian or student has an email address on file. '
+                f'Add a contact email and try again.',
             )
         else:
             messages.warning(

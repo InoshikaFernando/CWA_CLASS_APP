@@ -2211,10 +2211,13 @@ class EmailLog(models.Model):
 
 
 class EmailQueue(models.Model):
-    """Stores emails that couldn't be sent due to daily sending limits.
+    """Emails awaiting background delivery.
 
-    Processed by the process_email_queue management command, which runs
-    daily via cron and drains this queue up to the remaining daily quota.
+    Rows land here two ways: a caller that force-queues (every invoice email
+    does), or an overflow past the daily sending limit. Either way this table
+    IS the delivery path — an unqueued row is an email that was never sent.
+
+    Drained by the process_email_queue management command (cron, every 2 min).
     """
     STATUS_PENDING = 'pending'
     STATUS_SENT = 'sent'
@@ -2241,13 +2244,33 @@ class EmailQueue(models.Model):
         'EmailCampaign', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='queued_emails',
     )
+    # Carried through to the EmailLog the drain writes, so a queued email stays
+    # attributable to its invoice. Without these the log lands with a null
+    # invoice and the invoicing dashboard's Email column reads "Not sent" for
+    # every issued invoice, delivered or not.
+    school = models.ForeignKey(
+        'School', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='queued_emails',
+    )
+    invoice = models.ForeignKey(
+        'Invoice', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='queued_emails',
+    )
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING)
     error_message = models.TextField(blank=True)
+    # Bounded retry. The drain used to reset every failed row to pending on each
+    # run with no cap, so a permanently bad address was retried every 2 minutes
+    # forever and could never be suppressed.
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     sent_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['status', 'created_at']),
+        ]
 
     def __str__(self):
         return f'{self.recipient_email} — {self.subject} ({self.status})'
