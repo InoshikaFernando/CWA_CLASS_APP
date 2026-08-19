@@ -144,6 +144,19 @@ cat > /etc/cron.d/cwa-email <<'MAILCRON'
 MAILCRON
 chmod 644 /etc/cron.d/cwa-email
 
+# ── Email queue watchdog cron ────────────────────────────────────────────────
+# A drain that stops is invisible: invoices still read as issued while their
+# emails sit queued. This posts to Discord once the backlog ages past the
+# threshold. Kept as its own cron because a watchdog running inside the job it
+# watches cannot report that job being dead.
+echo "==> Installing email-queue watchdog cron..."
+cat > /etc/cron.d/cwa-email-health <<'MAILHEALTHCRON'
+# CWA email queue watchdog — alert if queued mail stops being delivered.
+# Managed by deploy/setup-app-prod.sh; edit there, not here.
+0 * * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_check_email_queue.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/email_queue_health.log 2>&1
+MAILHEALTHCRON
+chmod 644 /etc/cron.d/cwa-email-health
+
 # ── Sudoers for deploy ───────────────────────────────────────────────────────
 echo "==> Granting cwa user restart permissions..."
 cat > /etc/sudoers.d/cwa <<'SUDOERS'

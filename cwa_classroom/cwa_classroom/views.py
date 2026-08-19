@@ -79,6 +79,12 @@ def health_check(request):
     "status" becomes "degraded" and the response code is 503 — so deploy
     scripts and uptime monitors can tell "the process is up" apart from
     "the app actually works".
+
+    Deep responses also carry a "warnings" object for conditions that are real
+    but must NOT fail the request. Email-queue backlog lives here deliberately:
+    scripts/deploy.sh gates on a 200 from this endpoint, so making a backlog
+    503 would block the very deploy that fixes it. Uptime monitors should watch
+    warnings.email_queue.status for "warning"/"critical".
     """
     body = {
         "status":    "ok",
@@ -107,11 +113,35 @@ def health_check(request):
         all_ok = all_ok and ok
 
     body["checks"] = checks
+    body["warnings"] = {"email_queue": _email_queue_warning()}
+
     if not all_ok:
         body["status"] = "degraded"
         return JsonResponse(body, status=503)
 
     return JsonResponse(body)
+
+
+def _email_queue_warning():
+    """Queue-backlog summary for the deep health body.
+
+    Non-fatal by design — see health_check's docstring. Any failure to read the
+    queue is reported rather than swallowed, so a broken probe cannot look
+    like a healthy queue.
+    """
+    try:
+        from classroom.email_health import get_email_queue_health
+
+        health = get_email_queue_health()
+        return {
+            "status": health["status"],
+            "pending": health["pending"],
+            "failed": health["failed"],
+            "oldest_pending_minutes": health["oldest_pending_min"],
+            "reasons": health["reasons"],
+        }
+    except Exception as exc:  # pragma: no cover - defensive
+        return {"status": "unknown", "detail": str(exc)}
 
 
 def _auth_urls():
