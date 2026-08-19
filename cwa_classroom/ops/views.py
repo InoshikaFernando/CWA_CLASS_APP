@@ -13,6 +13,8 @@ from django.views import View
 # Single source of truth for the superuser gate (same as the usage dashboard).
 from billing.views_admin import SuperuserRequiredMixin
 
+from classroom.email_health import get_email_queue_health
+
 from .models import OpsSnapshot
 from .reporting import (
     get_ops_series, WINDOWS, DEFAULT_WINDOW, STALE_AFTER_MINUTES,
@@ -40,8 +42,15 @@ class OpsDashboardView(SuperuserRequiredMixin, View):
             < timezone.now() - timedelta(minutes=STALE_AFTER_MINUTES)
         )
 
+        # Email delivery is a droplet-health signal like any other cron: when
+        # the drain stops, invoices are marked issued and silently never sent.
+        # Surfaced here so a stalled queue is visible in minutes rather than the
+        # ten weeks it went unnoticed in 2026.
+        email_queue = get_email_queue_health()
+
         return render(request, 'admin_dashboard/ops/dashboard.html', {
             'latest': latest,
+            'email_queue': email_queue,
             'latest_stale': latest_stale,
             'stale_after_min': STALE_AFTER_MINUTES,
             'chart_data': series,

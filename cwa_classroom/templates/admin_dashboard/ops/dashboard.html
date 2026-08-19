@@ -41,6 +41,55 @@
   </div>
   {% endif %}
 
+  {% if email_queue.status != 'ok' %}
+  <div class="mb-6 px-4 py-3 rounded-xl text-sm {% if email_queue.status == 'critical' %}bg-red-500/10 border border-red-500/30 text-red-300{% else %}bg-amber-500/10 border border-amber-500/30 text-amber-300{% endif %}">
+    {% if email_queue.status == 'critical' %}🔴 Email not being delivered{% else %}🟡 Email queue behind{% endif %} —
+    {% for reason in email_queue.reasons %}{{ reason }}{% if not forloop.last %}; {% endif %}{% endfor %}.
+    Queued mail includes every invoice email, so invoices may be marked issued but never sent.
+    Check the <code>process_email_queue</code> cron (<code>/etc/cron.d/cwa-email</code>) and
+    <code>/var/log/cwa/email_queue.log</code>.
+  </div>
+  {% endif %}
+
+  <!-- Email queue (delivery path for every invoice email) -->
+  <div class="mb-6">
+    <h2 class="text-sm font-semibold text-slate-400 mb-3">Email queue</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if email_queue.status == 'critical' %}border-red-500/40{% elif email_queue.status == 'warning' %}border-amber-500/40{% else %}border-emerald-500/40{% endif %}">
+        <p class="text-sm text-slate-400">Delivery</p>
+        <p class="text-2xl font-bold mt-1 {% if email_queue.status == 'critical' %}text-red-400{% elif email_queue.status == 'warning' %}text-amber-400{% else %}text-emerald-400{% endif %}">
+          {% if email_queue.status == 'critical' %}Stalled{% elif email_queue.status == 'warning' %}Behind{% else %}Healthy{% endif %}
+        </p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if email_queue.last_sent_at %}last sent {{ email_queue.last_sent_at|timesince }} ago{% else %}nothing sent yet{% endif %}
+        </p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">Waiting to send</p>
+        <p class="text-2xl font-bold mt-1 text-slate-100">{{ email_queue.pending }}</p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if email_queue.oldest_pending_at %}oldest queued {{ email_queue.oldest_pending_at|timesince }} ago{% else %}queue empty{% endif %}
+        </p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">Sent today</p>
+        <p class="text-2xl font-bold mt-1 text-slate-100">{{ email_queue.sent_today }}</p>
+        <p class="text-xs text-slate-500 mt-1">delivered from the queue</p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if email_queue.failed %}border-red-500/40{% else %}border-slate-700{% endif %}">
+        <p class="text-sm text-slate-400">Gave up</p>
+        <p class="text-2xl font-bold mt-1 {% if email_queue.failed %}text-red-400{% else %}text-slate-100{% endif %}">{{ email_queue.failed }}</p>
+        <p class="text-xs text-slate-500 mt-1">failed after repeated attempts</p>
+      </div>
+    </div>
+    {% if email_queue.pending_by_type %}
+    <p class="text-xs text-slate-500 mt-2">
+      Waiting by type:
+      {% for kind, count in email_queue.pending_by_type.items %}<span class="text-slate-400">{{ kind }}</span> {{ count }}{% if not forloop.last %} · {% endif %}{% endfor %}
+    </p>
+    {% endif %}
+  </div>
+
   <!-- Summary tiles (current state) -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
     <div class="bg-slate-800 rounded-2xl p-6 border {% if not latest %}border-slate-700{% elif latest.status == 'crit' %}border-red-500/40{% elif latest.status == 'warn' %}border-amber-500/40{% else %}border-emerald-500/40{% endif %}">

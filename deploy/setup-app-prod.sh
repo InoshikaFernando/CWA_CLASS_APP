@@ -128,6 +128,35 @@ cat > /etc/cron.d/cwa-uploads <<'REAPCRON'
 REAPCRON
 chmod 644 /etc/cron.d/cwa-uploads
 
+# ── Email queue cron ─────────────────────────────────────────────────────────
+# Every invoice email is force-queued at issue time, so this command IS the
+# delivery path — without it invoices are marked issued and silently never sent.
+# Production once accrued 316 undelivered invoice emails over ten weeks because
+# the only crontab entry for it pointed at the CWA_CLASS_APP_TEST checkout, so
+# the production queue had no drainer. Installing it here (rather than by hand)
+# is what stops that recurring; the explicit app dir stops the path drifting to
+# another checkout.
+echo "==> Installing email-queue cron..."
+cat > /etc/cron.d/cwa-email <<'MAILCRON'
+# CWA email queue — deliver queued mail (all invoice email) every 2 min.
+# Managed by deploy/setup-app-prod.sh; edit there, not here.
+*/2 * * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_process_email_queue.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/email_queue.log 2>&1
+MAILCRON
+chmod 644 /etc/cron.d/cwa-email
+
+# ── Email queue watchdog cron ────────────────────────────────────────────────
+# A drain that stops is invisible: invoices still read as issued while their
+# emails sit queued. This posts to Discord once the backlog ages past the
+# threshold. Kept as its own cron because a watchdog running inside the job it
+# watches cannot report that job being dead.
+echo "==> Installing email-queue watchdog cron..."
+cat > /etc/cron.d/cwa-email-health <<'MAILHEALTHCRON'
+# CWA email queue watchdog — alert if queued mail stops being delivered.
+# Managed by deploy/setup-app-prod.sh; edit there, not here.
+0 * * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_check_email_queue.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/email_queue_health.log 2>&1
+MAILHEALTHCRON
+chmod 644 /etc/cron.d/cwa-email-health
+
 # ── Sudoers for deploy ───────────────────────────────────────────────────────
 echo "==> Granting cwa user restart permissions..."
 cat > /etc/sudoers.d/cwa <<'SUDOERS'
