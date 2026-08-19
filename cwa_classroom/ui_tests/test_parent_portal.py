@@ -235,7 +235,7 @@ class TestParentAttendance:
 class TestParentProgress:
 
     @pytest.fixture(autouse=True)
-    def _setup(self, live_server, page, parent_with_child, enrolled_student, school, subject, level, db):
+    def _setup(self, live_server, page, parent_with_child, enrolled_student, classroom, school, subject, level, db):
         from classroom.models import ProgressCriteria, ProgressRecord
         # Create a criteria and a progress record so the stats panel is visible
         criteria = ProgressCriteria.objects.create(
@@ -249,6 +249,7 @@ class TestParentProgress:
         ProgressRecord.objects.create(
             student=enrolled_student,
             criteria=criteria,
+            classroom=classroom,
             status='advanced',
         )
         self.url = live_server.url

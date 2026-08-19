@@ -21,6 +21,7 @@ import base64
 import json
 import logging
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.conf import settings
@@ -47,6 +48,14 @@ SHAPE_NAMING_DPI = int(os.environ.get('WORKSHEET_SHAPE_NAMING_DPI', '200'))
 # 300 ≈ print quality. A single small crop at 300 DPI is cheap on memory.
 IMAGE_RENDER_DPI = int(os.environ.get('WORKSHEET_IMAGE_DPI', '300'))
 
+# Longest-edge pixel cap for a rendered question image. IMAGE_RENDER_DPI alone
+# is unbounded in pixels: a full-width figure (500 pt across) comes out over
+# 2000 px, and every crop is held in memory, base64'd into the session row and
+# then inlined into the preview page — on an image-heavy worksheet that is the
+# main driver of worker memory (and an OOM-killed worker is what leaves an
+# upload stuck). 1600 px stays sharper than any screen or print use of these.
+IMAGE_MAX_PX = int(os.environ.get('WORKSHEET_IMAGE_MAX_PX', '1600'))
+
 # Max output tokens for the classification call. Each extracted question is a
 # sizeable structured object (text, type, answers, bbox, rubric), so a dense
 # multi-page worksheet can exceed a small cap and get its question list
@@ -58,7 +67,11 @@ WORKSHEET_MAX_TOKENS = int(os.environ.get('WORKSHEET_MAX_TOKENS', '32000'))
 # they run at the same time, so wall-clock ≈ the slowest chunk rather than the
 # sum — e.g. a 13-page worksheet drops from ~6 min to ~2 min.
 WORKSHEET_CHUNK_SIZE = int(os.environ.get('WORKSHEET_CHUNK_SIZE', '4'))   # pages per request
-WORKSHEET_MAX_PARALLEL = int(os.environ.get('WORKSHEET_MAX_PARALLEL', '4'))  # concurrent requests
+# Concurrent classification requests. A chunk is dominated by output-token
+# generation (minutes for a dense chunk), so wall-clock is ~ceil(chunks/parallel)
+# × chunk time: at 4-wide a 40-page worksheet (10 chunks) needs 3 waves, at
+# 8-wide only 2. Raise further only if the Anthropic account's rate limits allow.
+WORKSHEET_MAX_PARALLEL = int(os.environ.get('WORKSHEET_MAX_PARALLEL', '8'))  # concurrent requests
 WORKSHEET_PAGE_CAP = int(os.environ.get('WORKSHEET_PAGE_CAP', '40'))      # hard ceiling on pages processed
 
 
@@ -66,7 +79,7 @@ WORKSHEET_PAGE_CAP = int(os.environ.get('WORKSHEET_PAGE_CAP', '40'))      # hard
 # PDF page extraction (worksheet-specific — tracks screenshot dimensions)
 # ---------------------------------------------------------------------------
 
-def extract_worksheet_pages(doc, screenshot_dpi=None):
+def extract_worksheet_pages(doc, screenshot_dpi=None, selected_pages=None):
     """
     Render each page of an open fitz.Document.
 
@@ -74,11 +87,18 @@ def extract_worksheet_pages(doc, screenshot_dpi=None):
     SCREENSHOT_DPI). Name-the-shape mode passes a higher value so Claude can
     place tighter bounding boxes around small individual shapes.
 
+    ``selected_pages`` is an optional iterable of 1-based page numbers to render
+    (see ``worksheets/page_selection.py``); ``None`` renders every page. Only the
+    selected pages are rendered at all, so an excluded page costs no memory, no
+    screenshot and no AI tokens. Page numbers stay ABSOLUTE — page 7 of the PDF
+    is stamped ``page_num: 7`` whether or not pages 1–6 were selected — which is
+    what keeps image bboxes and the re-crop tooling working on a partial run.
+
     Returns:
         {
             'pages': [
                 {
-                    'page_num': int,          # 1-based
+                    'page_num': int,          # 1-based, absolute in the PDF
                     'text': str,
                     'screenshot': str,        # base64 JPEG of full page
                     'screenshot_w': int,      # pixel width  of screenshot
@@ -87,12 +107,20 @@ def extract_worksheet_pages(doc, screenshot_dpi=None):
                     'pdf_h': float,           # page height in PDF points
                 }
             ],
-            'page_count': int,
+            'page_count': int,        # pages actually rendered (what gets billed)
+            'total_page_count': int,  # pages in the PDF
+            'selected_pages': [int],  # the absolute page numbers rendered
         }
     """
     dpi = screenshot_dpi or SCREENSHOT_DPI
+    total = len(doc)
+    if selected_pages is None:
+        wanted = list(range(1, total + 1))
+    else:
+        wanted = [p for p in sorted(set(selected_pages)) if 1 <= p <= total]
+
     pages = []
-    for page_num in range(len(doc)):
+    for page_num in (p - 1 for p in wanted):
         page = doc[page_num]
         text = page.get_text('text')
 
@@ -112,7 +140,12 @@ def extract_worksheet_pages(doc, screenshot_dpi=None):
         # Release the raw pixmap buffer promptly — the base64 is already kept.
         pix = None
 
-    return {'pages': pages, 'page_count': len(pages)}
+    return {
+        'pages': pages,
+        'page_count': len(pages),
+        'total_page_count': total,
+        'selected_pages': wanted,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +185,7 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                      "fill_blank", "calculation", "extended_answer",
                                      "long_division", "column_operation",
                                      "plot_points", "plot_line", "identify_coords",
-                                     "read_graph"],
+                                     "read_graph", "measure", "number_line"],
                         },
                         "plane_spec": {
                             "type": "object",
@@ -174,17 +207,31 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                 "and keep the graph image (has_image=true)."
                             ),
                         },
+                        "number_line_spec": {
+                            "type": "object",
+                            "description": (
+                                "For number_line only — a horizontal number line. "
+                                "min/max = the scale's end values; step = the tick interval "
+                                "(default 1); mode 'mark' (the app draws the blank scale and "
+                                "the student marks value(s)) or 'read' (the app draws marker "
+                                "arrow(s) at 'given' positions and the student types the "
+                                "value(s)); target = the correct value(s) to mark/read (numbers "
+                                "on the scale, each landing on a tick); given = value(s) already "
+                                "marked with an arrow (read mode). The app draws the line, so set "
+                                "has_image=false for this type."
+                            ),
+                        },
                         "numeric_answer": {
                             "type": "number",
-                            "description": "For read_graph only: the value the student reads off the graph.",
+                            "description": "For read_graph and measure: the value to read off / measure (e.g. 135 for a 135° angle).",
                         },
                         "answer_tolerance": {
                             "type": "number",
-                            "description": "For read_graph only: accepted ± band around numeric_answer (e.g. 5). Omit for exact.",
+                            "description": "For read_graph and measure: accepted ± band around numeric_answer (e.g. 2). Omit for exact.",
                         },
                         "answer_unit": {
                             "type": "string",
-                            "description": "For read_graph only: unit shown after the answer box, e.g. 'km', 'min'.",
+                            "description": "For read_graph and measure: unit shown after the answer box, e.g. '°', 'cm', 'km'.",
                         },
                         "dividend": {
                             "type": "integer",
@@ -239,6 +286,16 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                         "page_num": {
                             "type": "integer",
                             "description": "1-based page number this question appears on.",
+                        },
+                        "source_number": {
+                            "type": "integer",
+                            "description": (
+                                "The question's own number as printed on the paper — 46 for "
+                                "'Question 46', '46.' or 'Q46'. This is the paper's numbering, "
+                                "NOT the position in your list, so keep it even when you skip "
+                                "something. Omit only if the question is genuinely unnumbered. "
+                                "Used to match the paper's answer key onto its questions."
+                            ),
                         },
                         "has_image": {
                             "type": "boolean",
@@ -305,6 +362,10 @@ Rules:
    counts 28 wheels altogether. Explain why Stefan cannot be correct." must keep ALL of that
    in question_text — not just "Explain why Stefan cannot be correct." Carry numbers, names
    and given facts into the text; do not assume the image will supply them.
+   Do NOT copy the worksheet's question number or section label into question_text. Strip any
+   leading enumeration such as "Question 5", "Question 5 e)", "Q154", "5.", "5)", "a)",
+   "(iii)", "PART C:", "Section B", or "Exercise 3:" — start question_text at the first word
+   of the actual question. Remove only the numbering/label, never the wording a student needs.
 3. For questions with a VISUAL (shape, diagram, ruler, number line, graph, table,
    geometric figure, coordinate plane): set has_image=true and give image_bbox as the
    pixel bounding box of ONLY the visual in the page screenshot.
@@ -375,6 +436,21 @@ Rules:
    answer_tolerance to a sensible ± band, answer_unit to the axis unit. Keep the graph image
    (has_image=true, image_bbox around the graph). Only add graph_spec if you can read the series
    points confidently; otherwise omit it. Leave answers=[]; validation_type="auto".
+13. MEASURE (angle / scale / ruler): if the student must MEASURE a drawn figure and write the value —
+   read an ANGLE with a protractor, a length with a ruler, or a value off a marked scale/dial — use
+   "measure". Set numeric_answer to the true value, answer_tolerance to a sensible ± band (e.g. 2 for
+   an angle), and answer_unit to the unit ("°" for angles, "cm"/"mm" for lengths). For an ANGLE the
+   app draws a true-to-scale figure from numeric_answer, so set has_image=false. For a length/scale
+   the pupil measures a picture, so keep it: has_image=true with image_bbox around the figure. Leave
+   answers=[]; validation_type="auto".
+14. NUMBER LINE: if the question shows (or asks the student to draw/use) a horizontal NUMBER LINE and
+   the task is to MARK a value on it or READ the value an arrow points to, use "number_line" and fill
+   number_line_spec. Set min/max to the scale's end values and step to the tick interval (usually 1).
+   Use mode "mark" when the student must place/mark a value ("mark 5 on the number line", "draw a
+   number line from -3 to 7 and show 2") — put the value(s) to mark in target. Use mode "read" when an
+   arrow/marker is already drawn and the student reads its value — put the marked position(s) in given
+   (target defaults to given). Every target/given value must land exactly on a tick. The app draws the
+   line, so set has_image=false. Leave answers=[]; validation_type="auto".
 
 IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
 - has_image=true ONLY when the question genuinely depends on a visual that cannot be written
@@ -462,9 +538,14 @@ def _get_anthropic_client():
     import anthropic
     # PDF classification can take 60-90s for large worksheets — raise the
     # default httpx timeout (30s) so the request isn't killed mid-flight.
+    # max_retries above the SDK default of 2 because chunks run WORKSHEET_MAX_PARALLEL
+    # -wide: a burst can trip a rate limit, and one chunk exhausting its retries
+    # fails the whole upload. Retries are backed off, so this trades a slower
+    # worst case for not losing the run.
     return anthropic.Anthropic(
         api_key=settings.ANTHROPIC_API_KEY,
         timeout=120.0,
+        max_retries=int(os.environ.get('WORKSHEET_MAX_RETRIES', '5')),
     )
 
 
@@ -480,6 +561,199 @@ def _build_system_prompt(existing_topics, existing_levels, shape_naming=False):
         + f"\nAvailable year levels: {level_names}"
         + "\nMap to existing topics where possible."
     )
+
+
+# Leading "question number" / section labels the model sometimes copies verbatim
+# from a worksheet into question_text, e.g. "Question 5 e)", "Q154", "PART C:",
+# "Section B", "5)", "a)", "(iii)". These are enumeration, not part of the actual
+# question. The trailing (?=\s|$) after each label prevents clobbering real words
+# that merely start the same way ("No cars…", "Problems arise…", "A cat…").
+_QUESTION_LABEL_RE = re.compile(
+    r"""
+    ^\s*
+    (?:
+        # Abbreviations clamped onto a number: Q7, Q154, No. 5, #5, Prob 3
+        (?:q|qn|no|prob)\.?\s*\#?\s*\d+
+        (?:\s*[a-z]\s*[.)])?          # optional sub-part e.g. " e)"
+        \s*[.):\-]?                   # optional trailing punctuation
+      |
+        # Full word + separator + standalone identifier: Question 5, PART C:, Section B:
+        (?:question|part|section|exercise|problem)
+        [\s.:\#\-]+
+        (?:
+            \d+ (?:\s*[a-z]\s*[.)])?  # number, optional " e)" sub-part
+          | [a-z] \s* [.):]           # a single letter must end in . ) or : so a
+                                      # following article ("Problem: A train") is safe
+        )
+        \s*[.):\-]?                   # optional trailing punctuation
+      |
+        \d{1,3}\s*[.):]              # bare number label: 5. 5) 5:
+      |
+        \(\s*[a-z0-9]{1,4}\s*\)      # bracketed label: (a) (iii) (5)
+      |
+        [a-z]\s*\)                   # single-letter label: a)
+    )
+    (?=\s|$)
+    \s*
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _strip_question_label(question_text):
+    """Remove a leading question-number / section label from question_text.
+
+    Worksheets prefix questions with enumeration ("Question 5 e)", "Q154",
+    "PART C:", "5)", "a)") that the model sometimes copies into question_text.
+    That prefix is not part of the question itself, so drop it. Conservative and
+    idempotent: only a recognised leading label is removed, and if stripping would
+    empty the text the original is kept.
+    """
+    if not question_text:
+        return question_text
+    text = question_text
+    # A question may carry more than one stacked label ("5. a) ..."). Strip a few,
+    # but stop as soon as nothing matches or the text would be emptied.
+    for _ in range(3):
+        stripped = _QUESTION_LABEL_RE.sub('', text, count=1)
+        if stripped == text or not stripped.strip():
+            break
+        text = stripped
+    return text if text.strip() else question_text
+
+
+def _label_question_number(question_text):
+    """The number in a leading label ("Question 46", "46.", "Q46") — or None.
+
+    A fallback for source_number: when the model copies the paper's numbering
+    into question_text we can recover it before _strip_question_label discards
+    it, and the paper's answer key can still be matched to the question.
+    """
+    if not question_text:
+        return None
+    label = _QUESTION_LABEL_RE.match(question_text)
+    if not label:
+        return None
+    digits = re.search(r'\d{1,3}', label.group(0))
+    return int(digits.group()) if digits else None
+
+
+# ---------------------------------------------------------------------------
+# Page roles — which pages carry questions, and which are the exam's scaffolding
+# ---------------------------------------------------------------------------
+
+PAGE_ROLE_QUESTIONS = 'questions'
+PAGE_ROLE_ANSWER_SHEET = 'answer_sheet'
+PAGE_ROLE_ANSWER_KEY = 'answer_key'
+# Not a detected role — the page selection was longer than WORKSHEET_PAGE_CAP and
+# the tail was dropped. Reported through the same notice so the cap can't silently
+# swallow pages the teacher explicitly asked for.
+PAGE_ROLE_OVER_CAP = 'over_cap'
+
+PAGE_ROLE_LABELS = {
+    PAGE_ROLE_ANSWER_SHEET: 'multiple-choice answer sheet',
+    PAGE_ROLE_ANSWER_KEY: 'answer key',
+    PAGE_ROLE_OVER_CAP: f'beyond the {WORKSHEET_PAGE_CAP}-page limit for one upload',
+}
+
+# Skipping is deterministic and free (plain text, no AI call), but keep an escape
+# hatch: a paper whose question pages somehow trip a detector can be imported in
+# full by setting WORKSHEET_SKIP_NON_QUESTION_PAGES=0, no deploy needed.
+SKIP_NON_QUESTION_PAGES = os.environ.get(
+    'WORKSHEET_SKIP_NON_QUESTION_PAGES', '1') != '0'
+
+# A bubble answer sheet repeats "12. A B C D" down the page — the letters are the
+# options to shade, not questions. Whitespace is normalised first because the PDF
+# text layer puts each letter on its own line.
+_ANSWER_GRID_RE = re.compile(r'\d{1,3}\s*[.)]?\s+A\s+B\s+C\s+D', re.IGNORECASE)
+
+# An answer key lists "44" then the letter, either stacked or on one line, usually
+# followed by working. Both forms are anchored to the line start so a question's
+# own options ("A. 194mm") can't be mistaken for them.
+_ANSWER_KEY_STACKED_RE = re.compile(r'(?m)^[ \t]*(\d{1,3})[ \t]*\n[ \t]*([A-D])[ \t]*$')
+_ANSWER_KEY_INLINE_RE = re.compile(r'(?m)^[ \t]*(\d{1,3})[ \t]+([A-D])\b')
+
+# How many rows a page needs before it counts as a grid / key rather than a
+# coincidence. Real sheets and keys run to dozens of rows.
+_PAGE_ROLE_MIN_ROWS = 5
+
+
+def detect_page_role(text):
+    """Classify a page from its text alone: questions, answer sheet, or key.
+
+    Papers routinely ship with a bubble answer sheet at the front and a worked
+    answer key at the back. Neither holds questions, but both used to be sent to
+    Claude and imported as nonsense "questions" the teacher had to untick — while
+    being paid for. This runs before any AI call, so the pages are never sent.
+    """
+    if not text:
+        return PAGE_ROLE_QUESTIONS
+
+    normalised = re.sub(r'\s+', ' ', text)
+    if len(_ANSWER_GRID_RE.findall(normalised)) >= _PAGE_ROLE_MIN_ROWS:
+        return PAGE_ROLE_ANSWER_SHEET
+
+    key_rows = (len(_ANSWER_KEY_STACKED_RE.findall(text))
+                + len(_ANSWER_KEY_INLINE_RE.findall(text)))
+    if key_rows >= _PAGE_ROLE_MIN_ROWS:
+        return PAGE_ROLE_ANSWER_KEY
+
+    return PAGE_ROLE_QUESTIONS
+
+
+def describe_skipped_pages(extracted_data):
+    """[{'page', 'label'}] for the preview notice, from a classification result.
+
+    Shared by the homework and worksheet previews so a skipped page is always
+    told to the teacher — a page silently missing from an import is exactly the
+    kind of blank data this project doesn't ship.
+    """
+    return [
+        {'page': skip.get('page'),
+         'label': PAGE_ROLE_LABELS.get(skip.get('reason'), skip.get('reason'))}
+        for skip in (extracted_data or {}).get('skipped_pages') or []
+    ]
+
+
+def _split_question_pages(pages):
+    """(pages to classify, [(page, role)]) — set answer sheets and keys aside.
+
+    The skipped pages come back whole rather than as bare page numbers: an
+    answer key is not junk, it holds the paper's official answers, and
+    answer_key.apply_answer_key needs its text.
+
+    Never returns an empty list of pages to classify: if every page looks like
+    scaffolding the detector is the thing that's wrong, so classify the lot
+    rather than import nothing.
+    """
+    if not SKIP_NON_QUESTION_PAGES:
+        return pages, []
+
+    keep, skipped = [], []
+    for page in pages:
+        role = detect_page_role(page.get('text', ''))
+        if role == PAGE_ROLE_QUESTIONS:
+            keep.append(page)
+        else:
+            skipped.append((page, role))
+
+    if not keep:
+        logger.warning(
+            'Every page looked like an answer sheet/key — classifying all %s '
+            'pages rather than importing nothing.', len(pages),
+        )
+        return pages, []
+    return keep, skipped
+
+
+class ChunkTooDenseError(ValueError):
+    """One classification call hit max_tokens — its pages need splitting.
+
+    Recoverable, and handled by _classify_chunk_adaptive: an answer key or a
+    packed question page can generate more structured output than a single call
+    can return, which used to fail the entire upload with a message telling the
+    teacher to change an environment variable.
+    """
 
 
 def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=False):
@@ -536,10 +810,15 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
         )
     else:
         closing = (
-            "Extract ALL questions on these pages. For each question with a shape, diagram, "
-            "graph, table, ruler, or number line: set has_image=true and provide image_bbox "
-            "[left, top, right, bottom] in the page screenshot's pixel coordinates. "
-            "Crop ONLY the visual — not the question text or answer options. "
+            "Extract ALL questions on these pages. Set has_image=true ONLY when the question "
+            "cannot be answered from its text alone — the figure carries information the wording "
+            "does not (e.g. an unlabelled shape to measure, a graph to read off, a diagram whose "
+            "values aren't written out). If every value needed is already in the text (e.g. "
+            "'area of a circle with diameter 10 cm'), set has_image=false even if a visual sits "
+            "nearby. When unsure, prefer has_image=false — a wrongly-attached image is worse than "
+            "none. When has_image=true, give image_bbox [left, top, right, bottom] in the page "
+            "screenshot's pixel coordinates, cropping ONLY that question's own visual — never "
+            "another question's figure, the question text, or the answer options. "
             "Use the classify_worksheet_questions tool now."
         )
     content_blocks.append({
@@ -549,11 +828,14 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
 
     # Stream so a long generation doesn't trip the SDK read timeout.
     # claude-sonnet-4-20250514 is deprecated; default to Opus (env-overridable via
-    # WORKSHEET_MODEL). No adaptive thinking here — it is incompatible with the
-    # forced tool_choice below.
+    # WORKSHEET_MODEL). Thinking is explicitly disabled — it is incompatible with
+    # the forced tool_choice below, and on Opus 5 (and later) adaptive thinking is
+    # ON by default, so omitting the parameter would 400. Disabled thinking is
+    # valid at the default effort ("high").
     with client.messages.stream(
-        model=os.environ.get('WORKSHEET_MODEL', 'claude-opus-4-8'),
+        model=os.environ.get('WORKSHEET_MODEL', 'claude-opus-5'),
         max_tokens=WORKSHEET_MAX_TOKENS,
+        thinking={"type": "disabled"},
         system=system,
         tools=[WORKSHEET_CLASSIFICATION_TOOL],
         tool_choice={"type": "tool", "name": "classify_worksheet_questions"},
@@ -578,19 +860,78 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
         stop_reason = getattr(response, 'stop_reason', 'unknown')
         logger.error('classify chunk: no structured result. stop_reason=%s', stop_reason)
         if stop_reason == 'max_tokens':
+            # Recoverable: the caller retries these pages in smaller pieces.
+            raise ChunkTooDenseError(
+                'Pages {}-{} produced more output than one call can return.'.format(
+                    pages[0]['page_num'], pages[-1]['page_num'])
+            )
+        if stop_reason == 'refusal':
             raise ValueError(
-                'A section of the worksheet is too dense to process in one chunk. '
-                'Try a smaller WORKSHEET_CHUNK_SIZE.'
+                'The AI declined to process this worksheet (content safety). '
+                'Please review the source and try again.'
             )
         raise ValueError("AI did not return structured question data. Please try again.")
 
     result.setdefault('questions', [])
+    # Safety net: strip any leading question-number/section label the model copied
+    # into question_text (e.g. "Question 5 e)", "PART C:", "5)"). It's enumeration,
+    # not part of the question.
+    for q in result['questions']:
+        if isinstance(q, dict):
+            raw_text = q.get('question_text', '') or ''
+            # Recover the paper's numbering from the label before it is stripped,
+            # so an answer key can still be matched when the model omitted
+            # source_number.
+            if not q.get('source_number'):
+                from_label = _label_question_number(raw_text)
+                if from_label:
+                    q['source_number'] = from_label
+            q['question_text'] = _strip_question_label(raw_text)
     result['usage'] = {
         'input_tokens': response.usage.input_tokens,
         'output_tokens': response.usage.output_tokens,
         'total_tokens': response.usage.input_tokens + response.usage.output_tokens,
     }
     return result
+
+
+def _classify_chunk_adaptive(client, system, pages, total_page_count,
+                             shape_naming=False, report=None):
+    """Classify a chunk, halving it and retrying if the model runs out of output.
+
+    A chunk that overflows max_tokens returns nothing usable, and one such chunk
+    used to fail the whole upload. Splitting costs an extra call for that chunk
+    only — each half generates half the output — and the halves merge back
+    exactly as separate chunks do, because page numbers are absolute.
+
+    A single page that still overflows cannot be split further, so that raises
+    with the page number the teacher needs to act on.
+    """
+    report = report or (lambda _msg: None)
+    try:
+        return _classify_page_chunk(client, system, pages, total_page_count,
+                                    shape_naming=shape_naming)
+    except ChunkTooDenseError:
+        if len(pages) == 1:
+            raise ValueError(
+                f'Page {pages[0]["page_num"]} has more content than the AI can '
+                f'return in one go. Please split that page, or remove it and '
+                f'upload the rest.'
+            ) from None
+        mid = len(pages) // 2
+        halves = [pages[:mid], pages[mid:]]
+        logger.warning(
+            'Chunk pages %s-%s too dense; retrying as %s + %s pages',
+            pages[0]['page_num'], pages[-1]['page_num'],
+            len(halves[0]), len(halves[1]),
+        )
+        report(f'Page {pages[0]["page_num"]}–{pages[-1]["page_num"]} is dense — '
+               f'reading it in smaller pieces…')
+        return _merge_chunk_results([
+            _classify_chunk_adaptive(client, system, half, total_page_count,
+                                     shape_naming=shape_naming, report=report)
+            for half in halves
+        ])
 
 
 def _merge_chunk_results(results):
@@ -622,7 +963,7 @@ def _merge_chunk_results(results):
 
 
 def classify_worksheet_questions(extracted_pages, existing_topics, existing_levels,
-                                 shape_naming=False):
+                                 shape_naming=False, progress=None):
     """Send page screenshots to Claude and get structured questions with image bboxes.
 
     Multi-page worksheets are split into page-chunks classified *concurrently*
@@ -632,77 +973,179 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
 
     ``shape_naming`` switches to the name-the-shape prompt: one auto-generated
     "What is the name of this shape?" question per individual shape.
+
+    Pages that carry no questions — a bubble answer sheet, a worked answer key —
+    are detected from their text and never sent, so they cost nothing and can't
+    be imported as junk questions. What was skipped is reported back on the
+    result as ``skipped_pages`` rather than dropped silently.
+
+    ``progress`` is an optional ``callable(message)`` invoked as each chunk lands,
+    so a caller can surface live progress (and prove the job is still alive).
     """
+    report = progress or (lambda _msg: None)
     client = _get_anthropic_client()
     system = _build_system_prompt(existing_topics, existing_levels, shape_naming=shape_naming)
 
-    pages = [p for p in extracted_pages['pages'][:WORKSHEET_PAGE_CAP] if p.get('screenshot')]
+    with_screenshots = [p for p in extracted_pages['pages'] if p.get('screenshot')]
+    pages = with_screenshots[:WORKSHEET_PAGE_CAP]
     if not pages:
         raise ValueError("No page screenshots to classify.")
-    total = extracted_pages['page_count']
+    # Page numbers in the prompt and in every returned bbox are absolute, so tell
+    # Claude the PDF's real length rather than how many pages this run selected.
+    total = extracted_pages.get('total_page_count') or extracted_pages['page_count']
+
+    # The cap used to drop the tail without a word. Carry the dropped pages into
+    # skipped_pages so the preview notice names them.
+    over_cap = [(p, PAGE_ROLE_OVER_CAP) for p in with_screenshots[WORKSHEET_PAGE_CAP:]]
+    if over_cap:
+        logger.warning(
+            'Page cap: only the first %s of %s selected pages are being '
+            'classified; dropped %s.',
+            WORKSHEET_PAGE_CAP, len(with_screenshots),
+            ', '.join(f'p{page["page_num"]}' for page, _role in over_cap),
+        )
+        report(
+            f'Only the first {WORKSHEET_PAGE_CAP} pages can be read in one '
+            f'upload — {len(over_cap)} page(s) will be left out…'
+        )
+
+    pages, skipped = _split_question_pages(pages)
+    if skipped:
+        logger.info(
+            'Skipping %s non-question page(s): %s',
+            len(skipped),
+            ', '.join(f'p{page["page_num"]} ({role})' for page, role in skipped),
+        )
+        report(f'Skipping {len(skipped)} page(s) with no questions…')
+
+    # Joined only now, after the "no questions on them" messages above: an
+    # over-cap page may be full of questions — it just doesn't fit this upload.
+    skipped += over_cap
 
     chunks = [pages[i:i + WORKSHEET_CHUNK_SIZE]
               for i in range(0, len(pages), WORKSHEET_CHUNK_SIZE)]
 
     # One chunk → no thread-pool overhead.
     if len(chunks) == 1:
-        return _classify_page_chunk(client, system, chunks[0], total, shape_naming=shape_naming)
+        report(f'Reading {len(pages)} page(s)…')
+        result = _classify_chunk_adaptive(
+            client, system, chunks[0], total, shape_naming=shape_naming, report=report)
+    else:
+        report(f'Reading {len(pages)} pages in {len(chunks)} sections…')
+        ordered = [None] * len(chunks)
+        with ThreadPoolExecutor(max_workers=min(WORKSHEET_MAX_PARALLEL, len(chunks))) as pool:
+            futures = {
+                pool.submit(_classify_chunk_adaptive, client, system, chunk, total,
+                            shape_naming=shape_naming, report=report): idx
+                for idx, chunk in enumerate(chunks)
+            }
+            for done, fut in enumerate(as_completed(futures), start=1):
+                ordered[futures[fut]] = fut.result()  # re-raises any chunk failure
+                report(f'Read {done} of {len(chunks)} sections…')
 
-    ordered = [None] * len(chunks)
-    with ThreadPoolExecutor(max_workers=min(WORKSHEET_MAX_PARALLEL, len(chunks))) as pool:
-        futures = {
-            pool.submit(_classify_page_chunk, client, system, chunk, total,
-                        shape_naming=shape_naming): idx
-            for idx, chunk in enumerate(chunks)
-        }
-        for fut in as_completed(futures):
-            ordered[futures[fut]] = fut.result()  # re-raises any chunk failure
+        logger.info('Classified %s pages across %s parallel chunks', len(pages), len(chunks))
+        result = _merge_chunk_results(ordered)
 
-    logger.info('Classified %s pages across %s parallel chunks', len(pages), len(chunks))
-    return _merge_chunk_results(ordered)
+    result['skipped_pages'] = [
+        {'page': page['page_num'], 'reason': role} for page, role in skipped
+    ]
+
+    # The paper's own answer key beats the AI's attempt at answering, so apply it
+    # to the questions it names (see worksheets/answer_key.py).
+    key_pages = [page for page, role in skipped if role == PAGE_ROLE_ANSWER_KEY]
+    if key_pages and result.get('questions'):
+        report('Applying the paper’s answer key…')
+        from .answer_key import apply_answer_key
+        result['answer_key'] = apply_answer_key(result['questions'], key_pages)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
 # Image rendering: PyMuPDF clip — render region directly from PDF vectors
 # ---------------------------------------------------------------------------
 
+def _bleeding_text_blocks(fitz_page, clip_rect):
+    """Text blocks that START above *clip_rect* but hang DOWN into it.
+
+    Only these can dirty the crop: a block that starts above the clip and ends
+    above it too is outside the rendered region and invisible either way, so
+    redacting it would be pure cost. Returns a list of fitz.Rect.
+    """
+    import fitz
+
+    bleeding = []
+    # (x0, y0, x1, y1, text, block_no, block_type)
+    for b in fitz_page.get_text('blocks'):
+        bx0, by0, bx1, by1 = b[0], b[1], b[2], b[3]
+        if by0 < clip_rect.y0 < by1:
+            block_rect = fitz.Rect(bx0, by0, bx1, by1)
+            if block_rect.intersects(clip_rect):
+                bleeding.append(block_rect)
+    return bleeding
+
+
+def _capped_render_dpi(clip_rect, dpi=None):
+    """DPI to render *clip_rect* at, lowered so the crop stays under IMAGE_MAX_PX.
+
+    Small figures — the common case — keep the full IMAGE_RENDER_DPI; only a
+    large region is scaled back, and only as far as the cap requires.
+    """
+    target = dpi or IMAGE_RENDER_DPI
+    longest_pt = max(clip_rect.width, clip_rect.height)
+    if longest_pt <= 0:
+        return target
+    return max(72, min(target, int(IMAGE_MAX_PX * 72 / longest_pt)))
+
+
 def _render_clean_diagram(fitz_page, clip_rect, dpi=150):
     """
-    Render *clip_rect* from *fitz_page* with any text blocks that sit
-    ABOVE the clip region whited out.
+    Render *clip_rect* from *fitz_page* with any text block that starts ABOVE
+    the clip region and hangs into it whited out.
 
     This removes page headers / section titles (e.g. "Questions") that bleed
     into the top of the crop while keeping the diagram's own angle labels,
     tick marks and other text that are INSIDE the clip region.
 
     Strategy:
-      1. Find all text blocks whose bottom edge is above clip_rect.y0 + a small
-         tolerance — these are headers sitting above the diagram.
-      2. Apply white redaction rectangles over those blocks on a scratch copy
-         of the page.
-      3. Render the scratch page, clipped to clip_rect.
+      1. Find the text blocks that straddle clip_rect's top edge — headers
+         sitting above the diagram whose bottom half hangs into it.
+      2. If there are none (the common case), render the page directly: copying
+         the page and rewriting its content stream to redact text outside the
+         rendered region cannot change a pixel of the output, and it roughly
+         doubles the cost of every question image.
+      3. Otherwise apply white redaction rectangles on a scratch copy of the
+         page and render that, clipped to clip_rect.
 
     Returns a fitz.Pixmap.
     """
     import fitz
+
+    bleeding = _bleeding_text_blocks(fitz_page, clip_rect)
+    if not bleeding:
+        return fitz_page.get_pixmap(clip=clip_rect, dpi=dpi)
 
     # Work on a scratch document so we never mutate the original.
     scratch_doc = fitz.open()
     scratch_doc.insert_pdf(fitz_page.parent, from_page=fitz_page.number, to_page=fitz_page.number)
     scratch_page = scratch_doc[0]
 
-    # Redact any text block whose TOP edge starts above the clip region.
-    # This catches headers like "Questions" that begin above the diagram but
-    # whose bottom half hangs into it. Diagram labels (a, b, c …) start
-    # inside the clip so they are never redacted.
-    blocks = scratch_page.get_text('blocks')  # (x0, y0, x1, y1, text, block_no, block_type)
-    for b in blocks:
-        bx0, by0, bx1, by1 = b[0], b[1], b[2], b[3]
-        block_rect = fitz.Rect(bx0, by0, bx1, by1)
-        if by0 < clip_rect.y0:   # block starts above the diagram — redact it
-            scratch_page.add_redact_annot(block_rect, fill=(1, 1, 1))
+    for block_rect in bleeding:
+        scratch_page.add_redact_annot(block_rect, fill=(1, 1, 1))
 
-    scratch_page.apply_redactions()
+    # Redact TEXT ONLY. The defaults also rewrite the pixels of every image the
+    # redaction rect touches and delete line art under it — neither is wanted
+    # here (we are hiding a header, not censoring the figure), and the image
+    # path aborts the whole process on some real worksheets: PyMuPDF 1.24.3
+    # corrupts the heap in apply_redactions(images=PDF_REDACT_IMAGE_PIXELS) on a
+    # page whose redaction rect overlaps certain embedded images ("malloc():
+    # unaligned tcache chunk detected", SIGABRT). In the RQ worker that kills the
+    # work-horse outright, so the upload session is never marked failed and the
+    # teacher's page polls a dead job forever.
+    scratch_page.apply_redactions(
+        images=fitz.PDF_REDACT_IMAGE_NONE,
+        graphics=fitz.PDF_REDACT_LINE_ART_NONE,
+    )
     pix = scratch_page.get_pixmap(clip=clip_rect, dpi=dpi)
     scratch_doc.close()
     return pix
@@ -710,52 +1153,75 @@ def _render_clean_diagram(fitz_page, clip_rect, dpi=150):
 
 def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
     """
-    Return the tight bounding rect of all vector drawing elements on *fitz_page*
-    that fall within *search_rect* (in PDF points).
+    Return the tight bounding rect of the vector drawing elements that BELONG to
+    *search_rect* (in PDF points) — i.e. whose centre lies inside it.
 
-    Vector drawings (lines, curves, filled shapes) are the diagram itself.
-    Text is never a drawing, so headers / labels outside the actual visual
-    are excluded automatically.
+    Vector drawings (lines, curves, filled shapes) are the diagram itself; text
+    is never a drawing, so headers / labels are excluded automatically.
+
+    Two safeguards keep multi-figure pages (a grid/row of diagrams) from merging:
+      * the centre-inside test ignores a NEIGHBOURING figure whose edge merely
+        pokes into the padded search box, and
+      * the result is clamped to *search_rect*, so the crop can never extend
+        beyond Claude's region onto an adjacent figure.
 
     Returns a fitz.Rect, or None if no qualifying drawings were found.
-    The returned rect is expanded by a small margin and clamped to *search_rect*.
     """
     import fitz
 
-    drawings = fitz_page.get_drawings()
-    if not drawings:
+    # Use clustered drawings, not raw paths: PyMuPDF groups the strokes of one
+    # figure into a single rect. Raw get_drawings() rects for axis-aligned lines
+    # (number lines, grids, geometry) are zero-area, so an area filter on them
+    # would discard line-art figures entirely. cluster_drawings() bounds them
+    # correctly.
+    try:
+        clusters = fitz_page.cluster_drawings()
+    except Exception:
+        return None
+    if not clusters:
         return None
 
-    xs0, ys0, xs1, ys1 = [], [], [], []
-    for d in drawings:
-        r = d.get('rect')
-        if not r:
-            continue
+    page_rect = fitz_page.rect
+    page_area = page_rect.width * page_rect.height
+
+    picked = []
+    for r in clusters:
         r = fitz.Rect(r)
-        # Must overlap the search region
-        if not r.intersects(search_rect):
+        if r.is_empty or r.is_infinite:
             continue
-        # Skip tiny artefacts (e.g. single-pixel rules)
+        # Skip page-border / full-page decoration and tiny specks.
+        if page_area > 0 and (r.width * r.height) / page_area > 0.80:
+            continue
         if r.width * r.height < min_area_pts:
             continue
-        xs0.append(r.x0)
-        ys0.append(r.y0)
-        xs1.append(r.x1)
-        ys1.append(r.y1)
+        # Skip thin horizontal rules — answer-blank underlines and section
+        # separators are vector "drawings" too, and a lone one would otherwise
+        # make a self-contained text question render its surrounding text as a
+        # spurious figure. A real line-art figure (number line, geometry) has
+        # tick marks / strokes giving it height, so this only drops bare rules.
+        if r.height < 2.5 and r.width > 20:
+            continue
+        # Belongs to this region only if its centre is inside — excludes a
+        # neighbouring figure whose edge pokes into the padded search box.
+        cx, cy = (r.x0 + r.x1) / 2.0, (r.y0 + r.y1) / 2.0
+        if not (search_rect.x0 <= cx <= search_rect.x1 and
+                search_rect.y0 <= cy <= search_rect.y1):
+            continue
+        picked.append(r)
 
-    if not xs0:
+    if not picked:
         return None
 
     margin = 6  # pts — small whitespace around the diagram
-    page_rect = fitz_page.rect
     tight = fitz.Rect(
-        max(search_rect.x0, min(xs0) - margin),
-        max(search_rect.y0, min(ys0) - margin),
-        # Right / bottom: clamp to page bounds only — drawings may legitimately
-        # extend beyond the search_rect if Claude's bbox was too tight.
-        min(page_rect.x1, max(xs1) + margin),
-        min(page_rect.y1, max(ys1) + margin),
+        min(r.x0 for r in picked) - margin,
+        min(r.y0 for r in picked) - margin,
+        max(r.x1 for r in picked) + margin,
+        max(r.y1 for r in picked) + margin,
     )
+    # Never extend beyond the search region — prevents the crop from bleeding
+    # onto adjacent figures on a multi-figure page.
+    tight.intersect(search_rect)
     return tight if tight.is_valid and tight.width > 10 and tight.height > 10 else None
 
 
@@ -806,12 +1272,11 @@ def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18):
             grown.include_rect(br)   # absorb the attached label
 
     margin = 4
-    grown = fitz.Rect(
-        max(page_rect.x0, grown.x0 - margin),
-        max(page_rect.y0, grown.y0 - margin),
-        min(page_rect.x1, grown.x1 + margin),
-        min(page_rect.y1, grown.y1 + margin),
-    )
+    grown = fitz.Rect(grown.x0 - margin, grown.y0 - margin,
+                      grown.x1 + margin, grown.y1 + margin)
+    # Clamp to the search region so absorbing a label can't pull the crop onto a
+    # neighbouring figure on a multi-figure page.
+    grown.intersect(search_rect)
     return grown if grown.is_valid and grown.width > 10 and grown.height > 10 else None
 
 
@@ -852,6 +1317,62 @@ def _region_has_raster_image(fitz_page, search_rect, min_overlap_frac=0.12):
     return False
 
 
+def _region_has_drawing(fitz_page, search_rect, min_area_pts=50):
+    """
+    Return True if a (non page-border) vector figure cluster overlaps *search_rect*.
+
+    Used as a fallback signal: if the crop couldn't be snapped tightly but a real
+    drawing overlaps the region, render Claude's bbox as-is rather than dropping a
+    genuine figure as "spurious".
+    """
+    import fitz
+
+    try:
+        clusters = fitz_page.cluster_drawings()
+    except Exception:
+        return False
+    page_rect = fitz_page.rect
+    page_area = page_rect.width * page_rect.height
+    for r in clusters:
+        r = fitz.Rect(r)
+        if r.is_empty or r.is_infinite:
+            continue
+        if page_area > 0 and (r.width * r.height) / page_area > 0.80:
+            continue
+        if r.width * r.height < min_area_pts:
+            continue
+        if r.intersects(search_rect):
+            return True
+    return False
+
+
+def _content_bounds(samples, w, h, n):
+    """(top, bottom, left, right) of the non-blank content in a pixmap buffer.
+
+    A pixel is blank when its average RGB value is >= 248 (almost white); a
+    row/column is blank when every pixel in it is. Returns None when the whole
+    buffer is blank (nothing to trim to).
+
+    Vectorised to bound the worst case. The scalar scan walked the buffer a
+    pixel at a time in Python and stopped at the first non-blank row, so it was
+    free on a tight crop but took ~0.9 s on a 6 MP crop with wide white margins
+    (and ~0.5 s on an all-white one) — per question image, that made a big
+    worksheet's render phase wildly unpredictable. This costs ~0.15 s flat on
+    the same input.
+    """
+    import numpy as np
+
+    arr = np.frombuffer(samples, dtype=np.uint8).reshape(h, w, n)[:, :, :3]
+    # Same test as before: a pixel is blank when (r + g + b) // 3 >= 248.
+    blank_px = (arr.sum(axis=2, dtype=np.uint16) // 3) >= 248
+    content_rows = np.flatnonzero(~blank_px.all(axis=1))
+    content_cols = np.flatnonzero(~blank_px.all(axis=0))
+    if not content_rows.size or not content_cols.size:
+        return None
+    return (int(content_rows[0]), int(content_rows[-1]),
+            int(content_cols[0]), int(content_cols[-1]))
+
+
 def _trim_whitespace(pix):
     """
     Remove rows/columns of near-white pixels from all four edges of a
@@ -860,42 +1381,16 @@ def _trim_whitespace(pix):
     Threshold: a row/column is considered blank if every pixel's average
     RGB value is >= 248 (almost white).
     """
-    import fitz
-
     samples = pix.samples  # raw bytes: w * h * n (n=3 for RGB)
     w, h, n = pix.width, pix.height, pix.n
 
     if n < 3:
         return pix  # greyscale or alpha-only — skip
 
-    def row_blank(y):
-        off = y * w * n
-        for x in range(w):
-            r, g, b = samples[off + x * n], samples[off + x * n + 1], samples[off + x * n + 2]
-            if (r + g + b) // 3 < 248:
-                return False
-        return True
-
-    def col_blank(x):
-        for y in range(h):
-            off = y * w * n + x * n
-            r, g, b = samples[off], samples[off + 1], samples[off + 2]
-            if (r + g + b) // 3 < 248:
-                return False
-        return True
-
-    top = 0
-    while top < h and row_blank(top):
-        top += 1
-    bottom = h - 1
-    while bottom > top and row_blank(bottom):
-        bottom -= 1
-    left = 0
-    while left < w and col_blank(left):
-        left += 1
-    right = w - 1
-    while right > left and col_blank(right):
-        right -= 1
+    bounds = _content_bounds(samples, w, h, n)
+    if bounds is None:
+        return pix  # nothing but whitespace — leave the crop as it is
+    top, bottom, left, right = bounds
 
     if top == 0 and bottom == h - 1 and left == 0 and right == w - 1:
         return pix  # nothing to trim
@@ -930,7 +1425,7 @@ def _trim_whitespace(pix):
         return pix
 
 
-def render_question_images(doc, extracted_pages, classified_result):
+def render_question_images(doc, extracted_pages, classified_result, progress=None):
     """
     For every question where has_image=True:
       1. Convert Claude's rough bbox from screenshot pixel space → PDF points.
@@ -941,20 +1436,29 @@ def render_question_images(doc, extracted_pages, classified_result):
       4. Trim residual whitespace from all edges.
       5. Store as PNG base64.
 
+    ``progress`` is an optional ``callable(message)`` invoked per rendered image,
+    so a caller can surface live progress during this (single-threaded) phase.
+
     Returns:
         (classified_result, extracted_images dict)
     """
     import fitz
 
+    report = progress or (lambda _msg: None)
     pages_by_num = {p['page_num']: p for p in extracted_pages['pages']}
     extracted_images = {}
 
     questions = classified_result.get('questions', [])
+    with_images = sum(1 for q in questions if q.get('has_image'))
+    rendered = 0
     for idx, q in enumerate(questions):
         q.setdefault('image_ref', None)
 
         if not q.get('has_image'):
             continue
+
+        rendered += 1
+        report(f'Preparing question images ({rendered} of {with_images})…')
 
         bbox = q.get('image_bbox')
         page_num = q.get('page_num', 1)
@@ -1009,12 +1513,13 @@ def render_question_images(doc, extracted_pages, classified_result):
             search_rect = fitz.Rect(pt0, pt1, pt2, pt3)
             clip_rect = _smart_diagram_rect(fitz_page, search_rect)
             if clip_rect is None:
-                # No vector drawing in the region. Only render if there's an
-                # embedded raster figure here (scanned/photo PDF). Otherwise
-                # Claude flagged a diagram that doesn't exist — the bbox points at
-                # plain text — so drop the image rather than save an irrelevant
-                # text crop (the "totally irrelevant image" failure mode).
-                if _region_has_raster_image(fitz_page, search_rect):
+                # Couldn't snap to a tight figure. Render Claude's bbox as-is when
+                # there's a real figure here — an embedded raster (scanned/photo
+                # PDF) or a vector cluster that overlaps the region. Only when
+                # there is neither do we treat the bbox as spurious (it points at
+                # plain text) and drop it — the "totally irrelevant image" case.
+                if (_region_has_raster_image(fitz_page, search_rect)
+                        or _region_has_drawing(fitz_page, search_rect)):
                     clip_rect = fitz.Rect(pt0, pt1, pt2, min(pdf_h, pt3 + 20))
                 else:
                     logger.info(
@@ -1024,10 +1529,12 @@ def render_question_images(doc, extracted_pages, classified_result):
                     q['has_image'] = False
                     continue
 
-            # Render at print-quality DPI with any header text above the crop
-            # redacted (whited out). This removes "Questions" / section headings
-            # while keeping angle labels and other text inside the diagram itself.
-            pix = _render_clean_diagram(fitz_page, clip_rect, dpi=IMAGE_RENDER_DPI)
+            # Render at print-quality DPI (capped in pixels for big regions) with
+            # any header text bleeding into the crop redacted (whited out). This
+            # removes "Questions" / section headings while keeping angle labels
+            # and other text inside the diagram itself.
+            pix = _render_clean_diagram(
+                fitz_page, clip_rect, dpi=_capped_render_dpi(clip_rect))
 
             # Trim residual whitespace
             trimmed = _trim_whitespace(pix)
@@ -1041,6 +1548,14 @@ def render_question_images(doc, extracted_pages, classified_result):
             ref = f'worksheet_img_q{idx+1}_p{page_num}.png'
             extracted_images[ref] = img_b64
             q['image_ref'] = ref
+            # Crop provenance for the "Adjust image" editor: the final region as
+            # fractions of the page, so the crop box can be pre-filled and the
+            # teacher can drag it to recover cut-off detail or exclude junk.
+            q['image_page'] = page_num
+            q['image_bbox_frac'] = [
+                round(clip_rect.x0 / pdf_w, 4), round(clip_rect.y0 / pdf_h, 4),
+                round(clip_rect.x1 / pdf_w, 4), round(clip_rect.y1 / pdf_h, 4),
+            ]
 
             logger.info(
                 f'Q{idx+1}: rendered from PDF — page {page_num}, '
@@ -1057,11 +1572,90 @@ def render_question_images(doc, extracted_pages, classified_result):
 
 
 # ---------------------------------------------------------------------------
+# Manual re-crop support — powers the teacher "Adjust image" tool in the
+# homework / worksheet / ai_import review editors. Pipeline-agnostic: renders
+# straight from the PDF page, so it works for scanned (raster) pages just as
+# well as born-digital (vector) ones.
+# ---------------------------------------------------------------------------
+
+def pdf_bytes_from(pdf_source):
+    """Read raw PDF bytes from a Django FieldFile, a path, or bytes."""
+    if isinstance(pdf_source, (bytes, bytearray)):
+        return bytes(pdf_source)
+    if hasattr(pdf_source, 'read'):          # Django FieldFile / file-like
+        try:
+            pdf_source.open('rb')
+        except Exception:
+            pass
+        try:
+            return pdf_source.read()
+        finally:
+            try:
+                pdf_source.close()
+            except Exception:
+                pass
+    with open(pdf_source, 'rb') as fh:       # filesystem path
+        return fh.read()
+
+
+def render_pdf_page_png(pdf_bytes, page_index, dpi=150):
+    """Render a full PDF page as PNG bytes for the Adjust-image modal.
+
+    Returns ``(png_bytes, page_w_pt, page_h_pt)``. ``page_index`` is 0-based.
+    The point dimensions let the client map a drag box (in displayed pixels)
+    back to page fractions independent of this preview DPI.
+    """
+    import fitz
+
+    doc = fitz.open(stream=bytes(pdf_bytes), filetype='pdf')
+    try:
+        page = doc[page_index]
+        pw, ph = page.rect.width, page.rect.height
+        return page.get_pixmap(dpi=dpi).tobytes('png'), pw, ph
+    finally:
+        doc.close()
+
+
+def recrop_pdf_region(pdf_bytes, page_index, frac_box, dpi=None, snap=False):
+    """Render a sub-region of a PDF page as PNG bytes for a manual re-crop.
+
+    ``frac_box`` is ``[x0, y0, x1, y1]`` as fractions (0..1) of page width/height
+    — DPI-independent, so the client can send exactly what it drew. WYSIWYG:
+    renders precisely the boxed region (no header redaction) at print DPI, so
+    the teacher gets what they see. ``snap=True`` first tightens to the vector
+    drawing via :func:`_smart_diagram_rect` (opt-in; off by default because the
+    teacher's box is authoritative). Raises ValueError on a degenerate box.
+    """
+    import fitz
+
+    dpi = dpi or IMAGE_RENDER_DPI
+    x0, y0, x1, y1 = (float(v) for v in frac_box)
+    x0, x1 = sorted((max(0.0, min(1.0, x0)), max(0.0, min(1.0, x1))))
+    y0, y1 = sorted((max(0.0, min(1.0, y0)), max(0.0, min(1.0, y1))))
+
+    doc = fitz.open(stream=bytes(pdf_bytes), filetype='pdf')
+    try:
+        page = doc[page_index]
+        pw, ph = page.rect.width, page.rect.height
+        clip = fitz.Rect(x0 * pw, y0 * ph, x1 * pw, y1 * ph)
+        if clip.width < 2 or clip.height < 2:
+            raise ValueError('crop region too small')
+        if snap:
+            tight = _smart_diagram_rect(page, clip)
+            if tight is not None:
+                clip = tight
+        return page.get_pixmap(clip=clip, dpi=dpi).tobytes('png')
+    finally:
+        doc.close()
+
+
+# ---------------------------------------------------------------------------
 # Full pipeline
 # ---------------------------------------------------------------------------
 
 def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
-                                   shape_naming=False):
+                                   shape_naming=False, progress=None,
+                                   page_selection=None):
     """
     Full pipeline: PDF → page screenshots → AI classify → render image regions.
 
@@ -1071,28 +1665,57 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
     ``shape_naming`` enables name-the-shape mode: pages are rendered at a higher
     DPI and Claude emits one "name this shape" question per individual shape.
 
+    ``page_selection`` is the teacher's print-dialog style page spec (``"2-7, 9"``;
+    blank/``None`` means every page — see ``worksheets/page_selection.py``). Only
+    the selected pages are rendered and classified, so skipping a cover sheet or a
+    marking scheme costs nothing and can't be imported as junk questions. What was
+    left out is recorded on ``result['page_selection']`` rather than dropped
+    silently. Raises ``PageSelectionError`` if the spec doesn't fit this PDF.
+
+    ``progress`` is an optional ``callable(message)`` called as each stage lands.
+    Callers use it to show the teacher what's happening and to record a heartbeat
+    proving the job is still alive.
+
     Returns:
         {
-            'result': { year_level, subject, strand, topic, questions[], usage },
+            'result': { year_level, subject, strand, topic, questions[], usage,
+                        page_selection,
+                        verification },   # second-opinion summary, or None
             'extracted_images': { ref: base64_png_str, ... },
-            'page_count': int,
+            'page_count': int,   # pages actually extracted (what gets billed)
         }
     """
     import fitz
 
+    from .page_selection import parse_page_selection, selection_summary
+
+    report = progress or (lambda _msg: None)
     pdf_bytes = pdf_file.read()
     doc = fitz.open(stream=pdf_bytes, filetype='pdf')
 
     try:
+        selected = parse_page_selection(page_selection, len(doc))
+        summary = selection_summary(page_selection, selected, len(doc))
+
         # Step 1: render pages + collect text (higher DPI in shape mode for tighter crops)
+        if summary['excluded']:
+            report(
+                f'Opening the PDF — reading page(s) {summary["selected_label"]} '
+                f'of {len(doc)}…'
+            )
+        else:
+            report(f'Opening the PDF ({len(doc)} page(s))…')
         extracted_pages = extract_worksheet_pages(
             doc, screenshot_dpi=SHAPE_NAMING_DPI if shape_naming else None,
+            selected_pages=selected,
         )
 
         # Step 2: AI classification (gets question text, type, answers, image bboxes)
         result = classify_worksheet_questions(
             extracted_pages, existing_topics, existing_levels, shape_naming=shape_naming,
+            progress=report,
         )
+        result['page_selection'] = summary
 
         for q in result.get('questions', []):
             # Teacher-graded (human_graded) questions are deselected by default so
@@ -1100,7 +1723,28 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
             q.setdefault('include', q.get('validation_type') != 'human_graded')
 
         # Step 3: render image regions from PDF vectors (not screenshot crops)
-        result, extracted_images = render_question_images(doc, extracted_pages, result)
+        result, extracted_images = render_question_images(
+            doc, extracted_pages, result, progress=report,
+        )
+
+        # Step 4: independent second opinion (CPP-384).
+        #
+        # One model is not perfect, and a wrong answer that reaches the question
+        # bank costs far more to find later than a second opinion costs now —
+        # CPP-377 was 14 broken questions on one topic, found only when a Year 7
+        # student complained. This pass re-examines each question with an
+        # independent model and flags disagreements needs_review for the teacher;
+        # it never edits an answer.
+        #
+        # Runs here rather than in each caller because worksheets AND homework
+        # both come through this function (worksheets/tasks.py,
+        # homework/tasks.py), so one insertion point covers both paths.
+        #
+        # Best-effort and self-gating, exactly as in ai_import: a no-op without
+        # OPENAI_API_KEY, and a failure never sinks an upload that already
+        # classified successfully.
+        report('Double-checking the questions with a second model…')
+        result['verification'] = _second_opinion(result, extracted_pages)
 
     finally:
         doc.close()
@@ -1110,3 +1754,41 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
         'extracted_images': extracted_images,
         'page_count': extracted_pages['page_count'],
     }
+
+
+def _second_opinion(result, extracted_pages):
+    """Run the independent verifier over ``result['questions']`` in place.
+
+    Returns the verifier's summary dict (including its token usage, so the
+    caller can bill it to the right provider and source), or None when the
+    verifier is disabled or there was nothing to check.
+
+    Deliberately swallows every failure: this is a quality aid, not a gate. An
+    upload that classified successfully must not be lost because a second
+    opinion was unavailable.
+    """
+    try:
+        from ai_import.verification import flag_visual_comparisons, verify_answers
+
+        questions = result.get('questions') or []
+        if not questions:
+            return None
+
+        # Deterministic guard first, so the obvious cases are flagged without
+        # paying for an API call — and so the paid pass skips them.
+        flag_visual_comparisons(questions)
+
+        # Same {page_num: base64_jpeg} shape ai_import passes. Questions
+        # carrying a figure resolve to their page and are checked WITH the
+        # image; the rest fall back to a text-only check.
+        page_images = {
+            page['page_num']: page['screenshot']
+            for page in extracted_pages.get('pages', [])
+            if page.get('page_num') is not None and page.get('screenshot')
+        }
+        return verify_answers(questions, page_images=page_images)
+    except Exception:
+        logger.exception(
+            'Second-opinion verification failed; continuing with the '
+            'unverified extraction')
+        return None

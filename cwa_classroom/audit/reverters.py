@@ -17,8 +17,11 @@ def _revert_class_student_removed(entry):
     with transaction.atomic():
         cs = ClassStudent.objects.filter(classroom_id=class_id, student_id=student_id).first()
         if cs:
+            # Re-adding makes them an active member again, so clear any retained
+            # "left this class" marker (a class removal now stamps moved_at).
             cs.is_active = True
-            cs.save(update_fields=['is_active'])
+            cs.moved_at = None
+            cs.save(update_fields=['is_active', 'moved_at'])
         else:
             ClassStudent.objects.create(classroom_id=class_id, student_id=student_id)
         Enrollment.objects.filter(classroom_id=class_id, student_id=student_id, status='removed').update(status='approved')

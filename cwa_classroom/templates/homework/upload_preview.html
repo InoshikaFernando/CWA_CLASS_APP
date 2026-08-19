@@ -40,6 +40,10 @@
     {% endfor %}
     {% endif %}
 
+    {% include "_partials/page_selection_notice.html" %}
+    {% include "_partials/skipped_pages_notice.html" %}
+    {% include "_partials/answer_key_notice.html" %}
+
     <form method="post" enctype="multipart/form-data" id="preview-form">
       {% csrf_token %}
 
@@ -107,6 +111,11 @@
               {% else %}✓ Auto{% endif %}
             </span>
 
+            {% if q.needs_review %}
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700"
+                  title="{{ q.review_reason|default:'Please double-check this answer.' }}">⚠ Review</span>
+            {% endif %}
+
             <button type="button" class="text-gray-400 hover:text-gray-600 toggle-btn" data-target="body-{{ q_idx }}">
               <svg class="w-4 h-4 chevron" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
@@ -120,37 +129,35 @@
             <!-- Image section -->
             <div>
               <label class="block text-xs font-medium text-gray-500 mb-1">Question Image</label>
-              {% if q.image_b64 %}
-              <div class="mb-2">
-                <img src="data:image/png;base64,{{ q.image_b64 }}" alt="Question image"
+              <div class="mb-2 {% if not q.image_b64 %}hidden{% endif %}" id="img-wrap-{{ q_idx }}">
+                <img src="{% if q.image_b64 %}data:image/png;base64,{{ q.image_b64 }}{% endif %}" alt="Question image"
                      class="max-h-48 rounded-lg border border-gray-100 object-contain"
                      id="img-preview-{{ q_idx }}">
               </div>
-              <div class="flex items-center gap-4">
+              <div class="flex items-center gap-4 flex-wrap">
+                <button type="button" class="text-xs text-indigo-600 hover:underline cursor-pointer font-medium"
+                        data-adjust="{{ q_idx }}" data-page="{{ q.image_page }}"
+                        data-frac="{{ q.image_bbox_frac_json }}">
+                  ✥ {% if q.image_b64 %}Adjust / re-crop image{% else %}Crop image from page{% endif %}
+                </button>
                 <label class="text-xs text-blue-600 hover:underline cursor-pointer font-medium">
                   📎 Replace image
                   <input type="file" name="q_{{ q_idx }}_image_upload" accept="image/*" class="hidden"
-                         onchange="replaceImagePreview(this, 'img-preview-{{ q_idx }}')">
+                         onchange="replaceImagePreview(this, {{ q_idx }})">
                 </label>
                 <label class="flex items-center gap-1.5 text-xs text-red-500 cursor-pointer">
                   <input type="checkbox" name="q_{{ q_idx }}_remove_image" class="w-3 h-3 rounded">
                   Remove image
                 </label>
+                {% if not forloop.first %}
+                <button type="button" class="text-xs text-teal-600 hover:underline cursor-pointer font-medium reuse-last-image-btn"
+                        data-reuse="{{ q_idx }}"
+                        title="Use the same image as the nearest earlier question that has one">
+                  ⧉ Same image as previous
+                </button>
+                {% endif %}
               </div>
-              {% else %}
-              <div>
-                <label class="inline-flex items-center gap-2 text-xs text-gray-500 hover:text-blue-600 cursor-pointer border border-dashed border-gray-300 rounded-lg px-3 py-2 hover:border-blue-400 transition">
-                  📎 <span>Upload image (optional)</span>
-                  <input type="file" name="q_{{ q_idx }}_image_upload" accept="image/*" class="hidden"
-                         onchange="showNewImagePreview(this, {{ q_idx }})">
-                </label>
-                <span id="new-img-name-{{ q_idx }}" class="ml-2 text-xs text-gray-400"></span>
-                <div id="new-img-preview-{{ q_idx }}" class="hidden mt-2">
-                  <img src="" alt="Preview" class="max-h-48 rounded-lg border border-gray-100 object-contain">
-                </div>
-              </div>
-              {% endif %}
-              <input type="hidden" name="q_{{ q_idx }}_image_ref" value="{{ q.image_ref|default:'' }}">
+              <input type="hidden" name="q_{{ q_idx }}_image_ref" value="{{ q.image_ref|default:'' }}" id="img-ref-{{ q_idx }}">
             </div>
 
             <!-- Question text -->
@@ -279,6 +286,41 @@
             </div>
             {% endif %}
 
+            <!-- Measure — shown only for measure -->
+            {% if q.question_type == 'measure' %}
+            <div class="bg-sky-50 rounded-lg p-3 grid grid-cols-3 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-sky-600 mb-1">Correct value</label>
+                <input type="text" name="q_{{ q_idx }}_numeric_answer" value="{% if q.numeric_answer is not None %}{{ q.numeric_answer }}{% endif %}"
+                       placeholder="e.g. 135"
+                       class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-sky-600 mb-1">Tolerance (±)</label>
+                <input type="text" name="q_{{ q_idx }}_answer_tolerance" value="{% if q.answer_tolerance is not None %}{{ q.answer_tolerance }}{% endif %}"
+                       placeholder="e.g. 2"
+                       class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-sky-600 mb-1">Unit</label>
+                <input type="text" name="q_{{ q_idx }}_answer_unit" value="{{ q.answer_unit|default:'' }}"
+                       placeholder="e.g. °"
+                       class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
+              </div>
+            </div>
+            {% endif %}
+
+            <!-- Number line — shown only for number_line -->
+            {% if q.question_type == 'number_line' %}
+            <div class="bg-sky-50 rounded-lg p-3">
+              <label class="block text-xs font-medium text-sky-600 mb-1">Number-line spec (JSON)</label>
+              <textarea name="q_{{ q_idx }}_number_line_spec" rows="3"
+                        placeholder='{"min":-3,"max":7,"step":1,"mode":"mark","target":[2]}'
+                        class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 resize-y">{% if q.number_line_spec %}{{ q.number_line_spec_json }}{% endif %}</textarea>
+              <p class="text-[11px] text-sky-500 mt-1">mode "mark" (tap ticks to mark target) or "read" (arrow at given, student types it). Every target/given value must land on a tick. The answer is graded from this.</p>
+            </div>
+            {% endif %}
+
             <!-- Grading rubric (shown only for ai_graded / human_graded) -->
             <div id="rubric-row-{{ q_idx }}" {% if q.validation_type == 'auto' %}class="hidden"{% endif %}>
               <label class="block text-xs font-medium text-gray-500 mb-1">
@@ -290,7 +332,7 @@
             </div>
 
             <!-- Answers (hidden for types that compute/derive/skip fixed answers) -->
-            {% if q.question_type != 'extended_answer' and q.question_type != 'long_division' and q.question_type != 'column_operation' and q.question_type != 'plot_points' and q.question_type != 'plot_line' and q.question_type != 'identify_coords' and q.question_type != 'read_graph' %}
+            {% if q.question_type != 'extended_answer' and q.question_type != 'long_division' and q.question_type != 'column_operation' and q.question_type != 'plot_points' and q.question_type != 'plot_line' and q.question_type != 'identify_coords' and q.question_type != 'read_graph' and q.question_type != 'measure' and q.question_type != 'number_line' %}
             <div id="answers-row-{{ q_idx }}">
               <label class="block text-xs font-medium text-gray-500 mb-2">Answers <span class="text-gray-400 font-normal">(tick the correct one — add alternatives that should also be accepted)</span></label>
               <div class="space-y-2" id="answers-box-{{ q_idx }}">
@@ -341,6 +383,10 @@
   </div>
 </div>
 
+{% url 'homework:pdf_page_image' session.pk as adj_page_url %}
+{% url 'homework:pdf_recrop' session.pk as adj_recrop_url %}
+{% include 'partials/_adjust_image_modal.html' with page_url=adj_page_url recrop_url=adj_recrop_url %}
+
 <script>
   // Toggle include/exclude card
   document.querySelectorAll('.include-cb').forEach(cb => {
@@ -360,13 +406,15 @@
     });
   });
 
-  // Replace existing image preview when a new file is chosen
-  function replaceImagePreview(input, previewId) {
+  // Replace / add an image preview when a file is chosen
+  function replaceImagePreview(input, idx) {
     if (!input.files || !input.files[0]) return;
     const reader = new FileReader();
     reader.onload = e => {
-      const img = document.getElementById(previewId);
+      const img = document.getElementById('img-preview-' + idx);
       if (img) img.src = e.target.result;
+      const wrap = document.getElementById('img-wrap-' + idx);
+      if (wrap) wrap.classList.remove('hidden');
     };
     reader.readAsDataURL(input.files[0]);
   }
@@ -484,5 +532,79 @@
       }
     });
   });
+</script>
+
+{# --- "Same image as previous" reuse control --- #}
+{% url 'homework:pdf_reuse_image' session.pk as reuse_image_url %}
+<script>
+(function () {
+  const REUSE_URL = "{{ reuse_image_url }}";
+  const csrfEl = document.querySelector('[name=csrfmiddlewaretoken]');
+  const csrf = csrfEl ? csrfEl.value : '';
+
+  // Nearest earlier question index that currently carries an image (and isn't
+  // flagged for removal), or -1. Matches what the teacher sees on screen.
+  function findSource(idx) {
+    for (let i = idx - 1; i >= 0; i--) {
+      const ref = document.getElementById('img-ref-' + i);
+      const rm = document.querySelector('[name="q_' + i + '_remove_image"]');
+      if (ref && ref.value && (!rm || !rm.checked)) return i;
+    }
+    return -1;
+  }
+
+  function flash(btn, msg) {
+    if (!btn || btn.dataset.flashing) return;
+    const orig = btn.textContent;
+    btn.dataset.flashing = '1';
+    btn.textContent = msg;
+    setTimeout(() => { btn.textContent = orig; delete btn.dataset.flashing; }, 1500);
+  }
+
+  // Delegated so it also covers any dynamically-added cards.
+  document.addEventListener('click', async ev => {
+    const btn = ev.target.closest('.reuse-last-image-btn');
+    if (!btn) return;
+    ev.preventDefault();
+    const idx = parseInt(btn.dataset.reuse, 10);
+    const src = findSource(idx);
+    if (src < 0) { flash(btn, 'No earlier image to reuse'); return; }
+
+    const srcRef = document.getElementById('img-ref-' + src).value;
+    const srcBtn = document.querySelector('[data-adjust="' + src + '"]');
+    let page = null, frac = null;
+    if (srcBtn) {
+      page = parseInt(srcBtn.dataset.page, 10) || null;
+      try { frac = JSON.parse(srcBtn.dataset.frac || 'null'); } catch (e) {}
+    }
+
+    btn.disabled = true;
+    try {
+      const r = await fetch(REUSE_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf},
+        body: JSON.stringify({q_idx: idx, source_ref: srcRef, page: page, bbox_frac: frac}),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Could not reuse image');
+
+      const ref = document.getElementById('img-ref-' + idx);
+      if (ref) ref.value = j.ref;
+      const img = document.getElementById('img-preview-' + idx);
+      if (img) img.src = 'data:image/png;base64,' + j.image_b64;
+      const wrap = document.getElementById('img-wrap-' + idx);
+      if (wrap) wrap.classList.remove('hidden');
+      const myBtn = document.querySelector('[data-adjust="' + idx + '"]');
+      if (myBtn && j.page) myBtn.dataset.page = j.page;
+      if (myBtn && frac) myBtn.dataset.frac = JSON.stringify(frac);
+      const rm = document.querySelector('[name="q_' + idx + '_remove_image"]');
+      if (rm) rm.checked = false;
+    } catch (e) {
+      flash(btn, 'Reuse failed — try again');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
 </script>
 {% endblock %}

@@ -23,6 +23,8 @@ from billing.reporting import (
     get_income_expense_summary, sync_ai_usage_expenses,
     sync_digitalocean_expenses, StripeUnavailable,
     get_usd_to_nzd_rate, FX_CACHE_KEY,
+    materialize_recurring_expenses, refresh_current_month_expenses,
+    FINANCE_REFRESH_LOCK_KEY,
 )
 from taskqueue.models import AIUsageLog
 
@@ -295,6 +297,91 @@ class MaterializeCommandTests(TestCase):
         self.assertEqual(Expense.objects.filter(source=EXPENSE_SOURCE_RECURRING).count(), 0)
 
 
+class RefreshCurrentMonthExpensesTests(TestCase):
+    """The dashboard self-heals the current month between monthly cron runs, so
+    an active recurring template shows immediately instead of reading $0."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.delete(FINANCE_REFRESH_LOCK_KEY)
+
+    @staticmethod
+    def _sub_months(d, n):
+        m, y = d.month - n, d.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        return d.replace(year=y, month=m)
+
+    def test_refresh_books_current_month_recurring_row(self):
+        today = date.today().replace(day=1)
+        RecurringExpense.objects.create(
+            category=ExpenseCategory.GODADDY, amount=Decimal('20.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY,
+            start_date=self._sub_months(today, 2),
+        )
+        # Cron hasn't run — nothing materialised yet.
+        self.assertEqual(Expense.objects.count(), 0)
+
+        refresh_current_month_expenses()
+
+        # The current month (and the two prior) now have a recurring row.
+        self.assertEqual(
+            Expense.objects.filter(source=EXPENSE_SOURCE_RECURRING).count(), 3,
+        )
+        self.assertTrue(
+            Expense.objects.filter(
+                source=EXPENSE_SOURCE_RECURRING, incurred_on=today).exists(),
+        )
+
+    def test_materialize_is_idempotent_and_preserves_true_ups(self):
+        today = date.today().replace(day=1)
+        tpl = RecurringExpense.objects.create(
+            category=ExpenseCategory.DIGITALOCEAN, amount=Decimal('80.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY, start_date=today,
+        )
+        self.assertEqual(len(materialize_recurring_expenses()), 1)
+        # Operator trues the row up to the real charge.
+        row = Expense.objects.get(recurring=tpl, incurred_on=today)
+        row.amount = Decimal('56.74')
+        row.save(update_fields=['amount'])
+        # Re-running creates nothing and never overwrites the true-up.
+        self.assertEqual(len(materialize_recurring_expenses()), 0)
+        row.refresh_from_db()
+        self.assertEqual(row.amount, Decimal('56.74'))
+
+    def test_existence_check_is_bulk_not_per_month(self):
+        """Re-materialising a long-running template must not scale its query
+        count with the number of months already booked (was one .exists() per
+        month, now a single bulk fetch)."""
+        old_start = self._sub_months(date.today().replace(day=1), 18)
+        RecurringExpense.objects.create(
+            category=ExpenseCategory.GODADDY, amount=Decimal('20.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY, start_date=old_start,
+        )
+        materialize_recurring_expenses()  # first run books ~19 months
+        # Second run creates nothing; it must not fan out into one query per
+        # already-booked month — just the template list (1) + bulk fetch (1),
+        # regardless of how many months are already booked.
+        with self.assertNumQueries(2):
+            self.assertEqual(len(materialize_recurring_expenses()), 0)
+
+    def test_vendor_sync_failure_does_not_break_refresh(self):
+        today = date.today().replace(day=1)
+        RecurringExpense.objects.create(
+            category=ExpenseCategory.GODADDY, amount=Decimal('15.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY, start_date=today,
+        )
+        with patch('billing.reporting.sync_ai_usage_expenses',
+                   side_effect=RuntimeError('boom')):
+            refresh_current_month_expenses()  # must not raise
+        # Recurring row still booked despite the vendor-sync failure.
+        self.assertTrue(
+            Expense.objects.filter(
+                source=EXPENSE_SOURCE_RECURRING, incurred_on=today).exists(),
+        )
+
+
 class FinanceDashboardViewTests(TestCase):
     def setUp(self):
         self.super = User.objects.create_superuser(
@@ -316,6 +403,27 @@ class FinanceDashboardViewTests(TestCase):
         resp = self.client.get(reverse('billing_admin_finance_dashboard'))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Income vs Expenses')
+
+    @patch('billing.views_admin.get_usd_to_nzd_rate', return_value=(Decimal('1.63'), 'live'))
+    @patch('billing.reporting.get_paid_revenue', side_effect=StripeUnavailable)
+    def test_current_month_expense_materialised_on_load(self, mock_rev, mock_rate):
+        """Regression: an active recurring template must show for the current
+        month even when the monthly cron hasn't run yet (was reading $0)."""
+        from django.core.cache import cache
+        cache.delete(FINANCE_REFRESH_LOCK_KEY)
+        this_month = date.today().replace(day=1)
+        RecurringExpense.objects.create(
+            category=ExpenseCategory.GODADDY, amount=Decimal('20.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY, start_date=this_month,
+        )
+        self.assertEqual(Expense.objects.count(), 0)  # cron hasn't run
+
+        self.client.login(username='boss', password='Pass123!')
+        resp = self.client.get(reverse('billing_admin_finance_dashboard'))
+
+        self.assertEqual(resp.status_code, 200)
+        current = resp.context['bars'][-1]
+        self.assertEqual(current['expense'], Decimal('20.00'))
 
     def test_create_manual_expense(self):
         self.client.login(username='boss', password='Pass123!')
@@ -361,3 +469,71 @@ class FinanceDashboardViewTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         row.refresh_from_db()
         self.assertEqual(row.amount, Decimal('56.74'))
+
+
+class AIExpenseProviderSplitTests(TestCase):
+    """AI spend is expensed per vendor, not as one merged figure (CPP-382)."""
+
+    def _usage(self, provider, cost, **kwargs):
+        return AIUsageLog.objects.create(
+            provider=provider,
+            source=AIUsageLog.SOURCE_AI_IMPORT,
+            pages=1, input_tokens=100, output_tokens=10,
+            est_cost_usd=Decimal(cost), **kwargs)
+
+    def test_each_provider_gets_its_own_expense_line(self):
+        from billing.models import Expense, ExpenseCategory
+        from billing.reporting import sync_ai_usage_expenses
+
+        self._usage(AIUsageLog.PROVIDER_ANTHROPIC, '10.00')
+        self._usage(AIUsageLog.PROVIDER_OPENAI, '4.00')
+
+        sync_ai_usage_expenses()
+
+        claude = Expense.objects.filter(category=ExpenseCategory.CLAUDE_API)
+        openai = Expense.objects.filter(category=ExpenseCategory.OPENAI_API)
+        self.assertEqual(claude.count(), 1)
+        self.assertEqual(openai.count(), 1)
+        self.assertEqual(claude.first().vendor, 'Anthropic')
+        self.assertEqual(openai.first().vendor, 'OpenAI')
+
+    def test_openai_spend_is_not_folded_into_the_anthropic_line(self):
+        # The bug: OpenAI cost invisible, or worse, misattributed to Anthropic.
+        from billing.models import Expense, ExpenseCategory
+        from billing.reporting import sync_ai_usage_expenses
+
+        self._usage(AIUsageLog.PROVIDER_ANTHROPIC, '10.00')
+        self._usage(AIUsageLog.PROVIDER_OPENAI, '4.00')
+        sync_ai_usage_expenses()
+
+        claude = Expense.objects.get(category=ExpenseCategory.CLAUDE_API)
+        openai = Expense.objects.get(category=ExpenseCategory.OPENAI_API)
+        # 10 and 4 in USD, kept apart rather than summed to 14 on one row.
+        self.assertEqual(claude.original_amount, Decimal('10.000000'))
+        self.assertEqual(openai.original_amount, Decimal('4.000000'))
+
+    def test_sync_is_idempotent_per_provider(self):
+        from billing.models import Expense
+        from billing.reporting import sync_ai_usage_expenses
+
+        self._usage(AIUsageLog.PROVIDER_ANTHROPIC, '10.00')
+        self._usage(AIUsageLog.PROVIDER_OPENAI, '4.00')
+        sync_ai_usage_expenses()
+        sync_ai_usage_expenses()
+
+        self.assertEqual(Expense.objects.count(), 2)
+
+    def test_rows_without_a_provider_are_treated_as_anthropic(self):
+        # Historical rows predate the column; they are all Claude.
+        from billing.models import Expense, ExpenseCategory
+        from billing.reporting import sync_ai_usage_expenses
+
+        AIUsageLog.objects.create(
+            source=AIUsageLog.SOURCE_WORKSHEET, pages=1,
+            input_tokens=100, output_tokens=10, est_cost_usd=Decimal('3.00'))
+        sync_ai_usage_expenses()
+
+        self.assertTrue(Expense.objects.filter(
+            category=ExpenseCategory.CLAUDE_API).exists())
+        self.assertFalse(Expense.objects.filter(
+            category=ExpenseCategory.OPENAI_API).exists())

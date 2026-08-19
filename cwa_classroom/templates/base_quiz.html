@@ -10,13 +10,20 @@
 
   <link href="{% static 'css/google-fonts-full.css' %}" rel="stylesheet" />
   <script src="{% static 'js/tailwind.min.js' %}"></script>
+  <!-- HTMX + Alpine (self-hosted) — power the "Send Feedback" launcher so a
+       student can report a broken question without leaving the quiz. -->
+  <script src="{% static 'js/htmx.min.js' %}"></script>
+  <script defer src="{% static 'js/alpinejs.min.js' %}"></script>
   <!-- Live superscript formatting for maths answer inputs (y^2 → y²) -->
   <script defer src="{% static 'js/maths_exponent.js' %}"></script>
   <!-- Draggable/rotatable protractor & ruler for `measure` questions -->
   <script defer src="{% static 'js/measure_tool.js' %}"></script>
+  <script defer src="{% static 'js/number_line.js' %}"></script>
+  <script defer src="{% static 'js/table_of_values.js' %}"></script>
   <!-- Read-aloud (text-to-speech) for questions & answers -->
   <script defer src="{% static 'js/tts_speaker.js' %}"></script>
   <style>
+    [x-cloak] { display: none !important; }
     /* Speaker (read-aloud) buttons — hidden when the browser has no TTS support */
     .tts-unsupported .tts-btn { display: none !important; }
     .tts-btn { line-height: 1; }
@@ -93,6 +100,10 @@
     <span class="mx-1">&middot;</span>
     <span>&copy; 2026 CWA / Wizards Learning Hub</span>
   </footer>
+
+  {% if request.user.is_authenticated %}
+  {% include "feedback/_partials/feedback_launcher.html" %}
+  {% endif %}
 
   {% block extra_js %}{% endblock %}
 </body>

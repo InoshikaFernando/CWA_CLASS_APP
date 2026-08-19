@@ -310,6 +310,7 @@ class SessionAttendanceView(RoleRequiredMixin, View):
                 ProgressRecord.objects.update_or_create(
                     student=student,
                     criteria=crit,
+                    classroom=session.classroom,
                     session=session,
                     defaults={
                         'status': new_status,

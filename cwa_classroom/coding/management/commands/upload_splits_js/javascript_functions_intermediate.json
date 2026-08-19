@@ -1,0 +1,26 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "functions",
+  "level": "intermediate",
+  "exercises": [
+    {
+      "title": "Square Function",
+      "question_type": "write_code",
+      "instructions": "Write a function called square that takes a number and returns its square.\nPrint the result of square(9).",
+      "starter_code": "function square(n) {\n  // Return the square of n\n}\n\nconsole.log(square(9));\n",
+      "expected_output": "81",
+      "hints": "Use return n * n or return n ** 2",
+      "display_order": 1
+    },
+    {
+      "title": "Check Prime",
+      "question_type": "write_code",
+      "instructions": "Write a function called isPrime(n) that returns true if n is prime, false otherwise.\nTest with isPrime(7) and isPrime(10).",
+      "starter_code": "function isPrime(n) {\n  // Check if n is prime\n}\n\nconsole.log(isPrime(7));\nconsole.log(isPrime(10));\n",
+      "expected_output": "true\nfalse",
+      "hints": "A prime number has no divisors other than 1 and itself.",
+      "display_order": 2
+    }
+  ]
+}

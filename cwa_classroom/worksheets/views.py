@@ -21,6 +21,8 @@ from billing.entitlements import get_school_for_user
 from classroom.views import RoleRequiredMixin
 
 from .grading_service import grade_extended_answer
+from .page_selection import describe_page_selection
+from .services import describe_skipped_pages
 from .models import (
     Worksheet,
     WorksheetAssignment,
@@ -45,6 +47,8 @@ ANSWER_PARTIAL_MAP = {
     'column_operation':   _PARTIAL + '_answer_column_operation.html',
     'prime_factorization': _PARTIAL + '_answer_prime_factorization.html',
     'measure':            _PARTIAL + '_answer_measure.html',
+    'number_line':        _PARTIAL + '_answer_number_line.html',
+    'table_of_values':    _PARTIAL + '_answer_table_of_values.html',
 }
 _ANSWER_PARTIAL_DEFAULT = _PARTIAL + '_answer_text.html'
 
@@ -89,6 +93,13 @@ class WorksheetUploadView(RoleRequiredMixin, View):
 
     def post(self, request):
         school = get_school_for_user(request.user)
+
+        # Authored JSON/ZIP upload — skips AI extraction + preview, goes straight
+        # to a lightweight confirm step.
+        json_file = request.FILES.get('json_file')
+        if json_file:
+            return self._handle_json_upload(request, json_file, school)
+
         pdf_file = request.FILES.get('pdf_file')
 
         if not pdf_file:
@@ -104,6 +115,18 @@ class WorksheetUploadView(RoleRequiredMixin, View):
         if worksheet_name.lower().endswith('.pdf'):
             worksheet_name = worksheet_name[:-4]
 
+        # Which pages to extract ("2-7, 9"; blank = all). Validated here against
+        # the real PDF so a bad range is an immediate form error rather than a
+        # background job that fails minutes later.
+        from .page_selection import PageSelectionError, clean_upload_selection
+        try:
+            page_selection, _selected, _total = clean_upload_selection(
+                request.POST.get('page_selection'), pdf_file,
+            )
+        except PageSelectionError as exc:
+            messages.error(request, str(exc))
+            return redirect('worksheets:upload')
+
         # Persist the upload + create a PROCESSING session, then classify in the
         # background (CPP-327) so the request returns immediately.
         session = WorksheetUploadSession.objects.create(
@@ -112,6 +135,7 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             pdf_filename=pdf_file.name,
             pdf_file=pdf_file,
             worksheet_name=worksheet_name,
+            page_selection=page_selection,
             shape_naming=request.POST.get('shape_naming') == 'on',
             status=WorksheetUploadSession.STATUS_PROCESSING,
         )
@@ -138,6 +162,116 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             return redirect('worksheets:upload')
 
         return redirect('worksheets:processing', session_id=session.pk)
+
+    def _handle_json_upload(self, request, json_file, school):
+        """Import an authored JSON/ZIP question file and stage a confirm step.
+
+        No AI extraction or editable preview — the questions are authored, so
+        they are parsed + saved immediately and the teacher only names the
+        worksheet on the next page.
+        """
+        from classroom.upload_services import import_assignment_questions
+
+        if not json_file.name.lower().endswith(('.json', '.zip')):
+            messages.error(request, 'Only .json or .zip files are supported.')
+            return redirect('worksheets:upload')
+
+        result = import_assignment_questions(json_file, request.user)
+        saved = result.get('saved', [])
+        if not saved:
+            errs = result.get('errors') or ['No questions could be imported from the file.']
+            messages.error(request, 'Could not import questions: ' + ' '.join(errs[:5]))
+            return redirect('worksheets:upload')
+
+        worksheet_name = json_file.name.rsplit('.', 1)[0]
+
+        session = WorksheetUploadSession.objects.create(
+            user=request.user,
+            school=school,
+            pdf_filename=json_file.name,
+            worksheet_name=worksheet_name,
+            status=WorksheetUploadSession.STATUS_READY,
+            extracted_data={
+                'source': 'json_upload',
+                'subject': result.get('subject'),
+                'saved': saved,
+            },
+        )
+
+        messages.success(
+            request,
+            f'Imported {len(saved)} question(s). Name your worksheet to finish.',
+        )
+        return redirect('worksheets:json_confirm', session_id=session.pk)
+
+
+class WorksheetJSONConfirmView(RoleRequiredMixin, View):
+    """Confirm step for an authored JSON/ZIP worksheet upload.
+
+    The questions are already parsed + saved (refs in
+    ``session.extracted_data['saved']``); this step only names the worksheet
+    and creates the Worksheet + WorksheetQuestion rows.
+    """
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        saved = session.extracted_data.get('saved', [])
+        return render(request, 'worksheets/json_confirm.html', {
+            'session': session,
+            'question_count': len(saved),
+            'subject': session.extracted_data.get('subject'),
+        })
+
+    def post(self, request, session_id):
+        from django.db import transaction
+
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        school = get_school_for_user(request.user)
+        saved = session.extracted_data.get('saved', [])
+        if not saved:
+            messages.error(request, 'This upload has no questions to save.')
+            return redirect('worksheets:upload')
+
+        worksheet_name = (
+            request.POST.get('worksheet_name', '').strip()
+            or session.worksheet_name or session.pdf_filename
+        )
+
+        with transaction.atomic():
+            worksheet = Worksheet.objects.create(
+                school=school,
+                name=worksheet_name,
+                original_filename=session.pdf_filename,
+                created_by=request.user,
+                question_count=0,
+            )
+            WorksheetQuestion.objects.bulk_create([
+                WorksheetQuestion(
+                    worksheet=worksheet,
+                    question_id=(ref['content_id'] if ref['subject_slug'] == 'mathematics' else None),
+                    coding_exercise_id=(ref['content_id'] if ref['subject_slug'] == 'coding' else None),
+                    subject_slug=ref['subject_slug'],
+                    content_id=ref['content_id'],
+                    order=i,
+                )
+                for i, ref in enumerate(saved, 1)
+            ])
+            worksheet.refresh_question_count()
+
+        session.is_confirmed = True
+        session.worksheet = worksheet
+        session.save(update_fields=['is_confirmed', 'worksheet'])
+
+        messages.success(
+            request,
+            f'Worksheet "{worksheet.name}" created with {worksheet.question_count} questions.',
+        )
+        return redirect('worksheets:detail', pk=worksheet.pk)
 
 
 class WorksheetProcessingView(RoleRequiredMixin, View):
@@ -220,6 +354,9 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             # don't need a custom filter for dict lookups.
             ref = q.get('image_ref')
             q['image_b64'] = session.extracted_images.get(ref) if ref else None
+            # For the "Adjust image" crop modal: which page + the current crop box.
+            q['image_page'] = q.get('image_page') or q.get('page_num') or 1
+            q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
 
         # Recovery: if every question ended up with include=False (stuck state
         # from a previous all-uncheck submission), re-apply the default selection
@@ -234,7 +371,8 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             # Save only the include reset — strip image_b64 first since that
             # is added in-memory for template rendering only and must not be
             # persisted (it bloats the JSONField with base64 image data).
-            clean_questions = [{k: v for k, v in q.items() if k != 'image_b64'} for q in questions]
+            _transient = {'image_b64', 'image_bbox_frac_json'}
+            clean_questions = [{k: v for k, v in q.items() if k not in _transient} for q in questions]
             data['questions'] = clean_questions
             session.extracted_data = data
             session.save(update_fields=['extracted_data'])
@@ -245,6 +383,12 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             'session': session,
             'data': data,
             'questions': questions,
+            # Answer sheets / answer keys the extractor skipped — reported, not
+            # silently missing from the import.
+            'skipped_pages': describe_skipped_pages(data),
+            # Pages the teacher chose not to extract — stated, not silently absent.
+            'page_selection': describe_page_selection(data),
+            'answer_key': data.get('answer_key') or {},
             'levels': levels,
             'parent_topics_json': json.dumps(parent_topics),
             'subtopics_json': json.dumps(subtopics_map),
@@ -256,6 +400,8 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
                 ('short_answer', 'Short Answer'),
                 ('fill_blank', 'Fill in the Blank'),
                 ('calculation', 'Calculation'),
+                ('measure', 'Measure (angle/scale, tolerance-graded)'),
+                ('number_line', 'Number Line (mark or read a value)'),
             ],
         })
 
@@ -311,6 +457,42 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
         session.save(update_fields=['extracted_data', 'worksheet_name'])
 
         return redirect('worksheets:confirm', session_id=session.pk)
+
+
+class WorksheetPageImageView(RoleRequiredMixin, View):
+    """AJAX: full source-page PNG for the 'Adjust image' crop modal."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        from .image_adjust import page_image_response
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return page_image_response(session, request)
+
+
+class WorksheetRecropView(RoleRequiredMixin, View):
+    """AJAX: re-render a question image from a teacher-drawn box on the PDF."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, session_id):
+        from .image_adjust import recrop_response
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return recrop_response(session, request)
+
+
+class WorksheetReuseImageView(RoleRequiredMixin, View):
+    """AJAX: copy an earlier question's image onto this question (shared figure)."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, session_id):
+        from .image_adjust import reuse_previous_image_response
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return reuse_previous_image_response(session, request)
 
 
 class WorksheetConfirmView(RoleRequiredMixin, View):
@@ -837,6 +1019,23 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                 from maths.geometry_grading import grade_measure
                 text_answer = request.POST.get('text_answer', '').strip()
                 is_correct = grade_measure(question, text_answer)
+                if is_correct:
+                    points_earned = float(question.points)
+
+            elif question.question_type == 'number_line' and question.number_line_spec:
+                # Mark mode posts a JSON {"marks":[...]}; read mode posts the value.
+                from maths.geometry_grading import grade_number_line
+                text_answer = request.POST.get('text_answer', '')
+                is_correct = grade_number_line(question.number_line_spec, text_answer)
+                if is_correct:
+                    points_earned = float(question.points)
+
+            elif question.question_type == 'table_of_values' and question.table_spec:
+                # The filled cells post as JSON {"cells":{"r,c":"value"}} in
+                # text_answer; graded all-or-nothing by numeric tolerance.
+                from maths.geometry_grading import grade_table
+                text_answer = request.POST.get('text_answer', '')
+                is_correct = grade_table(question.table_spec, text_answer)
                 if is_correct:
                     points_earned = float(question.points)
 

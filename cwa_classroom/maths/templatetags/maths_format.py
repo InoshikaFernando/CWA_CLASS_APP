@@ -40,3 +40,32 @@ def exponents(value):
     return _EXPONENT_RE.sub(
         lambda m: m.group(1).translate(_SUPERSCRIPT), str(value),
     )
+
+
+# Display tiers for AI-graded (extended-answer) maths questions.  These decide
+# only how an answer is *labelled* on the result / feedback pages — they never
+# touch scoring.  The counted score (``is_correct`` and ``points_earned``) is
+# still set by the grader and left as-is, so a 0.85 answer keeps its points in
+# the tally while displaying as "Partially correct".
+CREDIT_FULL_MARK = 1.0    # a full-marks score shows the green "Correct" tick
+CREDIT_PARTIAL_FLOOR = 0.5  # >= this (but below full) shows amber "Partially correct"
+
+
+@register.filter
+def credit_state(answer):
+    """Return ``'correct'``, ``'partial'`` or ``'wrong'`` for how to *display* an answer.
+
+    AI-graded answers carry an ``ai_score_fraction`` (0.0–1.0): they show as
+    fully correct only at full marks, partially correct from 0.5 up to that, and
+    wrong below 0.5.  Answers without a fraction (MCQ, exact-match, or not yet
+    AI-graded) fall back to the stored ``is_correct`` boolean and are never
+    "partial".
+    """
+    frac = getattr(answer, 'ai_score_fraction', None)
+    if frac is None:
+        return 'correct' if getattr(answer, 'is_correct', False) else 'wrong'
+    if frac >= CREDIT_FULL_MARK:
+        return 'correct'
+    if frac >= CREDIT_PARTIAL_FLOOR:
+        return 'partial'
+    return 'wrong'

@@ -1,0 +1,115 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "variables-data-types",
+  "level": "advanced",
+  "exercises": [
+    {
+      "title": "Type Casting",
+      "question_type": "write_code",
+      "instructions": "You are given:\n  x = \"42\"\n  y = \"3.14\"\n\nConvert x to a number and y to a number.\nPrint their sum.",
+      "starter_code": "let x = \"42\";\nlet y = \"3.14\";\n\n// Convert and print the sum\n",
+      "expected_output": "45.14",
+      "hints": "Use parseInt() and parseFloat() (or Number()) to convert. The result should be 45.14.",
+      "display_order": 1
+    },
+    {
+      "title": "Local Variable: Shadows Outer",
+      "question_type": "write_code",
+      "instructions": "The outer x is 10. Inside show(), declare a LOCAL x so that 5 prints when show() is called.",
+      "starter_code": "let x = 10;\n\nfunction show() {\n  let ? = ?;\n  console.log(x);\n}\n\nshow();\n",
+      "expected_output": "5",
+      "hints": "Declaring `let x` inside the function creates a new LOCAL variable that hides the outer one",
+      "display_order": 2
+    },
+    {
+      "title": "Read an Outer Variable",
+      "question_type": "write_code",
+      "instructions": "A function can READ an outer variable without redeclaring it. Print the outer counter from inside show().",
+      "starter_code": "let counter = 42;\n\nfunction show() {\n  console.log(?);\n}\n\nshow();\n",
+      "expected_output": "42",
+      "hints": "Reading a name JavaScript doesn't find locally falls back to the enclosing/outer scope",
+      "display_order": 3
+    },
+    {
+      "title": "Mutate an Outer Variable",
+      "question_type": "write_code",
+      "instructions": "Update the OUTER count inside increment() (assign without `let`, which would make a new local).\nPrint count after two calls.",
+      "starter_code": "let count = 0;\n\nfunction increment() {\n  ? += 1;\n}\n\nincrement();\nincrement();\nconsole.log(count);\n",
+      "expected_output": "2",
+      "hints": "Using `let count` inside the function makes a new local; assigning without `let` updates the outer one",
+      "display_order": 4
+    },
+    {
+      "title": "Scope Trap: Read the Outer Variable",
+      "question_type": "write_code",
+      "instructions": "Fix the function so it prints the outer value 7. Just READ the outer variable — do not redeclare it with let.",
+      "starter_code": "let value = 7;\n\nfunction show() {\n  // Do NOT redeclare value here — just print the outer one\n  console.log(?);\n}\n\nshow();\n",
+      "expected_output": "7",
+      "hints": "Declaring `let value` inside would shadow the outer one for the whole function (temporal dead zone)",
+      "display_order": 5,
+      "required_code_patterns": "console\\.log\\s*\\(\\s*value\\s*\\)"
+    },
+    {
+      "title": "Closure: Update an Enclosing Variable",
+      "question_type": "write_code",
+      "instructions": "Inside inner(), update x in the enclosing outer() scope so that outer() returns 99. (Assign without let.)",
+      "starter_code": "function outer() {\n  let x = 1;\n  function inner() {\n    ? = 99;\n  }\n  inner();\n  return x;\n}\n\nconsole.log(outer());\n",
+      "expected_output": "99",
+      "hints": "A nested function can assign to a variable in its enclosing scope — just don't redeclare it with let",
+      "display_order": 6
+    },
+    {
+      "title": "Mutability: Mutate an Array Argument",
+      "question_type": "write_code",
+      "instructions": "Arrays are passed by reference. Append 99 to the array inside modify() so the outer array ends as [1,2,3,99].",
+      "starter_code": "let nums = [1, 2, 3];\n\nfunction modify(lst) {\n  lst.?(99);\n}\n\nmodify(nums);\nconsole.log(JSON.stringify(nums));\n",
+      "expected_output": "[1,2,3,99]",
+      "hints": "lst refers to the same array object as nums — .push() mutates it in place",
+      "display_order": 7
+    },
+    {
+      "title": "Mutability: Reassigning vs Mutating",
+      "question_type": "write_code",
+      "instructions": "Reassigning a parameter (lst = [...]) does NOT affect the caller. Print the unchanged array after rebind() runs.",
+      "starter_code": "let nums = [1, 2, 3];\n\nfunction rebind(lst) {\n  lst = [9, 9, 9];\n}\n\nrebind(nums);\nconsole.log(JSON.stringify(?));\n",
+      "expected_output": "[1,2,3]",
+      "hints": "`lst = [...]` points the local name at a NEW array — the caller's array is untouched",
+      "display_order": 8
+    },
+    {
+      "title": "Numbers Are Passed by Value",
+      "question_type": "write_code",
+      "instructions": "Reassigning a number parameter inside a function does not touch the caller. Print the unchanged outer value.",
+      "starter_code": "let n = 5;\n\nfunction change(x) {\n  x = 100;\n}\n\nchange(n);\nconsole.log(?);\n",
+      "expected_output": "5",
+      "hints": "Only the local name x is reassigned; n is a separate binding in the outer scope",
+      "display_order": 9,
+      "required_code_patterns": "console\\.log\\s*\\(\\s*n\\s*\\)"
+    },
+    {
+      "title": "What is a variable?",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 10,
+      "answers": [
+        {
+          "text": "A named container that stores a value in memory",
+          "is_correct": true
+        },
+        {
+          "text": "A fixed constant value that cannot change",
+          "is_correct": false
+        },
+        {
+          "text": "A function that performs operations",
+          "is_correct": false
+        },
+        {
+          "text": "A comment in the code",
+          "is_correct": false
+        }
+      ]
+    }
+  ]
+}

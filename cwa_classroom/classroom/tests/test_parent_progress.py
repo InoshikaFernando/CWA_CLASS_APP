@@ -103,6 +103,19 @@ class ParentProgressTestBase(TestCase):
             created_by=cls.teacher,
         )
 
+        # Class the student is enrolled in — progress is tracked per class (§12.10),
+        # so criteria only show for classes the student is in.
+        import datetime as _dt
+        from classroom.models import ClassRoom, ClassStudent
+        cls.classroom = ClassRoom.objects.create(
+            name='Maths Class', school=cls.school, subject=cls.subject,
+            start_time=_dt.time(9, 0), end_time=_dt.time(10, 0),
+        )
+        cls.classroom.levels.add(cls.level)
+        ClassStudent.objects.create(
+            classroom=cls.classroom, student=cls.student, is_active=True,
+        )
+
         # Non-approved criteria (should NOT appear)
         cls.criteria_draft = ProgressCriteria.objects.create(
             school=cls.school,
@@ -189,9 +202,9 @@ class ParentProgressViewCriteriaFilterTest(ParentProgressTestBase):
 
     def test_grouped_progress_in_context(self):
         resp = self.client.get(reverse('parent_progress'))
-        self.assertIn('grouped_progress', resp.context)
+        self.assertIn('progress_sections', resp.context)
         # Should have one group (same subject+level)
-        self.assertEqual(len(resp.context['grouped_progress']), 1)
+        self.assertEqual(len(resp.context['progress_sections'][0]['grouped_progress']), 1)
 
     def test_overall_total_counts_approved_only(self):
         resp = self.client.get(reverse('parent_progress'))
@@ -208,31 +221,33 @@ class ParentProgressViewStatusTest(ParentProgressTestBase):
     def test_no_record_shows_not_assessed(self):
         """Criteria with no ProgressRecord should appear as 'not_assessed'."""
         resp = self.client.get(reverse('parent_progress'))
-        group = resp.context['grouped_progress'][0]
+        group = resp.context['progress_sections'][0]['grouped_progress'][0]
         statuses = [e['status'] for e in group['entries']]
         self.assertIn('not_assessed', statuses)
 
     def test_achieved_record_shows_achieved(self):
         ProgressRecord.objects.create(
             student=self.student,
+            classroom=self.classroom,
             criteria=self.criteria_approved,
             status='advanced',
             recorded_by=self.teacher,
         )
         resp = self.client.get(reverse('parent_progress'))
-        group = resp.context['grouped_progress'][0]
+        group = resp.context['progress_sections'][0]['grouped_progress'][0]
         entries_by_criteria = {e['criteria'].id: e for e in group['entries']}
         self.assertEqual(entries_by_criteria[self.criteria_approved.id]['status'], 'advanced')
 
     def test_in_progress_record_shows_in_progress(self):
         ProgressRecord.objects.create(
             student=self.student,
+            classroom=self.classroom,
             criteria=self.criteria_approved,
             status='developing',
             recorded_by=self.teacher,
         )
         resp = self.client.get(reverse('parent_progress'))
-        group = resp.context['grouped_progress'][0]
+        group = resp.context['progress_sections'][0]['grouped_progress'][0]
         entries_by_criteria = {e['criteria'].id: e for e in group['entries']}
         self.assertEqual(entries_by_criteria[self.criteria_approved.id]['status'], 'developing')
 
@@ -240,24 +255,27 @@ class ParentProgressViewStatusTest(ParentProgressTestBase):
         """When multiple records exist for the same criteria, the latest (highest ID) is used."""
         ProgressRecord.objects.create(
             student=self.student,
+            classroom=self.classroom,
             criteria=self.criteria_approved,
             status='developing',
             recorded_by=self.teacher,
         )
         ProgressRecord.objects.create(
             student=self.student,
+            classroom=self.classroom,
             criteria=self.criteria_approved,
             status='advanced',
             recorded_by=self.teacher,
         )
         resp = self.client.get(reverse('parent_progress'))
-        group = resp.context['grouped_progress'][0]
+        group = resp.context['progress_sections'][0]['grouped_progress'][0]
         entries_by_criteria = {e['criteria'].id: e for e in group['entries']}
         self.assertEqual(entries_by_criteria[self.criteria_approved.id]['status'], 'advanced')
 
     def test_overall_counts_match_entries(self):
         ProgressRecord.objects.create(
             student=self.student,
+            classroom=self.classroom,
             criteria=self.criteria_approved,
             status='advanced',
             recorded_by=self.teacher,
@@ -273,25 +291,27 @@ class ParentProgressViewStatusTest(ParentProgressTestBase):
     def test_notes_from_record_in_context(self):
         ProgressRecord.objects.create(
             student=self.student,
+            classroom=self.classroom,
             criteria=self.criteria_approved,
             status='advanced',
             notes='Great work counting!',
             recorded_by=self.teacher,
         )
         resp = self.client.get(reverse('parent_progress'))
-        group = resp.context['grouped_progress'][0]
+        group = resp.context['progress_sections'][0]['grouped_progress'][0]
         entries_by_criteria = {e['criteria'].id: e for e in group['entries']}
         self.assertEqual(entries_by_criteria[self.criteria_approved.id]['notes'], 'Great work counting!')
 
     def test_recorded_by_in_context(self):
         ProgressRecord.objects.create(
             student=self.student,
+            classroom=self.classroom,
             criteria=self.criteria_approved,
             status='advanced',
             recorded_by=self.teacher,
         )
         resp = self.client.get(reverse('parent_progress'))
-        group = resp.context['grouped_progress'][0]
+        group = resp.context['progress_sections'][0]['grouped_progress'][0]
         entries_by_criteria = {e['criteria'].id: e for e in group['entries']}
         self.assertEqual(entries_by_criteria[self.criteria_approved.id]['recorded_by'], self.teacher)
 
@@ -314,7 +334,7 @@ class ParentProgressViewNoChildTest(TestCase):
         resp = self.client.get(reverse('parent_progress'))
         self.assertEqual(resp.status_code, 200)
         # grouped_progress should be absent or empty
-        self.assertFalse(resp.context.get('grouped_progress'))
+        self.assertFalse(resp.context.get('progress_sections'))
 
     def test_no_child_no_crash(self):
         self.client.force_login(self.parent)
@@ -328,7 +348,10 @@ class ParentProgressViewGroupingTest(ParentProgressTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        # Add a second subject with its own approved criterion
+        # Add a second subject + a class for it the student is enrolled in, so a
+        # second per-class section appears (§12.10).
+        import datetime as _dt
+        from classroom.models import ClassRoom, ClassStudent
         cls.subject2 = Subject.objects.create(name='English', slug='english-prog')
         cls.criteria_english = ProgressCriteria.objects.create(
             school=cls.school,
@@ -338,13 +361,22 @@ class ParentProgressViewGroupingTest(ParentProgressTestBase):
             status='approved',
             created_by=cls.teacher,
         )
+        cls.classroom2 = ClassRoom.objects.create(
+            name='English Class', school=cls.school, subject=cls.subject2,
+            start_time=_dt.time(11, 0), end_time=_dt.time(12, 0),
+        )
+        cls.classroom2.levels.add(cls.level)
+        ClassStudent.objects.create(
+            classroom=cls.classroom2, student=cls.student, is_active=True,
+        )
 
     def setUp(self):
         self._login_parent()
 
     def test_two_groups_when_two_subjects(self):
         resp = self.client.get(reverse('parent_progress'))
-        self.assertEqual(len(resp.context['grouped_progress']), 2)
+        # Two classes → two per-class sections.
+        self.assertEqual(len(resp.context['progress_sections']), 2)
 
     def test_overall_total_spans_all_groups(self):
         resp = self.client.get(reverse('parent_progress'))

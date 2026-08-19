@@ -222,3 +222,60 @@ def test_render_keeps_real_vector_diagram():
     assert q['has_image'] is True
     assert q['image_ref'] and q['image_ref'] in images
     assert images[q['image_ref']]  # non-empty base64
+
+
+# ---------------------------------------------------------------------------
+# Multi-figure pages: each crop must capture only its own figure (no bleed)
+# ---------------------------------------------------------------------------
+
+def test_multi_figure_crops_do_not_bleed_into_each_other():
+    """Two separate diagrams on one page: each question's crop stays on its own
+    figure and never extends onto the neighbour (the "1st correct, 2nd/3rd wrong"
+    bug — crops were ballooning to the whole page)."""
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=600)
+    page.draw_rect(fitz.Rect(50, 50, 200, 150), color=(0, 0, 0), fill=(0.6, 0.6, 0.6))   # fig A (top)
+    page.draw_rect(fitz.Rect(50, 420, 200, 520), color=(0, 0, 0), fill=(0.6, 0.6, 0.6))  # fig B (bottom)
+    try:
+        clip_a = _smart_diagram_rect(page, fitz.Rect(40, 40, 210, 160))
+        clip_b = _smart_diagram_rect(page, fitz.Rect(40, 410, 210, 530))
+    finally:
+        doc.close()
+
+    assert clip_a is not None and clip_b is not None
+    assert clip_a.y1 < 300, f'fig A crop bled downward, y1={clip_a.y1}'
+    assert clip_b.y0 > 300, f'fig B crop bled upward, y0={clip_b.y0}'
+
+
+def test_clip_never_exceeds_search_rect():
+    """Even when the figure is larger than Claude's bbox, the crop is clamped to
+    the bbox — so it can't spill onto an adjacent figure."""
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=400)
+    page.draw_rect(fitz.Rect(100, 100, 300, 300), color=(0, 0, 0), fill=(0.5, 0.5, 0.5))
+    sr = fitz.Rect(120, 120, 280, 280)  # bbox tighter than the figure
+    try:
+        clip = _smart_diagram_rect(page, sr)
+    finally:
+        doc.close()
+
+    assert clip is not None
+    assert clip.x0 >= sr.x0 - 0.01 and clip.y0 >= sr.y0 - 0.01
+    assert clip.x1 <= sr.x1 + 0.01 and clip.y1 <= sr.y1 + 0.01
+
+
+def test_line_art_figure_is_snapped_not_dropped():
+    """A figure built only from axis-aligned lines (number line, grid, geometry)
+    has zero-area raw path rects; it must still snap via cluster_drawings rather
+    than return None (which would drop the image)."""
+    doc = fitz.open()
+    page = doc.new_page(width=300, height=300)
+    page.draw_line((50, 150), (250, 150))           # number line
+    for x in range(50, 251, 40):
+        page.draw_line((x, 144), (x, 156))          # ticks
+    try:
+        clip = _smart_diagram_rect(page, fitz.Rect(40, 120, 260, 180))
+    finally:
+        doc.close()
+
+    assert clip is not None, 'line-art figure must snap, not be dropped'

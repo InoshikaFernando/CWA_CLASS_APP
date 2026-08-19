@@ -217,7 +217,7 @@
             class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm">
             <option value="">All Departments</option>
             {% for dept in departments %}
-              <option value="{{ dept.id }}" {% if form_data.department_id == dept.id|stringformat:"s" %}selected{% endif %}>{{ dept.name }}</option>
+              <option value="{{ dept.id }}" {% if form_data.department_id == dept.id|stringformat:"s" or preselected_department_id == dept.id|stringformat:"s" %}selected{% endif %}>{{ dept.name }}</option>
             {% endfor %}
           </select>
         </div>
@@ -229,11 +229,11 @@
             hx-get="{% url 'invoicing_scope_students' %}"
             hx-target="#scope-student-list"
             hx-swap="innerHTML"
-            hx-trigger="change"
+            hx-trigger="change{% if preselected_classroom_id %}, load{% endif %}"
             class="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm">
             <option value="">All Classes</option>
             {% for c in classrooms %}
-              <option value="{{ c.id }}">{{ c.name }}</option>
+              <option value="{{ c.id }}" {% if preselected_classroom_id == c.id|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
             {% endfor %}
           </select>
         </div>

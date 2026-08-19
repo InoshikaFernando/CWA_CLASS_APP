@@ -1,5 +1,5 @@
 #!/bin/bash
-# sync_expenses.sh — monthly refresh of the income-vs-expense dashboard.
+# sync_expenses.sh — daily refresh of the income-vs-expense dashboard.
 #
 # Runs both expense cron commands for CWA Classroom:
 #   1. materialize_recurring_expenses — books flat recurring templates (GoDaddy,
@@ -9,14 +9,18 @@
 #      idempotent) + DigitalOcean invoices when DIGITALOCEAN_API_TOKEN is set
 #      (the actual invoice supersedes the DO estimate for that month).
 #
-# Idempotent and safe to re-run. Run monthly, on the 2nd (DO invoices the prior
-# month on the 1st, so the 2nd guarantees the invoice exists).
+# Idempotent and safe to re-run, so run DAILY: the Anthropic AI-usage cost
+# accrues every day as students use AI features, so a monthly run left the
+# current month's figure frozen between runs (the bug this addresses). A daily
+# run keeps the current month current. DigitalOcean still invoices the prior
+# month on the 1st, but a daily run picks that invoice up on the 2nd (and the
+# sync is idempotent, so re-running on later days is a no-op).
 #
-# Install (crontab on the DO server) — 02:00 on the 2nd of each month, TEST app:
-#   0 2 2 * * /home/cwa/CWA_CLASS_APP_TEST/scripts/sync_expenses.sh >> /var/log/cwa/sync_expenses.log 2>&1
+# Install (crontab on the DO server) — 02:00 every day, TEST app:
+#   0 2 * * * /home/cwa/CWA_CLASS_APP_TEST/scripts/sync_expenses.sh >> /var/log/cwa/sync_expenses.log 2>&1
 #
 # For PROD, pass the prod app dir + env file as args:
-#   0 2 2 * * /home/cwa/CWA_CLASS_APP/scripts/sync_expenses.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/sync_expenses.log 2>&1
+#   0 2 * * * /home/cwa/CWA_CLASS_APP/scripts/sync_expenses.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/sync_expenses.log 2>&1
 
 set -euo pipefail
 
@@ -25,10 +29,18 @@ ENV_FILE="${2:-/etc/cwa/cwa-test.env}"
 
 # Load the app env (DB creds, DIGITALOCEAN_API_TOKEN, FX/USD rate, etc.),
 # exported so manage.py's Python child sees them — same vars systemd injects.
+#
+# The file is a systemd EnvironmentFile (plain KEY=value; values are NOT
+# shell-quoted), so it must NOT be `source`d: a value containing shell
+# metacharacters (e.g. a secret with ')') makes bash abort with a syntax
+# error. Read it line by line and export each assignment verbatim instead, so
+# the value is never interpreted by the shell — matching systemd's semantics.
 if [[ -f "$ENV_FILE" ]]; then
-    set -a
-    source "$ENV_FILE"
-    set +a
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue  # skip comments/blanks
+        [[ "$line" == *=* ]] || continue                 # skip non-assignments
+        export "$line"
+    done < "$ENV_FILE"
 fi
 
 cd "$APP_DIR"

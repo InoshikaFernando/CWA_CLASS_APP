@@ -101,31 +101,52 @@ def _school_for_student(request, student):
     return enrolment.classroom.school if enrolment else None
 
 
-def _build_student_progress(student):
-    """Build a student's progress grouped by (subject, level) plus overall counts.
+def _order_records_hierarchically(recs):
+    """Return ``recs`` ordered parent-then-children, tagging each ProgressRecord
+    with a transient ``is_child`` flag for template indentation. Children whose
+    parent isn't in this group fall back to top-level."""
+    def sort_key(r):
+        return (r.criteria.order, r.criteria.name)
 
-    Returns ``(grouped_progress, overall)`` where ``grouped_progress`` is a
-    sorted list of group dicts and ``overall`` is a summary-counts dict. Shared
-    by the on-screen progress view and the generated report.
+    children = {}
+    for r in recs:
+        if r.criteria.parent_id is not None:
+            children.setdefault(r.criteria.parent_id, []).append(r)
+    parents = sorted(
+        (r for r in recs if r.criteria.parent_id is None), key=sort_key,
+    )
+
+    ordered, seen = [], set()
+    for p in parents:
+        p.is_child = False
+        ordered.append(p)
+        seen.add(p.criteria_id)
+        for c in sorted(children.get(p.criteria_id, []), key=sort_key):
+            c.is_child = True
+            ordered.append(c)
+            seen.add(c.criteria_id)
+    # Orphan sub-criteria (parent not recorded in this group) — show top-level.
+    for r in recs:
+        if r.criteria_id not in seen:
+            r.is_child = False
+            ordered.append(r)
+    return ordered
+
+
+# Sentinel for _latest_progress_records: "across all classes" (vs a specific
+# ClassRoom, or None = legacy class-less records).
+_ALL_CLASSES = object()
+
+
+def _group_records(records):
+    """Group latest ProgressRecords by (subject, level) → (grouped_progress, overall).
+
+    ``achieved`` counts the proficient bucket (Confident + Advanced); ``in_progress``
+    the developing bucket (Beginning + Developing). See §12.7.
     """
-    latest_ids_qs = (
-        ProgressRecord.objects
-        .filter(student=student)
-        .values('criteria_id')
-        .annotate(latest_id=Max('id'))
-    )
-    latest_ids = [r['latest_id'] for r in latest_ids_qs]
-
-    records = (
-        ProgressRecord.objects
-        .filter(id__in=latest_ids)
-        .select_related('criteria__subject', 'criteria__level', 'recorded_by')
-        .order_by(
-            'criteria__subject__name',
-            'criteria__level__level_number',
-            'criteria__order',
-        )
-    )
+    _PROFICIENT = ProgressRecord.PROFICIENT_STATUSES
+    _DEVELOPING = ProgressRecord.DEVELOPING_STATUSES
+    records = list(records)
 
     grouped = {}
     for record in records:
@@ -138,15 +159,11 @@ def _build_student_progress(student):
             }
         grouped[key]['records'].append(record)
 
-    # 'achieved' = proficient bucket (Confident + Advanced); 'in_progress' =
-    # developing bucket (Beginning + Developing). See §12.7.
-    _PROFICIENT = ProgressRecord.PROFICIENT_STATUSES
-    _DEVELOPING = ProgressRecord.DEVELOPING_STATUSES
-
     for group_data in grouped.values():
         recs = group_data['records']
         group_data['total'] = len(recs)
         group_data['achieved'] = sum(1 for r in recs if r.status in _PROFICIENT)
+        group_data['records'] = _order_records_hierarchically(recs)
 
     grouped_progress = sorted(
         grouped.values(),
@@ -156,14 +173,65 @@ def _build_student_progress(student):
             g['level'].level_number if g['level'] else -1,
         ),
     )
-
     overall = {
-        'total': len(latest_ids),
+        'total': len(records),
         'achieved': sum(1 for r in records if r.status in _PROFICIENT),
         'in_progress': sum(1 for r in records if r.status in _DEVELOPING),
         'not_started': sum(1 for r in records if r.status == 'not_started'),
     }
     return grouped_progress, overall
+
+
+def _latest_progress_records(student, classroom=_ALL_CLASSES):
+    """Latest ProgressRecord per criterion for ``student``.
+
+    ``classroom``: a ClassRoom → that class only; ``None`` → legacy class-less
+    records (classroom IS NULL); ``_ALL_CLASSES`` (default) → across all classes.
+    """
+    qs = ProgressRecord.objects.filter(student=student)
+    if classroom is None:
+        qs = qs.filter(classroom__isnull=True)
+    elif classroom is not _ALL_CLASSES:
+        qs = qs.filter(classroom=classroom)
+    latest_ids = list(
+        qs.values('criteria_id').annotate(latest=Max('id')).values_list('latest', flat=True)
+    )
+    return (
+        ProgressRecord.objects
+        .filter(id__in=latest_ids)
+        .select_related('criteria__subject', 'criteria__level', 'recorded_by')
+        .order_by('criteria__subject__name', 'criteria__level__level_number', 'criteria__order')
+    )
+
+
+def _build_student_progress(student, classroom=_ALL_CLASSES):
+    """(grouped_progress, overall) — all classes (default), one class, or legacy
+    class-less records (classroom=None). Progress is tracked per class (§12.10)."""
+    return _group_records(_latest_progress_records(student, classroom))
+
+
+def _build_student_progress_by_class(student):
+    """Per-class progress sections for the student's own page + parent view —
+    one section per class the student is in, plus a 'General' section for any
+    legacy class-less records. Each section: {classroom, grouped_progress, overall}."""
+    class_ids = list(
+        ClassStudent.objects.filter(student=student, is_active=True)
+        .values_list('classroom_id', flat=True)
+    )
+    classes = (
+        ClassRoom.objects.filter(id__in=class_ids)
+        .select_related('subject').order_by('name')
+    )
+    sections = []
+    for cls in classes:
+        gp, ov = _build_student_progress(student, cls)
+        if ov['total']:
+            sections.append({'classroom': cls, 'grouped_progress': gp, 'overall': ov})
+    # Legacy class-less records (from before per-class tracking) → 'General'.
+    gp, ov = _build_student_progress(student, classroom=None)
+    if ov['total']:
+        sections.append({'classroom': None, 'grouped_progress': gp, 'overall': ov})
+    return sections
 
 
 def _build_hierarchical_criteria(criteria_qs):
@@ -725,10 +793,16 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
         # Build a lookup of *latest* records: {(student_id, criteria_id): status}
         # Since there can be multiple records per (student, criteria) across sessions,
-        # pick the one with the highest id (most recent).
+        # pick the one with the highest id (most recent). Include THIS class's records
+        # plus legacy class-less records (classroom IS NULL) recorded before per-class
+        # tracking (§12.10) — so old progress still shows here — but never ANOTHER
+        # class's records, so a student in two classes doesn't see one class's statuses
+        # bleed onto the other's page. Once saved, a class-specific record (higher id)
+        # supersedes the legacy one.
         latest_ids_qs = (
             ProgressRecord.objects
             .filter(student__in=students, criteria__in=criteria_qs)
+            .filter(Q(classroom=classroom) | Q(classroom__isnull=True))
             .values('student_id', 'criteria_id')
             .annotate(latest_id=Max('id'))
         )
@@ -738,6 +812,42 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
         record_map = {}
         for rec in existing_records:
             record_map[(rec.student_id, rec.criteria_id)] = rec
+
+        # Prefill each student's general comment for THIS class (latest one), so
+        # teachers can add/update a comment right here while recording progress.
+        # Class-specific comments (§12.10) always win. A legacy class-less comment
+        # (classroom IS NULL, pre-per-class) is shown as a fallback ONLY for a
+        # student who has a single class of this subject — for them it can't bleed.
+        # A student in two+ same-subject classes (e.g. taught by different teachers
+        # on different days) is EXCLUDED from the fallback, because a class-less
+        # comment would otherwise appear on every one of their classes; they must
+        # have the comment reassigned to a class to see it.
+        student_ids = [s.id for s in students]
+        multi_class_student_ids = {
+            row['student_id']
+            for row in ClassStudent.objects.filter(
+                student_id__in=student_ids, is_active=True,
+                classroom__subject=classroom.subject,
+            ).values('student_id').annotate(
+                n=Count('classroom_id', distinct=True),
+            ).filter(n__gt=1)
+        }
+
+        comment_map = {}
+        # Class-specific comments first — authoritative.
+        for c in ProgressReportComment.objects.filter(
+            student_id__in=student_ids, school=classroom.school,
+            subject=classroom.subject, classroom=classroom, term__isnull=True,
+        ).order_by('student_id', '-created_at', '-id'):
+            comment_map.setdefault(c.student_id, c.body)
+        # Legacy class-less fallback — only for single-class students (no bleed risk).
+        for c in ProgressReportComment.objects.filter(
+            student_id__in=student_ids, school=classroom.school,
+            subject=classroom.subject, classroom__isnull=True, term__isnull=True,
+        ).order_by('student_id', '-created_at', '-id'):
+            if c.student_id in multi_class_student_ids:
+                continue
+            comment_map.setdefault(c.student_id, c.body)
 
         # Build per-student rows for the template
         student_rows = []
@@ -754,6 +864,7 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
             student_rows.append({
                 'student': student,
                 'criteria_statuses': row_criteria,
+                'comment': comment_map.get(student.id, ''),
             })
 
         return render(request, 'progress/record_progress.html', {
@@ -799,6 +910,7 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 record, created = ProgressRecord.objects.get_or_create(
                     student=student,
                     criteria=crit,
+                    classroom=classroom,
                     session=None,
                     defaults={
                         'status': new_status,
@@ -813,14 +925,44 @@ class RecordProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
                 updated += 1
 
+        # Save per-student comments (general comment scoped to the class subject).
+        # Update the latest existing one if the text changed, else create; blank is
+        # left untouched so clearing a box never deletes history.
+        comments_saved = 0
+        for student in students:
+            body = request.POST.get(f'comment_{student.id}', '').strip()
+            if not body:
+                continue
+            existing = (
+                ProgressReportComment.objects
+                .filter(student=student, school=classroom.school,
+                        subject=classroom.subject, classroom=classroom, term__isnull=True)
+                .order_by('-created_at').first()
+            )
+            if existing is None:
+                ProgressReportComment.objects.create(
+                    student=student, school=classroom.school,
+                    subject=classroom.subject, classroom=classroom,
+                    body=body, created_by=request.user,
+                )
+                comments_saved += 1
+            elif existing.body != body:
+                existing.body = body
+                existing.updated_by = request.user
+                existing.save(update_fields=['body', 'updated_by', 'updated_at'])
+                comments_saved += 1
+
         log_event(
             user=request.user, school=classroom.school, category='data_change',
             action='student_progress_recorded',
             detail={'classroom_id': classroom.id, 'classroom_name': classroom.name,
-                    'records_updated': updated},
+                    'records_updated': updated, 'comments_saved': comments_saved},
             request=request,
         )
-        messages.success(request, f'Progress updated for {updated} record(s).')
+        msg = f'Progress updated for {updated} record(s).'
+        if comments_saved:
+            msg += f' {comments_saved} comment(s) saved.'
+        messages.success(request, msg)
         return redirect('record_progress', class_id=class_id)
 
 
@@ -845,7 +987,10 @@ class StudentProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
         from accounts.models import CustomUser
         student = get_object_or_404(CustomUser, pk=student_id)
 
-        grouped_progress, overall = _build_student_progress(student)
+        # Progress is tracked per class (§12.10): show a section per class, plus
+        # an aggregate 'overall' across classes for the summary cards.
+        progress_sections = _build_student_progress_by_class(student)
+        _, overall = _build_student_progress(student)
 
         # ── Teacher comments + report controls ──────────────────────────
         school = _school_for_student(request, student)
@@ -882,7 +1027,7 @@ class StudentProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
         return render(request, 'progress/student_progress.html', {
             'student': student,
-            'grouped_progress': grouped_progress,
+            'progress_sections': progress_sections,
             'overall': overall,
             'school': school,
             'can_comment': can_comment,
@@ -937,19 +1082,44 @@ class StudentProgressReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
     def get(self, request):
         accessible_classes = self._get_accessible_classes(request.user)
 
-        # Build filter options
-        dept_ids = accessible_classes.values_list('department_id', flat=True).distinct()
-        departments = Department.objects.filter(id__in=dept_ids, is_active=True).order_by('name')
-
-        subject_ids = accessible_classes.exclude(subject__isnull=True).values_list('subject_id', flat=True).distinct()
-        subjects = Subject.objects.filter(id__in=subject_ids, is_active=True).order_by('name')
-
-        classes = accessible_classes.select_related('department', 'subject').order_by('name')
-
-        # Apply filters
+        # Read filters first so the option lists can reflect the selection.
         filter_dept = request.GET.get('department')
         filter_subject = request.GET.get('subject')
         filter_class = request.GET.get('classroom')
+
+        dept_ids = accessible_classes.values_list('department_id', flat=True).distinct()
+        departments = Department.objects.filter(id__in=dept_ids, is_active=True).order_by('name')
+
+        # Subjects come from the union of (a) the subjects actually taught in the
+        # relevant classes and (b) the DepartmentSubject mappings — so a subject
+        # shows once it's mapped to a department, even before any class carries it.
+        # Scoped to the chosen department, or to all accessible departments otherwise.
+        scope_dept_ids = [filter_dept] if filter_dept else list(dept_ids)
+        class_subject_ids = (
+            accessible_classes.filter(department_id__in=scope_dept_ids)
+            .exclude(subject__isnull=True)
+            .values_list('subject_id', flat=True)
+        )
+        mapped_subject_ids = DepartmentSubject.objects.filter(
+            department_id__in=scope_dept_ids,
+        ).values_list('subject_id', flat=True)
+        subject_id_set = set(class_subject_ids) | set(mapped_subject_ids)
+        subjects = Subject.objects.filter(
+            id__in=subject_id_set, is_active=True,
+        ).order_by('name')
+
+        # Ignore a stale subject filter that doesn't belong to the chosen department
+        # (so it never silently zeroes out the results).
+        if filter_subject and (not filter_subject.isdigit()
+                               or int(filter_subject) not in subject_id_set):
+            filter_subject = None
+
+        # Class dropdown: scope to the chosen department only — deliberately NOT by
+        # subject, so picking a subject never makes the selected class vanish/reset.
+        class_options = accessible_classes
+        if filter_dept:
+            class_options = class_options.filter(department_id=filter_dept)
+        classes = class_options.select_related('department', 'subject').order_by('name')
 
         filtered_classes = accessible_classes
         if filter_dept:
@@ -1129,26 +1299,46 @@ def _report_parents(student, school):
     )
 
 
+def _summary_selection_kwargs(params):
+    """Translate the builder's section checkboxes (POST or GET) into
+    build_summary() kwargs. Homework/Worksheets each carry a mode and, for
+    'selected', the list of item ids picked for the class (see §12.8)."""
+    def ids(name):
+        return [int(i) for i in params.getlist(name) if str(i).isdigit()]
+    return dict(
+        homework=bool(params.get('include_homework')),
+        homework_mode=params.get('homework_mode') or 'summary',
+        homework_ids=ids('homework_ids'),
+        worksheets=bool(params.get('include_worksheets')),
+        worksheet_mode=params.get('worksheet_mode') or 'summary',
+        worksheet_ids=ids('worksheet_ids'),
+        maths=bool(params.get('include_maths')),
+        maths_times_tables=bool(params.get('include_maths_times_tables')),
+        maths_topics=bool(params.get('include_maths_topics')),
+        maths_basic_facts=bool(params.get('include_maths_basic_facts')),
+        coding=bool(params.get('include_coding')),
+        coding_mode=params.get('coding_mode') or 'summary',
+        coding_language_ids=ids('coding_language_ids'),
+    )
+
+
 def _apply_report_selection(report, request, classroom=None):
     """Persist the staff section selection + snapshot the cross-app summary.
 
     Reads the "include this section" checkboxes (see §12.8). The rubric defaults
-    to on; Homework/Maths/Coding are opt-in. The Homework/Maths/Coding numbers are
-    snapshotted onto the report so the report and the dashboard card stay
-    consistent even as the underlying data changes.
+    to on; the other sections are opt-in. The cross-app numbers are snapshotted
+    onto the report so the report and the dashboard card stay consistent even as
+    the underlying data changes. The snapshot is the single source of truth the
+    templates render (a section appears iff its key is present).
     """
+    sel = _summary_selection_kwargs(request.POST)
     report.include_rubric = bool(request.POST.get('include_rubric'))
-    report.include_homework = bool(request.POST.get('include_homework'))
-    report.include_maths = bool(request.POST.get('include_maths'))
-    report.include_coding = bool(request.POST.get('include_coding'))
+    report.include_homework = sel['homework']
+    report.include_maths = sel['maths']
+    report.include_coding = sel['coding']
     if classroom is not None:
         report.classroom = classroom
-    report.summary_snapshot = build_summary(
-        report.student, report.classroom,
-        homework=report.include_homework,
-        maths=report.include_maths,
-        coding=report.include_coding,
-    )
+    report.summary_snapshot = build_summary(report.student, report.classroom, **sel)
     report.save()
 
 
@@ -1198,10 +1388,16 @@ class ProgressReportGenerateView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
 
 def _report_sections(report):
-    """Compact list of the sections a report includes — for logging/UI."""
+    """Compact list of the sections a report includes — for logging/UI.
+
+    Reads the snapshot (the source of truth) so it covers worksheets and any
+    section without a dedicated model flag.
+    """
+    snap = report.summary_snapshot or {}
     flags = [
-        ('rubric', report.include_rubric), ('homework', report.include_homework),
-        ('maths', report.include_maths), ('coding', report.include_coding),
+        ('rubric', report.include_rubric),
+        ('homework', 'homework' in snap), ('worksheets', 'worksheets' in snap),
+        ('maths', 'maths' in snap), ('coding', 'coding' in snap),
     ]
     return [name for name, on in flags if on]
 
@@ -1221,12 +1417,27 @@ class ProgressReportClassBuilderView(RoleRequiredMixin, ModuleRequiredMixin, Vie
         )
 
     def get(self, request, class_id):
+        from homework.models import Homework
+        from worksheets.models import WorksheetAssignment
+        from coding.models import CodingLanguage
         classroom = get_object_or_404(ClassRoom, pk=class_id)
         terms = Term.objects.filter(school=classroom.school).order_by('-start_date')
+        coding_languages = CodingLanguage.objects.order_by('order', 'name').values('id', 'name')
+        homeworks = Homework.objects.filter(
+            classroom=classroom, published_at__isnull=False,
+        ).order_by('-due_date').values('id', 'title')
+        worksheets = WorksheetAssignment.objects.filter(
+            classroom=classroom, is_active=True,
+        ).select_related('worksheet').order_by('-assigned_at')
         return render(request, 'progress/report_class_builder.html', {
             'classroom': classroom,
             'students': self._students(classroom),
             'terms': terms,
+            'homeworks': homeworks,
+            'worksheets': [
+                {'id': a.id, 'title': a.worksheet.name} for a in worksheets
+            ],
+            'coding_languages': coding_languages,
         })
 
     def post(self, request, class_id):
@@ -1266,6 +1477,36 @@ class ProgressReportClassBuilderView(RoleRequiredMixin, ModuleRequiredMixin, Vie
         return redirect('student_progress_report')
 
 
+class ProgressReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    """Live, unsaved preview of one student's report for the builder's current
+    section selection (passed as GET params). Nothing is persisted — staff use it
+    to check each student before generating drafts (§12.8)."""
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, student_id):
+        from accounts.models import CustomUser
+        student = get_object_or_404(CustomUser, pk=student_id)
+        school = _school_for_student(request, student)
+
+        class_id = request.GET.get('classroom') or None
+        classroom = ClassRoom.objects.filter(pk=class_id).first() if class_id else None
+
+        sel = _summary_selection_kwargs(request.GET)
+        report = ProgressReport(
+            student=student, school=school, classroom=classroom,
+            include_rubric=bool(request.GET.get('include_rubric')),
+            include_homework=sel['homework'], include_maths=sel['maths'],
+            include_coding=sel['coding'],
+            summary_snapshot=build_summary(student, classroom, **sel),
+        )
+        grouped_progress, overall = _build_student_progress(student, classroom or _ALL_CLASSES)
+        return render(request, 'progress/report_preview.html', {
+            'report': report, 'student': student, 'school': school,
+            'grouped_progress': grouped_progress, 'overall': overall,
+        })
+
+
 class ProgressReportDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Printable progress report with a 'Send to parents' button."""
     required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
@@ -1276,7 +1517,9 @@ class ProgressReportDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):
             ProgressReport.objects.select_related('student', 'school', 'term', 'sent_by'),
             pk=report_id,
         )
-        grouped_progress, overall = _build_student_progress(report.student)
+        grouped_progress, overall = _build_student_progress(
+            report.student, report.classroom or _ALL_CLASSES,
+        )
 
         comments = ProgressReportComment.objects.filter(
             student=report.student, school=report.school,
@@ -1311,7 +1554,9 @@ class ProgressReportSendView(RoleRequiredMixin, ModuleRequiredMixin, View):
         student = report.student
         school = report.school
 
-        grouped_progress, overall = _build_student_progress(student)
+        grouped_progress, overall = _build_student_progress(
+            student, report.classroom or _ALL_CLASSES,
+        )
         comments = ProgressReportComment.objects.filter(
             student=student, school=school,
         ).select_related('term', 'subject', 'created_by')

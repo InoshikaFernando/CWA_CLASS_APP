@@ -98,6 +98,13 @@
       <span>Invoices</span>
     </a>
 
+    <a href="{% url 'zero_balances' %}"
+       class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+              {% if 'zero-balances' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+      <span class="flex items-center justify-center w-4 h-4 rounded-full bg-white/15 text-[9px] font-bold flex-shrink-0">7</span>
+      <span>Zero Balances</span>
+    </a>
+
   </div>
 
   <!-- ── SALARIES ── -->

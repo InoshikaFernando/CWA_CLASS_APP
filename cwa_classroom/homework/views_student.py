@@ -415,9 +415,9 @@ class SubmitHomeworkAnswerView(LoginRequiredMixin, View):
                 correct_answer_text = correct_ans.answer_text
         else:
             raw = (data.get('text_answer') or '').strip()
-            correct_ans = question.answers.filter(is_correct=True).first()
-            if correct_ans:
-                correct_answer_text = correct_ans.answer_text
+            # Every correct row, not just the first — a list answer ("54, 63")
+            # must not be shown to the student as only its first value (CPP-376).
+            correct_answer_text = question.correct_answer_display()
             # grade_text_answer routes algebra vs text and checks the typed value
             # against EVERY ticked correct answer (so "60 months" and "60" both
             # match) — same folding used everywhere else.

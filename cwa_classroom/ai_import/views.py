@@ -159,10 +159,27 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
         else:
             remaining, limit, used = _get_remaining_pages(school) if school else (0, 0, 0)
 
+        # Which pages to extract ("2-7, 9"; blank = all). Validated before the
+        # quota check so a bad range is an immediate form error, and so an upload
+        # that skips a cover sheet or a marking scheme is only charged for the
+        # pages it actually reads.
+        from worksheets.page_selection import (
+            PageSelectionError, clean_upload_selection,
+        )
         try:
-            # Step 1: Cheap page count for the quota check (no rendering).
+            page_selection, selected_pages, _total = clean_upload_selection(
+                request.POST.get('page_selection'), pdf_file,
+            )
+        except PageSelectionError as exc:
+            messages.error(request, str(exc))
+            return redirect('ai_import:upload')
+
+        try:
+            # Step 1: Cheap page count for the quota check (no rendering). Only
+            # the selected pages are extracted, so only those are charged.
             from .services import get_pdf_page_count
-            page_count = get_pdf_page_count(pdf_file)
+            page_count = (len(selected_pages) if selected_pages is not None
+                          else get_pdf_page_count(pdf_file))
 
             if page_count > remaining:
                 if remaining == 0:
@@ -172,10 +189,12 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                         f'Please upgrade your plan or wait until next month.',
                     )
                 else:
+                    what = ('Your page selection covers' if page_selection
+                            else 'This PDF has')
                     messages.error(
                         request,
-                        f'This PDF has {page_count} pages but you only have {remaining} pages remaining this month. '
-                        f'Please upgrade your plan or upload a smaller file.',
+                        f'{what} {page_count} pages but you only have {remaining} pages remaining this month. '
+                        f'Please upgrade your plan, select fewer pages, or upload a smaller file.',
                     )
                 return redirect('ai_import:upload')
 
@@ -190,6 +209,7 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                 school=school,
                 pdf_filename=pdf_file.name,
                 pdf_file=pdf_file,
+                page_selection=page_selection,
                 page_count=page_count,
                 extracted_data=pre_data,
                 status=AIImportSession.STATUS_PROCESSING,
@@ -317,6 +337,13 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)
             if q.get('graph_spec'):
                 q['graph_spec_json'] = json.dumps(q['graph_spec'], indent=2)
+            if q.get('number_line_spec'):
+                q['number_line_spec_json'] = json.dumps(q['number_line_spec'], indent=2)
+            # For the "Adjust image" crop modal: which page + the current crop box.
+            q['image_page'] = q.get('image_page') or q.get('page') or 1
+            q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
+
+        from worksheets.page_selection import describe_page_selection
 
         return render(request, 'ai_import/preview.html', {
             'session': session,
@@ -324,6 +351,8 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
             'questions': questions,
             'topics': topics,
             'levels': levels,
+            # Pages the teacher chose not to extract — stated, not silently absent.
+            'page_selection': describe_page_selection(data),
             'image_list': image_list,
             'image_refs_json': json.dumps([img['ref'] for img in image_list]),
             'question_types': [
@@ -339,6 +368,8 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
                 ('identify_coords', 'Identify Coordinates (type the point)'),
                 ('read_graph', 'Read a Graph (read off a value)'),
+                ('measure', 'Measure (angle/scale, tolerance-graded)'),
+                ('number_line', 'Number Line (mark or read a value)'),
             ],
         })
 
@@ -434,6 +465,27 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                     except (ValueError, TypeError):
                         pass
 
+            # Measure fields: numeric answer (+ tolerance/unit).
+            if q['question_type'] == 'measure':
+                for fld in ('numeric_answer', 'answer_tolerance'):
+                    raw = request.POST.get(f'{prefix}{fld}', '').strip()
+                    if raw:
+                        q[fld] = raw
+                unit = request.POST.get(f'{prefix}answer_unit', '').strip()
+                if unit:
+                    q['answer_unit'] = unit
+
+            # Number-line spec — edited as raw JSON in the preview; a parse
+            # failure leaves the prior spec untouched so the import-time validator
+            # surfaces the issue.
+            if q['question_type'] == 'number_line':
+                raw = request.POST.get(f'{prefix}number_line_spec', '').strip()
+                if raw:
+                    try:
+                        q['number_line_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
             # Dynamic answers — collect all answer fields
             answers = []
             for a_idx in range(20):  # support up to 20 answers
@@ -453,13 +505,40 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
         return redirect('ai_import:confirm', session_id=session.pk)
 
 
+_IMPORT_ROLES = [
+    Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+    Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
+    Role.TEACHER, Role.JUNIOR_TEACHER,
+]
+
+
+class PageImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+    """AJAX: full source-page PNG for the 'Adjust image' crop modal."""
+    required_roles = _IMPORT_ROLES
+
+    def get(self, request, session_id):
+        from worksheets.image_adjust import page_image_response
+        session = get_object_or_404(
+            AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return page_image_response(session, request)
+
+
+class RecropView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+    """AJAX: re-render a question image from a teacher-drawn box on the PDF."""
+    required_roles = _IMPORT_ROLES
+
+    def post(self, request, session_id):
+        from worksheets.image_adjust import recrop_response
+        session = get_object_or_404(
+            AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return recrop_response(session, request)
+
+
 class UploadImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
     """AJAX endpoint: upload an image to the session's image gallery."""
-    required_roles = [
-        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
-        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
-        Role.TEACHER, Role.JUNIOR_TEACHER,
-    ]
+    required_roles = _IMPORT_ROLES
 
     def post(self, request, session_id):
         import base64

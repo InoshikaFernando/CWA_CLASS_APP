@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Recently Added Students — {{ school.name }}{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <a href="{% url 'admin_school_students' school.id %}"
+       class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back to Manage Students</a>
+    <div class="flex items-center justify-between mt-2">
+      <div>
+        <h1 class="text-2xl font-display font-bold text-gray-900">Recently Added Students</h1>
+        <p class="text-gray-500 mt-1">
+          {{ school.name }} &middot; newest first, with the exact date &amp; time each was added
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Time-window filter -->
+  <div class="flex flex-wrap items-center gap-2 mb-5">
+    <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide mr-1">Added within</span>
+    {% for key, label, days in window_choices %}
+      <a href="?window={{ key }}"
+         class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg transition
+                {% if window == key %}bg-accent text-white shadow-sm{% else %}text-gray-600 bg-white border border-slate-200 hover:bg-slate-50{% endif %}">
+        {{ label }}
+      </a>
+    {% endfor %}
+    <span class="ml-auto text-sm text-gray-500">{{ total_count }} student{{ total_count|pluralize }}</span>
+  </div>
+
+  <!-- Student list -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="divide-y divide-slate-100">
+      {% for ss in school_students %}
+        <div class="flex items-center justify-between gap-4 px-6 py-4 {% if not ss.is_active %}bg-slate-50/70{% endif %}">
+          <div class="flex items-center gap-3 min-w-0 flex-1">
+            <span class="inline-flex items-center justify-center w-10 h-10 rounded-full text-sm font-bold flex-shrink-0
+                         {% if ss.is_active %}bg-emerald-100 text-emerald-700{% else %}bg-slate-200 text-slate-500{% endif %}">
+              {{ ss.student.first_name|slice:":1"|upper }}{{ ss.student.last_name|slice:":1"|upper }}
+            </span>
+            <div class="min-w-0">
+              <p class="font-medium text-gray-900 truncate">
+                {{ ss.student.get_full_name|default:ss.student.username }}
+                {% if not ss.is_active %}
+                <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1 bg-red-100 text-red-600">Removed</span>
+                {% endif %}
+              </p>
+              <p class="text-xs text-gray-400 truncate">
+                <span class="font-mono text-gray-500">{{ ss.student_id_code|default:"—" }}</span>
+                &middot; <span class="font-mono">@{{ ss.student.username }}</span>
+                {% if ss.student.email %}&middot; {{ ss.student.email }}{% endif %}
+              </p>
+            </div>
+          </div>
+
+          <!-- Added date & time -->
+          <div class="text-right flex-shrink-0 hidden sm:block">
+            <p class="text-sm font-medium text-gray-700">{{ ss.joined_at|date:"d M Y" }}</p>
+            <p class="text-xs text-gray-400">{{ ss.joined_at|date:"H:i" }}</p>
+          </div>
+
+          <!-- Deactivate / restore -->
+          <div class="flex-shrink-0">
+            {% if ss.is_active %}
+            <form method="post" action="{% url 'admin_school_student_remove' school.id ss.student.id %}"
+                  onsubmit="return confirm('Remove {{ ss.student.get_full_name|default:ss.student.username|escapejs }} from {{ school.name|escapejs }}? Their account and history are kept and can be restored.');">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="admin_school_students_recent">
+              <button type="submit"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition border border-red-200">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/>
+                </svg>
+                Deactivate
+              </button>
+            </form>
+            {% else %}
+            <form method="post" action="{% url 'admin_school_student_restore' school.id ss.student.id %}">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="admin_school_students_recent">
+              <button type="submit"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50 rounded-lg transition border border-green-200">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"/>
+                </svg>
+                Restore
+              </button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
+      {% empty %}
+        <div class="px-6 py-12 text-center text-gray-400">
+          No students were added in this period.
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% include "partials/pagination.html" with page=page %}
+</div>
+{% endblock %}

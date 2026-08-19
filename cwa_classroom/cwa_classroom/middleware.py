@@ -15,10 +15,16 @@ natively, so no /etc/hosts editing is needed:
 In production, add ALLOWED_HOSTS entries and set BASE_DOMAIN in the environment.
 """
 
+import logging
+import time
+
 from django.conf import settings
 from django.contrib.auth import logout
+from django.db import connection
 from django.shortcuts import redirect
 from django.utils import timezone
+
+_slow_query_log = logging.getLogger('slow_queries')
 
 # Map subdomain slug → URL conf module path.
 # Add entries here as new subject apps are created.
@@ -141,18 +147,35 @@ class TrialExpiryMiddleware:
             # No subscription at all → treat as expired
             if not sub:
                 if not self._is_allowed_path(request.path):
+                    self._log_block(request, 'individual_no_subscription', 'none')
                     return redirect('trial_expired')
                 return self.get_response(request)
 
             if self._is_trial_expired(sub):
-                if sub.status != sub.STATUS_EXPIRED:
+                # Only auto-expire a genuinely-expired TRIAL. Preserve real
+                # Stripe statuses (past_due / cancelled) so the payment wall
+                # shows the correct "Payment Failed → Update card" message and
+                # our status doesn't drift from Stripe.
+                if sub.status == sub.STATUS_TRIALING:
                     sub.status = sub.STATUS_EXPIRED
                     sub.save(update_fields=['status'])
 
                 if not self._is_allowed_path(request.path):
+                    self._log_block(request, 'individual_subscription_expired', sub.status)
                     return redirect('trial_expired')
 
             return self.get_response(request)
+
+        # Personal subscription enforcement for non-individual roles.
+        # School students and parents who self-pay hold their OWN recurring
+        # Subscription; a failed/lost card leaves it past_due. Without this check
+        # the delinquent personal sub was ignored — only the school sub was
+        # inspected below — so a self-paying student kept full access by riding
+        # their school's active plan. A 100%-discount sub stays active (not
+        # delinquent) and is never blocked here.
+        personal_redirect = self._check_personal_subscription(request)
+        if personal_redirect:
+            return personal_redirect
 
         # Institute subscription expiry
         if self._is_institute_user(request.user):
@@ -180,7 +203,10 @@ class TrialExpiryMiddleware:
             return None
 
         if self._is_school_sub_expired(sub):
-            if sub.status != SchoolSubscription.STATUS_EXPIRED:
+            # Only auto-expire a genuinely-expired TRIAL; preserve real Stripe
+            # statuses (past_due / cancelled / suspended) so the wall message and
+            # our records stay truthful.
+            if sub.status == SchoolSubscription.STATUS_TRIALING:
                 sub.status = SchoolSubscription.STATUS_EXPIRED
                 sub.save(update_fields=['status'])
 
@@ -189,9 +215,58 @@ class TrialExpiryMiddleware:
                 return None
 
             if not self._is_allowed_path(request.path):
+                self._log_block(request, 'school_subscription_expired', sub.status)
                 return redirect('institute_trial_expired')
 
         return None
+
+    def _check_personal_subscription(self, request):
+        """Block a self-paying user whose OWN recurring subscription is delinquent.
+
+        Targets school students / parents who self-pay via a personal
+        ``billing.Subscription`` (e.g. the per-student monthly plan). Individual
+        students are handled by their dedicated branch above and never reach here.
+
+        Scope is limited to the self-paying roles (STUDENT, PARENT) on purpose:
+        staff (teachers/HoD/HoI/accountant) and superusers must NOT be locked out
+        of running their school by a stale personal sub they may hold.
+
+        Rules:
+          - Not a self-paying role, or no personal subscription → None (they ride
+            the school plan; the school-subscription check below still applies).
+          - active / trialing (incl. an active 100%-discount free sub) → allowed.
+          - past_due / expired / cancelled → redirect to the payment wall, unless
+            already on an allowed billing path.
+        """
+        from accounts.models import Role
+        from billing.models import Subscription
+
+        user = request.user
+        if not (user.has_role(Role.STUDENT) or user.has_role(Role.PARENT)):
+            return None
+        try:
+            sub = user.subscription
+        except Subscription.DoesNotExist:
+            return None
+        if sub.is_active_or_trialing:
+            return None
+        if not self._is_allowed_path(request.path):
+            self._log_block(request, 'personal_subscription_delinquent', sub.status)
+            return redirect('trial_expired')
+        return None
+
+    @staticmethod
+    def _log_block(request, reason, sub_status=''):
+        """Audit-log a subscription/trial block so every denial is provable
+        (who, when, which page, why). log_event swallows its own errors, so this
+        can never break the request."""
+        from audit.services import log_event
+        log_event(
+            user=request.user, category='entitlement',
+            action='subscription_blocked', result='blocked',
+            detail={'reason': reason, 'sub_status': sub_status, 'path': request.path},
+            request=request,
+        )
 
     @staticmethod
     def _is_institute_user(user):
@@ -330,3 +405,63 @@ class ProfileCompletionMiddleware:
             return redirect('complete_profile')
 
         return self.get_response(request)
+
+
+class SlowQueryLoggingMiddleware:
+    """Log slow DB queries and query-heavy requests to the 'slow_queries' logger.
+
+    Diagnostic instrumentation for DB pressure: without EXPLAIN access to the
+    managed DB, this is how we find WHICH queries are expensive rather than
+    guessing. Uses ``connection.execute_wrapper`` so it works with DEBUG off
+    (``connection.queries`` is empty in production) at ~one time() call per
+    query. Only the SQL *text* (placeholders, no bound params) is logged, so no
+    row values / PII leak into the logs.
+
+    Two signals, both threshold-gated so a healthy request logs nothing:
+      * any single query >= SLOW_QUERY_MS (default 500 ms)
+      * a request issuing >= QUERY_COUNT_WARN queries (default 50) — the classic
+        N+1 fingerprint.
+
+    Set SLOW_QUERY_MS <= 0 to disable entirely.
+    """
+
+    #: SQL is truncated to this many chars in the log line.
+    _SQL_MAX = 500
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.slow_ms = getattr(settings, 'SLOW_QUERY_MS', 500)
+        self.count_warn = getattr(settings, 'QUERY_COUNT_WARN', 50)
+        # Let Django drop this middleware from the chain when disabled, so there
+        # is zero per-query overhead rather than a wrapper that checks a flag.
+        if self.slow_ms <= 0:
+            from django.core.exceptions import MiddlewareNotUsed
+            raise MiddlewareNotUsed()
+
+    def __call__(self, request):
+        state = {'count': 0}
+        slow_ms = self.slow_ms
+
+        def wrapper(execute, sql, params, many, context):
+            start = time.monotonic()
+            try:
+                return execute(sql, params, many, context)
+            finally:
+                state['count'] += 1
+                elapsed_ms = (time.monotonic() - start) * 1000
+                if elapsed_ms >= slow_ms:
+                    _slow_query_log.warning(
+                        'slow query %.0fms on %s %s: %s',
+                        elapsed_ms, request.method, request.path,
+                        sql[:self._SQL_MAX],
+                    )
+
+        with connection.execute_wrapper(wrapper):
+            response = self.get_response(request)
+
+        if state['count'] >= self.count_warn:
+            _slow_query_log.warning(
+                'high query count: %d queries on %s %s',
+                state['count'], request.method, request.path,
+            )
+        return response

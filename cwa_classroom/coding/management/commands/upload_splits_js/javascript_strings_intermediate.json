@@ -1,0 +1,26 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "strings",
+  "level": "intermediate",
+  "exercises": [
+    {
+      "title": "String Replace",
+      "question_type": "write_code",
+      "instructions": "Given sentence = \"I love cats\", replace \"cats\" with \"dogs\" and print the result.",
+      "starter_code": "let sentence = \"I love cats\";\n\n// Replace and print\n",
+      "expected_output": "I love dogs",
+      "hints": "Use the .replace() method.",
+      "display_order": 1
+    },
+    {
+      "title": "String Split and Join",
+      "question_type": "write_code",
+      "instructions": "Given text = \"apple,banana,cherry\", split by comma, then print each fruit on a new line.",
+      "starter_code": "let text = \"apple,banana,cherry\";\n\n// Split and print each on a new line\n",
+      "expected_output": "apple\nbanana\ncherry",
+      "hints": "Use .split(\",\") then loop, or join with \"\\n\".",
+      "display_order": 2
+    }
+  ]
+}

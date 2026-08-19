@@ -541,80 +541,81 @@ class ParentProgressView(RoleRequiredMixin, View):
                 'children': _get_parent_children(request.user),
             })
 
-        # All approved criteria for this school
-        approved_criteria = (
-            ProgressCriteria.objects.filter(
+        # Progress is tracked per class (§12.10): one section per class the child
+        # is in, listing that class's applicable approved criteria (subject/level
+        # match + All-Subjects/All-Levels) with the child's latest record there.
+        from classroom.models import ClassRoom
+        _PROF = ProgressRecord.PROFICIENT_STATUSES
+        _DEV = ProgressRecord.DEVELOPING_STATUSES
+
+        child_classes = (
+            ClassRoom.objects.filter(
+                class_students__student=child, class_students__is_active=True,
                 school=school,
-                status='approved',
-            )
-            .select_related('subject', 'level')
-            .order_by('subject__name', 'level__level_number', 'order')
+            ).select_related('subject').prefetch_related('levels').order_by('name')
         )
 
-        # Latest progress record per criteria for this student at this school
-        latest_ids = (
-            ProgressRecord.objects.filter(
-                student=child,
-                criteria__school=school,
-                criteria__status='approved',
-            )
-            .values('criteria_id')
-            .annotate(latest_id=Max('id'))
-            .values_list('latest_id', flat=True)
-        )
-        records_by_criteria = {
-            rec.criteria_id: rec
-            for rec in ProgressRecord.objects.filter(id__in=latest_ids).select_related(
-                'criteria', 'recorded_by', 'session', 'session__classroom',
-            )
-        }
-
-        # Group criteria by (subject, level), merging in student records
-        grouped = {}
-        for criteria in approved_criteria:
-            key = (criteria.subject_id, criteria.level_id)
-            if key not in grouped:
-                grouped[key] = {
-                    'subject': criteria.subject,
-                    'level': criteria.level,
-                    'entries': [],
-                }
-            rec = records_by_criteria.get(criteria.id)
-            grouped[key]['entries'].append({
-                'criteria': criteria,
-                'status': rec.status if rec else 'not_assessed',
-                'notes': rec.notes if rec else '',
-                'recorded_at': rec.recorded_at if rec else None,
-                'recorded_by': rec.recorded_by if rec else None,
-                'classroom': rec.session.classroom if (rec and rec.session_id) else None,
-            })
-
-        # Sort and compute stats
-        grouped_progress = []
+        progress_sections = []
         overall = {'total': 0, 'achieved': 0, 'in_progress': 0, 'not_started': 0, 'not_assessed': 0}
-        for group in sorted(grouped.values(), key=lambda g: (
-            g['subject'].name if g['subject'] else '',
-            g['level'].level_number if g['level'] else 0,
-        )):
-            entries = group['entries']
-            total = len(entries)
-            # 'achieved' = proficient (Confident+Advanced); 'in_progress' =
-            # developing (Beginning+Developing). See §12.7.
-            achieved = sum(1 for e in entries if e['status'] in ProgressRecord.PROFICIENT_STATUSES)
-            in_progress = sum(1 for e in entries if e['status'] in ProgressRecord.DEVELOPING_STATUSES)
-            not_assessed = sum(1 for e in entries if e['status'] == 'not_assessed')
-            not_started = total - achieved - in_progress - not_assessed
-            group['total'] = total
-            group['achieved'] = achieved
-            group['in_progress'] = in_progress
-            group['not_started'] = not_started
-            group['not_assessed'] = not_assessed
-            grouped_progress.append(group)
-            overall['total'] += total
-            overall['achieved'] += achieved
-            overall['in_progress'] += in_progress
-            overall['not_started'] += not_started
-            overall['not_assessed'] += not_assessed
+
+        for cls in child_classes:
+            crit_qs = ProgressCriteria.objects.filter(school=school, status='approved')
+            if cls.subject_id:
+                crit_qs = crit_qs.filter(Q(subject_id=cls.subject_id) | Q(subject__isnull=True))
+            if cls.levels.exists():
+                crit_qs = crit_qs.filter(Q(level__in=cls.levels.all()) | Q(level__isnull=True))
+            crit_qs = crit_qs.select_related('subject', 'level').order_by(
+                'subject__name', 'level__level_number', 'order',
+            )
+
+            latest_ids = (
+                ProgressRecord.objects.filter(student=child, classroom=cls)
+                .values('criteria_id').annotate(l=Max('id')).values_list('l', flat=True)
+            )
+            recs = {
+                r.criteria_id: r for r in
+                ProgressRecord.objects.filter(id__in=list(latest_ids)).select_related('recorded_by')
+            }
+
+            grouped = {}
+            for criteria in crit_qs:
+                key = (criteria.subject_id, criteria.level_id)
+                if key not in grouped:
+                    grouped[key] = {'subject': criteria.subject, 'level': criteria.level, 'entries': []}
+                rec = recs.get(criteria.id)
+                grouped[key]['entries'].append({
+                    'criteria': criteria,
+                    'status': rec.status if rec else 'not_assessed',
+                    'notes': rec.notes if rec else '',
+                    'recorded_at': rec.recorded_at if rec else None,
+                    'recorded_by': rec.recorded_by if rec else None,
+                })
+
+            section_groups = []
+            sec_overall = {'total': 0, 'achieved': 0, 'in_progress': 0, 'not_started': 0, 'not_assessed': 0}
+            for group in sorted(grouped.values(), key=lambda g: (
+                g['subject'].name if g['subject'] else '',
+                g['level'].level_number if g['level'] else 0,
+            )):
+                entries = group['entries']
+                total = len(entries)
+                achieved = sum(1 for e in entries if e['status'] in _PROF)
+                in_progress = sum(1 for e in entries if e['status'] in _DEV)
+                not_assessed = sum(1 for e in entries if e['status'] == 'not_assessed')
+                not_started = total - achieved - in_progress - not_assessed
+                group.update(total=total, achieved=achieved, in_progress=in_progress,
+                             not_started=not_started, not_assessed=not_assessed)
+                section_groups.append(group)
+                for k, v in (('total', total), ('achieved', achieved),
+                             ('in_progress', in_progress), ('not_started', not_started),
+                             ('not_assessed', not_assessed)):
+                    sec_overall[k] += v
+                    overall[k] += v
+
+            if section_groups:
+                progress_sections.append({
+                    'classroom': cls, 'grouped_progress': section_groups, 'overall': sec_overall,
+                })
 
         from django.db.models import Count, Sum, Case, When, IntegerField
 
@@ -757,7 +758,7 @@ class ParentProgressView(RoleRequiredMixin, View):
         _log_parent_view(request, 'parent_viewed_progress', child, school)
 
         return render(request, 'parent/progress.html', {
-            'grouped_progress': grouped_progress,
+            'progress_sections': progress_sections,
             'overall': overall,
             'active_child': child,
             'active_school': school,

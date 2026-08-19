@@ -167,11 +167,11 @@
               <tr class="bg-slate-50 text-left text-gray-500 border-t border-slate-100">
                 <th class="px-4 py-3 font-semibold sticky left-0 bg-slate-50 z-10 min-w-[160px]">Student</th>
                 {% for h_item in hierarchical_criteria %}
-                  <th class="px-2 py-3 text-center min-w-[110px]">
+                  <th class="px-2 py-3 text-center align-bottom min-w-[110px] max-w-[170px]">
                     {% if h_item.is_child %}
-                      <span class="text-[11px] text-gray-400 font-medium">&#8627; {{ h_item.criteria.name|truncatechars:22 }}</span>
+                      <span class="block text-[11px] text-gray-400 font-medium whitespace-normal break-words leading-tight" title="{{ h_item.criteria.name }}">&#8627; {{ h_item.criteria.name }}</span>
                     {% else %}
-                      <span class="text-xs font-bold text-gray-600">{{ h_item.criteria.name|truncatechars:22 }}</span>
+                      <span class="block text-xs font-bold text-gray-600 whitespace-normal break-words leading-tight" title="{{ h_item.criteria.name }}">{{ h_item.criteria.name }}</span>
                     {% endif %}
                   </th>
                 {% endfor %}

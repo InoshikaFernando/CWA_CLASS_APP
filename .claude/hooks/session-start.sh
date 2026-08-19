@@ -40,10 +40,23 @@ else
   rm -f "$TMP_REQS"
 fi
 
-echo "==> [session-start] Installing the Playwright Chromium browser (UI tests)..."
-# Non-fatal: UI tests need it, but a missing browser shouldn't block a session
-# that's only touching backend code.
-playwright install chromium >/dev/null 2>&1 \
-  || echo "    (Chromium install skipped/failed — ui_tests/ will be unavailable)"
+echo "==> [session-start] Checking the Playwright Chromium browser (UI tests)..."
+# Non-fatal: UI tests need a browser, but a missing one shouldn't block a
+# session that's only touching backend code. Failures are reported rather than
+# hidden — a silently skipped install produced a container where all 120
+# ui_tests/ died with a bare "Executable doesn't exist", which reads like
+# broken tests instead of a missing browser.
+if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ] && \
+   compgen -G "${PLAYWRIGHT_BROWSERS_PATH}/chromium*" >/dev/null 2>&1; then
+  # The image pre-installs Chromium and blocks re-downloading. The build may
+  # not match the one our pinned playwright expects, so ui_tests/conftest.py
+  # resolves the executable explicitly (see _preinstalled_chromium).
+  echo "    Using the pre-installed Chromium in ${PLAYWRIGHT_BROWSERS_PATH} (no download)."
+elif PW_OUTPUT="$(playwright install chromium 2>&1)"; then
+  echo "    Chromium installed."
+else
+  echo "    WARNING: Chromium install failed — ui_tests/ will not run."
+  echo "${PW_OUTPUT}" | tail -5 | sed 's/^/      /'
+fi
 
 echo "==> [session-start] Done. Run tests from cwa_classroom/ (e.g. pytest classroom/tests/)."

@@ -454,6 +454,12 @@ def validate_plane_spec(plane_spec):
         for s in items:
             _check_segment(s)
 
+    # Optional: draw a smooth curve through the student's plotted points (plot_points
+    # only — a visual "join the dots into a parabola" aid; grading is unchanged).
+    curve = plane_spec.get('curve')
+    if curve is not None and not isinstance(curve, bool):
+        raise ValueError('plane_spec.curve must be a boolean.')
+
 
 def grade_plane(plane_spec, payload):
     """True if the student's plotted marks match the target set for a plane question.
@@ -584,3 +590,321 @@ def validate_graph_spec(graph_spec):
                 raise ValueError(f'Series point must be [x, y] numbers; got {p!r}.')
             if not (xmin <= p[0] <= xmax and ymin <= p[1] <= ymax):
                 raise ValueError(f'Series point {p!r} is outside the axis range.')
+
+
+# ---------------------------------------------------------------------------
+# number_line — mark a value on / read a value off a number line
+# ---------------------------------------------------------------------------
+
+_NUMBER_LINE_MODES = ('mark', 'read')
+# Cap the tick count so an absurd spec (min -1000, max 1000, step 1) can't emit
+# thousands of ticks; validate_number_line_spec enforces the same cap so a stored
+# spec always renders.
+_MAX_NUMBER_LINE_TICKS = 60
+
+
+def _num_key(v):
+    """Canonical comparison key for a number-line value (int-if-whole float).
+
+    ``5`` and ``5.0`` must compare equal in a set, so both map to the same key.
+    """
+    f = float(v)
+    return int(f) if f.is_integer() else round(f, 6)
+
+
+def number_line_ticks(spec):
+    """Return the list of tick VALUES for a number_line spec, or None if invalid.
+
+    Ticks run ``min, min+step, … ≤ max``. Pure and defensive: returns None for a
+    malformed/oversized spec so the model render helper and svg builder can guard
+    with a single check (never raises). ``validate_number_line_spec`` is the strict
+    gate used at import/clean time; this is the lenient render-time reader.
+    """
+    if not isinstance(spec, dict):
+        return None
+    lo, hi, step = spec.get('min'), spec.get('max'), spec.get('step', 1)
+    if not (_is_number(lo) and _is_number(hi) and _is_number(step)):
+        return None
+    if step <= 0 or lo >= hi:
+        return None
+    # Round before truncating so a decimal step whose division lands just under
+    # an integer (0.3 / 0.1 == 2.9999999999999996) doesn't drop the last tick.
+    n = int(round((hi - lo) / step, 9))
+    if n < 1 or n + 1 > _MAX_NUMBER_LINE_TICKS:
+        return None
+    ticks = [_num_key(lo + i * step) for i in range(n + 1)]
+    return ticks
+
+
+def validate_number_line_spec(spec):
+    """Validate a ``number_line`` ``number_line_spec``; raise ``ValueError`` if bad.
+
+    Pure and framework-agnostic (no Django import) so it is reused by the model's
+    ``clean()`` AND by both PDF importers before persisting, so a malformed spec
+    can't slip in through either path. Checks the scale (min < max, positive step,
+    bounded tick count), a known ``mode``, and that the mode's required values are
+    present, numeric, in range, and aligned to a tick (so a marked/read answer is
+    actually reachable on the drawn line).
+    """
+    if not isinstance(spec, dict):
+        raise ValueError('number_line_spec must be a JSON object.')
+    lo, hi, step = spec.get('min'), spec.get('max'), spec.get('step', 1)
+    if not (_is_number(lo) and _is_number(hi)):
+        raise ValueError('number_line_spec.min and .max must be numbers.')
+    if not _is_number(step) or step <= 0:
+        raise ValueError('number_line_spec.step must be a positive number.')
+    if lo >= hi:
+        raise ValueError('number_line_spec.min must be less than .max.')
+    ticks = number_line_ticks(spec)
+    if ticks is None:
+        raise ValueError(
+            f'number_line_spec has too many ticks (max {_MAX_NUMBER_LINE_TICKS}); '
+            'widen the step or narrow the range.'
+        )
+    tick_set = set(ticks)
+
+    mode = spec.get('mode', 'mark')
+    if mode not in _NUMBER_LINE_MODES:
+        raise ValueError(f'number_line_spec.mode must be one of {_NUMBER_LINE_MODES}.')
+
+    def _check_values(key, values):
+        if not isinstance(values, list) or not values:
+            raise ValueError(f'number_line_spec.{key} must be a non-empty list.')
+        for v in values:
+            if not _is_number(v):
+                raise ValueError(f'number_line_spec.{key} value must be a number; got {v!r}.')
+            if _num_key(v) not in tick_set:
+                raise ValueError(
+                    f'number_line_spec.{key} value {v!r} is not on a tick '
+                    f'(min {lo}, max {hi}, step {step}).'
+                )
+
+    if mode == 'mark':
+        # The student places marker(s); target is the required set.
+        _check_values('target', spec.get('target'))
+    else:  # read
+        # The line shows marker(s) at given positions; the student types them.
+        _check_values('given', spec.get('given'))
+        # target defaults to given; if supplied explicitly it must also be valid.
+        if spec.get('target') is not None:
+            _check_values('target', spec.get('target'))
+
+    tol = spec.get('tolerance')
+    if tol is not None and (not _is_number(tol) or tol < 0):
+        raise ValueError('number_line_spec.tolerance must be a non-negative number.')
+
+
+def _number_line_targets(spec):
+    """The set of correct values for grading: ``target`` (or ``given`` if target
+    is omitted, e.g. a read question whose answer is exactly the drawn marks)."""
+    targets = spec.get('target')
+    if targets is None:
+        targets = spec.get('given') or []
+    return targets
+
+
+def grade_number_line(spec, payload):
+    """Grade a number_line answer. Returns ``True``/``False``, never raises.
+
+    - ``mark`` mode: ``payload`` is the JSON the client serialises,
+      ``{"marks": [values...]}``. Correct when the marked set equals the target
+      set (exact, on-tick — no tolerance, since taps land on ticks).
+    - ``read`` mode: ``payload`` is the typed text (e.g. ``"3"`` or ``"3, 5"``).
+      Correct when the parsed values match the target multiset within
+      ``tolerance`` (``0`` = exact).
+
+    A malformed spec or unparseable answer simply grades wrong.
+    """
+    if not isinstance(spec, dict):
+        return False
+    mode = spec.get('mode', 'mark')
+    targets = _number_line_targets(spec)
+    if not targets:
+        return False
+
+    if mode == 'mark':
+        try:
+            data = json.loads(payload) if isinstance(payload, str) else payload
+        except (ValueError, TypeError):
+            return False
+        if not isinstance(data, dict):
+            return False
+        marks = data.get('marks')
+        if not isinstance(marks, list):
+            return False
+        try:
+            got = {_num_key(m) for m in marks}
+        except (TypeError, ValueError):
+            return False
+        want = {_num_key(t) for t in targets}
+        return got == want
+
+    # read mode — parse the typed numbers and multiset-compare within tolerance.
+    if not isinstance(payload, str):
+        return False
+    tol = spec.get('tolerance') or 0
+    try:
+        tol = Decimal(str(tol))
+    except (InvalidOperation, ValueError):
+        tol = Decimal('0')
+    got = [d for d in (_to_decimal(tok) for tok in re.split(r'[,;\s]+', payload.strip())) if d is not None]
+    want = [Decimal(str(t)) for t in targets]
+    if len(got) != len(want):
+        return False
+    # Greedy match: each typed value must pair with a distinct target within tol.
+    remaining = list(want)
+    for g in got:
+        hit = next((w for w in remaining if abs(g - w) <= tol), None)
+        if hit is None:
+            return False
+        remaining.remove(hit)
+    return not remaining
+
+
+# ---------------------------------------------------------------------------
+# table_of_values — fill in a table of values (e.g. compute y for each x)
+# ---------------------------------------------------------------------------
+
+# Cap the table size so an absurd spec can't emit a huge DOM / grade forever. A
+# worksheet table of values is small — a handful of columns, a dozen-odd rows.
+_MAX_TABLE_COLS = 8
+_MAX_TABLE_ROWS = 20
+
+
+def _table_cell_kind(cell):
+    """Classify one table cell, or return ``None`` if malformed.
+
+    A cell is a JSON object carrying EXACTLY ONE of ``given`` (a value shown
+    pre-filled and read-only, e.g. the x column) or ``answer`` (the value the
+    student must type, e.g. the y column). Returns ``(role, value)`` where
+    ``role`` is ``'given'`` or ``'answer'``, else ``None`` (missing both, or
+    carrying both — an ambiguous cell). Shared by the validator, the grader and
+    the model render helper so "what a cell means" is defined once.
+    """
+    if not isinstance(cell, dict):
+        return None
+    has_given = 'given' in cell
+    has_answer = 'answer' in cell
+    if has_given == has_answer:  # neither, or both → malformed
+        return None
+    return ('given', cell['given']) if has_given else ('answer', cell['answer'])
+
+
+def validate_table_spec(table_spec):
+    """Validate a ``table_of_values`` ``table_spec``; raise ``ValueError`` if bad.
+
+    Pure and framework-agnostic (no Django import) so it is reused by the model's
+    ``clean()`` AND by any importer before persisting, so a malformed spec can't
+    slip in through either path. Mirrors ``validate_number_line_spec``.
+
+    Shape::
+
+        {"headers": ["x", "y"],
+         "rows": [[{"given": "-3"}, {"answer": "7"}], ...],
+         "tolerance": 0}
+
+    Every row must carry one cell per header; each cell has exactly one of
+    ``given`` (shown, read-only) or ``answer`` (a blank the student fills). Every
+    ``answer`` value must be numeric (grading is numeric-within-tolerance) and at
+    least one ``answer`` cell must exist (else the table is unanswerable).
+    """
+    if not isinstance(table_spec, dict):
+        raise ValueError('table_spec must be a JSON object.')
+
+    headers = table_spec.get('headers')
+    if not isinstance(headers, list) or not headers:
+        raise ValueError('table_spec.headers must be a non-empty list.')
+    if len(headers) > _MAX_TABLE_COLS:
+        raise ValueError(f'table_spec.headers must not exceed {_MAX_TABLE_COLS} columns.')
+    for h in headers:
+        if not isinstance(h, str):
+            raise ValueError(f'table_spec.headers value must be a string; got {h!r}.')
+    ncols = len(headers)
+
+    rows = table_spec.get('rows')
+    if not isinstance(rows, list) or not rows:
+        raise ValueError('table_spec.rows must be a non-empty list.')
+    if len(rows) > _MAX_TABLE_ROWS:
+        raise ValueError(f'table_spec.rows must not exceed {_MAX_TABLE_ROWS} rows.')
+
+    answer_count = 0
+    for r, row in enumerate(rows):
+        if not isinstance(row, list) or len(row) != ncols:
+            raise ValueError(
+                f'table_spec.rows[{r}] must be a list of {ncols} cells (one per header).'
+            )
+        for c, cell in enumerate(row):
+            kind = _table_cell_kind(cell)
+            if kind is None:
+                raise ValueError(
+                    f'table_spec cell [{r},{c}] must have exactly one of "given" or "answer".'
+                )
+            role, value = kind
+            if role == 'answer':
+                if _to_decimal(value) is None:
+                    raise ValueError(
+                        f'table_spec answer cell [{r},{c}] value must be numeric; got {value!r}.'
+                    )
+                answer_count += 1
+
+    if answer_count == 0:
+        raise ValueError('table_spec must have at least one "answer" cell.')
+
+    tol = table_spec.get('tolerance')
+    if tol is not None and (not _is_number(tol) or tol < 0):
+        raise ValueError('table_spec.tolerance must be a non-negative number.')
+
+
+def grade_table(table_spec, payload):
+    """Grade a ``table_of_values`` answer. Returns ``True``/``False``, never raises.
+
+    All-or-nothing: correct when EVERY ``answer`` cell's typed value is within
+    ``tolerance`` of the stored value (``tolerance`` 0 = exact). This matches the
+    boolean per-question grading used everywhere else — a table is right only when
+    fully right. ``payload`` is the JSON the client serialises,
+    ``{"cells": {"<r>,<c>": "<typed>"}}`` keyed by each answer cell's row,col. A
+    malformed spec/payload or a missing/blank/unparseable cell simply grades wrong.
+    """
+    if not isinstance(table_spec, dict):
+        return False
+    headers = table_spec.get('headers')
+    rows = table_spec.get('rows')
+    if not isinstance(headers, list) or not isinstance(rows, list):
+        return False
+
+    try:
+        data = json.loads(payload) if isinstance(payload, str) else payload
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    cells = data.get('cells')
+    if not isinstance(cells, dict):
+        return False
+
+    tol = table_spec.get('tolerance') or 0
+    try:
+        tol = Decimal(str(tol))
+    except (InvalidOperation, ValueError):
+        tol = Decimal('0')
+
+    answer_seen = 0
+    for r, row in enumerate(rows):
+        if not isinstance(row, list):
+            return False
+        for c, cell in enumerate(row):
+            kind = _table_cell_kind(cell)
+            if kind is None:
+                return False
+            role, value = kind
+            if role != 'answer':
+                continue
+            answer_seen += 1
+            want = _to_decimal(value)
+            if want is None:
+                return False
+            got = _to_decimal(cells.get(f'{r},{c}'))
+            if got is None or abs(got - want) > tol:
+                return False
+    # A spec with no answer cells is unanswerable — never silently "correct".
+    return answer_seen > 0

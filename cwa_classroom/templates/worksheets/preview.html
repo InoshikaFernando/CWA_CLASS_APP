@@ -10,6 +10,10 @@
     <span class="px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold">Step 2 of 3</span>
   </div>
 
+  {% include "_partials/page_selection_notice.html" %}
+  {% include "_partials/skipped_pages_notice.html" %}
+  {% include "_partials/answer_key_notice.html" %}
+
   <script>
     var WS_TOPICS    = {{ parent_topics_json|safe }};
     var WS_SUBTOPICS = {{ subtopics_json|safe }};
@@ -138,22 +142,42 @@
                  class="rounded text-primary focus:ring-primary w-4 h-4" />
           <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Q{{ forloop.counter }}</span>
         </label>
+        {% if q.needs_review %}
+        {# Second-opinion disagreement (CPP-384). The reason is the tooltip so the
+           teacher knows what to check, not just that something is off. #}
+        <span class="px-2 py-0.5 mt-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 whitespace-nowrap"
+              data-testid="review-badge-{{ forloop.counter0 }}"
+              title="{{ q.review_reason|default:'Please double-check this answer.' }}">⚠ Review</span>
+        {% endif %}
         <div class="flex-1 space-y-3">
           <textarea name="q_{{ forloop.counter0 }}_text" rows="2"
                     class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">{{ q.question_text }}</textarea>
 
-          {% if q.image_b64 %}
           <div>
-            <p class="text-xs text-gray-400 mb-1">Extracted image (AI-cropped)</p>
-            <img src="data:image/png;base64,{{ q.image_b64 }}"
-                 alt="Question image"
-                 class="max-h-48 rounded-xl border border-gray-200 object-contain bg-white" />
+            <p class="text-xs text-gray-400 mb-1">Question image</p>
+            <div class="mb-2 {% if not q.image_b64 %}hidden{% endif %}" id="img-wrap-{{ forloop.counter0 }}">
+              <img src="{% if q.image_b64 %}data:image/png;base64,{{ q.image_b64 }}{% endif %}"
+                   alt="Question image" id="img-preview-{{ forloop.counter0 }}"
+                   class="max-h-48 rounded-xl border border-gray-200 object-contain bg-white" />
+            </div>
+            {% if not q.image_b64 and q.has_image %}
+            <p class="text-xs text-amber-600 mb-1">⚠ AI flagged a visual but couldn't crop it — use "Crop image from page".</p>
+            {% endif %}
+            <button type="button" class="text-xs text-indigo-600 hover:underline font-medium"
+                    data-adjust="{{ forloop.counter0 }}" data-page="{{ q.image_page }}"
+                    data-frac="{{ q.image_bbox_frac_json }}">
+              ✥ {% if q.image_b64 %}Adjust / re-crop image{% else %}Crop image from page{% endif %}
+            </button>
+            {% if not forloop.first %}
+            <button type="button" class="ml-3 text-xs text-teal-600 hover:underline font-medium reuse-last-image-btn"
+                    data-reuse="{{ forloop.counter0 }}"
+                    title="Use the same image as the nearest earlier question that has one">
+              ⧉ Same image as previous
+            </button>
+            {% endif %}
+            <input type="hidden" name="q_{{ forloop.counter0 }}_image_ref"
+                   value="{{ q.image_ref|default:'' }}" id="img-ref-{{ forloop.counter0 }}">
           </div>
-          {% elif q.has_image %}
-          <div class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
-            ⚠ AI indicated this question has a visual but could not crop it. You can upload an image manually below.
-          </div>
-          {% endif %}
 
           <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div>
@@ -288,4 +312,77 @@
     {% endif %}
   </form>
 </div>
+
+{% url 'worksheets:pdf_page_image' session.pk as adj_page_url %}
+{% url 'worksheets:pdf_recrop' session.pk as adj_recrop_url %}
+{% include 'partials/_adjust_image_modal.html' with page_url=adj_page_url recrop_url=adj_recrop_url %}
+
+{# --- "Same image as previous" reuse control --- #}
+{% url 'worksheets:pdf_reuse_image' session.pk as reuse_image_url %}
+<script>
+(function () {
+  const REUSE_URL = "{{ reuse_image_url }}";
+  const csrfEl = document.querySelector('[name=csrfmiddlewaretoken]');
+  const csrf = csrfEl ? csrfEl.value : '';
+
+  // Nearest earlier question index that currently carries an image, or -1.
+  function findSource(idx) {
+    for (let i = idx - 1; i >= 0; i--) {
+      const ref = document.getElementById('img-ref-' + i);
+      if (ref && ref.value) return i;
+    }
+    return -1;
+  }
+
+  function flash(btn, msg) {
+    if (!btn || btn.dataset.flashing) return;
+    const orig = btn.textContent;
+    btn.dataset.flashing = '1';
+    btn.textContent = msg;
+    setTimeout(() => { btn.textContent = orig; delete btn.dataset.flashing; }, 1500);
+  }
+
+  document.addEventListener('click', async ev => {
+    const btn = ev.target.closest('.reuse-last-image-btn');
+    if (!btn) return;
+    ev.preventDefault();
+    const idx = parseInt(btn.dataset.reuse, 10);
+    const src = findSource(idx);
+    if (src < 0) { flash(btn, 'No earlier image to reuse'); return; }
+
+    const srcRef = document.getElementById('img-ref-' + src).value;
+    const srcBtn = document.querySelector('[data-adjust="' + src + '"]');
+    let page = null, frac = null;
+    if (srcBtn) {
+      page = parseInt(srcBtn.dataset.page, 10) || null;
+      try { frac = JSON.parse(srcBtn.dataset.frac || 'null'); } catch (e) {}
+    }
+
+    btn.disabled = true;
+    try {
+      const r = await fetch(REUSE_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf},
+        body: JSON.stringify({q_idx: idx, source_ref: srcRef, page: page, bbox_frac: frac}),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Could not reuse image');
+
+      const ref = document.getElementById('img-ref-' + idx);
+      if (ref) ref.value = j.ref;
+      const img = document.getElementById('img-preview-' + idx);
+      if (img) img.src = 'data:image/png;base64,' + j.image_b64;
+      const wrap = document.getElementById('img-wrap-' + idx);
+      if (wrap) wrap.classList.remove('hidden');
+      const myBtn = document.querySelector('[data-adjust="' + idx + '"]');
+      if (myBtn && j.page) myBtn.dataset.page = j.page;
+      if (myBtn && frac) myBtn.dataset.frac = JSON.stringify(frac);
+    } catch (e) {
+      flash(btn, 'Reuse failed — try again');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
 {% endblock %}

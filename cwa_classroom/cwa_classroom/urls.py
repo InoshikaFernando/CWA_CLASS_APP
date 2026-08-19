@@ -101,6 +101,12 @@ urlpatterns = [
     # --- Usage analytics ---
     path('', include('usage.urls')),
 
+    # --- Ops (droplet health) ---
+    path('', include('ops.urls')),
+
+    # Question-bank health dashboard (superuser) — /admin-dashboard/question-health/
+    path('', include('maths.urls_admin')),
+
     # --- Subject apps ---
     path('brainbuzz/', include('brainbuzz.urls', namespace='brainbuzz')),
     path('maths/', include('maths.urls', namespace='maths')),

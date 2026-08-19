@@ -112,6 +112,13 @@ class WorksheetUploadSession(models.Model):
     # Persisted upload so the background worker (separate process) can read it.
     pdf_file = models.FileField(upload_to='worksheets/upload_pdfs/', null=True, blank=True)
     worksheet_name = models.CharField(max_length=255, blank=True)
+    # Print-dialog style spec for which pages to extract ("2-7, 9"). Blank means
+    # every page. Kept as the teacher typed it so the worker re-parses one source
+    # of truth; see worksheets/page_selection.py.
+    page_selection = models.CharField(
+        max_length=200, blank=True,
+        help_text='Pages to extract, like "2-7, 9". Blank extracts every page.',
+    )
     shape_naming = models.BooleanField(
         default=False,
         help_text='Name-the-shape mode: AI generates one "name this shape" question per shape.',

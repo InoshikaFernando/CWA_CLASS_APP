@@ -435,6 +435,123 @@ def _add_month(d):
     return d.replace(month=d.month + 1)
 
 
+def _add_year(d):
+    """First-of-month date -> same month next year."""
+    return d.replace(year=d.year + 1)
+
+
+def _recurring_occurrences(template, until):
+    """Yield first-of-month dates a RecurringExpense template should book, up to
+    and including `until` (a first-of-month date). Monthly templates book one
+    row per month; yearly ones book one row per year on their start month.
+    Bounded by end_date when set.
+    """
+    from .models import RecurringExpense
+    cursor = _first_of_month(template.start_date)
+    end = _first_of_month(template.end_date) if template.end_date else None
+    step = (
+        _add_year if template.frequency == RecurringExpense.FREQUENCY_YEARLY
+        else _add_month
+    )
+    while cursor <= until:
+        if end and cursor > end:
+            break
+        yield cursor
+        cursor = step(cursor)
+
+
+def materialize_recurring_expenses(until=None, *, dry_run=False):
+    """Book missing Expense rows from active RecurringExpense templates.
+
+    Walks every active template and creates any Expense row it should have
+    (per `_recurring_occurrences`) up to `until` (default: the current month)
+    that doesn't already exist. Idempotent — an existing row is never touched,
+    so hand-entered true-ups survive. With dry_run=True nothing is written.
+
+    Returns a list of (template, month_start) pairs that were (or, in dry-run,
+    would be) created.
+    """
+    from .models import Expense, RecurringExpense, EXPENSE_SOURCE_RECURRING
+
+    if until is None:
+        until = _first_of_month(timezone.localdate())
+
+    templates = list(RecurringExpense.objects.filter(is_active=True))
+    if not templates:
+        return []
+
+    # Pull the already-booked (template, month) pairs once and diff in Python —
+    # same pull-once approach as get_income_expense_summary — so a dashboard
+    # load doesn't fire one existence query per template per month.
+    existing = set(
+        Expense.objects.filter(recurring__in=templates)
+        .values_list('recurring_id', 'incurred_on'),
+    )
+
+    created = []
+    for template in templates:
+        for month in _recurring_occurrences(template, until):
+            if (template.id, month) in existing:
+                continue
+            if dry_run:
+                created.append((template, month))
+                continue
+            # get_or_create is race-safe (retries the get on IntegrityError),
+            # so concurrent loads can't trip uniq_recurring_expense_per_date.
+            _, was_created = Expense.objects.get_or_create(
+                recurring=template,
+                incurred_on=month,
+                defaults={
+                    'category': template.category,
+                    'vendor': template.vendor,
+                    'description': template.description,
+                    'amount': template.amount,
+                    'source': EXPENSE_SOURCE_RECURRING,
+                    'note': template.note,
+                },
+            )
+            if was_created:
+                created.append((template, month))
+    return created
+
+
+# Vendor syncs (full-ledger scan / outbound HTTP) are heavier than a page load
+# should run every time, so the on-demand dashboard refresh throttles them to
+# at most once per this many seconds. Recurring materialisation is cheap and
+# always runs.
+FINANCE_REFRESH_LOCK_KEY = 'finance:autorefresh'
+FINANCE_REFRESH_LOCK_TTL = 300  # 5 minutes
+
+
+def refresh_current_month_expenses():
+    """Self-heal the current month's auto-expenses so the finance dashboard is
+    up to date between monthly cron runs (`scripts/sync_expenses.sh`).
+
+    Recurring templates are materialised every call (cheap + idempotent) so a
+    newly added template — or a month the cron hasn't reached yet — shows
+    immediately instead of reading $0. The heavier vendor syncs (AI-usage
+    ledger scan + DigitalOcean invoice fetch) are throttled to once per
+    FINANCE_REFRESH_LOCK_TTL. Each step is isolated and best-effort: a failure
+    is logged (never silently swallowed) and can't blank the dashboard.
+    """
+    try:
+        materialize_recurring_expenses()
+    except Exception as exc:
+        logger.warning('Recurring expense materialisation failed: %s', exc)
+
+    if cache.get(FINANCE_REFRESH_LOCK_KEY):
+        return
+    cache.set(FINANCE_REFRESH_LOCK_KEY, True, FINANCE_REFRESH_LOCK_TTL)
+    for label, sync in (
+        ('AI usage', sync_ai_usage_expenses),
+        ('DigitalOcean', sync_digitalocean_expenses),
+    ):
+        try:
+            sync()
+        except Exception as exc:
+            logger.warning('%s expense sync failed: %s', label, exc)
+
+
 def _month_dt(d):
     """Local date -> aware datetime at 00:00 (for Stripe period bounds)."""
     return timezone.make_aware(datetime.combine(d, datetime.min.time()))
@@ -604,14 +721,34 @@ def get_usd_to_nzd_rate():
     return rate, 'live'
 
 
-def sync_ai_usage_expenses():
-    """Mirror the internal AI cost ledger into monthly Anthropic Expense rows.
+# How each AI provider appears on the finance dashboard. Keeping the vendors on
+# separate Expense rows is the point: one merged "AI" figure cannot answer "how
+# much is OpenAI costing us?", which is the question that exposed OpenAI spend
+# being missing altogether (CPP-382).
+_AI_PROVIDER_EXPENSE = {
+    'anthropic': (
+        'CLAUDE_API', 'Anthropic',
+        'AI usage: PDF scan + marking + worksheets (auto)',
+    ),
+    'openai': (
+        'OPENAI_API', 'OpenAI',
+        'AI usage: question verification + review (auto)',
+    ),
+}
 
-    Sums `taskqueue.AIUsageLog.est_cost_usd` per calendar month — covering EVERY
-    AI source (ai_import PDF scan, homework marking, worksheet classification) —
-    converts USD->NZD and upserts one `claude_api` Expense row per month. Because
-    it reads the ledger, any new AI feature that logs usage is captured with no
-    config change. Idempotent; returns rows created/updated.
+
+def sync_ai_usage_expenses():
+    """Mirror the internal AI cost ledger into monthly Expense rows per vendor.
+
+    Sums `taskqueue.AIUsageLog.est_cost_usd` per calendar month AND per provider
+    — covering EVERY AI source (ai_import PDF scan, homework marking, worksheet
+    classification, question review) — converts USD->NZD and upserts one Expense
+    row per month per provider. Because it reads the ledger, any new AI feature
+    that logs usage is captured with no config change.
+
+    Idempotent; returns rows created/updated. The upsert key includes the
+    category, so the pre-existing Anthropic rows keep matching and are updated
+    rather than duplicated.
     """
     from .models import (
         Expense, ExpenseCategory, EXPENSE_SOURCE_AI_GRADING,
@@ -623,27 +760,37 @@ def sync_ai_usage_expenses():
     # Bucket by calendar month in Python — avoids MySQL TruncMonth, which needs
     # the server's timezone tables loaded when USE_TZ is on.
     buckets = {}
-    rows = AIUsageLog.objects.values_list('created_at', 'est_cost_usd')
-    for created_at, cost in rows.iterator():
+    rows = AIUsageLog.objects.values_list('created_at', 'est_cost_usd', 'provider')
+    for created_at, cost, provider in rows.iterator():
         if not cost or cost <= 0:
             continue
         local = (
             timezone.localtime(created_at)
             if timezone.is_aware(created_at) else created_at
         )
-        key = _first_of_month(local.date())
+        key = (_first_of_month(local.date()), provider or 'anthropic')
         buckets[key] = buckets.get(key, Decimal('0')) + cost
 
     touched = 0
-    for month_start, usd in sorted(buckets.items()):
+    for (month_start, provider), usd in sorted(buckets.items()):
+        mapping = _AI_PROVIDER_EXPENSE.get(provider)
+        if mapping is None:
+            # A provider with no expense mapping would silently vanish from the
+            # dashboard — the exact failure this work exists to fix. Say so.
+            logger.warning(
+                'AI usage for unmapped provider %r ($%s in %s) is not being '
+                'expensed — add it to _AI_PROVIDER_EXPENSE',
+                provider, usd, month_start)
+            continue
+        category_name, vendor, description = mapping
         nzd = (usd * rate).quantize(Decimal('0.01'))
         Expense.objects.update_or_create(
             source=EXPENSE_SOURCE_AI_GRADING,
             incurred_on=month_start,
+            category=getattr(ExpenseCategory, category_name),
             defaults={
-                'category': ExpenseCategory.CLAUDE_API,
-                'vendor': 'Anthropic',
-                'description': 'AI usage: PDF scan + marking + worksheets (auto)',
+                'vendor': vendor,
+                'description': description,
                 'amount': nzd,
                 'original_amount': usd.quantize(Decimal('0.000001')),
                 'original_currency': 'USD',
@@ -720,3 +867,112 @@ def sync_digitalocean_expenses():
         ).delete()
         touched += 1
     return touched
+
+
+# ---------------------------------------------------------------------------
+# Billed AI cost (CPP-383) — the vendor's own figure, not an estimate
+# ---------------------------------------------------------------------------
+def apportion_billed_cost(billed_usd, usage_rows):
+    """Split a vendor's billed total across usage rows by their token share.
+
+    Returns ``{row_id: Decimal}``. The *total* is the vendor's, so the accounts
+    are exact; the *split* is derived from measured tokens, so attribution
+    survives without anybody maintaining a price list.
+
+    Deliberately approximate in one respect, and it should be labelled as such
+    wherever it is shown: vendors charge more for output than input tokens,
+    while this weighs them equally. A feature with an unusual output ratio is
+    therefore slightly mis-attributed. That is an acceptable trade for a
+    breakdown — it would not be for a total.
+
+    Rounding remainder goes to the largest row, so the parts always sum to the
+    billed figure rather than drifting a cent below it.
+    """
+    rows = [(row_id, int(tokens or 0)) for row_id, tokens in usage_rows]
+    total_tokens = sum(tokens for _, tokens in rows)
+    if not rows or total_tokens <= 0 or not billed_usd:
+        return {}
+
+    billed = Decimal(billed_usd)
+    shares = {}
+    running = Decimal('0')
+    for row_id, tokens in rows:
+        share = (billed * Decimal(tokens) / Decimal(total_tokens)
+                 ).quantize(Decimal('0.00001'))
+        shares[row_id] = share
+        running += share
+
+    # Hand the rounding difference to the biggest consumer.
+    drift = billed.quantize(Decimal('0.00001')) - running
+    if drift and shares:
+        biggest = max(rows, key=lambda r: r[1])[0]
+        shares[biggest] += drift
+    return shares
+
+
+def sync_ai_vendor_expenses(months=3):
+    """Upsert Expense rows from what the AI vendors actually billed.
+
+    Mirrors sync_digitalocean_expenses: fetch the vendor's own figure, convert
+    USD->NZD, upsert one row per vendor per month, idempotently.
+
+    A vendor that cannot supply a figure — no admin key, API error — is skipped
+    and reported. Its month simply has no row, so the dashboard can say the
+    number is unavailable. It must never fall back to the token estimate and
+    present that as billed.
+
+    Returns ``{'written': n, 'skipped': [(provider, reason), ...]}``.
+    """
+    from .ai_vendor_costs import FETCHERS, VendorCostUnavailable
+    from .models import (
+        Expense, ExpenseCategory, EXPENSE_SOURCE_AI_VENDOR,
+    )
+
+    today = timezone.localdate()
+    start = _first_of_month(today)
+    for _ in range(max(0, months - 1)):
+        start = _first_of_month((start - timedelta(days=1)))
+
+    rate, _ = get_usd_to_nzd_rate()
+    written = 0
+    skipped = []
+
+    for provider, fetch in FETCHERS.items():
+        mapping = _AI_PROVIDER_EXPENSE.get(provider)
+        if mapping is None:
+            skipped.append((provider, 'no expense mapping'))
+            continue
+        category_name, vendor, _description = mapping
+
+        try:
+            daily = fetch(start, today)
+        except VendorCostUnavailable as exc:
+            logger.warning('Billed cost unavailable for %s: %s', provider, exc)
+            skipped.append((provider, str(exc)))
+            continue
+        if daily is None:
+            skipped.append((provider, 'no admin API key configured'))
+            continue
+
+        buckets = {}
+        for entry in daily:
+            key = _first_of_month(entry.on)
+            buckets[key] = buckets.get(key, Decimal('0')) + entry.amount_usd
+
+        for month_start, usd in sorted(buckets.items()):
+            nzd = (usd * rate).quantize(Decimal('0.01'))
+            Expense.objects.update_or_create(
+                source=EXPENSE_SOURCE_AI_VENDOR,
+                incurred_on=month_start,
+                category=getattr(ExpenseCategory, category_name),
+                defaults={
+                    'vendor': vendor,
+                    'description': f'{vendor} billed usage (auto)',
+                    'amount': nzd,
+                    'original_amount': usd.quantize(Decimal('0.000001')),
+                    'original_currency': 'USD',
+                },
+            )
+            written += 1
+
+    return {'written': written, 'skipped': skipped}

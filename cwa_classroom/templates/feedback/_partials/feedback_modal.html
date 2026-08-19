@@ -1,12 +1,17 @@
 {% comment %}
-Feedback capture form (CPP-322). Rendered into #feedback-modal-body over HTMX.
-Posts back to itself; on success the view returns feedback_success.html, on
-validation error this same partial re-renders with inline errors.
+Feedback capture form (CPP-322 / CPP-324). Rendered into #feedback-modal-body
+over HTMX. Posts back to itself; on success the view returns
+feedback_success.html, on validation error this same partial re-renders with
+inline errors. Screenshots (CPP-324) can be pasted (Ctrl+V), dragged or picked;
+they upload with the form via multipart and — for bugs — are attached to the
+auto-created Jira issue.
 {% endcomment %}
 <form id="feedback-form"
       hx-post="{% url 'feedback:submit' %}"
       hx-target="#feedback-modal-body"
-      hx-swap="innerHTML">
+      hx-swap="innerHTML"
+      hx-encoding="multipart/form-data"
+      enctype="multipart/form-data">
   {% csrf_token %}
   <input type="hidden" name="page_url" value="">
 
@@ -49,6 +54,28 @@ validation error this same partial re-renders with inline errors.
     {% endif %}
   </div>
 
+  <!-- Screenshots (CPP-324) -->
+  <div class="mb-4">
+    <label class="block text-sm font-medium text-gray-700 mb-1">
+      Screenshots <span class="text-gray-400 font-normal">(optional)</span>
+    </label>
+    <div id="feedback-dropzone"
+         tabindex="0"
+         role="button"
+         aria-label="Paste, drag or choose screenshots"
+         class="cursor-pointer rounded-lg border-2 border-dashed border-gray-200 px-3 py-4
+                text-center text-xs text-gray-500 transition
+                hover:border-accent/50 focus:outline-none focus:ring-2 focus:ring-accent/40">
+      Paste a screenshot (Ctrl+V), drag an image here, or click to choose.
+    </div>
+    <input id="feedback-screenshots" name="screenshots" type="file"
+           accept="image/*" multiple class="hidden">
+    <div id="feedback-previews" class="mt-2 flex flex-wrap gap-2"></div>
+    {% if image_error %}
+      <p class="mt-1 text-xs text-danger" data-error="screenshots">{{ image_error }}</p>
+    {% endif %}
+  </div>
+
   <div class="flex justify-end gap-2 pt-2">
     <button type="button" @click="open = false"
             class="px-4 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-100 transition">
@@ -63,7 +90,111 @@ validation error this same partial re-renders with inline errors.
 
 <script>
   (function () {
-    var input = document.querySelector('#feedback-form input[name="page_url"]');
-    if (input) { input.value = window.location.href; }
+    var form = document.getElementById('feedback-form');
+    if (!form) { return; }
+
+    var pageUrl = form.querySelector('input[name="page_url"]');
+    if (pageUrl) { pageUrl.value = window.location.href; }
+
+    var fileInput = form.querySelector('#feedback-screenshots');
+    var dropzone = form.querySelector('#feedback-dropzone');
+    var previews = form.querySelector('#feedback-previews');
+    if (!fileInput || !dropzone || !previews) { return; }
+
+    var MAX = 5;
+    // A DataTransfer is the only cross-browser way to build a FileList we can
+    // assign back onto the <input>, so pasted + dragged + picked images all
+    // ride the same form field on submit.
+    var store = new DataTransfer();
+
+    function render() {
+      previews.innerHTML = '';
+      Array.prototype.forEach.call(store.files, function (file, idx) {
+        var url = URL.createObjectURL(file);
+        var wrap = document.createElement('div');
+        wrap.className = 'relative';
+
+        var img = document.createElement('img');
+        img.src = url;
+        img.alt = file.name || 'screenshot';
+        img.className = 'h-16 w-16 object-cover rounded-lg border border-gray-200';
+        img.onload = function () { URL.revokeObjectURL(url); };
+
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('aria-label', 'Remove screenshot');
+        btn.innerHTML = '&times;';
+        btn.className = 'absolute -top-2 -right-2 h-5 w-5 rounded-full bg-gray-700 text-white ' +
+                        'text-xs leading-none flex items-center justify-center shadow hover:bg-gray-900';
+        btn.addEventListener('click', function () { removeAt(idx); });
+
+        wrap.appendChild(img);
+        wrap.appendChild(btn);
+        previews.appendChild(wrap);
+      });
+      fileInput.files = store.files;
+    }
+
+    function removeAt(i) {
+      var next = new DataTransfer();
+      Array.prototype.forEach.call(store.files, function (f, j) {
+        if (j !== i) { next.items.add(f); }
+      });
+      store = next;
+      render();
+    }
+
+    function addFiles(files) {
+      Array.prototype.forEach.call(files, function (f) {
+        if (!f.type || f.type.indexOf('image/') !== 0) { return; }
+        if (store.files.length >= MAX) { return; }
+        store.items.add(f);
+      });
+      render();
+    }
+
+    // Paste anywhere in the modal — the common "snip then Ctrl+V" path. Only
+    // swallow the paste when it actually carries an image, so pasting text into
+    // the description still works. A document-level listener (de-duplicated via
+    // a window flag) catches the case where focus isn't yet inside the form.
+    function onPaste(e) {
+      if (!document.body.contains(form)) { return; }
+      var items = (e.clipboardData && e.clipboardData.items) || [];
+      var imgs = [];
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].type && items[i].type.indexOf('image/') === 0) {
+          var blob = items[i].getAsFile();
+          if (blob) { imgs.push(blob); }
+        }
+      }
+      if (imgs.length) { e.preventDefault(); addFiles(imgs); }
+    }
+    if (window.__cwaFeedbackPaste) {
+      document.removeEventListener('paste', window.__cwaFeedbackPaste);
+    }
+    window.__cwaFeedbackPaste = onPaste;
+    document.addEventListener('paste', onPaste);
+
+    dropzone.addEventListener('click', function () { fileInput.click(); });
+    dropzone.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+    });
+    fileInput.addEventListener('change', function () { addFiles(fileInput.files); });
+
+    ['dragover', 'dragenter'].forEach(function (ev) {
+      dropzone.addEventListener(ev, function (e) {
+        e.preventDefault();
+        dropzone.classList.add('border-accent', 'bg-accent-light/30');
+      });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      dropzone.addEventListener(ev, function (e) {
+        e.preventDefault();
+        dropzone.classList.remove('border-accent', 'bg-accent-light/30');
+      });
+    });
+    dropzone.addEventListener('drop', function (e) {
+      if (e.dataTransfer && e.dataTransfer.files) { addFiles(e.dataTransfer.files); }
+    });
   })();
 </script>

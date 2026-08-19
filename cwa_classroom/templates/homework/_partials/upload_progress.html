@@ -1,0 +1,14 @@
+{% comment %}
+Live progress for the homework PDF upload poll. Swapped in every few seconds by
+upload_processing.html, so the teacher sees the worker moving through the PDF
+instead of an indeterminate spinner.
+{% endcomment %}
+<p class="text-sm font-medium text-gray-700">
+  {{ session.progress_message|default:"Starting up…" }}
+</p>
+{% if elapsed_minutes %}
+  <p class="text-xs text-gray-400 mt-1">
+    {{ elapsed_minutes }} minute{{ elapsed_minutes|pluralize }} so far — long or
+    image-heavy worksheets take the longest.
+  </p>
+{% endif %}

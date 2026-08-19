@@ -66,3 +66,46 @@ def request(method, path, *, json=None, params=None):
     except ValueError as exc:
         logger.error('Jira %s %s returned non-JSON body: %s (%s)', method, path, resp.text, exc)
         return None
+
+
+def upload_attachment(issue_key, filename, content, content_type='application/octet-stream'):
+    """Attach a file to an existing Jira issue. Returns parsed JSON or ``None``.
+
+    Attachments can't ride the JSON issue-create call — Jira exposes a separate
+    multipart endpoint that additionally requires the ``X-Atlassian-Token:
+    no-check`` header (its XSRF guard rejects the upload otherwise). Mirrors
+    ``request``'s contract: never raises; logs and returns ``None`` when Jira is
+    unconfigured, the call errors, or the response is non-2xx.
+    """
+    config = base_config()
+    if config is None:
+        logger.warning('Jira not configured; skipping attachment %s to %s', filename, issue_key)
+        return None
+    base_url, auth = config
+
+    try:
+        resp = requests.post(
+            f'{base_url}/rest/api/3/issue/{issue_key}/attachments',
+            files={'file': (filename, content, content_type)},
+            headers={'X-Atlassian-Token': 'no-check'},
+            auth=auth, timeout=HTTP_TIMEOUT,
+        )
+    except requests.RequestException as exc:
+        logger.error('Jira attachment %s to %s failed: %s', filename, issue_key, exc)
+        return None
+
+    if not (200 <= resp.status_code < 300):
+        logger.error(
+            'Jira attachment %s to %s returned %s: %s',
+            filename, issue_key, resp.status_code, resp.text,
+        )
+        return None
+
+    try:
+        return resp.json()
+    except ValueError as exc:
+        logger.error(
+            'Jira attachment %s to %s returned non-JSON body: %s (%s)',
+            filename, issue_key, resp.text, exc,
+        )
+        return None

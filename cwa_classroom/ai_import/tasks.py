@@ -35,7 +35,9 @@ def process_pdf_import(session_id):
             pdf_bytes = session.pdf_file.read()
         finally:
             session.pdf_file.close()
-        extracted = extract_pdf_content(BytesIO(pdf_bytes))
+        extracted = extract_pdf_content(
+            BytesIO(pdf_bytes), page_selection=session.page_selection,
+        )
 
         from classroom.models import Level, Topic
         existing_topics = list(Topic.objects.filter(
@@ -47,16 +49,77 @@ def process_pdf_import(session_id):
 
         result = classify_questions(extracted, existing_topics, existing_levels)
 
-        # Collect embedded images keyed by ref.
+        # Collect embedded images keyed by ref, and the subset flagged at
+        # extraction as decorative photos/illustrations (photo_like).
         extracted_images = {}
+        photo_like_refs = set()
         for page in extracted['pages']:
             for img in page['images']:
                 extracted_images[img['ref']] = img['base64']
+                if img.get('photo_like'):
+                    photo_like_refs.add(img['ref'])
 
         # Crop drawn figures (shapes/diagrams with no embedded raster); rendered
         # straight from the PDF vectors at high DPI when possible. These join the
         # image pool and save like any other.
         extracted_images.update(crop_figure_boxes(extracted, result, pdf_bytes=pdf_bytes))
+
+        # Image checks, now that every question's image is finalised (embedded ref
+        # or fresh crop). Three layers route a suspect attachment to the teacher via
+        # needs_review, which the preview badge already renders:
+        #   1. A deterministic page-locality guard — free, always on — flags any
+        #      image whose ref page is far from the question's source_page (e.g. a
+        #      page-1 decoration attached to a page-5 question).
+        #   2. A deterministic missing-figure guard — free, always on — flags a
+        #      question whose text points at a figure ("this shape", "the diagram")
+        #      but that ended up with NO image, i.e. its figure was skipped.
+        #   3. A deterministic photo-mismatch guard — free, always on — flags a
+        #      question needing a drawn maths figure (perimeter, angle, coordinate
+        #      grid) whose attached image was flagged photo_like at extraction, i.e.
+        #      a decorative header/word-problem picture grabbed by mistake.
+        #      These three run before the paid pass, sparing it a call on what they
+        #      caught.
+        #   4. The vision second opinion looks at each still-unflagged question with
+        #      its attached image and flags mismatches the checks above can't see
+        #      (a same-page wrong crop, art that isn't photo_like). Self-gating on
+        #      OPENAI_API_KEY; never fails the import; reported apart from the
+        #      Claude token ledger.
+        #   5. A vision count re-check independently counts "count the squares"
+        #      area/perimeter questions against their OWN grid crop and flags a
+        #      count that disagrees with the imported answer. Also self-gating.
+        from .verification import (
+            flag_cross_page_images, flag_missing_figures,
+            flag_photo_images_on_diagrams, image_verification_enabled,
+            verify_counts, verify_images,
+        )
+        questions = result.get('questions', [])
+        cross_page_flagged = flag_cross_page_images(questions)
+        missing_figure_flagged = flag_missing_figures(questions)
+        photo_mismatch_flagged = flag_photo_images_on_diagrams(
+            questions, photo_like_refs)
+        image_verification = verify_images(questions, extracted_images)
+        # Always record an image-verification summary — no silent pass. When the
+        # vision layer didn't run (no key / disabled / nothing left to check) say
+        # so, and always report the deterministic guards' tallies.
+        if image_verification is None:
+            image_verification = {
+                'status': ('disabled' if not image_verification_enabled()
+                           else 'nothing_to_check'),
+            }
+        image_verification['cross_page_flagged'] = cross_page_flagged
+        image_verification['missing_figure_flagged'] = missing_figure_flagged
+        image_verification['photo_mismatch_flagged'] = photo_mismatch_flagged
+
+        # Vision re-count of "count the squares" questions (own crop, not the full
+        # page). Reported separately; kept out of the Claude token ledger.
+        count_verification = verify_counts(questions, extracted_images)
+        if count_verification is not None:
+            result['count_verification'] = count_verification
+        result['image_verification'] = image_verification
+
+        # Which pages were read and which the teacher left out — recorded so the
+        # preview can say so rather than leaving a missing page a mystery.
+        result['page_selection'] = extracted.get('page_selection')
 
         # Preserve any pre-set classroom selection stored at enqueue time.
         existing = session.extracted_data or {}
@@ -78,11 +141,29 @@ def process_pdf_import(session_id):
         from taskqueue.services import record_ai_usage
         record_ai_usage(
             school=session.school,
+            provider=AIUsageLog.PROVIDER_ANTHROPIC,
             source=AIUsageLog.SOURCE_AI_IMPORT,
             session_id=session.pk,
             pages=extracted['page_count'],
             usage=result.get('usage', {}),
         )
+
+        # The GPT second-opinion verifier is a separate bill. Its tokens are
+        # deliberately kept out of the Claude ledger above (they are priced
+        # differently) — but they used to be dropped entirely, which is why
+        # OpenAI spend never reached the finance dashboard (CPP-382). Recorded
+        # here as its own provider row so both vendors are visible and
+        # separable.
+        verification = result.get('verification') or {}
+        if verification.get('input_tokens') or verification.get('output_tokens'):
+            record_ai_usage(
+                school=session.school,
+                provider=AIUsageLog.PROVIDER_OPENAI,
+                source=AIUsageLog.SOURCE_AI_IMPORT,
+                session_id=session.pk,
+                pages=extracted['page_count'],
+                usage=verification,
+            )
 
         logger.info(
             'AI import session=%s processed: %s pages, %s questions',

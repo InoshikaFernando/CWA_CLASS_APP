@@ -89,6 +89,7 @@ urlpatterns = [
     # New clean URLs (school picker or direct redirect)
     path('admin-dashboard/schools/teachers/', views_admin.ManageTeachersRedirectView.as_view(), name='admin_select_school_teachers'),
     path('admin-dashboard/schools/students/', views_admin.ManageStudentsRedirectView.as_view(), name='admin_select_school_students'),
+    path('admin-dashboard/schools/locations/', views_admin.LocationsRedirectView.as_view(), name='admin_select_school_locations'),
     path('admin-dashboard/manage-departments/', views_admin.ManageDepartmentsRedirectView.as_view(), name='admin_manage_departments'),
     path('admin-dashboard/manage-subjects/', views_admin.ManageSubjectsRedirectView.as_view(), name='admin_manage_subjects'),
     path('admin-dashboard/manage-terms/', views_admin.ManageTermsRedirectView.as_view(), name='admin_manage_terms'),
@@ -117,6 +118,7 @@ urlpatterns = [
     path('admin-dashboard/schools/<int:school_id>/public-holidays/', views_admin.PublicHolidayManageView.as_view(), name='admin_public_holidays'),
     path('admin-dashboard/schools/<int:school_id>/terms/', views_admin.TermManageView.as_view(), name='admin_school_terms'),
     path('admin-dashboard/schools/<int:school_id>/holidays/', views_admin.HolidayManageView.as_view(), name='admin_school_holidays'),
+    path('admin-dashboard/schools/<int:school_id>/locations/', views_admin.LocationManageView.as_view(), name='admin_school_locations'),
 
     # Global questions management (superuser only)
     path('admin-dashboard/global-questions/', views_admin.GlobalQuestionsView.as_view(), name='admin_global_questions'),
@@ -143,6 +145,7 @@ urlpatterns = [
 
     # Student management (school-level)
     path('admin-dashboard/schools/<int:school_id>/students/', views_admin.SchoolStudentManageView.as_view(), name='admin_school_students'),
+    path('admin-dashboard/schools/<int:school_id>/students/recent/', views_admin.RecentStudentsView.as_view(), name='admin_school_students_recent'),
     path('admin-dashboard/schools/<int:school_id>/students/export-csv/', views_admin.SchoolStudentExportCSVView.as_view(), name='admin_school_students_export_csv'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/edit/', views_admin.SchoolStudentEditView.as_view(), name='admin_school_student_edit'),
     path('admin-dashboard/schools/<int:school_id>/students/<int:student_id>/clear-discount/', views_admin.StudentDiscountClearView.as_view(), name='admin_student_discount_clear'),
@@ -294,6 +297,7 @@ urlpatterns = [
     # Progress report generate / view / send to parents
     path('progress/class/<int:class_id>/reports/', views_progress.ProgressReportClassBuilderView.as_view(), name='progress_report_class_builder'),
     path('progress/student/<int:student_id>/report/generate/', views_progress.ProgressReportGenerateView.as_view(), name='progress_report_generate'),
+    path('progress/student/<int:student_id>/report/preview/', views_progress.ProgressReportPreviewView.as_view(), name='progress_report_preview'),
     path('progress/report/<int:report_id>/', views_progress.ProgressReportDetailView.as_view(), name='progress_report_detail'),
     path('progress/report/<int:report_id>/send/', views_progress.ProgressReportSendView.as_view(), name='progress_report_send'),
 
@@ -302,6 +306,7 @@ urlpatterns = [
     # Per-student billing start date (CPP-342)
     path('class/<int:class_id>/student/<int:student_id>/billing-start/', views.UpdateStudentBillingStartView.as_view(), name='update_student_billing_start'),
     path('class/<int:class_id>/student/<int:student_id>/remove/', views.ClassStudentRemoveView.as_view(), name='class_student_remove'),
+    path('class/<int:class_id>/student/<int:student_id>/move/', views.ClassStudentMoveView.as_view(), name='class_student_move'),
     path('class/<int:class_id>/teacher/<int:teacher_id>/remove/', views.ClassTeacherRemoveView.as_view(), name='class_teacher_remove'),
 
     # API
@@ -358,6 +363,10 @@ urlpatterns = [
     path('invoicing/<int:invoice_id>/cancel/', views_invoicing.CancelInvoiceView.as_view(), name='cancel_invoice'),
     path('invoicing/<int:invoice_id>/resend/', views_invoicing.ResendInvoiceView.as_view(), name='resend_invoice'),
     path('invoicing/<int:invoice_id>/pay/', views_invoicing.RecordManualPaymentView.as_view(), name='record_manual_payment'),
+    path('invoicing/<int:invoice_id>/zero-balance/', views_invoicing.ZeroInvoiceBalanceView.as_view(), name='zero_invoice_balance'),
+    path('invoicing/zero-balances/', views_invoicing.ZeroBalancesView.as_view(), name='zero_balances'),
+    path('invoicing/payment/<int:payment_id>/reverse/', views_invoicing.ReverseInvoicePaymentView.as_view(), name='reverse_invoice_payment'),
+    path('invoicing/zero-balances/batch/<int:batch_id>/reverse/', views_invoicing.ReverseZeroingBatchView.as_view(), name='reverse_zeroing_batch'),
 
     # Inbound webhooks (unauthenticated, signature-verified)
     path('webhooks/resend/', views_webhooks.ResendWebhookView.as_view(), name='resend_webhook'),
