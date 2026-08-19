@@ -1,8 +1,10 @@
 """Tests for the student sidebar — class-specific links only (no maths links).
 
-The student sidebar (sidebar_student.html) is shown on non-subject pages
-like My Classes, Attendance, Join Class.  Maths-specific links are now in
-sidebar_maths.html (tested separately).
+The student sidebar (sidebar_student.html) is the single, unified student
+sidebar shown on non-subject pages like My Classes, Attendance, Join Class.
+Maths-specific links are rendered inline by the same partial when the
+``subject_sidebar == 'maths'`` context is set (i.e. on /maths/ pages), so the
+sidebar never structurally switches between maths and non-maths pages.
 """
 
 import re
@@ -116,8 +118,9 @@ class TestStudentSidebarNoClasses:
         assert_sidebar_has_link(self.page, "Profile")
 
 
-class TestHubHasNoSidebar:
-    """Hub page should have no sidebar for students."""
+class TestHubHasSidebar:
+    """Hub now renders the unified student sidebar, matching every other
+    student page (it previously hid the sidebar, which read as instability)."""
 
     @pytest.fixture(autouse=True)
     def _setup(self, live_server, page, enrolled_student, school, classroom):
@@ -127,6 +130,6 @@ class TestHubHasNoSidebar:
         page.goto(f"{self.url}/hub/")
         page.wait_for_load_state("domcontentloaded")
 
-    def test_no_sidebar_on_hub(self):
+    def test_sidebar_present_on_hub(self):
         sidebar = self.page.locator("aside#sidebar")
-        expect(sidebar).to_have_count(0)
+        expect(sidebar).to_have_count(1)

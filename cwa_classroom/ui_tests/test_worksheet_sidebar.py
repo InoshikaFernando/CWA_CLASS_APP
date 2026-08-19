@@ -156,9 +156,9 @@ class TestWorksheetSidebarLinks:
         maths_worksheet_assignment,
     ):
         """
-        On a non-subject page (e.g. /worksheets/my/), the Worksheets link should
-        have no ?subject= query param — it shows all subjects.
-        Note: /hub/ uses hide_sidebar=True so no sidebar is rendered there.
+        On a non-subject page (e.g. /worksheets/my/) reached without a
+        ?subject= param, the Worksheets link should have no ?subject= query
+        param — it shows all subjects.
         """
         do_login(page, live_server.url, enrolled_student)
         page.goto(f"{live_server.url}/worksheets/my/")
