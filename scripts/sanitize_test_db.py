@@ -15,7 +15,7 @@ What it does:
   1. Resets all user passwords to Password1!
   2. Replaces all email addresses with safe test addresses
   3. Clears Stripe IDs (set via env vars in test)
-  4. Clears email logs
+  4. Clears email logs AND the pending email queue
   5. Clears pending passwords and invite tokens
 """
 
@@ -62,6 +62,20 @@ print(f'    {pi_count} parent invites sanitized.')
 from classroom.models import EmailLog
 EmailLog.objects.all().delete()
 print('    Email logs cleared.')
+
+# EmailQueue — MUST be cleared, not rewritten.
+#
+# Rewriting User.email above does NOT make queued mail safe: EmailQueue stores a
+# denormalised copy of the address at queue time, and html_content holds the
+# fully-rendered invoice (real names, amounts, bank details). A restored prod
+# dump therefore carries real parents' addresses and real invoices in this
+# table, and the drain cron will happily send them from the test box.
+#
+# Dropping the rows is the only safe move — a test environment has no business
+# delivering mail that prod queued.
+from classroom.models import EmailQueue
+queued = EmailQueue.objects.all().delete()
+print(f'    Email queue cleared ({queued[0]} row(s)) — restored prod queues are never sent from test.')
 
 # EmailPreference
 from classroom.models import EmailPreference
