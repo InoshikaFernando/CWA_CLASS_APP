@@ -85,6 +85,7 @@ class TestExistingPdfWorksheetSessionUnaffected:
     take a maths worksheet end-to-end without errors.
     """
 
+    @pytest.mark.smoke
     @pytest.mark.django_db(transaction=True)
     def test_student_session_loads_and_mcq_answer_saved(
         self,

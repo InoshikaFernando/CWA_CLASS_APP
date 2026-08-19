@@ -33,6 +33,7 @@ def _goto_dashboard(page: Page, live_server_url: str) -> None:
 
 class TestStudentDashboard:
 
+    @pytest.mark.smoke
     @pytest.mark.django_db(transaction=True)
     def test_page_loads_with_heading_and_time_stats(
         self, page: Page, live_server, enrolled_student
