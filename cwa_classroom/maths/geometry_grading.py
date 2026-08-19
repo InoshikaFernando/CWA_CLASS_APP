@@ -454,6 +454,12 @@ def validate_plane_spec(plane_spec):
         for s in items:
             _check_segment(s)
 
+    # Optional: draw a smooth curve through the student's plotted points (plot_points
+    # only — a visual "join the dots into a parabola" aid; grading is unchanged).
+    curve = plane_spec.get('curve')
+    if curve is not None and not isinstance(curve, bool):
+        raise ValueError('plane_spec.curve must be a boolean.')
+
 
 def grade_plane(plane_spec, payload):
     """True if the student's plotted marks match the target set for a plane question.
