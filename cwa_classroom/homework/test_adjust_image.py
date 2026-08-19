@@ -69,6 +69,45 @@ class AdjustImageTests(TestCase):
         self.assertIn('page-image/', html)             # endpoint wired into modal
         self.assertIn('recrop/', html)
 
+    def test_crop_button_opens_question_page(self):
+        # The crop trigger must carry the question's own page so the modal opens
+        # there. page_num drives it; when the model omitted page_num, the page is
+        # recovered from the generated image_ref filename (worksheet_img_..._pN).
+        s = HomeworkUploadSession.objects.create(
+            user=self.teacher, school=self.school, pdf_filename='m.pdf',
+            status=HomeworkUploadSession.STATUS_DONE, page_count=3, is_confirmed=False,
+            extracted_data={'questions': [
+                {'question_text': 'no-image q', 'question_type': 'short_answer',
+                 'has_image': False, 'page_num': 3,
+                 'answers': [{'text': 'a', 'is_correct': True}]},
+                {'question_text': 'cropped table q', 'question_type': 'short_answer',
+                 'has_image': True, 'image_ref': 'worksheet_img_q2_p2.png',
+                 'answers': [{'text': 'b', 'is_correct': True}]},
+            ]},
+            extracted_images={'worksheet_img_q2_p2.png': _PNG_B64},
+        )
+        s.pdf_file.save('m.pdf', ContentFile(_pdf_bytes()), save=True)
+        self.client.force_login(self.teacher)
+        html = self.client.get(reverse('homework:pdf_preview', args=[s.pk])).content.decode()
+        self.assertIn('data-adjust="0" data-page="3"', html)   # from page_num
+        self.assertIn('data-adjust="1" data-page="2"', html)   # from image_ref
+
+    def test_suspect_answer_key_shows_warning(self):
+        s = HomeworkUploadSession.objects.create(
+            user=self.teacher, school=self.school, pdf_filename='w.pdf',
+            status=HomeworkUploadSession.STATUS_DONE, page_count=1, is_confirmed=False,
+            extracted_data={'questions': [{
+                'question_text': 'Largest range?', 'question_type': 'short_answer',
+                'page_num': 1, 'answers': [{'text': 'Oslo', 'is_correct': True}],
+                'explanation': 'Oslo 44, Buenos Aires 45. Wait — Buenos Aires is largest.',
+            }]},
+            extracted_images={},
+        )
+        s.pdf_file.save('w.pdf', ContentFile(_pdf_bytes()), save=True)
+        self.client.force_login(self.teacher)
+        html = self.client.get(reverse('homework:pdf_preview', args=[s.pk])).content.decode()
+        self.assertIn('second-guessing or scratch work', html)
+
     def test_page_image_endpoint(self):
         s = self._session()
         self.client.force_login(self.teacher)

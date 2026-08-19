@@ -378,7 +378,8 @@ Your task:
    reference the image instead when the question depends on a visual.
 5. Set source_page on EVERY question to the 1-based page number it appears on (the page whose
    screenshot shows it). This is separate from image_page — it is required even for text-only
-   questions that carry no figure, so the answer verifier can pull up the right page.
+   questions that carry no figure, so the answer verifier can pull up the right page and the
+   review editor can open the crop tool on it. image_page is only for a drawn figure's box.
 
 IMAGE NECESSITY (important — most questions need NO image):
 - Set image_ref to null whenever the question can be fully understood and answered from text alone
@@ -573,6 +574,11 @@ shown in the question, then check it.
   recompute until it is.
 - The explanation must describe the SAME numbers as the answer. Never let the answer and
   the explanation disagree with each other or with the figure.
+- The explanation must be CLEAN and FINAL: do your working silently and write only the
+  verified conclusion. Never leave scratch work, self-corrections, or "wait, let me redo
+  this" notes in it. For multiple choice, the option you mark is_correct MUST be the exact
+  option the explanation concludes is right — if the explanation ends up favouring a
+  different option, change which option is ticked, not the explanation.
 - If you cannot determine the correct answer with confidence, leave the answer text empty
   rather than inventing one.
 

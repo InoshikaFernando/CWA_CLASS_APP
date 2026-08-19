@@ -14,6 +14,8 @@ from accounts.models import Role
 from billing.entitlements import get_school_for_user, has_module, has_module_any_school, check_ai_import_quota
 from classroom.views import RoleRequiredMixin, _get_question_scope
 
+from worksheets.services import answer_review_warning, question_source_page
+
 from .models import AIImportSession, AIImportUsage
 
 
@@ -339,9 +341,13 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 q['graph_spec_json'] = json.dumps(q['graph_spec'], indent=2)
             if q.get('number_line_spec'):
                 q['number_line_spec_json'] = json.dumps(q['number_line_spec'], indent=2)
-            # For the "Adjust image" crop modal: which page + the current crop box.
-            q['image_page'] = q.get('image_page') or q.get('page') or 1
+            # For the "Adjust image" crop modal: open the page this question maps
+            # to (falls back through crop provenance, the ref filename, source_page).
+            q['image_page'] = question_source_page(q)
             q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
+            # Flag a suspect answer key (explanation disagrees with / second-guesses
+            # the ticked answer) so the teacher checks it before confirming.
+            q['answer_warning'] = answer_review_warning(q)
 
         from worksheets.page_selection import describe_page_selection
 

@@ -335,6 +335,9 @@
             {% if q.question_type != 'extended_answer' and q.question_type != 'long_division' and q.question_type != 'column_operation' and q.question_type != 'plot_points' and q.question_type != 'plot_line' and q.question_type != 'identify_coords' and q.question_type != 'read_graph' and q.question_type != 'measure' and q.question_type != 'number_line' %}
             <div id="answers-row-{{ q_idx }}">
               <label class="block text-xs font-medium text-gray-500 mb-2">Answers <span class="text-gray-400 font-normal">(tick the correct one — add alternatives that should also be accepted)</span></label>
+              {% if q.answer_warning %}
+              <p class="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">⚠ {{ q.answer_warning }}</p>
+              {% endif %}
               <div class="space-y-2" id="answers-box-{{ q_idx }}">
                 {% for a in q.answers %}
                 <div class="flex items-center gap-2">
