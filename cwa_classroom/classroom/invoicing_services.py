@@ -789,9 +789,17 @@ def issue_invoices(invoice_ids, user):
 
             issued.append(invoice)
 
-    # Queue email notifications for background delivery (outside transaction)
+    # Queue email notifications for background delivery (outside transaction).
+    # The per-invoice result is attached to each invoice and logged: an invoice
+    # that reached nobody must not look like a clean issue to the caller.
     for invoice in issued:
-        _send_invoice_email(invoice, force_queue=True)
+        invoice.email_result = _send_invoice_email(invoice, force_queue=True)
+        if invoice.email_result['skipped_no_email']:
+            logger.warning(
+                'Invoice %s issued but NOT emailed — no contact with an email '
+                'address (student %s, school %s).',
+                invoice.invoice_number, invoice.student_id, invoice.school_id,
+            )
 
     return issued
 
@@ -800,11 +808,20 @@ def _resolve_invoice_recipients(policy, parent_links, guardian_links):
     """
     Decide who should receive an invoice email based on the school policy.
 
-    Returns (send_to_student: bool, send_to_parents: bool).
-    When send_to_parents is False the caller skips all parent/guardian loops.
-    When both are False (parents_only + no parents) no email is sent at all.
+    Returns (send_to_student: bool, send_to_parents: bool). A True flag only
+    says the policy *allows* that group; whether anyone is actually reachable
+    is decided by ``get_invoice_email_recipients``.
+
+    "Has parents" means CONTACTABLE parents — a link whose parent or guardian
+    has an email address. A link with no address cannot receive anything, so
+    under ``parents_fallback_student`` it must not suppress the fallback to the
+    student, or the invoice reaches nobody.
     """
-    has_parents = bool(list(parent_links) or list(guardian_links))
+    has_parents = any(
+        getattr(link.parent, 'email', None) for link in parent_links
+    ) or any(
+        getattr(sg.guardian, 'email', None) for sg in guardian_links
+    )
     if policy == 'parents_only':
         return False, True
     if policy == 'parents_and_student':
@@ -813,6 +830,70 @@ def _resolve_invoice_recipients(policy, parent_links, guardian_links):
         return True, False
     # Default: 'parents_fallback_student' (and any unrecognised value)
     return (not has_parents), True
+
+
+def get_invoice_email_recipients(invoice, eff=None):
+    """
+    Return ``(recipients, policy)`` for an invoice email.
+
+    Each recipient is ``{'email', 'user', 'kind'}`` where kind is 'student',
+    'parent' or 'guardian'. Addresses are de-duplicated case-insensitively,
+    keeping the highest-priority occurrence (student, then parents, then
+    guardians), so a guardian sharing the student's address is emailed once.
+
+    An empty list means the invoice reaches nobody. Shared with the cancellation
+    email and the audit command so all three agree on who an invoice is for.
+    """
+    student = invoice.student
+    school = invoice.school
+
+    if eff is None:
+        primary_dept = None
+        primary_classroom = None
+        for li in invoice.line_items.select_related(
+            'classroom', 'classroom__department',
+        ).all():
+            if li.classroom:
+                primary_classroom = li.classroom
+                if li.classroom.department:
+                    primary_dept = li.classroom.department
+                break
+        eff = school.get_effective_settings(primary_dept, classroom=primary_classroom)
+
+    policy = eff.get('invoice_recipient_policy', 'parents_fallback_student')
+
+    parent_links = list(ParentStudent.objects.filter(
+        student=student, school=school, is_active=True,
+    ).select_related('parent'))
+    school_student = SchoolStudent.objects.filter(
+        student=student, school=school,
+    ).first()
+    guardian_links = list(StudentGuardian.objects.filter(
+        student=student,
+    ).select_related('guardian')) if school_student else []
+
+    send_to_student, send_to_parents = _resolve_invoice_recipients(
+        policy, parent_links, guardian_links,
+    )
+
+    recipients = []
+    seen = set()
+
+    def _add(email, user, kind):
+        if not email or email.lower() in seen:
+            return
+        seen.add(email.lower())
+        recipients.append({'email': email, 'user': user, 'kind': kind})
+
+    if send_to_student:
+        _add(student.email, student, 'student')
+    if send_to_parents:
+        for link in parent_links:
+            _add(link.parent.email, link.parent, 'parent')
+        for sg in guardian_links:
+            _add(sg.guardian.email, None, 'guardian')
+
+    return recipients, policy
 
 
 def _send_invoice_email(invoice, force_queue=False):
@@ -826,18 +907,20 @@ def _send_invoice_email(invoice, force_queue=False):
         {
             'sent': [<email str>, ...],   # successfully delivered (queued) recipients
             'failed': [<email str>, ...], # recipients we attempted but errored
-            'skipped_no_email': bool,     # True if the student has no email at all
+            'skipped_no_email': bool,     # True if NO recipient has an email
         }
+
+    ``skipped_no_email`` means the invoice reached nobody: neither the student
+    nor any parent/guardian the policy allows has an address on file. It does
+    NOT mean "the student has no email" — a student without their own address
+    is the normal case for a young child, and their parents must still be
+    emailed.
     """
     from .email_service import send_templated_email
 
     result = {'sent': [], 'failed': [], 'skipped_no_email': False}
 
     student = invoice.student
-    if not student.email:
-        result['skipped_no_email'] = True
-        return result
-
     school = invoice.school
     line_items = invoice.line_items.select_related('classroom', 'classroom__department').all()
 
@@ -928,36 +1011,31 @@ def _send_invoice_email(invoice, force_queue=False):
     }
 
     subject = f'Invoice {invoice.invoice_number} — {school.name}'
-    sent_emails = set()
 
-    # Resolve recipient policy
-    policy = eff.get('invoice_recipient_policy', 'parents_fallback_student')
-    parent_links = ParentStudent.objects.filter(
-        student=student, school=school, is_active=True,
-    ).select_related('parent')
-    school_student = SchoolStudent.objects.filter(student=student, school=school).first()
-    guardian_links = (
-        StudentGuardian.objects.filter(student=student).select_related('guardian')
-        if school_student else []
-    )
-    send_to_student, send_to_parents = _resolve_invoice_recipients(policy, parent_links, guardian_links)
+    recipients, policy = get_invoice_email_recipients(invoice, eff=eff)
 
-    if not send_to_student and not send_to_parents:
-        logger.info(
-            'Invoice %s: policy=%s, no parents linked — email suppressed intentionally.',
-            invoice.invoice_number, policy,
+    if not recipients:
+        # An issued invoice that reaches nobody is a data problem the institute
+        # must fix (no parent linked, or no address on the contacts the policy
+        # allows). Say so loudly — silently returning "fine" is what let invoices
+        # look issued while nobody was ever emailed.
+        result['skipped_no_email'] = True
+        logger.warning(
+            'Invoice %s: policy=%s resolved no recipient with an email address '
+            '— invoice NOT emailed (student %s).',
+            invoice.invoice_number, policy, student.pk,
         )
         return result
 
-    # 1. Send to student
-    if send_to_student and student.email:
+    for recipient in recipients:
+        email = recipient['email']
         try:
             success = send_templated_email(
-                recipient_email=student.email,
+                recipient_email=email,
                 subject=subject,
                 template_name='email/transactional/invoice_issued.html',
                 context=context,
-                recipient_user=student,
+                recipient_user=recipient['user'],
                 notification_type='invoice',
                 school=school,
                 department=primary_dept,
@@ -965,63 +1043,15 @@ def _send_invoice_email(invoice, force_queue=False):
                 force_queue=force_queue,
             )
         except Exception:
-            logger.warning('Invoice %s: unexpected error sending to student %s', invoice.invoice_number, student.email, exc_info=True)
+            logger.warning(
+                'Invoice %s: unexpected error sending to %s %s',
+                invoice.invoice_number, recipient['kind'], email, exc_info=True,
+            )
             success = False
         if success:
-            sent_emails.add(student.email.lower())
-            result['sent'].append(student.email)
+            result['sent'].append(email)
         else:
-            result['failed'].append(student.email)
-
-    if send_to_parents:
-        # 2. Send to parent accounts (ParentStudent links)
-        for link in parent_links:
-            if link.parent.email and link.parent.email.lower() not in sent_emails:
-                try:
-                    success = send_templated_email(
-                        recipient_email=link.parent.email,
-                        subject=subject,
-                        template_name='email/transactional/invoice_issued.html',
-                        context=context,
-                        recipient_user=link.parent,
-                        notification_type='invoice',
-                        school=school,
-                        department=primary_dept,
-                        invoice=invoice,
-                        force_queue=force_queue,
-                    )
-                except Exception:
-                    logger.warning('Invoice %s: unexpected error sending to parent %s', invoice.invoice_number, link.parent.email, exc_info=True)
-                    success = False
-                if success:
-                    sent_emails.add(link.parent.email.lower())
-                    result['sent'].append(link.parent.email)
-                else:
-                    result['failed'].append(link.parent.email)
-
-        # 3. Send to guardian contacts (StudentGuardian links)
-        for sg in guardian_links:
-            if sg.guardian.email and sg.guardian.email.lower() not in sent_emails:
-                try:
-                    success = send_templated_email(
-                        recipient_email=sg.guardian.email,
-                        subject=subject,
-                        template_name='email/transactional/invoice_issued.html',
-                        context=context,
-                        notification_type='invoice',
-                        school=school,
-                        department=primary_dept,
-                        invoice=invoice,
-                        force_queue=force_queue,
-                    )
-                except Exception:
-                    logger.warning('Invoice %s: unexpected error sending to guardian %s', invoice.invoice_number, sg.guardian.email, exc_info=True)
-                    success = False
-                if success:
-                    sent_emails.add(sg.guardian.email.lower())
-                    result['sent'].append(sg.guardian.email)
-                else:
-                    result['failed'].append(sg.guardian.email)
+            result['failed'].append(email)
 
     return result
 
@@ -1122,86 +1152,37 @@ def _send_invoice_cancelled_email(invoice, reason, credit_returned):
     }
 
     subject = f'Invoice {invoice.invoice_number} Cancelled — {school.name}'
-    sent_emails = set()
 
-    # Resolve recipient policy (same cascade as issued email)
     eff = school.get_effective_settings(primary_dept, classroom=primary_classroom)
-    policy = eff.get('invoice_recipient_policy', 'parents_fallback_student')
-    parent_links = ParentStudent.objects.filter(
-        student=student, school=school, is_active=True,
-    ).select_related('parent')
-    school_student = SchoolStudent.objects.filter(student=student, school=school).first()
-    guardian_links = (
-        StudentGuardian.objects.filter(student=student).select_related('guardian')
-        if school_student else []
-    )
-    send_to_student, send_to_parents = _resolve_invoice_recipients(policy, parent_links, guardian_links)
+    recipients, policy = get_invoice_email_recipients(invoice, eff=eff)
 
-    if not send_to_student and not send_to_parents:
-        logger.info(
-            'Invoice %s cancellation: policy=%s, no parents linked — email suppressed intentionally.',
+    if not recipients:
+        logger.warning(
+            'Invoice %s cancellation: policy=%s resolved no recipient with an '
+            'email address — cancellation NOT emailed.',
             invoice.invoice_number, policy,
         )
         return
 
-    # 1. Student
-    if send_to_student and student.email:
+    for recipient in recipients:
         try:
-            success = send_templated_email(
-                recipient_email=student.email,
+            send_templated_email(
+                recipient_email=recipient['email'],
                 subject=subject,
                 template_name='email/transactional/invoice_cancelled.html',
                 context=context,
-                recipient_user=student,
+                recipient_user=recipient['user'],
                 notification_type='invoice_cancelled',
                 school=school,
                 department=primary_dept,
                 invoice=invoice,
             )
         except Exception:
-            success = False
-        if success:
-            sent_emails.add(student.email.lower())
-
-    if send_to_parents:
-        # 2. Parents
-        for link in parent_links:
-            if link.parent.email and link.parent.email.lower() not in sent_emails:
-                try:
-                    success = send_templated_email(
-                        recipient_email=link.parent.email,
-                        subject=subject,
-                        template_name='email/transactional/invoice_cancelled.html',
-                        context=context,
-                        recipient_user=link.parent,
-                        notification_type='invoice_cancelled',
-                        school=school,
-                        department=primary_dept,
-                        invoice=invoice,
-                    )
-                except Exception:
-                    success = False
-                if success:
-                    sent_emails.add(link.parent.email.lower())
-
-        # 3. Guardians
-        for sg in guardian_links:
-            if sg.guardian.email and sg.guardian.email.lower() not in sent_emails:
-                try:
-                    success = send_templated_email(
-                        recipient_email=sg.guardian.email,
-                        subject=subject,
-                        template_name='email/transactional/invoice_cancelled.html',
-                        context=context,
-                        notification_type='invoice_cancelled',
-                        school=school,
-                        department=primary_dept,
-                        invoice=invoice,
-                    )
-                except Exception:
-                    success = False
-                if success:
-                    sent_emails.add(sg.guardian.email.lower())
+            logger.warning(
+                'Invoice %s cancellation: unexpected error sending to %s %s',
+                invoice.invoice_number, recipient['kind'], recipient['email'],
+                exc_info=True,
+            )
 
 
 # ---------------------------------------------------------------------------
