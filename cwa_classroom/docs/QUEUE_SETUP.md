@@ -193,3 +193,12 @@ venv/bin/python cwa_classroom/manage.py process_email_queue --dry-run
 
 A run whose oldest pending row is more than an hour old logs a WARNING saying
 the queue was not drained on schedule.
+
+**Never point a `*/2` cron at a large backlog without the wrapper.** The command
+has no locking: it materialises the pending rows, then marks each sent only
+after its send returns, so a second run starting mid-loop re-sends everything
+the first has not reached yet. Clearing a few hundred queued emails takes longer
+than the two-minute tick once the provider rate-limits, so the next tick lands
+mid-drain and families get duplicate invoices. `cron_process_email_queue.sh`
+runs under `flock` to prevent that — use it for manual drains too, so an
+operator run and a cron tick contend for the same lock instead of racing.
