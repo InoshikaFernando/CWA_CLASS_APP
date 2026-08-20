@@ -3221,7 +3221,27 @@ class DeleteQuestionView(RoleRequiredMixin, View):
             request=request,
         )
         messages.success(request, 'Question deleted.')
-        return redirect('question_list', level_number=level_number)
+        return redirect(_safe_next(request) or
+                        reverse('question_list', kwargs={'level_number': level_number}))
+
+
+def _safe_next(request):
+    """A caller-supplied return URL, but only if it points back at this site.
+
+    Callers that list questions (e.g. the question-health check page) want the
+    user returned to their filtered list rather than dumped on the level page.
+    Validated rather than trusted: an unchecked ``next`` is an open redirect.
+    """
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    target = request.POST.get('next') or request.GET.get('next')
+    if not target:
+        return None
+    if url_has_allowed_host_and_scheme(
+            target, allowed_hosts={request.get_host()},
+            require_https=request.is_secure()):
+        return target
+    return None
 
 
 class HoDOverviewView(RoleRequiredMixin, View):
