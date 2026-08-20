@@ -164,6 +164,18 @@
     <span>Global Questions</span>
   </a>
 
+  <!-- Question Health (superuser) — the audit dashboard for the question bank -->
+  {% if request.user.is_superuser %}
+  <a href="{% url 'question_health_admin_dashboard' %}"
+     class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+            {% if 'question-health' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.746 3.746 0 0121 12z"/>
+    </svg>
+    <span>Question Health</span>
+  </a>
+  {% endif %}
+
   <!-- ── Communication ── -->
   <div class="mt-4 mb-1 px-3">
     <span class="text-[10px] font-semibold uppercase tracking-widest text-white/40">Communication</span>
