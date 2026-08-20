@@ -3805,6 +3805,12 @@ class SubjectAppManageView(LoginRequiredMixin, View):
     def dispatch(self, request, *args, **kwargs):
         from django.http import HttpResponseForbidden
         user = request.user
+        # LoginRequiredMixin does its check inside super().dispatch(), which
+        # runs AFTER this method. So an anonymous visitor must be handed off
+        # before any query uses `user` as a foreign-key value — otherwise
+        # `teacher=AnonymousUser` raises and the page 500s at a stranger.
+        if not user.is_authenticated:
+            return super().dispatch(request, *args, **kwargs)
         is_hoi = SchoolTeacher.objects.filter(
             teacher=user, role='head_of_institute', is_active=True,
         ).exists()
