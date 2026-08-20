@@ -19,7 +19,12 @@ whitenoise>=6.5.0
 qrcode[pil]>=7.4.2
 gunicorn>=22.0.0
 resend>=2.0
-svix>=1.0
+# Upper bound deliberate. svix 2.0 changed verify() to return None instead of
+# the decoded payload; with `svix>=1.0` a routine deploy picked it up and every
+# correctly-signed Resend webhook started 400ing, silently stopping EmailLog
+# delivery updates. The view no longer depends on that return value, and this
+# bound stops the next major arriving the same way. Tested on 1.99.1 and 2.0.0.
+svix>=1.0,<3.0
 redis>=5.0.0
 django-rq>=2.10.0
 phonenumbers>=8.13
