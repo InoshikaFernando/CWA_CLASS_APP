@@ -142,11 +142,11 @@
           {% for row in flagged %}
           <tr class="border-b border-slate-700/60 last:border-0 align-top">
             <td class="py-2 pr-3">
-              {# Global questions open the Global Questions editor; anything
+              {% comment %}Global questions open the Global Questions editor; anything
                  school-scoped is not served by that modal, so it keeps the
                  Django admin link rather than 404ing. Snapshots taken before
                  is_global was recorded have no key, so they fall through to
-                 admin too — wrong-but-working beats a broken link. #}
+                 admin too — wrong-but-working beats a broken link.{% endcomment %}
               {% if row.is_global %}
               <a href="{% url 'admin_global_questions' %}?edit={{ row.id }}"
                  class="text-accent hover:underline">Q{{ row.id }}</a>

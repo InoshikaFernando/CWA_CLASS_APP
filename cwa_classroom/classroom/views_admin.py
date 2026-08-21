@@ -4048,9 +4048,14 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             request=request,
         )
 
-        # Return the updated row partial
+        # The modal gets a "Saved" body; the listing row is refreshed out of
+        # band. Returning the row alone meant the form had to target that row,
+        # which does not exist when the editor was opened by ?edit=<id> from
+        # the question-health pages — htmx then refused to send the request at
+        # all and the save looked like it simply did nothing.
         answers = question.answers.order_by('order', 'id')
-        return render(request, 'admin_dashboard/partials/question_row.html', {
+        return render(request, 'admin_dashboard/partials/question_edit_saved.html', {
+            'question': question,
             'q': question,
             'answers': list(answers),
         })
