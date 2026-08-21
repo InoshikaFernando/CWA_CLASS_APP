@@ -300,7 +300,8 @@ class NonChoiceQuestionTypeTests(TestCase):
     def test_short_answer_alternative_spellings_are_not_duplicates(self):
         # Two rows worth the same number is exactly what alternative accepted
         # answers look like; on a choice question it would be a real finding.
-        q = self._question(Question.SHORT_ANSWER, [('1/2', True), ('0.5', True)])
+        q = self._question(Question.SHORT_ANSWER, [('1/2', True), ('0.5', True)],
+                           text='What fraction of the shape is shaded?')
         self.assertEqual(self._codes(q), [])
 
     def test_short_answer_with_no_correct_row_is_still_flagged(self):
@@ -384,3 +385,53 @@ class UnitBearingOptionTests(TestCase):
         # unit rather than silently comparing equal to a bare number.
         from maths.answer_values import parse_answer_unit
         self.assertNotEqual('', parse_answer_unit('4 t'))
+
+
+class NegativeFirstTermTests(TestCase):
+    """A negative first term must survive the prompt.
+
+    Production, Year 8 Number › Integers: "What is -7 + 12?" was reported as
+    "7 + 12 = 19 but the flagged answer is '5'". The stored answer was right —
+    the separator in the prompt pattern allowed '-' as well as ':', so the
+    minus sign was eaten before the expression was ever parsed. Every correct
+    negative-number question in the topic was flagged as a wrong answer key.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=985, defaults={'display_name': 'negatives fixture'})
+
+    def _question(self, text, options):
+        q = Question.objects.create(
+            level=self.level, question_text=text,
+            question_type=Question.MULTIPLE_CHOICE, difficulty=1)
+        for order, (answer_text, is_correct) in enumerate(options):
+            Answer.objects.create(question=q, answer_text=answer_text,
+                                  is_correct=is_correct, order=order)
+        return q
+
+    def test_the_four_reported_questions_are_clean(self):
+        cases = [
+            ('What is -7 + 12?', '5'),
+            ('What is -15 + (-8)?', '-23'),
+            ('What is -18 + 18?', '0'),
+            ('What is -33 + 14?', '-19'),
+        ]
+        for text, answer in cases:
+            with self.subTest(text):
+                q = self._question(text, [(answer, True), ('99', False),
+                                          ('98', False), ('97', False)])
+                issues, verified = verify_question(q)
+                self.assertEqual([], [i.code for i in issues])
+                self.assertTrue(verified)
+
+    def test_a_genuinely_wrong_negative_key_is_still_caught(self):
+        # Scoping the separator must not blunt the check it exists for.
+        q = self._question('What is -7 + 12?', [('19', True), ('1', False),
+                                                ('2', False), ('3', False)])
+        issues, _ = verify_question(q)
+        self.assertIn(WRONG_ANSWER_KEY, [i.code for i in issues])
+
+    def test_a_colon_separator_still_works(self):
+        self.assertEqual('-3/5 + 1', extract_expression('Calculate: -3/5 + 1'))

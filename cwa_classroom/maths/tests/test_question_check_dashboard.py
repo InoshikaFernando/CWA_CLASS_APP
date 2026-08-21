@@ -929,3 +929,98 @@ class AnswerAddRemoveTests(TestCase):
             f'is_correct_{q.answers.get(answer_text="14").id}': 'on'})
         response = self.client.post(self._url(q), payload)
         self.assertContains(response, 'still marked correct')
+
+
+class FillMissingAnswerTests(QuestionCheckTestBase):
+    """"No correct option" is the worst fault in the bank and had no repair.
+
+    Every student answering such a question is marked wrong, whatever they
+    type or pick. Q5709 — "5531 - 4414 = ?" — had no answer rows at all: the
+    check page could report it and do nothing else.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def _question(self, text, options=(), qtype='short_answer'):
+        q = Question.objects.create(
+            level=self.y7, topic=self.fractions, question_text=text,
+            question_type=qtype)
+        for order, (label, correct) in enumerate(options):
+            Answer.objects.create(question=q, answer_text=label,
+                                  is_correct=correct, order=order)
+        return q
+
+    def _fix(self, question):
+        return self.client.post(
+            reverse('question_bulk_fix_admin_dashboard'),
+            {'action': 'fill_answer', 'question_id': [str(question.id)]},
+            follow=True)
+
+    def test_the_page_offers_the_fix(self):
+        # The fix dropdown only renders once a run has findings to act on.
+        self._question('5531 - 4414 = ?')
+        response = self.client.get(
+            reverse('question_check_admin_dashboard'), {'run': '1'})
+        self.assertContains(response, 'Work out the missing answer')
+
+    def test_production_q5709_gets_its_answer(self):
+        q = self._question('5531 - 4414 = ?')
+
+        self._fix(q)
+
+        q.refresh_from_db()
+        correct = q.answers.filter(is_correct=True)
+        self.assertEqual(1, correct.count())
+        self.assertEqual('1117', correct.first().answer_text)
+
+    def test_an_existing_option_holding_the_answer_is_flagged_not_duplicated(self):
+        # Adding a second copy would leave the correct answer listed twice —
+        # the very fault this dashboard exists to find.
+        q = self._question('5531 - 4414 = ?', qtype='multiple_choice',
+                           options=(('1117', False), ('1127', False),
+                                    ('9945', False), ('1017', False)))
+
+        self._fix(q)
+
+        q.refresh_from_db()
+        self.assertEqual(4, q.answers.count())
+        self.assertEqual(['1117'],
+                         [a.answer_text for a in q.answers.filter(is_correct=True)])
+
+    def test_a_word_problem_is_refused_rather_than_guessed(self):
+        q = self._question('How many apples does Sam have left?')
+
+        response = self._fix(q)
+
+        q.refresh_from_db()
+        self.assertEqual(0, q.answers.filter(is_correct=True).count())
+        self.assertContains(response, 'not a plain arithmetic expression')
+
+    def test_algebra_is_refused(self):
+        # '3x + 2 = ?' must never be evaluated as arithmetic.
+        q = self._question('3x + 2 = ?')
+
+        self._fix(q)
+
+        q.refresh_from_db()
+        self.assertEqual(0, q.answers.filter(is_correct=True).count())
+
+    def test_a_question_that_already_has_an_answer_is_left_alone(self):
+        q = self._question('5531 - 4414 = ?', options=(('1117', True),))
+
+        response = self._fix(q)
+
+        q.refresh_from_db()
+        self.assertEqual(1, q.answers.count())
+        self.assertContains(response, 'nothing to change')
+
+    def test_the_repaired_question_stops_being_flagged(self):
+        q = self._question('5531 - 4414 = ?')
+        self._fix(q)
+
+        q.refresh_from_db()
+        from maths.answer_verification import verify_question
+        issues, _ = verify_question(q)
+        self.assertEqual([], [i.code for i in issues])

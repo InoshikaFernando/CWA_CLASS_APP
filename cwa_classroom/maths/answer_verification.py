@@ -62,10 +62,22 @@ class Issue:
 # Arithmetic evaluation
 # --------------------------------------------------------------------------
 # Only question text of this shape is evaluated. Anything else is UNVERIFIED.
+# The separator after the instruction word is ':' ONLY. It used to allow '-'
+# as well, which silently ate the minus sign off a negative first term: "What
+# is -7 + 12?" was evaluated as "7 + 12" = 19 and every correct integer answer
+# in Year 8 Number › Integers was reported as a wrong answer key. A dash there
+# is far more likely to BE the number than to separate anything.
 _PROMPT_RE = re.compile(
-    r'^\s*(?:calculate|compute|evaluate|work\s+out|what\s+is)\s*[:\-]?\s*(.+?)\s*[?.]?\s*$',
+    r'^\s*(?:calculate|compute|evaluate|work\s+out|what\s+is)\s*:?\s*(.+?)\s*[?.]?\s*$',
     re.IGNORECASE,
 )
+
+# The other shape arithmetic questions come in: a bare equation ending in a
+# placeholder. "5531 - 4414 = ?" carries no instruction word, so it was never
+# evaluated — which is why a question with no stored answer at all could not be
+# repaired automatically. The letter guard in extract_expression still rejects
+# algebra ("3x + 2 = ?") and multi-part answers ("C = 8, D = 3").
+_EQUATION_RE = re.compile(r'^\s*(.+?)\s*=\s*[?_\s]*$')
 
 _TOKEN_RE = re.compile(r'''
       (?P<mixed>\d+\s+\d+\s*/\s*\d+)      # 2 3/5
@@ -92,10 +104,14 @@ def extract_expression(question_text):
     """
     if not question_text:
         return None
-    match = _PROMPT_RE.match(str(question_text))
+    text = str(question_text)
+    match = _PROMPT_RE.match(text) or _EQUATION_RE.match(text)
     if not match:
         return None
     expr = match.group(1)
+    if '=' in expr:
+        # More than one equals sign means more than one statement.
+        return None
     # Any letter disqualifies the expression, EXCEPT a whitespace-delimited 'x'
     # used as a times sign ("4/5 x 1/3"). The whitespace requirement is what
     # separates that from an algebraic term: in "3x + 2" the 'x' touches the

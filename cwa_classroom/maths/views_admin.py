@@ -293,6 +293,7 @@ BULK_ACTIONS = (
     ('pad_options', 'Add wrong answers (up to four options)'),
     ('to_short_answer', 'Change question type to Short Answer'),
     ('trim_options', 'Trim to four options (keeps the correct one)'),
+    ('fill_answer', 'Work out the missing answer (arithmetic only)'),
 )
 
 # Padding target — four options is the house style for multiple choice.
@@ -311,7 +312,8 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
     def post(self, request):
         from audit.services import log_event
 
-        from .duplicate_repair import Skipped, plan_padding, plan_repair
+        from .duplicate_repair import (
+            Skipped, plan_answer_fill, plan_padding, plan_repair)
         from .models import Answer, Question
 
         action = request.POST.get('action', '')
@@ -370,7 +372,8 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
 
     def _apply(self, action, question, answers):
         """Perform one fix. Returns an audit detail dict, or None for a no-op."""
-        from .duplicate_repair import plan_padding, plan_repair
+        from .duplicate_repair import (
+            plan_answer_fill, plan_padding, plan_repair)
         from .models import Answer
 
         if action == 'replace_duplicates':
@@ -382,6 +385,20 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
                 answer.save(update_fields=['answer_text'])
             return {'edits': [{'answer_id': a.id, 'was': old, 'now': new}
                               for a, old, new in edits]}
+
+        if action == 'fill_answer':
+            plan = plan_answer_fill(question, answers)
+            if plan is None:
+                return None
+            how, target = plan
+            if how == 'flag':
+                target.is_correct = True
+                target.save(update_fields=['is_correct'])
+                return {'flagged_correct': target.answer_text}
+            order = max((a.order for a in answers), default=-1) + 1
+            Answer.objects.create(question=question, answer_text=target,
+                                  is_correct=True, order=order)
+            return {'answer_added': target}
 
         if action == 'pad_options':
             additions = plan_padding(question, answers, target=PAD_TO)
