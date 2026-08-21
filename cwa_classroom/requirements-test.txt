@@ -8,3 +8,8 @@ freezegun==1.5.5
 playwright==1.49.1
 xlwt==1.3.0
 psycopg2-binary==2.9.10
+
+# Parses .github/workflows/*.yml in tests_workflows.py — an invalid workflow
+# file stops CI silently, so it is validated by a test rather than by noticing
+# the absence of check runs.
+PyYAML==6.0.2

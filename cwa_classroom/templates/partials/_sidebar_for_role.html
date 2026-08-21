@@ -1,0 +1,48 @@
+{% comment %}
+Canonical role → sidebar-partial dispatch. SINGLE SOURCE OF TRUTH — included by
+BOTH the desktop sidebar (base.html <aside>) and the mobile drawer
+(topbar.html) so the two can never drift out of sync.
+
+Relies on the role booleans (is_admin_user, is_teacher, ...) and subject_sidebar,
+all injected globally by the accounts/classroom context processors.
+
+Students get one unified sidebar that adapts inline; the single deliberate
+exception is Coding, which renders its own partial when browsing /coding/ pages.
+
+Each branch emits a stable `<!-- sidebar-variant:X -->` marker — an invisible,
+QA/regression hook so tests can assert exactly which sidebar a given role+page
+renders (and that desktop + mobile always agree). Do not remove the markers.
+{% endcomment %}
+{% if is_admin_user %}
+  <!-- sidebar-variant:admin -->
+  {% include "partials/sidebar_admin.html" %}
+{% elif is_institute_owner %}
+  <!-- sidebar-variant:hoi -->
+  {% include "partials/sidebar_hoi.html" %}
+{% elif is_hoi %}
+  <!-- sidebar-variant:hoi -->
+  {% include "partials/sidebar_hoi.html" %}
+{% elif is_hod %}
+  <!-- sidebar-variant:hod -->
+  {% include "partials/sidebar_hod.html" %}
+{% elif is_senior_teacher %}
+  <!-- sidebar-variant:senior_teacher -->
+  {% include "partials/sidebar_senior_teacher.html" %}
+{% elif is_teacher or is_junior_teacher %}
+  <!-- sidebar-variant:teacher -->
+  {% include "partials/sidebar_teacher.html" %}
+{% elif is_parent %}
+  <!-- sidebar-variant:parent -->
+  {% include "partials/sidebar_parent.html" %}
+{% elif is_student or is_individual_student %}
+  {% if subject_sidebar == 'coding' %}
+    <!-- sidebar-variant:coding -->
+    {% include "partials/sidebar_coding.html" %}
+  {% else %}
+    <!-- sidebar-variant:student -->
+    {% include "partials/sidebar_student.html" %}
+  {% endif %}
+{% elif is_accountant %}
+  <!-- sidebar-variant:accountant -->
+  {% include "partials/sidebar_accountant.html" %}
+{% endif %}

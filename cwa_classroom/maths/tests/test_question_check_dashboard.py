@@ -1,0 +1,240 @@
+"""The on-demand question check: filters, running, and fixing what it finds.
+
+The health dashboard reports the nightly snapshot for the whole bank. This page
+answers "what is wrong in Year 7 Fractions, right now?" and puts Edit/Delete
+next to each finding, so a super-admin never needs a shell to act on it.
+"""
+from django.contrib.auth import get_user_model
+from django.test import Client, TestCase
+from django.urls import reverse
+
+from classroom.models import Level, Subject, Topic
+from maths.models import Answer, Question
+
+User = get_user_model()
+
+
+class QuestionCheckTestBase(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.superuser = User.objects.create_superuser(
+            username='checkadmin', email='check@test.com', password='pass1234')
+        cls.student = User.objects.create_user(
+            username='checkstudent', email='cs@test.com', password='pass1234')
+
+        cls.maths = Subject.objects.create(name='Mathematics', slug='mathematics')
+        cls.science = Subject.objects.create(name='Science', slug='science')
+        cls.y7 = Level.objects.create(level_number=7, display_name='Year 7')
+        cls.y8 = Level.objects.create(level_number=8, display_name='Year 8')
+        cls.fractions = Topic.objects.create(
+            name='Fractions', slug='fractions', subject=cls.maths)
+        cls.algebra = Topic.objects.create(
+            name='Algebra', slug='algebra', subject=cls.maths)
+
+    def _question(self, *, level=None, topic=None, text='What is 1/2 + 1/4?',
+                  options=(('3/4', True), ('1/4', False)), image=''):
+        q = Question.objects.create(
+            level=level or self.y7, topic=topic or self.fractions,
+            question_text=text, question_type='multiple_choice', image=image,
+        )
+        for order, (label, correct) in enumerate(options):
+            Answer.objects.create(question=q, answer_text=label,
+                                  is_correct=correct, order=order)
+        return q
+
+    def _run(self, **params):
+        params.setdefault('run', '1')
+        return self.client.get(reverse('question_check_admin_dashboard'), params)
+
+
+class AccessTests(QuestionCheckTestBase):
+
+    def test_superuser_can_open_the_page(self):
+        self.client.login(username='checkadmin', password='pass1234')
+        response = self.client.get(reverse('question_check_admin_dashboard'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Check Questions')
+
+    def test_non_superuser_is_refused(self):
+        self.client.login(username='checkstudent', password='pass1234')
+        response = self.client.get(reverse('question_check_admin_dashboard'))
+        self.assertNotEqual(response.status_code, 200)
+
+    def test_anonymous_is_refused(self):
+        response = self.client.get(reverse('question_check_admin_dashboard'))
+        self.assertNotEqual(response.status_code, 200)
+
+    def test_the_health_dashboard_links_here(self):
+        # Reachability, not just existence — this whole page shipped once with
+        # no route to it from anywhere in the UI.
+        self.client.login(username='checkadmin', password='pass1234')
+        response = self.client.get(reverse('question_health_admin_dashboard'))
+        self.assertContains(response, reverse('question_check_admin_dashboard'))
+
+
+class FilterTests(QuestionCheckTestBase):
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def test_the_form_offers_subject_level_and_topic(self):
+        response = self.client.get(reverse('question_check_admin_dashboard'))
+        self.assertContains(response, 'filter-subject')
+        self.assertContains(response, 'filter-level')
+        self.assertContains(response, 'filter-topic')
+        self.assertContains(response, 'Mathematics')
+        self.assertContains(response, 'Year 7')
+        self.assertContains(response, 'Fractions')
+
+    def test_level_filter_excludes_other_years(self):
+        broken_y7 = self._question(level=self.y7, options=(('a', False), ('b', False)))
+        broken_y8 = self._question(level=self.y8, options=(('a', False), ('b', False)))
+
+        response = self._run(level=str(self.y7.id))
+        ids = [row['q'].id for row in response.context['rows']]
+        self.assertIn(broken_y7.id, ids)
+        self.assertNotIn(broken_y8.id, ids)
+
+    def test_topic_filter_excludes_other_topics(self):
+        broken_fr = self._question(topic=self.fractions, options=(('a', False), ('b', False)))
+        broken_al = self._question(topic=self.algebra, options=(('a', False), ('b', False)))
+
+        response = self._run(topic=str(self.fractions.id))
+        ids = [row['q'].id for row in response.context['rows']]
+        self.assertIn(broken_fr.id, ids)
+        self.assertNotIn(broken_al.id, ids)
+
+    def test_several_levels_can_be_selected_at_once(self):
+        a = self._question(level=self.y7, options=(('a', False), ('b', False)))
+        b = self._question(level=self.y8, options=(('a', False), ('b', False)))
+
+        response = self._run(level=[str(self.y7.id), str(self.y8.id)])
+        ids = [row['q'].id for row in response.context['rows']]
+        self.assertCountEqual([a.id, b.id], ids)
+
+    def test_a_junk_filter_value_does_not_500(self):
+        self._question(options=(('a', False), ('b', False)))
+        response = self._run(level='not-a-number')
+        self.assertEqual(response.status_code, 200)
+
+
+class DetectionTests(QuestionCheckTestBase):
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def test_a_question_with_no_correct_option_is_reported(self):
+        q = self._question(options=(('a', False), ('b', False)))
+        response = self._run()
+        rows = {row['q'].id: row for row in response.context['rows']}
+        self.assertIn(q.id, rows)
+        self.assertTrue(any(i['code'] == 'NO-CORRECT' for i in rows[q.id]['issues']))
+
+    def test_a_healthy_question_is_not_reported(self):
+        self._question(options=(('3/4', True), ('1/4', False)))
+        response = self._run()
+        self.assertEqual(response.context['rows'], [])
+
+    def test_advisory_issues_are_hidden_unless_asked_for(self):
+        # DUPLICATE-VALUE cannot mismark anyone, so it must not pad the list by
+        # default — but it has to be reachable when someone wants it.
+        # Two DISTRACTORS that are the same value (0.5 == 1/2), with the correct
+        # answer right — so the only finding is the advisory one.
+        self._question(options=(('3/4', True), ('0.5', False), ('1/2', False)))
+
+        default = self._run()
+        with_advisory = self._run(advisory='1')
+
+        self.assertEqual(default.context['rows'], [])
+        self.assertTrue(with_advisory.context['rows'])
+
+    def test_an_image_is_reported_next_to_the_finding(self):
+        # A question that reads oddly alone may be fine with its diagram, so the
+        # page shows the evidence rather than the reviewer having to go looking.
+        q = self._question(options=(('a', False), ('b', False)),
+                           image='questions/year7/fractions/pie.png')
+        response = self._run()
+        row = next(r for r in response.context['rows'] if r['q'].id == q.id)
+        self.assertTrue(row['has_image'])
+
+    def test_a_question_without_a_visual_says_so(self):
+        q = self._question(options=(('a', False), ('b', False)))
+        response = self._run()
+        row = next(r for r in response.context['rows'] if r['q'].id == q.id)
+        self.assertFalse(row['has_image'])
+        self.assertEqual(row['specs'], [])
+
+
+class CapTests(QuestionCheckTestBase):
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def test_hitting_the_cap_is_announced_not_hidden(self):
+        # A truncated run that looks complete is worse than no run: it reads as
+        # "your bank is clean" when most of it was never opened.
+        for _ in range(3):
+            self._question(options=(('a', False), ('b', False)))
+
+        response = self._run(limit='2')
+        self.assertTrue(response.context['truncated'])
+        self.assertEqual(response.context['scanned'], 2)
+        self.assertContains(response, 'not checked')
+
+    def test_a_complete_run_is_not_flagged_as_truncated(self):
+        self._question(options=(('a', False), ('b', False)))
+        response = self._run(limit='50')
+        self.assertFalse(response.context['truncated'])
+
+    def test_the_cap_cannot_be_raised_past_the_maximum(self):
+        response = self._run(limit='999999')
+        self.assertLessEqual(response.context['limit'], 5000)
+
+    def test_nothing_runs_until_asked(self):
+        self._question(options=(('a', False), ('b', False)))
+        response = self.client.get(reverse('question_check_admin_dashboard'))
+        self.assertFalse(response.context['ran'])
+        self.assertEqual(response.context['scanned'], 0)
+
+
+class DeleteReturnTests(QuestionCheckTestBase):
+    """Deleting from the check page returns you to your filtered list."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def test_delete_returns_to_the_check_page(self):
+        q = self._question(options=(('a', False), ('b', False)))
+        back = reverse('question_check_admin_dashboard') + '?run=1&level=' + str(self.y7.id)
+
+        response = self.client.post(
+            reverse('delete_question', args=[q.id]), {'next': back})
+
+        self.assertRedirects(response, back, fetch_redirect_response=False)
+        self.assertFalse(Question.objects.filter(pk=q.id).exists())
+
+    def test_an_offsite_next_is_ignored(self):
+        # An unvalidated `next` is an open redirect; the delete must still work
+        # but send the user somewhere on this site.
+        q = self._question(options=(('a', False), ('b', False)))
+
+        response = self.client.post(
+            reverse('delete_question', args=[q.id]),
+            {'next': 'https://evil.example.com/phish'})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn('evil.example.com', response['Location'])
+        self.assertFalse(Question.objects.filter(pk=q.id).exists())
+
+    def test_delete_without_next_keeps_the_old_destination(self):
+        q = self._question(options=(('a', False), ('b', False)))
+        response = self.client.post(reverse('delete_question', args=[q.id]))
+        self.assertRedirects(
+            response,
+            reverse('question_list', kwargs={'level_number': self.y7.level_number}),
+            fetch_redirect_response=False)

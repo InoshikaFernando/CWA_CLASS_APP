@@ -39,9 +39,13 @@ class MathsPlugin(SubjectPlugin):
     # UI / routing  (Phase 3)
     # ------------------------------------------------------------------
 
-    def sidebar_template(self) -> str:
-        # Matches the pre-existing per-subject sidebar partial.
-        return 'partials/sidebar_maths.html'
+    def sidebar_template(self) -> str | None:
+        # Maths has no standalone sidebar partial: the maths student nav is
+        # rendered inline by the unified ``sidebar_student.html`` (its
+        # ``subject_sidebar == 'maths'`` branch). Returning None keeps this in
+        # sync with base.html, which dispatches on role + subject_sidebar and
+        # never calls this hook for maths.
+        return None
 
     def has_content(self, classroom=None) -> bool:
         from maths.models import Question

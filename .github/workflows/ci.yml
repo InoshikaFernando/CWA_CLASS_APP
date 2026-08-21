@@ -124,6 +124,14 @@ jobs:
         working-directory: cwa_classroom
         run: pytest tests_migrations.py -v --tb=short
 
+      # Runs here because this job is the only one that is never path-gated.
+      # An invalid workflow file does not go red — GitHub kills the run in zero
+      # seconds and PRs show no checks at all — so it has to be caught by a
+      # test rather than by noticing the absence of one.
+      - name: Validate the GitHub Actions workflow files
+        working-directory: cwa_classroom
+        run: pytest tests_workflows.py -v --tb=short
+
   classroom-tests:
     name: Classroom Tests
     needs: changes

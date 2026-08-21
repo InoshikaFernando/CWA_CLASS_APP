@@ -348,6 +348,7 @@ bash scripts/deploy.sh    # re-runs migrate/collectstatic/restart against the ol
 | Caddyfile | `/etc/caddy/Caddyfile` |
 | Caddy logs | `/var/log/caddy/access.log` + `journalctl -u caddy` |
 | Error cron check | `scripts/cron_check_errors.sh` |
+| Question-health cron | `scripts/cron_record_question_health.sh` — **must be installed**, or `/admin-dashboard/question-health/` stays empty forever |
 
 ### 4.2 Restart / reload
 

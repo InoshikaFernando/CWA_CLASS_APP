@@ -34,6 +34,21 @@ _PLUGIN_SLUG_TO_SIDEBAR_KEY = {
 _LEGACY_NON_PLUGIN_PREFIXES = ('/music/', '/science/')
 
 
+def _plugin_subject_context(plugin):
+    """Build the ``subject_sidebar`` context dict for a registered plugin."""
+    sidebar_key = _PLUGIN_SLUG_TO_SIDEBAR_KEY.get(plugin.slug, plugin.slug)
+    try:
+        has_content = plugin.has_content()
+    except Exception:
+        has_content = False
+    return {
+        'subject_sidebar': sidebar_key,
+        'subject_has_quizzes': has_content,
+        'current_subject_slug': plugin.slug,
+        'current_subject_id': plugin.classroom_subject_id(),
+    }
+
+
 def subject_sidebar_context(request):
     """
     Set ``subject_sidebar`` so base.html picks the correct sidebar partial.
@@ -43,24 +58,33 @@ def subject_sidebar_context(request):
     first plugin that matches ``request.path``. Legacy non-plugin subjects
     (music, science) fall through to a minimal lookup that keeps the old
     behaviour intact.
+
+    Cross-subject pages that live *outside* a subject's URL prefix
+    (worksheets, homework) keep the subject context — and therefore the same
+    sidebar — when they carry a ``?subject=<plugin-slug>`` query parameter.
+    This matches the convention the worksheet views already read
+    (``request.GET['subject']``) and the sidebar links already emit, so the
+    student sidebar doesn't lose its subject section when moving from a
+    ``/maths/`` page to its worksheet list.
     """
-    from .subject_registry import plugin_for_path
+    from .subject_registry import plugin_for_path, get as get_plugin
 
     path = request.path
 
+    # 1) Path-based: the page lives under a subject's URL prefix.
     plugin = plugin_for_path(path)
     if plugin is not None:
-        sidebar_key = _PLUGIN_SLUG_TO_SIDEBAR_KEY.get(plugin.slug, plugin.slug)
-        try:
-            has_content = plugin.has_content()
-        except Exception:
-            has_content = False
-        return {
-            'subject_sidebar': sidebar_key,
-            'subject_has_quizzes': has_content,
-            'current_subject_slug': plugin.slug,
-            'current_subject_id': plugin.classroom_subject_id(),
-        }
+        return _plugin_subject_context(plugin)
+
+    # 2) Query-param based: a cross-subject page (worksheets / homework) was
+    #    reached with an explicit ``?subject=<plugin-slug>``. Only registered
+    #    plugin slugs are honoured, so the value is constrained to known
+    #    subjects and can't inject an arbitrary sidebar key.
+    subject_param = request.GET.get('subject')
+    if subject_param:
+        param_plugin = get_plugin(subject_param)
+        if param_plugin is not None:
+            return _plugin_subject_context(param_plugin)
 
     # ── Legacy: music / science still use a global Subject row + maths
     # Question table for their questions but have no plugin yet. Kept here

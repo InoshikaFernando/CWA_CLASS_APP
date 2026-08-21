@@ -137,3 +137,50 @@ class QuestionHealthDashboardViewTests(TestCase):
         response = self.client.get(self.url)
         self.assertContains(response, 'Distractor equals the answer')
         self.assertContains(response, 'Q6017')
+
+
+class QuestionHealthReachabilityTests(TestCase):
+    """The dashboard must be reachable by clicking, not only by typing the URL.
+
+    This page shipped with no link to it anywhere in the UI — the view, the URL
+    and the template all existed and were tested, so every test passed while the
+    feature was, in practice, undiscoverable. Testing that a page renders says
+    nothing about whether a user can get to it; that gap is what these tests
+    close.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.superuser = User.objects.create_superuser(
+            username='navadmin', email='nav@test.com', password='pass1234')
+        cls.teacher = User.objects.create_user(
+            username='navteacher', email='navt@test.com', password='pass1234')
+
+    def test_admin_sidebar_links_to_the_dashboard(self):
+        from django.template.loader import render_to_string
+
+        html = render_to_string(
+            'partials/sidebar_admin.html',
+            {'request': _FakeRequest(self.superuser)},
+        )
+        self.assertIn(reverse('question_health_admin_dashboard'), html)
+        self.assertIn('Question Health', html)
+
+    def test_sidebar_hides_the_link_from_non_superusers(self):
+        # The view is superuser-only, so a link a teacher can see is a link that
+        # only leads to a 403.
+        from django.template.loader import render_to_string
+
+        html = render_to_string(
+            'partials/sidebar_admin.html',
+            {'request': _FakeRequest(self.teacher)},
+        )
+        self.assertNotIn(reverse('question_health_admin_dashboard'), html)
+
+
+class _FakeRequest:
+    """Minimal stand-in for the request the sidebar reads (user + path)."""
+
+    def __init__(self, user, path='/admin-dashboard/'):
+        self.user = user
+        self.path = path

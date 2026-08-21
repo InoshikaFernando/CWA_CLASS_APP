@@ -14,14 +14,18 @@
       {% if latest %}
       <p class="text-xs mt-1 {% if latest_stale %}text-amber-400{% else %}text-slate-500{% endif %}">Last audit: {{ latest.created_at|date:"D d M Y, H:i" }} ({{ latest.created_at|timesince }} ago)</p>
       {% else %}
-      <p class="text-xs text-amber-400 mt-1">No audits yet — the <code>record_question_health</code> cron hasn't run.</p>
+      <p class="text-xs text-amber-400 mt-1">No audits yet — nothing has recorded a snapshot. Check that <code>cron_record_question_health.sh</code> is installed on the droplet.</p>
       {% endif %}
     </div>
+    <a href="{% url 'question_check_admin_dashboard' %}" data-testid="run-check-link"
+       class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition">
+      Check questions now →
+    </a>
   </div>
 
   {% if latest_stale %}
   <div class="mb-6 px-4 py-3 rounded-xl text-sm bg-amber-500/10 border border-amber-500/30 text-amber-300">
-    ⚠️ Stale data — the newest audit is {{ latest.created_at|timesince }} old (expected daily). The figures below are that old reading, not the current state. Check the <code>record_question_health</code> cron on the droplet.
+    ⚠️ Stale data — the newest audit is {{ latest.created_at|timesince }} old (expected daily). The figures below are that old reading, not the current state. Check that <code>cron_record_question_health.sh</code> is still installed and running on the droplet.
   </div>
   {% endif %}
 
@@ -29,7 +33,12 @@
   <div class="px-4 py-8 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-sm">
     Nothing recorded yet. Run
     <code class="px-1.5 py-0.5 rounded bg-slate-900 text-slate-200">manage.py record_question_health</code>
-    on the droplet, or wait for the daily cron.
+    on the droplet to take the first reading.
+    <span class="block mt-2 text-slate-400">
+      For it to stay current, <code class="px-1.5 py-0.5 rounded bg-slate-900 text-slate-200">scripts/cron_record_question_health.sh</code>
+      must be installed in the droplet's crontab — the install line is in the top of that file.
+      This page never fills itself in.
+    </span>
   </div>
   {% else %}
 
