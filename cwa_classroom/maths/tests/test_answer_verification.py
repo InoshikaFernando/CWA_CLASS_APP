@@ -435,3 +435,69 @@ class NegativeFirstTermTests(TestCase):
 
     def test_a_colon_separator_still_works(self):
         self.assertEqual('-3/5 + 1', extract_expression('Calculate: -3/5 + 1'))
+
+
+class GradedQuestionTests(TestCase):
+    """An extended answer has no stored correct answer — by design.
+
+    Production, Year 6 Number › Decimals: "Show your working and explain your
+    chosen strategy: 2.02 × 4 =" was reported as "No correct option — no option
+    flagged is_correct". There is no single correct answer to store for written
+    working; a person or a rubric judges it. The check was calling the format
+    itself a defect on questions that were working exactly as designed.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=984, defaults={'display_name': 'graded fixture'})
+
+    def _question(self, question_type, options=(), validation=None,
+                  text='Show your working and explain your chosen strategy: 2.02 x 4 ='):
+        q = Question.objects.create(
+            level=self.level, question_text=text,
+            question_type=question_type, difficulty=1,
+            **({'validation_type': validation} if validation else {}))
+        for order, (answer_text, is_correct) in enumerate(options):
+            Answer.objects.create(question=q, answer_text=answer_text,
+                                  is_correct=is_correct, order=order)
+        return q
+
+    def _codes(self, question):
+        issues, _ = verify_question(question)
+        return sorted(i.code for i in issues)
+
+    def test_an_extended_answer_with_no_stored_answer_is_clean(self):
+        q = self._question(Question.EXTENDED_ANSWER)
+        self.assertEqual([], self._codes(q))
+
+    def test_it_is_clean_with_empty_answer_rows_too(self):
+        # The editor offers four blank rows; leaving them blank is correct
+        # here, and must not read as four blank options plus a missing answer.
+        q = self._question(Question.EXTENDED_ANSWER,
+                           options=(('', False), ('', False)))
+        self.assertEqual([], self._codes(q))
+
+    def test_a_question_marked_for_human_grading_is_clean(self):
+        q = self._question(Question.SHORT_ANSWER,
+                           validation=Question.VALIDATION_HUMAN)
+        self.assertEqual([], self._codes(q))
+
+    def test_a_question_marked_for_ai_grading_is_clean(self):
+        q = self._question(Question.SHORT_ANSWER,
+                           validation=Question.VALIDATION_AI)
+        self.assertEqual([], self._codes(q))
+
+    def test_a_plain_short_answer_with_no_answer_is_STILL_reported(self):
+        # Production #13257, "Order the following decimals: .5, .30, .75, .19,
+        # .95" — auto-graded with nothing to grade against, so every student is
+        # marked wrong. Scoping this must not silence that.
+        q = self._question(Question.SHORT_ANSWER,
+                           text='Order the following decimals: .5, .30, .75')
+        self.assertIn(NO_CORRECT, self._codes(q))
+
+    def test_a_multiple_choice_with_no_correct_option_is_STILL_reported(self):
+        q = self._question(Question.MULTIPLE_CHOICE,
+                           options=(('1', False), ('2', False), ('3', False)),
+                           text='What is 1 + 1?')
+        self.assertIn(NO_CORRECT, self._codes(q))
