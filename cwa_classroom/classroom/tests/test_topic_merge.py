@@ -1,41 +1,28 @@
-"""Merging duplicated topic rows — detection, guardrails, and what moves.
+"""Topic inventory and merge — what exists, what is wrong, and what moves.
 
 The same topic gets created twice ("Fractions" alongside "Fraction"), which
 splits a strand in two: filtering to one copy silently misses every question
 filed under the other.
+
+Detection deliberately reports FACTS rather than guessing which names mean the
+same thing. A merge is not reversible, so the judgement call stays with a
+human.
 """
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from classroom.models import Level, Subject, Topic
+from classroom.models import Level, School, Subject, Topic
 from classroom.topic_merge import (
-    find_duplicate_groups,
+    exact_name_clashes,
     merge_topics,
-    normalise,
+    structural_issues,
+    subject_name_clashes,
+    topic_inventory,
     validate_merge,
 )
 from maths.models import Question
 
 User = get_user_model()
-
-
-class NormaliseTests(TestCase):
-
-    def test_a_trailing_plural_does_not_hide_a_duplicate(self):
-        self.assertEqual(normalise('Fraction'), normalise('Fractions'))
-
-    def test_case_and_spacing_are_noise(self):
-        self.assertEqual(normalise('  ADDITION '), normalise('Addition'))
-
-    def test_punctuation_is_noise(self):
-        self.assertEqual(normalise('Add & Subtract'), normalise('Add Subtract'))
-
-    def test_a_short_word_ending_in_s_is_left_alone(self):
-        # 'Mass' must not become 'Mas' and collide with something unrelated.
-        self.assertEqual(normalise('Mass'), 'mass')
-
-    def test_genuinely_different_topics_do_not_collide(self):
-        self.assertNotEqual(normalise('Fractions'), normalise('Decimals'))
 
 
 class TopicMergeTestBase(TestCase):
@@ -48,58 +35,168 @@ class TopicMergeTestBase(TestCase):
         cls.science = Subject.objects.create(name='Science', slug='sci-tm')
         cls.level = Level.objects.create(level_number=97, display_name='Y97')
 
-    def _topic(self, name, slug, subject=None, parent=None):
+    def _topic(self, name, slug, subject=None, parent=None, active=True):
         return Topic.objects.create(
-            name=name, slug=slug, subject=subject or self.maths, parent=parent)
+            name=name, slug=slug, subject=subject or self.maths, parent=parent,
+            is_active=active)
 
     def _question(self, topic, text='1 + 1 = ?'):
         return Question.objects.create(
             level=self.level, topic=topic, question_text=text,
             question_type='multiple_choice')
 
+    def _codes(self, **kwargs):
+        return [i['code'] for i in structural_issues(**kwargs)]
 
-class DetectionTests(TopicMergeTestBase):
 
-    def test_singular_and_plural_are_grouped(self):
-        a = self._topic('Fractions', 'fractions-a')
-        b = self._topic('Fraction', 'fraction-b')
+class InventoryTests(TopicMergeTestBase):
+    """The whole tree in one list — what makes a duplicate obvious to a human."""
 
-        groups = find_duplicate_groups()
-        ids = {t['id'] for g in groups for t in g['members']}
-        self.assertEqual({a.id, b.id}, ids)
+    def test_topics_are_grouped_by_subject(self):
+        self._topic('Fractions', 'fr-inv', subject=self.maths)
+        self._topic('Forces', 'forces-inv', subject=self.science)
 
-    def test_a_topic_with_no_twin_is_not_reported(self):
-        self._topic('Decimals', 'decimals-solo')
-        self.assertEqual([], find_duplicate_groups())
+        inventory = topic_inventory()
+        by_subject = {s['subject']: s for s in inventory}
+        self.assertEqual(['Fractions'],
+                         [t['name'] for t in by_subject['Mathematics']['topics']])
+        self.assertEqual(['Forces'],
+                         [t['name'] for t in by_subject['Science']['topics']])
 
-    def test_the_same_name_under_two_subjects_is_not_a_duplicate(self):
-        # Both subjects legitimately teach Fractions; merging them would move
-        # questions out of the subject they belong to.
-        self._topic('Fractions', 'fr-maths', subject=self.maths)
-        self._topic('Fractions', 'fr-sci', subject=self.science)
-        self.assertEqual([], find_duplicate_groups())
+    def test_each_topic_reports_what_it_holds(self):
+        topic = self._topic('Addition', 'add-inv')
+        self._question(topic)
+        self._question(topic, '2 + 2 = ?')
+        self._topic('Carrying', 'carry-inv', parent=topic)
 
-    def test_the_copy_holding_the_most_questions_is_suggested(self):
-        small = self._topic('Fraction', 'fr-small')
-        big = self._topic('Fractions', 'fr-big')
-        self._question(big)
-        self._question(big, '2 + 2 = ?')
-        self._question(small)
+        entry = topic_inventory()[0]['topics']
+        by_name = {t['name']: t for t in entry}
+        self.assertEqual(2, by_name['Addition']['questions'])
+        self.assertEqual(1, by_name['Addition']['subtopics'])
 
-        group = find_duplicate_groups()[0]
-        self.assertEqual(big.id, group['suggested_keep_id'])
-        self.assertEqual(3, group['total_questions'])
+    def test_a_subject_reports_its_total(self):
+        a = self._topic('Addition', 'add-tot')
+        b = self._topic('Division', 'div-tot')
+        self._question(a)
+        self._question(b)
 
-    def test_each_member_reports_what_it_holds(self):
-        keep = self._topic('Addition', 'add-1')
-        dupe = self._topic('Additions', 'add-2')
-        self._question(keep)
-        self._topic('Carrying', 'carry-1', parent=dupe)
+        entry = topic_inventory()[0]
+        self.assertEqual(2, entry['questions'])
 
-        group = find_duplicate_groups()[0]
-        by_id = {m['id']: m for m in group['members']}
-        self.assertEqual(1, by_id[keep.id]['questions'])
-        self.assertEqual(1, by_id[dupe.id]['subtopics'])
+    def test_the_inventory_can_be_narrowed_to_one_subject(self):
+        self._topic('Fractions', 'fr-nar', subject=self.maths)
+        self._topic('Forces', 'forces-nar', subject=self.science)
+
+        inventory = topic_inventory(subject_ids=[self.maths.id])
+        self.assertEqual(['Mathematics'], [s['subject'] for s in inventory])
+
+
+class ExactClashTests(TopicMergeTestBase):
+    """Only literal name collisions are reported — no fuzzy matching."""
+
+    def test_two_topics_with_the_same_name_are_reported(self):
+        a = self._topic('Addition', 'add-1')
+        b = self._topic('Addition', 'add-2')
+
+        clash = exact_name_clashes()[0]
+        self.assertEqual({a.id, b.id}, {m['id'] for m in clash['members']})
+
+    def test_case_and_spacing_do_not_hide_a_clash(self):
+        # The picker shows both as the same word, so they collide.
+        a = self._topic('Addition', 'add-3')
+        b = self._topic(' addition ', 'add-4')
+
+        clash = exact_name_clashes()[0]
+        self.assertEqual({a.id, b.id}, {m['id'] for m in clash['members']})
+
+    def test_singular_and_plural_are_NOT_treated_as_the_same(self):
+        # "Fraction" vs "Fractions" may well be a duplicate — but that is a
+        # judgement call, and a merge cannot be undone. Guessing here would
+        # also collapse "Mass"/"Masses" and "Time"/"Times".
+        self._topic('Fraction', 'fr-sing')
+        self._topic('Fractions', 'fr-plur')
+
+        self.assertEqual([], exact_name_clashes())
+
+    def test_the_same_name_under_two_subjects_is_not_a_clash(self):
+        # Both subjects legitimately teach Fractions.
+        self._topic('Fractions', 'fr-m', subject=self.maths)
+        self._topic('Fractions', 'fr-s', subject=self.science)
+
+        self.assertEqual([], exact_name_clashes())
+
+    def test_a_unique_name_is_not_reported(self):
+        self._topic('Decimals', 'dec-solo')
+        self.assertEqual([], exact_name_clashes())
+
+
+class StructuralIssueTests(TopicMergeTestBase):
+    """Findings that hold regardless of anyone's naming preferences."""
+
+    def test_a_duplicate_name_is_reported(self):
+        self._topic('Addition', 'add-s1')
+        self._topic('Addition', 'add-s2')
+        self.assertIn('DUPLICATE-NAME', self._codes())
+
+    def test_a_topic_with_nothing_in_it_is_reported(self):
+        self._topic('Ghost', 'ghost-1')
+        self.assertIn('EMPTY-TOPIC', self._codes())
+
+    def test_a_topic_holding_questions_is_not_called_empty(self):
+        topic = self._topic('Addition', 'add-full')
+        self._question(topic)
+        self.assertNotIn('EMPTY-TOPIC', self._codes())
+
+    def test_a_parent_topic_with_no_questions_is_not_called_empty(self):
+        parent = self._topic('Number', 'num-parent')
+        self._topic('Addition', 'add-child', parent=parent)
+        codes = [i['code'] for i in structural_issues()
+                 if i['topics'][0]['id'] == parent.id]
+        self.assertNotIn('EMPTY-TOPIC', codes)
+
+    def test_an_inactive_topic_still_holding_questions_is_reported(self):
+        # Its questions are hidden without having been moved anywhere.
+        topic = self._topic('Retired', 'retired-1', active=False)
+        self._question(topic)
+        self.assertIn('INACTIVE-WITH-QUESTIONS', self._codes())
+
+    def test_an_inactive_empty_topic_is_not_reported_as_hiding_questions(self):
+        self._topic('Retired', 'retired-2', active=False)
+        self.assertNotIn('INACTIVE-WITH-QUESTIONS', self._codes())
+
+    def test_a_subtopic_whose_parent_sits_in_another_subject_is_reported(self):
+        parent = self._topic('Number', 'num-sci', subject=self.science)
+        self._topic('Addition', 'add-cross', subject=self.maths, parent=parent)
+        self.assertIn('PARENT-IN-OTHER-SUBJECT', self._codes())
+
+    def test_a_tidy_tree_reports_nothing(self):
+        parent = self._topic('Number', 'num-ok')
+        child = self._topic('Addition', 'add-ok', parent=parent)
+        self._question(child)
+        self.assertEqual([], structural_issues())
+
+
+class SubjectClashTests(TopicMergeTestBase):
+    """Two subjects named Mathematics is why the picker lists it twice."""
+
+    def test_two_subjects_with_the_same_name_are_reported(self):
+        other = Subject.objects.create(name='Mathematics', slug='maths-two')
+        clash = subject_name_clashes()[0]
+        self.assertEqual({self.maths.id, other.id}, {m['id'] for m in clash})
+
+    def test_a_school_copy_is_reported_with_its_school_named(self):
+        # A school's own custom subject is not necessarily a mistake, so the
+        # school is shown and the call is left to a human.
+        school = School.objects.create(name='Wizards', slug='wizards-tm')
+        Subject.objects.create(name='Mathematics', slug='maths-sch',
+                               school=school)
+        clash = subject_name_clashes()[0]
+        schools = {m['school'] for m in clash}
+        self.assertIn('Wizards', schools)
+        self.assertIn(None, schools)
+
+    def test_distinct_subject_names_are_not_reported(self):
+        self.assertEqual([], subject_name_clashes())
 
 
 class GuardrailTests(TopicMergeTestBase):
@@ -198,10 +295,12 @@ class MergeTests(TopicMergeTestBase):
         self.assertEqual(keep.id, summary['keep_id'])
         self.assertEqual(2, summary['repointed'].get('maths.Question'))
 
-    def test_the_merged_group_no_longer_reports_as_duplicate(self):
-        keep = self._topic('Fractions', 'fr-k6')
-        dupe = self._topic('Fraction', 'fr-d6')
+    def test_a_merged_name_clash_stops_being_reported(self):
+        keep = self._topic('Addition', 'add-k6')
+        dupe = self._topic('Addition', 'add-d6')
+        self._question(keep)
 
         merge_topics(keep, [dupe], actor=self.admin)
 
-        self.assertEqual([], find_duplicate_groups())
+        self.assertEqual([], exact_name_clashes())
+        self.assertNotIn('DUPLICATE-NAME', self._codes())

@@ -1,29 +1,36 @@
 """
-Topic merge — detection and merge service for duplicated topic rows.
+Topic inventory and merge — see what the topic tree actually contains, and
+collapse rows that should be one.
 
-The same topic gets created twice: "Fractions" alongside "Fraction",
-"Addition" alongside "Addition" under a different parent, a subject imported
-once per source. Nothing is broken by that on its own, but it splits a strand
-in two: a teacher filtering to one copy silently misses every question filed
-under the other, and the question-health drill-down reports the same strand
-under two names.
+The same topic gets created twice: "Fractions" alongside "Fraction", "Addition"
+under two different parents, a subject imported once per source. Nothing is
+broken by that on its own, but it splits a strand in two: a teacher filtering
+to one copy silently misses every question filed under the other, and the
+question-health drill-down reports the same strand under two names.
 
-This module finds the likely duplicates and merges them. Unlike the student
-merge next door, a topic carries no financial or identity history, so the
-absorbed row is DELETED once everything that pointed at it has been re-pointed
-at the survivor — leaving an inactive twin in the picker would defeat the point.
+This module deliberately does NOT guess which topics mean the same thing.
+Fuzzy name matching ("Fraction" ≈ "Fractions") reads well in a demo and is
+wrong often enough to be dangerous — "Mass" and "Masses", "Time" and "Times"
+are not obviously the same call, and a merge is not reversible. So the service
+reports FACTS — what exists, what each row holds, and what is structurally
+inconsistent — and a human decides what to combine.
+
+Merging re-points everything that pointed at the absorbed rows onto the
+survivor, then DELETES them. Unlike the student merge next door there is no
+financial or identity history to preserve, and leaving an inactive twin in the
+picker would defeat the point.
 
 Re-pointing walks ``_meta.related_objects`` rather than a hand-written list of
 models, so a topic FK added to a new app later is carried too instead of being
 quietly left behind on a row that is about to disappear.
 """
 import logging
-import re
 from collections import defaultdict
 
 from django.db import IntegrityError, transaction
+from django.db.models import Count, Q
 
-from .models import Topic
+from .models import Subject, Topic
 
 logger = logging.getLogger(__name__)
 
@@ -34,32 +41,6 @@ _SKIP_MODELS = {
     'audit.auditlog',
 }
 
-# Words that carry no meaning for matching a topic name. Without this,
-# "Fractions" and "Fractions (Basic)" look unrelated to a plain comparison.
-_NOISE = {'and', 'the', 'of', 'basic', 'basics', 'intro', 'introduction'}
-
-
-def normalise(name):
-    """A comparison key for a topic name.
-
-    Case, punctuation, spacing and a trailing plural are all noise when asking
-    "are these the same topic?" — 'Fraction', 'fractions' and 'Fractions '
-    have to collide or the duplicates they represent stay invisible.
-    """
-    text = (name or '').strip().lower()
-    text = re.sub(r'[^a-z0-9\s]+', ' ', text)
-    words = []
-    for word in text.split():
-        if word in _NOISE:
-            continue
-        # Naive singularisation. Deliberately conservative: only a trailing
-        # 's' on a word long enough that dropping it still means something,
-        # so 'Mass' and 'Bus' are left alone.
-        if len(word) > 3 and word.endswith('s') and not word.endswith('ss'):
-            word = word[:-1]
-        words.append(word)
-    return ' '.join(words)
-
 
 def question_count(topic):
     """Questions filed directly under this topic."""
@@ -67,63 +48,159 @@ def question_count(topic):
     return Question.objects.filter(topic_id=topic.id).count()
 
 
-def topic_summary(topic):
-    """What a reviewer needs to choose the survivor, not just the name."""
+def topic_summary(topic, questions=None, subtopics=None):
+    """What a reviewer needs to choose a survivor — not just the name."""
     return {
         'topic': topic,
         'id': topic.id,
         'name': topic.name,
         'slug': topic.slug,
         'subject': topic.subject.name if topic.subject_id else None,
+        'subject_id': topic.subject_id,
         'parent': topic.parent.name if topic.parent_id else None,
-        'questions': question_count(topic),
-        'subtopics': Topic.objects.filter(parent_id=topic.id).count(),
+        'parent_id': topic.parent_id,
+        'questions': (question_count(topic) if questions is None else questions),
+        'subtopics': (Topic.objects.filter(parent_id=topic.id).count()
+                      if subtopics is None else subtopics),
         'is_active': topic.is_active,
     }
 
 
-def find_duplicate_groups(subject_ids=None):
-    """Topics that look like the same topic, grouped.
+def topic_inventory(subject_ids=None):
+    """Every topic, grouped by subject, with what each one holds.
 
-    Grouped WITHIN a subject: two subjects legitimately both having a
-    "Fractions" is not a duplicate, and merging across subjects would move
-    questions out of the subject they belong to.
+    The whole tree in one list is the thing that makes a duplicate obvious to a
+    human: two "Addition" rows sitting next to each other, one with 42
+    questions and one with none, need no algorithm to interpret.
     """
     topics = (Topic.objects
               .select_related('subject', 'parent')
-              .order_by('subject__name', 'name'))
+              .annotate(n_questions=Count('maths_questions', distinct=True),
+                        n_subtopics=Count('subtopics', distinct=True))
+              .order_by('subject__name', 'parent__name', 'name'))
     if subject_ids:
         topics = topics.filter(subject_id__in=subject_ids)
 
-    buckets = defaultdict(list)
+    by_subject = {}
     for topic in topics:
-        if not topic.subject_id:
-            continue
-        key = normalise(topic.name)
-        if key:
-            buckets[(topic.subject_id, key)].append(topic)
+        entry = by_subject.setdefault(topic.subject_id, {
+            'subject_id': topic.subject_id,
+            'subject': topic.subject.name if topic.subject_id else '(none)',
+            'topics': [],
+            'questions': 0,
+        })
+        summary = topic_summary(topic, questions=topic.n_questions,
+                                subtopics=topic.n_subtopics)
+        entry['topics'].append(summary)
+        entry['questions'] += topic.n_questions
 
-    groups = []
-    for (subject_id, key), members in buckets.items():
-        if len(members) < 2:
-            continue
-        summaries = [topic_summary(t) for t in members]
-        groups.append({
-            'subject_id': subject_id,
-            'subject': members[0].subject.name,
-            'key': key,
-            'label': members[0].name,
-            'members': summaries,
-            'total_questions': sum(s['questions'] for s in summaries),
-            # The copy holding the most questions is the sensible survivor:
-            # it is the one already in use, and it minimises rows moved.
-            'suggested_keep_id': max(summaries,
-                                     key=lambda s: (s['questions'],
-                                                    -s['id']))['id'],
+    return sorted(by_subject.values(), key=lambda s: s['subject'])
+
+
+def exact_name_clashes(subject_ids=None):
+    """Topics sharing a name with another topic in the SAME subject.
+
+    Not a guess and not a suggestion — two rows literally named "Addition"
+    under Mathematics is a fact, and it is the case that actually bit: the
+    picker shows the name twice with no way to tell them apart.
+
+    Case and surrounding whitespace are ignored, because "Addition " and
+    "addition" are the same name to everyone reading the picker. Nothing
+    further is inferred.
+    """
+    groups = defaultdict(list)
+    for subject in topic_inventory(subject_ids):
+        for summary in subject['topics']:
+            key = (summary['subject_id'], (summary['name'] or '').strip().lower())
+            groups[key].append(summary)
+
+    clashes = [
+        {
+            'subject': members[0]['subject'],
+            'subject_id': members[0]['subject_id'],
+            'name': members[0]['name'],
+            'members': members,
+            'total_questions': sum(m['questions'] for m in members),
+        }
+        for members in groups.values() if len(members) > 1
+    ]
+    clashes.sort(key=lambda c: (-c['total_questions'], c['subject'], c['name']))
+    return clashes
+
+
+def structural_issues(subject_ids=None):
+    """Things that are wrong regardless of anyone's naming preferences.
+
+    Each finding is checkable from the row itself, so none of them needs a
+    judgement call about what a topic "means".
+    """
+    issues = []
+
+    for clash in exact_name_clashes(subject_ids):
+        issues.append({
+            'code': 'DUPLICATE-NAME',
+            'subject': clash['subject'],
+            'detail': (f'{len(clash["members"])} topics named '
+                       f'{clash["name"]!r} — the picker shows the same name '
+                       f'more than once'),
+            'topics': clash['members'],
         })
 
-    groups.sort(key=lambda g: (-g['total_questions'], g['subject'], g['label']))
-    return groups
+    for subject in topic_inventory(subject_ids):
+        for summary in subject['topics']:
+            topic = summary['topic']
+
+            if summary['questions'] == 0 and summary['subtopics'] == 0:
+                issues.append({
+                    'code': 'EMPTY-TOPIC',
+                    'subject': summary['subject'],
+                    'detail': 'no questions and no subtopics',
+                    'topics': [summary],
+                })
+
+            if not summary['is_active'] and summary['questions']:
+                issues.append({
+                    'code': 'INACTIVE-WITH-QUESTIONS',
+                    'subject': summary['subject'],
+                    'detail': (f'marked inactive but still holds '
+                               f'{summary["questions"]} question(s) — they are '
+                               f'hidden without being moved'),
+                    'topics': [summary],
+                })
+
+            if (topic.parent_id
+                    and topic.parent.subject_id != topic.subject_id):
+                issues.append({
+                    'code': 'PARENT-IN-OTHER-SUBJECT',
+                    'subject': summary['subject'],
+                    'detail': (f'parent {topic.parent.name!r} belongs to '
+                               f'{topic.parent.subject.name}, not '
+                               f'{summary["subject"]}'),
+                    'topics': [summary],
+                })
+
+    return issues
+
+
+def subject_name_clashes():
+    """Subjects sharing a name — the reason the picker lists Mathematics twice.
+
+    Reported, not merged: a subject can be a school's own custom copy
+    (``school`` set) rather than a mistake, and telling those apart is a
+    judgement call for a human.
+    """
+    groups = defaultdict(list)
+    for subject in Subject.objects.select_related('school').annotate(
+            n_topics=Count('topics', distinct=True)).order_by('name'):
+        groups[(subject.name or '').strip().lower()].append({
+            'id': subject.id,
+            'name': subject.name,
+            'slug': subject.slug,
+            'school': subject.school.name if subject.school_id else None,
+            'topics': subject.n_topics,
+            'is_active': subject.is_active,
+        })
+    return [members for members in groups.values() if len(members) > 1]
 
 
 def validate_merge(keep, absorbed):
