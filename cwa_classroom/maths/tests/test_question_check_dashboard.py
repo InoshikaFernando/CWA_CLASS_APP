@@ -238,3 +238,62 @@ class DeleteReturnTests(QuestionCheckTestBase):
             response,
             reverse('question_list', kwargs={'level_number': self.y7.level_number}),
             fetch_redirect_response=False)
+
+
+class TopicAndSubtopicTests(QuestionCheckTestBase):
+    """Both the strand and the subtopic are shown, as in Global Questions.
+
+    A question's own topic is the SUBTOPIC ("Addition"); its parent is the
+    TOPIC ("Number"). Showing only the former left the reader guessing which
+    strand a flagged question belonged to.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+        self.number = Topic.objects.create(
+            name='Number', slug='number', subject=self.maths)
+        self.addition = Topic.objects.create(
+            name='Addition', slug='addition', subject=self.maths,
+            parent=self.number)
+
+    def test_a_subtopic_shows_its_parent_too(self):
+        self._question(topic=self.addition, options=(('a', False), ('b', False)))
+        response = self._run()
+        self.assertContains(response, 'Number')
+        self.assertContains(response, 'Addition')
+
+    def test_a_top_level_topic_still_renders(self):
+        # No parent — must not print an empty "›" crumb.
+        self._question(topic=self.number, options=(('a', False), ('b', False)))
+        response = self._run()
+        self.assertContains(response, 'Number')
+
+
+class EditLinkTests(QuestionCheckTestBase):
+    """Edit sends you to the editor that can actually open the question."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def test_a_global_question_links_to_the_global_questions_modal(self):
+        q = self._question(options=(('a', False), ('b', False)))
+        response = self._run()
+        self.assertContains(
+            response, reverse('admin_global_questions') + '?edit=' + str(q.id))
+
+    def test_a_school_question_does_not_link_to_that_modal(self):
+        # GlobalQuestionEditView filters school__isnull=True, so pointing a
+        # school-scoped question at it would 404 the moment anyone clicked.
+        from classroom.models import School
+
+        school = School.objects.create(
+            name='Scoped School', slug='scoped-school', admin=self.superuser)
+        q = self._question(options=(('a', False), ('b', False)))
+        Question.objects.filter(pk=q.pk).update(school=school)
+
+        response = self._run()
+        self.assertNotContains(
+            response, reverse('admin_global_questions') + '?edit=' + str(q.id))
+        self.assertContains(response, reverse('edit_question', args=[q.id]))

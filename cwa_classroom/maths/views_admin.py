@@ -151,7 +151,8 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
 
         if ran:
             qs = (Question.objects
-                  .select_related('level', 'topic', 'topic__subject', 'school')
+                  .select_related('level', 'topic', 'topic__parent',
+                                  'topic__subject', 'school')
                   .prefetch_related('answers')
                   .order_by('id'))
             if subject_ids:

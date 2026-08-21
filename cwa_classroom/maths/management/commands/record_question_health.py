@@ -21,6 +21,22 @@ from maths.answer_verification import verify_question
 from maths.management.commands.verify_question_answers import ADVISORY_CODES
 
 
+def _parent_topic_name(question):
+    """The strand a question sits under — its topic's parent, or the topic."""
+    topic = question.topic if question.topic_id else None
+    if topic is None:
+        return None
+    return topic.parent.name if topic.parent_id else topic.name
+
+
+def _subtopic_name(question):
+    """The question's own topic, but only when it is a subtopic."""
+    topic = question.topic if question.topic_id else None
+    if topic is None or not topic.parent_id:
+        return None
+    return topic.name
+
+
 class Command(BaseCommand):
     help = 'Record a question-bank health snapshot for the admin dashboard.'
 
@@ -41,7 +57,7 @@ class Command(BaseCommand):
             Question.objects
             .filter(question_type__in=(Question.MULTIPLE_CHOICE,
                                        Question.TRUE_FALSE))
-            .select_related('topic', 'level')
+            .select_related('topic', 'topic__parent', 'level')
             .prefetch_related('answers')
         )
         if options['level'] is not None:
@@ -82,8 +98,16 @@ class Command(BaseCommand):
                     'text': (question.question_text or '')[:120],
                     'level': (question.level.level_number
                               if question.level_id else None),
-                    'topic': (question.topic.name
-                              if question.topic_id else None),
+                    # Match the Global Questions picker: TOPIC is the parent
+                    # ("Number"), SUBTOPIC is the question's own topic
+                    # ("Addition"). Showing only the latter left the reader
+                    # guessing which strand a flagged question belongs to.
+                    'topic': _parent_topic_name(question),
+                    'subtopic': _subtopic_name(question),
+                    # Which editor the dashboard can link to: the Global
+                    # Questions modal only serves school-less questions, so a
+                    # school-scoped one has to go elsewhere or it 404s.
+                    'is_global': question.school_id is None,
                 })
 
         snapshot = QuestionHealthSnapshot.objects.create(
