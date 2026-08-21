@@ -32,6 +32,7 @@ CODE_LABELS = {
     'DUPLICATE-CORRECT': 'Correct answer also listed as a distractor',
     'EQUIVALENT-OPTION': 'Distractor equals the answer',
     'TOO-FEW-OPTIONS': 'Too few options',
+    'TOO-MANY-OPTIONS': 'More options than the house style',
     'BLANK-OPTION': 'Blank option',
     'WRONG-ANSWER-KEY': 'Answer key is wrong',
     'DUPLICATE-VALUE': 'Two distractors are the same value',
@@ -41,7 +42,15 @@ CODE_LABELS = {
 # DUPLICATE-OPTION is here because a repeated WRONG option only makes the
 # question read sloppily; the case that actually mismarks someone — the correct
 # answer repeated as a distractor — is DUPLICATE-CORRECT, which is blocking.
-ADVISORY_LABELS = {'DUPLICATE-VALUE', 'DUPLICATE-OPTION'}
+ADVISORY_LABELS = {'DUPLICATE-VALUE', 'DUPLICATE-OPTION', 'TOO-MANY-OPTIONS'}
+
+# The Problem filter's options, blocking first so the ones that actually
+# mismark a student are what a super-admin reaches for without scrolling.
+PROBLEM_CHOICES = [
+    {'code': code, 'label': label, 'advisory': code in ADVISORY_LABELS}
+    for code, label in sorted(
+        CODE_LABELS.items(), key=lambda kv: (kv[0] in ADVISORY_LABELS, kv[1]))
+]
 
 # The live check walks every matching question and runs the full verifier over
 # it, so it is bounded rather than open-ended: an unfiltered run over the whole
@@ -107,6 +116,12 @@ def _ids(request, key):
     return out
 
 
+def _problem_codes(request):
+    """Selected issue codes from the Problem filter, ignoring unknown ones."""
+    known = set(CODE_LABELS)
+    return [code for code in request.GET.getlist('problem') if code in known]
+
+
 class QuestionCheckView(SuperuserRequiredMixin, View):
     """Run the answer verifier on demand over a filtered slice of the bank.
 
@@ -131,7 +146,14 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
         subject_ids = _ids(request, 'subject')
         level_ids = _ids(request, 'level')
         topic_ids = _ids(request, 'topic')
+        problem_codes = _problem_codes(request)
         include_advisory = request.GET.get('advisory') == '1'
+
+        # Asking for an advisory problem by name and then being told there are
+        # none — because the advisory checkbox was left unticked — would read as
+        # a clean bank. An explicit request for a code outranks the checkbox.
+        if any(code in ADVISORY_LABELS for code in problem_codes):
+            include_advisory = True
 
         try:
             limit = int(request.GET.get('limit') or CHECK_DEFAULT_LIMIT)
@@ -178,6 +200,10 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
                 issues, _verified = verify_question(question)
                 if not include_advisory:
                     issues = [i for i in issues if i.code not in ADVISORY_LABELS]
+                if problem_codes:
+                    # Keep only the problems asked for, so the rows shown and
+                    # the checkboxes a bulk fix acts on are the same set.
+                    issues = [i for i in issues if i.code in problem_codes]
                 if not issues:
                     continue
                 rows.append({
@@ -205,6 +231,8 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
             'selected_subjects': subject_ids,
             'selected_levels': level_ids,
             'selected_topics': topic_ids,
+            'selected_problems': problem_codes,
+            'problem_choices': PROBLEM_CHOICES,
             'include_advisory': include_advisory,
             'limit': limit,
             'max_limit': CHECK_MAX_LIMIT,
@@ -224,6 +252,7 @@ BULK_ACTIONS = (
     ('replace_duplicates', 'Replace duplicated options with distinct values'),
     ('pad_options', 'Add wrong answers (up to four options)'),
     ('to_short_answer', 'Change question type to Short Answer'),
+    ('trim_options', 'Trim to four options (keeps the correct one)'),
 )
 
 # Padding target — four options is the house style for multiple choice.
@@ -324,6 +353,18 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
                 Answer.objects.create(question=question, answer_text=text,
                                       is_correct=False, order=order)
             return {'added': additions}
+
+        if action == 'trim_options':
+            from .duplicate_repair import plan_trim
+
+            surplus = plan_trim(question, answers, target=PAD_TO)
+            if not surplus:
+                return None
+            removed = [{'answer_id': o.id, 'was': o.answer_text}
+                       for o in surplus]
+            for option in surplus:
+                option.delete()
+            return {'removed': removed}
 
         if action == 'to_short_answer':
             if question.question_type == 'short_answer':

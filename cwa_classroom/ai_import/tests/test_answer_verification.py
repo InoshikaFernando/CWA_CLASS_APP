@@ -192,9 +192,30 @@ def test_needs_figure_without_attached_image_flags():
                              client=client, force=True)
 
     assert q['needs_review'] is True
-    assert 'needs a figure' in q['review_reason']
+    assert 'figure' in q['review_reason'] and 'no image' in q['review_reason']
     assert summary['missing_figure_flags'] == 1
     assert summary['flagged'] == 1
+
+
+def test_transcribed_menu_without_image_is_flagged():
+    # The reported case: "Look at the menu below" whose menu the model re-typed into
+    # prose ("The menu shows: Tea 60p…") with no image. Fully answerable from the
+    # text, so it is NOT an answer disagreement — but the printed page shows a menu
+    # figure that wasn't attached, which the verifier now reports via needs_figure.
+    q = {'question_text': 'The menu shows: Tea 60p, Coffee 80p, Beef burger $2.95. '
+                          'Work out the cost of three beef burgers.',
+         'question_type': 'short_answer', 'answers': [], 'source_page': 1}
+    client = _fake_client([{
+        'index': 0, 'question_type': 'short_answer', 'answer': '$8.85',
+        'confident': True, 'transcription_ok': True, 'needs_figure': True,
+    }])
+
+    summary = verify_answers([q], page_images={1: 'ZmFrZQ=='},
+                             client=client, force=True)
+
+    assert q['needs_review'] is True
+    assert 'menu' in q['review_reason'] or 'figure' in q['review_reason']
+    assert summary['missing_figure_flags'] == 1
 
 
 def test_needs_figure_with_attached_image_not_flagged():

@@ -36,6 +36,7 @@ DUPLICATE_CORRECT = 'DUPLICATE-CORRECT'
 EQUIVALENT_OPTION = 'EQUIVALENT-OPTION'
 DUPLICATE_VALUE = 'DUPLICATE-VALUE'
 TOO_FEW_OPTIONS = 'TOO-FEW-OPTIONS'
+TOO_MANY_OPTIONS = 'TOO-MANY-OPTIONS'
 BLANK_OPTION = 'BLANK-OPTION'
 WRONG_ANSWER_KEY = 'WRONG-ANSWER-KEY'
 
@@ -232,7 +233,21 @@ def evaluate_expression(expr):
 # --------------------------------------------------------------------------
 # Whole-question verification
 # --------------------------------------------------------------------------
-def verify_question(question, min_options=2):
+# House style is four options. More is not a grading fault — nobody is
+# mismarked by a fifth choice — but it is worth surfacing so a super-admin can
+# trim it, which is why the check reports it as advisory rather than blocking.
+MAX_OPTIONS = 4
+
+# Types where the Answer rows are OPTIONS the student picks between. Everywhere
+# else — short_answer, calculation, fill_blank — the rows are the accepted
+# answers for typed input, so one row is normal and several are legitimate
+# alternative spellings. Applying the choice rules to those reported a
+# perfectly good short-answer question as "too few options", which made a
+# correct repair look like it had not worked.
+CHOICE_TYPES = ('multiple_choice', 'true_false')
+
+
+def verify_question(question, min_options=2, max_options=MAX_OPTIONS):
     """Return ``(issues, verified_arithmetically)``.
 
     ``issues`` is a list of :class:`Issue`. ``verified_arithmetically`` is True
@@ -242,11 +257,19 @@ def verify_question(question, min_options=2):
     issues = []
     options = list(question.answers.all())
     correct = [a for a in options if a.is_correct]
+    is_choice = question.question_type in CHOICE_TYPES
 
     # ---- structural -------------------------------------------------------
-    if len(options) < min_options:
+    # Option-count rules apply only where the rows really are choices.
+    if is_choice and len(options) < min_options:
         issues.append(Issue(
             TOO_FEW_OPTIONS, f'{len(options)} option(s)'))
+
+    if is_choice and max_options and len(options) > max_options:
+        issues.append(Issue(
+            TOO_MANY_OPTIONS,
+            f'{len(options)} options — more than the {max_options} the house '
+            f'style uses'))
 
     for option in options:
         if not (option.answer_text or '').strip():
@@ -256,7 +279,7 @@ def verify_question(question, min_options=2):
         issues.append(Issue(NO_CORRECT, 'no option flagged is_correct'))
         return issues, False
 
-    if len(correct) > 1:
+    if is_choice and len(correct) > 1:
         issues.append(Issue(
             MULTI_CORRECT,
             f'{len(correct)} options flagged correct: '
@@ -275,7 +298,7 @@ def verify_question(question, min_options=2):
     #                      real choices than it appears to and reads sloppily,
     #                      but nobody is ever mismarked for it — advisory.
     groups = {}
-    for option in options:
+    for option in (options if is_choice else []):
         key = (option.answer_text or '').strip().lower()
         if key:
             groups.setdefault(key, []).append(option)
@@ -294,7 +317,8 @@ def verify_question(question, min_options=2):
             issues.append(Issue(
                 DUPLICATE_OPTION, f'{text!r} appears twice'))
 
-    for distractor, correct_answer in find_equivalent_options(question):
+    for distractor, correct_answer in (find_equivalent_options(question)
+                                       if is_choice else []):
         issues.append(Issue(
             EQUIVALENT_OPTION,
             f'distractor {distractor.answer_text!r} == '
