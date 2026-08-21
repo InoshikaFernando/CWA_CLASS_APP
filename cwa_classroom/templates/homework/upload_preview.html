@@ -585,7 +585,9 @@
         headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf},
         body: JSON.stringify({q_idx: idx, source_ref: srcRef, page: page, bbox_frac: frac}),
       });
-      const j = await r.json();
+      // Shared with the Adjust modal: turns Django's HTML login/500 page into a
+      // message instead of "Unexpected token '<'".
+      const j = window.cwaReadJson ? await window.cwaReadJson(r) : await r.json();
       if (!r.ok) throw new Error(j.error || 'Could not reuse image');
 
       const ref = document.getElementById('img-ref-' + idx);
@@ -600,7 +602,8 @@
       const rm = document.querySelector('[name="q_' + idx + '_remove_image"]');
       if (rm) rm.checked = false;
     } catch (e) {
-      flash(btn, 'Reuse failed — try again');
+      flash(btn, e && e.code === 'auth' ? 'Sign-in expired — reload' : 'Reuse failed — try again');
+      console.error('Reuse image failed:', e);
     } finally {
       btn.disabled = false;
     }

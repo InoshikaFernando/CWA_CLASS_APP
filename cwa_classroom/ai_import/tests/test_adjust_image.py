@@ -79,3 +79,26 @@ class AIImportAdjustImageTests(TestCase):
         s.refresh_from_db()
         self.assertIn(ref, s.extracted_images)
         self.assertEqual(s.extracted_data['questions'][0]['image_ref'], ref)
+
+
+class AIImportAdjustImageJsonErrorTests(AIImportAdjustImageTests):
+    """Guard rejections on the crop endpoints come back as JSON, not as the HTML
+    login / tier-select page the modal choked on.
+    """
+
+    def test_signed_out_recrop_returns_json_403(self):
+        s = self._session()
+        r = self.client.post(
+            reverse('ai_import:pdf_recrop', args=[s.pk]),
+            data=json.dumps({'q_idx': 0, 'page': 1, 'box': [0.25, 0.25, 0.75, 0.6]}),
+            content_type='application/json',
+        )
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r['Content-Type'], 'application/json')
+        self.assertIn('sign-in', r.json()['error'].lower())
+
+    def test_signed_out_page_image_returns_json_403(self):
+        s = self._session()
+        r = self.client.get(reverse('ai_import:pdf_page_image', args=[s.pk]) + '?page=1')
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r['Content-Type'], 'application/json')

@@ -5,7 +5,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views import View
@@ -80,6 +80,35 @@ class RoleRequiredMixin(LoginRequiredMixin):
                     return redirect('public_home')
 
         return super().dispatch(request, *args, **kwargs)
+
+
+class JsonEndpointMixin:
+    """Keep a fetch()-only endpoint answering in JSON, never in HTML.
+
+    ``RoleRequiredMixin`` guards a view by *redirecting* a signed-out or
+    unauthorised user to a login page, and ``get_object_or_404`` renders an HTML
+    404 page. Both are right for a browsed page and wrong for an AJAX endpoint:
+    the caller's ``response.json()`` chokes on the markup and reports
+    "Unexpected token '<'" instead of what actually went wrong. Mix this in
+    FIRST — before the guarding mixins — so their HTML answers become the
+    ``{'error': ...}`` shape the JS callers already display.
+    """
+
+    def dispatch(self, request, *args, **kwargs):
+        try:
+            response = super().dispatch(request, *args, **kwargs)
+        except Http404:
+            return JsonResponse(
+                {'error': 'That item is no longer available — reload the page.'},
+                status=404,
+            )
+        if 300 <= response.status_code < 400:
+            return JsonResponse(
+                {'error': 'Your sign-in has expired, or you no longer have access to '
+                          'this tool — reload the page and sign in again.'},
+                status=403,
+            )
+        return response
 
 
 def _get_individual_student_levels(user):

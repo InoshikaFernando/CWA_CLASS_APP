@@ -18,7 +18,7 @@ from django.views import View
 
 from accounts.models import Role
 from billing.entitlements import get_school_for_user
-from classroom.views import RoleRequiredMixin
+from classroom.views import JsonEndpointMixin, RoleRequiredMixin
 
 from .grading_service import grade_extended_answer
 from .page_selection import describe_page_selection
@@ -459,7 +459,7 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
         return redirect('worksheets:confirm', session_id=session.pk)
 
 
-class WorksheetPageImageView(RoleRequiredMixin, View):
+class WorksheetPageImageView(JsonEndpointMixin, RoleRequiredMixin, View):
     """AJAX: full source-page PNG for the 'Adjust image' crop modal."""
     required_roles = TEACHER_ROLES
 
@@ -471,7 +471,7 @@ class WorksheetPageImageView(RoleRequiredMixin, View):
         return page_image_response(session, request)
 
 
-class WorksheetRecropView(RoleRequiredMixin, View):
+class WorksheetRecropView(JsonEndpointMixin, RoleRequiredMixin, View):
     """AJAX: re-render a question image from a teacher-drawn box on the PDF."""
     required_roles = TEACHER_ROLES
 
@@ -483,7 +483,7 @@ class WorksheetRecropView(RoleRequiredMixin, View):
         return recrop_response(session, request)
 
 
-class WorksheetReuseImageView(RoleRequiredMixin, View):
+class WorksheetReuseImageView(JsonEndpointMixin, RoleRequiredMixin, View):
     """AJAX: copy an earlier question's image onto this question (shared figure)."""
     required_roles = TEACHER_ROLES
 

@@ -107,3 +107,30 @@ class WorksheetSkippedPagesNoticeTests(WorksheetAdjustImageTests):
 
         self.assertIn('Skipped 1 page', html)
         self.assertIn('page 1 (multiple-choice answer sheet)', html)
+
+
+class WorksheetAdjustImageJsonErrorTests(WorksheetAdjustImageTests):
+    """The crop modal's endpoints answer in JSON even when the guard rejects the
+    request — an HTML login page reached the teacher as "Unexpected token '<'".
+    """
+
+    def test_signed_out_recrop_returns_json_403(self):
+        s = self._session()
+        r = self.client.post(
+            reverse('worksheets:pdf_recrop', args=[s.pk]),
+            data=json.dumps({'q_idx': 0, 'page': 1, 'box': [0.25, 0.25, 0.75, 0.6]}),
+            content_type='application/json',
+        )
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r['Content-Type'], 'application/json')
+        self.assertIn('sign-in', r.json()['error'].lower())
+
+    def test_signed_out_reuse_image_returns_json_403(self):
+        s = self._session()
+        r = self.client.post(
+            reverse('worksheets:pdf_reuse_image', args=[s.pk]),
+            data=json.dumps({'q_idx': 0, 'source_ref': 'orig.png'}),
+            content_type='application/json',
+        )
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r['Content-Type'], 'application/json')

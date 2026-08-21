@@ -23,7 +23,7 @@ from classroom.subject_registry import (
     homework_plugins,
     homework_subject_choices,
 )
-from classroom.views import RoleRequiredMixin
+from classroom.views import JsonEndpointMixin, RoleRequiredMixin
 from maths.models import Answer, Question, calculate_points
 from maths.views import select_questions_stratified
 
@@ -2282,7 +2282,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         return redirect('homework:pdf_confirm', session_id=session.pk)
 
 
-class HomeworkPDFPageImageView(RoleRequiredMixin, View):
+class HomeworkPDFPageImageView(JsonEndpointMixin, RoleRequiredMixin, View):
     """AJAX: full source-page PNG for the 'Adjust image' crop modal."""
     required_roles = TEACHER_ROLES
 
@@ -2296,7 +2296,7 @@ class HomeworkPDFPageImageView(RoleRequiredMixin, View):
         return page_image_response(session, request)
 
 
-class HomeworkPDFRecropView(RoleRequiredMixin, View):
+class HomeworkPDFRecropView(JsonEndpointMixin, RoleRequiredMixin, View):
     """AJAX: re-render a question image from a teacher-drawn box on the PDF."""
     required_roles = TEACHER_ROLES
 
@@ -2310,7 +2310,7 @@ class HomeworkPDFRecropView(RoleRequiredMixin, View):
         return recrop_response(session, request)
 
 
-class HomeworkPDFReuseImageView(RoleRequiredMixin, View):
+class HomeworkPDFReuseImageView(JsonEndpointMixin, RoleRequiredMixin, View):
     """AJAX: copy an earlier question's image onto this question (shared figure)."""
     required_roles = TEACHER_ROLES
 

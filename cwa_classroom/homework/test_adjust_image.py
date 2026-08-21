@@ -101,3 +101,48 @@ class AdjustImageTests(TestCase):
             content_type='application/json',
         )
         self.assertEqual(r.status_code, 404)
+
+
+class AdjustImageJsonErrorTests(AdjustImageTests):
+    """The crop modal only speaks JSON, so its endpoints must never answer with
+    Django's HTML login page or HTML 404 — that reached the teacher as the
+    useless "Unexpected token '<', "<!DOCTYPE "... is not valid JSON".
+    """
+
+    def _recrop(self, session):
+        return self.client.post(
+            reverse('homework:pdf_recrop', args=[session.pk]),
+            data=json.dumps({'q_idx': 0, 'page': 1, 'box': [0.2, 0.2, 0.7, 0.6]}),
+            content_type='application/json',
+        )
+
+    def test_signed_out_recrop_returns_json_not_a_login_redirect(self):
+        s = self._session()
+        r = self._recrop(s)                      # no force_login: session expired
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r['Content-Type'], 'application/json')
+        self.assertIn('sign-in', r.json()['error'].lower())
+
+    def test_missing_session_returns_json_not_an_html_404(self):
+        self.client.force_login(self.other)
+        s = self._session()
+        r = self._recrop(s)                      # not this teacher's upload
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r['Content-Type'], 'application/json')
+        self.assertIn('error', r.json())
+
+    def test_page_image_endpoint_is_json_when_signed_out(self):
+        s = self._session()
+        r = self.client.get(reverse('homework:pdf_page_image', args=[s.pk]) + '?page=1')
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r['Content-Type'], 'application/json')
+
+    def test_modal_parses_replies_defensively(self):
+        """The modal must read responses through the guarded reader, not a bare
+        r.json() that blows up on an HTML page."""
+        s = self._session()
+        self.client.force_login(self.teacher)
+        html = self.client.get(reverse('homework:pdf_preview', args=[s.pk])).content.decode()
+        self.assertIn('async function readJson(r)', html)
+        # both modal calls — loading a page and applying the crop
+        self.assertGreaterEqual(html.count('await readJson(r)'), 2)

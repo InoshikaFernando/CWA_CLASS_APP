@@ -12,7 +12,7 @@ from django.views import View
 
 from accounts.models import Role
 from billing.entitlements import get_school_for_user, has_module, has_module_any_school, check_ai_import_quota
-from classroom.views import RoleRequiredMixin, _get_question_scope
+from classroom.views import JsonEndpointMixin, RoleRequiredMixin, _get_question_scope
 
 from .models import AIImportSession, AIImportUsage
 
@@ -512,7 +512,7 @@ _IMPORT_ROLES = [
 ]
 
 
-class PageImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+class PageImageView(JsonEndpointMixin, RoleRequiredMixin, AIImportModuleRequiredMixin, View):
     """AJAX: full source-page PNG for the 'Adjust image' crop modal."""
     required_roles = _IMPORT_ROLES
 
@@ -524,7 +524,7 @@ class PageImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
         return page_image_response(session, request)
 
 
-class RecropView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+class RecropView(JsonEndpointMixin, RoleRequiredMixin, AIImportModuleRequiredMixin, View):
     """AJAX: re-render a question image from a teacher-drawn box on the PDF."""
     required_roles = _IMPORT_ROLES
 
@@ -536,7 +536,7 @@ class RecropView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
         return recrop_response(session, request)
 
 
-class UploadImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+class UploadImageView(JsonEndpointMixin, RoleRequiredMixin, AIImportModuleRequiredMixin, View):
     """AJAX endpoint: upload an image to the session's image gallery."""
     required_roles = _IMPORT_ROLES
 
