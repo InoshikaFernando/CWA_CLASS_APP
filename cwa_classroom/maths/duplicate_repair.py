@@ -1,6 +1,6 @@
-"""Repair multiple-choice questions that list the same option twice (CPP-377).
+"""Repair multiple-choice questions that offer the same answer twice (CPP-377).
 
-Two faults, one repair. In both the offending copy is REPLACED with a freshly
+Four faults, one repair. In each, the offending copy is REPLACED with a freshly
 generated value rather than deleted, so the question keeps the number of
 choices it was written with:
 
@@ -11,6 +11,16 @@ choices it was written with:
   DUPLICATE-OPTION   a wrong option appears twice. Nobody is mismarked, but the
                      question offers fewer real choices than it appears to. The
                      second copy is replaced.
+
+  EQUIVALENT-OPTION  a distractor is a different way of writing the correct
+                     answer — '6/10' against a correct '3/5'. A student who
+                     picks it is marked wrong for a right answer, so this is
+                     the CPP-377 defect in its purest form. The distractor is
+                     replaced; the correct option is never touched.
+
+  DUPLICATE-VALUE    two distractors are the same number written differently.
+                     Nobody is mismarked, but the question offers fewer real
+                     choices than it appears to. The second is replaced.
 
 WHY GENERATING A REPLACEMENT IS SAFE HERE
 
@@ -137,30 +147,55 @@ def plan_repair(question, options=None):
     integral = _is_integral(values)
     by_option = dict(zip(options, values))
 
-    # Group by normalised text: this repairs LITERAL repeats. Options that
-    # merely share a value (3 vs 6/2) are EQUIVALENT-OPTION / DUPLICATE-VALUE
-    # and are a different fault with a different fix.
-    groups = {}
-    for option, text in zip(options, texts):
-        groups.setdefault(text.lower(), []).append(option)
-
     edits = []
     taken_values = set(values)
     taken_texts = list(texts)
+    replaced = set()
 
-    for group in groups.values():
-        if len(group) < 2:
-            continue
-        # Keep the correct copy where there is one; otherwise keep the first.
-        keep = next((o for o in group if o.is_correct), group[0])
-        for option in group:
-            if option is keep:
+    def replace(option):
+        value, text = suggest_replacement(
+            by_option[option], taken_values, taken_texts, integral)
+        edits.append((option, option.answer_text, text))
+        taken_values.add(value)
+        taken_texts.append(text)
+        replaced.add(id(option))
+
+    def collapse(groups):
+        for group in groups.values():
+            if len(group) < 2:
                 continue
-            value, text = suggest_replacement(
-                by_option[option], taken_values, taken_texts, integral)
-            edits.append((option, option.answer_text, text))
-            taken_values.add(value)
-            taken_texts.append(text)
+            # Keep the correct copy where there is one; otherwise keep the
+            # first. Keeping the correct one matters: replacing it would
+            # rewrite the answer key.
+            keep = next((o for o in group if o.is_correct), group[0])
+            for option in group:
+                if option is not keep and id(option) not in replaced:
+                    replace(option)
+
+    # Pass 1 — LITERAL repeats: the same text listed twice.
+    by_text = {}
+    for option, text in zip(options, texts):
+        by_text.setdefault(text.lower(), []).append(option)
+    collapse(by_text)
+
+    # Pass 2 — options that merely share a VALUE: '6/10' alongside '3/5',
+    # '0.5' alongside '1/2'. Two different-looking options, one number.
+    #
+    # This was originally treated as "a different fault with a different fix"
+    # and left alone, which meant the bulk fixer answered "nothing to change"
+    # on exactly the defect this whole dashboard was built for: a distractor
+    # numerically equal to the correct answer marks a student wrong for a
+    # right answer (CPP-377). The repair is identical — replace the copy the
+    # grader does NOT accept — so there is no reason to withhold it.
+    #
+    # Runs after the text pass so an option already rewritten above is not
+    # rewritten twice, and so its replacement value (already in taken_values)
+    # cannot collide here.
+    by_value = {}
+    for option in options:
+        if id(option) not in replaced:
+            by_value.setdefault(by_option[option], []).append(option)
+    collapse(by_value)
 
     return edits
 

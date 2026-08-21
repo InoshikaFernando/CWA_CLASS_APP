@@ -14,16 +14,23 @@ Usage
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from maths.answer_values import find_equivalent_options
 from maths.answer_verification import (
-    DUPLICATE_CORRECT, DUPLICATE_OPTION, EQUIVALENT_OPTION, verify_question)
+    DUPLICATE_CORRECT, DUPLICATE_OPTION, DUPLICATE_VALUE, EQUIVALENT_OPTION,
+    verify_question)
 from maths.duplicate_repair import Skipped, plan_repair
 from maths.management.commands.verify_question_answers import ADVISORY_CODES
 
-# The two faults this command repairs. Anything else on the question means a
-# human should look at it, so we leave the whole question alone rather than
-# fixing half of it and making the remaining fault look addressed.
-REPAIRABLE = {DUPLICATE_CORRECT, DUPLICATE_OPTION}
+# The faults this command repairs — one option offering the same answer as
+# another, whether by identical text or by identical value. Anything else on
+# the question means a human should look at it, so we leave the whole question
+# alone rather than fixing half of it and making the remaining fault look
+# addressed.
+REPAIRABLE = {DUPLICATE_CORRECT, DUPLICATE_OPTION,
+              EQUIVALENT_OPTION, DUPLICATE_VALUE}
+
+# Faults that can mismark a student, as opposed to merely reading badly. Both
+# hand a student a correct-looking option that the grader rejects.
+BLOCKING = {DUPLICATE_CORRECT, EQUIVALENT_OPTION}
 
 
 class Command(BaseCommand):
@@ -63,7 +70,7 @@ class Command(BaseCommand):
 
             if not (codes & REPAIRABLE):
                 continue
-            if options['blocking_only'] and DUPLICATE_CORRECT not in codes:
+            if options['blocking_only'] and not (codes & BLOCKING):
                 continue
 
             try:
@@ -76,26 +83,15 @@ class Command(BaseCommand):
             if not edits:
                 continue
 
-            # Advisory codes may coexist; another BLOCKING fault may not — a
+            # Advisory codes may coexist; another blocking fault may not — a
             # half-repair would leave the row looking handled.
             #
-            # EQUIVALENT-OPTION needs care. A duplicated correct answer is also
-            # trivially "equal to the correct answer", so the verifier reports
-            # both codes for ONE fault, and replacing the copy fixes both. It
-            # only counts as a separate fault when some equivalent distractor
-            # is not among the options being replaced — '0.5' beside '1/2',
-            # say, which differs as text and needs a human.
-            being_replaced = {answer.id for answer, _old, _new in edits}
+            # EQUIVALENT-OPTION used to need special handling here, because the
+            # repair could not address it and it had to be told apart from the
+            # duplicated-correct case that reports the same code. It is now
+            # repaired directly, so it is in REPAIRABLE and never reaches this.
             others = {c for c in codes
                       if c not in REPAIRABLE and c not in ADVISORY_CODES}
-            if EQUIVALENT_OPTION in others:
-                unexplained = [
-                    distractor for distractor, _correct
-                    in find_equivalent_options(question)
-                    if distractor.id not in being_replaced
-                ]
-                if not unexplained:
-                    others.discard(EQUIVALENT_OPTION)
 
             if others:
                 skipped += 1

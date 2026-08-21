@@ -9,6 +9,7 @@ from django.test import TestCase
 
 from classroom.models import Level, Subject, Topic
 from maths.answer_values import parse_answer_value
+from maths.answer_verification import verify_question
 from maths.duplicate_repair import Skipped, plan_repair
 from maths.models import Answer, Question
 
@@ -422,3 +423,182 @@ class TooManyOptionsFlagTests(RepairTestBase):
         from maths.management.commands.verify_question_answers import (
             ADVISORY_CODES)
         self.assertIn('TOO-MANY-OPTIONS', ADVISORY_CODES)
+
+
+class EquivalentOptionRepairTests(TestCase):
+    """A distractor that is the correct answer written differently.
+
+    This is the CPP-377 defect itself — '6/10' offered against a correct
+    '3/5' marks a student wrong for a right answer. The bulk fixer used to
+    answer "nothing to change" on it, because it only looked for repeated
+    TEXT and these two strings differ.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=989, defaults={'display_name': 'equiv fixture'})
+
+    def _question(self, options, text='Calculate: 4/5 - 2/10'):
+        q = Question.objects.create(
+            level=self.level, question_text=text,
+            question_type=Question.MULTIPLE_CHOICE, difficulty=1)
+        for order, (answer_text, is_correct) in enumerate(options):
+            Answer.objects.create(question=q, answer_text=answer_text,
+                                  is_correct=is_correct, order=order)
+        return q
+
+    def _apply(self, question):
+        edits = plan_repair(question)
+        for answer, _old, new in edits:
+            answer.answer_text = new
+            answer.save(update_fields=['answer_text'])
+        return edits
+
+    def test_production_q6065_is_repaired(self):
+        # The exact question from the check page: 3/5 correct, 6/10 the same
+        # number wearing a different face.
+        q = self._question([('3/5', True), ('6/10', False),
+                            ('2/5', False), ('1/5', False)])
+
+        edits = self._apply(q)
+
+        self.assertEqual(1, len(edits))
+        answer, old, _new = edits[0]
+        self.assertEqual('6/10', old)
+        self.assertFalse(answer.is_correct)
+
+    def test_the_correct_option_is_never_the_one_rewritten(self):
+        q = self._question([('3/5', True), ('6/10', False),
+                            ('2/5', False), ('1/5', False)])
+        self._apply(q)
+
+        correct = q.answers.get(is_correct=True)
+        self.assertEqual('3/5', correct.answer_text)
+
+    def test_after_repair_no_option_equals_the_answer(self):
+        q = self._question([('3/5', True), ('6/10', False),
+                            ('2/5', False), ('1/5', False)])
+        self._apply(q)
+
+        values = [parse_answer_value(a.answer_text)
+                  for a in q.answers.order_by('order')]
+        correct_value = parse_answer_value(
+            q.answers.get(is_correct=True).answer_text)
+        self.assertEqual(1, values.count(correct_value))
+
+    def test_the_verifier_stops_flagging_the_repaired_question(self):
+        # The real test of a repair: the check page no longer reports it.
+        q = self._question([('3/5', True), ('6/10', False),
+                            ('2/5', False), ('1/5', False)])
+        self._apply(q)
+
+        q.refresh_from_db()
+        issues, _ = verify_question(q)
+        self.assertEqual([], [i.code for i in issues])
+
+    def test_a_decimal_written_as_a_fraction_is_caught(self):
+        q = self._question([('0.5', True), ('1/2', False),
+                            ('0.25', False), ('0.75', False)],
+                           text='What is half?')
+        edits = self._apply(q)
+        self.assertEqual(['1/2'], [old for _a, old, _n in edits])
+
+    def test_two_distractors_sharing_a_value_are_separated(self):
+        # Nobody is mismarked here — both are wrong — but the question offers
+        # three real choices while appearing to offer four.
+        q = self._question([('3/5', True), ('1/2', False),
+                            ('2/4', False), ('1/5', False)])
+
+        self._apply(q)
+        q.refresh_from_db()
+
+        values = [parse_answer_value(a.answer_text) for a in q.answers.all()]
+        self.assertEqual(len(values), len(set(values)))
+
+    def test_a_literal_repeat_and_a_value_clash_are_both_repaired(self):
+        q = self._question([('3/5', True), ('6/10', False),
+                            ('1/5', False), ('1/5', False)])
+
+        self._apply(q)
+        q.refresh_from_db()
+
+        values = [parse_answer_value(a.answer_text) for a in q.answers.all()]
+        self.assertEqual(4, len(set(values)))
+
+    def test_a_question_with_no_clash_is_still_left_alone(self):
+        q = self._question([('3/5', True), ('2/5', False),
+                            ('1/5', False), ('4/5', False)])
+        self.assertEqual([], plan_repair(q))
+
+    def test_text_options_are_still_refused_rather_than_guessed(self):
+        q = self._question([('north', True), ('North', False),
+                            ('south', False), ('east', False)])
+        with self.assertRaises(Skipped):
+            plan_repair(q)
+
+
+class RepairCommandEquivalenceTests(TestCase):
+    """The CLI must repair the same questions the UI does.
+
+    The command gated on the issue code BEFORE planning a repair, so a
+    question whose only fault was EQUIVALENT-OPTION never reached plan_repair
+    — the fix worked from the check page and silently skipped from a shell.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=988, defaults={'display_name': 'cmd equiv fixture'})
+
+    def _question(self, options, text='Calculate: 4/5 - 2/10'):
+        q = Question.objects.create(
+            level=self.level, question_text=text,
+            question_type=Question.MULTIPLE_CHOICE, difficulty=1)
+        for order, (answer_text, is_correct) in enumerate(options):
+            Answer.objects.create(question=q, answer_text=answer_text,
+                                  is_correct=is_correct, order=order)
+        return q
+
+    def test_apply_repairs_an_equivalent_distractor(self):
+        q = self._question([('3/5', True), ('6/10', False),
+                            ('2/5', False), ('1/5', False)])
+
+        call_command('repair_duplicate_options', '--apply', '--level', 988)
+
+        q.refresh_from_db()
+        texts = {a.answer_text for a in q.answers.all()}
+        self.assertNotIn('6/10', texts)
+        self.assertIn('3/5', texts)
+
+    def test_a_dry_run_still_changes_nothing(self):
+        q = self._question([('3/5', True), ('6/10', False),
+                            ('2/5', False), ('1/5', False)])
+
+        call_command('repair_duplicate_options', '--level', 988)
+
+        q.refresh_from_db()
+        self.assertIn('6/10', {a.answer_text for a in q.answers.all()})
+
+    def test_blocking_only_includes_an_equivalent_distractor(self):
+        # A student picking it is marked wrong for a right answer, so it
+        # belongs in the same pass as a duplicated correct answer.
+        q = self._question([('3/5', True), ('6/10', False),
+                            ('2/5', False), ('1/5', False)])
+
+        call_command('repair_duplicate_options', '--apply', '--blocking-only',
+                     '--level', 988)
+
+        q.refresh_from_db()
+        self.assertNotIn('6/10', {a.answer_text for a in q.answers.all()})
+
+    def test_blocking_only_still_skips_a_merely_untidy_question(self):
+        # Two distractors sharing a value cannot mismark anyone.
+        q = self._question([('3/5', True), ('1/2', False),
+                            ('2/4', False), ('1/5', False)])
+
+        call_command('repair_duplicate_options', '--apply', '--blocking-only',
+                     '--level', 988)
+
+        q.refresh_from_db()
+        self.assertIn('2/4', {a.answer_text for a in q.answers.all()})
