@@ -40,11 +40,13 @@ from collections import Counter
 
 from django.core.management.base import BaseCommand
 
-from maths.answer_verification import DUPLICATE_VALUE, verify_question
+from maths.answer_verification import (
+    DUPLICATE_OPTION, DUPLICATE_VALUE, verify_question)
 
-# Codes that mean a student can be marked wrongly. Anything here fails the run;
-# DUPLICATE-VALUE is advisory (see the module docstring).
-ADVISORY_CODES = {DUPLICATE_VALUE}
+# Codes that cannot mismark a student. They are reported, but they do not fail
+# the run (without --strict) and they stay out of the dashboard's headline —
+# padding that number with cosmetic faults is how a real backlog gets ignored.
+ADVISORY_CODES = {DUPLICATE_VALUE, DUPLICATE_OPTION}
 
 
 class Command(BaseCommand):

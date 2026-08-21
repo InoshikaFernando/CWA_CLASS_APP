@@ -184,3 +184,59 @@ class _FakeRequest:
     def __init__(self, user, path='/admin-dashboard/'):
         self.user = user
         self.path = path
+
+
+class SnapshotRowDetailTests(TestCase):
+    """What each flagged row carries, so the dashboard can link and label it."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True})
+        cls.level = Level.objects.create(level_number=987, display_name='Rows')
+        cls.number = Topic.objects.create(
+            subject=cls.subject, name='Number', slug='rows-number',
+            is_active=True)
+        cls.addition = Topic.objects.create(
+            subject=cls.subject, name='Addition', slug='rows-addition',
+            parent=cls.number, is_active=True)
+
+    def _flagged(self):
+        call_command('record_question_health', '--level', 987, '--quiet')
+        return QuestionHealthSnapshot.objects.first().flagged_questions
+
+    def test_a_subtopic_row_carries_both_names(self):
+        _question(self.level, self.addition, 'What is 7 + 8?',
+                  [('15', True), ('14', False), ('14', False)])
+        row = self._flagged()[0]
+        self.assertEqual(row['topic'], 'Number')
+        self.assertEqual(row['subtopic'], 'Addition')
+
+    def test_a_top_level_topic_has_no_subtopic(self):
+        # Otherwise the dashboard renders a dangling "› " crumb.
+        _question(self.level, self.number, 'What is 7 + 8?',
+                  [('15', True), ('14', False), ('14', False)])
+        row = self._flagged()[0]
+        self.assertEqual(row['topic'], 'Number')
+        self.assertIsNone(row['subtopic'])
+
+    def test_a_global_question_is_marked_global(self):
+        _question(self.level, self.addition, 'What is 7 + 8?',
+                  [('15', True), ('14', False), ('14', False)])
+        self.assertIs(self._flagged()[0]['is_global'], True)
+
+    def test_a_school_question_is_not_marked_global(self):
+        # The Global Questions modal filters school__isnull=True, so linking a
+        # school-scoped question there would 404 on click.
+        from classroom.models import School
+        from maths.models import Question
+
+        owner = User.objects.create_user('rowsowner', 'rows@test.com', 'pw1!')
+        school = School.objects.create(
+            name='Rows School', slug='rows-school', admin=owner)
+        question = _question(self.level, self.addition, 'What is 7 + 8?',
+                             [('15', True), ('14', False), ('14', False)])
+        Question.objects.filter(pk=question.pk).update(school=school)
+
+        self.assertIs(self._flagged()[0]['is_global'], False)

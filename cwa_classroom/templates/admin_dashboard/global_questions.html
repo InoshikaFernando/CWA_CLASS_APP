@@ -303,7 +303,27 @@ function _openEditModalAt(url) {
 
 function closeEditModal() {
   document.getElementById('edit-modal').classList.add('hidden');
+  // Drop ?edit= so a refresh or Back does not silently reopen the modal the
+  // reader just dismissed.
+  if (window.history.replaceState) {
+    var url = new URL(window.location.href);
+    if (url.searchParams.has('edit')) {
+      url.searchParams.delete('edit');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }
 }
+
+// Deep link: /admin-dashboard/global-questions/?edit=<id> opens that question
+// straight away. The question-health pages link here, and they know a question
+// id but not which filter page it happens to fall on — the modal loads by id
+// over HTMX, so the row does not need to be in the current listing.
+document.addEventListener('DOMContentLoaded', function() {
+  var requested = new URLSearchParams(window.location.search).get('edit');
+  if (requested && /^\d+$/.test(requested)) {
+    openEditModal(requested);
+  }
+});
 
 // Listen for successful edit save
 document.body.addEventListener('htmx:afterSwap', function(evt) {
