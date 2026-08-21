@@ -1,0 +1,15 @@
+{# Response to a successful edit. Two jobs, deliberately separated. #}
+{# 1. This block replaces the modal body, and its id tells the page to close. #}
+<div id="edit-saved" class="py-10 text-center">
+  <p class="text-sm font-semibold text-emerald-700">Saved.</p>
+</div>
+
+{# 2. The listing row is updated out-of-band. When the reader came from the #}
+{#    listing the row is on the page and refreshes in place; when they came #}
+{#    from a question-health deep link it is absent and htmx skips it. Either #}
+{#    way the save itself has already happened server-side. Wrapped in a #}
+{#    <template> because a bare <td> is not valid outside a table and the #}
+{#    browser's parser would discard it before htmx ever saw it. #}
+<template hx-swap-oob="innerHTML:#question-row-{{ question.id }}">
+  {% include "admin_dashboard/partials/question_row.html" %}
+</template>

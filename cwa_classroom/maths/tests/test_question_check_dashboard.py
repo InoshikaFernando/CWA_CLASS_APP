@@ -356,3 +356,134 @@ class DuplicateSeverityTests(QuestionCheckTestBase):
         codes = {i['code'] for r in response.context['rows']
                  for i in r['issues']}
         self.assertNotIn('DUPLICATE-CORRECT', codes)
+
+
+class NoLeakedTemplateCommentsTests(QuestionCheckTestBase):
+    """Template comments must not reach the browser.
+
+    Django's ``{# #}`` is SINGLE-LINE only. A multi-line one is not parsed as a
+    comment at all — it renders as literal text. Three of them shipped to
+    production this way, printing an explanation of the is_global link logic
+    into the middle of the flagged-questions table. Every test passed, because
+    they all asserted what the page contains and none asserted what it must
+    NOT contain.
+    """
+
+    MARKERS = ['{#', '#}', '{% comment %}', '{% endcomment %}']
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def _assert_clean(self, response):
+        body = response.content.decode()
+        for marker in self.MARKERS:
+            self.assertNotIn(
+                marker, body,
+                f'Template comment syntax {marker!r} rendered into the page')
+
+    def test_the_check_form_has_no_leaked_comments(self):
+        self._assert_clean(
+            self.client.get(reverse('question_check_admin_dashboard')))
+
+    def test_the_results_table_has_no_leaked_comments(self):
+        self._question(options=(('a', False), ('b', False)))
+        self._assert_clean(self._run())
+
+    def test_the_health_dashboard_has_no_leaked_comments(self):
+        from maths.models import QuestionHealthSnapshot
+
+        QuestionHealthSnapshot.objects.create(
+            total_questions=2, choice_questions=2,
+            questions_blocking=1, questions_advisory=0,
+            arithmetic_verified=1, issue_counts={'NO-CORRECT': 1},
+            flagged_questions=[{
+                'id': 1, 'codes': ['NO-CORRECT'], 'detail': 'no correct option',
+                'text': 'What is 7 + 8?', 'level': 1, 'topic': 'Number',
+                'subtopic': 'Addition', 'is_global': True,
+            }],
+        )
+        self._assert_clean(
+            self.client.get(reverse('question_health_admin_dashboard')))
+
+
+class GlobalQuestionEditSaveTests(TestCase):
+    """Saving from the editor must work however the editor was opened.
+
+    The form used to target the listing row (``#question-row-<id>``). Opened by
+    the ?edit=<id> deep link from question health, that row is usually not on
+    the current page — htmx raised targetError, never sent the POST, and the
+    edit silently did nothing. Nothing failed loudly; the modal just sat there.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from accounts.models import Role as R
+
+        cls.admin = User.objects.create_superuser(
+            username='editadmin', email='edit@test.com', password='pass1234')
+        admin_role, _ = R.objects.get_or_create(
+            name=R.ADMIN, defaults={'display_name': 'Admin'})
+        cls.admin.roles.add(admin_role)
+
+        cls.subject = Subject.objects.create(name='Maths Edit', slug='maths-edit')
+        cls.level = Level.objects.create(level_number=9, display_name='Year 9')
+        cls.topic = Topic.objects.create(
+            name='Addition Edit', slug='addition-edit', subject=cls.subject)
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='editadmin', password='pass1234')
+        self.question = Question.objects.create(
+            level=self.level, topic=self.topic, question_text='What is 7 + 8?',
+            question_type='multiple_choice')
+        self.right = Answer.objects.create(
+            question=self.question, answer_text='15', is_correct=True, order=0)
+        self.wrong = Answer.objects.create(
+            question=self.question, answer_text='14', is_correct=False, order=1)
+        self.url = reverse('admin_global_question_edit', args=[self.question.id])
+
+    def _payload(self, **overrides):
+        data = {
+            'question_text': self.question.question_text,
+            'answer_id': [str(self.right.id), str(self.wrong.id)],
+            f'answer_text_{self.right.id}': '15',
+            f'answer_text_{self.wrong.id}': '14',
+            f'is_correct_{self.right.id}': 'on',
+        }
+        data.update(overrides)
+        return data
+
+    def test_editing_an_answer_persists(self):
+        response = self.client.post(
+            self.url, self._payload(**{f'answer_text_{self.wrong.id}': '13'}))
+
+        self.assertEqual(response.status_code, 200)
+        self.wrong.refresh_from_db()
+        self.assertEqual(self.wrong.answer_text, '13')
+
+    def test_the_response_does_not_require_the_listing_row(self):
+        # The form posts into the modal, so the reply must be addressed to the
+        # modal; the row update rides along out-of-band and is skipped when the
+        # row is absent.
+        response = self.client.post(self.url, self._payload())
+        body = response.content.decode()
+        self.assertIn('edit-saved', body)
+        self.assertIn('hx-swap-oob', body)
+
+    def test_moving_the_correct_flag_persists(self):
+        response = self.client.post(self.url, self._payload(**{
+            f'is_correct_{self.right.id}': '',
+            f'is_correct_{self.wrong.id}': 'on',
+        }))
+
+        self.assertEqual(response.status_code, 200)
+        self.right.refresh_from_db()
+        self.wrong.refresh_from_db()
+        self.assertFalse(self.right.is_correct)
+        self.assertTrue(self.wrong.is_correct)
+
+    def test_editing_the_question_text_persists(self):
+        self.client.post(self.url, self._payload(question_text='What is 8 + 7?'))
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.question_text, 'What is 8 + 7?')

@@ -30,8 +30,12 @@
 </div>
 {% endif %}
 
+{# Target the modal, never the listing row. Arriving by ?edit=<id> deep link #}
+{# the row is usually NOT on the current page, and htmx raises targetError and #}
+{# never sends the request — the save silently did nothing. The listing row is #}
+{# updated out-of-band instead, which htmx skips harmlessly when it is absent. #}
 <form hx-post="{% url 'admin_global_question_edit' question.id %}"
-      hx-target="#question-row-{{ question.id }}"
+      hx-target="#edit-modal-content"
       hx-swap="innerHTML">
   {% csrf_token %}
 
