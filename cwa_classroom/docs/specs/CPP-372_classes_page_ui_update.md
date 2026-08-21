@@ -69,6 +69,6 @@ the queryset accordingly:
 - `classroom/tests/test_manage_classes_ui.py` — default grid class, `perPage: 40`,
   the 4-column CSS rule, location + level on tiles, wrapped icon-only captions,
   the sort control, and each of the three sort orders.
-- `ui_tests/test_cpp372_manage_classes_ui.py` — Playwright: grid is the active
+- `ui_tests/classroom/test_cpp372_manage_classes_ui.py` — Playwright: grid is the active
   default, captions hidden in grid and shown in list, location + level visible,
   and the level sort reorders the tiles.

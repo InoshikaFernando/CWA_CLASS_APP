@@ -75,7 +75,7 @@ If the ticket is bare, give it substance before coding:
 For anything beyond a one-liner:
 
 - Decide which app(s) own the change and where the test goes (the per-app
-  `tests/` dir, or `ui_tests/` for a Playwright flow).
+  `tests/` dir, or `ui_tests/<group>/` for a Playwright flow).
 - Check `docs/` for a relevant SPEC (e.g. `SPEC_INVOICING.md`,
   `SPEC_SUBSCRIPTION.md`, `SPEC_TEACHER_CLASS_STUDENT_PROGRESS.md`) — you may be
   about to contradict an intentional design. If the change touches a SPEC,
@@ -92,7 +92,7 @@ For anything beyond a one-liner:
    (see [`jira-task-dates.md`](jira-task-dates.md)).
 3. **Write the test first** when the change has observable behaviour. Put it in
    the owning app's suite (e.g. `cwa_classroom/billing/tests.py`,
-   `cwa_classroom/classroom/tests/...`) or `ui_tests/` for a browser flow.
+   `cwa_classroom/classroom/tests/...`) or `ui_tests/<group>/` for a browser flow.
 4. Implement the change. Follow the no-silent-failure rule — no bare `except:`,
    no `?? "—"` placeholder rendered past a missing FK, no swallowed 4xx.
 5. If you changed models, generate the migration:
@@ -116,17 +116,15 @@ exact commands CI runs (`.github/workflows/ci.yml`), from `cwa_classroom/`:
 | You touched | Run (from `cwa_classroom/`) |
 |---|---|
 | Migrations / any model | `pytest tests_migrations.py -v` (migration health) |
-| `classroom` | `pytest classroom/tests/ -n auto --dist=loadscope` |
-| `maths` | `pytest maths/tests/ -n auto --dist=loadscope` |
-| `number_puzzles` | `pytest number_puzzles/tests/ -n auto --dist=loadscope` |
-| `coding` | `pytest coding/tests/ -n auto --dist=loadscope` |
-| `accounts` | `pytest accounts/tests.py -n auto --dist=loadscope` |
-| `audit` | `pytest audit/tests.py -n auto --dist=loadscope` |
-| `billing` | `pytest billing/tests.py billing/tests_admin.py billing/tests_gaps.py billing/tests_parent_invoice_payment.py billing/tests_stripe.py billing/tests_views_coverage.py billing/tests_webhook_handlers.py -n auto --dist=loadscope` |
-| `homework` | `pytest homework/tests.py -n auto --dist=loadscope` |
-| `brainbuzz` | `pytest brainbuzz/tests/ --ignore=brainbuzz/tests/test_student_playwright_mobile.py -n auto --dist=loadscope` |
-| `worksheets` | `pytest worksheets/tests/ -n auto --dist=loadscope` |
-| Any UI/template/JS | `pytest ui_tests/ brainbuzz/tests/test_student_playwright_mobile.py -n auto` (needs `playwright install --with-deps chromium`) |
+| Any app | `pytest <app>/ -n auto --dist=loadscope` |
+| Any UI/template/JS | `pytest ui_tests/<group> -n auto` for the app area you touched — see `cwa_classroom/ui_tests/README.md` (needs `playwright install --with-deps chromium`) |
+
+One command per app: every job in `ci.yml` points at the app directory, so
+`pytest billing/` really is what CI runs. (It only works because `pytest.ini`
+widens `python_files` to match `tests.py` and `tests_*.py` — pytest's default
+matches neither, which is why these used to be hand-written file lists that
+went stale.) `tests_workflows.py` fails the build if a test file ends up in no
+job at all.
 
 Tests default to SQLite (`conftest.py`). If your change is MySQL-specific, run
 the relevant suite with `DB_ENGINE=mysql` and the `DB_*` vars set.

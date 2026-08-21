@@ -84,7 +84,7 @@ with `{% include ... with sub=<subscription> %}` from both billing pages:
 - `templates/billing/billing_history.html` — period-end row + cancel partial for `individual_sub`
 - `templates/parent/billing.html` — cancel partial replaces passive note
 - `billing/tests_cancel_subscription.py` — unit tests (Django `TestCase`, run via pytest)
-- `ui_tests/test_billing_cancel.py` — Playwright UI tests
+- `ui_tests/billing/test_billing_cancel.py` — Playwright UI tests
 - `docs/specs/CPP-324_individual_subscription_cancellation.md` — this spec
 
 > Note on file locations: the Jira AC named `billing/tests/test_views_cancel.py`
@@ -119,7 +119,7 @@ Unit (`billing/tests_cancel_subscription.py`, 9 tests):
 - `test_individual_cancel_only_affects_own_subscription` (isolation)
 - `test_individual_cancel_requires_login`
 
-UI (`ui_tests/test_billing_cancel.py`, 4 tests):
+UI (`ui_tests/billing/test_billing_cancel.py`, 4 tests):
 
 - `test_individual_student_cancels_subscription` — INDIVIDUAL_STUDENT role on
   `/billing/history/`: button → modal → confirm → lands back on the page in

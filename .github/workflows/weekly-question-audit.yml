@@ -163,7 +163,7 @@ jobs:
           URL="${TEST_SMOKE_URL:-https://test.wizardslearninghub.co.nz}"
           # -n 0: one browser, one session — the sweep walks targets in order
           # and collects every finding rather than stopping at the first.
-          pytest ui_tests/test_content_sweep.py -m live -n 0 -v --tb=short \
+          pytest ui_tests/live/test_content_sweep.py -m live -n 0 -v --tb=short \
             --live-url "$URL"
 
   notify-failure:

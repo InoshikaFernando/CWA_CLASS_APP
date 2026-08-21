@@ -121,5 +121,5 @@ print.
   `shape_select_data`, and the partial render.
 - **Unit** `test_shape_select_gen.py` — determinism, exact target count, every
   scene validates, generated targets grade.
-- **UI** `ui_tests/test_shape_select.py` — tap the triangles → correct; tap an
+- **UI** `ui_tests/maths/test_shape_select.py` — tap the triangles → correct; tap an
   extra shape → wrong.

@@ -308,7 +308,7 @@ question authored in Phase 5, and the score/progress records.
 ## Phase 7: Billing / Invoices (admin)
 
 CWA's billing app generates invoices from attendance/fees (`billing` app, many
-`ui_tests/test_invoice_*.py`).
+`ui_tests/billing/test_invoice_*.py`).
 
 ### 7.1 View invoices
 

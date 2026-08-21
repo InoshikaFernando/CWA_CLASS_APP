@@ -3,7 +3,7 @@
 Covers the ``draw_on_grid_data`` model property and the homework take-item
 partial branch (grid SVG + clickable dots + hidden JSON input). The
 click-to-draw interaction itself is covered by the Playwright test in
-ui_tests/test_draw_on_grid.py. Epic CPP-330.
+ui_tests/maths/test_draw_on_grid.py. Epic CPP-330.
 """
 from django.template.loader import render_to_string
 from django.test import TestCase
