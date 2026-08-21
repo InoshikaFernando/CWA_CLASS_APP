@@ -6,7 +6,9 @@ Mirrors the ops dashboard: same superuser gate, same dark admin theme, same
 """
 from datetime import timedelta
 
-from django.shortcuts import render
+from django.contrib import messages
+from django.db import transaction
+from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.views import View
 
@@ -208,7 +210,127 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
             'max_limit': CHECK_MAX_LIMIT,
             'ran': ran,
             'rows': rows,
+            'bulk_actions': BULK_ACTIONS,
             'scanned': scanned,
             'truncated': truncated,
             'querystring': request.GET.urlencode(),
         })
+
+
+# Fixes the check page can apply to a chosen set of questions. Each one is
+# narrow and reversible-by-inspection: the audit log records the previous state
+# so a bad run can be traced without a database restore.
+BULK_ACTIONS = (
+    ('replace_duplicates', 'Replace duplicated options with distinct values'),
+    ('pad_options', 'Add wrong answers (up to four options)'),
+    ('to_short_answer', 'Change question type to Short Answer'),
+)
+
+# Padding target — four options is the house style for multiple choice.
+PAD_TO = 4
+
+
+class QuestionBulkFixView(SuperuserRequiredMixin, View):
+    """Apply one fix to the questions a super-admin selected on the check page.
+
+    Every question is reported on, whether it was changed or not. A bulk tool
+    that quietly skips what it could not handle is how a reviewer comes away
+    believing a bank is clean when it is not — the same failure this dashboard
+    exists to prevent.
+    """
+
+    def post(self, request):
+        from audit.services import log_event
+
+        from .duplicate_repair import Skipped, plan_padding, plan_repair
+        from .models import Answer, Question
+
+        action = request.POST.get('action', '')
+        ids = []
+        for raw in request.POST.getlist('question_id'):
+            try:
+                ids.append(int(raw))
+            except (TypeError, ValueError):
+                continue
+
+        valid = {value for value, _label in BULK_ACTIONS}
+        if action not in valid or not ids:
+            messages.error(
+                request,
+                'Nothing to do — choose at least one question and a fix.')
+            return redirect(request.POST.get('next')
+                            or 'question_check_admin_dashboard')
+
+        questions = (Question.objects
+                     .filter(id__in=ids)
+                     .prefetch_related('answers'))
+
+        changed, skipped = 0, []
+        for question in questions:
+            answers = list(question.answers.order_by('order', 'id'))
+            try:
+                with transaction.atomic():
+                    detail = self._apply(action, question, answers)
+            except Skipped as exc:
+                skipped.append(f'Q{question.id}: {exc}')
+                continue
+
+            if detail is None:
+                skipped.append(f'Q{question.id}: nothing to change')
+                continue
+
+            changed += 1
+            log_event(
+                user=request.user, school=question.school,
+                category='data_change', action=f'bulk_fix_{action}',
+                detail={'question_id': question.id, **detail},
+                request=request,
+            )
+
+        if changed:
+            messages.success(
+                request,
+                f'{changed} question{"s" if changed != 1 else ""} fixed.')
+        for note in skipped:
+            # Reported individually rather than as a count: "3 skipped" tells
+            # the reviewer nothing about what still needs a human.
+            messages.warning(request, f'Left alone — {note}')
+
+        return redirect(request.POST.get('next')
+                        or 'question_check_admin_dashboard')
+
+    def _apply(self, action, question, answers):
+        """Perform one fix. Returns an audit detail dict, or None for a no-op."""
+        from .duplicate_repair import plan_padding, plan_repair
+        from .models import Answer
+
+        if action == 'replace_duplicates':
+            edits = plan_repair(question, answers)
+            if not edits:
+                return None
+            for answer, _old, new in edits:
+                answer.answer_text = new
+                answer.save(update_fields=['answer_text'])
+            return {'edits': [{'answer_id': a.id, 'was': old, 'now': new}
+                              for a, old, new in edits]}
+
+        if action == 'pad_options':
+            additions = plan_padding(question, answers, target=PAD_TO)
+            if not additions:
+                return None
+            order = max((a.order for a in answers), default=-1)
+            for text in additions:
+                order += 1
+                Answer.objects.create(question=question, answer_text=text,
+                                      is_correct=False, order=order)
+            return {'added': additions}
+
+        if action == 'to_short_answer':
+            if question.question_type == 'short_answer':
+                return None
+            was = question.question_type
+            question.question_type = 'short_answer'
+            question.save(update_fields=['question_type', 'updated_at'])
+            return {'question_type_was': was, 'question_type_now': 'short_answer'}
+
+        return None

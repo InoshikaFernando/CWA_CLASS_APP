@@ -19,4 +19,9 @@ urlpatterns = [
         views_admin.QuestionCheckView.as_view(),
         name='question_check_admin_dashboard',
     ),
+    path(
+        'admin-dashboard/question-health/fix/',
+        views_admin.QuestionBulkFixView.as_view(),
+        name='question_bulk_fix_admin_dashboard',
+    ),
 ]
