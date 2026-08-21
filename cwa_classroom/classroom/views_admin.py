@@ -4029,6 +4029,11 @@ SWITCHABLE_QUESTION_TYPES = (
     'calculation',
 )
 
+# Types where the Answer rows are OPTIONS the student picks between. Elsewhere
+# they are the accepted answers for typed input, where none is unusual but not
+# unanswerable — so the "cannot remove every option" rule applies only here.
+CHOICE_QUESTION_TYPES = ('multiple_choice', 'true_false')
+
 
 class GlobalQuestionEditView(RoleRequiredMixin, View):
     """Edit a single global question (text, type and answers) via HTMX modal."""
@@ -4049,15 +4054,19 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             allowed.insert(0, question.question_type)
         return [(value, labels.get(value, value)) for value in allowed]
 
-    def get(self, request, question_id):
-        from maths.models import Question, Answer
-        question = get_object_or_404(Question, id=question_id, school__isnull=True)
-        answers = question.answers.order_by('order', 'id')
-        return render(request, 'admin_dashboard/partials/question_edit_form.html', {
+    def _form_context(self, question, error=None):
+        return {
             'question': question,
-            'answers': answers,
+            'answers': question.answers.order_by('order', 'id'),
             'type_choices': self._type_choices(question),
-        })
+            'error': error,
+        }
+
+    def get(self, request, question_id):
+        from maths.models import Question
+        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+        return render(request, 'admin_dashboard/partials/question_edit_form.html',
+                      self._form_context(question))
 
     def post(self, request, question_id):
         from maths.models import Question, Answer
@@ -4077,16 +4086,72 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             fields.append('question_type')
         question.save(update_fields=fields)
 
-        # Update answers
-        answer_ids = request.POST.getlist('answer_id')
-        for aid in answer_ids:
+        # ---- answers: edit, remove, add ---------------------------------
+        # Removal ids come from checkboxes, so only ticked rows are submitted.
+        removing = set()
+        for raw in request.POST.getlist('delete_answer'):
             try:
-                ans = Answer.objects.get(id=int(aid), question=question)
-            except (Answer.DoesNotExist, ValueError):
+                removing.add(int(raw))
+            except ValueError:
+                continue
+
+        existing = {a.id: a for a in question.answers.all()}
+        removing &= set(existing)
+
+        added = []
+        for index in request.POST.getlist('new_answer_index'):
+            text = (request.POST.get(f'new_answer_text_{index}') or '').strip()
+            if not text:
+                continue   # a blank row the user added and did not fill in
+            added.append((text,
+                          request.POST.get(f'new_is_correct_{index}') == 'on'))
+
+        # A choice question with no options cannot be rendered or answered, so
+        # a save that would empty it is refused OUTRIGHT rather than accepted
+        # and left broken — this editor is the tool for fixing such questions,
+        # it must not be able to create one.
+        surviving = (set(existing) - removing)
+        if (question.question_type in CHOICE_QUESTION_TYPES
+                and not surviving and not added):
+            return render(
+                request, 'admin_dashboard/partials/question_edit_form.html',
+                self._form_context(
+                    question,
+                    error='Removing every option would leave a multiple-choice '
+                          'question with nothing to pick. Add a replacement '
+                          'option, or switch the type to Short Answer first.'))
+
+        for aid, ans in existing.items():
+            if aid in removing:
                 continue
             ans.answer_text = request.POST.get(f'answer_text_{aid}', '').strip()
             ans.is_correct = request.POST.get(f'is_correct_{aid}') == 'on'
             ans.save(update_fields=['answer_text', 'is_correct'])
+
+        if removing:
+            # Record what the text WAS: an option removed by mistake cannot be
+            # recovered from the row itself once it is gone.
+            log_event(
+                user=request.user, school=None,
+                category='data_change', action='global_question_answers_removed',
+                detail={
+                    'question_id': question.id,
+                    'removed': [{'id': aid,
+                                 'text': existing[aid].answer_text,
+                                 'was_correct': existing[aid].is_correct}
+                                for aid in sorted(removing)],
+                },
+                request=request,
+            )
+            Answer.objects.filter(id__in=removing, question=question).delete()
+
+        if added:
+            next_order = (max((a.order or 0) for a in existing.values())
+                          if existing else -1)
+            for text, is_correct in added:
+                next_order += 1
+                Answer.objects.create(question=question, answer_text=text,
+                                      is_correct=is_correct, order=next_order)
 
         log_event(
             user=request.user, school=None,
@@ -4100,11 +4165,17 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
         # which does not exist when the editor was opened by ?edit=<id> from
         # the question-health pages — htmx then refused to send the request at
         # all and the save looked like it simply did nothing.
-        answers = question.answers.order_by('order', 'id')
+        answers = list(question.answers.order_by('order', 'id'))
         return render(request, 'admin_dashboard/partials/question_edit_saved.html', {
             'question': question,
             'q': question,
-            'answers': list(answers),
+            'answers': answers,
+            # Saying "Saved" over a question nobody can now answer correctly
+            # would be the same silent failure this page exists to remove.
+            'no_correct': not any(a.is_correct for a in answers),
+            'correct_count': sum(1 for a in answers if a.is_correct),
+            'multi_correct': (question.question_type in CHOICE_QUESTION_TYPES
+                              and sum(1 for a in answers if a.is_correct) > 1),
         })
 
 
