@@ -297,3 +297,62 @@ class EditLinkTests(QuestionCheckTestBase):
         self.assertNotContains(
             response, reverse('admin_global_questions') + '?edit=' + str(q.id))
         self.assertContains(response, reverse('edit_question', args=[q.id]))
+
+
+class DuplicateSeverityTests(QuestionCheckTestBase):
+    """A repeated option is only dangerous when it repeats the ANSWER.
+
+    The first production run reported 2073 questions that "can mismark a
+    student". Most were a wrong distractor listed twice — sloppy, but nobody is
+    ever marked wrong for it. Counting those as blocking inflated the figure
+    roughly tenfold, and a backlog that size gets ignored rather than fixed.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def test_a_repeated_wrong_option_is_advisory(self):
+        # "What is 7 + 8?" with 15 correct and '14' twice: the duplicate is a
+        # distractor, so no student is mismarked.
+        self._question(text='What is 7 + 8?',
+                       options=(('15', True), ('14', False), ('14', False)))
+
+        default = self._run()
+        with_advisory = self._run(advisory='1')
+
+        self.assertEqual(default.context['rows'], [])
+        codes = {i['code'] for r in with_advisory.context['rows']
+                 for i in r['issues']}
+        self.assertIn('DUPLICATE-OPTION', codes)
+
+    def test_a_repeated_correct_answer_is_blocking(self):
+        # "How many factors does 9 have?" with '3' correct and '3' again as a
+        # distractor: picking the second copy is marked wrong. CPP-377 exactly.
+        q = self._question(text='How many factors does 9 have?',
+                           options=(('3', True), ('3', False), ('4', False)))
+
+        response = self._run()
+        rows = {r['q'].id: r for r in response.context['rows']}
+        self.assertIn(q.id, rows)
+        self.assertTrue(
+            any(i['code'] == 'DUPLICATE-CORRECT' for i in rows[q.id]['issues']))
+
+    def test_the_blocking_duplicate_explains_the_harm(self):
+        q = self._question(text='How many factors does 9 have?',
+                           options=(('3', True), ('3', False), ('4', False)))
+        response = self._run()
+        row = next(r for r in response.context['rows'] if r['q'].id == q.id)
+        detail = next(i['detail'] for i in row['issues']
+                      if i['code'] == 'DUPLICATE-CORRECT')
+        self.assertIn('marked wrong', detail)
+
+    def test_two_correct_copies_are_not_reported_as_a_mismark(self):
+        # Both copies flagged correct: whichever the student picks is accepted,
+        # so this is MULTI-CORRECT's business, not a mismark.
+        self._question(text='What is 7 + 8?',
+                       options=(('15', True), ('15', True), ('14', False)))
+        response = self._run()
+        codes = {i['code'] for r in response.context['rows']
+                 for i in r['issues']}
+        self.assertNotIn('DUPLICATE-CORRECT', codes)

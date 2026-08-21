@@ -26,7 +26,8 @@ TREND_POINTS = 30
 CODE_LABELS = {
     'NO-CORRECT': 'No correct option',
     'MULTI-CORRECT': 'Several options marked correct',
-    'DUPLICATE-OPTION': 'Duplicate option text',
+    'DUPLICATE-OPTION': 'Same wrong option listed twice',
+    'DUPLICATE-CORRECT': 'Correct answer also listed as a distractor',
     'EQUIVALENT-OPTION': 'Distractor equals the answer',
     'TOO-FEW-OPTIONS': 'Too few options',
     'BLANK-OPTION': 'Blank option',
@@ -35,7 +36,10 @@ CODE_LABELS = {
 }
 
 # Codes that cannot mismark a student — shown, but never in the headline.
-ADVISORY_LABELS = {'DUPLICATE-VALUE'}
+# DUPLICATE-OPTION is here because a repeated WRONG option only makes the
+# question read sloppily; the case that actually mismarks someone — the correct
+# answer repeated as a distractor — is DUPLICATE-CORRECT, which is blocking.
+ADVISORY_LABELS = {'DUPLICATE-VALUE', 'DUPLICATE-OPTION'}
 
 # The live check walks every matching question and runs the full verifier over
 # it, so it is bounded rather than open-ended: an unfiltered run over the whole
