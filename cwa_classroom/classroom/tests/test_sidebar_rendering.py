@@ -138,11 +138,9 @@ class StudentSidebarTests(TestCase):
     def _hub(self, client):
         """GET the student dashboard which renders base.html with the student sidebar.
 
-        We use `student_dashboard` (progress app) rather than `subjects_hub`
-        because `/hub/` renders `hub/home.html` with `hide_sidebar=True`, so the
-        sidebar partial is not included in that response.  The student dashboard
-        extends `base.html` without hiding the sidebar and accepts both school
-        students and individual students.
+        We use `student_dashboard` (progress app) as a stable, data-light page
+        that extends `base.html` with the sidebar visible and accepts both
+        school students and individual students.
         """
         return client.get(reverse('student_dashboard'))
 
@@ -231,7 +229,6 @@ class IndividualStudentSidebarTests(TestCase):
         client = Client()
         client.force_login(self.ind_student)
         # Use student_dashboard: extends base.html with sidebar visible.
-        # /hub/ uses hide_sidebar=True so the sidebar is not rendered there.
         resp = client.get(reverse('student_dashboard'))
         self.assertEqual(resp.status_code, 200)
 

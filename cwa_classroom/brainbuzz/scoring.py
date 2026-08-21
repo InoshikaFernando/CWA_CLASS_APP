@@ -163,6 +163,10 @@ def is_short_answer_correct(
     if not user_answer or not correct_answers:
         return False
 
+    # Kept before normalisation strips the separators out: option-label matching
+    # below needs to see the student's "E, D" as two tokens, not "ed".
+    raw_user, raw_correct = user_answer, correct_answers
+
     if answer_format == "algebra":
         # Lazy import keeps scoring.py importable without the maths app loaded.
         from maths.algebra_grading import is_algebraic_answer_correct
@@ -184,7 +188,19 @@ def is_short_answer_correct(
         
         if user_answer == acceptable_answer:
             return True
-    
+
+    # "Select all that apply" answers list the option labels ("D and E"); the
+    # student types the same labels in their own order ("E,D"), so compare them
+    # as a set. option_label_set returns None for anything that isn't a list of
+    # single letters, so ordered answers stay order-sensitive (CPP-374).
+    from maths.algebra_grading import option_label_set
+
+    user_labels = option_label_set(raw_user)
+    if user_labels is not None:
+        for alt in raw_correct.split('|'):
+            if user_labels == option_label_set(alt):
+                return True
+
     return False
 
 

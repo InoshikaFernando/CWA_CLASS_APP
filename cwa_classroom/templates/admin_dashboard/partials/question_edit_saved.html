@@ -1,0 +1,30 @@
+{# Response to a successful edit. Two jobs, deliberately separated. #}
+{# 1. This block replaces the modal body, and its id tells the page to close. #}
+{# The save has happened either way; a warning describes what was saved, it #}
+{# does not mean the edit was rejected. Reporting "Saved" over a question #}
+{# nobody can answer correctly would be the silent failure this page exists #}
+{# to remove. #}
+<div id="edit-saved" class="py-10 text-center">
+  <p class="text-sm font-semibold text-emerald-700">Saved.</p>
+  {% if no_correct %}
+  <p class="mt-2 text-xs text-rose-600">
+    ⚠️ No option is marked correct — every answer to this question will be
+    graded wrong.
+  </p>
+  {% elif multi_correct %}
+  <p class="mt-2 text-xs text-amber-600">
+    ⚠️ {{ correct_count }} options are still marked correct — a student
+    picking any of the others is marked wrong.
+  </p>
+  {% endif %}
+</div>
+
+{# 2. The listing row is updated out-of-band. When the reader came from the #}
+{#    listing the row is on the page and refreshes in place; when they came #}
+{#    from a question-health deep link it is absent and htmx skips it. Either #}
+{#    way the save itself has already happened server-side. Wrapped in a #}
+{#    <template> because a bare <td> is not valid outside a table and the #}
+{#    browser's parser would discard it before htmx ever saw it. #}
+<template hx-swap-oob="innerHTML:#question-row-{{ question.id }}">
+  {% include "admin_dashboard/partials/question_row.html" %}
+</template>

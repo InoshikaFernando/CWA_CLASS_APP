@@ -169,3 +169,36 @@ task, job = enqueue_task(
 The email queue (`classroom.EmailQueue`) remains on its own cron-based system
 (`process_email_queue` management command, every 2 minutes). It is **not**
 migrated to RQ because its daily rate limiting logic is simpler as a cron job.
+
+**This cron is load-bearing, not a nicety.** Every invoice email is force-queued
+at issue time (`invoicing_services.issue_invoices`), so the cron *is* the
+delivery path: if it stops, invoices are marked issued and silently never sent.
+
+Install it only via the `/etc/cron.d/cwa-email` drop-in written by
+`deploy/setup-app-prod.sh` — never by hand with `crontab -e`. In August 2026 a
+hand-added entry on the production droplet pointed at the `CWA_CLASS_APP_TEST`
+checkout, so the production queue had no drainer at all and 316 invoice emails
+went undelivered for ten weeks. The drop-in passes its app directory explicitly
+so the path cannot drift to another checkout, and re-running the setup script
+restores it.
+
+Check it is alive:
+
+```bash
+ls -l /etc/cron.d/cwa-email
+tail -20 /var/log/cwa/email_queue.log
+# anything pending and older than a few minutes means the cron is not running
+venv/bin/python cwa_classroom/manage.py process_email_queue --dry-run
+```
+
+A run whose oldest pending row is more than an hour old logs a WARNING saying
+the queue was not drained on schedule.
+
+**Never point a `*/2` cron at a large backlog without the wrapper.** The command
+has no locking: it materialises the pending rows, then marks each sent only
+after its send returns, so a second run starting mid-loop re-sends everything
+the first has not reached yet. Clearing a few hundred queued emails takes longer
+than the two-minute tick once the provider rate-limits, so the next tick lands
+mid-drain and families get duplicate invoices. `cron_process_email_queue.sh`
+runs under `flock` to prevent that — use it for manual drains too, so an
+operator run and a cron tick contend for the same lock instead of racing.

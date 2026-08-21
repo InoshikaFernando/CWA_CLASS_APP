@@ -9,9 +9,9 @@ from taskqueue.models import AIUsageLog, BackgroundTask
 
 logger = logging.getLogger(__name__)
 
-# Claude Opus 4.8 list pricing, USD per 1M tokens — matches the model both AI
-# pipelines actually run (AI_IMPORT_MODEL / WORKSHEET_MODEL default to
-# claude-opus-4-8). Overridable via CLAUDE_INPUT_COST_PER_MTOK /
+# Claude Opus list pricing ($5/$25), USD per 1M tokens — matches the model both
+# AI pipelines actually run (AI_IMPORT_MODEL / WORKSHEET_MODEL default to
+# claude-opus-5, same list price as Opus 4.8). Overridable via CLAUDE_INPUT_COST_PER_MTOK /
 # CLAUDE_OUTPUT_COST_PER_MTOK so the ledger stays accurate if the model or
 # pricing changes without a code deploy. (Was $3/$15 Sonnet 4 — understated true
 # cost ~1.67x while the pipelines ran on Opus.)
@@ -19,19 +19,59 @@ _DEFAULT_INPUT_COST_PER_MTOK = 5.0
 _DEFAULT_OUTPUT_COST_PER_MTOK = 25.0
 _MILLION = Decimal(1_000_000)
 
+# Per-provider rate settings. OpenAI has no default: this ledger priced every
+# row at Claude's rate for as long as it existed, and a wrong default is worse
+# than a loud one — an unpriced OpenAI row raises rather than quietly costing
+# GPT tokens at Opus prices (CPP-382).
+_RATE_SETTINGS = {
+    AIUsageLog.PROVIDER_ANTHROPIC: (
+        'CLAUDE_INPUT_COST_PER_MTOK', 'CLAUDE_OUTPUT_COST_PER_MTOK',
+        _DEFAULT_INPUT_COST_PER_MTOK, _DEFAULT_OUTPUT_COST_PER_MTOK,
+    ),
+    AIUsageLog.PROVIDER_OPENAI: (
+        'OPENAI_INPUT_COST_PER_MTOK', 'OPENAI_OUTPUT_COST_PER_MTOK',
+        None, None,
+    ),
+}
 
-def estimate_cost_usd(input_tokens, output_tokens):
-    """Estimate the USD cost of a Claude call from its token counts."""
-    in_rate = Decimal(str(getattr(
-        settings, 'CLAUDE_INPUT_COST_PER_MTOK', _DEFAULT_INPUT_COST_PER_MTOK)))
-    out_rate = Decimal(str(getattr(
-        settings, 'CLAUDE_OUTPUT_COST_PER_MTOK', _DEFAULT_OUTPUT_COST_PER_MTOK)))
-    cost = (Decimal(int(input_tokens or 0)) / _MILLION) * in_rate \
-        + (Decimal(int(output_tokens or 0)) / _MILLION) * out_rate
+
+class UnknownProvider(ValueError):
+    """Raised for a provider with no configured rate.
+
+    Deliberately not a silent fallback: pricing an unknown provider at Claude's
+    rate is how OpenAI spend stayed invisible in the first place.
+    """
+
+
+def estimate_cost_usd(input_tokens, output_tokens,
+                      provider=AIUsageLog.PROVIDER_ANTHROPIC):
+    """Estimate the USD cost of one AI call from its token counts.
+
+    Raises :class:`UnknownProvider` when the provider is unrecognised, or when
+    its rates are not configured — the caller must fix the configuration rather
+    than record a number that is quietly wrong.
+    """
+    try:
+        in_name, out_name, in_default, out_default = _RATE_SETTINGS[provider]
+    except KeyError:
+        raise UnknownProvider(
+            f'No rate configuration for provider {provider!r}. '
+            f'Known: {sorted(_RATE_SETTINGS)}')
+
+    in_rate = getattr(settings, in_name, in_default)
+    out_rate = getattr(settings, out_name, out_default)
+    if in_rate is None or out_rate is None:
+        raise UnknownProvider(
+            f'{provider} rates are not configured — set {in_name} and '
+            f'{out_name} (USD per million tokens).')
+
+    cost = (Decimal(int(input_tokens or 0)) / _MILLION) * Decimal(str(in_rate)) \
+        + (Decimal(int(output_tokens or 0)) / _MILLION) * Decimal(str(out_rate))
     return cost.quantize(Decimal('0.00001'), rounding=ROUND_HALF_UP)
 
 
-def record_ai_usage(*, school, source, session_id, pages, usage):
+def record_ai_usage(*, school, source, session_id, pages, usage,
+                    provider=AIUsageLog.PROVIDER_ANTHROPIC):
     """Record one AI classification run in the usage/cost ledger.
 
     ``usage`` is the dict returned by the classifier — expects ``input_tokens``
@@ -44,20 +84,23 @@ def record_ai_usage(*, school, source, session_id, pages, usage):
         output_tokens = usage.get('output_tokens', 0) or 0
         log = AIUsageLog.objects.create(
             school=school,
+            provider=provider,
             source=source,
             session_id=session_id,
             pages=pages or 0,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            est_cost_usd=estimate_cost_usd(input_tokens, output_tokens),
+            est_cost_usd=estimate_cost_usd(
+                input_tokens, output_tokens, provider=provider),
         )
         # Per-call cost line — reuses values already in hand, so it's
         # effectively free (no extra process / query). Shows up in the worker
         # log after every AI call: `journalctl -u cwa-rqworker-test`.
         logger.info(
-            'AI usage: source=%s session=%s pages=%s in=%s out=%s '
+            'AI usage: provider=%s source=%s session=%s pages=%s in=%s out=%s '
             'cost=$%.5f ($%.4f/page)',
-            source, session_id, log.pages, log.input_tokens, log.output_tokens,
+            provider, source, session_id, log.pages, log.input_tokens,
+            log.output_tokens,
             log.est_cost_usd, float(log.cost_per_page_usd or 0),
         )
     except Exception:

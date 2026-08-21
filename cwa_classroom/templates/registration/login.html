@@ -6,6 +6,13 @@
   <h1 class="font-display text-3xl text-primary text-center mb-2">Welcome back!</h1>
   <p class="text-center text-gray-400 text-sm mb-8">Sign in to your Classroom account</p>
 
+  {% if request.GET.expired %}
+    <div class="mb-4 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+      Your previous session had already ended, so that sign-in couldn't be completed.
+      Please enter your details again.
+    </div>
+  {% endif %}
+
   {% if form.errors %}
     <div class="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
       Invalid username or password. Please try again.

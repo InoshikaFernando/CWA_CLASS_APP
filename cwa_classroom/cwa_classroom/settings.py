@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.17.4'         # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-07-08'     # ISO date of this release
+APP_VERSION       = '1.17.19'        # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-08-21'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -42,6 +42,11 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost',
     'http://127.0.0.1',
 ]
+
+# Recover from a stale CSRF token (login page left open in another tab, or
+# restored by the back button) instead of dead-ending on Django's bare
+# "CSRF verification failed" page — see cwa_classroom.views.csrf_failure.
+CSRF_FAILURE_VIEW = 'cwa_classroom.views.csrf_failure'
 
 
 # ---------------------------------------------------------------------------
@@ -141,15 +146,61 @@ FEEDBACK_DISCORD_WEBHOOK = os.environ.get('FEEDBACK_DISCORD_WEBHOOK', '')
 # ---------------------------------------------------------------------------
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
+# Admin/billing keys — separate credentials from the inference keys above, and
+# more sensitive: they read organisation spend. Used to fetch what each vendor
+# actually billed instead of estimating cost from a rate that goes stale
+# (CPP-383). Absent by default; the sync no-ops without them.
+ANTHROPIC_ADMIN_API_KEY = os.environ.get('ANTHROPIC_ADMIN_API_KEY', '')
+OPENAI_ADMIN_API_KEY = os.environ.get('OPENAI_ADMIN_API_KEY', '')
+
 # Claude pricing (USD per 1M tokens) used to estimate per-upload AI cost in the
-# usage ledger. Defaults match Claude Opus 4.8 list price — the model both AI
-# pipelines actually run (AI_IMPORT_MODEL / WORKSHEET_MODEL). Override via env
-# when the model or list price changes. (Was $3/$15 Sonnet 4, which understated
-# true cost ~1.67x while the pipelines ran on Opus.)
+# usage ledger. Defaults match the Claude Opus list price ($5/$25) — the model
+# both AI pipelines actually run (AI_IMPORT_MODEL / WORKSHEET_MODEL default to
+# Opus 5, same list price as Opus 4.8). Override via env when the model or list
+# price changes. (Was $3/$15 Sonnet 4, which understated true cost ~1.67x while
+# the pipelines ran on Opus.)
 CLAUDE_INPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_INPUT_COST_PER_MTOK', '5.0'))
 CLAUDE_OUTPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '25.0'))
+
+# Homework PDF upload (teacher uploads a worksheet → AI extracts the questions).
+# HOMEWORK_PDF_JOB_TIMEOUT bounds the RQ work-horse: a long worksheet is several
+# waves of multi-minute Claude calls plus image rendering, so the 10-minute
+# queue default killed big uploads mid-flight. HOMEWORK_PDF_STALL_MINUTES is how
+# long the upload page waits for a heartbeat from that worker before declaring
+# the job dead — an OOM-killed work-horse never runs its failure handler, so
+# without this the page polls a 'processing' session forever.
+HOMEWORK_PDF_JOB_TIMEOUT = int(os.environ.get('HOMEWORK_PDF_JOB_TIMEOUT', '2700'))
+HOMEWORK_PDF_STALL_MINUTES = int(os.environ.get('HOMEWORK_PDF_STALL_MINUTES', '10'))
+
+# ---------------------------------------------------------------------------
+# AI / OpenAI (second-opinion answer verification for AI Import)
+# ---------------------------------------------------------------------------
+# When set, the AI-import pipeline runs a GPT "verifier" pass after Claude
+# classification: GPT independently re-examines each question against its
+# source-page screenshot — validating the question_type Claude assigned, the
+# answer, and whether the transcription matches the page — and any disagreement
+# is flagged needs_review for the teacher to check. Empty key leaves the verifier
+# off and imports run Claude-only, exactly as before. Tune the model with
+# AI_IMPORT_VERIFY_MODEL (must support vision — default gpt-4o), disable
+# explicitly with AI_IMPORT_VERIFY_ENABLED=0, and set AI_IMPORT_VERIFY_VISION=0
+# to force a cheaper text-only pass (no page images, transcription check skipped).
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+
+# OpenAI list pricing, USD per 1M tokens, for the AI usage/cost ledger. No
+# default is baked in on purpose: an unset rate makes taskqueue.services raise
+# rather than price GPT tokens at Claude's rate, which is how OpenAI spend
+# stayed invisible on the finance dashboard (CPP-382). Set both to the current
+# published rates for the model in AI_IMPORT_VERIFY_MODEL.
+OPENAI_INPUT_COST_PER_MTOK = (
+    float(os.environ['OPENAI_INPUT_COST_PER_MTOK'])
+    if os.environ.get('OPENAI_INPUT_COST_PER_MTOK') else None
+)
+OPENAI_OUTPUT_COST_PER_MTOK = (
+    float(os.environ['OPENAI_OUTPUT_COST_PER_MTOK'])
+    if os.environ.get('OPENAI_OUTPUT_COST_PER_MTOK') else None
+)
 
 # USD->NZD conversion used by the income-vs-expense dashboard to convert
 # USD-billed costs (Anthropic AI grading) into the dashboard's base currency
@@ -173,6 +224,20 @@ DIGITALOCEAN_API_TOKEN = os.environ.get('DIGITALOCEAN_API_TOKEN', '')
 # record_ops_metrics command when the box first enters a critical state. Reuses
 # the same secret the retired ops-dashboard Action used. Inert when empty.
 OPS_ALERT_WEBHOOK = os.environ.get('DEPLOY_ALERT_WEBHOOK', '')
+
+# Managed-DB (DigitalOcean DBaaS) metrics for the Ops dashboard. DO exposes DB
+# metrics only as a Prometheus scrape at https://<host>:9273/metrics behind
+# basic auth — NOT the /v2/monitoring REST API. The basic-auth creds are
+# long-lived per cluster: fetch them ONCE with a write-scoped token
+#   curl -H "Authorization: Bearer <write-token>" \
+#        https://api.digitalocean.com/v2/databases/metrics/credentials
+# then store user/password here. The recurring scrape needs only these creds and
+# the droplet added to the DB's Trusted Sources — no API token. Feature is inert
+# unless both user and password are set, so dev/test/local never call out.
+DO_DB_METRICS_HOST = os.environ.get('DO_DB_METRICS_HOST', os.environ.get('DB_HOST', ''))
+DO_DB_METRICS_PORT = int(os.environ.get('DO_DB_METRICS_PORT', '9273'))
+DO_DB_METRICS_USER = os.environ.get('DO_DB_METRICS_USER', '')
+DO_DB_METRICS_PASSWORD = os.environ.get('DO_DB_METRICS_PASSWORD', '')
 
 # Live AI usage dashboard — after each AI call the worker rewrites a pinned
 # GitHub issue with the latest usage/cost. Best-effort: stays disabled (no-op)
@@ -244,6 +309,15 @@ MIDDLEWARE = [
     'cwa_classroom.middleware.ProfileCompletionMiddleware',
     'usage.middleware.UsageTrackingMiddleware',  # last: records final page-view status
 ]
+
+# Slow-query diagnostics: wrap the request early (near the top of MIDDLEWARE) so
+# it counts queries from every downstream layer, not just the view.
+MIDDLEWARE.insert(1, 'cwa_classroom.middleware.SlowQueryLoggingMiddleware')
+
+# Thresholds for SlowQueryLoggingMiddleware. Env-overridable so they can be tuned
+# on the server without a deploy. SLOW_QUERY_MS <= 0 disables the middleware.
+SLOW_QUERY_MS = int(os.environ.get('SLOW_QUERY_MS', '500'))
+QUERY_COUNT_WARN = int(os.environ.get('QUERY_COUNT_WARN', '50'))
 
 AUTHENTICATION_BACKENDS = [
     'accounts.backends.EmailOrUsernameBackend',
@@ -715,9 +789,21 @@ if _log_dir_exists:
         'level': 'WARNING',
         'delay': True,
     }
+    # Slow queries / N+1 warnings live in their own file so they can be tailed
+    # and analysed without wading through the general app log.
+    _handlers['slow_query_file'] = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': str(LOG_DIR / 'slow-queries.log'),
+        'maxBytes': 10 * 1024 * 1024,  # 10 MB
+        'backupCount': 3,
+        'formatter': 'verbose',
+        'level': 'WARNING',
+        'delay': True,
+    }
 
 _err_handlers  = ['console'] + (['error_file'] if _log_dir_exists else [])
 _app_handlers  = ['console'] + (['app_file', 'error_file'] if _log_dir_exists else [])
+_slow_handlers = ['console'] + (['slow_query_file'] if _log_dir_exists else [])
 
 LOGGING = {
     'version': 1,
@@ -752,5 +838,7 @@ LOGGING = {
         # INFO so successful logins (which clear the rate-limit counter) are
         # visible alongside the WARNING-level failures and lockouts.
         'accounts':   {'handlers': _app_handlers, 'level': 'INFO', 'propagate': False},
+        # Slow-query / N+1 diagnostics (SlowQueryLoggingMiddleware) → own file.
+        'slow_queries': {'handlers': _slow_handlers, 'level': 'WARNING', 'propagate': False},
     },
 }

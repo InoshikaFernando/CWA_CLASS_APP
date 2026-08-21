@@ -21,7 +21,12 @@ from billing.entitlements import get_school_for_user
 from classroom.views import RoleRequiredMixin
 
 from .grading_service import grade_extended_answer
-from .services import answer_review_warning, question_source_page
+from .page_selection import describe_page_selection
+from .services import (
+    answer_review_warning,
+    describe_skipped_pages,
+    question_source_page,
+)
 from .models import (
     Worksheet,
     WorksheetAssignment,
@@ -47,6 +52,7 @@ ANSWER_PARTIAL_MAP = {
     'prime_factorization': _PARTIAL + '_answer_prime_factorization.html',
     'measure':            _PARTIAL + '_answer_measure.html',
     'number_line':        _PARTIAL + '_answer_number_line.html',
+    'table_of_values':    _PARTIAL + '_answer_table_of_values.html',
 }
 _ANSWER_PARTIAL_DEFAULT = _PARTIAL + '_answer_text.html'
 
@@ -113,6 +119,18 @@ class WorksheetUploadView(RoleRequiredMixin, View):
         if worksheet_name.lower().endswith('.pdf'):
             worksheet_name = worksheet_name[:-4]
 
+        # Which pages to extract ("2-7, 9"; blank = all). Validated here against
+        # the real PDF so a bad range is an immediate form error rather than a
+        # background job that fails minutes later.
+        from .page_selection import PageSelectionError, clean_upload_selection
+        try:
+            page_selection, _selected, _total = clean_upload_selection(
+                request.POST.get('page_selection'), pdf_file,
+            )
+        except PageSelectionError as exc:
+            messages.error(request, str(exc))
+            return redirect('worksheets:upload')
+
         # Persist the upload + create a PROCESSING session, then classify in the
         # background (CPP-327) so the request returns immediately.
         session = WorksheetUploadSession.objects.create(
@@ -121,6 +139,7 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             pdf_filename=pdf_file.name,
             pdf_file=pdf_file,
             worksheet_name=worksheet_name,
+            page_selection=page_selection,
             shape_naming=request.POST.get('shape_naming') == 'on',
             status=WorksheetUploadSession.STATUS_PROCESSING,
         )
@@ -372,6 +391,12 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             'session': session,
             'data': data,
             'questions': questions,
+            # Answer sheets / answer keys the extractor skipped — reported, not
+            # silently missing from the import.
+            'skipped_pages': describe_skipped_pages(data),
+            # Pages the teacher chose not to extract — stated, not silently absent.
+            'page_selection': describe_page_selection(data),
+            'answer_key': data.get('answer_key') or {},
             'levels': levels,
             'parent_topics_json': json.dumps(parent_topics),
             'subtopics_json': json.dumps(subtopics_map),
@@ -464,6 +489,18 @@ class WorksheetRecropView(RoleRequiredMixin, View):
             WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
         )
         return recrop_response(session, request)
+
+
+class WorksheetReuseImageView(RoleRequiredMixin, View):
+    """AJAX: copy an earlier question's image onto this question (shared figure)."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, session_id):
+        from .image_adjust import reuse_previous_image_response
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return reuse_previous_image_response(session, request)
 
 
 class WorksheetConfirmView(RoleRequiredMixin, View):
@@ -998,6 +1035,15 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                 from maths.geometry_grading import grade_number_line
                 text_answer = request.POST.get('text_answer', '')
                 is_correct = grade_number_line(question.number_line_spec, text_answer)
+                if is_correct:
+                    points_earned = float(question.points)
+
+            elif question.question_type == 'table_of_values' and question.table_spec:
+                # The filled cells post as JSON {"cells":{"r,c":"value"}} in
+                # text_answer; graded all-or-nothing by numeric tolerance.
+                from maths.geometry_grading import grade_table
+                text_answer = request.POST.get('text_answer', '')
+                is_correct = grade_table(question.table_spec, text_answer)
                 if is_correct:
                     points_earned = float(question.points)
 

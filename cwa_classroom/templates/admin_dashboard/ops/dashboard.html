@@ -12,7 +12,7 @@
       <h1 class="text-2xl font-display font-bold text-white">Ops — Droplet Health</h1>
       <p class="text-slate-400 mt-1">Server resources, services &amp; queue depth (prod + test share one box)</p>
       {% if latest %}
-      <p class="text-xs text-slate-500 mt-1">Last snapshot: {{ latest.created_at|date:"D d M Y, H:i" }}</p>
+      <p class="text-xs mt-1 {% if latest_stale %}text-amber-400{% else %}text-slate-500{% endif %}">Last snapshot: {{ latest.created_at|date:"D d M Y, H:i" }} ({{ latest.created_at|timesince }} ago)</p>
       {% else %}
       <p class="text-xs text-amber-400 mt-1">No snapshots yet — the <code>record_ops_metrics</code> cron hasn't run. Charts fill in as data is collected.</p>
       {% endif %}
@@ -29,11 +29,66 @@
     </div>
   </div>
 
-  {% if latest and latest.status != 'ok' %}
+  {% if latest_stale %}
+  <div class="mb-6 px-4 py-3 rounded-xl text-sm bg-amber-500/10 border border-amber-500/30 text-amber-300">
+    ⚠️ Stale data — the newest snapshot is {{ latest.created_at|timesince }} old (expected every ~10&nbsp;min). The tiles below show that old reading, not the current state. The <code>record_ops_metrics</code> cron on the droplet has likely stopped; check <code>crontab -l</code> and <code>/var/log/cwa/ops_metrics.log</code>.
+  </div>
+  {% endif %}
+
+  {% if latest and not latest_stale and latest.status != 'ok' %}
   <div class="mb-6 px-4 py-3 rounded-xl text-sm {% if latest.status == 'crit' %}bg-red-500/10 border border-red-500/30 text-red-300{% else %}bg-amber-500/10 border border-amber-500/30 text-amber-300{% endif %}">
     {% if latest.status == 'crit' %}🔴 Critical{% else %}🟡 Watch{% endif %}: {{ latest.issues }}
   </div>
   {% endif %}
+
+  {% if email_queue.status != 'ok' %}
+  <div class="mb-6 px-4 py-3 rounded-xl text-sm {% if email_queue.status == 'critical' %}bg-red-500/10 border border-red-500/30 text-red-300{% else %}bg-amber-500/10 border border-amber-500/30 text-amber-300{% endif %}">
+    {% if email_queue.status == 'critical' %}🔴 Email not being delivered{% else %}🟡 Email queue behind{% endif %} —
+    {% for reason in email_queue.reasons %}{{ reason }}{% if not forloop.last %}; {% endif %}{% endfor %}.
+    Queued mail includes every invoice email, so invoices may be marked issued but never sent.
+    Check the <code>process_email_queue</code> cron (<code>/etc/cron.d/cwa-email</code>) and
+    <code>/var/log/cwa/email_queue.log</code>.
+  </div>
+  {% endif %}
+
+  <!-- Email queue (delivery path for every invoice email) -->
+  <div class="mb-6">
+    <h2 class="text-sm font-semibold text-slate-400 mb-3">Email queue</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if email_queue.status == 'critical' %}border-red-500/40{% elif email_queue.status == 'warning' %}border-amber-500/40{% else %}border-emerald-500/40{% endif %}">
+        <p class="text-sm text-slate-400">Delivery</p>
+        <p class="text-2xl font-bold mt-1 {% if email_queue.status == 'critical' %}text-red-400{% elif email_queue.status == 'warning' %}text-amber-400{% else %}text-emerald-400{% endif %}">
+          {% if email_queue.status == 'critical' %}Stalled{% elif email_queue.status == 'warning' %}Behind{% else %}Healthy{% endif %}
+        </p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if email_queue.last_sent_at %}last sent {{ email_queue.last_sent_at|timesince }} ago{% else %}nothing sent yet{% endif %}
+        </p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">Waiting to send</p>
+        <p class="text-2xl font-bold mt-1 text-slate-100">{{ email_queue.pending }}</p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if email_queue.oldest_pending_at %}oldest queued {{ email_queue.oldest_pending_at|timesince }} ago{% else %}queue empty{% endif %}
+        </p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">Sent today</p>
+        <p class="text-2xl font-bold mt-1 text-slate-100">{{ email_queue.sent_today }}</p>
+        <p class="text-xs text-slate-500 mt-1">delivered from the queue</p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if email_queue.failed %}border-red-500/40{% else %}border-slate-700{% endif %}">
+        <p class="text-sm text-slate-400">Gave up</p>
+        <p class="text-2xl font-bold mt-1 {% if email_queue.failed %}text-red-400{% else %}text-slate-100{% endif %}">{{ email_queue.failed }}</p>
+        <p class="text-xs text-slate-500 mt-1">failed after repeated attempts</p>
+      </div>
+    </div>
+    {% if email_queue.pending_by_type %}
+    <p class="text-xs text-slate-500 mt-2">
+      Waiting by type:
+      {% for kind, count in email_queue.pending_by_type.items %}<span class="text-slate-400">{{ kind }}</span> {{ count }}{% if not forloop.last %} · {% endif %}{% endfor %}
+    </p>
+    {% endif %}
+  </div>
 
   <!-- Summary tiles (current state) -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -74,6 +129,28 @@
   </div>
   {% endif %}
 
+  <!-- Managed-DB (DigitalOcean DBaaS) tiles -->
+  {% if latest and latest.db_metrics_available %}
+  <div class="mb-8">
+    <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Managed database (DigitalOcean)</h3>
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if latest.db_mem_pct >= 90 %}border-red-500/40{% elif latest.db_mem_pct >= 80 %}border-amber-500/40{% else %}border-slate-700{% endif %}">
+        <p class="text-sm text-slate-400">DB memory</p>
+        <p class="text-2xl font-bold mt-1 {% if latest.db_mem_pct >= 90 %}text-red-400{% elif latest.db_mem_pct >= 80 %}text-amber-400{% else %}text-white{% endif %}">{{ latest.db_mem_pct|default_if_none:"—" }}%</p>
+        <p class="text-xs text-slate-500 mt-1">high memory is normal — the buffer pool fills RAM by design</p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">DB CPU</p>
+        <p class="text-2xl font-bold text-white mt-1">{{ latest.db_cpu_pct|default_if_none:"—" }}%</p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">DB disk</p>
+        <p class="text-2xl font-bold text-white mt-1">{{ latest.db_disk_pct|default_if_none:"—" }}%</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Charts -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
     <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
@@ -82,9 +159,10 @@
         <div class="flex items-center gap-3 text-xs text-slate-400">
           <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-sky-400"></span> RAM</span>
           <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-fuchsia-400"></span> Swap</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-4 h-0 border-t-2 border-emerald-400"></span> DB RAM</span>
         </div>
       </div>
-      <p class="text-xs text-slate-500 mb-5">Peak % used per {{ bucket_label }}</p>
+      <p class="text-xs text-slate-500 mb-5">Peak % used per {{ bucket_label }} — droplet RAM/swap + managed-DB RAM</p>
       <div class="relative h-64"><canvas id="opsMemChart" role="img" aria-label="Peak RAM and swap percent used over time"></canvas></div>
     </div>
 
@@ -144,7 +222,13 @@
         });
       }
 
-      mk('opsMemChart', [line('RAM', d.mem_pct, '#38bdf8'), line('Swap', d.swap_pct, '#e879f9')], pctAxis(), '%');
+      // DB RAM line is added only when at least one bucket has a value, so the
+      // chart stays a clean two-line droplet view until DB metrics start flowing.
+      var memSets = [line('RAM', d.mem_pct, '#38bdf8'), line('Swap', d.swap_pct, '#e879f9')];
+      if (d.db_mem_pct && d.db_mem_pct.some(function (v) { return v !== null; })) {
+        memSets.push(line('DB RAM', d.db_mem_pct, '#34d399'));
+      }
+      mk('opsMemChart', memSets, pctAxis(), '%');
       mk('opsDiskChart', [line('Disk', d.disk_pct, '#fbbf24')], pctAxis(), '%');
       mk('opsRqChart', [line('default', d.rq_default, '#10b981'), line('high', d.rq_high, '#ef4444')], countAxis(), '');
     })();

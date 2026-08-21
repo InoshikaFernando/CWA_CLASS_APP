@@ -26,14 +26,20 @@ _HTTP_TIMEOUT = 5  # seconds — never stall the worker on a slow GitHub.
 
 
 def aggregate_usage(qs):
-    """Return (rows, totals): per-source pages/tokens/cost/$page plus a totals dict."""
+    """Return (rows, totals): per-provider-and-source usage plus a totals dict.
+
+    Grouped by provider as well as source because the two vendors are billed
+    separately: merging them would report one ai_import cost that is really
+    Claude plus GPT, and hide which vendor a rising bill belongs to (CPP-382).
+    """
     label = dict(AIUsageLog.SOURCE_CHOICES)
-    raw = qs.values('source').annotate(
+    provider_label = dict(AIUsageLog.PROVIDER_CHOICES)
+    raw = qs.values('provider', 'source').annotate(
         pages=Sum('pages'),
         input_tokens=Sum('input_tokens'),
         output_tokens=Sum('output_tokens'),
         cost=Sum('est_cost_usd'),
-    ).order_by('source')
+    ).order_by('provider', 'source')
 
     rows = []
     tot = {'pages': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': Decimal('0')}
@@ -41,6 +47,8 @@ def aggregate_usage(qs):
         pages = r['pages'] or 0
         cost = r['cost'] or Decimal('0')
         rows.append({
+            'provider': r['provider'],
+            'provider_label': provider_label.get(r['provider'], r['provider']),
             'source': r['source'],
             'label': label.get(r['source'], r['source']),
             'pages': pages,
@@ -54,6 +62,19 @@ def aggregate_usage(qs):
         tot['output_tokens'] += r['output_tokens'] or 0
         tot['cost'] += cost
     tot['per_page'] = (tot['cost'] / tot['pages']) if tot['pages'] else Decimal('0')
+    # Per-vendor spend, so "how much is OpenAI costing us?" is answerable
+    # without adding up rows by hand.
+    by_provider = {}
+    for row in rows:
+        entry = by_provider.setdefault(
+            row['provider'],
+            {'label': row['provider_label'], 'cost': Decimal('0'),
+             'input_tokens': 0, 'output_tokens': 0},
+        )
+        entry['cost'] += row['cost']
+        entry['input_tokens'] += row['input_tokens']
+        entry['output_tokens'] += row['output_tokens']
+    tot['by_provider'] = by_provider
     return rows, tot
 
 
@@ -107,14 +128,16 @@ def render_markdown(rows, tot, window, *, generated_at=None, grading=None, env_l
         '',
         '### Generation & classification (per page)',
         '',
-        '| Source | Pages | Input tok | Output tok | Cost (USD) | $/page | '
+        '| Vendor | Source | Pages | Input tok | Output tok | Cost (USD) | $/page | '
         '100 pages | 500 pages | 1000 pages |',
-        '|---|--:|--:|--:|--:|--:|--:|--:|--:|',
+        '|---|---|--:|--:|--:|--:|--:|--:|--:|--:|',
     ]
     for r in rows:
         pp = r['per_page']
         lines.append(
-            f'| {r["label"]} | {r["pages"]:,} | {r["input_tokens"]:,} | '
+            # .get: render_markdown takes plain dicts and is called with
+            # hand-built rows elsewhere; a missing vendor must not break it.
+            f'| {r.get("provider_label", "—")} | {r["label"]} | {r["pages"]:,} | {r["input_tokens"]:,} | '
             f'{r["output_tokens"]:,} | ${r["cost"]:.4f} | ${pp:.4f} | '
             f'${pp * 100:.2f} | ${pp * 500:.2f} | ${pp * 1000:.2f} |'
         )

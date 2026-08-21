@@ -52,6 +52,61 @@ def _cleanup_stale_quiz_keys(session, prefix):
         del session[k]
 
 
+def _correct_answer_texts(question):
+    """Every ticked answer's text for *question* (non-empty), in stored order.
+
+    Short-answer grading used to look at ``.first()`` only, so a question with
+    more than one accepted answer silently rejected all but one of them
+    (CPP-374). Mirrors the list ``Question.grade_text_answer`` builds.
+    """
+    return [
+        a.answer_text for a in question.answers.filter(is_correct=True)
+        if a.answer_text
+    ]
+
+
+def _grade_short_answer(question, raw, correct_texts):
+    """Grade a typed short answer against *every* accepted answer.
+
+    Two rules, either of which accepts:
+
+    - Exact match, exponent- and inequality-insensitive (mirrors
+      ``Question.grade_text_answer`` so the keypad buttons work here too). Each
+      stored answer may itself list comma-separated accepted forms — legacy
+      authoring that predates one Answer row per alternative.
+    - Set match on option labels, so a "select all that apply" answer stored as
+      ``"D and E"`` is accepted however the student orders it — ``"E,D"``,
+      ``"E D"`` (CPP-374). Only lists of single letters qualify, so an ordered
+      answer stays order-sensitive.
+
+    A question marked ``answer_format='set'`` — "list every value", where the
+    student must give them all in any order (CPP-376) — is graded on the model
+    instead, so the comma-as-alternatives rule above can't accept half of it.
+    """
+    from maths.algebra_grading import (
+        fold_exponents, fold_inequalities, option_label_set,
+    )
+    from maths.models import Question
+
+    if not raw or not correct_texts:
+        return False
+
+    if question.answer_format == Question.ANSWER_FORMAT_SET:
+        return question.grade_text_answer(raw)
+
+    def _fold(value):
+        return fold_exponents(fold_inequalities(value))
+
+    user = _fold(raw)
+    user_labels = option_label_set(raw)
+    for text in correct_texts:
+        if any(user == _fold(alt) for alt in text.split(',')):
+            return True
+        if user_labels is not None and user_labels == option_label_set(text):
+            return True
+    return False
+
+
 # ── Basic Facts ─────────────────────────────────────────────────────────────
 
 class BasicFactsHomeView(LoginRequiredMixin, View):
@@ -707,45 +762,48 @@ class MixedQuizView(LoginRequiredMixin, View):
 
             is_correct = False
             student_answer = ''
+            # What the student actually chose/typed, kept for the StudentAnswer
+            # row below — see the note on the topic-quiz save path (CPP-377).
+            selected_answer_obj = None
+            typed_answer = ''
             if q.question_type in ('multiple_choice', 'true_false'):
                 answer_id = request.POST.get(f'answer_{q.id}')
                 if answer_id:
                     answer = Answer.objects.filter(id=answer_id, question=q).first()
                     is_correct = bool(answer and answer.is_correct)
                     student_answer = answer.answer_text if answer else ''
+                    selected_answer_obj = answer
             elif q.answer_format == 'algebra':
                 raw = request.POST.get(f'text_{q.id}', '').strip()
                 is_correct = q.grade_text_answer(raw)
                 student_answer = raw
+                typed_answer = raw
             else:
-                from quiz.basic_facts import check_answer as _ca
-                from maths.algebra_grading import fold_exponents, fold_inequalities
                 raw = request.POST.get(f'text_{q.id}', '').strip()
                 student_answer = raw
-                correct_ans = q.answers.filter(is_correct=True).first()
-                if correct_ans:
-                    # Match grade_text_answer: exponent- and inequality-insensitive.
-                    _fold = lambda v: fold_exponents(fold_inequalities(v))
-                    alts = [_fold(a) for a in correct_ans.answer_text.split(',')]
-                    is_correct = _fold(raw) in alts
+                typed_answer = raw
+                is_correct = _grade_short_answer(q, raw, _correct_answer_texts(q))
 
             if is_correct:
                 correct_count += 1
                 topic_results[topic_name]['correct'] += 1
 
-            correct_ans = q.answers.filter(is_correct=True).first()
             review_data.append({
                 'id': q.id,
                 'question': q.question_text,
                 'topic': topic_name,
                 'student_answer': student_answer,
-                'correct_answer': correct_ans.answer_text if correct_ans else '',
+                # Every correct row, not just the first — a list answer must not
+                # be shown to the student as only its first value.
+                'correct_answer': q.correct_answer_display(),
                 'is_correct': is_correct,
             })
 
             answer_records.append(StudentAnswer(
                 student=request.user,
                 question=q,
+                selected_answer=selected_answer_obj,
+                text_answer=typed_answer,
                 is_correct=is_correct,
             ))
 
@@ -838,11 +896,17 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         is_correct = False
         correct_answer_text = ''
         correct_answer_id = None
+        # The option the student actually clicked. Persisted on StudentAnswer
+        # below: without it the row records only *that* an answer scored zero,
+        # never *what* was chosen, which makes a "this was marked wrong
+        # unfairly" report impossible to check against the data (CPP-377).
+        selected_answer_obj = None
 
         if q.question_type in ('multiple_choice', 'true_false'):
             answer_id = data.get('answer_id')
             answer = Answer.objects.filter(id=answer_id, question=q).first()
             is_correct = bool(answer and answer.is_correct)
+            selected_answer_obj = answer
             correct_ans = q.answers.filter(is_correct=True).first()
             if correct_ans:
                 correct_answer_text = correct_ans.answer_text
@@ -905,41 +969,53 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             correct_answer_text = ', '.join(
                 str(v) for v in (q.number_line_data or {}).get('target_values', [])
             )
-        elif q.answer_format == 'algebra':
+        elif q.answer_format in ('algebra', 'equation'):
+            # Algebra (expand & simplify) and equation (algebraic-equivalence)
+            # answers are both graded on the model, which routes by answer_format.
             raw = data.get('text_answer', '').strip()
             is_correct = q.grade_text_answer(raw)
-            correct_ans = q.answers.filter(is_correct=True).first()
-            correct_answer_text = correct_ans.answer_text if correct_ans else ''
+            correct_answer_text = q.correct_answer_display()
         else:
-            from maths.algebra_grading import fold_exponents, fold_inequalities
             raw = data.get('text_answer', '').strip()
-            correct_ans = q.answers.filter(is_correct=True).first()
-            if correct_ans:
-                # Match grade_text_answer: exponent- and inequality-insensitive.
-                _fold = lambda v: fold_exponents(fold_inequalities(v))
-                alts_raw = [a.strip() for a in correct_ans.answer_text.split(',')]
-                alts = [_fold(a) for a in alts_raw]
-                from django.conf import settings
-                tolerance = getattr(settings, 'ANSWER_NUMERIC_TOLERANCE', 0.05)
-                is_correct = _fold(raw) in alts
-                if not is_correct:
-                    try:
-                        is_correct = abs(float(raw) - float(alts_raw[0])) <= tolerance
-                    except ValueError:
-                        pass
-                correct_answer_text = alts_raw[0]
+            correct_texts = _correct_answer_texts(q)
+            if correct_texts:
+                is_correct = _grade_short_answer(q, raw, correct_texts)
+                if not is_correct and q.answer_format != Question.ANSWER_FORMAT_SET:
+                    # Numeric answers also grade within a small tolerance. Not
+                    # for a set answer — comparing against its first value would
+                    # accept "54" for "54, 63", which is half the answer.
+                    tolerance = getattr(settings, 'ANSWER_NUMERIC_TOLERANCE', 0.05)
+                    for text in correct_texts:
+                        try:
+                            if abs(float(raw) - float(text.split(',')[0])) <= tolerance:
+                                is_correct = True
+                                break
+                        except ValueError:
+                            continue
+                # Every correct row, in full — showing only the first value told
+                # the student the answer was "54" when it is 54 and 63 (CPP-376).
+                correct_answer_text = q.correct_answer_display()
 
-        # Capture the student's submitted answer (as text) for later review.
+        # Capture the student's submitted answer (as text) for later review, and
+        # in the typed/ordered forms the StudentAnswer row stores.
+        ordered_answer_ids = None
+        typed_answer = ''
         if q.question_type in ('multiple_choice', 'true_false'):
-            _sel = Answer.objects.filter(id=data.get('answer_id'), question=q).first()
-            student_answer_text = _sel.answer_text if _sel else ''
+            # Reuses the Answer already fetched by the grader above rather than
+            # re-querying it.
+            student_answer_text = (
+                selected_answer_obj.answer_text if selected_answer_obj else ''
+            )
         elif q.question_type == 'drag_drop':
             _texts = dict(q.answers.values_list('id', 'answer_text'))
+            _raw_ids = data.get('ordered_answer_ids', [])
             student_answer_text = ' -> '.join(
-                str(_texts.get(int(i), i)) for i in data.get('ordered_answer_ids', [])
+                str(_texts.get(int(i), i)) for i in _raw_ids
             )
+            ordered_answer_ids = [int(i) for i in _raw_ids]
         else:
-            student_answer_text = data.get('text_answer', '').strip()
+            typed_answer = data.get('text_answer', '').strip()
+            student_answer_text = typed_answer
 
         # Update session
         if is_correct:
@@ -967,7 +1043,12 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             student=request.user,
             question=q,
             attempt_id=attempt,
-            defaults={'is_correct': is_correct},
+            defaults={
+                'is_correct': is_correct,
+                'selected_answer': selected_answer_obj,
+                'text_answer': typed_answer,
+                'ordered_answer_ids': ordered_answer_ids,
+            },
         )
 
         is_last = session_data['current'] >= len(questions)

@@ -287,6 +287,20 @@ class TestShortAnswerMatching(TestCase):
         assert is_short_answer_correct("1000", "1,000") is True
         assert is_short_answer_correct("red, green", "red green") is True
 
+    def test_option_labels_match_in_any_order(self):
+        """A "select all that apply" answer lists option labels, so the same
+        labels in any order are the same answer (CPP-374)."""
+        assert is_short_answer_correct("E,D", "D and E") is True
+        assert is_short_answer_correct("E D", "D and E") is True
+        assert is_short_answer_correct("d and e", "D and E") is True
+        # A partial or wrong selection is still wrong.
+        assert is_short_answer_correct("D", "D and E") is False
+        assert is_short_answer_correct("D,F", "D and E") is False
+
+    def test_option_label_match_does_not_reorder_words(self):
+        """Bounded to single letters, so worded answers keep their order."""
+        assert is_short_answer_correct("green red", "red green") is False
+
     def test_case_sensitive_flag(self):
         """case_sensitive=True enforces exact case."""
         assert is_short_answer_correct("Python", "python", case_sensitive=True) is False

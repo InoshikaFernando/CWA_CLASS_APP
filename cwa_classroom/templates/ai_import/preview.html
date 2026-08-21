@@ -13,6 +13,8 @@
     </div>
   </div>
 
+  {% include "_partials/page_selection_notice.html" %}
+
   <form method="post" class="space-y-6">
     {% csrf_token %}
 
@@ -121,6 +123,10 @@
             {% if q.image_ref %}
             <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-700">{{ q.image_ref }}</span>
             {% endif %}
+            {% if q.needs_review %}
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700"
+                  title="{{ q.review_reason|default:'The system could not determine this answer with confidence — please double-check it.' }}">⚠ Review</span>
+            {% endif %}
             <svg :class="expanded ? 'rotate-0' : '-rotate-90'" class="w-4 h-4 ml-auto text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
             </svg>
@@ -198,6 +204,12 @@
                 <button type="button" class="mt-1 text-xs text-indigo-600 hover:underline font-medium"
                         data-adjust="{{ forloop.counter0 }}" data-page="{{ q.image_page }}"
                         data-frac="{{ q.image_bbox_frac_json }}">✥ Adjust / crop from page</button>
+                {% if not forloop.first %}
+                <button type="button" onclick="reuseLastImage({{ forloop.counter0 }})"
+                        class="mt-1 ml-3 text-xs text-teal-600 hover:underline font-medium reuse-last-image-btn"
+                        data-reuse="{{ forloop.counter0 }}"
+                        title="Assign the same image as the nearest previous question that has one">⧉ Same image as previous</button>
+                {% endif %}
                 <div id="img-wrap-{{ forloop.counter0 }}" class="hidden mt-1">
                   <img id="img-preview-{{ forloop.counter0 }}" alt="Crop preview"
                        class="max-h-40 rounded border border-gray-200 object-contain bg-white">
@@ -437,6 +449,32 @@ function removeImage(btn, ref) {
       opt.remove();
     }
   });
+}
+
+// --- Reuse Last Image ---
+// Assign this question the image already chosen on the nearest earlier question
+// that has one — the manual counterpart to the extractor's automatic
+// "shares_image_with_previous" carry-over, for when a shared figure was missed.
+function reuseLastImage(qIdx) {
+  var target = document.getElementById('img-ref-' + qIdx);
+  if (!target) return;
+  for (var i = qIdx - 1; i >= 0; i--) {
+    var prev = document.getElementById('img-ref-' + i);
+    if (prev && prev.value && prev.value !== 'none') {
+      target.value = prev.value;
+      // Fire change so any dependent UI (e.g. crop preview) can react.
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+  }
+  // Nothing earlier carried an image — give brief, non-blocking feedback.
+  var btn = document.querySelector('.reuse-last-image-btn[data-reuse="' + qIdx + '"]');
+  if (btn && !btn.dataset.flashing) {
+    var orig = btn.textContent;
+    btn.dataset.flashing = '1';
+    btn.textContent = 'No earlier image to reuse';
+    setTimeout(function () { btn.textContent = orig; delete btn.dataset.flashing; }, 1500);
+  }
 }
 
 // --- Select / Deselect All ---

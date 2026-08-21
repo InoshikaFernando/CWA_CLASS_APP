@@ -16,6 +16,47 @@ from django.utils import timezone
 QUESTION_IMAGE_PATH_RE = re.compile(r'^questions/year[0-9]+/[a-zA-Z0-9_-]+/.+')
 
 
+# A "list every value" answer ("54, 63" / "54 and 63" / "54; 63") split into
+# its values. A comma that groups digits ("1,000", "12,345,678") is part of the
+# number, not a separator, so it is protected before the split — otherwise
+# "1,000" would read as the two values 1 and 000.
+_DIGIT_GROUP_COMMA_RE = re.compile(r'(?<=\d),(?=\d{3}\b)')
+_ANSWER_LIST_SEP_RE = re.compile(r'\s*(?:,|;|\band\b)\s*', re.IGNORECASE)
+_GROUP_COMMA_SENTINEL = '\x00'
+_PLAIN_NUMBER_RE = re.compile(r'^-?\d+(?:\.\d+)?$')
+
+
+def _split_answer_list(value):
+    """Split a list-style answer into its values, preserving digit grouping.
+
+    >>> _split_answer_list('54, 63')
+    ['54', '63']
+    >>> _split_answer_list('54 and 63')
+    ['54', '63']
+    >>> _split_answer_list('1,000')
+    ['1,000']
+    >>> _split_answer_list('54 63')
+    ['54', '63']
+    >>> _split_answer_list('nine dollars fifty three cents')
+    ['nine dollars fifty three cents']
+    """
+    protected = _DIGIT_GROUP_COMMA_RE.sub(_GROUP_COMMA_SENTINEL, value)
+    parts = [
+        part.replace(_GROUP_COMMA_SENTINEL, ',').strip()
+        for part in _ANSWER_LIST_SEP_RE.split(protected)
+        if part.strip()
+    ]
+    # A student may separate the values with nothing but a space ("54 63").
+    # Space is only a separator when every token is a plain number, so word
+    # answers ("nine dollars fifty three cents") and mixed numbers ("2 1/4")
+    # stay whole — their words must not be treated as reorderable values.
+    if len(parts) == 1:
+        tokens = parts[0].split()
+        if len(tokens) > 1 and all(_PLAIN_NUMBER_RE.match(t) for t in tokens):
+            return tokens
+    return parts
+
+
 def generate_class_code():
     """Retained for historical migration compatibility — not used by any model."""
     return uuid.uuid4().hex[:8]
@@ -57,6 +98,7 @@ class Question(models.Model):
     IDENTIFY_COORDS = 'identify_coords'
     READ_GRAPH = 'read_graph'
     NUMBER_LINE = 'number_line'
+    TABLE_OF_VALUES = 'table_of_values'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -76,6 +118,7 @@ class Question(models.Model):
         ('identify_coords', 'Identify Coordinates (type the point)'),
         ('read_graph', 'Read a Graph (read off a value)'),
         ('number_line', 'Number Line (mark or read a value)'),
+        ('table_of_values', 'Table of Values (fill in the x/y table)'),
     ]
 
     # Validation mode — how student answers are graded
@@ -137,17 +180,26 @@ class Question(models.Model):
     # How a typed (short_answer / calculation) answer is matched.
     ANSWER_FORMAT_TEXT = 'text'
     ANSWER_FORMAT_ALGEBRA = 'algebra'
+    ANSWER_FORMAT_EQUATION = 'equation'
+    ANSWER_FORMAT_SET = 'set'
     ANSWER_FORMAT_CHOICES = [
         ('text', 'Text — exact match (case/space-insensitive)'),
         ('algebra', 'Algebra — simplified polynomial (e.g. expand & simplify)'),
+        ('equation', 'Equation — algebraic equivalence (accepts vertex / factored / expanded form)'),
+        ('set', 'Set — list every value, any order (e.g. "what are the multiples of 9 between 50 and 70?")'),
     ]
     answer_format = models.CharField(
         max_length=10, choices=ANSWER_FORMAT_CHOICES, default='text',
         help_text=(
             'For short_answer / calculation questions. "Algebra" grades the answer as a '
             'fully simplified, expanded polynomial — e.g. (2x+3)(x-5) must be entered as '
-            '"2x^2 - 7x - 15". Term order and spacing are ignored, but un-combined like '
-            'terms and un-expanded brackets are marked wrong even when algebraically equal.'
+            '"2x^2 - 7x - 15". "Equation" grades by algebraic equivalence — for '
+            '"write the equation" questions any spelling of the same curve is accepted '
+            '(y=2(x-1)^2-2 == y=2x^2-4x). Term order and spacing are always ignored. '
+            '"Set" is for "list every value" questions — store the values as one '
+            'comma-separated answer ("54, 63"); the student must give them all, in any '
+            'order. Leave as "Text" when the order of the values is part of the answer '
+            '(e.g. "write these numbers in order").'
         ),
     )
 
@@ -241,6 +293,19 @@ class Question(models.Model):
         help_text="number_line only. Scale + mode + correct target set (mark: set-comparison; read: numeric tolerance).",
     )
 
+    # Table-of-values question data: a table of headers + rows where each cell is
+    # either a shown value the student reads (``given``, e.g. the x column) or a
+    # blank the student fills (``answer``, e.g. the y column computed from a rule).
+    # Graded all-or-nothing by numeric tolerance (every answer cell must match).
+    # Schema validation lives in Question.clean() (validate_table_spec). Shape:
+    #   {"headers": ["x", "y"],
+    #    "rows": [[{"given": "-3"}, {"answer": "7"}], ...],
+    #    "tolerance": 0}
+    table_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="table_of_values only. Headers + rows of given/answer cells (numeric-tolerance graded).",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -278,6 +343,12 @@ class Question(models.Model):
             from maths.algebra_grading import is_algebraic_answer_correct
             return any(is_algebraic_answer_correct(text_answer, c) for c in correct)
 
+        if self.answer_format == self.ANSWER_FORMAT_EQUATION:
+            # "Write the equation" — accept any algebraically equivalent form
+            # (vertex / factored / expanded) of the same curve.
+            from maths.algebra_grading import is_equation_answer_correct
+            return any(is_equation_answer_correct(text_answer, c) for c in correct)
+
         # Exact match, but exponent-, inequality- and degree-insensitive so the
         # keypad buttons are usable on ordinary maths answers: the x² button
         # (cm^2 == cm² == cm2), a typed inequality however the student spells the
@@ -288,6 +359,7 @@ class Question(models.Model):
             fold_degrees,
             fold_exponents,
             fold_inequalities,
+            option_label_set,
         )
 
         def _fold(value):
@@ -317,7 +389,57 @@ class Question(models.Model):
             return fold_exponents(fold_inequalities(fold_degrees(value)))
 
         user = _fold(text_answer)
-        return any(user == _fold(c) for c in correct)
+        if any(user == _fold(c) for c in correct):
+            return True
+
+        # A "list every value" answer is a *set*: the student must give every
+        # value, but the order they list them in must not decide the mark —
+        # "63, 54" is the same answer as "54, 63" (CPP-376). The fold above
+        # concatenates a list into one string ("5463"), which only matches the
+        # stored order, so the values are compared as a set instead.
+        #
+        # This is opt-in per question (answer_format='set') rather than inferred
+        # from the presence of a comma, because a comma-separated answer is not
+        # always a set — "write these numbers in order" stores "3, 5, 7" and
+        # must stay order-sensitive (CPP-374).
+        if self.answer_format == self.ANSWER_FORMAT_SET:
+            user_values = sorted(_fold(p) for p in _split_answer_list(text_answer))
+            for c in correct:
+                if user_values == sorted(_fold(p) for p in _split_answer_list(c)):
+                    return True
+            # Content that entered one value per Answer row rather than one
+            # comma-separated row: the required set is every ticked row.
+            if len(correct) > 1:
+                return user_values == sorted(_fold(c) for c in correct)
+            return False
+
+        # "Select all that apply" questions are authored as a typed answer that
+        # lists the option labels ("D and E"). The student picks the same options
+        # but types them in their own order / with their own separator ("E,D"),
+        # so those are compared as a set of labels rather than as a string
+        # (CPP-374). option_label_set returns None for anything that isn't a
+        # list of single letters, which keeps ordered answers order-sensitive.
+        user_labels = option_label_set(text_answer)
+        if user_labels is None:
+            return False
+        return any(user_labels == option_label_set(c) for c in correct)
+
+    def correct_answer_display(self):
+        """The correct answer as it should be *shown* to a student.
+
+        Every correct Answer row, not just the first — a question whose answer
+        is a list of values may store one value per row, and showing only
+        ``.first()`` tells the student "54" when the answer is "54 and 63"
+        (CPP-376). Separate rows are alternatives, so they are joined with
+        " or "; a single row is shown verbatim, commas and all. Returns '' when
+        the question has no stored correct answer.
+        """
+        texts = [
+            a.answer_text.strip()
+            for a in self.answers.filter(is_correct=True)
+            if a.answer_text and a.answer_text.strip()
+        ]
+        return ' or '.join(texts)
 
     class Meta:
         ordering = ['level', 'difficulty', 'created_at']
@@ -459,6 +581,26 @@ class Question(models.Model):
                     'question_type': (
                         'Number-line questions are graded by the marked/typed '
                         'values and must not have answer options.'
+                    )
+                })
+
+        # Table-of-values questions are graded by numeric tolerance on the filled
+        # cells (the correct values live in the spec), never answer options.
+        if self.question_type == self.TABLE_OF_VALUES:
+            if not self.table_spec:
+                raise ValidationError({
+                    'table_spec': 'Table-of-values questions require a table_spec.'
+                })
+            from maths.geometry_grading import validate_table_spec
+            try:
+                validate_table_spec(self.table_spec)
+            except ValueError as exc:
+                raise ValidationError({'table_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Table-of-values questions are graded by the filled cells '
+                        'and must not have answer options.'
                     )
                 })
 
@@ -645,6 +787,9 @@ class Question(models.Model):
             'xmin': xmin, 'xmax': xmax, 'ymin': ymin, 'ymax': ymax,
             'mode': self.plane_spec.get('mode') or 'points',
             'dots': dots, 'given': given, 'interactive': interactive,
+            # Opt-in: render a smooth curve through the plotted points (plot_points
+            # only — a "join the dots into a parabola" visual aid; grading unchanged).
+            'curve': bool(self.plane_spec.get('curve')),
         }
 
     @property
@@ -717,6 +862,43 @@ class Question(models.Model):
             'target_values': [t['value'] for t in answer],
             'tolerance': spec.get('tolerance') or 0,
         }
+
+    @property
+    def table_data(self):
+        """Render-ready data for a table_of_values question, or None.
+
+        Maps ``table_spec`` to the rows the take-item template draws: each cell is
+        either a shown value (``given``) or a blank input carrying its ``r,c`` key
+        for the serialise-to-JSON JS. The ``answer`` value is kept on blank cells
+        so the worksheets answer-key surface can show the correct value — the
+        student take template renders only the empty input and never prints it.
+        Returns None when there's nothing renderable, so templates guard with a
+        single check. Mirrors ``plane_data`` / ``number_line_data`` — render data
+        on the model, no per-view plumbing.
+        """
+        if self.question_type != self.TABLE_OF_VALUES or not self.table_spec:
+            return None
+        from maths.geometry_grading import _table_cell_kind
+        headers = self.table_spec.get('headers')
+        rows = self.table_spec.get('rows')
+        if not isinstance(headers, list) or not isinstance(rows, list):
+            return None
+        out_rows = []
+        for r, row in enumerate(rows):
+            if not isinstance(row, list):
+                return None
+            out_cells = []
+            for c, cell in enumerate(row):
+                kind = _table_cell_kind(cell)
+                if kind is None:
+                    return None
+                role, value = kind
+                if role == 'given':
+                    out_cells.append({'given': True, 'value': value})
+                else:
+                    out_cells.append({'given': False, 'rc': f'{r},{c}', 'answer': value})
+            out_rows.append(out_cells)
+        return {'headers': headers, 'rows': out_rows}
 
     @property
     def prime_factorization_rows(self):
@@ -1223,3 +1405,162 @@ class StudentFinalAnswer(models.Model):
         """Keep only the most recent attempts for ``instance``'s series."""
         from classroom.attempt_retention import prune_to_last_n
         return prune_to_last_n(cls, cls.attempt_series_filter(instance))
+
+
+class QuestionHealthSnapshot(models.Model):
+    """A point-in-time measurement of how sound the question bank is.
+
+    Written by ``manage.py record_question_health`` (cron) and read by the
+    super-admin dashboard, mirroring the OpsSnapshot → ops dashboard pattern.
+
+    Snapshots exist so question health can be seen as a *trend*: a single audit
+    run tells you today's count, but only a series tells you whether editing is
+    outpacing breakage. Rows are small and written at most daily, so they are
+    kept rather than pruned.
+
+    "Blocking" issues can mark a student wrong for correct work (CPP-377);
+    "advisory" ones cannot, and are tracked separately so a presentation nit
+    never dilutes the headline number.
+    """
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    # Scope of this run — blank means the whole bank.
+    level_number = models.PositiveSmallIntegerField(null=True, blank=True)
+    topic = models.ForeignKey(
+        'classroom.Topic', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='health_snapshots',
+    )
+
+    # Population
+    total_questions = models.PositiveIntegerField(default=0)
+    choice_questions = models.PositiveIntegerField(default=0)
+
+    # Coverage — how much of the bank the audit could actually judge.
+    arithmetic_verified = models.PositiveIntegerField(
+        default=0, help_text='Questions whose own maths was evaluated and checked.')
+    unverifiable = models.PositiveIntegerField(
+        default=0, help_text='Word problems etc. that need a human.')
+
+    # Findings
+    questions_blocking = models.PositiveIntegerField(
+        default=0, help_text='Questions with an issue that can mismark a student.')
+    questions_advisory = models.PositiveIntegerField(
+        default=0, help_text='Questions with only non-mismarking issues.')
+
+    # Per-code counts, so the dashboard can show what is actually wrong.
+    # Keyed by the issue codes in maths.answer_verification.
+    issue_counts = models.JSONField(
+        default=dict, blank=True,
+        help_text="e.g. {'EQUIVALENT-OPTION': 14, 'WRONG-ANSWER-KEY': 2}")
+
+    # Enough detail to jump straight to the offending questions.
+    flagged_questions = models.JSONField(
+        default=list, blank=True,
+        help_text="[{'id': 6017, 'codes': ['EQUIVALENT-OPTION'], 'text': '...'}]")
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'question health snapshot'
+
+    def __str__(self):
+        return f'{self.created_at:%Y-%m-%d %H:%M} — {self.questions_blocking} blocking'
+
+    @property
+    def health_percent(self):
+        """Share of choice questions with no blocking issue, 0-100."""
+        if not self.choice_questions:
+            return 100
+        sound = self.choice_questions - self.questions_blocking
+        return round(sound / self.choice_questions * 100, 1)
+
+    @property
+    def coverage_percent(self):
+        """Share of choice questions whose maths could be machine-checked.
+
+        Deliberately separate from health: a 100% healthy bank that could only
+        be verified 16% deep is not the same claim, and collapsing the two
+        would overstate what is actually known.
+        """
+        if not self.choice_questions:
+            return 0
+        return round(self.arithmetic_verified / self.choice_questions * 100, 1)
+
+    @property
+    def status(self):
+        if self.questions_blocking:
+            return 'crit'
+        if self.questions_advisory:
+            return 'warn'
+        return 'ok'
+
+
+class QuestionAIReview(models.Model):
+    """One semantic review of one question by an independent model (CPP-380).
+
+    The deterministic audits prove things about the data — a distractor equal to
+    the answer, an answer key that fails its own arithmetic. They cannot judge
+    whether a question is *sensible*: ambiguous wording, an answer that does not
+    follow from the stem, information missing from a word problem.
+
+    This is the record of a model having looked. It is deliberately a *review*,
+    not a verdict on truth: two models agreeing is a second opinion, and the
+    row exists to route a human's attention, never to bless content. Nothing in
+    this app edits question text on the strength of it.
+
+    The row is the single source of truth for review state — there is no
+    denormalised flag on Question to drift out of sync. ``question_updated_at``
+    snapshots the content version reviewed, so an edit after review makes the
+    review stale rather than silently vouching for text nobody checked.
+    """
+
+    VERDICT_OK = 'ok'
+    VERDICT_FLAGGED = 'flagged'
+    VERDICT_ERROR = 'error'
+    VERDICT_CHOICES = [
+        (VERDICT_OK, 'Reviewed — no objection'),
+        (VERDICT_FLAGGED, 'Flagged for human review'),
+        (VERDICT_ERROR, 'Review failed'),
+    ]
+
+    question = models.ForeignKey(
+        Question, on_delete=models.CASCADE, related_name='ai_reviews')
+    reviewed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    verdict = models.CharField(max_length=10, choices=VERDICT_CHOICES)
+    reason = models.TextField(
+        blank=True, default='',
+        help_text='Short human-readable explanation, shown to whoever triages.')
+
+    # Which content version this review applies to. Compared against
+    # Question.updated_at to detect a review made stale by a later edit.
+    question_updated_at = models.DateTimeField(null=True, blank=True)
+
+    # Two-tier review: a cheap model looks at everything, and only what it
+    # doubts is escalated. Recorded so the escalation rate — the thing that
+    # actually drives cost — is measurable after the fact.
+    first_pass_model = models.CharField(max_length=100, blank=True, default='')
+    adjudicator_model = models.CharField(max_length=100, blank=True, default='')
+    escalated = models.BooleanField(default=False)
+
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    # Null when the model's rate is not configured — tokens are always known,
+    # cost is not, and guessing it would make the budget ceiling a lie.
+    cost_usd = models.DecimalField(
+        max_digits=10, decimal_places=6, null=True, blank=True)
+
+    class Meta:
+        ordering = ['-reviewed_at']
+        indexes = [models.Index(fields=['question', '-reviewed_at'])]
+        verbose_name = 'question AI review'
+
+    def __str__(self):
+        return f'Q{self.question_id} — {self.get_verdict_display()}'
+
+    @property
+    def is_stale(self):
+        """True if the question was edited after this review was made."""
+        if not self.question_updated_at or not self.question.updated_at:
+            return False
+        return self.question.updated_at > self.question_updated_at

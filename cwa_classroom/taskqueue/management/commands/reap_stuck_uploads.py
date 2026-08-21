@@ -7,8 +7,12 @@ forever and the UI polls it indefinitely. This command marks any session stuck
 in 'processing' beyond a threshold as failed, so the page self-heals to a
 "failed — please try again" state.
 
-Run via cron, e.g. every 5 minutes:
-    */5 * * * * /home/cwa/.../python manage.py reap_stuck_uploads
+Homework PDF sessions heartbeat while they work (progress_updated_at), so those
+are judged on their last sign of life rather than raw age — a long worksheet
+that is still classifying is left alone.
+
+Installed as a cron drop-in by deploy/setup-app-prod.sh (every 5 minutes):
+    */5 * * * * cwa /home/cwa/CWA_CLASS_APP/scripts/reap_stuck_uploads.sh ...
 """
 from datetime import timedelta
 
@@ -48,6 +52,11 @@ class Command(BaseCommand):
         total = 0
         for model, processing, failed in targets:
             qs = model.objects.filter(status=processing, created_at__lt=cutoff)
+            # Homework PDF jobs heartbeat while they work, and a long worksheet
+            # legitimately runs past --minutes. Age alone would reap a healthy
+            # job; spare anything that has reported progress recently.
+            if model is HomeworkUploadSession:
+                qs = qs.exclude(progress_updated_at__gte=cutoff)
             n = qs.count()
             total += n
             if n and not dry_run:

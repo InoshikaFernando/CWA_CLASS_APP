@@ -37,3 +37,41 @@ bulk-fill script: [`Runbooks/jira-story-points.md`](Runbooks/jira-story-points.m
   site, `main` deploys to production. Open a PR; never push to `main` directly.
 - No silent failure — surface errors (blank data, swallowed 4xx, no-op commands)
   rather than hiding them.
+
+## Hosting & deployment
+
+**Both sites run on DigitalOcean Droplets — NOT PythonAnywhere.** The app was
+migrated off PythonAnywhere (see `scripts/migrate_db_pa_to_do.sh`); any
+PythonAnywhere instruction you find in a skill, runbook, or older ticket is
+stale. The stack is Caddy (TLS) → gunicorn → Django, with DigitalOcean Managed
+MySQL, Redis, and Spaces for media. Full details:
+[`Runbooks/production-deployment.md`](Runbooks/production-deployment.md).
+
+**Deploys are automatic — do not hand anyone a manual server checklist.**
+
+| Push to | Workflow | Result |
+|---------|----------|--------|
+| `test`  | `.github/workflows/deploy-test.yml` | deploys the test site |
+| `main`  | `.github/workflows/deploy-prod.yml` | deploys production |
+
+Merging the release PR **is** the deploy: the workflow SSHes to the droplet and
+runs `scripts/deploy.sh` (reset to origin → deps → `migrate` → `collectstatic`
+→ `check --deploy` → restart gunicorn → deep health gate → restart RQ worker),
+then a public smoke test. Both workflows also accept `workflow_dispatch` for a
+manual re-deploy. If `DEPLOY_HOST` is unset the deploy no-ops rather than
+half-deploying.
+
+So after merging to `main`, the job is to **verify the deploy run went green**,
+not to tell anyone to pull and migrate by hand:
+
+```bash
+curl -s https://www.wizardslearninghub.co.nz/api/health/          # version + liveness
+curl -s "https://www.wizardslearninghub.co.nz/api/health/?deep=1" # DB + migrations + cache
+```
+
+`version` in the response should equal the `APP_VERSION` just shipped. Note the
+sandbox's egress proxy blocks this host, so check the workflow run instead when
+curl returns a 403 CONNECT.
+
+Tagging releases needs a human: this environment's GitHub credentials can push
+branches but get **403 on tag refs**.

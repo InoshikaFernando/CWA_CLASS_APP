@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}Question Bank Health{% endblock %}
+
+{% block content %}
+<div class="-mx-4 -my-6 md:-mx-8 px-4 py-6 md:px-8 bg-slate-900 text-slate-200 min-h-[calc(100vh-4rem)]">
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8 flex-wrap gap-3">
+    <div>
+      <h1 class="text-2xl font-display font-bold text-white">Question Bank Health</h1>
+      <p class="text-slate-400 mt-1">Questions that could mark a correct answer wrong</p>
+      {% if latest %}
+      <p class="text-xs mt-1 {% if latest_stale %}text-amber-400{% else %}text-slate-500{% endif %}">Last audit: {{ latest.created_at|date:"D d M Y, H:i" }} ({{ latest.created_at|timesince }} ago)</p>
+      {% else %}
+      <p class="text-xs text-amber-400 mt-1">No audits yet — nothing has recorded a snapshot. Check that <code>cron_record_question_health.sh</code> is installed on the droplet.</p>
+      {% endif %}
+    </div>
+    <a href="{% url 'question_check_admin_dashboard' %}" data-testid="run-check-link"
+       class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition">
+      Check questions now →
+    </a>
+  </div>
+
+  {% if latest_stale %}
+  <div class="mb-6 px-4 py-3 rounded-xl text-sm bg-amber-500/10 border border-amber-500/30 text-amber-300">
+    ⚠️ Stale data — the newest audit is {{ latest.created_at|timesince }} old (expected daily). The figures below are that old reading, not the current state. Check that <code>cron_record_question_health.sh</code> is still installed and running on the droplet.
+  </div>
+  {% endif %}
+
+  {% if not latest %}
+  <div class="px-4 py-8 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-sm">
+    Nothing recorded yet. Run
+    <code class="px-1.5 py-0.5 rounded bg-slate-900 text-slate-200">manage.py record_question_health</code>
+    on the droplet to take the first reading.
+    <span class="block mt-2 text-slate-400">
+      For it to stay current, <code class="px-1.5 py-0.5 rounded bg-slate-900 text-slate-200">scripts/cron_record_question_health.sh</code>
+      must be installed in the droplet's crontab — the install line is in the top of that file.
+      This page never fills itself in.
+    </span>
+  </div>
+  {% else %}
+
+  <!-- Headline tiles -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div class="rounded-2xl p-5 border {% if latest.status == 'crit' %}bg-red-500/10 border-red-500/30{% elif latest.status == 'warn' %}bg-amber-500/10 border-amber-500/30{% else %}bg-emerald-500/10 border-emerald-500/30{% endif %}">
+      <p class="text-xs uppercase tracking-wide text-slate-400">Healthy</p>
+      <p class="text-3xl font-bold {% if latest.status == 'crit' %}text-red-300{% elif latest.status == 'warn' %}text-amber-300{% else %}text-emerald-300{% endif %} mt-1">{{ latest.health_percent }}%</p>
+      <p class="text-xs text-slate-400 mt-1">of {{ latest.choice_questions }} choice questions</p>
+    </div>
+
+    <div class="rounded-2xl p-5 bg-slate-800 border border-slate-700">
+      <p class="text-xs uppercase tracking-wide text-slate-400">Can mismark a student</p>
+      <p class="text-3xl font-bold {% if latest.questions_blocking %}text-red-300{% else %}text-emerald-300{% endif %} mt-1">{{ latest.questions_blocking }}</p>
+      <p class="text-xs text-slate-400 mt-1">questions need fixing</p>
+    </div>
+
+    <div class="rounded-2xl p-5 bg-slate-800 border border-slate-700">
+      <p class="text-xs uppercase tracking-wide text-slate-400">Advisory only</p>
+      <p class="text-3xl font-bold text-slate-200 mt-1">{{ latest.questions_advisory }}</p>
+      <p class="text-xs text-slate-400 mt-1">nobody marked wrong, worth tidying</p>
+    </div>
+
+    <div class="rounded-2xl p-5 bg-slate-800 border border-slate-700">
+      <p class="text-xs uppercase tracking-wide text-slate-400">Machine-verified</p>
+      <p class="text-3xl font-bold text-slate-200 mt-1">{{ latest.coverage_percent }}%</p>
+      <p class="text-xs text-slate-400 mt-1">{{ latest.unverifiable }} need a human</p>
+    </div>
+  </div>
+
+  <!-- Coverage honesty note -->
+  <div class="mb-8 px-4 py-3 rounded-xl text-sm bg-slate-800/60 border border-slate-700 text-slate-400">
+    <span class="text-slate-300 font-semibold">Read these together.</span>
+    “Healthy” counts questions with no detected fault. “Machine-verified” is how deep the check could actually go — word problems can't be solved automatically, so they are reported as needing a human rather than counted as passing.
+  </div>
+
+  <!-- Issue breakdown -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <div class="rounded-2xl bg-slate-800 border border-slate-700 p-5">
+      <h2 class="text-white font-semibold mb-4">What's wrong</h2>
+      {% if issues %}
+      <table class="w-full text-sm">
+        <tbody>
+          {% for issue in issues %}
+          <tr class="border-b border-slate-700/60 last:border-0">
+            <td class="py-2 text-slate-300">
+              {{ issue.label }}
+              {% if issue.advisory %}<span class="ml-2 text-xs px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">advisory</span>{% endif %}
+            </td>
+            <td class="py-2 text-right font-semibold {% if issue.advisory %}text-slate-400{% else %}text-red-300{% endif %}">{{ issue.count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-emerald-300 text-sm">No issues found. 🎉</p>
+      {% endif %}
+    </div>
+
+    <div class="rounded-2xl bg-slate-800 border border-slate-700 p-5">
+      <h2 class="text-white font-semibold mb-4">Trend</h2>
+      {% if trend|length > 1 %}
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-slate-400 text-xs uppercase tracking-wide">
+            <th class="text-left pb-2">Date</th>
+            <th class="text-right pb-2">Healthy</th>
+            <th class="text-right pb-2">Blocking</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for point in trend reversed %}
+          <tr class="border-b border-slate-700/60 last:border-0">
+            <td class="py-1.5 text-slate-400">{{ point.at|date:"d M H:i" }}</td>
+            <td class="py-1.5 text-right text-slate-300">{{ point.health }}%</td>
+            <td class="py-1.5 text-right {% if point.blocking %}text-red-300{% else %}text-emerald-300{% endif %}">{{ point.blocking }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-slate-400 text-sm">Not enough history yet — the trend appears once a second audit has run.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Drill-down -->
+  <div class="rounded-2xl bg-slate-800 border border-slate-700 p-5">
+    <h2 class="text-white font-semibold mb-4">Flagged questions</h2>
+    {% if flagged %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm min-w-[40rem]">
+        <thead>
+          <tr class="text-slate-400 text-xs uppercase tracking-wide">
+            <th class="text-left pb-2">Question</th>
+            <th class="text-left pb-2">Where</th>
+            <th class="text-left pb-2">Problem</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in flagged %}
+          <tr class="border-b border-slate-700/60 last:border-0 align-top">
+            <td class="py-2 pr-3">
+              {% comment %}Global questions open the Global Questions editor; anything
+                 school-scoped is not served by that modal, so it keeps the
+                 Django admin link rather than 404ing. Snapshots taken before
+                 is_global was recorded have no key, so they fall through to
+                 admin too — wrong-but-working beats a broken link.{% endcomment %}
+              {% if row.is_global %}
+              <a href="{% url 'admin_global_questions' %}?edit={{ row.id }}"
+                 class="text-accent hover:underline">Q{{ row.id }}</a>
+              {% else %}
+              <a href="/admin/maths/question/{{ row.id }}/change/"
+                 class="text-accent hover:underline">Q{{ row.id }}</a>
+              {% endif %}
+              <p class="text-slate-400 text-xs mt-0.5">{{ row.text }}</p>
+            </td>
+            <td class="py-2 pr-3 text-slate-400 text-xs whitespace-nowrap">
+              {% if row.level %}Year {{ row.level }}{% endif %}
+              {% if row.topic %}<br>{{ row.topic }}{% endif %}
+              {% if row.subtopic %}<br><span class="text-slate-500">› {{ row.subtopic }}</span>{% endif %}
+            </td>
+            <td class="py-2 text-slate-300 text-xs">
+              {% for code in row.codes %}<span class="inline-block mb-1 mr-1 px-1.5 py-0.5 rounded bg-slate-900 text-slate-300">{{ code }}</span>{% endfor %}
+              <p class="text-slate-400 mt-0.5">{{ row.detail }}</p>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-emerald-300 text-sm">Nothing flagged in the latest audit.</p>
+    {% endif %}
+  </div>
+
+  {% endif %}
+</div>
+</div>
+{% endblock %}

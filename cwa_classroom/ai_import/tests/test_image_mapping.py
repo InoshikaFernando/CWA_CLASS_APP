@@ -15,13 +15,14 @@ import base64
 import io
 
 from django.test import SimpleTestCase
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from ai_import import services
 from ai_import.services import (
     _build_classification_prompt,
     _classify_page_batch,
     _embedded_image_label,
+    _looks_photographic,
     _position_hint,
     extract_pdf_content,
 )
@@ -81,18 +82,83 @@ class EmbeddedImageLabelTests(SimpleTestCase):
         self.assertNotIn('whole page', label)
         self.assertNotIn('decorative marker', label)
 
+    def test_photo_flag_surfaces_in_label(self):
+        # A mid-sized image detected as photographic is called out so the model
+        # doesn't attach it in place of the real diagram.
+        label = _embedded_image_label('page7_img1.jpeg', 7, [10, 5, 45, 35],
+                                      photo_like=True)
+        self.assertIn('photo / decorative illustration', label)
+
+    def test_photo_flag_surfaces_without_bbox(self):
+        # Back-compat path (no known position) still carries the photo warning.
+        label = _embedded_image_label('page7_img1.jpeg', 7, None, photo_like=True)
+        self.assertIn('photo / decorative illustration', label)
+
+    def test_photo_flag_absent_when_not_photographic(self):
+        label = _embedded_image_label('page3_img1.png', 3, [11, 13, 47, 30],
+                                      photo_like=False)
+        self.assertNotIn('photo / decorative illustration', label)
+
+    def test_small_marker_flag_wins_over_photo(self):
+        # A tiny image is a decorative marker regardless of the photo signal — the
+        # more specific marker note is kept, not doubled up with the photo note.
+        label = _embedded_image_label('page7_img5.png', 7, [22, 24, 29, 28],
+                                      photo_like=True)
+        self.assertIn('decorative marker', label)
+        self.assertNotIn('photo / decorative illustration', label)
+
+
+class LooksPhotographicTests(SimpleTestCase):
+    """`_looks_photographic` separates continuous-tone photos / illustrations
+    (attach only for a genuine picture question) from maths line-figures."""
+
+    def _png_bytes(self, im):
+        buf = io.BytesIO()
+        im.save(buf, format='PNG')
+        return buf.getvalue()
+
+    def test_continuous_tone_illustration_flagged(self):
+        # A full-bleed RGB gradient — no white background, hundreds of tones —
+        # stands in for a decorative photo / painted illustration.
+        im = Image.new('RGB', (80, 80))
+        im.putdata([
+            (x * 255 // 80, y * 255 // 80, 128)
+            for y in range(80) for x in range(80)
+        ])
+        self.assertTrue(_looks_photographic(self._png_bytes(im)))
+
+    def test_line_diagram_not_flagged(self):
+        # White page with a few black strokes — the shape of a real maths figure.
+        im = Image.new('RGB', (200, 200), (255, 255, 255))
+        d = ImageDraw.Draw(im)
+        d.line((20, 180, 180, 20), fill=(0, 0, 0), width=3)
+        d.arc((40, 40, 160, 160), 0, 120, fill=(0, 0, 0), width=3)
+        self.assertFalse(_looks_photographic(self._png_bytes(im)))
+
+    def test_flat_colour_chart_on_white_not_flagged(self):
+        # A colourful bar chart is flat fills on white — colourful but NOT a photo.
+        im = Image.new('RGB', (200, 200), (255, 255, 255))
+        d = ImageDraw.Draw(im)
+        for i, colour in enumerate([(200, 20, 20), (20, 160, 40), (30, 60, 200)]):
+            d.rectangle((20 + i * 55, 60, 60 + i * 55, 180), fill=colour)
+        self.assertFalse(_looks_photographic(self._png_bytes(im)))
+
+    def test_unreadable_bytes_are_not_flagged(self):
+        self.assertFalse(_looks_photographic(b'not an image'))
+
 
 class ExtractAttachesBboxTests(SimpleTestCase):
     """extract_pdf_content tags each embedded image with its page position."""
 
-    def _pdf_with_image_at(self, page_w, page_h, rect):
+    def _pdf_with_image_at(self, page_w, page_h, rect, image=None):
         import fitz
 
         doc = fitz.open()
         page = doc.new_page(width=page_w, height=page_h)
-        # A small solid PNG placed at `rect` on the page.
+        # A small solid PNG placed at `rect` on the page (unless a richer image
+        # is supplied — e.g. a continuous-tone gradient standing in for a photo).
         buf = io.BytesIO()
-        Image.new('RGB', (40, 30), (200, 20, 20)).save(buf, format='PNG')
+        (image or Image.new('RGB', (40, 30), (200, 20, 20))).save(buf, format='PNG')
         page.insert_image(fitz.Rect(*rect), stream=buf.getvalue())
         pdf_bytes = doc.tobytes()
         doc.close()
@@ -113,6 +179,21 @@ class ExtractAttachesBboxTests(SimpleTestCase):
         self.assertAlmostEqual(y0, 10, delta=1)
         self.assertAlmostEqual(x1, 50, delta=1)
         self.assertAlmostEqual(y1, 25, delta=1)
+        # A flat solid image is not photographic.
+        self.assertFalse(imgs[0]['photo_like'])
+
+    def test_photo_like_set_for_continuous_tone_image(self):
+        # A full-bleed gradient embedded on the page is tagged photo_like so the
+        # classifier is warned off attaching it as a question's figure.
+        grad = Image.new('RGB', (80, 60))
+        grad.putdata([
+            (x * 255 // 80, y * 255 // 60, 128)
+            for y in range(60) for x in range(80)
+        ])
+        pdf = self._pdf_with_image_at(200, 400, (20, 40, 100, 100), image=grad)
+        imgs = extract_pdf_content(pdf)['pages'][0]['images']
+        self.assertEqual(len(imgs), 1)
+        self.assertTrue(imgs[0]['photo_like'])
 
 
 class _FakeUsage:

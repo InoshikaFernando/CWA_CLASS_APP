@@ -20,6 +20,7 @@ urlpatterns = [
     path('upload/<int:session_id>/preview/', views.WorksheetPreviewView.as_view(), name='preview'),
     path('upload/<int:session_id>/preview/page-image/', views.WorksheetPageImageView.as_view(), name='pdf_page_image'),
     path('upload/<int:session_id>/preview/recrop/', views.WorksheetRecropView.as_view(), name='pdf_recrop'),
+    path('upload/<int:session_id>/preview/reuse-image/', views.WorksheetReuseImageView.as_view(), name='pdf_reuse_image'),
     path('upload/<int:session_id>/confirm/', views.WorksheetConfirmView.as_view(), name='confirm'),
     # Teacher: authored JSON/ZIP upload (skips AI extraction + preview)
     path('upload/json/<int:session_id>/confirm/', views.WorksheetJSONConfirmView.as_view(), name='json_confirm'),

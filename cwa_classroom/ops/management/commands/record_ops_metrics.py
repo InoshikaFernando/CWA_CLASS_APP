@@ -21,6 +21,7 @@ import subprocess
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
+from ops.digitalocean import fetch_db_metrics
 from ops.models import OpsSnapshot
 from ops.reporting import classify
 
@@ -97,6 +98,25 @@ def _service_state(unit):
         return 'unknown'
 
 
+def _db_metrics():
+    """Managed-DB (DBaaS) utilisation percents, best-effort.
+
+    Returns {'mem','cpu','disk'} (values may be None) or an all-None dict when
+    DB metrics aren't configured / the scrape failed — the scrape helper already
+    logs the reason, so a persistent DB outage isn't hidden.
+    """
+    empty = {'mem': None, 'cpu': None, 'disk': None}
+    user = getattr(settings, 'DO_DB_METRICS_USER', '')
+    password = getattr(settings, 'DO_DB_METRICS_PASSWORD', '')
+    host = getattr(settings, 'DO_DB_METRICS_HOST', '')
+    if not (user and password and host):
+        return empty
+    return fetch_db_metrics(
+        host, user, password,
+        port=getattr(settings, 'DO_DB_METRICS_PORT', 9273),
+    ) or empty
+
+
 def _rq_depths():
     """(default, high) prod RQ queue depths via django_rq; (None, None) if the
     queue/Redis is unavailable."""
@@ -132,6 +152,7 @@ class Command(BaseCommand):
         load1, nproc = _load_nproc()
         oom = _oom_24h()
         rq_default, rq_high = _rq_depths()
+        db = _db_metrics()
         svc = {name: _service_state(unit) for name, unit in self.SERVICES.items()}
 
         status, crit, warn = classify({
@@ -162,6 +183,7 @@ class Command(BaseCommand):
             disk_used_pct=disk_pct,
             load1=load1, nproc=nproc, oom_24h=oom,
             rq_default=rq_default, rq_high=rq_high,
+            db_mem_pct=db['mem'], db_cpu_pct=db['cpu'], db_disk_pct=db['disk'],
             svc_gunicorn=svc['gunicorn'], svc_worker=svc['worker'],
             svc_redis=svc['redis'], svc_caddy=svc['caddy'],
             status=status, issues=issues,

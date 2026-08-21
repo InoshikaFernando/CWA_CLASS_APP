@@ -55,7 +55,7 @@ from .models import (
     School, SchoolTeacher, SchoolStudent, ClassSession, StudentAttendance,
     TeacherAttendance, Department, DepartmentLevel, DepartmentSubject, Enrollment,
     Invoice, InvoicePayment, InvoiceLineItem, SalarySlip, SalarySlipLineItem,
-    SchoolHoliday, PublicHoliday,
+    SchoolHoliday, PublicHoliday, Location,
 )
 
 logger = logging.getLogger(__name__)
@@ -516,6 +516,24 @@ class StudentDashboardView(LoginRequiredMixin, View):
             coding_progress = _build_coding_progress(request.user)
             has_coding = coding_progress is not None
 
+        # ── "Back to where you were" ──────────────────────────────────────
+        # My Progress is a top-level sidebar destination, so a student who
+        # opens it mid-quiz/lesson needs a one-tap way back. Remember the last
+        # non-progress page they arrived from and offer it as a Back link. We
+        # skip referrers from this page itself, so clicking the in-page filter
+        # tabs never overwrites the real return target.
+        from urllib.parse import urlparse
+        _ref = request.META.get('HTTP_REFERER', '')
+        if _ref:
+            _p = urlparse(_ref)
+            _same_site = (not _p.netloc) or (_p.netloc == request.get_host())
+            _is_progress = 'student-dashboard' in _p.path
+            if _same_site and not _is_progress and 'login' not in _p.path:
+                request.session['progress_back_url'] = (
+                    _p.path + (f'?{_p.query}' if _p.query else '')
+                )
+        progress_back_url = request.session.get('progress_back_url')
+
         # ── Progress report summary card (§12.8) ─────────────────────────────
         # Surface the latest staff-generated report's selected sections.
         from .models import ProgressReport
@@ -548,6 +566,8 @@ class StudentDashboardView(LoginRequiredMixin, View):
             'subject_filter': subject_filter,
             'has_coding': has_coding,
             'coding_progress': coding_progress,
+            # Navigation
+            'progress_back_url': progress_back_url,
         })
 
 
@@ -791,10 +811,16 @@ class CreateClassView(RoleRequiredMixin, View):
             return Department.objects.filter(school=school_membership.school, is_active=True).select_related('school')
         return Department.objects.none()
 
+    def _get_locations(self, departments):
+        """Active locations for the schools of the given departments."""
+        school_ids = departments.values_list('school_id', flat=True)
+        return Location.objects.filter(school_id__in=school_ids, is_active=True)
+
     def get(self, request):
         departments = self._get_departments(request.user)
         return render(request, 'teacher/create_class.html', {
             'departments': departments,
+            'locations': self._get_locations(departments),
         })
 
     def post(self, request):
@@ -804,6 +830,8 @@ class CreateClassView(RoleRequiredMixin, View):
         day = request.POST.get('day', '').strip()
         start_time = request.POST.get('start_time', '').strip() or None
         end_time = request.POST.get('end_time', '').strip() or None
+        location_id = request.POST.get('location', '').strip()
+        is_online = request.POST.get('is_online') == 'on'
         description = request.POST.get('description', '').strip()
 
         if not name:
@@ -815,6 +843,13 @@ class CreateClassView(RoleRequiredMixin, View):
         if not department:
             messages.error(request, 'Please select a department.')
             return redirect('create_class')
+
+        # Resolve location (must belong to the department's institute)
+        location = None
+        if location_id:
+            location = Location.objects.filter(
+                id=location_id, school=department.school,
+            ).first()
 
         # Check class limit before creating
         from billing.entitlements import check_class_limit
@@ -849,6 +884,8 @@ class CreateClassView(RoleRequiredMixin, View):
                 day=day,
                 start_time=start_time,
                 end_time=end_time,
+                location=location,
+                is_online=is_online,
                 description=description,
                 created_by=request.user,
             )
@@ -935,13 +972,41 @@ class ClassDetailView(RoleRequiredMixin, View):
             classroom=classroom, is_active=True,
         ).values_list('student_id', flat=True)
 
+        # Candidate classes to move a student into: other active classes in the
+        # same school this user manages. The move view re-validates scope, so
+        # this only shapes the dropdown. Only school classes offer a move.
+        move_target_classes = []
+        if classroom.school_id:
+            if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+                target_qs = ClassRoom.objects.filter(school_id=classroom.school_id, is_active=True)
+            elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+                target_qs = ClassRoom.objects.filter(
+                    Q(department__head=user) | Q(teachers=user),
+                    school_id=classroom.school_id, is_active=True,
+                ).distinct()
+            else:
+                target_qs = ClassRoom.objects.filter(
+                    school_id=classroom.school_id, is_active=True, teachers=user,
+                )
+            move_target_classes = list(target_qs.exclude(id=classroom.id).order_by('name'))
+
         # Bulk "Resend Welcome" is available to admin/HoI and the class's teachers.
         can_resend_welcome = bool(classroom.school_id)
+
+        # Deep link into the existing invoice generator, pre-scoped to this class.
+        # Gate on the same roles the generator itself requires so teachers don't
+        # see a link that would 403 (INVOICING_ROLES in views_invoicing.py).
+        can_generate_invoices = (
+            user.has_role(Role.INSTITUTE_OWNER)
+            or user.has_role(Role.HEAD_OF_INSTITUTE)
+            or user.has_role(Role.ACCOUNTANT)
+        )
 
         return render(request, 'teacher/class_detail.html', {
             'classroom': classroom,
             'students': CustomUser.objects.filter(id__in=active_student_ids),
             'can_resend_welcome': can_resend_welcome,
+            'can_generate_invoices': can_generate_invoices,
             'teachers': classroom.teachers.all(),
             'sessions': sessions,
             'todays_session': todays_session,
@@ -950,6 +1015,7 @@ class ClassDetailView(RoleRequiredMixin, View):
             'class_effective_fee': class_effective_fee,
             'can_edit_fee': can_edit_fee,
             'effective_currency': classroom.get_effective_currency(),
+            'move_target_classes': move_target_classes,
         })
 
 
@@ -1047,6 +1113,9 @@ class EditClassView(RoleRequiredMixin, View):
             parent_fee, fee_source = None, ''
 
         back_url = request.GET.get('next', '')
+        locations = Location.objects.none()
+        if classroom.school_id:
+            locations = Location.objects.filter(school=classroom.school, is_active=True)
         return render(request, 'teacher/edit_class.html', {
             'classroom': classroom,
             'subject_groups': subject_groups,
@@ -1057,6 +1126,7 @@ class EditClassView(RoleRequiredMixin, View):
             'fee_source': fee_source,
             'can_edit_fee': can_edit_fee,
             'effective_currency': classroom.get_effective_currency(),
+            'locations': locations,
         })
 
     def post(self, request, class_id):
@@ -1066,6 +1136,8 @@ class EditClassView(RoleRequiredMixin, View):
         day = request.POST.get('day', '').strip()
         start_time = request.POST.get('start_time', '').strip() or None
         end_time = request.POST.get('end_time', '').strip() or None
+        location_id = request.POST.get('location', '').strip()
+        is_online = request.POST.get('is_online') == 'on'
         description = request.POST.get('description', '').strip()
         next_url = request.POST.get('next', '').strip()
 
@@ -1082,6 +1154,14 @@ class EditClassView(RoleRequiredMixin, View):
         classroom.day = day
         classroom.start_time = start_time
         classroom.end_time = end_time
+        classroom.is_online = is_online
+        # Location must belong to this class's institute; blank clears it.
+        if location_id and classroom.school_id:
+            classroom.location = Location.objects.filter(
+                id=location_id, school=classroom.school,
+            ).first()
+        else:
+            classroom.location = None
         classroom.description = description
 
         # Fee override (HoI / Accountant only)
@@ -3161,7 +3241,27 @@ class DeleteQuestionView(RoleRequiredMixin, View):
             request=request,
         )
         messages.success(request, 'Question deleted.')
-        return redirect('question_list', level_number=level_number)
+        return redirect(_safe_next(request) or
+                        reverse('question_list', kwargs={'level_number': level_number}))
+
+
+def _safe_next(request):
+    """A caller-supplied return URL, but only if it points back at this site.
+
+    Callers that list questions (e.g. the question-health check page) want the
+    user returned to their filtered list rather than dumped on the level page.
+    Validated rather than trusted: an unchecked ``next`` is an open redirect.
+    """
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    target = request.POST.get('next') or request.GET.get('next')
+    if not target:
+        return None
+    if url_has_allowed_host_and_scheme(
+            target, allowed_hosts={request.get_host()},
+            require_https=request.is_secure()):
+        return target
+    return None
 
 
 class HoDOverviewView(RoleRequiredMixin, View):
@@ -3823,6 +3923,36 @@ class HoDManageClassesView(RoleRequiredMixin, View):
         for st in SchoolTeacher.objects.filter(school_id__in=school_ids, is_active=True):
             specialty_map[st.teacher_id] = st.specialty
 
+        # The tiles now show the venue (location) and levels, so pull those in
+        # eagerly to avoid a per-card query. ``school`` and ``location`` are both
+        # joined so the per-location tile border colour (CPP-373) costs no extra
+        # query.
+        classes = classes.select_related('school', 'location').prefetch_related('levels')
+
+        # Ordering (name / level / date-time). Sort by the class schedule for
+        # "date/time" — the day + start time shown on each tile — mapping the
+        # weekday choice to an index so Monday sorts before Tuesday (and blank
+        # days sort last).
+        from django.db.models import Case, When, Value, IntegerField, Min
+        sort = request.GET.get('sort', 'name')
+        if sort == 'level':
+            classes = classes.annotate(
+                _min_level=Min('levels__level_number'),
+            ).order_by('_min_level', 'name')
+        elif sort == 'schedule':
+            _day_order = Case(
+                *[When(day=value, then=Value(idx))
+                  for idx, (value, _label) in enumerate(ClassRoom.DAY_CHOICES)],
+                default=Value(len(ClassRoom.DAY_CHOICES)),
+                output_field=IntegerField(),
+            )
+            classes = classes.annotate(_day_order=_day_order).order_by(
+                '_day_order', 'start_time', 'name',
+            )
+        else:
+            sort = 'name'
+            classes = classes.order_by('name')
+
         paginator = Paginator(classes, 25)
         page = paginator.get_page(request.GET.get('page'))
 
@@ -3845,6 +3975,7 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             'unassigned_classes': unassigned_classes,
             'specialty_map': specialty_map,
             'deleted_classes': deleted_classes,
+            'selected_sort': sort,
         })
 
 
@@ -4597,9 +4728,15 @@ class ClassStudentRemoveView(RoleRequiredMixin, View):
         ).select_related('student').first()
 
         if cs:
+            from django.utils import timezone
             name = cs.student.get_full_name() or cs.student.username
+            # Taking a student out of a single class (while they remain in the
+            # school) is treated as a class change, not a revocation: we stamp
+            # ``moved_at`` so they keep this class's homework. Only removal from
+            # the whole school (SchoolStudentRemoveView) revokes homework access.
             cs.is_active = False
-            cs.save(update_fields=['is_active'])
+            cs.moved_at = timezone.now()
+            cs.save(update_fields=['is_active', 'moved_at'])
             # Mark enrollment as removed so the student can re-request later
             Enrollment.objects.filter(
                 classroom=classroom, student_id=student_id, status='approved',
@@ -4610,9 +4747,115 @@ class ClassStudentRemoveView(RoleRequiredMixin, View):
                 detail={'class_id': classroom.id, 'class_name': classroom.name, 'student_id': student_id, 'student_name': name},
                 request=request,
             )
-            messages.success(request, f'{name} has been removed from {classroom.name}.')
+            messages.success(
+                request,
+                f'{name} has been removed from {classroom.name}. '
+                f'They keep access to its homework while they remain in the school.',
+            )
         else:
             messages.warning(request, 'Student not found in this class.')
+        return redirect('class_detail', class_id=class_id)
+
+
+class ClassStudentMoveView(RoleRequiredMixin, View):
+    """Move a student from one class to another, keeping their old homework.
+
+    Unlike :class:`ClassStudentRemoveView` (a plain removal that revokes
+    everything), a move deactivates the source enrolment but stamps
+    ``moved_at``/``moved_to`` on it, so the student retains access to the source
+    class's homework while gaining an active enrolment in the target class.
+    Source and target must belong to the same school. The teacher/admin scope
+    mirrors the remove view, and the target class is re-validated against the
+    same scope so a move can never reach a class outside the user's remit.
+    """
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT,
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+    ]
+
+    def _resolve_class(self, request, class_id):
+        """Resolve a class the requesting user may manage, or raise Http404."""
+        from django.db.models import Q
+        user = request.user
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            return get_object_or_404(ClassRoom, id=class_id, school__admin=user)
+        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
+            return classroom
+        return get_object_or_404(ClassRoom, id=class_id, teachers=user)
+
+    def post(self, request, class_id, student_id):
+        from django.utils import timezone
+        source = self._resolve_class(request, class_id)
+
+        target_id = request.POST.get('target_class_id')
+        if not target_id or not str(target_id).isdigit() or int(target_id) == source.id:
+            messages.error(request, 'Please choose a different class to move the student to.')
+            return redirect('class_detail', class_id=class_id)
+
+        target = self._resolve_class(request, int(target_id))
+
+        # A move stays within one school — a cross-school transfer would leave
+        # the SchoolStudent link and billing inconsistent, so block it.
+        if target.school_id != source.school_id:
+            messages.error(request, 'You can only move a student to a class in the same school.')
+            return redirect('class_detail', class_id=class_id)
+
+        source_cs = ClassStudent.objects.filter(
+            classroom=source, student_id=student_id, is_active=True,
+        ).select_related('student').first()
+        if not source_cs:
+            messages.warning(request, 'Student not found in this class.')
+            return redirect('class_detail', class_id=class_id)
+
+        student = source_cs.student
+        name = student.get_full_name() or student.username
+
+        with transaction.atomic():
+            # Activate (or create) the target enrolment. Clear any stale move
+            # markers so an active member is never treated as "moved out".
+            target_cs, _ = ClassStudent.objects.get_or_create(
+                classroom=target, student=student,
+            )
+            if not target_cs.is_active or target_cs.moved_at is not None:
+                target_cs.is_active = True
+                target_cs.moved_at = None
+                target_cs.save(update_fields=['is_active', 'moved_at'])
+
+            # Deactivate the source enrolment but retain homework access.
+            source_cs.is_active = False
+            source_cs.moved_at = timezone.now()
+            source_cs.save(update_fields=['is_active', 'moved_at'])
+
+            # Retire the source enrolment request so the student can re-request
+            # the old class later if they ever want back in.
+            Enrollment.objects.filter(
+                classroom=source, student=student, status='approved',
+            ).update(status='removed')
+
+        log_event(
+            user=request.user, school=source.school, category='data_change',
+            action='class_student_moved',
+            detail={
+                'student_id': student.id, 'student_name': name,
+                'from_class_id': source.id, 'from_class_name': source.name,
+                'to_class_id': target.id, 'to_class_name': target.name,
+                'homework_access_retained': True,
+            },
+            request=request,
+        )
+
+        messages.success(
+            request,
+            f'{name} moved to {target.name}. They keep access to '
+            f'{source.name} homework.',
+        )
         return redirect('class_detail', class_id=class_id)
 
 
@@ -4676,9 +4919,12 @@ class HoDCreateClassView(RoleRequiredMixin, View):
     def get(self, request):
         departments = self._get_departments(request.user)
         selected_dept = request.GET.get('department', '')
+        school_ids = departments.values_list('school_id', flat=True)
+        locations = Location.objects.filter(school_id__in=school_ids, is_active=True)
         return render(request, 'hod/create_class.html', {
             'departments': departments,
             'selected_dept': selected_dept,
+            'locations': locations,
         })
 
     def post(self, request):
@@ -4688,6 +4934,8 @@ class HoDCreateClassView(RoleRequiredMixin, View):
         day = request.POST.get('day', '').strip()
         start_time = request.POST.get('start_time', '').strip() or None
         end_time = request.POST.get('end_time', '').strip() or None
+        location_id = request.POST.get('location', '').strip()
+        is_online = request.POST.get('is_online') == 'on'
         description = request.POST.get('description', '').strip()
 
         if not name:
@@ -4700,6 +4948,13 @@ class HoDCreateClassView(RoleRequiredMixin, View):
         if not department:
             messages.error(request, 'Please select a valid department.')
             return redirect('hod_create_class')
+
+        # Resolve location (must belong to the department's institute)
+        location = None
+        if location_id:
+            location = Location.objects.filter(
+                id=location_id, school=department.school,
+            ).first()
 
         # Check class limit before creating
         from billing.entitlements import check_class_limit
@@ -4734,6 +4989,8 @@ class HoDCreateClassView(RoleRequiredMixin, View):
                 day=day,
                 start_time=start_time,
                 end_time=end_time,
+                location=location,
+                is_online=is_online,
                 description=description,
                 created_by=request.user,
             )
@@ -5435,7 +5692,6 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     'school_sections': school_sections,
                     'global_subjects': global_subjects,
                     'is_school_student': True,
-                    'hide_sidebar': True,
                     'student_id_code': student_id_code,
                     **hub_extra,
                 })
@@ -5455,7 +5711,6 @@ class SubjectsHubView(LoginRequiredMixin, View):
         subjects = global_subjects
 
         return render(request, 'hub/home.html', {
-            'hide_sidebar': True,
             'greeting_tod': greeting_tod,
             'time_daily': time_daily,
             'time_weekly': time_weekly,

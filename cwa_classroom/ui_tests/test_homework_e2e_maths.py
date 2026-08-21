@@ -91,6 +91,7 @@ class TestMathsHomeworkCreate:
 
 class TestMathsHomeworkTakeAndResult:
 
+    @pytest.mark.smoke
     @pytest.mark.django_db(transaction=True)
     def test_student_sees_question_blocks_on_take_page(
         self, page: Page, live_server, enrolled_student, maths_homework_ready, questions

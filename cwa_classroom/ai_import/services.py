@@ -22,6 +22,51 @@ from django.utils import timezone
 # AI_IMPORT_MAX_IMAGE_DIM.
 MAX_EMBEDDED_IMAGE_DIM = int(os.environ.get('AI_IMPORT_MAX_IMAGE_DIM', '1568'))
 
+# A photographic / painted illustration (a clip-art header, a scanned photo, a
+# decorative drawing) is continuous-tone: it fills its frame edge-to-edge with
+# many subtly-different colours and almost no pure-white background. A maths
+# figure — a line diagram, chart, number line, geometry drawing — is the
+# opposite: it sits on white with a handful of flat colours. These two knobs
+# separate the former from the latter so a decorative illustration is never
+# attached in place of a question's real diagram. Tune via env if needed.
+PHOTO_MAX_WHITE_FRACTION = float(os.environ.get('AI_IMPORT_PHOTO_MAX_WHITE', '0.55'))
+PHOTO_MIN_DISTINCT_COLOURS = int(os.environ.get('AI_IMPORT_PHOTO_MIN_COLOURS', '180'))
+
+
+def _looks_photographic(img_bytes):
+    """Best-effort guess: is this embedded image a decorative photo/illustration
+    rather than a maths line-figure?
+
+    Line diagrams, charts and geometry drawings sit on a white page with a few
+    flat colours; a photographic or painted illustration fills the frame with
+    continuous tone and little pure white. We downsample to a tiny thumbnail and
+    flag an image as photographic only when it is BOTH light on white AND rich in
+    distinct colours — so a colourful bar chart (flat fills on white) or a shaded
+    diagram (few colours) is spared, while a full-bleed illustration is caught.
+
+    Returns False on any decode error (never fatal — an unknown image is treated
+    as a normal figure, exactly as before this check existed).
+    """
+    try:
+        import io
+
+        from PIL import Image
+
+        im = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+        im = im.resize((64, 64))
+        px = list(im.getdata())
+        if not px:
+            return False
+        white = sum(1 for r, g, b in px if r >= 235 and g >= 235 and b >= 235)
+        white_fraction = white / len(px)
+        # Quantise to 4 bits/channel so near-identical tones collapse together;
+        # a continuous-tone photo still leaves hundreds of buckets, flat art a few.
+        distinct = len({(r >> 4, g >> 4, b >> 4) for r, g, b in px})
+        return (white_fraction < PHOTO_MAX_WHITE_FRACTION
+                and distinct >= PHOTO_MIN_DISTINCT_COLOURS)
+    except Exception:
+        return False
+
 
 def _downscale_embedded_image(img_bytes, ext):
     """Shrink an embedded image so its longest side <= MAX_EMBEDDED_IMAGE_DIM.
@@ -61,10 +106,25 @@ def _page_figure_regions(page):
         pw, ph = page.rect.width, page.rect.height
         if pw <= 0 or ph <= 0:
             return []
+        page_area = pw * ph
+        # A near-full-page rectangle is a page border / background panel, not a
+        # figure. Left in the input it BRIDGES otherwise-separate diagrams, so
+        # cluster_drawings merges the whole page into one blob that the >80% filter
+        # below then discards — losing every figure on the page (a grid of labelled
+        # triangles came back with zero regions). Drop those border strokes first,
+        # then cluster only the real content. On a page with no such border this is
+        # a no-op (content == all drawings), so existing pages are unaffected.
+        content = [
+            d for d in page.get_drawings()
+            if d.get('rect') is not None
+            and (d['rect'].width * d['rect'].height) / page_area <= 0.80
+        ]
+        clusters = (page.cluster_drawings(drawings=content)
+                    if content else page.cluster_drawings())
         regions = []
-        for r in page.cluster_drawings():
+        for r in clusters:
             w, h = r.width, r.height
-            area_frac = (w * h) / (pw * ph)
+            area_frac = (w * h) / page_area
             if area_frac > 0.80:
                 continue  # page border / full-page decoration, not a figure
             if (w / pw) < 0.02 and (h / ph) < 0.02:
@@ -124,16 +184,25 @@ def _position_hint(cx, cy):
     return f'{vert}-{horiz}'
 
 
-def _embedded_image_label(ref, page_num, bbox_pct):
+def _embedded_image_label(ref, page_num, bbox_pct, photo_like=False):
     """Build the descriptive text block that accompanies an embedded image.
 
     Without position the model can only tell look-alike figures apart by guessing;
     with it, it can map each question to the image in the matching region. Small
     images are flagged as probable decorative markers (angle arcs, right-angle
-    squares) so the model doesn't attach one in place of the real diagram.
+    squares), and continuous-tone photos / illustrations are flagged as probable
+    decoration, so the model doesn't attach one in place of the real diagram.
     """
+    photo_note = (
+        "; looks like a photo / decorative illustration, not a maths line-figure - "
+        "do NOT attach unless the question genuinely depends on interpreting a "
+        "photograph or picture"
+    )
     if not bbox_pct:
-        return f"[Embedded image: {ref}]"
+        label = f"[Embedded image: {ref}"
+        if photo_like:
+            label += photo_note
+        return label + "]"
     x0, y0, x1, y1 = bbox_pct
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
     w, h = x1 - x0, y1 - y0
@@ -146,6 +215,8 @@ def _embedded_image_label(ref, page_num, bbox_pct):
         label += "; small - likely a decorative marker (arc / right-angle), not a full figure"
     elif w >= 85 and h >= 85:
         label += "; covers the whole page - a scanned page / background, not a single question's figure"
+    elif photo_like:
+        label += photo_note
     return label + "]"
 
 
@@ -167,31 +238,44 @@ def get_pdf_page_count(pdf_file):
     return count
 
 
-def extract_pdf_content(pdf_file):
+def extract_pdf_content(pdf_file, page_selection=None):
     """
     Extract text and images from a PDF file using PyMuPDF.
 
     Args:
         pdf_file: Django UploadedFile or file-like object
+        page_selection: the teacher's print-dialog style page spec ("2-7, 9");
+            blank/None extracts every page. See ``worksheets/page_selection.py``.
+            Only the selected pages are read at all, so skipping a cover sheet or
+            a marking scheme costs no screenshots and no AI tokens. Page numbers
+            stay ABSOLUTE, keeping image refs and bboxes valid on a partial run.
 
     Returns:
         {
             'pages': [
                 {'page_num': int, 'text': str, 'images': [{'ref': str, 'base64': str, 'ext': str}]}
             ],
-            'page_count': int,
+            'page_count': int,        # pages actually extracted (what gets billed)
+            'total_page_count': int,  # pages in the PDF
+            'page_selection': {...},  # what was read / left out, for the preview
             'all_text': str,  # concatenated text for AI
         }
     """
     import fitz  # PyMuPDF
 
+    from worksheets.page_selection import parse_page_selection, selection_summary
+
     pdf_bytes = pdf_file.read()
     doc = fitz.open(stream=pdf_bytes, filetype='pdf')
+
+    total_pages = len(doc)
+    selected = parse_page_selection(page_selection, total_pages)
+    summary = selection_summary(page_selection, selected, total_pages)
 
     pages = []
     all_text_parts = []
 
-    for page_num in range(len(doc)):
+    for page_num in (p - 1 for p in selected):
         page = doc[page_num]
         text = page.get_text('text')
         all_text_parts.append(text)
@@ -214,6 +298,10 @@ def extract_pdf_content(pdf_file):
                     # question to the figure in the matching region instead of
                     # guessing between look-alike diagrams. May be None.
                     'bbox_pct': _embedded_image_bbox_pct(page, xref),
+                    # Whether it looks like a decorative photo/illustration rather
+                    # than a maths line-figure — surfaced to the model so it isn't
+                    # attached in place of a question's real diagram.
+                    'photo_like': _looks_photographic(img_bytes),
                 })
 
         # Render the full page as a screenshot (captures tables, charts, diagrams).
@@ -240,6 +328,8 @@ def extract_pdf_content(pdf_file):
     return {
         'pages': pages,
         'page_count': len(pages),
+        'total_page_count': total_pages,
+        'page_selection': summary,
         'all_text': '\n\n--- Page Break ---\n\n'.join(all_text_parts),
     }
 
@@ -286,9 +376,11 @@ Your task:
    If a question has no visual, leave image_ref, image_page, and image_box all null.
 4. Do NOT embed table/chart data as text in the question — keep question_text concise and
    reference the image instead when the question depends on a visual.
-5. For EVERY question, set source_page to the 1-based page it appears on (the review editor
-   opens the crop tool on that page). This is separate from image_page: source_page is always
-   the question's own page; image_page is only for a drawn figure's bounding box.
+5. Set source_page on EVERY question to the 1-based page number it appears on (the page whose
+   screenshot shows it). This is separate from image_page — source_page is always the question's
+   own page and is required even for text-only questions that carry no figure, while image_page
+   is only for a drawn figure's bounding box. The answer verifier uses it to pull up the right
+   page, and the review editor opens the crop tool on it.
 
 IMAGE NECESSITY (important — most questions need NO image):
 - Set image_ref to null whenever the question can be fully understood and answered from text alone
@@ -301,6 +393,28 @@ IMAGE NECESSITY (important — most questions need NO image):
 - If a graphic only shows HOW to lay out the working (long-division "bus stop" bracket, stacked
   column arithmetic), transcribe it into the structured fields/text below and set image_ref to null.
 - When unsure, prefer NO image. A wrongly-attached image is worse than none.
+- BUT when the question TEXT itself explicitly points at a figure it depends on — "the diagram
+  shows…", "the plan of…", "this shape", "the shape below", "the graph/table/spinner shown",
+  "use the diagram", or any answer that cannot be worked out without seeing it (e.g. "find the area
+  of this shape", "what is the shaded angle shown") — you MUST attach that figure: an embedded
+  image_ref if one matches, otherwise image_page + image_box for the drawn figure. Do NOT leave such
+  a question imageless. This is the ONE case where you must not default to null: the "prefer NO
+  image" rule above is for questions whose text does NOT reference a figure. If the referenced
+  figure is drawn into the page (an L-shaped plan, a shape on a grid, a spinner, a number line,
+  a data TABLE), box it with image_page + image_box even though it has no embedded image_ref.
+  The referenced figure is ALWAYS on the SAME page as the question — set image_page to the
+  question's own page (its source_page) and box the figure THERE. NEVER box or attach a figure
+  from a different page; if you cannot find the referenced figure on the question's own page,
+  leave the question with no image rather than grabbing a figure from elsewhere.
+- A page that is a GRID or ROW of small labelled diagrams — e.g. right-angled triangles labelled
+  a, b, c, … each drawn with its own side lengths and angles, or a set of shapes/graphs one per
+  part — is MANY separate questions, one per diagram, NOT one question. For EACH labelled diagram
+  create its own question and attach THAT diagram with image_page + image_box (box just the one
+  diagram and its labels, excluding the neighbours). These bare geometry prompts ("Find x", "Find
+  the angle θ", "Find all unknown sides and angles") are unanswerable without their triangle, so
+  the figure is mandatory — never emit such a question with no image because the page held a whole
+  grid of them. The triangles are drawn as vector lines (no embedded image_ref), so you must box
+  them with image_page + image_box.
 
 MATCHING THE RIGHT IMAGE TO EACH QUESTION (important — this is the #1 cause of wrong figures):
 - Every embedded image is listed with its POSITION on the page: its x/y bounding box in
@@ -312,13 +426,34 @@ MATCHING THE RIGHT IMAGE TO EACH QUESTION (important — this is the #1 cause of
 - So: locate where the question's own text/number is on the page, then attach the embedded image
   whose box is in that same region. Question 1 (top-left) → the top-left image; question 4
   (bottom-right) → the bottom-right image; and so on.
-- Never attach the SAME embedded image to two different questions, and never attach a figure whose
-  region does not match the question's region. Each distinct figure belongs to exactly one question.
+- Never attach a figure whose region does not match the question's region. Each distinct figure
+  belongs to exactly one question — EXCEPT for a group of consecutive questions that genuinely share
+  ONE visual (see GROUP QUESTIONS SHARING ONE IMAGE below).
 - Ignore images flagged "small — likely a decorative marker" (angle arcs / right-angle squares)
   and any flagged "covers the whole page" (a scanned page or poster background) when choosing a
   question's figure — neither is that question's diagram. Pick the main figure for the region.
+- An image flagged "looks like a photo / decorative illustration" is almost never a maths
+  question's figure (it is clip-art, a header picture, or a decorative drawing). Do NOT attach it
+  in place of a real diagram — if the question needs a diagram that is DRAWN into the page (a
+  shape, geometry figure, number line, angle-turn figure), use approach (b) with image_page +
+  image_box instead. Attach a photo-flagged image ONLY when the question genuinely depends on
+  interpreting that photograph / picture.
 - If two candidate images share a region, prefer the larger one (the full diagram) and the one
   directly adjacent to the question text.
+
+GROUP QUESTIONS SHARING ONE IMAGE (important):
+- Sometimes several CONSECUTIVE questions all refer to the SAME single visual — e.g. a heading like
+  "Use the diagram below to answer questions 3–6", or a graph/table/figure followed by several
+  questions about it. Treat these as an image group.
+- Attach the shared visual to the FIRST question of the group only, the normal way (image_ref if it
+  is an embedded image, otherwise image_page + image_box). That first question must have
+  shares_image_with_previous null/false.
+- For every FOLLOWING question in the same group, set shares_image_with_previous to true and leave
+  image_ref, image_page and image_box all null — the shared image is carried over from the previous
+  question automatically. Do NOT re-box or re-reference the same figure on each question.
+- This applies ONLY to a consecutive run of questions on the SAME visual. Do NOT set
+  shares_image_with_previous for scattered questions that merely happen to look alike or sit near
+  similar figures — only for a true shared-image group.
 
 SPLIT MULTI-PART QUESTIONS (important):
 - When a single question contains multiple sub-parts labelled a), b), c) (or i, ii, iii / 1, 2, 3),
@@ -408,6 +543,26 @@ ANSWER BLANK FORMATTING (important):
   the answers array as usual.
 
 For difficulty, use: 1 (Easy), 2 (Medium), 3 (Hard)
+
+ANGLE-RELATIONSHIP QUESTIONS — DO NOT NAME THE PAIR YOURSELF (important):
+When a figure shows two parallel lines cut by a transversal and asks you to LABEL a marked
+pair of angles (corresponding, alternate interior / alt. int., alternate exterior / alt. ext.,
+or consecutive interior / co-interior), you are UNRELIABLE at naming it directly — so DON'T.
+Instead PERCEIVE the geometry and let the app compute the answer:
+- Keep question_type "multiple_choice" and still list the options shown (all four standard
+  labels when present). You do NOT need to tick the correct one — the app derives it from the
+  spec below and overrides is_correct.
+- Fill angle_relationship_spec (see its schema): the TWO parallel lines, the SINGLE transversal,
+  and the printed position of each marked angle's letter (x, y, ...), all as page-percentage
+  [x, y] coordinates.
+- Read those positions CAREFULLY off the figure — the whole answer hinges on whether each letter
+  sits BETWEEN the two lines (interior) or OUTSIDE them (exterior), and on which SIDE of the
+  transversal it lies. Do not approximate loosely; a letter above the top line or below the
+  bottom line is exterior.
+- If the figure has MORE THAN ONE transversal, or the two marked angles are not on the same
+  transversal cutting the same pair of parallel lines, the standard labels do NOT apply: leave
+  angle_relationship_spec null, set needs_review=true with a short review_reason, and do not
+  force a label.
 
 ACCURACY — VERIFY EVERY ANSWER BEFORE RETURNING IT:
 Do NOT guess answers. Re-derive each answer from the numbers and figures actually
@@ -508,6 +663,50 @@ CLASSIFICATION_TOOL = {
                                 "value(s) already marked with an arrow (read mode). The app draws the line."
                             ),
                         },
+                        "angle_relationship_spec": {
+                            "type": "object",
+                            "description": (
+                                "For 'label the marked pair of angles' questions ONLY (corresponding / "
+                                "alternate interior / alternate exterior / consecutive interior). Do NOT "
+                                "name the pair yourself — the app computes the correct option from this "
+                                "geometry and overrides is_correct. Coordinates are page percentages "
+                                "[x, y] (0-100, origin top-left). lines = the TWO parallel lines, each "
+                                "{p1, p2}; transversal = the SINGLE crossing line {p1, p2}; angles = the "
+                                "two MARKED angles, each {label, pos} where pos is where that angle's "
+                                "letter is printed. Leave null (and set needs_review) when the figure has "
+                                "more than one transversal or the two marked angles are not on the same "
+                                "transversal cutting the same pair of lines."
+                            ),
+                            "properties": {
+                                "lines": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "p1": {"type": "array", "items": {"type": "number"}},
+                                            "p2": {"type": "array", "items": {"type": "number"}},
+                                        },
+                                    },
+                                },
+                                "transversal": {
+                                    "type": "object",
+                                    "properties": {
+                                        "p1": {"type": "array", "items": {"type": "number"}},
+                                        "p2": {"type": "array", "items": {"type": "number"}},
+                                    },
+                                },
+                                "angles": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {"type": "string"},
+                                            "pos": {"type": "array", "items": {"type": "number"}},
+                                        },
+                                    },
+                                },
+                            },
+                        },
                         "numeric_answer": {
                             "type": "number",
                             "description": "For read_graph and measure: the value to read off / measure (e.g. 135 for a 135° angle).",
@@ -541,6 +740,24 @@ CLASSIFICATION_TOOL = {
                         "difficulty": {"type": "integer", "enum": [1, 2, 3]},
                         "points": {"type": "integer", "default": 1},
                         "explanation": {"type": "string", "description": "Brief explanation of the answer"},
+                        "needs_review": {
+                            "type": "boolean",
+                            "description": (
+                                "Set true when this question's answer could NOT be determined with "
+                                "confidence and a teacher should double-check it before use — e.g. an "
+                                "angle-relationship figure with multiple transversals, an unreadable or "
+                                "ambiguous diagram, or a pair with no standard name. Prefer flagging over "
+                                "guessing."
+                            ),
+                        },
+                        "review_reason": {
+                            "type": "string",
+                            "description": "When needs_review is true, one short sentence on what is uncertain.",
+                        },
+                        "source_page": {
+                            "type": "integer",
+                            "description": "1-based page number on which this question appears (the page whose screenshot shows it). Set this for EVERY question — it lets the answer verifier pull up the exact page.",
+                        },
                         "image_ref": {
                             "type": "string",
                             "description": "Reference to an EMBEDDED image (e.g. page1_img1.png) listed in the input. Set only when the question's visual is one of those embedded images. Null otherwise.",
@@ -559,9 +776,20 @@ CLASSIFICATION_TOOL = {
                                 "y2": {"type": "number"},
                             },
                         },
-                        "source_page": {
-                            "type": "integer",
-                            "description": "1-based page number where THIS question appears in the document. Set it for EVERY question (regardless of whether it has a visual) — the review editor uses it to open the crop tool on the right page.",
+                        "shares_image_with_previous": {
+                            "type": "boolean",
+                            "description": (
+                                "Set true ONLY when this question belongs to a GROUP that shares ONE "
+                                "visual with the question IMMEDIATELY BEFORE it — e.g. 'Use the diagram "
+                                "below to answer questions 3–6', or several sub-questions hanging off a "
+                                "single shared graph/table/figure. When true, leave image_ref, image_page "
+                                "and image_box all null: the shared image is carried over from the "
+                                "previous question automatically. The FIRST question in the group still "
+                                "carries the image normally (image_ref OR image_page+image_box) and must "
+                                "have shares_image_with_previous false/null. Only use this for a "
+                                "consecutive run of questions on the SAME shared visual — never for "
+                                "unrelated questions that merely happen to look similar."
+                            ),
                         },
                         "year_level": {
                             "type": "integer",
@@ -591,7 +819,7 @@ CLASSIFICATION_TOOL = {
                             },
                         },
                     },
-                    "required": ["question_text", "question_type", "difficulty", "answers"],
+                    "required": ["question_text", "question_type", "difficulty", "answers", "source_page"],
                 },
             },
         },
@@ -732,7 +960,8 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
             content_blocks.append({
                 "type": "text",
                 "text": _embedded_image_label(
-                    img['ref'], page['page_num'], img.get('bbox_pct')),
+                    img['ref'], page['page_num'], img.get('bbox_pct'),
+                    img.get('photo_like', False)),
             })
 
     content_blocks.append({
@@ -744,13 +973,13 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
     # read timeout (anthropic.APITimeoutError). get_final_message() returns the
     # same Message a non-streaming create() would.
     #
-    # Default to Opus (far stronger arithmetic — it reliably solves the
-    # missing-digit / worked-solution questions that Sonnet 4 guessed wrong) with
-    # adaptive thinking so it works each computation out before answering. Override
-    # the model via AI_IMPORT_MODEL (must be a model that supports adaptive
-    # thinking — Opus/Sonnet 4.6+).
+    # Default to Opus (far stronger arithmetic and vision — it reliably solves the
+    # missing-digit / worked-solution questions that Sonnet 4 guessed wrong, and
+    # reads diagrams more reliably) with adaptive thinking so it works each
+    # computation out before answering. Override the model via AI_IMPORT_MODEL
+    # (must be a model that supports adaptive thinking — Opus/Sonnet 4.6+).
     with client.messages.stream(
-        model=os.environ.get('AI_IMPORT_MODEL', 'claude-opus-4-8'),
+        model=os.environ.get('AI_IMPORT_MODEL', 'claude-opus-5'),
         # Generous cap so a question-dense / multi-page PDF doesn't get its
         # extracted-question list truncated (override via AI_IMPORT_MAX_TOKENS).
         max_tokens=int(os.environ.get('AI_IMPORT_MAX_TOKENS', '32000')),
@@ -779,6 +1008,14 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
                     pass
 
     if not result:
+        # A safety refusal (stop_reason "refusal") returns no tool_use and no
+        # parseable text — surface it clearly instead of the generic message so a
+        # blocked document is distinguishable from a parse failure.
+        if getattr(response, 'stop_reason', None) == 'refusal':
+            raise ValueError(
+                "The AI declined to process this document (content safety). "
+                "Please review the PDF and try again."
+            )
         raise ValueError("AI did not return structured question data. Please try again.")
 
     result['usage'] = {
@@ -787,6 +1024,66 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
         'total_tokens': response.usage.input_tokens + response.usage.output_tokens,
     }
     return result
+
+
+def _apply_computed_angle_answer(q):
+    """Derive an angle-relationship question's correct option from its geometry.
+
+    For "label the marked pair of angles" questions the model fills
+    ``angle_relationship_spec`` (line/transversal/label positions) but does NOT
+    name the pair — naming proved unreliable. Here we compute the label
+    deterministically, tick the matching multiple-choice option (overriding the
+    model's is_correct guesses), and rewrite the explanation so it can never
+    contradict the answer.
+
+    Anything the geometry can't resolve — a malformed spec, an ambiguous mark, a
+    multi-transversal figure the model flagged, or a pair with no standard name —
+    sets ``needs_review`` so the teacher checks it in preview rather than a wrong
+    answer being saved silently. Mutates ``q`` in place; no-op when there is no
+    spec.
+    """
+    spec = q.get('angle_relationship_spec')
+    if not spec:
+        return
+
+    from maths.angle_relationship import (
+        build_explanation, canonical_label, classify_angle_pair,
+    )
+
+    try:
+        result = classify_angle_pair(spec)
+    except ValueError as exc:
+        q['needs_review'] = True
+        q['review_reason'] = f'angle diagram could not be read: {exc}'
+        return
+
+    if result['needs_review']:
+        q['needs_review'] = True
+        q['review_reason'] = result['reason']
+        return
+
+    label = result['label']
+    answers = q.get('answers') or []
+    matched = False
+    for ans in answers:
+        is_match = canonical_label(ans.get('text')) == label
+        ans['is_correct'] = is_match
+        matched = matched or is_match
+
+    if not matched:
+        # The computed answer isn't among the extracted options — add it rather
+        # than lose it, and flag so the teacher can fix the option list.
+        answers.append({'text': label, 'is_correct': True})
+        q['answers'] = answers
+        q['needs_review'] = True
+        q['review_reason'] = (
+            f'computed answer "{label}" was not among the extracted options; '
+            'added it — please verify the options.'
+        )
+
+    explanation = build_explanation(result)
+    if explanation:
+        q['explanation'] = explanation
 
 
 def classify_questions(extracted_content, existing_topics, existing_levels):
@@ -817,7 +1114,10 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
     system_prompt = _build_classification_prompt(existing_topics, existing_levels)
 
     pages = extracted_content.get('pages', [])
-    total = extracted_content.get('page_count', len(pages))
+    # Page labels are absolute, so quote the PDF's real length even when only
+    # some of its pages were selected for extraction.
+    total = (extracted_content.get('total_page_count')
+             or extracted_content.get('page_count', len(pages)))
     chunk_size = max(1, int(os.environ.get('AI_IMPORT_PAGE_CHUNK', '20')))
     batches = [pages[i:i + chunk_size] for i in range(0, len(pages), chunk_size)]
 
@@ -849,17 +1149,53 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
         raise ValueError("AI did not return structured question data. Please try again.")
 
     # Safety nets: strip any leading question-number/section label the model copied
-    # in, then ensure a missing left operand renders as a blank.
+    # in, then ensure a missing left operand renders as a blank. Then, for
+    # angle-relationship figures, DERIVE the correct option from the model's
+    # perceived geometry instead of trusting the label it guessed.
     for q in merged.get('questions', []):
         q['question_text'] = _normalize_answer_blank(
             _strip_question_label(q.get('question_text', ''))
         )
+        _apply_computed_angle_answer(q)
 
     merged['usage'] = {
         'input_tokens': in_tok,
         'output_tokens': out_tok,
         'total_tokens': in_tok + out_tok,
     }
+
+    # Second opinion: an independent GPT verifier re-examines each question
+    # against its source-page screenshot — validating Claude's classification and
+    # answer and checking the transcription — and flags disagreements
+    # needs_review for the teacher. Best-effort and self-gating: a no-op when
+    # OPENAI_API_KEY isn't configured, and it never fails the import. Kept out of
+    # merged['usage'] (the Claude token ledger) because GPT is priced
+    # separately; reported under merged['verification'], from where
+    # ai_import.tasks records it as its own OpenAI row in the usage ledger so it
+    # reaches the finance dashboard (CPP-382).
+    page_images = {
+        p['page_num']: p['screenshot']
+        for p in pages
+        if p.get('page_num') is not None and p.get('screenshot')
+    }
+    from .verification import verify_answers, flag_visual_comparisons
+
+    # Deterministic guard first (no API): "which figure is larger / are they
+    # equal" questions are routed to review unconditionally. Both Claude and the
+    # GPT verifier read these coarse figures the same wrong way, so they agree on
+    # a wrong answer and the disagreement-based verifier below never catches it.
+    # Running this first also means those questions are already flagged, so the
+    # paid GPT pass skips them.
+    comparison_flags = flag_visual_comparisons(merged.get('questions', []))
+
+    verification = verify_answers(merged.get('questions', []), page_images=page_images)
+    if verification is not None:
+        verification['comparison_flags'] = comparison_flags
+        merged['verification'] = verification
+    elif comparison_flags:
+        # Verifier disabled (no OpenAI key) but the deterministic guard still ran.
+        merged['verification'] = {'comparison_flags': comparison_flags}
+
     return merged
 
 
@@ -1035,101 +1371,261 @@ def crop_figure_boxes(extracted_content, result, pdf_bytes=None):
 
 
 def _crop_figure_boxes_inner(result, pages, crops, decoded, doc, Image, io):
+    # Track the image assigned to the immediately-preceding question so a group of
+    # consecutive questions that share ONE visual (e.g. "use the diagram below to
+    # answer questions 3–6") reuses that image instead of re-cropping it. prev_image
+    # is reset to None the moment a question ends up with no image, so "previous"
+    # only ever means the question directly before this one — never a scattered
+    # earlier figure.
+    prev_image = None
     for idx, q in enumerate(result.get('questions', []), 1):
-        # An embedded image already covers this question — prefer it (raster
-        # fidelity beats a screenshot crop).
-        if q.get('image_ref'):
-            q.pop('image_page', None)
+        shares = bool(q.pop('shares_image_with_previous', False))
+
+        # Explicit group signal, or an unflagged question that boxed essentially the
+        # same region as the previous question's crop (a shared figure the model
+        # re-boxed instead of flagging) → reuse the previous image verbatim.
+        if prev_image is not None and (
+                shares or _reuses_prev_figure(q, prev_image)):
             q.pop('image_box', None)
+            q.pop('image_page', None)
+            q['image_ref'] = prev_image['ref']
+            if prev_image.get('page') is not None:
+                q['image_page'] = prev_image['page']
+            if prev_image.get('bbox_frac') is not None:
+                q['image_bbox_frac'] = prev_image['bbox_frac']
+            # prev_image is unchanged so the whole group keeps sharing it.
             continue
 
-        box = q.get('image_box')
-        page_num = q.get('image_page')
-        # Clear the transient box fields regardless of outcome so they never
-        # get persisted on the session / shown in the editor.
-        q.pop('image_box', None)
-        q.pop('image_page', None)
-        if not box or not page_num:
-            continue
+        _assign_figure_to_question(q, idx, pages, crops, decoded, doc, Image, io)
 
-        try:
-            page = pages.get(int(page_num))
-            x1, y1 = float(box['x1']), float(box['y1'])
-            x2, y2 = float(box['x2']), float(box['y2'])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if not page or not page.get('screenshot'):
-            continue
-
-        # Normalise corner order and clamp to the page.
-        lo_x, hi_x = sorted((x1, x2))
-        lo_y, hi_y = sorted((y1, y2))
-        lo_x, hi_x = max(0.0, lo_x), min(100.0, hi_x)
-        lo_y, hi_y = max(0.0, lo_y), min(100.0, hi_y)
-
-        # Snap to the actual drawn-figure bounds when we detected vector clusters
-        # on the page — corrects boxes that clip the figure or grab adjacent text.
-        regions = page.get('figure_regions') or []
-        overlapping = [r for r in regions
-                       if _boxes_overlap([lo_x, lo_y, hi_x, hi_y], r)]
-        if overlapping:
-            lo_x, lo_y, hi_x, hi_y = _snap_box_to_figures(
-                [lo_x, lo_y, hi_x, hi_y], regions)
-        elif not page.get('images'):
-            # No detected figure cluster overlaps the box and there's no embedded
-            # raster image. The box may still cover a real figure that was filtered
-            # out of figure_regions (e.g. a page-sized diagram >80% area), so when
-            # the PDF is available confirm against the page's actual drawings and
-            # drop only when there is genuinely nothing drawn there (the model
-            # pointed at plain text — the "totally irrelevant image" failure mode).
-            has_drawing = _box_has_drawing(doc, int(page_num),
-                                           [lo_x, lo_y, hi_x, hi_y])
-            if has_drawing is False:
-                continue            # confirmed: no figure here → spurious text crop
-            if has_drawing is None and regions:
-                # No PDF to check; fall back to the cluster heuristic — figures
-                # exist on the page but none overlap the box → treat as spurious.
-                continue
-            # else: a real drawing (incl. large filtered figures) or unknown
-            # without regions → keep cropping.
-
-        if hi_x - lo_x < 1 or hi_y - lo_y < 1:
-            continue  # degenerate / empty box
-
-        img_bytes = None
-        # Prefer a crisp re-render straight from the PDF vectors at high DPI;
-        # falls back to cropping the 150-DPI screenshot when the PDF isn't
-        # available or the render fails.
-        if doc is not None:
-            img_bytes = _render_pdf_region(doc, int(page_num),
-                                           [lo_x, lo_y, hi_x, hi_y])
-        if img_bytes is None:
-            try:
-                img = decoded.get(int(page_num))
-                if img is None:
-                    img = Image.open(io.BytesIO(base64.b64decode(page['screenshot'])))
-                    decoded[int(page_num)] = img
-                w, h = img.size
-                crop = img.crop((
-                    int(lo_x / 100 * w), int(lo_y / 100 * h),
-                    int(hi_x / 100 * w), int(hi_y / 100 * h),
-                ))
-                buf = io.BytesIO()
-                crop.save(buf, format='PNG')
-                img_bytes = buf.getvalue()
-            except Exception:
-                # A bad box / unreadable screenshot shouldn't sink the whole import.
-                continue
-
-        ref = f'page{int(page_num)}_figure{idx}.png'
-        crops[ref] = base64.b64encode(img_bytes).decode('utf-8')
-        q['image_ref'] = ref
-        # Crop provenance for the "Adjust image" editor (box was in % of page).
-        q['image_page'] = int(page_num)
-        q['image_bbox_frac'] = [round(lo_x / 100, 4), round(lo_y / 100, 4),
-                                round(hi_x / 100, 4), round(hi_y / 100, 4)]
+        if q.get('image_ref'):
+            prev_image = {
+                'ref': q['image_ref'],
+                'page': q.get('image_page'),
+                'bbox_frac': q.get('image_bbox_frac'),
+            }
+        else:
+            # No image on this question breaks the run — a following
+            # shares_image_with_previous has nothing to carry over.
+            prev_image = None
 
     return crops
+
+
+def _reuses_prev_figure(q, prev_image):
+    """Safety net for group images the model boxed on every question instead of
+    setting shares_image_with_previous.
+
+    Returns True only when this question's drawn box sits on the same page as the
+    previous question's crop AND overlaps it almost completely (IoU ≥ 0.7) — a
+    strong signal it is the SAME shared figure, not a different figure that merely
+    sits nearby. Embedded-image refs and cross-page boxes never match here.
+    """
+    if not prev_image.get('bbox_frac') or prev_image.get('page') is None:
+        return False
+    box = q.get('image_box')
+    page_num = q.get('image_page')
+    if not box or page_num is None:
+        return False
+    try:
+        if int(page_num) != int(prev_image['page']):
+            return False
+        cur = [float(box['x1']) / 100, float(box['y1']) / 100,
+               float(box['x2']) / 100, float(box['y2']) / 100]
+    except (KeyError, TypeError, ValueError):
+        return False
+    return _frac_box_iou(cur, prev_image['bbox_frac']) >= 0.7
+
+
+def _frac_box_iou(a, b):
+    """Intersection-over-union of two [x1, y1, x2, y2] boxes (any shared unit)."""
+    ax1, ay1 = min(a[0], a[2]), min(a[1], a[3])
+    ax2, ay2 = max(a[0], a[2]), max(a[1], a[3])
+    bx1, by1 = min(b[0], b[2]), min(b[1], b[3])
+    bx2, by2 = max(b[0], b[2]), max(b[1], b[3])
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0.0, ix2 - ix1), max(0.0, iy2 - iy1)
+    inter = iw * ih
+    if inter <= 0:
+        return 0.0
+    union = (ax2 - ax1) * (ay2 - ay1) + (bx2 - bx1) * (by2 - by1) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _expand_box_for_clipped_labels(doc, page_num, box_pct,
+                                   max_grow=6.0, min_inside=0.35):
+    """Grow a crop box just enough to include text labels it clips at the edge.
+
+    A figure crop that slices through an axis number or a shape's side label loses
+    information the question needs. Using the PDF's own text layout, any word that
+    overlaps the box but is not fully inside it — and is *mostly* inside (at least
+    ``min_inside`` of its area), i.e. a label the box clips rather than a
+    neighbour's word merely touching the edge — is unioned into the box. Growth is
+    capped at ``max_grow`` percent per side, so a run of adjacent text can never
+    balloon the crop into the next question. ``box_pct`` and the return value are
+    ``[lo_x, lo_y, hi_x, hi_y]`` in percent of the page. Best-effort: returns the
+    box unchanged on any failure or when the PDF isn't available.
+    """
+    if doc is None:
+        return box_pct
+    try:
+        page = doc[int(page_num) - 1]
+        pw, ph = page.rect.width, page.rect.height
+        if pw <= 0 or ph <= 0:
+            return box_pct
+        lo_x, lo_y, hi_x, hi_y = box_pct
+        # Box and the maximum grown envelope, in absolute (point) coordinates.
+        bx0, by0, bx1, by1 = (lo_x / 100 * pw, lo_y / 100 * ph,
+                              hi_x / 100 * pw, hi_y / 100 * ph)
+        gx0 = max(0.0, lo_x - max_grow) / 100 * pw
+        gy0 = max(0.0, lo_y - max_grow) / 100 * ph
+        gx1 = min(100.0, hi_x + max_grow) / 100 * pw
+        gy1 = min(100.0, hi_y + max_grow) / 100 * ph
+        nx0, ny0, nx1, ny1 = bx0, by0, bx1, by1
+        for word in page.get_text('words'):
+            wx0, wy0, wx1, wy1 = word[0], word[1], word[2], word[3]
+            wa = max(0.0, wx1 - wx0) * max(0.0, wy1 - wy0)
+            if wa <= 0:
+                continue
+            inter = (max(0.0, min(bx1, wx1) - max(bx0, wx0))
+                     * max(0.0, min(by1, wy1) - max(by0, wy0)))
+            if inter <= 0:
+                continue                     # word doesn't touch the box
+            if inter >= wa - 1e-6:
+                continue                     # already fully inside
+            if inter / wa < min_inside:
+                continue                     # sliver only → a neighbour's word
+            # A clipped label: union it in, clamped to the grown envelope.
+            nx0 = min(nx0, max(wx0, gx0))
+            ny0 = min(ny0, max(wy0, gy0))
+            nx1 = max(nx1, min(wx1, gx1))
+            ny1 = max(ny1, min(wy1, gy1))
+        return [nx0 / pw * 100, ny0 / ph * 100, nx1 / pw * 100, ny1 / ph * 100]
+    except Exception:
+        return box_pct
+
+
+def _assign_figure_to_question(q, idx, pages, crops, decoded, doc, Image, io):
+    """Resolve one question's own figure: keep an embedded image_ref, or crop the
+    drawn image_box into a new image. Mutates ``q`` in place; ``crops`` gains any
+    new crop. No-op when the question needs no figure."""
+    # An embedded image already covers this question — prefer it (raster
+    # fidelity beats a screenshot crop).
+    if q.get('image_ref'):
+        q.pop('image_page', None)
+        q.pop('image_box', None)
+        return
+
+    box = q.get('image_box')
+    page_num = q.get('image_page')
+    # Clear the transient box fields regardless of outcome so they never
+    # get persisted on the session / shown in the editor.
+    q.pop('image_box', None)
+    q.pop('image_page', None)
+    if not box or not page_num:
+        return
+
+    # A drawn figure lives on the question's OWN page. A box pointing at a
+    # different page is a wrong-page grab — e.g. a neighbouring question's chart on
+    # another page cropped onto this one (a "table shows…" question ending up with
+    # a bar chart from two pages back). Refuse it so a wrong figure is never
+    # cropped in; the missing-figure guard then surfaces the question if it needs
+    # one. Same-page crops are unaffected. Toggle off with
+    # AI_IMPORT_DROP_CROSS_PAGE_CROPS=0.
+    if os.environ.get('AI_IMPORT_DROP_CROSS_PAGE_CROPS', '1') != '0':
+        source_page = q.get('source_page')
+        try:
+            if source_page is not None and int(page_num) != int(source_page):
+                return
+        except (TypeError, ValueError):
+            pass
+
+    try:
+        page = pages.get(int(page_num))
+        x1, y1 = float(box['x1']), float(box['y1'])
+        x2, y2 = float(box['x2']), float(box['y2'])
+    except (KeyError, TypeError, ValueError):
+        return
+    if not page or not page.get('screenshot'):
+        return
+
+    # Normalise corner order and clamp to the page.
+    lo_x, hi_x = sorted((x1, x2))
+    lo_y, hi_y = sorted((y1, y2))
+    lo_x, hi_x = max(0.0, lo_x), min(100.0, hi_x)
+    lo_y, hi_y = max(0.0, lo_y), min(100.0, hi_y)
+
+    # Snap to the actual drawn-figure bounds when we detected vector clusters
+    # on the page — corrects boxes that clip the figure or grab adjacent text.
+    regions = page.get('figure_regions') or []
+    overlapping = [r for r in regions
+                   if _boxes_overlap([lo_x, lo_y, hi_x, hi_y], r)]
+    if overlapping:
+        lo_x, lo_y, hi_x, hi_y = _snap_box_to_figures(
+            [lo_x, lo_y, hi_x, hi_y], regions)
+    elif not page.get('images'):
+        # No detected figure cluster overlaps the box and there's no embedded
+        # raster image. The box may still cover a real figure that was filtered
+        # out of figure_regions (e.g. a page-sized diagram >80% area), so when
+        # the PDF is available confirm against the page's actual drawings and
+        # drop only when there is genuinely nothing drawn there (the model
+        # pointed at plain text — the "totally irrelevant image" failure mode).
+        has_drawing = _box_has_drawing(doc, int(page_num),
+                                       [lo_x, lo_y, hi_x, hi_y])
+        if has_drawing is False:
+            return              # confirmed: no figure here → spurious text crop
+        if has_drawing is None and regions:
+            # No PDF to check; fall back to the cluster heuristic — figures
+            # exist on the page but none overlap the box → treat as spurious.
+            return
+        # else: a real drawing (incl. large filtered figures) or unknown
+        # without regions → keep cropping.
+
+    # Grow the box to swallow any text label it CLIPS at the edge — an axis number,
+    # a shape's side length ("23.9 km"), a graph key — so the crop keeps ALL of the
+    # figure's information with no half-cut labels. Bounded per side so a run of
+    # text can't balloon the crop into the neighbouring question. Toggle off with
+    # AI_IMPORT_CROP_INCLUDE_LABELS=0.
+    if doc is not None and os.environ.get('AI_IMPORT_CROP_INCLUDE_LABELS', '1') != '0':
+        lo_x, lo_y, hi_x, hi_y = _expand_box_for_clipped_labels(
+            doc, int(page_num), [lo_x, lo_y, hi_x, hi_y])
+
+    if hi_x - lo_x < 1 or hi_y - lo_y < 1:
+        return  # degenerate / empty box
+
+    img_bytes = None
+    # Prefer a crisp re-render straight from the PDF vectors at high DPI;
+    # falls back to cropping the 150-DPI screenshot when the PDF isn't
+    # available or the render fails.
+    if doc is not None:
+        img_bytes = _render_pdf_region(doc, int(page_num),
+                                       [lo_x, lo_y, hi_x, hi_y])
+    if img_bytes is None:
+        try:
+            img = decoded.get(int(page_num))
+            if img is None:
+                img = Image.open(io.BytesIO(base64.b64decode(page['screenshot'])))
+                decoded[int(page_num)] = img
+            w, h = img.size
+            crop = img.crop((
+                int(lo_x / 100 * w), int(lo_y / 100 * h),
+                int(hi_x / 100 * w), int(hi_y / 100 * h),
+            ))
+            buf = io.BytesIO()
+            crop.save(buf, format='PNG')
+            img_bytes = buf.getvalue()
+        except Exception:
+            # A bad box / unreadable screenshot shouldn't sink the whole import.
+            return
+
+    ref = f'page{int(page_num)}_figure{idx}.png'
+    crops[ref] = base64.b64encode(img_bytes).decode('utf-8')
+    q['image_ref'] = ref
+    # Crop provenance for the "Adjust image" editor (box was in % of page).
+    q['image_page'] = int(page_num)
+    q['image_bbox_frac'] = [round(lo_x / 100, 4), round(lo_y / 100, 4),
+                            round(hi_x / 100, 4), round(hi_y / 100, 4)]
 
 
 # ---------------------------------------------------------------------------

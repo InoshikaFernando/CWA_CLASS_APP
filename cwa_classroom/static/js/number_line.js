@@ -101,22 +101,55 @@
     sync();
   }
 
-  function scan(root) {
-    (root || document).querySelectorAll("[data-nl-stage]").forEach(mount);
+  var SELECTOR = "[data-nl-stage]";
+
+  // Mount every matching stage within a freshly-added subtree (the node itself
+  // or any descendants). Scoped to what actually changed — never a
+  // full-document rescan.
+  function scanRoot(node) {
+    if (!node || node.nodeType !== 1) return;
+    if (node.matches && node.matches(SELECTOR)) mount(node);
+    if (node.querySelectorAll) node.querySelectorAll(SELECTOR).forEach(mount);
+  }
+
+  function scanAll() {
+    document.querySelectorAll(SELECTOR).forEach(mount);
   }
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", function () { scan(document); });
+    document.addEventListener("DOMContentLoaded", scanAll);
   } else {
-    scan(document);
+    scanAll();
   }
 
   if (typeof MutationObserver !== "undefined") {
-    var obs = new MutationObserver(function (muts) {
+    // NOTE: this observer block is duplicated in table_of_values.js. If a THIRD
+    // observer-mounted interactive type is added (or draw_on_grid / plot_points /
+    // shape_select move off their inline scripts onto the quiz/worksheet
+    // surfaces), consolidate all of them into one shared maths_mounts.js registry
+    // — register({selector, mount}) + a single debounced observer — instead of
+    // copying this again. Not worth it for two files today.
+    //
+    // Coalesce a burst of mutations into one requestAnimationFrame-batched pass,
+    // and only scan the subtrees that were actually added — not the whole
+    // document on every mutation (the quiz/worksheet surfaces mutate a lot).
+    var queue = [];
+    var scheduled = false;
+    var raf = window.requestAnimationFrame || function (cb) { return setTimeout(cb, 16); };
+    function flush() {
+      scheduled = false;
+      var nodes = queue;
+      queue = [];
+      nodes.forEach(scanRoot);
+    }
+    new MutationObserver(function (muts) {
       for (var i = 0; i < muts.length; i++) {
-        if (muts[i].addedNodes && muts[i].addedNodes.length) { scan(document); break; }
+        var added = muts[i].addedNodes;
+        for (var j = 0; j < added.length; j++) {
+          if (added[j].nodeType === 1) queue.push(added[j]);
+        }
       }
-    });
-    obs.observe(document.documentElement, { childList: true, subtree: true });
+      if (queue.length && !scheduled) { scheduled = true; raf(flush); }
+    }).observe(document.documentElement, { childList: true, subtree: true });
   }
 })();

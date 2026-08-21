@@ -1,5 +1,6 @@
 import uuid
 from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 from django.db import models
 from django.conf import settings
 
@@ -813,6 +814,63 @@ class SubTopic(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Location
+# ---------------------------------------------------------------------------
+
+
+#: Validates a ``#rrggbb`` hex colour (blank is allowed by the field itself).
+HEX_COLOR_VALIDATOR = RegexValidator(
+    regex=r'^#[0-9a-fA-F]{6}$',
+    message='Enter a colour as a hex value like #4f46e5.',
+)
+
+
+class Location(models.Model):
+    """A place where an institute's classes are held.
+
+    Distinct from the institute's own registered address (``School.address`` /
+    the structured company address). An institute can define as many locations
+    as it needs — e.g. separate branches or rooms — each with a name and an
+    optional address. A location may also be marked ``is_online`` to represent
+    a virtual/online venue.
+
+    All locations belong to a :class:`School` (the institute).
+    """
+    school = models.ForeignKey(
+        School,
+        on_delete=models.CASCADE,
+        related_name='locations',
+        help_text='The institute this location belongs to.',
+    )
+    name = models.CharField(max_length=200)
+    address = models.TextField(
+        blank=True,
+        help_text='Optional. The street address of this location.',
+    )
+    color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='',
+        validators=[HEX_COLOR_VALIDATOR],
+        help_text='Optional accent colour as a hex value (e.g. #4f46e5). Used '
+                  "to tint this location's class tiles on the Classes page.",
+    )
+    is_online = models.BooleanField(
+        default=False,
+        help_text='Mark this location as an online / virtual venue.',
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+# ---------------------------------------------------------------------------
 # ClassRoom (updated with school FK)
 # ---------------------------------------------------------------------------
 
@@ -832,6 +890,18 @@ class ClassRoom(models.Model):
     day = models.CharField(max_length=10, choices=DAY_CHOICES, blank=True)
     start_time = models.TimeField(null=True, blank=True)
     end_time = models.TimeField(null=True, blank=True)
+    location = models.ForeignKey(
+        'Location',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='classrooms',
+        help_text='Where this class is held. Optional.',
+    )
+    is_online = models.BooleanField(
+        default=False,
+        help_text='Mark this class as delivered online. Combine with a '
+                  'location for hybrid (mixed) delivery.',
+    )
     description = models.TextField(blank=True)
     # Stored for a future "post to the class WhatsApp group" backend. The
     # official WhatsApp Business API cannot post to groups, so this is unused by
@@ -984,6 +1054,30 @@ class ClassRoom(models.Model):
     def get_accessible_levels(self):
         return self.levels.all()
 
+    @property
+    def delivery_mode(self):
+        """Delivery mode derived from ``location`` and ``is_online``.
+
+        Returns one of ``'hybrid'`` (a location *and* online), ``'online'``
+        (online only), ``'in_person'`` (a location only), or ``''`` when
+        neither has been set.
+        """
+        if self.is_online and self.location_id:
+            return 'hybrid'
+        if self.is_online:
+            return 'online'
+        if self.location_id:
+            return 'in_person'
+        return ''
+
+    def get_delivery_mode_display(self):
+        """Human-readable label for :attr:`delivery_mode`."""
+        return {
+            'hybrid': 'Hybrid (in-person + online)',
+            'online': 'Online',
+            'in_person': 'In-person',
+        }.get(self.delivery_mode, '')
+
 
 class ClassTeacher(models.Model):
     classroom = models.ForeignKey(ClassRoom, on_delete=models.CASCADE, related_name='class_teachers')
@@ -1025,6 +1119,23 @@ class ClassStudent(models.Model):
             'will not be billed.'
         ),
     )
+    # Leaving one class vs leaving the school. Taking a student out of a single
+    # class while they remain in the school — unselecting the class, the class
+    # page's Remove button, or a dedicated Move — is a class change: this row is
+    # deactivated (so rosters, billing and attendance treat them as gone from
+    # this class) but ``moved_at`` is stamped so they keep this class's
+    # homework and don't lose their work. Only removal from the whole school
+    # revokes: it leaves ``moved_at`` None and clears it on any retained rows,
+    # so a student who has left the school never keeps access.
+    moved_at = models.DateTimeField(
+        null=True, blank=True, db_index=True,
+        help_text=(
+            'Set when the student left THIS class but is still in the school '
+            '(a class change / move), so they retain the class’s homework. '
+            'Stays None for a whole-school removal (which revokes). Cleared on '
+            're-enrolment or when the student leaves the school.'
+        ),
+    )
 
     class Meta:
         unique_together = ('classroom', 'student')
@@ -1034,6 +1145,17 @@ class ClassStudent(models.Model):
 
     def __str__(self):
         return f'{self.student.username} → {self.classroom.name}'
+
+    @property
+    def has_homework_access(self):
+        """Whether this enrolment grants homework access to the class.
+
+        True for an active enrolment, and also for a student who left this
+        class but is still in the school (``moved_at`` set) so they keep the
+        class's homework. Only a whole-school removal clears/withholds
+        ``moved_at``, and that student has no access.
+        """
+        return self.is_active or self.moved_at is not None
 
 
 class SchoolStudent(models.Model):
@@ -2089,10 +2211,13 @@ class EmailLog(models.Model):
 
 
 class EmailQueue(models.Model):
-    """Stores emails that couldn't be sent due to daily sending limits.
+    """Emails awaiting background delivery.
 
-    Processed by the process_email_queue management command, which runs
-    daily via cron and drains this queue up to the remaining daily quota.
+    Rows land here two ways: a caller that force-queues (every invoice email
+    does), or an overflow past the daily sending limit. Either way this table
+    IS the delivery path — an unqueued row is an email that was never sent.
+
+    Drained by the process_email_queue management command (cron, every 2 min).
     """
     STATUS_PENDING = 'pending'
     STATUS_SENT = 'sent'
@@ -2119,13 +2244,33 @@ class EmailQueue(models.Model):
         'EmailCampaign', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='queued_emails',
     )
+    # Carried through to the EmailLog the drain writes, so a queued email stays
+    # attributable to its invoice. Without these the log lands with a null
+    # invoice and the invoicing dashboard's Email column reads "Not sent" for
+    # every issued invoice, delivered or not.
+    school = models.ForeignKey(
+        'School', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='queued_emails',
+    )
+    invoice = models.ForeignKey(
+        'Invoice', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='queued_emails',
+    )
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING)
     error_message = models.TextField(blank=True)
+    # Bounded retry. The drain used to reset every failed row to pending on each
+    # run with no cap, so a permanently bad address was retried every 2 minutes
+    # forever and could never be suppressed.
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     sent_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['status', 'created_at']),
+        ]
 
     def __str__(self):
         return f'{self.recipient_email} — {self.subject} ({self.status})'
@@ -2418,6 +2563,8 @@ class InvoicePayment(models.Model):
     bank_transaction_id = models.CharField(max_length=255, blank=True)
     csv_import = models.ForeignKey('CSVImport', on_delete=models.SET_NULL,
                                     null=True, blank=True, related_name='payments')
+    zeroing_batch = models.ForeignKey('BalanceZeroingBatch', on_delete=models.SET_NULL,
+                                       null=True, blank=True, related_name='settlements')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='matched')
     notes = models.TextField(blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
@@ -2451,6 +2598,36 @@ class CreditTransaction(models.Model):
 
     def __str__(self):
         return f'{self.student} — ${self.amount} ({self.reason})'
+
+
+class BalanceZeroingBatch(models.Model):
+    """A single bulk 'Zero Balances' run — groups the manual settlements it
+    created so the whole batch can be undone in one click."""
+    school = models.ForeignKey('School', on_delete=models.CASCADE,
+                                related_name='balance_zeroing_batches')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                    null=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    scope_label = models.CharField(max_length=255, blank=True,
+                                   help_text='Human-readable scope, e.g. "Whole institute"')
+    invoice_count = models.PositiveIntegerField(default=0)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2,
+                                       default=0)
+    notes = models.TextField(blank=True)
+    reversed_at = models.DateTimeField(null=True, blank=True)
+    reversed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                     null=True, blank=True, related_name='+')
+
+    class Meta:
+        ordering = ['-created_at']
+
+    @property
+    def is_reversed(self):
+        return self.reversed_at is not None
+
+    def __str__(self):
+        state = 'reversed' if self.is_reversed else 'active'
+        return f'Zeroing batch #{self.id} — {self.invoice_count} invoices (${self.total_amount}, {state})'
 
 
 # ---------------------------------------------------------------------------

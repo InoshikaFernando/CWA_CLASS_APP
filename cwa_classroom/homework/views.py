@@ -2,7 +2,9 @@ import json
 import random
 import time as time_module
 from datetime import datetime, time as datetime_time, timedelta
+from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
@@ -1058,8 +1060,13 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
         # Find classrooms the student belongs to, keeping the join date per
         # classroom so "overdue" can be judged relative to when this student
         # actually enrolled (a late joiner never sees pre-join work as overdue).
+        # A student who left a class but is still in the school (moved_at set)
+        # keeps that class's homework, so we include those alongside active
+        # enrolments. Only a whole-school removal clears moved_at, and such a
+        # student (inactive, moved_at None) sees nothing.
         memberships = ClassStudent.objects.filter(
-            student=request.user, is_active=True
+            Q(is_active=True) | Q(moved_at__isnull=False),
+            student=request.user,
         ).values_list('classroom_id', 'joined_at')
         joined_at_by_class = {cid: joined for cid, joined in memberships}
         class_ids = list(joined_at_by_class.keys())
@@ -1567,8 +1574,12 @@ def _student_enrollment_redirect(request, classroom):
 
     user = request.user
 
+    # Active enrolment — or having left this class while still in the school
+    # (moved_at set), which keeps homework access — lets them proceed. Only a
+    # whole-school removal (moved_at None) does not.
     if ClassStudent.objects.filter(
-        student=user, classroom=classroom, is_active=True,
+        Q(is_active=True) | Q(moved_at__isnull=False),
+        student=user, classroom=classroom,
     ).exists():
         return None
 
@@ -1778,6 +1789,20 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
 
         shape_naming = request.POST.get('shape_naming') == 'on'
 
+        # Which pages to extract ("2-7, 9"; blank = all). Validated here against
+        # the real PDF so a bad range is an immediate form error rather than a
+        # background job the teacher only sees fail minutes later.
+        from worksheets.page_selection import (
+            PageSelectionError, clean_upload_selection,
+        )
+        try:
+            page_selection, _selected, _total = clean_upload_selection(
+                request.POST.get('page_selection'), pdf_bytes,
+            )
+        except PageSelectionError as exc:
+            messages.error(request, str(exc))
+            return redirect('homework:pdf_upload')
+
         # Create session immediately so we can redirect to the polling page
         session = HomeworkUploadSession.objects.create(
             user=request.user,
@@ -1785,6 +1810,7 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             classroom=classroom,
             pdf_filename=pdf_file.name,
             homework_title=hw_title,
+            page_selection=page_selection,
             shape_naming=shape_naming,
             status=HomeworkUploadSession.STATUS_PROCESSING,
         )
@@ -1816,6 +1842,13 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
                 func=process_homework_pdf,
                 args=[session.pk, existing_topics, existing_levels],
                 queue='default',
+                # A long worksheet legitimately runs past the 10-minute default:
+                # pages are classified in parallel chunks, but a 40-page PDF is
+                # still several waves of multi-minute Claude calls plus image
+                # rendering. Being killed mid-flight lost the whole upload, so
+                # allow the full run — a job that really is dead is caught by the
+                # heartbeat check in HomeworkPDFStatusView, not by this ceiling.
+                job_timeout=settings.HOMEWORK_PDF_JOB_TIMEOUT,
             )
         except Exception:
             import logging
@@ -1903,6 +1936,41 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
         return redirect('homework:json_confirm', session_id=session.pk)
 
 
+STALLED_UPLOAD_MESSAGE = (
+    'Processing stopped unexpectedly — the background worker did not report any '
+    'progress for {minutes} minutes (it most likely ran out of memory). '
+    'Please try again, or split the PDF into smaller files.'
+)
+
+
+def _fail_if_stalled(session):
+    """Mark a processing session as errored when its worker has gone silent.
+
+    A work-horse killed by the OOM killer (or a worker box that reboots) never
+    runs its failure handler, so nothing else flips the session out of
+    'processing' — the polling page would spin forever. The task heartbeats as
+    it works, so a heartbeat older than HOMEWORK_PDF_STALL_MINUTES (or no
+    heartbeat at all that long after upload) means the job is gone.
+
+    Returns True when the session was failed by this call.
+    """
+    from .models import HomeworkUploadSession
+
+    if session.status != HomeworkUploadSession.STATUS_PROCESSING:
+        return False
+
+    minutes = settings.HOMEWORK_PDF_STALL_MINUTES
+    last_sign_of_life = session.progress_updated_at or session.created_at
+    if timezone.now() - last_sign_of_life <= timedelta(minutes=minutes):
+        return False
+
+    session.status = HomeworkUploadSession.STATUS_ERROR
+    session.error_message = STALLED_UPLOAD_MESSAGE.format(minutes=minutes)
+    session.progress_message = ''
+    session.save(update_fields=['status', 'error_message', 'progress_message'])
+    return True
+
+
 class HomeworkPDFProcessingView(RoleRequiredMixin, View):
     """Polling page shown while AI extracts questions in the background."""
     required_roles = TEACHER_ROLES
@@ -1911,16 +1979,31 @@ class HomeworkPDFProcessingView(RoleRequiredMixin, View):
     def get(self, request, session_id):
         from .models import HomeworkUploadSession
         session = get_object_or_404(HomeworkUploadSession, pk=session_id, user=request.user)
+        # Landing straight on a finished/dead session shouldn't start a poll that
+        # can never resolve.
+        _fail_if_stalled(session)
+        if session.status == HomeworkUploadSession.STATUS_DONE:
+            return redirect('homework:pdf_preview', session_id=session.pk)
+        if session.status == HomeworkUploadSession.STATUS_ERROR:
+            return redirect(
+                reverse('homework:pdf_upload')
+                + '?' + urlencode({'error': session.error_message[:200]})
+            )
         return render(request, self.template_name, {'session': session})
 
 
 class HomeworkPDFStatusView(RoleRequiredMixin, View):
-    """HTMX polling endpoint — returns a redirect fragment when processing is done."""
+    """HTMX polling endpoint — live progress, or a redirect once it settles."""
     required_roles = TEACHER_ROLES
+    template_name = 'homework/_partials/upload_progress.html'
 
     def get(self, request, session_id):
         from .models import HomeworkUploadSession
         session = get_object_or_404(HomeworkUploadSession, pk=session_id, user=request.user)
+
+        # No silent forever-spin: a worker that died without running its failure
+        # handler is detected here and the page self-heals into a retry.
+        _fail_if_stalled(session)
 
         if session.status == HomeworkUploadSession.STATUS_DONE:
             # Tell HTMX to navigate to the preview page
@@ -1931,12 +2014,18 @@ class HomeworkPDFStatusView(RoleRequiredMixin, View):
         if session.status == HomeworkUploadSession.STATUS_ERROR:
             response = HttpResponse(status=204)
             response['HX-Redirect'] = (
-                reverse('homework:pdf_upload') + f'?error={session.error_message[:200]}'
+                reverse('homework:pdf_upload')
+                + '?' + urlencode({'error': session.error_message[:200]})
             )
             return response
 
-        # Still processing — return 204 so HTMX keeps polling
-        return HttpResponse(status=204)
+        # Still processing — swap in what the worker is doing right now, so the
+        # teacher can see it is moving rather than staring at a bare spinner.
+        return render(request, self.template_name, {
+            'session': session,
+            'elapsed_minutes': int(
+                (timezone.now() - session.created_at).total_seconds() // 60),
+        })
 
 
 class HomeworkPDFPreviewView(RoleRequiredMixin, View):
@@ -1984,6 +2073,17 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             if q.get('number_line_spec'):
                 q['number_line_spec_json'] = json.dumps(q['number_line_spec'], indent=2)
 
+        # Pages the extractor deliberately skipped (answer sheet / answer key).
+        # Told to the teacher rather than silently dropped, so "50 questions but
+        # only 43 imported" is never a mystery.
+        from worksheets.services import describe_skipped_pages
+        skipped_pages = describe_skipped_pages(data)
+        # Pages the teacher themselves excluded at upload time — same reasoning.
+        from worksheets.page_selection import describe_page_selection
+        # The paper's own answer key, where it had one: how many answers it
+        # supplied and which questions it disagreed with the AI about.
+        answer_key = data.get('answer_key') or {}
+
         return render(request, self.template_name, {
             'session': session,
             'data': data,
@@ -1991,6 +2091,9 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             'topics': topics,
             'levels': levels,
             'classrooms': classrooms,
+            'skipped_pages': skipped_pages,
+            'page_selection': describe_page_selection(data),
+            'answer_key': answer_key,
             'question_types': [
                 ('multiple_choice', 'Multiple Choice'),
                 ('true_false', 'True / False'),
@@ -2210,6 +2313,20 @@ class HomeworkPDFRecropView(RoleRequiredMixin, View):
             HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
         )
         return recrop_response(session, request)
+
+
+class HomeworkPDFReuseImageView(RoleRequiredMixin, View):
+    """AJAX: copy an earlier question's image onto this question (shared figure)."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, session_id):
+        from worksheets.image_adjust import reuse_previous_image_response
+
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(
+            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return reuse_previous_image_response(session, request)
 
 
 class HomeworkPDFConfirmView(RoleRequiredMixin, View):

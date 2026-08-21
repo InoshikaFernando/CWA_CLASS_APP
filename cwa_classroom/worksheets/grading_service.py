@@ -477,13 +477,21 @@ Respond with JSON only:
 
         # claude-sonnet-4-20250514 is deprecated; default to Opus for grading
         # accuracy (it auto-marks student answers), env-overridable via
-        # AI_GRADING_MODEL.
+        # AI_GRADING_MODEL. Thinking is explicitly disabled: on Opus 5 (and later)
+        # adaptive thinking is ON by default and would consume the tight 500-token
+        # budget, truncating the JSON verdict. Disabled thinking is valid at the
+        # default effort ("high").
         response = client.messages.create(
-            model=os.environ.get('AI_GRADING_MODEL', 'claude-opus-4-8'),
+            model=os.environ.get('AI_GRADING_MODEL', 'claude-opus-5'),
             max_tokens=500,
+            thinking={"type": "disabled"},
             system=system,
             messages=[{'role': 'user', 'content': user_content}],
         )
+        if getattr(response, 'stop_reason', None) == 'refusal':
+            # Safety refusal — hand off to the teacher rather than fabricating a
+            # score. Raised here, handled by the fallback below.
+            raise ValueError('grading declined by content safety')
         import json
         # Take the first text block rather than content[0]: a future model /
         # thinking setting could put a non-text block first.

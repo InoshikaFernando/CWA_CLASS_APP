@@ -10,6 +10,7 @@ from django.utils.text import slugify
 from django.utils import timezone
 from django.http import StreamingHttpResponse, HttpResponseForbidden, HttpResponse
 from django.conf import settings as django_settings
+from django.core.exceptions import ValidationError
 import csv
 import logging
 import subprocess
@@ -24,7 +25,7 @@ from accounts.views import _validate_username, _generate_username_suggestion
 from .models import (
     School, SchoolTeacher, AcademicYear, ClassRoom, ClassSession, Department,
     DepartmentTeacher, SchoolStudent, Level, Subject, Term, ClassStudent,
-    SchoolHoliday, PublicHoliday, Currency, ParentStudent,
+    SchoolHoliday, PublicHoliday, Currency, ParentStudent, Location,
 )
 from .views import RoleRequiredMixin
 from .email_utils import send_staff_welcome_email
@@ -34,6 +35,19 @@ MAX_PARENTS_PER_STUDENT = 2
 
 
 logger = logging.getLogger(__name__)
+
+
+def _redirect_after_student_action(request, school):
+    """Redirect back to the page a student remove/restore was triggered from.
+
+    Honours a ``next`` param but only for the whitelisted student views so it
+    can never be used as an open redirect. Defaults to the main manage page.
+    """
+    allowed = {'admin_school_students', 'admin_school_students_recent'}
+    target = request.POST.get('next') or request.GET.get('next')
+    if target in allowed:
+        return redirect(target, school_id=school.id)
+    return redirect('admin_school_students', school_id=school.id)
 
 
 def _subscription_or_none(user):
@@ -435,6 +449,7 @@ class SchoolDetailView(RoleRequiredMixin, View):
         custom_levels = Level.objects.filter(school=school).order_by('level_number')
         terms = Term.objects.filter(school=school).select_related('academic_year')
         holidays = SchoolHoliday.objects.filter(school=school).select_related('academic_year')
+        locations = Location.objects.filter(school=school)
         return render(request, 'admin_dashboard/school_detail.html', {
             'school': school,
             'teachers': teachers,
@@ -446,6 +461,7 @@ class SchoolDetailView(RoleRequiredMixin, View):
             'custom_levels': custom_levels,
             'terms': terms,
             'holidays': holidays,
+            'locations': locations,
         })
 
 
@@ -2088,9 +2104,12 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                         cs, _ = ClassStudent.objects.get_or_create(
                             classroom_id=int(cid_str), student=user,
                         )
-                        if not cs.is_active:
+                        # Re-enrolling clears any retained "moved out" marker —
+                        # an active member is not a moved-out one.
+                        if not cs.is_active or cs.moved_at is not None:
                             cs.is_active = True
-                            cs.save(update_fields=['is_active'])
+                            cs.moved_at = None
+                            cs.save(update_fields=['is_active', 'moved_at'])
 
                 # Optional inline parent
                 parent_action = request.POST.get('parent_action', '').strip()
@@ -2215,6 +2234,62 @@ class StudentDiscountClearView(RoleRequiredMixin, View):
             f'They must pay the full amount on next login.',
         )
         return redirect('admin_school_students', school_id=school.id)
+
+
+class RecentStudentsView(RoleRequiredMixin, View):
+    """Audit view: students most-recently added to a school, newest first.
+
+    Built for the case where students were added by mistake and there is no
+    easy way to tell *which* ones. It shows each student's exact add date and
+    time (``SchoolStudent.joined_at``) and offers a one-click deactivate so the
+    wrong records can be removed. Inactive (already-removed) students are shown
+    too — greyed out with a restore action — so an accidental removal is easy
+    to undo.
+    """
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT, Role.TEACHER,
+    ]
+
+    # Quick time-window filters. Value is number of days, or None for "all".
+    WINDOW_CHOICES = [
+        ('1', 'Last 24 hours', 1),
+        ('7', 'Last 7 days', 7),
+        ('30', 'Last 30 days', 30),
+        ('all', 'All time', None),
+    ]
+    DEFAULT_WINDOW = '7'
+
+    def get(self, request, school_id):
+        school = SchoolStudentManageView._get_school(self, request, school_id)
+
+        window = request.GET.get('window', self.DEFAULT_WINDOW)
+        window_map = {key: days for key, _label, days in self.WINDOW_CHOICES}
+        if window not in window_map:
+            window = self.DEFAULT_WINDOW
+        days = window_map[window]
+
+        qs = (
+            SchoolStudent.objects.filter(school=school)
+            .select_related('student')
+            .order_by('-joined_at')
+        )
+        if days is not None:
+            since = timezone.now() - timedelta(days=days)
+            qs = qs.filter(joined_at__gte=since)
+
+        paginator = Paginator(qs, 25)
+        page = paginator.get_page(request.GET.get('page'))
+
+        ctx = {
+            'school': school,
+            'school_students': page,
+            'page': page,
+            'window': window,
+            'window_choices': self.WINDOW_CHOICES,
+            'total_count': paginator.count,
+        }
+        return render(request, 'admin_dashboard/recent_students.html', ctx)
 
 
 class SchoolStudentExportCSVView(RoleRequiredMixin, View):
@@ -2566,15 +2641,23 @@ class SchoolStudentEditView(RoleRequiredMixin, View):
                         cs, _ = ClassStudent.objects.get_or_create(
                             classroom_id=cid, student=student,
                         )
-                        if not cs.is_active:
+                        # Re-enrolling clears any retained "moved out" marker —
+                        # an active member is not a moved-out one.
+                        if not cs.is_active or cs.moved_at is not None:
                             cs.is_active = True
-                            cs.save(update_fields=['is_active'])
+                            cs.moved_at = None
+                            cs.save(update_fields=['is_active', 'moved_at'])
                     if to_remove:
+                        from django.utils import timezone
+                        # Unselecting a class here is a class change, not a
+                        # revocation: the student stays in the school, so stamp
+                        # ``moved_at`` to keep the class's homework. Only removal
+                        # from the whole school revokes homework access.
                         ClassStudent.objects.filter(
                             student=student,
                             classroom_id__in=to_remove,
                             is_active=True,
-                        ).update(is_active=False)
+                        ).update(is_active=False, moved_at=timezone.now())
                 log_event(
                     user=request.user, school=school, category='data_change',
                     action='student_classes_updated',
@@ -2726,18 +2809,44 @@ class SchoolStudentRemoveView(RoleRequiredMixin, View):
                 ClassStudent.objects.filter(
                     id__in=deactivated_class_student_ids
                 ).update(is_active=False)
+                # Leaving the school also revokes any retained (moved-out)
+                # homework access — a moved-out row is already inactive, so it
+                # isn't in the set above; clear its move markers explicitly.
+                ClassStudent.objects.filter(
+                    classroom__school=school, student=student_user,
+                    moved_at__isnull=False,
+                ).update(moved_at=None)
+            # If this was the student's last active school, convert them to an
+            # individual student (role swap) and end any *partial* school
+            # discount so they pay CWA full monthly. A 100% free discount is
+            # preserved. No-op while they still belong to another school — their
+            # single per-user subscription is shared and left untouched.
+            from .student_lifecycle import convert_to_individual_if_last_school
+            try:
+                conversion = convert_to_individual_if_last_school(
+                    student_user, actor=request.user)
+            except Exception:
+                logger.exception(
+                    'Post-removal individual conversion failed for user %s', student_id)
+                conversion = {'converted': False, 'reason': 'error', 'discount': 'none'}
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='student_removed', detail={
                     'student_id': student_id, 'student_name': name,
                     'class_student_ids': deactivated_class_student_ids,
+                    'conversion': conversion,
                 },
                 request=request,
             )
-            messages.success(request, f'{name} has been removed from {school.name}.')
+            msg = f'{name} has been removed from {school.name}.'
+            if conversion.get('converted'):
+                msg += ' They are no longer in any school and are now an individual student.'
+                if conversion.get('discount') == 'cleared':
+                    msg += ' Their school discount was cleared — they will pay the full amount on next login.'
+            messages.success(request, msg)
         else:
             messages.warning(request, 'Student was not found at this school.')
-        return redirect('admin_school_students', school_id=school.id)
+        return _redirect_after_student_action(request, school)
 
 
 class SchoolStudentRestoreView(RoleRequiredMixin, View):
@@ -2763,6 +2872,10 @@ class SchoolStudentRestoreView(RoleRequiredMixin, View):
                 ClassStudent.objects.filter(
                     classroom__school=school, student=student_user, is_active=False
                 ).update(is_active=True)
+            # If they were converted to an individual student on removal, swap
+            # the role back so a restored account is a school student again.
+            from .student_lifecycle import restore_school_student_role
+            restore_school_student_role(student_user)
             log_event(
                 user=request.user, school=school, category='data_change',
                 action='student_restored', detail={
@@ -2773,7 +2886,7 @@ class SchoolStudentRestoreView(RoleRequiredMixin, View):
             messages.success(request, f'{name} has been restored to {school.name}.')
         else:
             messages.warning(request, 'Inactive student was not found at this school.')
-        return redirect('admin_school_students', school_id=school.id)
+        return _redirect_after_student_action(request, school)
 
 
 # ── Custom Level CRUD ─────────────────────────────────────────────────────────
@@ -3371,6 +3484,155 @@ class TermManageView(RoleRequiredMixin, View):
         return redirect('admin_school_terms', school_id=school.id)
 
 
+class LocationsRedirectView(RoleRequiredMixin, View):
+    """Top-level Locations entry: redirects to the school's locations page.
+
+    Locations are school-scoped, so the sidebar link has no school_id. Mirror
+    the teacher/student pickers: redirect straight through when the user manages
+    a single school, otherwise show the school picker; prompt to create a school
+    when there are none.
+    """
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request):
+        schools = list(_get_user_schools(request.user))
+        if len(schools) == 1:
+            return redirect('admin_school_locations', school_id=schools[0].id)
+        if not schools:
+            messages.info(request, 'Create a school first before managing locations.')
+            return redirect('admin_school_create')
+        return render(request, 'admin_dashboard/school_picker.html', {
+            'schools': schools,
+            'section': 'locations',
+            'title': 'Select a School — Locations',
+            'dest_url_name': 'admin_school_locations',
+        })
+
+
+def _clean_location_color(request):
+    """Pull the location colour from a POST and validate it server-side.
+
+    A native ``<input type="color">`` always submits a value, so a separate
+    ``use_color`` checkbox decides whether the colour is stored at all — leaving
+    it unchecked clears the colour (the class tiles fall back to the default
+    border). Returns ``(color, error_message)``; ``error_message`` is ``None``
+    when the value is valid.
+    """
+    from .models import HEX_COLOR_VALIDATOR
+
+    if request.POST.get('use_color') != 'on':
+        return '', None
+    color = request.POST.get('color', '').strip().lower()
+    if not color:
+        return '', None
+    try:
+        HEX_COLOR_VALIDATOR(color)
+    except ValidationError:
+        return color, f'"{color}" is not a valid colour. Use a hex value like #4f46e5.'
+    return color, None
+
+
+class LocationManageView(RoleRequiredMixin, View):
+    """Manage class locations for an institute: list, create, edit, delete.
+
+    Locations are the physical (or online) venues where classes are held —
+    separate from the institute's own registered address. An institute can add
+    as many as it needs; the address is optional and a location can be flagged
+    as online.
+    """
+    required_roles = [Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE]
+
+    def get(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        locations = Location.objects.filter(school=school)
+        return render(request, 'admin_dashboard/school_locations.html', {
+            'school': school,
+            'locations': locations,
+        })
+
+    def post(self, request, school_id):
+        school = _get_user_school_or_404(request.user, school_id)
+        action = request.POST.get('action')
+
+        if action == 'create':
+            name = request.POST.get('name', '').strip()
+            address = request.POST.get('address', '').strip()
+            is_online = request.POST.get('is_online') == 'on'
+
+            if not name:
+                messages.error(request, 'Location name is required.')
+                return redirect('admin_school_locations', school_id=school.id)
+
+            color, color_error = _clean_location_color(request)
+            if color_error:
+                messages.error(request, color_error)
+                return redirect('admin_school_locations', school_id=school.id)
+
+            location = Location.objects.create(
+                school=school,
+                name=name,
+                address=address,
+                color=color,
+                is_online=is_online,
+            )
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='location_created',
+                detail={'location_id': location.id, 'location_name': name},
+                request=request,
+            )
+            messages.success(request, f'Location "{name}" added.')
+
+        elif action == 'edit':
+            location_id = request.POST.get('location_id')
+            location = get_object_or_404(Location, id=location_id, school=school)
+            name = request.POST.get('name', '').strip()
+            if not name:
+                messages.error(request, 'Location name is required.')
+                return redirect('admin_school_locations', school_id=school.id)
+            color, color_error = _clean_location_color(request)
+            if color_error:
+                messages.error(request, color_error)
+                return redirect('admin_school_locations', school_id=school.id)
+            location.name = name
+            location.address = request.POST.get('address', '').strip()
+            location.color = color
+            location.is_online = request.POST.get('is_online') == 'on'
+            location.save()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='location_edited',
+                detail={'location_id': location.id, 'location_name': location.name},
+                request=request,
+            )
+            messages.success(request, f'Location "{location.name}" updated.')
+
+        elif action == 'delete':
+            location_id = request.POST.get('location_id')
+            location = get_object_or_404(Location, id=location_id, school=school)
+            location_name = location.name
+            # Detach from any classes first so the classes are not deleted.
+            class_count = location.classrooms.count()
+            location.delete()
+            log_event(
+                user=request.user, school=school, category='data_change',
+                action='location_deleted',
+                detail={'location_id': location_id, 'location_name': location_name,
+                        'detached_classes': class_count},
+                request=request,
+            )
+            if class_count:
+                messages.success(
+                    request,
+                    f'Location "{location_name}" deleted. '
+                    f'{class_count} class(es) had their location cleared.',
+                )
+            else:
+                messages.success(request, f'Location "{location_name}" deleted.')
+
+        return redirect('admin_school_locations', school_id=school.id)
+
+
 class DatabaseBackupView(LoginRequiredMixin, View):
     """Superuser-only page to download a full MySQL database backup."""
 
@@ -3543,6 +3805,12 @@ class SubjectAppManageView(LoginRequiredMixin, View):
     def dispatch(self, request, *args, **kwargs):
         from django.http import HttpResponseForbidden
         user = request.user
+        # LoginRequiredMixin does its check inside super().dispatch(), which
+        # runs AFTER this method. So an anonymous visitor must be handed off
+        # before any query uses `user` as a foreign-key value — otherwise
+        # `teacher=AnonymousUser` raises and the page 500s at a stranger.
+        if not user.is_authenticated:
+            return super().dispatch(request, *args, **kwargs)
         is_hoi = SchoolTeacher.objects.filter(
             teacher=user, role='head_of_institute', is_active=True,
         ).exists()
@@ -3742,36 +4010,148 @@ class GlobalQuestionsView(RoleRequiredMixin, View):
         })
 
 
+# Question types the editor may switch between. Deliberately a subset: every
+# type here is graded from the Answer rows alone, so a switch needs no data the
+# form does not already hold. Excluded types need structured fields the form
+# has no inputs for — long_division needs a dividend and divisor, measure needs
+# a numeric answer and tolerance, the plot/graph types need their spec JSON —
+# and switching to one of those would produce a question that cannot render or
+# grade, which is a worse break than the one being repaired.
+#
+# The common repair this enables: a "multiple choice" question left with a
+# single option is not a multiple choice question at all. As short_answer the
+# stored option becomes the accepted typed answer and it grades correctly.
+SWITCHABLE_QUESTION_TYPES = (
+    'multiple_choice',
+    'short_answer',
+    'true_false',
+    'fill_blank',
+    'calculation',
+)
+
+# Types where the Answer rows are OPTIONS the student picks between. Elsewhere
+# they are the accepted answers for typed input, where none is unusual but not
+# unanswerable — so the "cannot remove every option" rule applies only here.
+CHOICE_QUESTION_TYPES = ('multiple_choice', 'true_false')
+
+
 class GlobalQuestionEditView(RoleRequiredMixin, View):
-    """Edit a single global question (question text + answers) via HTMX modal."""
+    """Edit a single global question (text, type and answers) via HTMX modal."""
     required_roles = [Role.ADMIN]
 
-    def get(self, request, question_id):
-        from maths.models import Question, Answer
-        question = get_object_or_404(Question, id=question_id, school__isnull=True)
-        answers = question.answers.order_by('order', 'id')
-        return render(request, 'admin_dashboard/partials/question_edit_form.html', {
+    @staticmethod
+    def _type_choices(question):
+        """Offer the safe switches, plus whatever this question already is.
+
+        A question of an excluded type keeps its own type in the list so the
+        form round-trips it unchanged rather than silently converting it.
+        """
+        from maths.models import Question
+
+        labels = dict(Question.QUESTION_TYPES)
+        allowed = list(SWITCHABLE_QUESTION_TYPES)
+        if question.question_type not in allowed:
+            allowed.insert(0, question.question_type)
+        return [(value, labels.get(value, value)) for value in allowed]
+
+    def _form_context(self, question, error=None):
+        return {
             'question': question,
-            'answers': answers,
-        })
+            'answers': question.answers.order_by('order', 'id'),
+            'type_choices': self._type_choices(question),
+            'error': error,
+        }
+
+    def get(self, request, question_id):
+        from maths.models import Question
+        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+        return render(request, 'admin_dashboard/partials/question_edit_form.html',
+                      self._form_context(question))
 
     def post(self, request, question_id):
         from maths.models import Question, Answer
         question = get_object_or_404(Question, id=question_id, school__isnull=True)
 
         question.question_text = request.POST.get('question_text', '').strip()
-        question.save(update_fields=['question_text', 'updated_at'])
 
-        # Update answers
-        answer_ids = request.POST.getlist('answer_id')
-        for aid in answer_ids:
+        # Only a type the form actually offered for THIS question is accepted.
+        # Anything else is ignored rather than trusted: the field is a plain
+        # POST value, and switching to a type whose required data is missing
+        # would leave a question that cannot be rendered or graded.
+        requested_type = (request.POST.get('question_type') or '').strip()
+        offered = {value for value, _label in self._type_choices(question)}
+        fields = ['question_text', 'updated_at']
+        if requested_type and requested_type in offered:
+            question.question_type = requested_type
+            fields.append('question_type')
+        question.save(update_fields=fields)
+
+        # ---- answers: edit, remove, add ---------------------------------
+        # Removal ids come from checkboxes, so only ticked rows are submitted.
+        removing = set()
+        for raw in request.POST.getlist('delete_answer'):
             try:
-                ans = Answer.objects.get(id=int(aid), question=question)
-            except (Answer.DoesNotExist, ValueError):
+                removing.add(int(raw))
+            except ValueError:
+                continue
+
+        existing = {a.id: a for a in question.answers.all()}
+        removing &= set(existing)
+
+        added = []
+        for index in request.POST.getlist('new_answer_index'):
+            text = (request.POST.get(f'new_answer_text_{index}') or '').strip()
+            if not text:
+                continue   # a blank row the user added and did not fill in
+            added.append((text,
+                          request.POST.get(f'new_is_correct_{index}') == 'on'))
+
+        # A choice question with no options cannot be rendered or answered, so
+        # a save that would empty it is refused OUTRIGHT rather than accepted
+        # and left broken — this editor is the tool for fixing such questions,
+        # it must not be able to create one.
+        surviving = (set(existing) - removing)
+        if (question.question_type in CHOICE_QUESTION_TYPES
+                and not surviving and not added):
+            return render(
+                request, 'admin_dashboard/partials/question_edit_form.html',
+                self._form_context(
+                    question,
+                    error='Removing every option would leave a multiple-choice '
+                          'question with nothing to pick. Add a replacement '
+                          'option, or switch the type to Short Answer first.'))
+
+        for aid, ans in existing.items():
+            if aid in removing:
                 continue
             ans.answer_text = request.POST.get(f'answer_text_{aid}', '').strip()
             ans.is_correct = request.POST.get(f'is_correct_{aid}') == 'on'
             ans.save(update_fields=['answer_text', 'is_correct'])
+
+        if removing:
+            # Record what the text WAS: an option removed by mistake cannot be
+            # recovered from the row itself once it is gone.
+            log_event(
+                user=request.user, school=None,
+                category='data_change', action='global_question_answers_removed',
+                detail={
+                    'question_id': question.id,
+                    'removed': [{'id': aid,
+                                 'text': existing[aid].answer_text,
+                                 'was_correct': existing[aid].is_correct}
+                                for aid in sorted(removing)],
+                },
+                request=request,
+            )
+            Answer.objects.filter(id__in=removing, question=question).delete()
+
+        if added:
+            next_order = (max((a.order or 0) for a in existing.values())
+                          if existing else -1)
+            for text, is_correct in added:
+                next_order += 1
+                Answer.objects.create(question=question, answer_text=text,
+                                      is_correct=is_correct, order=next_order)
 
         log_event(
             user=request.user, school=None,
@@ -3780,11 +4160,22 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             request=request,
         )
 
-        # Return the updated row partial
-        answers = question.answers.order_by('order', 'id')
-        return render(request, 'admin_dashboard/partials/question_row.html', {
+        # The modal gets a "Saved" body; the listing row is refreshed out of
+        # band. Returning the row alone meant the form had to target that row,
+        # which does not exist when the editor was opened by ?edit=<id> from
+        # the question-health pages — htmx then refused to send the request at
+        # all and the save looked like it simply did nothing.
+        answers = list(question.answers.order_by('order', 'id'))
+        return render(request, 'admin_dashboard/partials/question_edit_saved.html', {
+            'question': question,
             'q': question,
-            'answers': list(answers),
+            'answers': answers,
+            # Saying "Saved" over a question nobody can now answer correctly
+            # would be the same silent failure this page exists to remove.
+            'no_correct': not any(a.is_correct for a in answers),
+            'correct_count': sum(1 for a in answers if a.is_correct),
+            'multi_correct': (question.question_type in CHOICE_QUESTION_TYPES
+                              and sum(1 for a in answers if a.is_correct) > 1),
         })
 
 

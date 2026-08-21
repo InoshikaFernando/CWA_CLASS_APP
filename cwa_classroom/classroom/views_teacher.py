@@ -258,6 +258,11 @@ class TeacherDashboardView(RoleRequiredMixin, View):
                     'status': 'can_start',
                 })
 
+        # Distinct active students across the teacher's classes (stat card)
+        my_students_count = ClassStudent.objects.filter(
+            classroom__in=classes, is_active=True,
+        ).values('student').distinct().count()
+
         return render(request, 'teacher/dashboard.html', {
             'schools': SchoolTeacher.objects.filter(
                 teacher=request.user, is_active=True
@@ -268,6 +273,8 @@ class TeacherDashboardView(RoleRequiredMixin, View):
             'pending_attendance_count': pending_attendance_count,
             'upcoming_sessions': upcoming_sessions,
             'class_session_info': class_session_info,
+            'my_students_count': my_students_count,
+            'today': today,
         })
 
 
