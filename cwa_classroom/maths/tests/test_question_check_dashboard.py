@@ -715,3 +715,217 @@ class ScanCursorTests(QuestionCheckTestBase):
         response = self._run(limit='2', after='not-a-number')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(0, response.context['after'])
+
+
+class AnswerAddRemoveTests(TestCase):
+    """The editor has to be able to add and remove options, not just retype them.
+
+    A question stored with EIGHT options flagged correct, or with no answer
+    rows at all, cannot be repaired by editing text: the first needs correct
+    flags cleared and surplus options deleted, the second needs a row created.
+    Neither was possible — the Answers block only rendered when rows already
+    existed, and nothing could ever be added or deleted.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from accounts.models import Role as R
+
+        cls.admin = User.objects.create_superuser(
+            username='answeradmin', email='ans@test.com', password='pass1234')
+        role, _ = R.objects.get_or_create(
+            name=R.ADMIN, defaults={'display_name': 'Admin'})
+        cls.admin.roles.add(role)
+
+        cls.subject = Subject.objects.create(name='Maths Ans', slug='maths-ans')
+        cls.level = Level.objects.create(level_number=11, display_name='Year 11')
+        cls.topic = Topic.objects.create(
+            name='Angles Ans', slug='angles-ans', subject=cls.subject)
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='answeradmin', password='pass1234')
+
+    def _question(self, options=(('15', True), ('14', False)),
+                  question_type='multiple_choice'):
+        q = Question.objects.create(
+            level=self.level, topic=self.topic, question_text='7 + 8 = ?',
+            question_type=question_type)
+        for order, (text, correct) in enumerate(options):
+            Answer.objects.create(question=q, answer_text=text,
+                                  is_correct=correct, order=order)
+        return q
+
+    def _url(self, q):
+        return reverse('admin_global_question_edit', args=[q.id])
+
+    def _existing(self, q, **overrides):
+        data = {'question_text': q.question_text, 'answer_id': [], }
+        for answer in q.answers.all():
+            data['answer_id'].append(str(answer.id))
+            data[f'answer_text_{answer.id}'] = answer.answer_text
+            if answer.is_correct:
+                data[f'is_correct_{answer.id}'] = 'on'
+        data.update(overrides)
+        return data
+
+    # ---- the form itself -------------------------------------------------
+
+    def test_the_editor_offers_add_and_remove(self):
+        q = self._question()
+        body = self.client.get(self._url(q)).content.decode()
+        self.assertIn('add-answer', body)
+        self.assertIn('delete-answer', body)
+
+    def test_a_question_with_no_answers_says_so_and_can_still_add(self):
+        # The case that had nothing to show: an empty block read as a missing
+        # feature rather than a broken question.
+        q = self._question(options=(), question_type='short_answer')
+        body = self.client.get(self._url(q)).content.decode()
+        self.assertIn('no answers stored', body)
+        self.assertIn('add-answer', body)
+
+    # ---- adding ----------------------------------------------------------
+
+    def test_a_new_answer_is_created(self):
+        q = self._question()
+        self.client.post(self._url(q), self._existing(q, **{
+            'new_answer_index': ['1'],
+            'new_answer_text_1': '16',
+        }))
+        self.assertTrue(q.answers.filter(answer_text='16').exists())
+
+    def test_a_new_answer_can_be_the_correct_one(self):
+        q = self._question(options=(('14', False),))
+        self.client.post(self._url(q), self._existing(q, **{
+            'new_answer_index': ['1'],
+            'new_answer_text_1': '15',
+            'new_is_correct_1': 'on',
+        }))
+        added = q.answers.get(answer_text='15')
+        self.assertTrue(added.is_correct)
+
+    def test_several_answers_can_be_added_at_once(self):
+        q = self._question()
+        self.client.post(self._url(q), self._existing(q, **{
+            'new_answer_index': ['1', '2'],
+            'new_answer_text_1': '16',
+            'new_answer_text_2': '17',
+        }))
+        self.assertEqual(4, q.answers.count())
+
+    def test_a_blank_new_row_is_ignored(self):
+        # "+ Add answer" clicked and not filled in must cost nothing.
+        q = self._question()
+        self.client.post(self._url(q), self._existing(q, **{
+            'new_answer_index': ['1'],
+            'new_answer_text_1': '   ',
+        }))
+        self.assertEqual(2, q.answers.count())
+
+    def test_a_new_answer_goes_after_the_existing_ones(self):
+        q = self._question()
+        self.client.post(self._url(q), self._existing(q, **{
+            'new_answer_index': ['1'],
+            'new_answer_text_1': '16',
+        }))
+        added = q.answers.get(answer_text='16')
+        self.assertEqual(2, added.order)
+
+    # ---- removing --------------------------------------------------------
+
+    def test_a_ticked_answer_is_removed(self):
+        q = self._question(options=(('15', True), ('14', False), ('13', False)))
+        doomed = q.answers.get(answer_text='13')
+        self.client.post(self._url(q),
+                         self._existing(q, delete_answer=[str(doomed.id)]))
+        self.assertFalse(q.answers.filter(id=doomed.id).exists())
+        self.assertEqual(2, q.answers.count())
+
+    def test_removing_leaves_the_others_alone(self):
+        q = self._question(options=(('15', True), ('14', False), ('13', False)))
+        doomed = q.answers.get(answer_text='13')
+        self.client.post(self._url(q),
+                         self._existing(q, delete_answer=[str(doomed.id)]))
+        self.assertTrue(q.answers.get(answer_text='15').is_correct)
+        self.assertTrue(q.answers.filter(answer_text='14').exists())
+
+    def test_the_removed_text_is_recorded_before_it_is_deleted(self):
+        # An option deleted by mistake cannot be recovered from the row.
+        from audit.models import AuditLog
+
+        q = self._question(options=(('15', True), ('14', False)))
+        doomed = q.answers.get(answer_text='14')
+        self.client.post(self._url(q),
+                         self._existing(q, delete_answer=[str(doomed.id)]))
+
+        entry = AuditLog.objects.filter(
+            action='global_question_answers_removed').first()
+        self.assertIsNotNone(entry)
+        self.assertIn('14', str(entry.detail))
+
+    def test_emptying_a_multiple_choice_question_is_refused(self):
+        q = self._question(options=(('15', True), ('14', False)))
+        ids = [str(a.id) for a in q.answers.all()]
+        response = self.client.post(self._url(q),
+                                    self._existing(q, delete_answer=ids))
+
+        self.assertContains(response, 'nothing to pick')
+        self.assertEqual(2, q.answers.count())
+
+    def test_emptying_is_allowed_when_a_replacement_is_added(self):
+        q = self._question(options=(('15', True), ('14', False)))
+        ids = [str(a.id) for a in q.answers.all()]
+        self.client.post(self._url(q), self._existing(q, **{
+            'delete_answer': ids,
+            'new_answer_index': ['1'],
+            'new_answer_text_1': '23',
+            'new_is_correct_1': 'on',
+        }))
+        self.assertEqual(['23'], list(q.answers.values_list('answer_text',
+                                                            flat=True)))
+
+    def test_a_short_answer_question_may_be_left_with_no_rows(self):
+        # Those rows are accepted typed answers, not options to pick between;
+        # the choice-type rule does not apply.
+        q = self._question(options=(('42', True),), question_type='short_answer')
+        ids = [str(a.id) for a in q.answers.all()]
+        self.client.post(self._url(q), self._existing(q, delete_answer=ids))
+        self.assertEqual(0, q.answers.count())
+
+    # ---- the multi-correct repair, end to end ----------------------------
+
+    def test_the_eight_correct_question_can_be_repaired(self):
+        # The real row from the check page: 8 options all flagged correct.
+        q = self._question(options=[(str(v), True) for v in
+                                    (18, 82, 106, 34, 92, 83, 57, 148)])
+        keep = q.answers.get(answer_text='82')
+        # Keep '82' plus three distractors; delete the remaining four.
+        surplus = [str(a.id) for a in q.answers.exclude(id=keep.id)[3:]]
+
+        payload = {'question_text': q.question_text, 'answer_id': [],
+                   'delete_answer': surplus}
+        for answer in q.answers.all():
+            payload['answer_id'].append(str(answer.id))
+            payload[f'answer_text_{answer.id}'] = answer.answer_text
+        payload[f'is_correct_{keep.id}'] = 'on'   # only this one stays correct
+
+        self.client.post(self._url(q), payload)
+
+        self.assertEqual(4, q.answers.count())
+        self.assertEqual([True], [a.is_correct for a in q.answers.all()
+                                  if a.is_correct])
+
+    def test_saving_with_nothing_correct_warns_rather_than_going_quiet(self):
+        q = self._question()
+        payload = self._existing(q)
+        payload.pop(f'is_correct_{q.answers.get(answer_text="15").id}')
+        response = self.client.post(self._url(q), payload)
+        self.assertContains(response, 'No option is marked correct')
+
+    def test_saving_with_several_correct_warns(self):
+        q = self._question()
+        payload = self._existing(q, **{
+            f'is_correct_{q.answers.get(answer_text="14").id}': 'on'})
+        response = self.client.post(self._url(q), payload)
+        self.assertContains(response, 'still marked correct')
