@@ -46,7 +46,22 @@ jobs:
       sprints: ${{ steps.filter.outputs.sprints }}
       whatsapp: ${{ steps.filter.outputs.whatsapp }}
       ops: ${{ steps.filter.outputs.ops }}
-      ui: ${{ steps.filter.outputs.ui }}
+      notifications: ${{ steps.filter.outputs.notifications }}
+      usage: ${{ steps.filter.outputs.usage }}
+      ui_core: ${{ steps.filter.outputs.ui_core }}
+      ui_billing: ${{ steps.filter.outputs.ui_billing }}
+      ui_brainbuzz: ${{ steps.filter.outputs.ui_brainbuzz }}
+      ui_classroom: ${{ steps.filter.outputs.ui_classroom }}
+      ui_coding: ${{ steps.filter.outputs.ui_coding }}
+      ui_feedback: ${{ steps.filter.outputs.ui_feedback }}
+      ui_homework: ${{ steps.filter.outputs.ui_homework }}
+      ui_live: ${{ steps.filter.outputs.ui_live }}
+      ui_maths: ${{ steps.filter.outputs.ui_maths }}
+      ui_navigation: ${{ steps.filter.outputs.ui_navigation }}
+      ui_parent: ${{ steps.filter.outputs.ui_parent }}
+      ui_quiz: ${{ steps.filter.outputs.ui_quiz }}
+      ui_uploads: ${{ steps.filter.outputs.ui_uploads }}
+      ui_worksheets: ${{ steps.filter.outputs.ui_worksheets }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -95,13 +110,157 @@ jobs:
               - 'cwa_classroom/whatsapp/**'
             ops:
               - 'cwa_classroom/ops/**'
-            ui:
-              - 'cwa_classroom/ui_tests/**'
-              - 'cwa_classroom/templates/**'
-              - 'cwa_classroom/**/templates/**'
+            notifications:
+              - 'cwa_classroom/notifications/**'
+            usage:
+              - 'cwa_classroom/usage/**'
+            # ---- UI (Playwright) --------------------------------------------
+            # One filter per ui_tests/<group>/ package. The names MUST stay in
+            # lockstep with the directories on disk — tests_workflows.py fails
+            # the build if a group has no filter (its tests would silently stop
+            # running) or a filter has no group.
+            #
+            # `ui_core` is the cross-cutting escape hatch: shared UI fixtures,
+            # the base templates/sidebars every page inherits, and all static
+            # assets. Anything here can break any page, so it runs EVERY group.
+            ui_core:
+              - 'cwa_classroom/ui_tests/*.py'
+              - 'cwa_classroom/templates/base*.html'
+              # partials/ is the genuinely global set — topbar, toasts, modals,
+              # pagination, breadcrumbs, the role-sidebar dispatcher. Every page
+              # inherits them, so a change here runs the whole matrix rather
+              # than being second-guessed file by file.
+              - 'cwa_classroom/templates/partials/**'
               - 'cwa_classroom/static/**'
               - 'cwa_classroom/**/static/**'
-              - 'cwa_classroom/brainbuzz/tests/test_student_playwright_mobile.py'
+            ui_billing:
+              - 'cwa_classroom/ui_tests/billing/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/attendance/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/templates/billing/**'
+              - 'cwa_classroom/templates/invoicing/**'
+              - 'cwa_classroom/templates/accounting/**'
+              - 'cwa_classroom/templates/reports/**'
+            ui_brainbuzz:
+              - 'cwa_classroom/ui_tests/brainbuzz/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/brainbuzz/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/templates/brainbuzz/**'
+            ui_classroom:
+              - 'cwa_classroom/ui_tests/classroom/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/attendance/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/templates/admin_dashboard/**'
+              - 'cwa_classroom/templates/hierarchy/**'
+              - 'cwa_classroom/templates/hod/**'
+              - 'cwa_classroom/templates/progress/**'
+              - 'cwa_classroom/templates/reports/**'
+              - 'cwa_classroom/templates/student/**'
+              - 'cwa_classroom/templates/teacher/**'
+            ui_coding:
+              - 'cwa_classroom/ui_tests/coding/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/templates/coding/**'
+            ui_feedback:
+              - 'cwa_classroom/ui_tests/feedback/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/feedback/**'
+              - 'cwa_classroom/templates/feedback/**'
+            ui_homework:
+              - 'cwa_classroom/ui_tests/homework/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/templates/homework/**'
+            # Deployed-environment tests (-m migration / -m live). They skip
+            # without --live-url, so the job only proves they still import and
+            # collect — cheap, and the alternative is finding a broken live
+            # test during a release.
+            ui_live:
+              - 'cwa_classroom/ui_tests/live/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/ai_import/**'
+              - 'cwa_classroom/brainbuzz/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/number_puzzles/**'
+              - 'cwa_classroom/quiz/**'
+              - 'cwa_classroom/ui_tests/live_helpers.py'
+            ui_maths:
+              - 'cwa_classroom/ui_tests/maths/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/templates/maths/**'
+            # The sidebars link into every subject app, so a change to any of
+            # them can break a nav test. Broad on purpose.
+            ui_navigation:
+              - 'cwa_classroom/ui_tests/navigation/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/ai_import/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/help/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/music/**'
+              - 'cwa_classroom/number_puzzles/**'
+              - 'cwa_classroom/quiz/**'
+              - 'cwa_classroom/science/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/templates/accounts/**'
+              - 'cwa_classroom/templates/hub/**'
+              - 'cwa_classroom/templates/registration/**'
+            ui_parent:
+              - 'cwa_classroom/ui_tests/parent/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/number_puzzles/**'
+              - 'cwa_classroom/templates/parent/**'
+            ui_quiz:
+              - 'cwa_classroom/ui_tests/quiz/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/quiz/**'
+              - 'cwa_classroom/templates/quiz/**'
+              - 'cwa_classroom/templates/base_quiz.html'
+            # Question/content import: /upload-questions/ (classroom views),
+            # the PDF import pipeline (ai_import), and the homework + worksheet
+            # upload forms that share the page-range field.
+            ui_uploads:
+              - 'cwa_classroom/ui_tests/uploads/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/ai_import/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/quiz/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/templates/ai_import/**'
+              - 'cwa_classroom/templates/_partials/**'
+              - 'cwa_classroom/ui_tests/xls_fixtures.py'
+            ui_worksheets:
+              - 'cwa_classroom/ui_tests/worksheets/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/taskqueue/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/templates/worksheets/**'
 
   # Always runs — missing/conflicting migrations must never slip through, and the
   # check is cheap. Not gated on `changes`.
@@ -151,7 +310,7 @@ jobs:
 
       - name: Run classroom tests
         working-directory: cwa_classroom
-        run: pytest classroom/tests/ -n auto --dist=loadscope -v --tb=short
+        run: pytest classroom/ -n auto --dist=loadscope -v --tb=short
 
   maths-tests:
     name: Maths Tests
@@ -172,7 +331,7 @@ jobs:
 
       - name: Run maths tests
         working-directory: cwa_classroom
-        run: pytest maths/tests/ -n auto --dist=loadscope -v --tb=short
+        run: pytest maths/ -n auto --dist=loadscope -v --tb=short
 
   quiz-tests:
     name: Quiz Tests
@@ -193,7 +352,7 @@ jobs:
 
       - name: Run quiz tests
         working-directory: cwa_classroom
-        run: pytest quiz/tests.py quiz/test_cpp377_recording.py quiz/test_verify_quiz_grading.py quiz/test_create_sweep_account.py -n auto --dist=loadscope -v --tb=short
+        run: pytest quiz/ -n auto --dist=loadscope -v --tb=short
 
   puzzles-tests:
     name: Number Puzzles Tests
@@ -214,7 +373,7 @@ jobs:
 
       - name: Run number puzzles tests
         working-directory: cwa_classroom
-        run: pytest number_puzzles/tests/ -n auto --dist=loadscope -v --tb=short
+        run: pytest number_puzzles/ -n auto --dist=loadscope -v --tb=short
 
   coding-tests:
     name: Coding Tests
@@ -235,7 +394,7 @@ jobs:
 
       - name: Run coding tests
         working-directory: cwa_classroom
-        run: pytest coding/tests/ -n auto --dist=loadscope -v --tb=short
+        run: pytest coding/ -n auto --dist=loadscope -v --tb=short
 
   accounts-tests:
     name: Accounts Tests
@@ -256,7 +415,7 @@ jobs:
 
       - name: Run accounts tests
         working-directory: cwa_classroom
-        run: pytest accounts/tests.py -n auto --dist=loadscope -v --tb=short
+        run: pytest accounts/ -n auto --dist=loadscope -v --tb=short
 
   health-tests:
     name: Health Check Tests
@@ -298,7 +457,7 @@ jobs:
 
       - name: Run audit tests
         working-directory: cwa_classroom
-        run: pytest audit/tests.py -n auto --dist=loadscope -v --tb=short
+        run: pytest audit/ -n auto --dist=loadscope -v --tb=short
 
   billing-tests:
     name: Billing Tests
@@ -319,7 +478,7 @@ jobs:
 
       - name: Run billing tests
         working-directory: cwa_classroom
-        run: pytest billing/tests.py billing/tests_admin.py billing/tests_finance.py billing/tests_gaps.py billing/tests_parent_invoice_payment.py billing/tests_stripe.py billing/tests_views_coverage.py billing/tests_webhook_handlers.py billing/tests_ai_vendor_costs.py -n auto --dist=loadscope -v --tb=short
+        run: pytest billing/ -n auto --dist=loadscope -v --tb=short
 
   homework-tests:
     name: Homework Tests
@@ -340,16 +499,10 @@ jobs:
 
       - name: Run homework tests
         working-directory: cwa_classroom
-        # Two invocations on purpose. homework/tests.py holds the legacy suite;
-        # the app-root test_*.py files (PDF-import wiring, second-opinion
-        # verification, etc.) live beside it. Passing BOTH to one pytest run
-        # (`pytest homework/tests.py homework/`) silently collects only
-        # homework/tests.py — pytest drops the directory argument once a module
-        # inside that package has been collected, so 140 tests never ran. Two
-        # runs each collect in full, and `set -e` still fails the job on either.
-        run: |
-          pytest homework/tests.py -n auto --dist=loadscope -v --tb=short
-          pytest homework/ -n auto --dist=loadscope -v --tb=short
+        # One invocation collects all 392 now that pytest.ini's python_files
+        # matches tests.py (this used to need two runs, because the directory
+        # argument alone missed homework/tests.py).
+        run: pytest homework/ -n auto --dist=loadscope -v --tb=short
 
   brainbuzz-tests:
     name: BrainBuzz Tests
@@ -370,7 +523,7 @@ jobs:
 
       - name: Run brainbuzz tests
         working-directory: cwa_classroom
-        run: pytest brainbuzz/tests/ --ignore=brainbuzz/tests/test_student_playwright_mobile.py -n auto --dist=loadscope -v --tb=short
+        run: pytest brainbuzz/ -n auto --dist=loadscope -v --tb=short
 
   ai-import-tests:
     name: AI Import Tests
@@ -391,7 +544,7 @@ jobs:
 
       - name: Run AI import tests
         working-directory: cwa_classroom
-        run: pytest ai_import/tests/ -n auto --dist=loadscope -v --tb=short
+        run: pytest ai_import/ -n auto --dist=loadscope -v --tb=short
 
   worksheets-tests:
     name: Worksheets Tests
@@ -412,7 +565,7 @@ jobs:
 
       - name: Run worksheets tests
         working-directory: cwa_classroom
-        run: pytest worksheets/tests/ -n auto --dist=loadscope -v --tb=short
+        run: pytest worksheets/ -n auto --dist=loadscope -v --tb=short
 
   taskqueue-tests:
     name: Taskqueue Tests
@@ -433,7 +586,7 @@ jobs:
 
       - name: Run taskqueue tests
         working-directory: cwa_classroom
-        run: pytest taskqueue/tests/ -n auto --dist=loadscope -v --tb=short
+        run: pytest taskqueue/ -n auto --dist=loadscope -v --tb=short
 
   feedback-tests:
     name: Feedback Tests
@@ -454,7 +607,7 @@ jobs:
 
       - name: Run feedback tests
         working-directory: cwa_classroom
-        run: pytest feedback/tests/ -n auto --dist=loadscope -v --tb=short
+        run: pytest feedback/ -n auto --dist=loadscope -v --tb=short
 
   sprints-tests:
     name: Sprints Tests
@@ -475,7 +628,7 @@ jobs:
 
       - name: Run sprints tests
         working-directory: cwa_classroom
-        run: pytest sprints/tests/ -n auto --dist=loadscope -v --tb=short
+        run: pytest sprints/ -n auto --dist=loadscope -v --tb=short
 
   whatsapp-tests:
     name: WhatsApp Tests
@@ -496,7 +649,7 @@ jobs:
 
       - name: Run whatsapp tests
         working-directory: cwa_classroom
-        run: pytest whatsapp/tests/ -n auto --dist=loadscope -v --tb=short
+        run: pytest whatsapp/ -n auto --dist=loadscope -v --tb=short
 
   ops-tests:
     name: Ops Tests
@@ -517,21 +670,119 @@ jobs:
 
       - name: Run ops tests
         working-directory: cwa_classroom
-        run: pytest ops/tests.py -n auto --dist=loadscope -v --tb=short
+        run: pytest ops/ -n auto --dist=loadscope -v --tb=short
 
-  ui-tests:
-    name: UI Tests (Playwright)
-    # UI is by far the most expensive job (~33 min vs ~1 min for most suites) and,
-    # being end-to-end (templates + views + static across many apps), it can't be
-    # path-filtered cleanly. So instead of picking WHICH UI tests by changed files:
-    #   - every PR runs only the core-journey `-m smoke` subset (~a few min) —
-    #     enough to catch a broken login / dashboard / homework-load / worksheet /
-    #     upload on any change, including a pure-Python view change; and
-    #   - the push to `test` runs the FULL UI suite (the real pre-production gate);
-    #   - the push to `main` runs NOTHING here — that tree already passed the full
-    #     suite on `test`, so re-running ~33 min on main is pure waste.
+  notifications-tests:
+    name: Notifications Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.notifications == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run notifications tests
+        working-directory: cwa_classroom
+        run: pytest notifications/ -n auto --dist=loadscope -v --tb=short
+
+  usage-tests:
+    name: Usage Tests
+    needs: changes
+    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.usage == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run usage tests
+        working-directory: cwa_classroom
+        run: pytest usage/ -n auto --dist=loadscope -v --tb=short
+
+  # ── UI (Playwright) ──────────────────────────────────────────────────────
+  # The UI suite is by far the most expensive thing in CI (~33 min as one job),
+  # so it is split into per-app-area packages under cwa_classroom/ui_tests/ and
+  # only the areas a change actually touches get a runner.
+  #
+  #   PR            → the groups whose paths changed, in full. A PR that touches
+  #                   no UI-relevant path runs no UI job at all; one that touches
+  #                   `ui_core` or `shared` (base templates, sidebars, static,
+  #                   shared fixtures) runs every group, because those can break
+  #                   any page.
+  #   push to test  → EVERY group, in full. This is the pre-production gate, so
+  #                   it is never path-filtered.
+  #   push to main  → nothing. That tree already passed the full suite on `test`;
+  #                   re-running it here is pure waste.
+  #
+  # Groups run as a dynamic matrix, so they execute in parallel — a full run is
+  # now bounded by the slowest single group rather than the sum of all of them.
+  ui-matrix:
+    name: Select UI suites
+    needs: changes
     if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test') }}
     runs-on: ubuntu-latest
+    outputs:
+      groups: ${{ steps.pick.outputs.groups }}
+    steps:
+      - name: Pick the UI groups to run
+        id: pick
+        env:
+          # Every `ui_*` filter result, as JSON. The group list is derived from
+          # these keys, so ci.yml stays the single source of truth for which
+          # groups exist (tests_workflows.py checks it against the directories).
+          CHANGED: ${{ toJSON(needs.changes.outputs) }}
+          RUN_ALL: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.ui_core == 'true' }}
+        run: |
+          set -euo pipefail
+          all=$(jq -c '[to_entries[]
+                        | select(.key | startswith("ui_"))
+                        | select(.key != "ui_core")
+                        | (.key | sub("^ui_"; ""))] | sort' <<<"$CHANGED")
+          if [ "$RUN_ALL" = "true" ]; then
+            groups="$all"
+            echo "Running the full UI matrix (push, or a shared/ui_core change)."
+          else
+            groups=$(jq -c '[to_entries[]
+                             | select(.key | startswith("ui_"))
+                             | select(.key != "ui_core")
+                             | select(.value == "true")
+                             | (.key | sub("^ui_"; ""))] | sort' <<<"$CHANGED")
+          fi
+          # An empty matrix would make the ui-tests job vanish with no signal at
+          # all, so say out loud that nothing UI-related changed.
+          if [ "$groups" = "[]" ]; then
+            echo "No UI-relevant paths changed — skipping the UI suite."
+          else
+            echo "UI groups selected: $groups (of $all)"
+          fi
+          echo "groups=$groups" >> "$GITHUB_OUTPUT"
+
+  ui-tests:
+    name: UI Tests (${{ matrix.group }})
+    needs: ui-matrix
+    if: ${{ needs.ui-matrix.outputs.groups != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      # One broken area must not cancel the others — a full run should report
+      # every failing group, not just the first.
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.ui-matrix.outputs.groups) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -553,19 +804,72 @@ jobs:
       - name: Install Playwright browsers
         run: playwright install --with-deps chromium
 
-      - name: Run UI tests
+      - name: Run UI tests — ${{ matrix.group }}
         working-directory: cwa_classroom
-        # PRs run only the core-journey `-m smoke` subset (fast); the push to
-        # `test` runs the full suite. --reruns retries ONLY the known SQLite
-        # "database is locked" flake from parallel Playwright workers (see
-        # cwa_classroom/conftest.py); scoped via --only-rerun so genuine assertion
-        # failures still fail on the first run.
+        # --reruns retries ONLY the known SQLite "database is locked" flake from
+        # parallel Playwright workers (see cwa_classroom/conftest.py); scoped via
+        # --only-rerun so genuine assertion failures still fail on the first run.
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "PR → core-journey smoke subset only (-m smoke)"
-            SELECT="-m smoke"
-          else
-            echo "Push to test → full UI suite"
-            SELECT=""
+          pytest "ui_tests/${{ matrix.group }}" -n auto -v --tb=short \
+            --reruns 2 --only-rerun "database is locked"
+
+  # Branch protection needs ONE check name that never moves. The matrix jobs are
+  # called "UI Tests (billing)", "UI Tests (classroom)", … and that set changes
+  # whenever a group is added, so a required check pointing at any of them (or
+  # at the old single "UI Tests (Playwright)" job) would either block forever or
+  # silently stop gating. This job keeps that name, always runs, and is red iff
+  # the UI suite is red.
+  #
+  # KEEP THE NAME STABLE. Point branch protection for `test` and `main` here.
+  ui-tests-gate:
+    name: UI Tests (Playwright)
+    needs: [changes, ui-matrix, ui-tests]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report the UI suite result
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          MATRIX: ${{ needs.ui-matrix.result }}
+          TESTS: ${{ needs.ui-tests.result }}
+          GROUPS: ${{ needs.ui-matrix.outputs.groups }}
+        run: |
+          set -euo pipefail
+          echo "changes:   $CHANGES"
+          echo "ui-matrix: $MATRIX"
+          echo "ui-tests:  $TESTS"
+          echo "groups:    ${GROUPS:-(none)}"
+
+          # `changes` has no if:, so it always runs. If it did not succeed, the
+          # jobs below it were skipped for want of a filter result, not because
+          # there was nothing to do — that must not read as green.
+          if [ "$CHANGES" != "success" ]; then
+            echo "::error::Path filtering failed ($CHANGES); UI coverage is unknown"
+            exit 1
           fi
-          pytest ui_tests/ brainbuzz/tests/test_student_playwright_mobile.py $SELECT -n auto -v --tb=short --reruns 2 --only-rerun "database is locked"
+
+          # ui-matrix skips on a push to main, where the UI suite is
+          # deliberately not run — that is a pass, not a gap.
+          case "$MATRIX" in
+            success|skipped) ;;
+            *)
+              echo "::error::Could not determine which UI suites to run ($MATRIX)"
+              exit 1
+              ;;
+          esac
+
+          # skipped = no UI-relevant paths changed, or the whole suite was not
+          # scheduled for this event. Anything other than that or success means
+          # a group failed, was cancelled, or never reported.
+          case "$TESTS" in
+            success)
+              echo "UI suite green for: ${GROUPS:-(none)}"
+              ;;
+            skipped)
+              echo "No UI suites needed to run."
+              ;;
+            *)
+              echo "::error::UI suite did not pass ($TESTS)"
+              exit 1
+              ;;
+          esac

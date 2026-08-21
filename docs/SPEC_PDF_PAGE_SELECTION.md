@@ -216,4 +216,4 @@ teacher's own upload extracts.
 | `worksheets/tests/test_page_selection_upload.py` | The worksheet view storing / normalising / rejecting a spec, the task passing it through, only selected pages hitting the usage ledger, and the preview notice. |
 | `homework/test_page_selection.py` | The same for the homework flow. |
 | `ai_import/tests/test_page_selection.py` | The same for AI import, plus the quota behaviour: the whole paper blocked, a selection within the remaining allowance let through, a still-too-large selection blocked. |
-| `ui_tests/test_pdf_page_selection.py` | Playwright: the field present, optional and self-explaining on every PDF upload form; a typed range accepted; an out-of-range range refused on the upload screen with nothing enqueued; mobile rendering; the preview notice naming both halves. |
+| `ui_tests/uploads/test_pdf_page_selection.py` | Playwright: the field present, optional and self-explaining on every PDF upload form; a typed range accepted; an out-of-range range refused on the upload screen with nothing enqueued; mobile rendering; the preview notice naming both halves. |
