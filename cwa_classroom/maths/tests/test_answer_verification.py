@@ -12,10 +12,13 @@ from django.test import TestCase
 
 from classroom.models import Level
 from maths.answer_verification import (
+    BLANK_OPTION,
     DUPLICATE_VALUE,
     EQUIVALENT_OPTION,
     MULTI_CORRECT,
     NO_CORRECT,
+    TOO_FEW_OPTIONS,
+    TOO_MANY_OPTIONS,
     WRONG_ANSWER_KEY,
     evaluate_expression,
     extract_expression,
@@ -242,3 +245,76 @@ class VerifyCommandTests(TestCase):
                        [('1/4', True), ('3/12', False)])
         call_command('verify_question_answers', '--level', 991,
                      '--check', WRONG_ANSWER_KEY)
+
+
+class NonChoiceQuestionTypeTests(TestCase):
+    """Short-answer questions are not multiple choice, and must not be judged
+    as if they were.
+
+    Their ``Answer`` rows are the ACCEPTED answers for typed input, so one row
+    is the normal case and several are alternative spellings of the same
+    answer. Reporting a converted question as "too few options" told a
+    super-admin their repair had not worked, and made the bulk fixer answer
+    "nothing to change" on a row the page itself was still flagging.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=993,
+            defaults={'display_name': 'non-choice fixture'},
+        )
+
+    def _question(self, question_type, options, text='1 + 2 = ?'):
+        q = Question.objects.create(
+            level=self.level, question_text=text,
+            question_type=question_type, difficulty=1,
+        )
+        for order, (answer_text, is_correct) in enumerate(options):
+            Answer.objects.create(question=q, answer_text=answer_text,
+                                  is_correct=is_correct, order=order)
+        return q
+
+    def _codes(self, question):
+        issues, _ = verify_question(question)
+        return sorted(i.code for i in issues)
+
+    def test_short_answer_with_one_accepted_answer_is_clean(self):
+        q = self._question(Question.SHORT_ANSWER, [('3', True)])
+        self.assertNotIn(TOO_FEW_OPTIONS, self._codes(q))
+
+    def test_multiple_choice_with_one_option_is_still_flagged(self):
+        # The rule is not deleted, only scoped — a one-option MCQ is broken.
+        q = self._question(Question.MULTIPLE_CHOICE, [('3', True)])
+        self.assertIn(TOO_FEW_OPTIONS, self._codes(q))
+
+    def test_short_answer_accepted_spellings_are_not_too_many_options(self):
+        q = self._question(Question.SHORT_ANSWER, [
+            ('3', True), ('three', True), ('3.0', True),
+            ('03', True), ('+3', True),
+        ])
+        codes = self._codes(q)
+        self.assertNotIn(TOO_MANY_OPTIONS, codes)
+        self.assertNotIn(MULTI_CORRECT, codes)
+
+    def test_short_answer_alternative_spellings_are_not_duplicates(self):
+        # Two rows worth the same number is exactly what alternative accepted
+        # answers look like; on a choice question it would be a real finding.
+        q = self._question(Question.SHORT_ANSWER, [('1/2', True), ('0.5', True)])
+        self.assertEqual(self._codes(q), [])
+
+    def test_short_answer_with_no_correct_row_is_still_flagged(self):
+        # Scoping the OPTION rules does not excuse a question nobody can pass.
+        q = self._question(Question.SHORT_ANSWER, [('3', False)])
+        self.assertIn(NO_CORRECT, self._codes(q))
+
+    def test_short_answer_with_a_blank_row_is_still_flagged(self):
+        q = self._question(Question.SHORT_ANSWER, [('3', True), ('   ', True)])
+        self.assertIn(BLANK_OPTION, self._codes(q))
+
+    def test_short_answer_answer_key_is_still_checked(self):
+        # The arithmetic check is type-independent: a wrong key mismarks a
+        # student whether they typed the answer or picked it.
+        q = self._question(Question.SHORT_ANSWER, [('2/5', True)],
+                           text='Calculate: 9/10 - 3/5')
+        self.assertIn(WRONG_ANSWER_KEY, self._codes(q))

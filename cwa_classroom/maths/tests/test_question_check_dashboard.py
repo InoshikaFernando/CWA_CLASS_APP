@@ -517,3 +517,110 @@ class BulkSelectionUiTests(QuestionCheckTestBase):
         q = self._question(options=(('a', False), ('b', False)))
         response = self._run()
         self.assertContains(response, 'form="bulk-fix"')
+
+
+class ProblemFilterTests(QuestionCheckTestBase):
+    """The Problem filter narrows a long list to the fault being worked on.
+
+    A run over 500 questions returning 149 findings of six different kinds is
+    not a work queue. Picking the problem turns it into one — and, because the
+    bulk fixer acts on the rows shown, it also means "replace duplicates"
+    operates on exactly the questions that have duplicates.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def test_the_form_offers_a_problem_filter(self):
+        response = self.client.get(reverse('question_check_admin_dashboard'))
+        self.assertContains(response, 'filter-problem')
+        self.assertContains(response, 'No correct option')
+        self.assertContains(response, 'Correct answer also listed as a distractor')
+
+    def test_selecting_a_problem_excludes_the_other_kinds(self):
+        no_correct = self._question(options=(('a', False), ('b', False)))
+        dup_correct = self._question(options=(('3/4', True), ('3/4', False),
+                                              ('1/4', False)))
+
+        response = self._run(problem='NO-CORRECT')
+        ids = [row['q'].id for row in response.context['rows']]
+        self.assertEqual([no_correct.id], ids)
+        self.assertNotIn(dup_correct.id, ids)
+
+    def test_several_problems_can_be_selected_at_once(self):
+        no_correct = self._question(options=(('a', False), ('b', False)))
+        dup_correct = self._question(options=(('3/4', True), ('3/4', False),
+                                              ('1/4', False)))
+
+        response = self._run(problem=['NO-CORRECT', 'DUPLICATE-CORRECT'])
+        ids = [row['q'].id for row in response.context['rows']]
+        self.assertCountEqual([no_correct.id, dup_correct.id], ids)
+
+    def test_only_the_selected_problem_is_listed_on_a_row(self):
+        # A question with two faults must not smuggle the unselected one into
+        # the Problem column — the reader would think the filter had leaked.
+        q = self._question(options=(('3/4', True), ('3/4', False), ('', False)))
+        response = self._run(problem='BLANK-OPTION')
+        row = next(r for r in response.context['rows'] if r['q'].id == q.id)
+        self.assertEqual(['BLANK-OPTION'], [i['code'] for i in row['issues']])
+
+    def test_asking_for_an_advisory_problem_overrides_the_checkbox(self):
+        # Selecting "Two distractors are the same value" and being shown
+        # nothing — because the advisory checkbox was left unticked — would
+        # read as "there are none". The explicit request wins.
+        q = self._question(options=(('3/4', True), ('0.5', False), ('1/2', False)))
+
+        response = self._run(problem='DUPLICATE-VALUE')
+        ids = [row['q'].id for row in response.context['rows']]
+        self.assertIn(q.id, ids)
+        self.assertTrue(response.context['include_advisory'])
+
+    def test_no_problem_selected_still_means_everything(self):
+        q = self._question(options=(('a', False), ('b', False)))
+        response = self._run()
+        self.assertIn(q.id, [row['q'].id for row in response.context['rows']])
+
+    def test_an_unknown_problem_code_is_ignored_rather_than_500ing(self):
+        q = self._question(options=(('a', False), ('b', False)))
+        response = self._run(problem='NOT-A-CODE')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(q.id, [row['q'].id for row in response.context['rows']])
+
+    def test_the_selection_survives_the_round_trip(self):
+        response = self._run(problem='NO-CORRECT')
+        self.assertEqual(['NO-CORRECT'], response.context['selected_problems'])
+
+
+class ShortAnswerIsNotJudgedAsChoiceTests(QuestionCheckTestBase):
+    """Converting a broken MCQ to Short Answer must clear it from this page.
+
+    It did not: the page kept reporting "Too few options — 1 option(s)", and
+    re-applying the fix answered "nothing to change" — the page contradicting
+    itself about a repair that had in fact worked.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def _short_answer(self, options=(('3', True),)):
+        q = Question.objects.create(
+            level=self.y7, topic=self.fractions, question_text='1 + 2 = ?',
+            question_type='short_answer',
+        )
+        for order, (label, correct) in enumerate(options):
+            Answer.objects.create(question=q, answer_text=label,
+                                  is_correct=correct, order=order)
+        return q
+
+    def test_a_converted_question_no_longer_appears(self):
+        q = self._short_answer()
+        response = self._run()
+        self.assertNotIn(q.id, [row['q'].id for row in response.context['rows']])
+
+    def test_a_short_answer_with_no_correct_row_still_appears(self):
+        q = self._short_answer(options=(('3', False),))
+        response = self._run()
+        row = next(r for r in response.context['rows'] if r['q'].id == q.id)
+        self.assertEqual(['NO-CORRECT'], [i['code'] for i in row['issues']])
