@@ -1,8 +1,11 @@
 name: CI — Tests
 
 on:
+  # `test` only. A push to `main` is a release merge — the identical tree has
+  # already run the full matrix on `test`, and re-running it there tested
+  # nothing new while costing a second full matrix per release.
   push:
-    branches: [main, test]
+    branches: [test]
   pull_request:
     branches: [main, test]
 
@@ -28,6 +31,10 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
+      # True on a release PR (test -> main). Its tree is byte-identical to
+      # what `test` already validated, so re-running the matrix over it
+      # proves nothing; release-already-tested checks that instead.
+      release: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
       shared: ${{ steps.filter.outputs.shared }}
       classroom: ${{ steps.filter.outputs.classroom }}
       maths: ${{ steps.filter.outputs.maths }}
@@ -291,10 +298,61 @@ jobs:
         working-directory: cwa_classroom
         run: pytest tests_workflows.py -v --tb=short
 
+  # A release PR (test -> main) merges `test` into `main` unchanged, so its tree
+  # is byte-identical to the one the full matrix just ran on `test`. Re-running
+  # every suite over it proved nothing and cost a second full matrix per
+  # release — which is how the Actions spending limit was reached mid-release.
+  #
+  # It is NOT simply skipped: a PR showing no checks at all is how a dead CI
+  # went unnoticed here for four days. This asserts the claim the skip relies
+  # on — that this exact commit already passed CI on `test`.
+  release-already-tested:
+    name: Release tree already tested on test
+    needs: changes
+    if: ${{ needs.changes.outputs.release == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.pull_request.head.sha;
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'ci.yml',
+              branch: 'test',
+              head_sha: sha,
+              event: 'push',
+            });
+            const found = runs.data.workflow_runs;
+            const passed = found.find(r => r.conclusion === 'success');
+            if (passed) {
+              core.info(`CI run #${passed.run_number} passed on test for ${sha}`);
+              core.info(passed.html_url);
+              return;
+            }
+            const running = found.find(r => r.status !== 'completed');
+            if (running) {
+              // Name the run rather than showing a bare red tick — nothing is
+              // wrong, it simply has not finished, and re-running THIS job is
+              // the fix.
+              core.setFailed(
+                `CI on test is still running for ${sha} ` +
+                `(run #${running.run_number}: ${running.html_url}). ` +
+                `Re-run this check once it finishes.`);
+              return;
+            }
+            core.setFailed(
+              `No successful CI run on test for ${sha}. ` +
+              `This tree has not been validated — do not merge to main.`);
+
   classroom-tests:
     name: Classroom Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.classroom == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.classroom == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -315,7 +373,7 @@ jobs:
   maths-tests:
     name: Maths Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.maths == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.maths == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -336,7 +394,7 @@ jobs:
   quiz-tests:
     name: Quiz Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.quiz == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.quiz == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -357,7 +415,7 @@ jobs:
   puzzles-tests:
     name: Number Puzzles Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.puzzles == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.puzzles == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -378,7 +436,7 @@ jobs:
   coding-tests:
     name: Coding Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.coding == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.coding == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -399,7 +457,7 @@ jobs:
   accounts-tests:
     name: Accounts Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.accounts == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.accounts == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -420,7 +478,7 @@ jobs:
   health-tests:
     name: Health Check Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -441,7 +499,7 @@ jobs:
   audit-tests:
     name: Audit Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.audit == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.audit == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -462,7 +520,7 @@ jobs:
   billing-tests:
     name: Billing Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.billing == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.billing == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -483,7 +541,7 @@ jobs:
   homework-tests:
     name: Homework Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.homework == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.homework == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -507,7 +565,7 @@ jobs:
   brainbuzz-tests:
     name: BrainBuzz Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.brainbuzz == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.brainbuzz == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -528,7 +586,7 @@ jobs:
   ai-import-tests:
     name: AI Import Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.ai_import == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.ai_import == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -549,7 +607,7 @@ jobs:
   worksheets-tests:
     name: Worksheets Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.worksheets == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.worksheets == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -570,7 +628,7 @@ jobs:
   taskqueue-tests:
     name: Taskqueue Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.taskqueue == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.taskqueue == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -591,7 +649,7 @@ jobs:
   feedback-tests:
     name: Feedback Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.feedback == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.feedback == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -612,7 +670,7 @@ jobs:
   sprints-tests:
     name: Sprints Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.sprints == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.sprints == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -633,7 +691,7 @@ jobs:
   whatsapp-tests:
     name: WhatsApp Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.whatsapp == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.whatsapp == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -654,7 +712,7 @@ jobs:
   ops-tests:
     name: Ops Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.ops == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.ops == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -675,7 +733,7 @@ jobs:
   notifications-tests:
     name: Notifications Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.notifications == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.notifications == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -696,7 +754,7 @@ jobs:
   usage-tests:
     name: Usage Tests
     needs: changes
-    if: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.usage == 'true' }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.usage == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -734,7 +792,7 @@ jobs:
   ui-matrix:
     name: Select UI suites
     needs: changes
-    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test') }}
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test')) }}
     runs-on: ubuntu-latest
     outputs:
       groups: ${{ steps.pick.outputs.groups }}
@@ -806,11 +864,19 @@ jobs:
 
       - name: Run UI tests — ${{ matrix.group }}
         working-directory: cwa_classroom
+        env:
+          # `-n auto` is one worker per CPU, and a PRIVATE repo's runner has
+          # TWO — so each group still ran two browsers at a time. These tests
+          # are I/O-bound (waiting on the browser, not computing), so more
+          # workers than cores is the right call and cuts each group's wall
+          # clock and billed minutes together. Raise further only with
+          # evidence: the ceiling is the SQLite contention --reruns absorbs.
+          UI_WORKERS: 4
         # --reruns retries ONLY the known SQLite "database is locked" flake from
         # parallel Playwright workers (see cwa_classroom/conftest.py); scoped via
         # --only-rerun so genuine assertion failures still fail on the first run.
         run: |
-          pytest "ui_tests/${{ matrix.group }}" -n auto -v --tb=short \
+          pytest "ui_tests/${{ matrix.group }}" -n "$UI_WORKERS" -v --tb=short \
             --reruns 2 --only-rerun "database is locked"
 
   # Branch protection needs ONE check name that never moves. The matrix jobs are

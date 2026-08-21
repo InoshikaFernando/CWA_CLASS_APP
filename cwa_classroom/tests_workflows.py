@@ -98,15 +98,18 @@ def _ci_filters():
 
 
 def test_ci_still_runs_every_suite_on_a_push():
-    """A push to main/test is the promotion gate and must not be path-filtered.
+    """A push to `test` is the promotion gate and must not be path-filtered.
 
     PR runs are narrowed to the affected apps to save Actions minutes; the
-    safety net is that a merge runs everything. If that `github.event_name ==
-    'push'` escape were dropped, a release could promote on a partial matrix.
+    safety net is that the merge to `test` runs everything. If that
+    `github.event_name == 'push'` escape were dropped, a release could promote
+    on a partial matrix.
     """
     jobs = _ci()['jobs']
     gated = {name: job for name, job in jobs.items()
-             if 'needs.changes.outputs' in (job.get('if') or '')}
+             if 'needs.changes.outputs' in (job.get('if') or '')
+             # Release-PR-only: it stands in FOR the suites on that event.
+             and name != 'release-already-tested'}
     assert gated, 'Expected the path-filtered jobs to carry an if: condition'
     for name, job in gated.items():
         assert "github.event_name == 'push'" in job['if'], (
@@ -408,3 +411,75 @@ def test_every_ui_group_filter_covers_the_apps_it_uses():
         'UI groups whose filter does not watch every app their tests drive:\n  '
         + '\n  '.join(f'ui_{g}: add {apps}' for g, apps in sorted(missing.items()))
         + '\n\nA change to one of those apps would not run these tests.')
+
+
+# ---------------------------------------------------------------------------
+# Release-PR cost (the Actions spending limit was reached mid-release)
+# ---------------------------------------------------------------------------
+# The one job that is deliberately release-PR-only: it stands in FOR the suites
+# on that event, so it must not carry their push escape.
+_RELEASE_GUARD_JOB = 'release-already-tested'
+
+
+def _ci_data():
+    return yaml.safe_load((WORKFLOW_DIR / 'ci.yml').read_text())
+
+
+def _path_filtered_jobs(data):
+    return {name: job for name, job in data['jobs'].items()
+            if job.get('if') and "github.event_name == 'push'" in job['if']}
+
+
+def test_the_full_matrix_still_runs_on_a_push_to_test():
+    """`test` is the pre-production gate — dropping it would leave nothing."""
+    data = _ci_data()
+    # PyYAML reads a bare `on:` key as the boolean True.
+    triggers = data.get('on', data.get(True))
+    assert 'test' in triggers['push']['branches']
+
+
+def test_a_push_to_main_does_not_re_run_the_matrix():
+    """A release merge lands the identical tree that just passed on `test`."""
+    data = _ci_data()
+    triggers = data.get('on', data.get(True))
+    assert 'main' not in triggers['push']['branches'], (
+        'a push to main re-runs every suite over a tree that already passed')
+
+
+def test_a_release_pr_does_not_re_run_the_whole_matrix():
+    """A release PR's tree is identical to what `test` just validated."""
+    for name, job in _path_filtered_jobs(_ci_data()).items():
+        assert "needs.changes.outputs.release != 'true'" in job['if'], (
+            f'ci.yml job {name!r} would re-run on a release PR over a tree '
+            f'that already passed on test')
+
+
+def test_a_release_pr_still_gets_a_check():
+    """Skipping is not the same as not checking.
+
+    A PR showing no checks is how a dead CI went unnoticed here for four days.
+    The release PR must still assert the claim the skip relies on: that this
+    exact commit already passed CI on `test`.
+    """
+    job = _ci_data()['jobs'][_RELEASE_GUARD_JOB]
+    assert "needs.changes.outputs.release == 'true'" in job['if']
+    script = '\n'.join(str(step) for step in job['steps'])
+    assert 'listWorkflowRuns' in script
+    assert 'setFailed' in script
+
+
+def test_the_ui_groups_are_not_limited_to_the_runner_cpu_count():
+    """`-n auto` is one worker per CPU, and a private runner has two.
+
+    Splitting the suite by app area bounds the wall clock by the slowest
+    group — but each group still ran two browsers at a time. These tests wait
+    on the browser rather than computing, so the worker count is set above the
+    core count.
+    """
+    ui = _ci_data()['jobs']['ui-tests']
+    run_step = next(s for s in ui['steps']
+                    if str(s.get('name', '')).startswith('Run UI tests'))
+    assert '-n auto' not in run_step['run']
+    assert int(run_step['env']['UI_WORKERS']) > 2, (
+        'a private runner has 2 CPUs; this would not help'
+    )

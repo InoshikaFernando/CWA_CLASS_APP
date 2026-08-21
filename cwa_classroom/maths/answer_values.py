@@ -25,9 +25,15 @@ and free text ("C = 8, D = 3") are all ``None``.
 import re
 from fractions import Fraction
 
-# Units and currency words are stripped before parsing: within a single
-# question the options share a unit ('3 kg' vs '9/3 kg'), so the unit carries
-# no distinguishing information and only blocks the numeric comparison.
+# Units and currency words are stripped before parsing so that '3 kg' and
+# '9/3 kg' compare as the same number.
+#
+# The unit is NOT discarded, though — parse_answer_unit reads it separately and
+# callers compare (value, unit) pairs. Stripping it outright made '4 kg' and
+# '4 g' look identical, so an estimation question ("The mass of a pet cat would
+# most likely be about: 4 t / 4 kg / 400 g / 4 g") was reported as having a
+# distractor equal to its answer. In that question the unit is the ENTIRE point:
+# the numbers are deliberately the same so the student has to think about scale.
 _UNIT_RE = re.compile(
     r'\b('
     r'mm|cm|m|km|mg|g|kg|ml|l'
@@ -103,6 +109,111 @@ def parse_answer_value(text):
     return None
 
 
+
+# Synonyms folded onto one token so 'kg' and 'kilograms' compare equal. Only
+# spellings of the SAME unit belong here — never two units that merely relate
+# to each other, or 'g' and 'kg' would collapse and take the false positive
+# with them.
+_UNIT_SYNONYMS = {
+    'litres': 'l', 'litre': 'l', 'liters': 'l', 'liter': 'l',
+    'metres': 'm', 'metre': 'm', 'meters': 'm', 'meter': 'm',
+    'grams': 'g', 'gram': 'g',
+    'kilograms': 'kg', 'kilogram': 'kg',
+    'hrs': 'hour', 'hr': 'hour', 'hours': 'hour',
+    'mins': 'minute', 'min': 'minute', 'minutes': 'minute',
+    'secs': 'second', 'sec': 'second', 'seconds': 'second',
+    'days': 'day', 'weeks': 'week', 'months': 'month', 'years': 'year',
+    'dollars': '$', 'dollar': '$', 'cents': 'cent',
+    'teaspoons': 'teaspoon', 'tablespoons': 'tablespoon', 'cups': 'cup',
+    'slices': 'slice', 'pieces': 'piece', 'cakes': 'cake',
+    'pizzas': 'pizza', 'apples': 'apple', 'units': 'unit',
+}
+
+
+def parse_answer_unit(text):
+    """The unit an answer is expressed in, normalised, or '' when there is none.
+
+    Two answers are the same quantity only if they agree on BOTH the number and
+    the unit. '4 kg' and '4 g' share a number and are not the same mass.
+    """
+    if text is None:
+        return ''
+    s = str(text).strip().lower().replace(',', '')
+    found = {_UNIT_SYNONYMS.get(u, u) for u in _UNIT_RE.findall(s)}
+    if '$' in s:
+        found.add('$')
+    # Any trailing letters the table does not know — 't' for tonnes, 'ft', a
+    # made-up unit — still count. An unrecognised unit must not silently read
+    # as "no unit", which would make it equal to a bare number.
+    tail = re.sub(r'[\d\s./+-]', '', s)
+    for known in list(found):
+        tail = tail.replace(known.replace('$', ''), '')
+    tail = tail.replace('$', '').strip()
+    if tail:
+        found.add(tail)
+    return ' '.join(sorted(found))
+
+
+def parse_answer_quantity(text):
+    """``(value, unit)`` for an answer, or ``None`` when there is no number.
+
+    This is the comparable form: callers that ask "are these two options the
+    same answer?" must compare quantities, not bare values.
+    """
+    value = parse_answer_value(text)
+    if value is None:
+        return None
+    return (value, parse_answer_unit(text))
+
+
+def quantities_match(a, b):
+    """Are two ``(value, unit)`` quantities the same answer?
+
+    Equal numbers are necessary but not sufficient — the units have to be
+    compatible too:
+
+      '4 kg' vs '4 g'        DIFFERENT. Both units are stated and they differ,
+                             which is the whole point of an estimation
+                             question ("the mass of a pet cat").
+
+      '3 3/4 teaspoons'      THE SAME. One option states the unit and the other
+        vs '15/4'            leaves it implied by the question, which is how
+                             production Q6013 mismarked a student who picked
+                             the improper fraction.
+
+    So a blank unit is compatible with anything; two different stated units
+    never are.
+    """
+    if a is None or b is None:
+        return False
+    (value_a, unit_a), (value_b, unit_b) = a, b
+    if value_a != value_b:
+        return False
+    return not unit_a or not unit_b or unit_a == unit_b
+
+
+def group_by_quantity(items, quantity_of):
+    """Group ``items`` into lists that are all the same answer.
+
+    Grouping cannot use the quantity as a dict key, because a blank unit
+    matches a stated one without being equal to it. Items join the first group
+    they match, so an option carrying no unit lands with the stated-unit group
+    it agrees with rather than forming a lookalike group of its own.
+    """
+    groups = []
+    for item in items:
+        quantity = quantity_of(item)
+        if quantity is None:
+            continue
+        for group in groups:
+            if quantities_match(quantity_of(group[0]), quantity):
+                group.append(item)
+                break
+        else:
+            groups.append([item])
+    return groups
+
+
 def find_equivalent_options(question):
     """Return ``[(distractor_answer, correct_answer), ...]`` for every option
     on ``question`` that is numerically equal to a correct option but is not
@@ -117,7 +228,9 @@ def find_equivalent_options(question):
     if not correct:
         return []
 
-    correct_values = [(a, parse_answer_value(a.answer_text)) for a in correct]
+    # Quantities, not bare values: an option only equals the answer when it
+    # agrees on the unit too.
+    correct_values = [(a, parse_answer_quantity(a.answer_text)) for a in correct]
     correct_values = [(a, v) for a, v in correct_values if v is not None]
     if not correct_values:
         return []
@@ -126,11 +239,11 @@ def find_equivalent_options(question):
     for option in options:
         if option.is_correct:
             continue
-        value = parse_answer_value(option.answer_text)
+        value = parse_answer_quantity(option.answer_text)
         if value is None:
             continue
         for correct_answer, correct_value in correct_values:
-            if value == correct_value:
+            if quantities_match(value, correct_value):
                 clashes.append((option, correct_answer))
                 break
     return clashes

@@ -24,7 +24,9 @@ at all.
 import re
 from fractions import Fraction
 
-from maths.answer_values import find_equivalent_options, parse_answer_value
+from maths.answer_values import (
+    find_equivalent_options, group_by_quantity, parse_answer_quantity,
+    parse_answer_value)
 
 # --------------------------------------------------------------------------
 # Issue codes
@@ -60,10 +62,22 @@ class Issue:
 # Arithmetic evaluation
 # --------------------------------------------------------------------------
 # Only question text of this shape is evaluated. Anything else is UNVERIFIED.
+# The separator after the instruction word is ':' ONLY. It used to allow '-'
+# as well, which silently ate the minus sign off a negative first term: "What
+# is -7 + 12?" was evaluated as "7 + 12" = 19 and every correct integer answer
+# in Year 8 Number › Integers was reported as a wrong answer key. A dash there
+# is far more likely to BE the number than to separate anything.
 _PROMPT_RE = re.compile(
-    r'^\s*(?:calculate|compute|evaluate|work\s+out|what\s+is)\s*[:\-]?\s*(.+?)\s*[?.]?\s*$',
+    r'^\s*(?:calculate|compute|evaluate|work\s+out|what\s+is)\s*:?\s*(.+?)\s*[?.]?\s*$',
     re.IGNORECASE,
 )
+
+# The other shape arithmetic questions come in: a bare equation ending in a
+# placeholder. "5531 - 4414 = ?" carries no instruction word, so it was never
+# evaluated — which is why a question with no stored answer at all could not be
+# repaired automatically. The letter guard in extract_expression still rejects
+# algebra ("3x + 2 = ?") and multi-part answers ("C = 8, D = 3").
+_EQUATION_RE = re.compile(r'^\s*(.+?)\s*=\s*[?_\s]*$')
 
 _TOKEN_RE = re.compile(r'''
       (?P<mixed>\d+\s+\d+\s*/\s*\d+)      # 2 3/5
@@ -90,10 +104,14 @@ def extract_expression(question_text):
     """
     if not question_text:
         return None
-    match = _PROMPT_RE.match(str(question_text))
+    text = str(question_text)
+    match = _PROMPT_RE.match(text) or _EQUATION_RE.match(text)
     if not match:
         return None
     expr = match.group(1)
+    if '=' in expr:
+        # More than one equals sign means more than one statement.
+        return None
     # Any letter disqualifies the expression, EXCEPT a whitespace-delimited 'x'
     # used as a times sign ("4/5 x 1/3"). The whitespace requirement is what
     # separates that from an algebraic term: in "3x + 2" the 'x' touches the
@@ -330,21 +348,19 @@ def verify_question(question, min_options=2, max_options=MAX_OPTIONS):
     # against the correct answer, and DUPLICATE-OPTION compares text. But the
     # question then offers fewer real choices than it appears to, and showing a
     # student the same number twice is confusing. Worth reporting, distinctly.
-    seen_values = {}
-    for option in options:
-        if option.is_correct:
+    # Quantity, not bare value — '4 g' and '4 kg' are different masses, and an
+    # estimation question ("the mass of a pet cat") offers them deliberately.
+    distractors = [o for o in options if not o.is_correct]
+    for group in group_by_quantity(
+            distractors, lambda o: parse_answer_quantity(o.answer_text)):
+        if len(group) < 2:
             continue
-        value = parse_answer_value(option.answer_text)
-        if value is None:
-            continue
-        twin = seen_values.get(value)
-        if twin is not None:
-            issues.append(Issue(
-                DUPLICATE_VALUE,
-                f'{option.answer_text!r} and {twin.answer_text!r} are both '
-                f'{value} — the question offers fewer choices than it appears'))
-        else:
-            seen_values[value] = option
+        first, second = group[0], group[1]
+        value = parse_answer_value(first.answer_text)
+        issues.append(Issue(
+            DUPLICATE_VALUE,
+            f'{second.answer_text!r} and {first.answer_text!r} are both '
+            f'{value} — the question offers fewer choices than it appears'))
 
     # ---- arithmetic -------------------------------------------------------
     expression = extract_expression(question.question_text)

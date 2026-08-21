@@ -46,7 +46,9 @@ management command decides whether to apply it.
 """
 from fractions import Fraction
 
-from .answer_values import parse_answer_value
+from .answer_values import (
+    group_by_quantity, parse_answer_quantity, parse_answer_unit,
+    parse_answer_value, quantities_match)
 
 # Offsets tried in order, relative to the value being replaced. Small
 # near-misses first: a distractor a student might plausibly land on beats an
@@ -147,6 +149,12 @@ def plan_repair(question, options=None):
     integral = _is_integral(values)
     by_option = dict(zip(options, values))
 
+    # Pass 2 groups on QUANTITY, not on the bare number. '4 kg' and '4 g' share
+    # a number and are not the same mass — an estimation question offers them
+    # on purpose, and rewriting one would destroy the question rather than
+    # repair it.
+    quantities = dict(zip(options, (parse_answer_quantity(t) for t in texts)))
+
     edits = []
     taken_values = set(values)
     taken_texts = list(texts)
@@ -191,11 +199,9 @@ def plan_repair(question, options=None):
     # Runs after the text pass so an option already rewritten above is not
     # rewritten twice, and so its replacement value (already in taken_values)
     # cannot collide here.
-    by_value = {}
-    for option in options:
-        if id(option) not in replaced:
-            by_value.setdefault(by_option[option], []).append(option)
-    collapse(by_value)
+    remaining = [o for o in options if id(o) not in replaced]
+    collapse({index: group for index, group in enumerate(
+        group_by_quantity(remaining, quantities.get))})
 
     return edits
 
@@ -271,3 +277,51 @@ def plan_trim(question, options=None, target=4):
     keep_distractors = distractors[:max(0, target - 1)]
     keep = {id(keeper), *(id(o) for o in keep_distractors)}
     return [o for o in options if id(o) not in keep]
+
+
+def plan_answer_fill(question, options=None):
+    """Return ``('flag', answer)`` or ``('add', text)`` to supply a missing
+    correct answer, or ``None`` when there is nothing to do.
+
+    NO-CORRECT is the most damaging fault in the bank: every student answering
+    the question is marked wrong, whatever they type or pick. Until now it was
+    also the one fault with no repair at all — the check page could report it
+    and nothing more.
+
+    WHY THIS IS SAFE, WHERE GENERATING A DISTRACTOR WOULD NOT BE
+
+    Everywhere else in this module the rule is that we never have to know what
+    is mathematically true, only what differs from the stored answer. Here we
+    DO assert the truth — so it is restricted to the one case where the truth
+    is computable and already trusted: an arithmetic expression evaluated by
+    the same code that reports a stored answer key as WRONG-ANSWER-KEY. If that
+    evaluation is trusted enough to contradict a human's answer, it is trusted
+    enough to supply a missing one.
+
+    Anything the evaluator will not commit to — a word problem, algebra, a
+    question with a diagram — is refused and left for a human.
+    """
+    from .answer_verification import evaluate_expression, extract_expression
+
+    options = list(options if options is not None
+                   else question.answers.order_by('order', 'id'))
+    if any(o.is_correct for o in options):
+        return None                      # already answerable
+
+    expression = extract_expression(question.question_text)
+    if expression is None:
+        raise Skipped('question text is not a plain arithmetic expression')
+    value = evaluate_expression(expression)
+    if value is None:
+        raise Skipped(f'could not evaluate {expression!r}')
+
+    # An existing option that already holds the right value is the answer the
+    # question was written with — flag it rather than adding a second copy,
+    # which would leave the correct answer listed twice (CPP-377 again).
+    for option in options:
+        if quantities_match(parse_answer_quantity(option.answer_text),
+                            (value, parse_answer_unit(option.answer_text))):
+            return ('flag', option)
+
+    texts = [(o.answer_text or '').strip() for o in options]
+    return ('add', _format_like(value, texts, _is_integral([value])))

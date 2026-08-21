@@ -602,3 +602,56 @@ class RepairCommandEquivalenceTests(TestCase):
 
         q.refresh_from_db()
         self.assertIn('2/4', {a.answer_text for a in q.answers.all()})
+
+
+class UnitAwareRepairTests(TestCase):
+    """The repair must never rewrite an option whose unit makes it distinct.
+
+    An estimation question repeats the number on purpose — '4 kg' against
+    '4 g' — so a repair that treated them as duplicates would replace a good
+    distractor and destroy the question it was asked to fix.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=986, defaults={'display_name': 'unit repair fixture'})
+
+    def _question(self, options, text='The mass of a pet cat would be about:'):
+        q = Question.objects.create(
+            level=self.level, question_text=text,
+            question_type=Question.MULTIPLE_CHOICE, difficulty=1)
+        for order, (answer_text, is_correct) in enumerate(options):
+            Answer.objects.create(question=q, answer_text=answer_text,
+                                  is_correct=is_correct, order=order)
+        return q
+
+    def test_the_same_number_in_different_units_is_left_alone(self):
+        q = self._question([('4 kg', True), ('4 g', False),
+                            ('40 g', False), ('400 g', False)])
+        self.assertEqual([], plan_repair(q))
+
+    def test_the_same_number_in_the_same_unit_is_still_repaired(self):
+        q = self._question([('3 kg', True), ('9/3 kg', False),
+                            ('4 kg', False), ('5 kg', False)])
+        edits = plan_repair(q)
+        self.assertEqual(['9/3 kg'], [old for _a, old, _n in edits])
+
+    def test_a_bulk_fix_over_the_pet_cat_question_changes_nothing(self):
+        # End to end: the exact production question, through the code path the
+        # check page's "Replace duplicated options" uses.
+        q = self._question([('4 t', False), ('4 kg', True),
+                            ('400 g', False), ('4 g', False)])
+        before = [a.answer_text for a in q.answers.order_by('order')]
+
+        try:
+            edits = plan_repair(q)
+        except Skipped:
+            edits = []
+        for answer, _old, new in edits:
+            answer.answer_text = new
+            answer.save(update_fields=['answer_text'])
+
+        q.refresh_from_db()
+        after = [a.answer_text for a in q.answers.order_by('order')]
+        self.assertEqual(before, after)
