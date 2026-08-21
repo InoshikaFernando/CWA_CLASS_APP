@@ -284,24 +284,29 @@
               </div>
             </div>
 
-            <!-- Measure — shown only for measure -->
+            {% comment %}
+            Measure. Its fields carry a `measure_` prefix because read_graph
+            uses the same three names, and both panels are now rendered at
+            once — two inputs sharing a name means the POST silently keeps
+            whichever the browser sent first.
+            {% endcomment %}
             <div id="measure-section-{{ q_idx }}"
                  class="bg-sky-50 rounded-lg p-3 grid grid-cols-3 gap-3 {% if not q.question_type == 'measure' %}hidden{% endif %}">
               <div>
                 <label class="block text-xs font-medium text-sky-600 mb-1">Correct value</label>
-                <input type="text" name="q_{{ q_idx }}_numeric_answer" value="{% if q.numeric_answer is not None %}{{ q.numeric_answer }}{% endif %}"
+                <input type="text" name="q_{{ q_idx }}_measure_numeric_answer" value="{% if q.numeric_answer is not None %}{{ q.numeric_answer }}{% endif %}"
                        placeholder="e.g. 135"
                        class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500">
               </div>
               <div>
                 <label class="block text-xs font-medium text-sky-600 mb-1">Tolerance (±)</label>
-                <input type="text" name="q_{{ q_idx }}_answer_tolerance" value="{% if q.answer_tolerance is not None %}{{ q.answer_tolerance }}{% endif %}"
+                <input type="text" name="q_{{ q_idx }}_measure_answer_tolerance" value="{% if q.answer_tolerance is not None %}{{ q.answer_tolerance }}{% endif %}"
                        placeholder="e.g. 2"
                        class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500">
               </div>
               <div>
                 <label class="block text-xs font-medium text-sky-600 mb-1">Unit</label>
-                <input type="text" name="q_{{ q_idx }}_answer_unit" value="{{ q.answer_unit|default:'' }}"
+                <input type="text" name="q_{{ q_idx }}_measure_answer_unit" value="{{ q.answer_unit|default:'' }}"
                        placeholder="e.g. °"
                        class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
               </div>

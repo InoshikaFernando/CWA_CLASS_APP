@@ -3465,6 +3465,42 @@ class HomeworkPreviewTypeFieldsTest(HomeworkTestBase):
         section = html.split('id="answers-row-0"', 1)[1][:200]
         self.assertNotIn('hidden', section)
 
+    def test_no_two_inputs_share_a_name(self):
+        """Rendering every panel at once must not collide field names.
+
+        read_graph and measure both used q_N_numeric_answer. With one panel
+        hidden by the server that was invisible; with both in the DOM the POST
+        carries two values for the name and keeps whichever came first — so
+        typing a Measure answer would silently save the graph section's value.
+        """
+        import re
+        resp = self._get(self._session('short_answer'))
+        names = re.findall(rb'name="(q_0_[^"]+)"', resp.content)
+        duplicates = {n for n in names if names.count(n) > 1}
+        self.assertEqual(set(), duplicates,
+                         f'field names rendered more than once: {duplicates}')
+
+    def test_a_measure_answer_is_saved_from_its_own_field(self):
+        session = self._session('short_answer')
+        self.client.force_login(self.teacher)
+        url = reverse('homework:pdf_preview', kwargs={'session_id': session.pk})
+
+        self.client.post(url, {
+            'q_0_include': 'on',
+            'q_0_text': 'How long is the pencil?',
+            'q_0_type': 'measure',
+            'q_0_measure_numeric_answer': '135',
+            'q_0_measure_answer_unit': 'mm',
+            'q_0_numeric_answer': '130',       # the read_graph field
+            'q_0_difficulty': '1',
+            'q_0_points': '1',
+        })
+
+        session.refresh_from_db()
+        saved = session.extracted_data['questions'][0]
+        self.assertEqual('135', saved['numeric_answer'])
+        self.assertEqual('mm', saved['answer_unit'])
+
     def test_operands_entered_on_the_page_are_saved(self):
         session = self._session('short_answer')
         self.client.force_login(self.teacher)
