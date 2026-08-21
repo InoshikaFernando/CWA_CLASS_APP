@@ -238,3 +238,121 @@ class DeleteReturnTests(QuestionCheckTestBase):
             response,
             reverse('question_list', kwargs={'level_number': self.y7.level_number}),
             fetch_redirect_response=False)
+
+
+class TopicAndSubtopicTests(QuestionCheckTestBase):
+    """Both the strand and the subtopic are shown, as in Global Questions.
+
+    A question's own topic is the SUBTOPIC ("Addition"); its parent is the
+    TOPIC ("Number"). Showing only the former left the reader guessing which
+    strand a flagged question belonged to.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+        self.number = Topic.objects.create(
+            name='Number', slug='number', subject=self.maths)
+        self.addition = Topic.objects.create(
+            name='Addition', slug='addition', subject=self.maths,
+            parent=self.number)
+
+    def test_a_subtopic_shows_its_parent_too(self):
+        self._question(topic=self.addition, options=(('a', False), ('b', False)))
+        response = self._run()
+        self.assertContains(response, 'Number')
+        self.assertContains(response, 'Addition')
+
+    def test_a_top_level_topic_still_renders(self):
+        # No parent — must not print an empty "›" crumb.
+        self._question(topic=self.number, options=(('a', False), ('b', False)))
+        response = self._run()
+        self.assertContains(response, 'Number')
+
+
+class EditLinkTests(QuestionCheckTestBase):
+    """Edit sends you to the editor that can actually open the question."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def test_a_global_question_links_to_the_global_questions_modal(self):
+        q = self._question(options=(('a', False), ('b', False)))
+        response = self._run()
+        self.assertContains(
+            response, reverse('admin_global_questions') + '?edit=' + str(q.id))
+
+    def test_a_school_question_does_not_link_to_that_modal(self):
+        # GlobalQuestionEditView filters school__isnull=True, so pointing a
+        # school-scoped question at it would 404 the moment anyone clicked.
+        from classroom.models import School
+
+        school = School.objects.create(
+            name='Scoped School', slug='scoped-school', admin=self.superuser)
+        q = self._question(options=(('a', False), ('b', False)))
+        Question.objects.filter(pk=q.pk).update(school=school)
+
+        response = self._run()
+        self.assertNotContains(
+            response, reverse('admin_global_questions') + '?edit=' + str(q.id))
+        self.assertContains(response, reverse('edit_question', args=[q.id]))
+
+
+class DuplicateSeverityTests(QuestionCheckTestBase):
+    """A repeated option is only dangerous when it repeats the ANSWER.
+
+    The first production run reported 2073 questions that "can mismark a
+    student". Most were a wrong distractor listed twice — sloppy, but nobody is
+    ever marked wrong for it. Counting those as blocking inflated the figure
+    roughly tenfold, and a backlog that size gets ignored rather than fixed.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def test_a_repeated_wrong_option_is_advisory(self):
+        # "What is 7 + 8?" with 15 correct and '14' twice: the duplicate is a
+        # distractor, so no student is mismarked.
+        self._question(text='What is 7 + 8?',
+                       options=(('15', True), ('14', False), ('14', False)))
+
+        default = self._run()
+        with_advisory = self._run(advisory='1')
+
+        self.assertEqual(default.context['rows'], [])
+        codes = {i['code'] for r in with_advisory.context['rows']
+                 for i in r['issues']}
+        self.assertIn('DUPLICATE-OPTION', codes)
+
+    def test_a_repeated_correct_answer_is_blocking(self):
+        # "How many factors does 9 have?" with '3' correct and '3' again as a
+        # distractor: picking the second copy is marked wrong. CPP-377 exactly.
+        q = self._question(text='How many factors does 9 have?',
+                           options=(('3', True), ('3', False), ('4', False)))
+
+        response = self._run()
+        rows = {r['q'].id: r for r in response.context['rows']}
+        self.assertIn(q.id, rows)
+        self.assertTrue(
+            any(i['code'] == 'DUPLICATE-CORRECT' for i in rows[q.id]['issues']))
+
+    def test_the_blocking_duplicate_explains_the_harm(self):
+        q = self._question(text='How many factors does 9 have?',
+                           options=(('3', True), ('3', False), ('4', False)))
+        response = self._run()
+        row = next(r for r in response.context['rows'] if r['q'].id == q.id)
+        detail = next(i['detail'] for i in row['issues']
+                      if i['code'] == 'DUPLICATE-CORRECT')
+        self.assertIn('marked wrong', detail)
+
+    def test_two_correct_copies_are_not_reported_as_a_mismark(self):
+        # Both copies flagged correct: whichever the student picks is accepted,
+        # so this is MULTI-CORRECT's business, not a mismark.
+        self._question(text='What is 7 + 8?',
+                       options=(('15', True), ('15', True), ('14', False)))
+        response = self._run()
+        codes = {i['code'] for r in response.context['rows']
+                 for i in r['issues']}
+        self.assertNotIn('DUPLICATE-CORRECT', codes)

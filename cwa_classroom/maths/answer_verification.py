@@ -32,6 +32,7 @@ from maths.answer_values import find_equivalent_options, parse_answer_value
 NO_CORRECT = 'NO-CORRECT'
 MULTI_CORRECT = 'MULTI-CORRECT'
 DUPLICATE_OPTION = 'DUPLICATE-OPTION'
+DUPLICATE_CORRECT = 'DUPLICATE-CORRECT'
 EQUIVALENT_OPTION = 'EQUIVALENT-OPTION'
 DUPLICATE_VALUE = 'DUPLICATE-VALUE'
 TOO_FEW_OPTIONS = 'TOO-FEW-OPTIONS'
@@ -261,13 +262,37 @@ def verify_question(question, min_options=2):
             f'{len(correct)} options flagged correct: '
             f'{[a.answer_text for a in correct]}'))
 
-    seen = {}
+    # Repeated option text splits into two very different faults, and lumping
+    # them together made the dashboard's "can mismark a student" count roughly
+    # ten times the real figure — a backlog that size gets ignored.
+    #
+    #   DUPLICATE-CORRECT  the repeated text IS the correct answer, and at
+    #                      least one copy is not flagged correct. A student who
+    #                      picks the identical-looking option is marked wrong.
+    #                      This is the CPP-377 defect exactly.
+    #
+    #   DUPLICATE-OPTION   a wrong option repeated. The question offers fewer
+    #                      real choices than it appears to and reads sloppily,
+    #                      but nobody is ever mismarked for it — advisory.
+    groups = {}
     for option in options:
         key = (option.answer_text or '').strip().lower()
-        if key and key in seen:
+        if key:
+            groups.setdefault(key, []).append(option)
+
+    for key, group in groups.items():
+        if len(group) < 2:
+            continue
+        text = group[0].answer_text
+        correct_copies = [option for option in group if option.is_correct]
+        if correct_copies and len(correct_copies) < len(group):
             issues.append(Issue(
-                DUPLICATE_OPTION, f'{option.answer_text!r} appears twice'))
-        seen[key] = option
+                DUPLICATE_CORRECT,
+                f'{text!r} is the correct answer but also appears as a '
+                f'distractor — picking that copy is marked wrong'))
+        else:
+            issues.append(Issue(
+                DUPLICATE_OPTION, f'{text!r} appears twice'))
 
     for distractor, correct_answer in find_equivalent_options(question):
         issues.append(Issue(
