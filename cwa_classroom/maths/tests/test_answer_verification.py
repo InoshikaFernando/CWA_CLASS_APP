@@ -318,3 +318,69 @@ class NonChoiceQuestionTypeTests(TestCase):
         q = self._question(Question.SHORT_ANSWER, [('2/5', True)],
                            text='Calculate: 9/10 - 3/5')
         self.assertIn(WRONG_ANSWER_KEY, self._codes(q))
+
+
+class UnitBearingOptionTests(TestCase):
+    """Options whose units differ are not the same answer.
+
+    Production: "The mass of a pet cat would most likely be about: 4 t / 4 kg /
+    400 g / 4 g", with 4 kg correct. Units were stripped before comparing, so
+    '4 g' read as the number 4 — equal to the correct answer — and the question
+    was reported as mismarking students. In an estimation question the unit is
+    the entire point: the numbers repeat deliberately so the student has to
+    think about scale.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=987, defaults={'display_name': 'units fixture'})
+
+    def _question(self, options, text='The mass of a pet cat would be about:'):
+        q = Question.objects.create(
+            level=self.level, question_text=text,
+            question_type=Question.MULTIPLE_CHOICE, difficulty=1)
+        for order, (answer_text, is_correct) in enumerate(options):
+            Answer.objects.create(question=q, answer_text=answer_text,
+                                  is_correct=is_correct, order=order)
+        return q
+
+    def _codes(self, question):
+        issues, _ = verify_question(question)
+        return sorted(i.code for i in issues)
+
+    def test_the_pet_cat_question_is_clean(self):
+        q = self._question([('4 t', False), ('4 kg', True),
+                            ('400 g', False), ('4 g', False)])
+        self.assertEqual([], self._codes(q))
+
+    def test_the_same_number_in_different_units_is_not_an_equivalent_option(self):
+        q = self._question([('4 kg', True), ('4 g', False),
+                            ('40 g', False), ('400 g', False)])
+        self.assertNotIn(EQUIVALENT_OPTION, self._codes(q))
+
+    def test_two_distractors_in_different_units_are_not_duplicate_values(self):
+        q = self._question([('5 kg', True), ('4 g', False),
+                            ('4 kg', False), ('400 g', False)])
+        self.assertNotIn(DUPLICATE_VALUE, self._codes(q))
+
+    def test_the_same_number_in_the_SAME_unit_is_still_caught(self):
+        # Scoping units must not blunt the real check.
+        q = self._question([('3 kg', True), ('9/3 kg', False),
+                            ('4 kg', False), ('5 kg', False)])
+        self.assertIn(EQUIVALENT_OPTION, self._codes(q))
+
+    def test_an_unstated_unit_still_compares_against_a_stated_one(self):
+        # Production Q6013: '15/4' is the same quantity as '3 3/4 teaspoons',
+        # the unit being implied by the question. A student picking it is
+        # mismarked, so a blank unit must stay compatible with a stated one.
+        q = self._question([('3 3/4 teaspoons', True), ('15/4', False),
+                            ('4', False), ('3 1/2', False)],
+                           text='3/4 teaspoon, 5 times?')
+        self.assertIn(EQUIVALENT_OPTION, self._codes(q))
+
+    def test_an_unrecognised_unit_is_not_read_as_no_unit(self):
+        # 't' for tonnes is not in the unit table; it must still count as a
+        # unit rather than silently comparing equal to a bare number.
+        from maths.answer_values import parse_answer_unit
+        self.assertNotEqual('', parse_answer_unit('4 t'))

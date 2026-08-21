@@ -56,7 +56,10 @@ PROBLEM_CHOICES = [
 # it, so it is bounded rather than open-ended: an unfiltered run over the whole
 # bank would tie up a gunicorn worker. When the cap bites the page SAYS so —
 # a truncated list that looks complete is worse than no list.
-CHECK_DEFAULT_LIMIT = 500
+# 1000 per run: the bank is ~19,500 questions, so 500 meant forty rounds of
+# "Check next" to walk it once. A run of this size is still well inside a
+# gunicorn worker's patience.
+CHECK_DEFAULT_LIMIT = 1000
 CHECK_MAX_LIMIT = 5000
 
 

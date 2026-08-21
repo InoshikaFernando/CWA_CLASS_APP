@@ -46,7 +46,8 @@ management command decides whether to apply it.
 """
 from fractions import Fraction
 
-from .answer_values import parse_answer_value
+from .answer_values import (
+    group_by_quantity, parse_answer_quantity, parse_answer_value)
 
 # Offsets tried in order, relative to the value being replaced. Small
 # near-misses first: a distractor a student might plausibly land on beats an
@@ -147,6 +148,12 @@ def plan_repair(question, options=None):
     integral = _is_integral(values)
     by_option = dict(zip(options, values))
 
+    # Pass 2 groups on QUANTITY, not on the bare number. '4 kg' and '4 g' share
+    # a number and are not the same mass — an estimation question offers them
+    # on purpose, and rewriting one would destroy the question rather than
+    # repair it.
+    quantities = dict(zip(options, (parse_answer_quantity(t) for t in texts)))
+
     edits = []
     taken_values = set(values)
     taken_texts = list(texts)
@@ -191,11 +198,9 @@ def plan_repair(question, options=None):
     # Runs after the text pass so an option already rewritten above is not
     # rewritten twice, and so its replacement value (already in taken_values)
     # cannot collide here.
-    by_value = {}
-    for option in options:
-        if id(option) not in replaced:
-            by_value.setdefault(by_option[option], []).append(option)
-    collapse(by_value)
+    remaining = [o for o in options if id(o) not in replaced]
+    collapse({index: group for index, group in enumerate(
+        group_by_quantity(remaining, quantities.get))})
 
     return edits
 

@@ -24,7 +24,9 @@ at all.
 import re
 from fractions import Fraction
 
-from maths.answer_values import find_equivalent_options, parse_answer_value
+from maths.answer_values import (
+    find_equivalent_options, group_by_quantity, parse_answer_quantity,
+    parse_answer_value)
 
 # --------------------------------------------------------------------------
 # Issue codes
@@ -330,21 +332,19 @@ def verify_question(question, min_options=2, max_options=MAX_OPTIONS):
     # against the correct answer, and DUPLICATE-OPTION compares text. But the
     # question then offers fewer real choices than it appears to, and showing a
     # student the same number twice is confusing. Worth reporting, distinctly.
-    seen_values = {}
-    for option in options:
-        if option.is_correct:
+    # Quantity, not bare value — '4 g' and '4 kg' are different masses, and an
+    # estimation question ("the mass of a pet cat") offers them deliberately.
+    distractors = [o for o in options if not o.is_correct]
+    for group in group_by_quantity(
+            distractors, lambda o: parse_answer_quantity(o.answer_text)):
+        if len(group) < 2:
             continue
-        value = parse_answer_value(option.answer_text)
-        if value is None:
-            continue
-        twin = seen_values.get(value)
-        if twin is not None:
-            issues.append(Issue(
-                DUPLICATE_VALUE,
-                f'{option.answer_text!r} and {twin.answer_text!r} are both '
-                f'{value} — the question offers fewer choices than it appears'))
-        else:
-            seen_values[value] = option
+        first, second = group[0], group[1]
+        value = parse_answer_value(first.answer_text)
+        issues.append(Issue(
+            DUPLICATE_VALUE,
+            f'{second.answer_text!r} and {first.answer_text!r} are both '
+            f'{value} — the question offers fewer choices than it appears'))
 
     # ---- arithmetic -------------------------------------------------------
     expression = extract_expression(question.question_text)
