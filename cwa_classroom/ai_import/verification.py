@@ -272,15 +272,22 @@ _VERIFY_SYSTEM_PROMPT = (
     "value an arrow/protractor points to). If it does not, set "
     "transcription_ok=false and give a one-line issue. If NO page image is "
     "provided, set transcription_ok=true (you cannot judge it).\n"
-    "4. needs_figure: set needs_figure=true if answering this question REQUIRES "
-    "reading a figure — a diagram, triangle or other shape, graph, number line, "
-    "geometric drawing, or a picture the question is about — whether or not the "
-    "extracted text mentions it. A bare prompt like \"Find x\" or \"Find the "
-    "angle\" that only makes sense next to a drawn triangle NEEDS a figure. Set "
-    "needs_figure=false when the question is fully answerable from its own text "
-    "(word problems whose numbers are all stated, plain arithmetic, definitions). "
-    "Judge from the printed question, not from whether an image happens to be "
-    "attached.\n"
+    "4. needs_figure: set needs_figure=true in EITHER of these cases, judged from "
+    "the PRINTED question (not from whether an image happens to be attached):\n"
+    "   (a) answering REQUIRES reading a figure — a diagram, triangle or other "
+    "shape, graph, number line, geometric drawing, or a picture the question is "
+    "about. A bare prompt like \"Find x\" that only makes sense next to a drawn "
+    "triangle needs a figure; OR\n"
+    "   (b) the printed question PRESENTS its information as a figure the reader is "
+    "meant to look at — a menu, price list, table, chart, diagram, map or picture "
+    "(\"look at the menu below\", \"use the table\", \"the diagram shows\") — EVEN "
+    "IF the extracted question has re-typed that content into words. If the "
+    "original shows it as a picture/table and the import turned it into plain "
+    "prose, that still counts: needs_figure=true.\n"
+    "   Set needs_figure=false only when the question is genuinely text-native — "
+    "the printed question is itself prose with the numbers stated inline (a word "
+    "problem, plain arithmetic, a definition) and shows no figure/table to read "
+    "off.\n"
     "Report every question via the report_answers tool."
 )
 
@@ -333,10 +340,13 @@ _VERIFY_TOOL = {
                             "needs_figure": {
                                 "type": "boolean",
                                 "description": (
-                                    "True if answering REQUIRES reading a figure "
-                                    "(diagram, triangle/shape, graph, number line, "
-                                    "picture), judged from the printed question — "
-                                    "not from whether an image is attached."
+                                    "True if answering REQUIRES a figure, OR the "
+                                    "printed question PRESENTS its info as a figure "
+                                    "the reader looks at (menu, table, chart, "
+                                    "diagram, map, picture) even if the extracted "
+                                    "text re-typed that content. Judge from the "
+                                    "printed question, not from whether an image is "
+                                    "attached."
                                 ),
                             },
                         },
@@ -537,19 +547,23 @@ def verify_answers(questions, page_images=None, client=None, *, force=False):
             answer_flags += 1
 
         # 4. Missing figure — the verifier judged (from the printed page) that this
-        # question needs a figure to answer, but no image was attached / extracted.
-        # This catches figure-dependent questions whose bare wording ("Find x",
-        # "Find the angle") the deterministic text guard can't recognise, e.g. a
-        # trig triangle drawn on the page but never cropped in. Group-shared
-        # questions carry the group's image; figure-optional types transcribe their
-        # visual into structured fields, so both are exempt.
+        # question either needs a figure to answer OR presents its info as a figure
+        # the reader looks at (a menu / table / diagram), yet no image was attached.
+        # This catches two failures the deterministic text guard can't: a bare
+        # "Find x" next to an un-cropped triangle, AND a "look at the menu below"
+        # whose menu the model re-typed into prose (so our text no longer says
+        # "menu"/"below" for the guard to match). Group-shared questions carry the
+        # group's image; figure-optional types transcribe their visual into
+        # structured fields, so both are exempt.
         if verdict.get('needs_figure') and not _has_figure(q) \
                 and not q.get('shares_image_with_previous') \
                 and q.get('question_type') not in _FIGURE_OPTIONAL_TYPES:
             reasons.append(
-                'Second-opinion (vision): this question needs a figure to answer '
-                '(e.g. a diagram or shape) but no image was attached — the figure '
-                'was likely not extracted. Crop or add the correct image.')
+                'Second-opinion (vision): the original shows this as a figure '
+                '(a diagram, or a menu/table the question reads off) but no image '
+                'was attached — the figure was likely not extracted, or was '
+                're-typed into the text. Attach the original image if the visual '
+                'matters, or confirm the text captures it.')
             missing_figure_flags += 1
 
         if reasons:
