@@ -1024,3 +1024,89 @@ class FillMissingAnswerTests(QuestionCheckTestBase):
         from maths.answer_verification import verify_question
         issues, _ = verify_question(q)
         self.assertEqual([], [i.code for i in issues])
+
+
+class HouseRuleVisibilityTests(QuestionCheckTestBase):
+    """One correct answer, at most three wrong ones.
+
+    Every part of that rule was already checked — TOO-MANY-OPTIONS for the
+    count, MULTI-CORRECT for two answers, NO-CORRECT for none — and
+    "Trim to four options" already repaired it. But TOO-MANY-OPTIONS was
+    filtered out unless the reviewer ticked "include advisory issues", so a
+    question with eight options looked unflagged and the rule read as
+    unenforced.
+
+    Severity and visibility are different questions: it still cannot mismark
+    anybody, so it stays out of the blocking count while being shown.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def _mcq(self, options):
+        return self._question(options=options)
+
+    def test_a_five_option_question_is_reported_without_asking_for_advisories(self):
+        q = self._mcq((('3/4', True), ('1/4', False), ('2/4', False),
+                       ('5/4', False), ('6/4', False)))
+
+        response = self._run()
+
+        row = next(r for r in response.context['rows'] if r['q'].id == q.id)
+        self.assertIn('TOO-MANY-OPTIONS', [i['code'] for i in row['issues']])
+
+    def test_four_options_are_within_the_rule(self):
+        q = self._mcq((('3/4', True), ('1/4', False), ('2/4', False),
+                       ('5/4', False)))
+        response = self._run()
+        self.assertNotIn(q.id, [r['q'].id for r in response.context['rows']])
+
+    def test_it_is_still_badged_advisory_rather_than_a_mismark(self):
+        # Padding the "can mismark a student" figure with presentation faults
+        # is what made that number ten times too large once before.
+        q = self._mcq((('3/4', True), ('1/4', False), ('2/4', False),
+                       ('5/4', False), ('6/4', False)))
+
+        response = self._run()
+
+        row = next(r for r in response.context['rows'] if r['q'].id == q.id)
+        issue = next(i for i in row['issues'] if i['code'] == 'TOO-MANY-OPTIONS')
+        self.assertTrue(issue['advisory'])
+
+    def test_the_other_advisories_stay_behind_the_checkbox(self):
+        # Only the house rule is promoted; the rest still need asking for.
+        q = self._mcq((('3/4', True), ('0.5', False), ('1/2', False)))
+
+        default = self._run()
+        asked = self._run(advisory='1')
+
+        self.assertNotIn(q.id, [r['q'].id for r in default.context['rows']])
+        self.assertIn(q.id, [r['q'].id for r in asked.context['rows']])
+
+    def test_trimming_leaves_one_correct_and_three_wrong(self):
+        q = self._mcq((('3/4', True), ('1/4', False), ('2/4', False),
+                       ('5/4', False), ('6/4', False), ('7/4', False)))
+
+        self.client.post(
+            reverse('question_bulk_fix_admin_dashboard'),
+            {'action': 'trim_options', 'question_id': [str(q.id)]}, follow=True)
+
+        q.refresh_from_db()
+        self.assertEqual(4, q.answers.count())
+        self.assertEqual(1, q.answers.filter(is_correct=True).count())
+        self.assertEqual(3, q.answers.filter(is_correct=False).count())
+
+    def test_two_correct_options_are_reported_as_a_mismark_not_a_count(self):
+        # 4 options but 2 correct still breaks the rule — and this one DOES
+        # mismark a student, so it is blocking rather than advisory.
+        q = self._mcq((('3/4', True), ('6/8', True), ('1/4', False),
+                       ('2/4', False)))
+
+        response = self._run()
+
+        row = next(r for r in response.context['rows'] if r['q'].id == q.id)
+        codes = [i['code'] for i in row['issues']]
+        self.assertIn('MULTI-CORRECT', codes)
+        issue = next(i for i in row['issues'] if i['code'] == 'MULTI-CORRECT')
+        self.assertFalse(issue['advisory'])

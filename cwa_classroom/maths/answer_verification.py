@@ -286,8 +286,8 @@ def verify_question(question, min_options=2, max_options=MAX_OPTIONS):
     if is_choice and max_options and len(options) > max_options:
         issues.append(Issue(
             TOO_MANY_OPTIONS,
-            f'{len(options)} options — more than the {max_options} the house '
-            f'style uses'))
+            f'{len(options)} options — the house rule is one correct answer '
+            f'and at most {max_options - 1} wrong ones'))
 
     for option in options:
         if not (option.answer_text or '').strip():
