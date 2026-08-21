@@ -231,6 +231,26 @@
                 <div class="text-[11px] text-slate-400 mt-0.5">{{ issue.detail }}</div>
               </div>
               {% endfor %}
+              {% comment %}An answer key the arithmetic cannot settle still has to be
+                 settable. Ticking here and choosing "Use the answer I ticked" sets it
+                 on every ticked row at once, without opening the editor.{% endcomment %}
+              {% if row.needs_pick and row.options %}
+              <div class="mt-2 pt-2 border-t border-slate-700/60">
+                <div class="text-[11px] text-slate-500 mb-1">Which one is the answer?</div>
+                {% for option in row.options %}
+                <label class="flex items-center gap-1.5 text-[11px] text-slate-300 mb-0.5 cursor-pointer">
+                  <input type="radio" form="bulk-fix"
+                         name="answer_key_{{ row.q.id }}" value="{{ option.id }}"
+                         data-testid="answer-key-{{ row.q.id }}-{{ option.id }}"
+                         {% if option.is_correct %}checked{% endif %}
+                         class="bg-slate-900 border-slate-600" />
+                  <span class="{% if not option.answer_text %}italic text-slate-500{% endif %}">
+                    {{ option.answer_text|default:"— blank —" }}
+                  </span>
+                </label>
+                {% endfor %}
+              </div>
+              {% endif %}
             </td>
             <td class="px-4 py-3 align-top text-[11px] whitespace-nowrap">
               {% if row.has_image %}
