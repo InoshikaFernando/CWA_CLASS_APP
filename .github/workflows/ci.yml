@@ -722,3 +722,64 @@ jobs:
         run: |
           pytest "ui_tests/${{ matrix.group }}" -n auto -v --tb=short \
             --reruns 2 --only-rerun "database is locked"
+
+  # Branch protection needs ONE check name that never moves. The matrix jobs are
+  # called "UI Tests (billing)", "UI Tests (classroom)", … and that set changes
+  # whenever a group is added, so a required check pointing at any of them (or
+  # at the old single "UI Tests (Playwright)" job) would either block forever or
+  # silently stop gating. This job keeps that name, always runs, and is red iff
+  # the UI suite is red.
+  #
+  # KEEP THE NAME STABLE. Point branch protection for `test` and `main` here.
+  ui-tests-gate:
+    name: UI Tests (Playwright)
+    needs: [changes, ui-matrix, ui-tests]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report the UI suite result
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          MATRIX: ${{ needs.ui-matrix.result }}
+          TESTS: ${{ needs.ui-tests.result }}
+          GROUPS: ${{ needs.ui-matrix.outputs.groups }}
+        run: |
+          set -euo pipefail
+          echo "changes:   $CHANGES"
+          echo "ui-matrix: $MATRIX"
+          echo "ui-tests:  $TESTS"
+          echo "groups:    ${GROUPS:-(none)}"
+
+          # `changes` has no if:, so it always runs. If it did not succeed, the
+          # jobs below it were skipped for want of a filter result, not because
+          # there was nothing to do — that must not read as green.
+          if [ "$CHANGES" != "success" ]; then
+            echo "::error::Path filtering failed ($CHANGES); UI coverage is unknown"
+            exit 1
+          fi
+
+          # ui-matrix skips on a push to main, where the UI suite is
+          # deliberately not run — that is a pass, not a gap.
+          case "$MATRIX" in
+            success|skipped) ;;
+            *)
+              echo "::error::Could not determine which UI suites to run ($MATRIX)"
+              exit 1
+              ;;
+          esac
+
+          # skipped = no UI-relevant paths changed, or the whole suite was not
+          # scheduled for this event. Anything other than that or success means
+          # a group failed, was cancelled, or never reported.
+          case "$TESTS" in
+            success)
+              echo "UI suite green for: ${GROUPS:-(none)}"
+              ;;
+            skipped)
+              echo "No UI suites needed to run."
+              ;;
+            *)
+              echo "::error::UI suite did not pass ($TESTS)"
+              exit 1
+              ;;
+          esac

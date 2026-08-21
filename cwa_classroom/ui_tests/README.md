@@ -74,3 +74,12 @@ listing both the group's own tests and the app/template directories it covers.
 Adding a new group means: create the package, add the `ui_<group>:` filter and
 its `ui_<group>` output in `ci.yml`. The matrix is built from those filter
 names, so nothing else needs editing.
+
+### The required check
+
+The matrix jobs are named per group (`UI Tests (billing)`, …), so that set of
+names changes whenever a group is added. Branch protection therefore hangs off
+`ui-tests-gate`, which always runs, is named **`UI Tests (Playwright)`**, and is
+red exactly when the UI suite is red. Point required checks at that name and
+leave it alone — `tests_workflows.py` fails the build if it is renamed or stops
+running unconditionally.

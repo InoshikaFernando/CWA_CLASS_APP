@@ -157,6 +157,31 @@ def _ui_filter_groups():
     )
 
 
+def test_ui_gate_job_is_stable_and_always_runs():
+    """Branch protection hangs off one check name that must not move.
+
+    The matrix jobs are named per group, so that set changes whenever a group
+    is added. `ui-tests-gate` keeps the stable name, and it only gates anything
+    if it runs unconditionally and actually depends on the matrix jobs.
+    """
+    jobs = _ci()['jobs']
+    gate = jobs.get('ui-tests-gate')
+    assert gate is not None, (
+        'ci.yml has no ui-tests-gate job — branch protection would have '
+        'nothing stable to require')
+    assert gate['name'] == 'UI Tests (Playwright)', (
+        f"ui-tests-gate is named {gate['name']!r}; branch protection requires "
+        f"'UI Tests (Playwright)', so renaming it silently stops the gate")
+    assert 'always()' in (gate.get('if') or ''), (
+        'ui-tests-gate must run with if: always(), or a failed UI group would '
+        'skip the gate instead of failing it')
+    needs = gate.get('needs') or []
+    for dependency in ('changes', 'ui-matrix', 'ui-tests'):
+        assert dependency in needs, (
+            f'ui-tests-gate does not need {dependency!r}, so it cannot report '
+            f'that job\'s result')
+
+
 def test_ui_test_groups_exist():
     # A mapping between two empty sets would make the tests below vacuous.
     assert _ui_group_dirs(), f'No UI group packages found under {UI_TESTS_DIR}'
