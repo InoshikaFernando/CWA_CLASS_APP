@@ -36,6 +36,7 @@ DUPLICATE_CORRECT = 'DUPLICATE-CORRECT'
 EQUIVALENT_OPTION = 'EQUIVALENT-OPTION'
 DUPLICATE_VALUE = 'DUPLICATE-VALUE'
 TOO_FEW_OPTIONS = 'TOO-FEW-OPTIONS'
+TOO_MANY_OPTIONS = 'TOO-MANY-OPTIONS'
 BLANK_OPTION = 'BLANK-OPTION'
 WRONG_ANSWER_KEY = 'WRONG-ANSWER-KEY'
 
@@ -232,7 +233,13 @@ def evaluate_expression(expr):
 # --------------------------------------------------------------------------
 # Whole-question verification
 # --------------------------------------------------------------------------
-def verify_question(question, min_options=2):
+# House style is four options. More is not a grading fault — nobody is
+# mismarked by a fifth choice — but it is worth surfacing so a super-admin can
+# trim it, which is why the check reports it as advisory rather than blocking.
+MAX_OPTIONS = 4
+
+
+def verify_question(question, min_options=2, max_options=MAX_OPTIONS):
     """Return ``(issues, verified_arithmetically)``.
 
     ``issues`` is a list of :class:`Issue`. ``verified_arithmetically`` is True
@@ -247,6 +254,12 @@ def verify_question(question, min_options=2):
     if len(options) < min_options:
         issues.append(Issue(
             TOO_FEW_OPTIONS, f'{len(options)} option(s)'))
+
+    if max_options and len(options) > max_options:
+        issues.append(Issue(
+            TOO_MANY_OPTIONS,
+            f'{len(options)} options — more than the {max_options} the house '
+            f'style uses'))
 
     for option in options:
         if not (option.answer_text or '').strip():

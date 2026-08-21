@@ -334,3 +334,91 @@ class BulkFixViewTests(RepairTestBase):
         event = AuditLog.objects.filter(action='bulk_fix_pad_options').first()
         self.assertIsNotNone(event)
         self.assertEqual(event.detail['question_id'], q.id)
+
+
+class TrimOptionsTests(BulkFixViewTests):
+    """Trimming a question back to four options, correct one kept."""
+
+    def test_a_six_option_question_is_cut_to_four(self):
+        q = self._question('Calculate the area of this shape.',
+                           [('120', True), ('49', False), ('69', False),
+                            ('39', False), ('984', False), ('12', False)])
+
+        self._post('trim_options', [q.id])
+
+        texts = self._texts(q)
+        self.assertEqual(len(texts), 4)
+        self.assertIn('120', texts)
+
+    def test_the_correct_option_always_survives(self):
+        # Even when it is last in the display order — dropping from the end
+        # must never take the answer with it.
+        q = self._question('Calculate the area of this shape.',
+                           [('49', False), ('69', False), ('39', False),
+                            ('984', False), ('120', True)])
+
+        self._post('trim_options', [q.id])
+
+        self.assertEqual(q.answers.filter(is_correct=True).count(), 1)
+        self.assertIn('120', self._texts(q))
+        self.assertEqual(len(self._texts(q)), 4)
+
+    def test_a_four_option_question_is_left_alone(self):
+        q = self._question('What is 7 + 8?',
+                           [('15', True), ('14', False), ('16', False),
+                            ('13', False)])
+        self._post('trim_options', [q.id])
+        self.assertEqual(self._texts(q), ['15', '14', '16', '13'])
+
+    def test_two_correct_options_are_refused(self):
+        # Choosing which to drop would be choosing the answer.
+        q = self._question('What is 7 + 8?',
+                           [('15', True), ('15', True), ('14', False),
+                            ('16', False), ('13', False)])
+
+        response = self._post('trim_options', [q.id])
+
+        self.assertEqual(len(self._texts(q)), 5)
+        self.assertIn('exactly one correct option',
+                      ' '.join(self._notes(response)))
+
+    def test_what_was_removed_is_recorded(self):
+        from audit.models import AuditLog
+
+        q = self._question('Calculate the area of this shape.',
+                           [('120', True), ('49', False), ('69', False),
+                            ('39', False), ('984', False)])
+
+        self._post('trim_options', [q.id])
+
+        event = AuditLog.objects.filter(action='bulk_fix_trim_options').first()
+        self.assertIsNotNone(event)
+        self.assertEqual([r['was'] for r in event.detail['removed']], ['984'])
+
+
+class TooManyOptionsFlagTests(RepairTestBase):
+    """A question with surplus options has to be findable before it can be fixed."""
+
+    def test_more_than_four_options_is_reported(self):
+        from maths.answer_verification import verify_question
+
+        q = self._question('Calculate the area of this shape.',
+                           [('120', True), ('49', False), ('69', False),
+                            ('39', False), ('984', False)])
+        issues, _ = verify_question(q)
+        self.assertIn('TOO-MANY-OPTIONS', [i.code for i in issues])
+
+    def test_four_options_is_not_reported(self):
+        from maths.answer_verification import verify_question
+
+        q = self._question('What is 7 + 8?',
+                           [('15', True), ('14', False), ('16', False),
+                            ('13', False)])
+        self.assertEqual([i.code for i in verify_question(q)[0]], [])
+
+    def test_it_is_advisory_not_a_mismark(self):
+        # An extra choice cannot mark anyone wrong, so it must not inflate the
+        # headline count the way duplicated options did.
+        from maths.management.commands.verify_question_answers import (
+            ADVISORY_CODES)
+        self.assertIn('TOO-MANY-OPTIONS', ADVISORY_CODES)

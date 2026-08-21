@@ -206,3 +206,33 @@ def plan_padding(question, options=None, target=4):
         taken_values.add(value)
         taken_texts.append(text)
     return added
+
+
+def plan_trim(question, options=None, target=4):
+    """Return the options to DELETE so the question keeps ``target`` choices.
+
+    The correct option always survives. Surplus distractors are dropped from
+    the end of the display order, which is predictable and explainable — a
+    reviewer can see which four will remain before applying it.
+
+    No attempt is made to judge which distractors are "best": that is a content
+    decision. A question whose distractors are wrong in an interesting way
+    (mismatched units, say, so the answer is guessable without doing the maths)
+    still needs a human, and silently picking for them would hide that.
+    """
+    options = list(options if options is not None
+                   else question.answers.order_by('order', 'id'))
+    if len(options) <= target:
+        return []
+
+    correct = [o for o in options if o.is_correct]
+    if len(correct) != 1:
+        # Two correct options is MULTI-CORRECT — a different fault, and
+        # choosing which to drop would be choosing the answer.
+        raise Skipped('needs exactly one correct option')
+
+    keeper = correct[0]
+    distractors = [o for o in options if o is not keeper]
+    keep_distractors = distractors[:max(0, target - 1)]
+    keep = {id(keeper), *(id(o) for o in keep_distractors)}
+    return [o for o in options if id(o) not in keep]

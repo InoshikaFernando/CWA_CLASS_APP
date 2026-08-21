@@ -32,6 +32,7 @@ CODE_LABELS = {
     'DUPLICATE-CORRECT': 'Correct answer also listed as a distractor',
     'EQUIVALENT-OPTION': 'Distractor equals the answer',
     'TOO-FEW-OPTIONS': 'Too few options',
+    'TOO-MANY-OPTIONS': 'More options than the house style',
     'BLANK-OPTION': 'Blank option',
     'WRONG-ANSWER-KEY': 'Answer key is wrong',
     'DUPLICATE-VALUE': 'Two distractors are the same value',
@@ -41,7 +42,7 @@ CODE_LABELS = {
 # DUPLICATE-OPTION is here because a repeated WRONG option only makes the
 # question read sloppily; the case that actually mismarks someone — the correct
 # answer repeated as a distractor — is DUPLICATE-CORRECT, which is blocking.
-ADVISORY_LABELS = {'DUPLICATE-VALUE', 'DUPLICATE-OPTION'}
+ADVISORY_LABELS = {'DUPLICATE-VALUE', 'DUPLICATE-OPTION', 'TOO-MANY-OPTIONS'}
 
 # The live check walks every matching question and runs the full verifier over
 # it, so it is bounded rather than open-ended: an unfiltered run over the whole
@@ -224,6 +225,7 @@ BULK_ACTIONS = (
     ('replace_duplicates', 'Replace duplicated options with distinct values'),
     ('pad_options', 'Add wrong answers (up to four options)'),
     ('to_short_answer', 'Change question type to Short Answer'),
+    ('trim_options', 'Trim to four options (keeps the correct one)'),
 )
 
 # Padding target — four options is the house style for multiple choice.
@@ -324,6 +326,18 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
                 Answer.objects.create(question=question, answer_text=text,
                                       is_correct=False, order=order)
             return {'added': additions}
+
+        if action == 'trim_options':
+            from .duplicate_repair import plan_trim
+
+            surplus = plan_trim(question, answers, target=PAD_TO)
+            if not surplus:
+                return None
+            removed = [{'answer_id': o.id, 'was': o.answer_text}
+                       for o in surplus]
+            for option in surplus:
+                option.delete()
+            return {'removed': removed}
 
         if action == 'to_short_answer':
             if question.question_type == 'short_answer':
