@@ -325,13 +325,21 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 
-// Listen for successful edit save
+// Listen for successful edit save.
+// The question editor now answers into the modal (see question_edit_saved.html)
+// and refreshes the listing row out of band, so close on either signal: the
+// "Saved" body, or a row swap from the coding editor which still targets a row.
 document.body.addEventListener('htmx:afterSwap', function(evt) {
-  if (evt.detail.target && evt.detail.target.id) {
-    var id = evt.detail.target.id;
-    if (id.startsWith('question-row-') || id.startsWith('coding-row-')) {
-      closeEditModal();
-    }
+  var target = evt.detail.target;
+  if (!target) { return; }
+  if (target.id === 'edit-modal-content'
+      && target.querySelector('#edit-saved')) {
+    closeEditModal();
+    return;
+  }
+  if (target.id && (target.id.startsWith('question-row-')
+                    || target.id.startsWith('coding-row-'))) {
+    closeEditModal();
   }
 });
 

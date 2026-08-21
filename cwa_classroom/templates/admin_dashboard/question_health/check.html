@@ -118,8 +118,8 @@
             </td>
             <td class="px-4 py-3 align-top text-slate-400 whitespace-nowrap">
               Year {{ row.q.level.level_number }}<br />
-              {# TOPIC is the strand (the parent); SUBTOPIC is the question's
-                 own topic — the same split the Global Questions picker uses. #}
+              {% comment %}TOPIC is the strand (the parent); SUBTOPIC is the question's
+                 own topic — the same split the Global Questions picker uses.{% endcomment %}
               {% if row.q.topic.parent %}
               <span class="text-[11px]">{{ row.q.topic.parent.name }}</span><br />
               <span class="text-[11px] text-slate-500">› {{ row.q.topic.name }}</span>
@@ -154,8 +154,8 @@
                 Edit
               </a>
               {% else %}
-              {# Global questions get the Global Questions editor, so the two
-                 question-health pages send you to the same place. #}
+              {% comment %}Global questions get the Global Questions editor, so the two
+                 question-health pages send you to the same place.{% endcomment %}
               <a href="{% url 'admin_global_questions' %}?edit={{ row.q.id }}" target="_blank" rel="noopener"
                  class="inline-block px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 text-xs font-semibold transition">
                 Edit
