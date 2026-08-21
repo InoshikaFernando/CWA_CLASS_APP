@@ -1110,3 +1110,145 @@ class HouseRuleVisibilityTests(QuestionCheckTestBase):
         self.assertIn('MULTI-CORRECT', codes)
         issue = next(i for i in row['issues'] if i['code'] == 'MULTI-CORRECT')
         self.assertFalse(issue['advisory'])
+
+
+class EveryProblemHasAFixTests(QuestionCheckTestBase):
+    """A problem the page reports but offers no route out of is a dead end."""
+
+    def test_every_reported_code_maps_to_a_fix(self):
+        from maths.views_admin import BULK_ACTIONS, CODE_LABELS, FIX_FOR_CODE
+        actions = {value for value, _label in BULK_ACTIONS}
+        for code in CODE_LABELS:
+            with self.subTest(code):
+                self.assertIn(code, FIX_FOR_CODE,
+                              f'{code} is reported with no fix offered')
+                self.assertIn(FIX_FOR_CODE[code], actions)
+
+    def test_every_fix_is_offered_in_the_dropdown(self):
+        from maths.views_admin import BULK_ACTIONS
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+        self._question(options=(('a', False), ('b', False)))
+        response = self.client.get(
+            reverse('question_check_admin_dashboard'), {'run': '1'})
+        for value, label in BULK_ACTIONS:
+            with self.subTest(value):
+                self.assertContains(response, label)
+
+
+class AnswerKeyFixTests(QuestionCheckTestBase):
+    """Several options flagged correct, or the wrong one flagged.
+
+    Single-select grading accepts ANY option flagged correct, so a second flag
+    marks a WRONG answer right — the mirror image of CPP-377.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def _q(self, text, options):
+        return self._question(text=text, options=options)
+
+    def _fix(self, question, action='fix_answer_key'):
+        return self.client.post(
+            reverse('question_bulk_fix_admin_dashboard'),
+            {'action': action, 'question_id': [str(question.id)]}, follow=True)
+
+    def test_a_second_correct_flag_is_removed(self):
+        q = self._q('What is 12 + 5?', (('17', True), ('16', True),
+                                        ('18', False), ('20', False)))
+
+        self._fix(q)
+
+        q.refresh_from_db()
+        self.assertEqual(['17'],
+                         [a.answer_text for a in q.answers.filter(is_correct=True)])
+
+    def test_a_wrong_answer_key_is_moved_to_the_right_option(self):
+        q = self._q('What is 12 + 5?', (('16', True), ('17', False),
+                                        ('18', False), ('20', False)))
+
+        self._fix(q)
+
+        q.refresh_from_db()
+        self.assertEqual(['17'],
+                         [a.answer_text for a in q.answers.filter(is_correct=True)])
+
+    def test_the_repaired_question_stops_being_flagged(self):
+        q = self._q('What is 12 + 5?', (('17', True), ('16', True),
+                                        ('18', False), ('20', False)))
+        self._fix(q)
+
+        q.refresh_from_db()
+        from maths.answer_verification import verify_question
+        issues, _ = verify_question(q)
+        self.assertEqual([], [i.code for i in issues])
+
+    def test_a_judgement_call_is_refused_rather_than_guessed(self):
+        # Production #12525: 'Square' and '6' both flagged on "What is the name
+        # of this shape?". Choosing between them is choosing the answer.
+        q = self._q('What is the name of this shape?',
+                    (('Square', True), ('6', True), ('Circle', False)))
+
+        response = self._fix(q)
+
+        q.refresh_from_db()
+        self.assertEqual(2, q.answers.filter(is_correct=True).count())
+        self.assertContains(response, 'not a plain arithmetic expression')
+
+    def test_a_missing_answer_is_named_as_such(self):
+        # None of the options is right — that is NO-CORRECT territory, not a
+        # mis-flag, and saying so sends the reviewer to the right fix.
+        q = self._q('What is 12 + 5?', (('16', True), ('19', True),
+                                        ('20', False)))
+
+        response = self._fix(q)
+
+        self.assertContains(response, 'the answer is missing')
+
+
+class BlankOptionFixTests(QuestionCheckTestBase):
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def _fix(self, question):
+        return self.client.post(
+            reverse('question_bulk_fix_admin_dashboard'),
+            {'action': 'drop_blank_options',
+             'question_id': [str(question.id)]}, follow=True)
+
+    def test_blank_rows_are_deleted(self):
+        q = self._question(options=(('3/4', True), ('1/4', False),
+                                    ('', False), ('   ', False)))
+
+        self._fix(q)
+
+        q.refresh_from_db()
+        self.assertEqual(2, q.answers.count())
+
+    def test_the_correct_option_survives(self):
+        q = self._question(options=(('3/4', True), ('', False)))
+        self._fix(q)
+
+        q.refresh_from_db()
+        self.assertEqual(['3/4'],
+                         [a.answer_text for a in q.answers.filter(is_correct=True)])
+
+    def test_deleting_the_only_correct_option_is_refused(self):
+        # A blank flagged correct is broken, but removing it would leave the
+        # question unanswerable — that needs a human.
+        q = self._question(options=(('', True), ('1/4', False)))
+
+        response = self._fix(q)
+
+        q.refresh_from_db()
+        self.assertEqual(2, q.answers.count())
+        self.assertContains(response, 'would leave nothing to answer')
+
+    def test_a_question_with_no_blanks_is_left_alone(self):
+        q = self._question(options=(('3/4', True), ('1/4', False)))
+        response = self._fix(q)
+        self.assertContains(response, 'nothing to change')

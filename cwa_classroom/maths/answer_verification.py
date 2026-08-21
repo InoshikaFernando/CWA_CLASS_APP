@@ -324,10 +324,16 @@ def verify_question(question, min_options=2, max_options=MAX_OPTIONS):
         issues.append(Issue(NO_CORRECT, 'no option flagged is_correct'))
         return issues, False
 
+    # Single-select grading accepts ANY option flagged correct
+    # (quiz/views.py: `is_correct = bool(answer and answer.is_correct)`), so a
+    # second flag does not mismark the student who picks it — it marks a WRONG
+    # answer right. That is the mirror image of CPP-377 and just as damaging:
+    # 'Square' and '6' both accepted for "What is the name of this shape?".
     if is_choice and len(correct) > 1:
         issues.append(Issue(
             MULTI_CORRECT,
-            f'{len(correct)} options flagged correct: '
+            f'{len(correct)} options flagged correct — all of them are '
+            f'accepted, so a wrong answer is marked right: '
             f'{[a.answer_text for a in correct]}'))
 
     # Repeated option text splits into two very different faults, and lumping

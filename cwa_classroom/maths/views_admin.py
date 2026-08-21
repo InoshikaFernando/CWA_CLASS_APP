@@ -309,7 +309,25 @@ BULK_ACTIONS = (
     ('to_short_answer', 'Change question type to Short Answer'),
     ('trim_options', 'Trim to four options (keeps the correct one)'),
     ('fill_answer', 'Work out the missing answer (arithmetic only)'),
+    ('fix_answer_key', 'Correct the answer key (arithmetic only)'),
+    ('drop_blank_options', 'Delete blank answer options'),
 )
+
+# Which fix addresses which finding. Every code in CODE_LABELS must appear
+# here: a problem the page reports but offers no route out of is how a
+# reviewer ends up with a list they cannot act on. A test enforces it.
+FIX_FOR_CODE = {
+    'NO-CORRECT': 'fill_answer',
+    'MULTI-CORRECT': 'fix_answer_key',
+    'WRONG-ANSWER-KEY': 'fix_answer_key',
+    'BLANK-OPTION': 'drop_blank_options',
+    'DUPLICATE-OPTION': 'replace_duplicates',
+    'DUPLICATE-CORRECT': 'replace_duplicates',
+    'EQUIVALENT-OPTION': 'replace_duplicates',
+    'DUPLICATE-VALUE': 'replace_duplicates',
+    'TOO-FEW-OPTIONS': 'pad_options',
+    'TOO-MANY-OPTIONS': 'trim_options',
+}
 
 # Padding target — four options is the house style for multiple choice.
 PAD_TO = 4
@@ -328,7 +346,8 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
         from audit.services import log_event
 
         from .duplicate_repair import (
-            Skipped, plan_answer_fill, plan_padding, plan_repair)
+            Skipped, plan_answer_fill, plan_answer_key,
+            plan_blank_removal, plan_padding, plan_repair)
         from .models import Answer, Question
 
         action = request.POST.get('action', '')
@@ -388,7 +407,8 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
     def _apply(self, action, question, answers):
         """Perform one fix. Returns an audit detail dict, or None for a no-op."""
         from .duplicate_repair import (
-            plan_answer_fill, plan_padding, plan_repair)
+            plan_answer_fill, plan_answer_key, plan_blank_removal,
+            plan_padding, plan_repair)
         from .models import Answer
 
         if action == 'replace_duplicates':
@@ -414,6 +434,30 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
             Answer.objects.create(question=question, answer_text=target,
                                   is_correct=True, order=order)
             return {'answer_added': target}
+
+        if action == 'fix_answer_key':
+            to_flag, to_unflag = plan_answer_key(question, answers)
+            if not to_flag and not to_unflag:
+                return None
+            for answer in to_flag:
+                answer.is_correct = True
+                answer.save(update_fields=['is_correct'])
+            for answer in to_unflag:
+                answer.is_correct = False
+                answer.save(update_fields=['is_correct'])
+            return {'flagged': [a.answer_text for a in to_flag],
+                    'unflagged': [a.answer_text for a in to_unflag]}
+
+        if action == 'drop_blank_options':
+            blanks = plan_blank_removal(question, answers)
+            if not blanks:
+                return None
+            # Recorded before the delete: a row removed by mistake cannot be
+            # recovered from the row itself.
+            detail = {'deleted_ids': [a.id for a in blanks]}
+            for answer in blanks:
+                answer.delete()
+            return detail
 
         if action == 'pad_options':
             additions = plan_padding(question, answers, target=PAD_TO)
