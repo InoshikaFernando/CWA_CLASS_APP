@@ -536,3 +536,69 @@ class EquivalentOptionRepairTests(TestCase):
                             ('south', False), ('east', False)])
         with self.assertRaises(Skipped):
             plan_repair(q)
+
+
+class RepairCommandEquivalenceTests(TestCase):
+    """The CLI must repair the same questions the UI does.
+
+    The command gated on the issue code BEFORE planning a repair, so a
+    question whose only fault was EQUIVALENT-OPTION never reached plan_repair
+    — the fix worked from the check page and silently skipped from a shell.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=988, defaults={'display_name': 'cmd equiv fixture'})
+
+    def _question(self, options, text='Calculate: 4/5 - 2/10'):
+        q = Question.objects.create(
+            level=self.level, question_text=text,
+            question_type=Question.MULTIPLE_CHOICE, difficulty=1)
+        for order, (answer_text, is_correct) in enumerate(options):
+            Answer.objects.create(question=q, answer_text=answer_text,
+                                  is_correct=is_correct, order=order)
+        return q
+
+    def test_apply_repairs_an_equivalent_distractor(self):
+        q = self._question([('3/5', True), ('6/10', False),
+                            ('2/5', False), ('1/5', False)])
+
+        call_command('repair_duplicate_options', '--apply', '--level', 988)
+
+        q.refresh_from_db()
+        texts = {a.answer_text for a in q.answers.all()}
+        self.assertNotIn('6/10', texts)
+        self.assertIn('3/5', texts)
+
+    def test_a_dry_run_still_changes_nothing(self):
+        q = self._question([('3/5', True), ('6/10', False),
+                            ('2/5', False), ('1/5', False)])
+
+        call_command('repair_duplicate_options', '--level', 988)
+
+        q.refresh_from_db()
+        self.assertIn('6/10', {a.answer_text for a in q.answers.all()})
+
+    def test_blocking_only_includes_an_equivalent_distractor(self):
+        # A student picking it is marked wrong for a right answer, so it
+        # belongs in the same pass as a duplicated correct answer.
+        q = self._question([('3/5', True), ('6/10', False),
+                            ('2/5', False), ('1/5', False)])
+
+        call_command('repair_duplicate_options', '--apply', '--blocking-only',
+                     '--level', 988)
+
+        q.refresh_from_db()
+        self.assertNotIn('6/10', {a.answer_text for a in q.answers.all()})
+
+    def test_blocking_only_still_skips_a_merely_untidy_question(self):
+        # Two distractors sharing a value cannot mismark anyone.
+        q = self._question([('3/5', True), ('1/2', False),
+                            ('2/4', False), ('1/5', False)])
+
+        call_command('repair_duplicate_options', '--apply', '--blocking-only',
+                     '--level', 988)
+
+        q.refresh_from_db()
+        self.assertIn('2/4', {a.answer_text for a in q.answers.all()})
