@@ -487,3 +487,33 @@ class GlobalQuestionEditSaveTests(TestCase):
         self.client.post(self.url, self._payload(question_text='What is 8 + 7?'))
         self.question.refresh_from_db()
         self.assertEqual(self.question.question_text, 'What is 8 + 7?')
+
+
+class BulkSelectionUiTests(QuestionCheckTestBase):
+    """The check page offers selection and a choice of fix."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def test_each_result_row_can_be_selected(self):
+        q = self._question(options=(('a', False), ('b', False)))
+        response = self._run()
+        self.assertContains(response, f'value="{q.id}"')
+        self.assertContains(response, 'select-all')
+
+    def test_the_fix_options_are_offered(self):
+        self._question(options=(('a', False), ('b', False)))
+        response = self._run()
+        self.assertContains(response, 'bulk-action')
+        self.assertContains(response, 'replace_duplicates')
+        self.assertContains(response, 'pad_options')
+        self.assertContains(response, 'to_short_answer')
+
+    def test_the_checkboxes_are_not_nested_in_the_delete_form(self):
+        # Each row carries its own Delete <form>. A nested form is invalid HTML
+        # and browsers drop the inner one, so the boxes bind to the toolbar by
+        # id instead. This pins that, since the failure is silent in a browser.
+        q = self._question(options=(('a', False), ('b', False)))
+        response = self._run()
+        self.assertContains(response, 'form="bulk-fix"')
