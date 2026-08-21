@@ -118,5 +118,5 @@ students on the old class's monitor is deferred.
 - `classroom/tests/test_class_student_move.py` — move transfers the enrolment
   and retains the source; unselecting a class retains it; can't move to the same
   class or to an out-of-scope class; moving back clears the retained marker.
-- `ui_tests/test_student_move.py` — admin performs a move on the class page and
+- `ui_tests/classroom/test_student_move.py` — admin performs a move on the class page and
   the student then sees the old class's homework in their list.

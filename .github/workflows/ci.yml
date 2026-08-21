@@ -46,7 +46,20 @@ jobs:
       sprints: ${{ steps.filter.outputs.sprints }}
       whatsapp: ${{ steps.filter.outputs.whatsapp }}
       ops: ${{ steps.filter.outputs.ops }}
-      ui: ${{ steps.filter.outputs.ui }}
+      ui_core: ${{ steps.filter.outputs.ui_core }}
+      ui_billing: ${{ steps.filter.outputs.ui_billing }}
+      ui_brainbuzz: ${{ steps.filter.outputs.ui_brainbuzz }}
+      ui_classroom: ${{ steps.filter.outputs.ui_classroom }}
+      ui_coding: ${{ steps.filter.outputs.ui_coding }}
+      ui_feedback: ${{ steps.filter.outputs.ui_feedback }}
+      ui_homework: ${{ steps.filter.outputs.ui_homework }}
+      ui_live: ${{ steps.filter.outputs.ui_live }}
+      ui_maths: ${{ steps.filter.outputs.ui_maths }}
+      ui_navigation: ${{ steps.filter.outputs.ui_navigation }}
+      ui_parent: ${{ steps.filter.outputs.ui_parent }}
+      ui_quiz: ${{ steps.filter.outputs.ui_quiz }}
+      ui_uploads: ${{ steps.filter.outputs.ui_uploads }}
+      ui_worksheets: ${{ steps.filter.outputs.ui_worksheets }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -95,13 +108,105 @@ jobs:
               - 'cwa_classroom/whatsapp/**'
             ops:
               - 'cwa_classroom/ops/**'
-            ui:
-              - 'cwa_classroom/ui_tests/**'
-              - 'cwa_classroom/templates/**'
-              - 'cwa_classroom/**/templates/**'
+            # ---- UI (Playwright) --------------------------------------------
+            # One filter per ui_tests/<group>/ package. The names MUST stay in
+            # lockstep with the directories on disk — tests_workflows.py fails
+            # the build if a group has no filter (its tests would silently stop
+            # running) or a filter has no group.
+            #
+            # `ui_core` is the cross-cutting escape hatch: shared UI fixtures,
+            # the base templates/sidebars every page inherits, and all static
+            # assets. Anything here can break any page, so it runs EVERY group.
+            ui_core:
+              - 'cwa_classroom/ui_tests/*.py'
+              - 'cwa_classroom/templates/base*.html'
+              # partials/ is the genuinely global set — topbar, toasts, modals,
+              # pagination, breadcrumbs, the role-sidebar dispatcher. Every page
+              # inherits them, so a change here runs the whole matrix rather
+              # than being second-guessed file by file.
+              - 'cwa_classroom/templates/partials/**'
               - 'cwa_classroom/static/**'
               - 'cwa_classroom/**/static/**'
-              - 'cwa_classroom/brainbuzz/tests/test_student_playwright_mobile.py'
+            ui_billing:
+              - 'cwa_classroom/ui_tests/billing/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/templates/billing/**'
+              - 'cwa_classroom/templates/invoicing/**'
+              - 'cwa_classroom/templates/accounting/**'
+              - 'cwa_classroom/templates/reports/**'
+            ui_brainbuzz:
+              - 'cwa_classroom/ui_tests/brainbuzz/**'
+              - 'cwa_classroom/brainbuzz/**'
+              - 'cwa_classroom/templates/brainbuzz/**'
+            ui_classroom:
+              - 'cwa_classroom/ui_tests/classroom/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/templates/admin_dashboard/**'
+              - 'cwa_classroom/templates/hierarchy/**'
+              - 'cwa_classroom/templates/hod/**'
+              - 'cwa_classroom/templates/progress/**'
+              - 'cwa_classroom/templates/reports/**'
+              - 'cwa_classroom/templates/student/**'
+              - 'cwa_classroom/templates/teacher/**'
+            ui_coding:
+              - 'cwa_classroom/ui_tests/coding/**'
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/templates/coding/**'
+            ui_feedback:
+              - 'cwa_classroom/ui_tests/feedback/**'
+              - 'cwa_classroom/feedback/**'
+              - 'cwa_classroom/templates/feedback/**'
+            ui_homework:
+              - 'cwa_classroom/ui_tests/homework/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/templates/homework/**'
+            # Deployed-environment tests (-m migration / -m live). They skip
+            # without --live-url, so the job only proves they still import and
+            # collect — cheap, and the alternative is finding a broken live
+            # test during a release.
+            ui_live:
+              - 'cwa_classroom/ui_tests/live/**'
+              - 'cwa_classroom/ui_tests/live_helpers.py'
+            ui_maths:
+              - 'cwa_classroom/ui_tests/maths/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/templates/maths/**'
+            ui_navigation:
+              - 'cwa_classroom/ui_tests/navigation/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/help/**'
+              - 'cwa_classroom/classroom/context_processors.py'
+              - 'cwa_classroom/templates/accounts/**'
+              - 'cwa_classroom/templates/hub/**'
+              - 'cwa_classroom/templates/registration/**'
+            ui_parent:
+              - 'cwa_classroom/ui_tests/parent/**'
+              - 'cwa_classroom/templates/parent/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/classroom/**'
+            ui_quiz:
+              - 'cwa_classroom/ui_tests/quiz/**'
+              - 'cwa_classroom/quiz/**'
+              - 'cwa_classroom/templates/quiz/**'
+              - 'cwa_classroom/templates/base_quiz.html'
+            # Question/content import: /upload-questions/ (classroom views),
+            # the PDF import pipeline (ai_import), and the homework + worksheet
+            # upload forms that share the page-range field.
+            ui_uploads:
+              - 'cwa_classroom/ui_tests/uploads/**'
+              - 'cwa_classroom/ui_tests/xls_fixtures.py'
+              - 'cwa_classroom/ai_import/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/quiz/**'
+              - 'cwa_classroom/templates/ai_import/**'
+              - 'cwa_classroom/templates/_partials/**'
+            ui_worksheets:
+              - 'cwa_classroom/ui_tests/worksheets/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/taskqueue/**'
+              - 'cwa_classroom/templates/worksheets/**'
 
   # Always runs — missing/conflicting migrations must never slip through, and the
   # check is cheap. Not gated on `changes`.
@@ -370,7 +475,7 @@ jobs:
 
       - name: Run brainbuzz tests
         working-directory: cwa_classroom
-        run: pytest brainbuzz/tests/ --ignore=brainbuzz/tests/test_student_playwright_mobile.py -n auto --dist=loadscope -v --tb=short
+        run: pytest brainbuzz/tests/ -n auto --dist=loadscope -v --tb=short
 
   ai-import-tests:
     name: AI Import Tests
@@ -519,19 +624,75 @@ jobs:
         working-directory: cwa_classroom
         run: pytest ops/tests.py -n auto --dist=loadscope -v --tb=short
 
-  ui-tests:
-    name: UI Tests (Playwright)
-    # UI is by far the most expensive job (~33 min vs ~1 min for most suites) and,
-    # being end-to-end (templates + views + static across many apps), it can't be
-    # path-filtered cleanly. So instead of picking WHICH UI tests by changed files:
-    #   - every PR runs only the core-journey `-m smoke` subset (~a few min) —
-    #     enough to catch a broken login / dashboard / homework-load / worksheet /
-    #     upload on any change, including a pure-Python view change; and
-    #   - the push to `test` runs the FULL UI suite (the real pre-production gate);
-    #   - the push to `main` runs NOTHING here — that tree already passed the full
-    #     suite on `test`, so re-running ~33 min on main is pure waste.
+  # ── UI (Playwright) ──────────────────────────────────────────────────────
+  # The UI suite is by far the most expensive thing in CI (~33 min as one job),
+  # so it is split into per-app-area packages under cwa_classroom/ui_tests/ and
+  # only the areas a change actually touches get a runner.
+  #
+  #   PR            → the groups whose paths changed, in full. A PR that touches
+  #                   no UI-relevant path runs no UI job at all; one that touches
+  #                   `ui_core` or `shared` (base templates, sidebars, static,
+  #                   shared fixtures) runs every group, because those can break
+  #                   any page.
+  #   push to test  → EVERY group, in full. This is the pre-production gate, so
+  #                   it is never path-filtered.
+  #   push to main  → nothing. That tree already passed the full suite on `test`;
+  #                   re-running it here is pure waste.
+  #
+  # Groups run as a dynamic matrix, so they execute in parallel — a full run is
+  # now bounded by the slowest single group rather than the sum of all of them.
+  ui-matrix:
+    name: Select UI suites
+    needs: changes
     if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test') }}
     runs-on: ubuntu-latest
+    outputs:
+      groups: ${{ steps.pick.outputs.groups }}
+    steps:
+      - name: Pick the UI groups to run
+        id: pick
+        env:
+          # Every `ui_*` filter result, as JSON. The group list is derived from
+          # these keys, so ci.yml stays the single source of truth for which
+          # groups exist (tests_workflows.py checks it against the directories).
+          CHANGED: ${{ toJSON(needs.changes.outputs) }}
+          RUN_ALL: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.ui_core == 'true' }}
+        run: |
+          set -euo pipefail
+          all=$(jq -c '[to_entries[]
+                        | select(.key | startswith("ui_"))
+                        | select(.key != "ui_core")
+                        | (.key | sub("^ui_"; ""))] | sort' <<<"$CHANGED")
+          if [ "$RUN_ALL" = "true" ]; then
+            groups="$all"
+            echo "Running the full UI matrix (push, or a shared/ui_core change)."
+          else
+            groups=$(jq -c '[to_entries[]
+                             | select(.key | startswith("ui_"))
+                             | select(.key != "ui_core")
+                             | select(.value == "true")
+                             | (.key | sub("^ui_"; ""))] | sort' <<<"$CHANGED")
+          fi
+          # An empty matrix would make the ui-tests job vanish with no signal at
+          # all, so say out loud that nothing UI-related changed.
+          if [ "$groups" = "[]" ]; then
+            echo "No UI-relevant paths changed — skipping the UI suite."
+          else
+            echo "UI groups selected: $groups (of $all)"
+          fi
+          echo "groups=$groups" >> "$GITHUB_OUTPUT"
+
+  ui-tests:
+    name: UI Tests (${{ matrix.group }})
+    needs: ui-matrix
+    if: ${{ needs.ui-matrix.outputs.groups != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      # One broken area must not cancel the others — a full run should report
+      # every failing group, not just the first.
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.ui-matrix.outputs.groups) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -553,19 +714,11 @@ jobs:
       - name: Install Playwright browsers
         run: playwright install --with-deps chromium
 
-      - name: Run UI tests
+      - name: Run UI tests — ${{ matrix.group }}
         working-directory: cwa_classroom
-        # PRs run only the core-journey `-m smoke` subset (fast); the push to
-        # `test` runs the full suite. --reruns retries ONLY the known SQLite
-        # "database is locked" flake from parallel Playwright workers (see
-        # cwa_classroom/conftest.py); scoped via --only-rerun so genuine assertion
-        # failures still fail on the first run.
+        # --reruns retries ONLY the known SQLite "database is locked" flake from
+        # parallel Playwright workers (see cwa_classroom/conftest.py); scoped via
+        # --only-rerun so genuine assertion failures still fail on the first run.
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "PR → core-journey smoke subset only (-m smoke)"
-            SELECT="-m smoke"
-          else
-            echo "Push to test → full UI suite"
-            SELECT=""
-          fi
-          pytest ui_tests/ brainbuzz/tests/test_student_playwright_mobile.py $SELECT -n auto -v --tb=short --reruns 2 --only-rerun "database is locked"
+          pytest "ui_tests/${{ matrix.group }}" -n auto -v --tb=short \
+            --reruns 2 --only-rerun "database is locked"
