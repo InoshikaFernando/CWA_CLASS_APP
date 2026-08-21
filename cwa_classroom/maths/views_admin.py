@@ -32,7 +32,7 @@ CODE_LABELS = {
     'DUPLICATE-CORRECT': 'Correct answer also listed as a distractor',
     'EQUIVALENT-OPTION': 'Distractor equals the answer',
     'TOO-FEW-OPTIONS': 'Too few options',
-    'TOO-MANY-OPTIONS': 'More options than the house style',
+    'TOO-MANY-OPTIONS': 'More than 1 correct + 3 wrong answers',
     'BLANK-OPTION': 'Blank option',
     'WRONG-ANSWER-KEY': 'Answer key is wrong',
     'DUPLICATE-VALUE': 'Two distractors are the same value',
@@ -43,6 +43,19 @@ CODE_LABELS = {
 # question read sloppily; the case that actually mismarks someone — the correct
 # answer repeated as a distractor — is DUPLICATE-CORRECT, which is blocking.
 ADVISORY_LABELS = {'DUPLICATE-VALUE', 'DUPLICATE-OPTION', 'TOO-MANY-OPTIONS'}
+
+# Advisory, but shown WITHOUT ticking "include advisory issues".
+#
+# The house rule is one correct option and at most three wrong ones. A
+# five-option question breaks it, but cannot mismark anybody — so it is
+# advisory by severity and must stay out of the "can mismark a student" count,
+# which was ten times too large once before from exactly this kind of padding.
+#
+# Hiding it by default had a cost of its own, though: a question with eight
+# options looked unflagged, so the rule read as unenforced. Severity and
+# visibility are different questions, and this is the code where they part
+# company.
+ALWAYS_SHOWN_ADVISORY = {'TOO-MANY-OPTIONS'}
 
 # The Problem filter's options, blocking first so the ones that actually
 # mismark a student are what a super-admin reaches for without scrolling.
@@ -234,7 +247,9 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
                 scanned += 1
                 issues, _verified = verify_question(question)
                 if not include_advisory:
-                    issues = [i for i in issues if i.code not in ADVISORY_LABELS]
+                    issues = [i for i in issues
+                              if i.code not in ADVISORY_LABELS
+                              or i.code in ALWAYS_SHOWN_ADVISORY]
                 if problem_codes:
                     # Keep only the problems asked for, so the rows shown and
                     # the checkboxes a bulk fix acts on are the same set.
