@@ -264,6 +264,25 @@ MAX_OPTIONS = 4
 # correct repair look like it had not worked.
 CHOICE_TYPES = ('multiple_choice', 'true_false')
 
+# Types whose answer is judged by a person or a rubric rather than matched
+# against a stored row. An extended answer ("Show your working and explain your
+# chosen strategy") HAS no single correct answer to store — that is the point of
+# it — so reporting "no option flagged is_correct" was calling the format itself
+# a defect, on questions that were working exactly as designed.
+GRADED_TYPES = ('extended_answer',)
+
+
+def _is_graded_by_a_person(question):
+    """Is this question's answer judged rather than matched?
+
+    Both signals count. The TYPE is the strong one — an extended answer is
+    written prose whatever else is set — and validation_type catches a question
+    of any type explicitly marked for AI or human grading.
+    """
+    if question.question_type in GRADED_TYPES:
+        return True
+    return bool(getattr(question, 'needs_grading', False))
+
 
 def verify_question(question, min_options=2, max_options=MAX_OPTIONS):
     """Return ``(issues, verified_arithmetically)``.
@@ -273,6 +292,14 @@ def verify_question(question, min_options=2, max_options=MAX_OPTIONS):
     report honest coverage rather than implying everything was checked.
     """
     issues = []
+
+    # A question a person or a rubric judges has nothing here to check: no
+    # stored answer to compare, no options to count, and blank rows are the
+    # editor's normal state rather than a fault. Returning early says that
+    # plainly instead of reporting the format as broken.
+    if _is_graded_by_a_person(question):
+        return issues, False
+
     options = list(question.answers.all())
     correct = [a for a in options if a.is_correct]
     is_choice = question.question_type in CHOICE_TYPES
