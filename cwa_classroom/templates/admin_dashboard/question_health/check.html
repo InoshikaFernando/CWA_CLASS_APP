@@ -97,11 +97,42 @@
   {% endif %}
 
   {% if rows %}
+  <form method="post" action="{% url 'question_bulk_fix_admin_dashboard' %}"
+        id="bulk-fix" class="bg-slate-800 rounded-xl border border-slate-700 p-4 mb-4">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}" />
+    <div class="flex items-end gap-3 flex-wrap">
+      <div>
+        <label class="block text-xs font-semibold text-slate-300 mb-1.5">Fix selected questions</label>
+        <select name="action" data-testid="bulk-action"
+                class="rounded-lg bg-slate-900 border border-slate-600 text-slate-200 text-sm px-2 py-1.5 min-w-[22rem]">
+          {% for value, label in bulk_actions %}
+          <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" data-testid="bulk-apply"
+              class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition">
+        Apply to selected
+      </button>
+      <span class="text-[11px] text-slate-500 pb-2">
+        Each question is reported on individually — anything the fix could not
+        handle is named, not silently skipped.
+      </span>
+    </div>
+  </form>
+
   <div class="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
     <div class="overflow-x-auto">
       <table class="w-full text-sm">
         <thead class="bg-slate-900/60 text-slate-400 text-xs uppercase tracking-wide">
           <tr>
+            <th class="px-4 py-3 w-8">
+              <input type="checkbox" data-testid="select-all" onclick="
+                var boxes = document.querySelectorAll('input[name=question_id]');
+                for (var i = 0; i < boxes.length; i++) { boxes[i].checked = this.checked; }"
+                class="rounded bg-slate-900 border-slate-600" />
+            </th>
             <th class="text-left px-4 py-3">Question</th>
             <th class="text-left px-4 py-3 whitespace-nowrap">Where</th>
             <th class="text-left px-4 py-3">Problem</th>
@@ -112,6 +143,13 @@
         <tbody class="divide-y divide-slate-700">
           {% for row in rows %}
           <tr class="hover:bg-slate-900/40" data-testid="issue-row-{{ row.q.id }}">
+            <td class="px-4 py-3 align-top">
+              {# form="bulk-fix" associates the box with the toolbar above; the #}
+              {# rows contain their own Delete form, and nesting forms is invalid. #}
+              <input type="checkbox" form="bulk-fix" name="question_id"
+                     value="{{ row.q.id }}"
+                     class="rounded bg-slate-900 border-slate-600" />
+            </td>
             <td class="px-4 py-3 align-top">
               <div class="text-slate-200">{{ row.q.question_text|truncatechars:140 }}</div>
               <div class="text-[11px] text-slate-500 mt-1">#{{ row.q.id }} · {{ row.q.get_question_type_display }}</div>

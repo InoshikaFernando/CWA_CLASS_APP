@@ -4010,9 +4010,44 @@ class GlobalQuestionsView(RoleRequiredMixin, View):
         })
 
 
+# Question types the editor may switch between. Deliberately a subset: every
+# type here is graded from the Answer rows alone, so a switch needs no data the
+# form does not already hold. Excluded types need structured fields the form
+# has no inputs for — long_division needs a dividend and divisor, measure needs
+# a numeric answer and tolerance, the plot/graph types need their spec JSON —
+# and switching to one of those would produce a question that cannot render or
+# grade, which is a worse break than the one being repaired.
+#
+# The common repair this enables: a "multiple choice" question left with a
+# single option is not a multiple choice question at all. As short_answer the
+# stored option becomes the accepted typed answer and it grades correctly.
+SWITCHABLE_QUESTION_TYPES = (
+    'multiple_choice',
+    'short_answer',
+    'true_false',
+    'fill_blank',
+    'calculation',
+)
+
+
 class GlobalQuestionEditView(RoleRequiredMixin, View):
-    """Edit a single global question (question text + answers) via HTMX modal."""
+    """Edit a single global question (text, type and answers) via HTMX modal."""
     required_roles = [Role.ADMIN]
+
+    @staticmethod
+    def _type_choices(question):
+        """Offer the safe switches, plus whatever this question already is.
+
+        A question of an excluded type keeps its own type in the list so the
+        form round-trips it unchanged rather than silently converting it.
+        """
+        from maths.models import Question
+
+        labels = dict(Question.QUESTION_TYPES)
+        allowed = list(SWITCHABLE_QUESTION_TYPES)
+        if question.question_type not in allowed:
+            allowed.insert(0, question.question_type)
+        return [(value, labels.get(value, value)) for value in allowed]
 
     def get(self, request, question_id):
         from maths.models import Question, Answer
@@ -4021,6 +4056,7 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
         return render(request, 'admin_dashboard/partials/question_edit_form.html', {
             'question': question,
             'answers': answers,
+            'type_choices': self._type_choices(question),
         })
 
     def post(self, request, question_id):
@@ -4028,7 +4064,18 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
         question = get_object_or_404(Question, id=question_id, school__isnull=True)
 
         question.question_text = request.POST.get('question_text', '').strip()
-        question.save(update_fields=['question_text', 'updated_at'])
+
+        # Only a type the form actually offered for THIS question is accepted.
+        # Anything else is ignored rather than trusted: the field is a plain
+        # POST value, and switching to a type whose required data is missing
+        # would leave a question that cannot be rendered or graded.
+        requested_type = (request.POST.get('question_type') or '').strip()
+        offered = {value for value, _label in self._type_choices(question)}
+        fields = ['question_text', 'updated_at']
+        if requested_type and requested_type in offered:
+            question.question_type = requested_type
+            fields.append('question_type')
+        question.save(update_fields=fields)
 
         # Update answers
         answer_ids = request.POST.getlist('answer_id')
