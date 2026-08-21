@@ -33,8 +33,13 @@ bulk-fill script: [`Runbooks/jira-story-points.md`](Runbooks/jira-story-points.m
 - `manage.py` lives at `cwa_classroom/manage.py`; run Django commands from there.
 - Per-app test suites (`cwa_classroom/<app>/tests/`); CI runs one job per app
   (`.github/workflows/ci.yml`). Tests use SQLite via `DB_ENGINE=sqlite`.
+- Every CI job points at an app directory (`pytest billing/`), never a
+  hand-written file list — `pytest.ini` widens `python_files` so `tests.py` and
+  `tests_*.py` are collected. `tests_workflows.py` fails the build if any test
+  file ends up in no job, i.e. never runs anywhere.
 - Playwright UI tests are split by app area into `cwa_classroom/ui_tests/<group>/`
-  and CI runs only the groups a change touches. A new UI test goes **inside** a
+  and CI runs only the groups a change touches — where a group's filter watches
+  every app its tests drive, not just its namesake. A new UI test goes **inside** a
   group package — one left at the `ui_tests/` root belongs to no CI job and would
   never run (`tests_workflows.py` fails the build if that happens). See
   [`cwa_classroom/ui_tests/README.md`](cwa_classroom/ui_tests/README.md).

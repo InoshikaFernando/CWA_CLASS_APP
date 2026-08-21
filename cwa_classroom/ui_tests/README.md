@@ -62,7 +62,13 @@ would otherwise only fail on mid-run.
 ## How CI picks what to run
 
 `.github/workflows/ci.yml` declares one `ui_<group>:` paths-filter per package,
-listing both the group's own tests and the app/template directories it covers.
+listing the group's own tests plus **every app its tests actually drive** — not
+just the one it is named after. `ui_tests/parent/`, for instance, drives
+classroom views through accounts auth with homework and maths content, so all
+four apps trigger it; a homework change that breaks the parent homework page
+runs the parent group too. `tests_workflows.py` derives that set from the
+tests' imports, URL literals and `reverse()` namespaces and fails the build if a
+filter misses one.
 
 | Event | What runs |
 |-------|-----------|
