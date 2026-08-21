@@ -1,7 +1,7 @@
 """
 Provision the student account the weekly browser sweep logs in as.
 
-The sweep (``ui_tests/test_content_sweep.py``) walks every level and topic in a
+The sweep (``ui_tests/live/test_content_sweep.py``) walks every level and topic in a
 real browser, and the quiz pages require a login. This creates that account
 reproducibly instead of by hand, so it can be recreated after a test-database
 refresh — which wipes it, since the test DB is restored from production.

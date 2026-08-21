@@ -119,5 +119,5 @@ and an "Online" badge next to the day/time badges.
   `delivery_mode` matrix + `SET_NULL` behaviour; `LocationManageView`
   create/edit/delete + name-required + cross-tenant 404; class create/edit
   wiring location + online, clearing them, and rejecting a foreign location.
-- **UI** — `ui_tests/test_locations.py`: add-location form, create persists
+- **UI** — `ui_tests/classroom/test_locations.py`: add-location form, create persists
   with address + online flag, the school-detail Locations link, and delete.

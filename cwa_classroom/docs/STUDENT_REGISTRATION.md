@@ -103,7 +103,7 @@ back as a registration shortcut.
 
 - **Unit:** `accounts/tests.py` — registration flows (institute, individual
   student, complete-profile / Stripe enforcement from CPP-300).
-- **UI (Playwright):** `ui_tests/test_cpp300_import_onboarding.py` and related
+- **UI (Playwright):** `ui_tests/classroom/test_cpp300_import_onboarding.py` and related
   registration UI tests.
 
 ## Key files
