@@ -325,3 +325,72 @@ def plan_answer_fill(question, options=None):
 
     texts = [(o.answer_text or '').strip() for o in options]
     return ('add', _format_like(value, texts, _is_integral([value])))
+
+
+def plan_answer_key(question, options=None):
+    """Return ``(to_flag, to_unflag)`` to leave exactly one correct option.
+
+    Repairs two faults that are the same mistake seen from different sides:
+
+      MULTI-CORRECT      several options flagged correct. Single-select grading
+                         accepts ANY of them, so a wrong answer is marked
+                         RIGHT — the mirror image of CPP-377.
+
+      WRONG-ANSWER-KEY   the flagged option is not what the arithmetic gives,
+                         so the right answer is marked wrong.
+
+    Both need the same thing: know which option is actually correct. So this is
+    confined, like plan_answer_fill, to arithmetic the evaluator will commit
+    to — and refuses when the answer is a judgement call. "What is 666 in
+    expanded form?" flagging both '6x100 + 6x10 + 6' and '600+70+6' is a real
+    fault, but choosing between them is choosing the answer.
+    """
+    from .answer_verification import evaluate_expression, extract_expression
+
+    options = list(options if options is not None
+                   else question.answers.order_by('order', 'id'))
+    correct = [o for o in options if o.is_correct]
+
+    expression = extract_expression(question.question_text)
+    if expression is None:
+        raise Skipped('question text is not a plain arithmetic expression')
+    value = evaluate_expression(expression)
+    if value is None:
+        raise Skipped(f'could not evaluate {expression!r}')
+
+    matches = [o for o in options
+               if quantities_match(parse_answer_quantity(o.answer_text),
+                                   (value, parse_answer_unit(o.answer_text)))]
+    if not matches:
+        raise Skipped(f'no option equals {value} — the answer is missing, '
+                      f'not merely mis-flagged')
+    if len(matches) > 1:
+        raise Skipped(f'{len(matches)} options equal {value} — the duplicate '
+                      f'has to go first')
+
+    keep = matches[0]
+    to_unflag = [o for o in correct if o.id != keep.id]
+    to_flag = [] if keep.is_correct else [keep]
+    if not to_flag and not to_unflag:
+        return ([], [])
+    return (to_flag, to_unflag)
+
+
+def plan_blank_removal(question, options=None):
+    """Return the blank answer rows to delete.
+
+    A row with no text is not an answer anyone can pick or type. Deleting it is
+    safe EXCEPT when it is the only row flagged correct — that would leave the
+    question unanswerable, so it is refused and left for a human.
+    """
+    options = list(options if options is not None
+                   else question.answers.order_by('order', 'id'))
+    blanks = [o for o in options if not (o.answer_text or '').strip()]
+    if not blanks:
+        return []
+
+    remaining = [o for o in options if o not in blanks]
+    if not any(o.is_correct for o in remaining):
+        raise Skipped('the only correct option is blank — deleting it would '
+                      'leave nothing to answer')
+    return blanks

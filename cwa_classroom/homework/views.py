@@ -2217,12 +2217,17 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                         pass
 
             # Measure fields: numeric answer (+ tolerance/unit).
+            #
+            # Read under a `measure_` prefix: read_graph uses the same three
+            # names, and both panels are rendered at once so the type can be
+            # switched without a reload. Without the prefix the POST would
+            # carry two values per name and keep the wrong one.
             if q['question_type'] == 'measure':
                 for fld in ('numeric_answer', 'answer_tolerance'):
-                    raw = request.POST.get(f'{prefix}{fld}', '').strip()
+                    raw = request.POST.get(f'{prefix}measure_{fld}', '').strip()
                     if raw:
                         q[fld] = raw
-                unit = request.POST.get(f'{prefix}answer_unit', '').strip()
+                unit = request.POST.get(f'{prefix}measure_answer_unit', '').strip()
                 if unit:
                     q['answer_unit'] = unit
 
