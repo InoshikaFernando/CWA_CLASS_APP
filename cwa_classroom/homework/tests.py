@@ -3387,3 +3387,100 @@ class HomeworkLeaderboardTest(HomeworkTestBase):
             reverse('homework:teacher_monitor') + f'?classroom={self.classroom.id}'
         )
         self.assertContains(resp, reverse('homework:leaderboard'))
+
+
+class HomeworkPreviewTypeFieldsTest(HomeworkTestBase):
+    """Picking a question type must reveal that type's own fields.
+
+    They used to be rendered only when the question ALREADY had that type, so
+    choosing "Column Arithmetic" from the dropdown showed nothing — and saving
+    then failed with "Invalid column_operation (operands=[], operator='')", a
+    fault the page gave the teacher no way to fix.
+    """
+
+    def _session(self, question_type='short_answer', **extra):
+        q = {'question_text': '0.9 + 0.34 =', 'include': True,
+             'question_type': question_type}
+        q.update(extra)
+        return HomeworkUploadSession.objects.create(
+            user=self.teacher, school=self.school, pdf_filename='hw.pdf',
+            status=HomeworkUploadSession.STATUS_DONE,
+            extracted_data={
+                'year_level': 502, 'subject': 'Maths HW Test',
+                'topic': 'Decimals HW', 'questions': [q],
+            },
+            extracted_images={},
+        )
+
+    def _get(self, session):
+        self.client.force_login(self.teacher)
+        return self.client.get(
+            reverse('homework:pdf_preview', kwargs={'session_id': session.pk}))
+
+    def test_the_operand_fields_are_on_the_page_for_a_short_answer_question(self):
+        # Present but hidden — that is what lets the dropdown reveal them
+        # without a reload.
+        resp = self._get(self._session('short_answer'))
+        self.assertContains(resp, 'name="q_0_operands"')
+        self.assertContains(resp, 'name="q_0_operator"')
+        self.assertContains(resp, 'id="column-section-0"')
+
+    def test_they_are_hidden_until_the_type_is_chosen(self):
+        resp = self._get(self._session('short_answer'))
+        html = resp.content.decode()
+        section = html.split('id="column-section-0"', 1)[1][:400]
+        self.assertIn('hidden', section)
+
+    def test_they_are_visible_when_the_question_is_already_column_arithmetic(self):
+        resp = self._get(self._session('column_operation',
+                                       operands=[90, 82], operator='+'))
+        html = resp.content.decode()
+        section = html.split('id="column-section-0"', 1)[1][:400]
+        self.assertNotIn('hidden', section)
+
+    def test_every_structured_type_has_a_toggleable_section(self):
+        resp = self._get(self._session('short_answer'))
+        for name in ('longdiv', 'column', 'plane', 'graph', 'measure',
+                     'numberline'):
+            with self.subTest(name):
+                self.assertContains(resp, f'id="{name}-section-0"')
+
+    def test_the_type_dropdown_drives_the_toggle(self):
+        resp = self._get(self._session('short_answer'))
+        self.assertContains(resp, 'handleTypeChange(0, this.value)')
+        self.assertContains(resp, 'function handleTypeChange')
+
+    def test_the_answers_list_hides_for_a_computed_type(self):
+        # column_operation derives its answer from the operands, so an answers
+        # list would be ignored — inviting input that goes nowhere.
+        resp = self._get(self._session('column_operation',
+                                       operands=[90, 82], operator='+'))
+        html = resp.content.decode()
+        section = html.split('id="answers-row-0"', 1)[1][:200]
+        self.assertIn('hidden', section)
+
+    def test_the_answers_list_shows_for_a_typed_answer(self):
+        resp = self._get(self._session('short_answer'))
+        html = resp.content.decode()
+        section = html.split('id="answers-row-0"', 1)[1][:200]
+        self.assertNotIn('hidden', section)
+
+    def test_operands_entered_on_the_page_are_saved(self):
+        session = self._session('short_answer')
+        self.client.force_login(self.teacher)
+        url = reverse('homework:pdf_preview', kwargs={'session_id': session.pk})
+
+        self.client.post(url, {
+            'q_0_include': 'on',
+            'q_0_text': '90 + 82 =',
+            'q_0_type': 'column_operation',
+            'q_0_operands': '90, 82',
+            'q_0_operator': '+',
+            'q_0_difficulty': '1',
+            'q_0_points': '1',
+        })
+
+        session.refresh_from_db()
+        saved = session.extracted_data['questions'][0]
+        self.assertEqual([90, 82], saved['operands'])
+        self.assertEqual('+', saved['operator'])
