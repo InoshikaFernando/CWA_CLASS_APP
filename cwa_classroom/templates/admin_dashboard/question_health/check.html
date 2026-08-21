@@ -102,6 +102,11 @@
   <div class="flex items-center gap-3 mb-4 flex-wrap">
     <span class="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-sm">
       Scanned <strong class="text-white">{{ scanned }}</strong>
+      {% if total_matching %}
+      <span class="text-slate-400">
+        — {{ checked_through }} of {{ total_matching }} checked so far
+      </span>
+      {% endif %}
     </span>
     <span class="px-3 py-1.5 rounded-lg text-sm border
                  {% if rows %}bg-rose-900/40 border-rose-700 text-rose-200{% else %}bg-emerald-900/40 border-emerald-700 text-emerald-200{% endif %}">
@@ -110,11 +115,41 @@
   </div>
 
   {% if truncated %}
-  {# Never let a capped run read as a clean bill of health. #}
-  <div class="px-4 py-3 rounded-xl bg-amber-900/40 border border-amber-700 text-amber-100 text-sm mb-4">
-    ⚠️ Stopped at the {{ limit }}-question cap — there are more questions matching these filters that were
-    <strong>not checked</strong>. Narrow the filters or raise the cap (max {{ max_limit }}) to see the rest.
+  {% comment %}
+  Never let a capped run read as a clean bill of health — and always offer the
+  way forward. Re-submitting the form restarts from the beginning of the bank
+  (that is what you want after changing a filter), so continuing has to be its
+  own control that carries the cursor.
+  {% endcomment %}
+  <div class="px-4 py-3 rounded-xl bg-amber-900/40 border border-amber-700 text-amber-100 text-sm mb-4
+              flex items-center justify-between gap-4 flex-wrap">
+    <div>
+      ⚠️ Stopped at the {{ limit }}-question cap — there are more questions matching these filters that were
+      <strong>not checked</strong>. Continue below, or raise the cap (max {{ max_limit }}) to cover more per run.
+    </div>
+    {% if next_url %}
+    <a href="{{ next_url }}" data-testid="check-next"
+       class="shrink-0 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition">
+      Check next {{ limit }} →
+    </a>
+    {% endif %}
   </div>
+  {% elif after %}
+  <div class="px-4 py-3 rounded-xl bg-emerald-900/40 border border-emerald-700 text-emerald-100 text-sm mb-4
+              flex items-center justify-between gap-4 flex-wrap">
+    <div>✅ Reached the end — every question matching these filters has now been checked.</div>
+    {% if restart_url %}
+    <a href="{{ restart_url }}" class="shrink-0 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700
+       text-slate-200 text-sm font-semibold transition">Start over</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if after and restart_url and truncated %}
+  <p class="text-[11px] text-slate-500 mb-4">
+    Continuing from question #{{ after }}.
+    <a href="{{ restart_url }}" class="underline hover:text-slate-300">Start over from the beginning</a>.
+  </p>
   {% endif %}
 
   {% if rows %}
