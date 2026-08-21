@@ -172,10 +172,23 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
             topic_qs = topic_qs.filter(subject_id__in=subject_ids)
         topics = list(topic_qs)
 
+        # Where the last run stopped. The cap exists so one request cannot walk
+        # the whole bank, but without a cursor "Run check" re-scanned the SAME
+        # first N questions every time — the rest of the bank was unreachable
+        # from this page, and a clean first page read as a clean bank.
+        try:
+            after = int(request.GET.get('after') or 0)
+        except ValueError:
+            after = 0
+
         ran = request.GET.get('run') == '1'
         rows = []
         scanned = 0
         truncated = False
+        checked_through = 0
+        total_matching = 0
+        next_url = None
+        restart_url = None
 
         if ran:
             qs = (Question.objects
@@ -190,10 +203,29 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
             if topic_ids:
                 qs = qs.filter(topic_id__in=topic_ids)
 
-            # One extra row tells us the cap bit without a second COUNT query.
+            # Two cheap counts so the page can say how far through the bank
+            # this run got. Without them "500 scanned" gives no sense of
+            # whether that is the whole job or a twentieth of it.
+            total_matching = qs.count()
+            done_before = qs.filter(id__lte=after).count() if after else 0
+
+            if after:
+                qs = qs.filter(id__gt=after)
+
+            # One extra row tells us the cap bit without a third COUNT query.
             batch = list(qs[:limit + 1])
             truncated = len(batch) > limit
             batch = batch[:limit]
+            checked_through = done_before + len(batch)
+
+            if truncated and batch:
+                params = request.GET.copy()
+                params['after'] = str(batch[-1].id)
+                next_url = f'{request.path}?{params.urlencode()}'
+            if after:
+                params = request.GET.copy()
+                params.pop('after', None)
+                restart_url = f'{request.path}?{params.urlencode()}'
 
             for question in batch:
                 scanned += 1
@@ -233,6 +265,11 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
             'selected_topics': topic_ids,
             'selected_problems': problem_codes,
             'problem_choices': PROBLEM_CHOICES,
+            'after': after,
+            'checked_through': checked_through,
+            'total_matching': total_matching,
+            'next_url': next_url,
+            'restart_url': restart_url,
             'include_advisory': include_advisory,
             'limit': limit,
             'max_limit': CHECK_MAX_LIMIT,

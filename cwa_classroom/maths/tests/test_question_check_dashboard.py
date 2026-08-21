@@ -624,3 +624,94 @@ class ShortAnswerIsNotJudgedAsChoiceTests(QuestionCheckTestBase):
         response = self._run()
         row = next(r for r in response.context['rows'] if r['q'].id == q.id)
         self.assertEqual(['NO-CORRECT'], [i['code'] for i in row['issues']])
+
+
+class ScanCursorTests(QuestionCheckTestBase):
+    """Running the check twice must move THROUGH the bank, not re-scan its head.
+
+    The cap stops one request from walking the whole bank, but without a cursor
+    every "Run check" re-scanned the same first N questions — the rest of the
+    bank was unreachable from this page, and a clean first page read as a clean
+    bank.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+        # Five broken questions, so a limit of 2 gives three pages.
+        self.broken = [self._question(options=(('a', False), ('b', False)))
+                       for _ in range(5)]
+
+    def test_the_first_page_reports_it_stopped_early(self):
+        response = self._run(limit='2')
+        self.assertTrue(response.context['truncated'])
+        self.assertIsNotNone(response.context['next_url'])
+        self.assertContains(response, 'check-next')
+
+    def test_the_next_page_continues_where_the_last_one_stopped(self):
+        first = self._run(limit='2')
+        first_ids = [row['q'].id for row in first.context['rows']]
+
+        second = self.client.get(first.context['next_url'])
+        second_ids = [row['q'].id for row in second.context['rows']]
+
+        self.assertEqual(2, len(second_ids))
+        self.assertFalse(set(first_ids) & set(second_ids))
+        self.assertTrue(min(second_ids) > max(first_ids))
+
+    def test_walking_to_the_end_covers_every_question_exactly_once(self):
+        seen = []
+        response = self._run(limit='2')
+        while True:
+            seen.extend(row['q'].id for row in response.context['rows'])
+            next_url = response.context['next_url']
+            if not next_url:
+                break
+            response = self.client.get(next_url)
+
+        self.assertCountEqual([q.id for q in self.broken], seen)
+        self.assertEqual(len(seen), len(set(seen)))
+
+    def test_the_last_page_says_the_bank_is_exhausted(self):
+        response = self._run(limit='4')
+        last = self.client.get(response.context['next_url'])
+        self.assertFalse(last.context['truncated'])
+        self.assertIsNone(last.context['next_url'])
+        self.assertContains(last, 'Reached the end')
+
+    def test_progress_counts_the_pages_already_walked(self):
+        first = self._run(limit='2')
+        self.assertEqual(2, first.context['checked_through'])
+        self.assertEqual(5, first.context['total_matching'])
+
+        second = self.client.get(first.context['next_url'])
+        self.assertEqual(4, second.context['checked_through'])
+        self.assertEqual(5, second.context['total_matching'])
+
+    def test_a_continued_run_can_be_restarted_from_the_beginning(self):
+        first = self._run(limit='2')
+        second = self.client.get(first.context['next_url'])
+        self.assertIsNotNone(second.context['restart_url'])
+
+        restarted = self.client.get(second.context['restart_url'])
+        self.assertEqual(0, restarted.context['after'])
+        self.assertEqual(
+            [row['q'].id for row in first.context['rows']],
+            [row['q'].id for row in restarted.context['rows']])
+
+    def test_the_cursor_keeps_the_filters(self):
+        # Continuing must not quietly widen the scan to the whole bank.
+        other = self._question(level=self.y8,
+                               options=(('a', False), ('b', False)))
+        first = self._run(limit='2', level=str(self.y7.id))
+        rest = []
+        response = first
+        while response.context['next_url']:
+            response = self.client.get(response.context['next_url'])
+            rest.extend(row['q'].id for row in response.context['rows'])
+        self.assertNotIn(other.id, rest)
+
+    def test_a_junk_cursor_does_not_500(self):
+        response = self._run(limit='2', after='not-a-number')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(0, response.context['after'])
