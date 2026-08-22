@@ -42,6 +42,11 @@ TOO_MANY_OPTIONS = 'TOO-MANY-OPTIONS'
 BLANK_OPTION = 'BLANK-OPTION'
 WRONG_ANSWER_KEY = 'WRONG-ANSWER-KEY'
 
+# Typed-answer codes (CPP-378). Both describe authoring that only a human can
+# resolve — the grader cannot tell from the stored text what the question means.
+UNMARKED_SET = 'UNMARKED-SET'
+FRAGMENT_ROW = 'FRAGMENT-ROW'
+
 
 class Issue:
     """One problem found on one question."""
@@ -415,3 +420,97 @@ def verify_question(question, min_options=2, max_options=MAX_OPTIONS):
             f'{correct[0].answer_text!r} ({stored})'))
 
     return issues, True
+
+
+# --------------------------------------------------------------------------
+# Typed answers
+# --------------------------------------------------------------------------
+# Wording that asks for a *collection*: which values are given matters, the
+# order they are given in does not.
+_COLLECTION_RE = re.compile(
+    r'\ball (?:the )?(?:factors|multiples|prime factors|pairs|'
+    r'possible outcomes|outcomes)\b'
+    r'|\b(?:factors|multiples|prime factors) of\b'
+    r'|\blist (?:all|every|some)\b'
+    r'|\bfind all\b'
+    r'|\bname all\b',
+    re.IGNORECASE)
+
+# Wording that makes the order part of the answer. Checked first, because
+# "arrange the factors in ascending order" is an ordered question that happens
+# to mention factors.
+_ORDERED_RE = re.compile(
+    r'\b(?:order|ascending|descending|smallest|largest|arrange|sequence|'
+    r'next|missing|consecutive|before|after|first|then)\b',
+    re.IGNORECASE)
+
+
+def verify_typed_answer_question(question):
+    """Return the issues on a *typed*-answer question (short answer etc.).
+
+    ``verify_question`` covers the choice types. Typed answers were never
+    audited at all, which is how 559 questions came to accept one value of a
+    list as a whole correct answer (CPP-378).
+
+    Both checks here are deliberately the ones **code cannot fix for itself** —
+    each needs a person to say what the question means:
+
+    UNMARKED-SET   the question asks for a collection ("find all the factors of
+                   360") but the answer is stored as ordinary text, so it grades
+                   order-sensitively: a student who lists every correct value in
+                   a different order is marked wrong. Only a human can tell this
+                   apart from "arrange these in ascending order", where the order
+                   *is* the answer. Fix: set answer_format='set'.
+
+    FRAGMENT-ROW   one correct row holds a single value that is also one value of
+                   another correct row's list ("3, 5, 7, 9" alongside a bare
+                   "9"), so that fragment alone grades as the whole answer. Only
+                   a human knows whether the extra row was deliberate.
+                   Fix: delete the row, or split the list into one row per
+                   accepted alternative.
+    """
+    from maths.models import Question, _split_answer_list
+
+    issues = []
+    if question.question_type in CHOICE_TYPES or _is_graded_by_a_person(question):
+        return issues
+    if question.answer_format != Question.ANSWER_FORMAT_TEXT:
+        return issues
+
+    correct = [
+        (a.answer_text or '').strip()
+        for a in question.answers.all()
+        if a.is_correct and (a.answer_text or '').strip()
+    ]
+    if not correct:
+        return issues
+
+    values_by_row = [_split_answer_list(text) for text in correct]
+    text = question.question_text or ''
+
+    # ---- UNMARKED-SET -----------------------------------------------------
+    if (any(len(values) > 1 for values in values_by_row)
+            and _COLLECTION_RE.search(text)
+            and not _ORDERED_RE.search(text)):
+        longest = max(values_by_row, key=len)
+        issues.append(Issue(
+            UNMARKED_SET,
+            f'asks for a collection but grades in order — a student who lists '
+            f'the {len(longest)} values in another order is marked wrong; '
+            f"set answer_format='set' if the order does not matter"))
+
+    # ---- FRAGMENT-ROW -----------------------------------------------------
+    for i, text_i in enumerate(correct):
+        if len(values_by_row[i]) != 1:
+            continue
+        for j, values_j in enumerate(values_by_row):
+            if i == j or len(values_j) < 2:
+                continue
+            if text_i in values_j:
+                issues.append(Issue(
+                    FRAGMENT_ROW,
+                    f'{text_i!r} is also one value of {correct[j]!r}, so that '
+                    f'fragment alone grades as the whole answer'))
+                break
+
+    return issues

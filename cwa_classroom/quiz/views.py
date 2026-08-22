@@ -65,48 +65,6 @@ def _correct_answer_texts(question):
     ]
 
 
-def _grade_short_answer(question, raw, correct_texts):
-    """Grade a typed short answer against *every* accepted answer.
-
-    Two rules, either of which accepts:
-
-    - Exact match, exponent- and inequality-insensitive (mirrors
-      ``Question.grade_text_answer`` so the keypad buttons work here too). Each
-      stored answer may itself list comma-separated accepted forms — legacy
-      authoring that predates one Answer row per alternative.
-    - Set match on option labels, so a "select all that apply" answer stored as
-      ``"D and E"`` is accepted however the student orders it — ``"E,D"``,
-      ``"E D"`` (CPP-374). Only lists of single letters qualify, so an ordered
-      answer stays order-sensitive.
-
-    A question marked ``answer_format='set'`` — "list every value", where the
-    student must give them all in any order (CPP-376) — is graded on the model
-    instead, so the comma-as-alternatives rule above can't accept half of it.
-    """
-    from maths.algebra_grading import (
-        fold_exponents, fold_inequalities, option_label_set,
-    )
-    from maths.models import Question
-
-    if not raw or not correct_texts:
-        return False
-
-    if question.answer_format == Question.ANSWER_FORMAT_SET:
-        return question.grade_text_answer(raw)
-
-    def _fold(value):
-        return fold_exponents(fold_inequalities(value))
-
-    user = _fold(raw)
-    user_labels = option_label_set(raw)
-    for text in correct_texts:
-        if any(user == _fold(alt) for alt in text.split(',')):
-            return True
-        if user_labels is not None and user_labels == option_label_set(text):
-            return True
-    return False
-
-
 # ── Basic Facts ─────────────────────────────────────────────────────────────
 
 class BasicFactsHomeView(LoginRequiredMixin, View):
@@ -773,16 +731,13 @@ class MixedQuizView(LoginRequiredMixin, View):
                     is_correct = bool(answer and answer.is_correct)
                     student_answer = answer.answer_text if answer else ''
                     selected_answer_obj = answer
-            elif q.answer_format == 'algebra':
-                raw = request.POST.get(f'text_{q.id}', '').strip()
-                is_correct = q.grade_text_answer(raw)
-                student_answer = raw
-                typed_answer = raw
             else:
+                # Every typed answer grades on the model, which routes by
+                # answer_format (text / algebra / equation / set) internally.
                 raw = request.POST.get(f'text_{q.id}', '').strip()
                 student_answer = raw
                 typed_answer = raw
-                is_correct = _grade_short_answer(q, raw, _correct_answer_texts(q))
+                is_correct = q.grade_text_answer(raw)
 
             if is_correct:
                 correct_count += 1
@@ -886,7 +841,7 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         if not session_data:
             return JsonResponse({'error': 'Session expired'}, status=400)
 
-        from maths.models import Question, Answer
+        from maths.models import Question, Answer, _split_answer_list
         question_id = data.get('question_id')
         q = get_object_or_404(Question, id=question_id)
         current = session_data['current']
@@ -979,15 +934,21 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             raw = data.get('text_answer', '').strip()
             correct_texts = _correct_answer_texts(q)
             if correct_texts:
-                is_correct = _grade_short_answer(q, raw, correct_texts)
+                is_correct = q.grade_text_answer(raw)
                 if not is_correct and q.answer_format != Question.ANSWER_FORMAT_SET:
-                    # Numeric answers also grade within a small tolerance. Not
-                    # for a set answer — comparing against its first value would
-                    # accept "54" for "54, 63", which is half the answer.
+                    # Numeric answers also grade within a small tolerance.
                     tolerance = getattr(settings, 'ANSWER_NUMERIC_TOLERANCE', 0.05)
                     for text in correct_texts:
+                        # Only a single-value answer has a float to compare
+                        # against. Taking the first value of "32, 2" accepted a
+                        # bare "32" — half the answer — which is the same hole
+                        # the comma rule had (CPP-378). Commas are stripped
+                        # rather than split on, so "1,000" == 1000 still grades.
+                        if len(_split_answer_list(text)) > 1:
+                            continue
                         try:
-                            if abs(float(raw) - float(text.split(',')[0])) <= tolerance:
+                            if abs(float(raw.replace(',', ''))
+                                   - float(text.replace(',', ''))) <= tolerance:
                                 is_correct = True
                                 break
                         except ValueError:

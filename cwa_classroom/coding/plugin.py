@@ -130,7 +130,8 @@ class CodingExercisePlugin(SubjectPlugin):
         from coding.models import CodingExercise, CodingLanguage, CodingTopic
 
         populated_level_ids = set(
-            CodingExercise.objects.filter(is_active=True)
+            CodingExercise.objects.visible_to_classroom(classroom)
+            .filter(is_active=True)
             .values_list('topic_level_id', flat=True)
             .distinct()
         )
@@ -217,7 +218,9 @@ class CodingExercisePlugin(SubjectPlugin):
         )
         if not valid_tl_ids:
             return []
-        exercise_qs = CodingExercise.objects.filter(
+        # Scope to what this CLASS may draw on — an unscoped pool hands one
+        # school's private exercises to every other school's homework.
+        exercise_qs = CodingExercise.objects.visible_to_classroom(classroom).filter(
             topic_level_id__in=valid_tl_ids, is_active=True,
         )
         if question_type:

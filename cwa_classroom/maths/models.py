@@ -24,6 +24,9 @@ _DIGIT_GROUP_COMMA_RE = re.compile(r'(?<=\d),(?=\d{3}\b)')
 _ANSWER_LIST_SEP_RE = re.compile(r'\s*(?:,|;|\band\b)\s*', re.IGNORECASE)
 _GROUP_COMMA_SENTINEL = '\x00'
 _PLAIN_NUMBER_RE = re.compile(r'^-?\d+(?:\.\d+)?$')
+# One value of a numeric list, with any bracket it was written inside:
+# "(3", "11)", "-2.5)". Used to compare such a list value-by-value.
+_LIST_VALUE_BRACKETS = '()[]'
 
 
 def _split_answer_list(value):
@@ -353,10 +356,12 @@ class Question(models.Model):
         # keypad buttons are usable on ordinary maths answers: the x² button
         # (cm^2 == cm² == cm2), a typed inequality however the student spells the
         # operator (x ≥ 2 == x>=2 == x=>2), and the ° button so an angle grades
-        # the same with or without it (50 == 50°). See fold_exponents /
-        # fold_inequalities / fold_degrees.
+        # the same with or without it (50 == 50°), and the ÷ button so a
+        # quotient grades the same typed either way (n ÷ 4 == n/4). See
+        # fold_exponents / fold_inequalities / fold_degrees / fold_division.
         from maths.algebra_grading import (
             fold_degrees,
+            fold_division,
             fold_exponents,
             fold_inequalities,
             option_label_set,
@@ -386,11 +391,52 @@ class Question(models.Model):
             # [x×*] split already used for prime_factorization in maths.plugin.
             value = re.sub(r'[×✕✖·∙⋅]', '*', value)
             value = re.sub(r'(?<=\d)\s*[x*]\s*(?=\d)', '*', value)
-            return fold_exponents(fold_inequalities(fold_degrees(value)))
+            # Division is the same operation however it is spelled, so a
+            # stored "n ÷ 4" accepts "n/4" and vice versa.
+            return fold_exponents(
+                fold_inequalities(fold_degrees(fold_division(value)))
+            )
+
+        def _positional_values(value):
+            """The ordered values when *value* is a list of plain numbers.
+
+            None for anything else — a word list ("red, green"), an assignment
+            list ("x = 4, y = 2") — which keeps those on the whitespace-and-
+            comma-insensitive comparison above.
+
+            Needed because that comparison deletes the comma, which loses where
+            one value ends and the next begins: "(3,11)" and "(31,1)" both fold
+            to "(311)", so a transposed coordinate graded as correct (CPP-378).
+            Comparing value-by-value keeps the boundary. Brackets are stripped
+            per value, so "(3,11)" also accepts the bare "3,11" a student types
+            without them — which is how several coordinate questions are already
+            authored, with a paren-less second Answer row.
+            """
+            parts = _split_answer_list(value)
+            if len(parts) < 2:
+                return None
+            values = []
+            for part in parts:
+                part = _fold(part).strip(_LIST_VALUE_BRACKETS)
+                if not _PLAIN_NUMBER_RE.match(part):
+                    return None
+                values.append(part)
+            return values
 
         user = _fold(text_answer)
-        if any(user == _fold(c) for c in correct):
-            return True
+        user_values = _positional_values(text_answer)
+        for c in correct:
+            # Two numeric lists are compared value-by-value; anything else
+            # falls through to the flat comparison, so a student who types the
+            # answer as one blob still grades exactly as before.
+            if user_values is not None:
+                stored_values = _positional_values(c)
+                if stored_values is not None:
+                    if user_values == stored_values:
+                        return True
+                    continue
+            if user == _fold(c):
+                return True
 
         # A "list every value" answer is a *set*: the student must give every
         # value, but the order they list them in must not decide the mark —
@@ -1435,6 +1481,10 @@ class QuestionHealthSnapshot(models.Model):
     # Population
     total_questions = models.PositiveIntegerField(default=0)
     choice_questions = models.PositiveIntegerField(default=0)
+    typed_questions = models.PositiveIntegerField(
+        default=0,
+        help_text='Short-answer / calculation questions scanned (CPP-378). '
+                  'Previously unmeasured, so health read better than it was.')
 
     # Coverage — how much of the bank the audit could actually judge.
     arithmetic_verified = models.PositiveIntegerField(
@@ -1468,11 +1518,17 @@ class QuestionHealthSnapshot(models.Model):
 
     @property
     def health_percent(self):
-        """Share of choice questions with no blocking issue, 0-100."""
-        if not self.choice_questions:
+        """Share of *audited* questions with no blocking issue, 0-100.
+
+        Audited means choice + typed: questions_blocking counts both since
+        CPP-378, so dividing by the choice count alone reported a bank with two
+        broken typed answers and no choice questions as 100% healthy.
+        """
+        audited = self.choice_questions + self.typed_questions
+        if not audited:
             return 100
-        sound = self.choice_questions - self.questions_blocking
-        return round(sound / self.choice_questions * 100, 1)
+        sound = max(0, audited - self.questions_blocking)
+        return round(sound / audited * 100, 1)
 
     @property
     def coverage_percent(self):

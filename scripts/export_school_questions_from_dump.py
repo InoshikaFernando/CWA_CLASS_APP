@@ -169,6 +169,12 @@ def build(dump_path, school_id):
             'answer_unit': q['answer_unit'] or '',
             'grid_spec': _json_field(q['grid_spec']),
             'shape_spec': _json_field(q['shape_spec']),
+            # .get() rather than [] — these columns post-date older dumps, and a
+            # missing one should export as null, not blow the whole run up.
+            'plane_spec': _json_field(q.get('plane_spec')),
+            'graph_spec': _json_field(q.get('graph_spec')),
+            'number_line_spec': _json_field(q.get('number_line_spec')),
+            'table_spec': _json_field(q.get('table_spec')),
             'answers': [
                 {
                     'answer_text': a['answer_text'] or '',

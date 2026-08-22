@@ -62,6 +62,30 @@ class AIImportAdjustImageTests(TestCase):
         self.assertIn('id="adjust-modal"', html)
         self.assertIn('id="img-ref-0"', html)
 
+    def test_crop_button_opens_question_page(self):
+        # Embedded-image questions have no image_page (it's popped during import);
+        # the page is recovered from the pageN_ ref. No-image questions use the
+        # classifier's source_page. Neither must fall back to page 1.
+        s = AIImportSession.objects.create(
+            user=self.user, school=self.school, pdf_filename='b.pdf',
+            status=AIImportSession.STATUS_READY, page_count=4, is_confirmed=False,
+            extracted_data={
+                'year_level': 5, 'subject': 'Mathematics', 'strand': '', 'topic': '',
+                'questions': [
+                    {'question_text': 'embedded on p2', 'question_type': 'multiple_choice',
+                     'image_ref': 'page2_img1.png'},
+                    {'question_text': 'no visual, from p4', 'question_type': 'short_answer',
+                     'source_page': 4},
+                ],
+            },
+            extracted_images={'page2_img1.png': _PNG_B64},
+        )
+        s.pdf_file.save('b.pdf', ContentFile(_pdf_bytes()), save=True)
+        self.client.force_login(self.user)
+        html = self.client.get(reverse('ai_import:preview', args=[s.pk])).content.decode()
+        self.assertIn('data-adjust="0" data-page="2"', html)   # from image_ref
+        self.assertIn('data-adjust="1" data-page="4"', html)   # from source_page
+
     def test_page_image_and_recrop(self):
         s = self._session()
         self.client.force_login(self.user)

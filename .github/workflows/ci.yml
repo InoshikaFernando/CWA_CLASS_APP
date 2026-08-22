@@ -87,12 +87,18 @@ jobs:
               - 'cwa_classroom/classroom/**'
             maths:
               - 'cwa_classroom/maths/**'
+              # maths.Question's manager lives in brainbuzz — a change there
+              # (e.g. the visibility filters) can break maths without touching
+              # a single file under maths/.
+              - 'cwa_classroom/brainbuzz/managers.py'
             quiz:
               - 'cwa_classroom/quiz/**'
             puzzles:
               - 'cwa_classroom/number_puzzles/**'
             coding:
               - 'cwa_classroom/coding/**'
+              # Same for CodingExercise's manager.
+              - 'cwa_classroom/brainbuzz/managers.py'
             accounts:
               - 'cwa_classroom/accounts/**'
             audit:
