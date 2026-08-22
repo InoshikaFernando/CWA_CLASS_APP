@@ -8,6 +8,7 @@ from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.utils import timezone
 from django.conf import settings
+from django.db.models import Q
 
 from audit.services import log_event
 from classroom.models import Level as ClassroomLevel, SchoolStudent, Topic as ClassroomTopic
@@ -66,6 +67,55 @@ def _correct_answer_texts(question):
         a.answer_text for a in question.answers.filter(is_correct=True)
         if a.answer_text
     ]
+
+
+def gradable_for(user, questions_qs):
+    """Filter *questions_qs* down to the questions this quiz can actually mark.
+
+    A quiz gives its verdict the instant the student presses Submit, so it may
+    only serve questions it can grade on the spot. Two kinds it cannot:
+
+    - ``question_type='extended_answer'`` — written prose, no stored answer;
+    - ``validation_type`` of ``ai_graded`` / ``human_graded`` — the author said
+      explicitly that a person or a model must judge this one.
+
+    Until now the quiz served them anyway and then graded them by exact match
+    against a stored answer that, by definition, isn't there — so every student
+    who met one lost the mark, whatever they wrote. 483 questions site-wide are
+    in this state, and they are not broken content: they carry the diagram and
+    the marking rubric AI grading needs. They are simply being marked by the
+    wrong grader.
+
+    Hiding them is the honest interim: a question nobody can pass should not be
+    put in front of a child. This is also where the entitlement check belongs
+    once AI grading is wired into the quiz — the question becomes "may THIS
+    student be shown this question", answered by their school's AI grading
+    module or their own subscription. *user* is taken now so that call site
+    doesn't have to change again.
+    """
+    from maths.models import Question
+
+    ungradable = Q(question_type=Question.EXTENDED_ANSWER) | Q(
+        validation_type__in=(Question.VALIDATION_AI, Question.VALIDATION_HUMAN))
+    return questions_qs.exclude(ungradable)
+
+
+def _log_hidden(user, level_number, topic, shown, total):
+    """Say plainly when a quiz was shortened, and by how much.
+
+    A quiz that quietly shrinks from 25 questions to 6 looks like thin content
+    rather than what it is — questions waiting on a grader.
+    """
+    hidden = total - shown
+    if not hidden:
+        return
+    logger.warning(
+        'Quiz for %s (year %s%s): %s of %s questions hidden because the quiz '
+        'cannot grade them (extended_answer / ai_graded / human_graded). '
+        '%s left.',
+        getattr(user, 'username', user), level_number,
+        f', topic {topic}' if topic else '', hidden, total, shown,
+    )
 
 
 # ── Basic Facts ─────────────────────────────────────────────────────────────
@@ -582,9 +632,11 @@ class TopicQuizView(LoginRequiredMixin, View):
         topic = get_object_or_404(ClassroomTopic, id=topic_id)
 
         from maths.models import Question
-        questions_qs = list(Question.objects.filter(
-            topic=topic, level=level
-        ).prefetch_related('answers'))
+        in_topic = Question.objects.filter(topic=topic, level=level)
+        questions_qs = list(
+            gradable_for(request.user, in_topic).prefetch_related('answers'))
+        _log_hidden(request.user, level_number, topic.id,
+                    len(questions_qs), in_topic.count())
 
         if not questions_qs:
             from django.contrib import messages
@@ -667,12 +719,20 @@ class MixedQuizView(LoginRequiredMixin, View):
         # Stratified sample across all topics for this level
         topics = level.topics.all()
         all_questions = []
+        # Counted over the whole pool, not the 5-per-topic sample, so the log
+        # below reports what the level holds rather than what this draw took.
+        pool_total = pool_gradable = 0
         for topic in topics:
-            qs = list(Question.objects.filter(topic=topic, level=level).prefetch_related('answers'))
+            in_topic = Question.objects.filter(topic=topic, level=level)
+            gradable = gradable_for(request.user, in_topic)
+            pool_total += in_topic.count()
+            pool_gradable += gradable.count()
+            qs = list(gradable.prefetch_related('answers'))
             rnd.shuffle(qs)
             all_questions.extend(qs[:5])  # max 5 per topic
 
         rnd.shuffle(all_questions)
+        _log_hidden(request.user, level_number, None, pool_gradable, pool_total)
 
         if not all_questions:
             from django.contrib import messages
