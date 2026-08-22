@@ -20,6 +20,11 @@ SCALAR_FIELDS = (
     'validation_type', 'answer_format', 'grading_rubric',
     'dividend', 'divisor', 'target_number', 'operands', 'operator',
     'numeric_answer', 'answer_tolerance', 'answer_unit', 'grid_spec', 'shape_spec',
+    # Newer self-drawing types. Every type-specific column on maths.Question
+    # belongs in this tuple — one left out is silently dropped, and the import's
+    # dedup then SKIPS the half-built global copy on a re-run instead of
+    # repairing it. Add the column here whenever a question type gains one.
+    'plane_spec', 'graph_spec', 'number_line_spec', 'table_spec',
 )
 
 
