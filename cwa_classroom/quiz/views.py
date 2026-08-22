@@ -70,7 +70,7 @@ def _grade_short_answer(question, raw, correct_texts):
 
     Two rules, either of which accepts:
 
-    - Exact match, exponent- and inequality-insensitive (mirrors
+    - Exact match, exponent-, inequality- and division-insensitive (mirrors
       ``Question.grade_text_answer`` so the keypad buttons work here too). Each
       stored answer may itself list comma-separated accepted forms — legacy
       authoring that predates one Answer row per alternative.
@@ -84,7 +84,7 @@ def _grade_short_answer(question, raw, correct_texts):
     instead, so the comma-as-alternatives rule above can't accept half of it.
     """
     from maths.algebra_grading import (
-        fold_exponents, fold_inequalities, option_label_set,
+        fold_division, fold_exponents, fold_inequalities, option_label_set,
     )
     from maths.models import Question
 
@@ -95,7 +95,9 @@ def _grade_short_answer(question, raw, correct_texts):
         return question.grade_text_answer(raw)
 
     def _fold(value):
-        return fold_exponents(fold_inequalities(value))
+        # Division folded too, so a stored "n ÷ 4" accepts the student's "n/4"
+        # (and vice versa) — the same answer written the other way.
+        return fold_exponents(fold_inequalities(fold_division(value)))
 
     user = _fold(raw)
     user_labels = option_label_set(raw)

@@ -99,6 +99,30 @@ class GradeTextAnswerRoutingTests(TestCase):
         self.assertFalse(q.grade_text_answer('x > 2'))
         self.assertFalse(q.grade_text_answer('x ≤ 2'))  # wrong direction
 
+    def test_text_format_is_division_insensitive(self):
+        # "n ÷ 4" and "n/4" are the same answer written two ways — the question
+        # bank stores one of them and the student may type either.
+        q = self._question('text', ['n ÷ 4'])
+        for ans in ['n ÷ 4', 'n/4', 'n / 4', 'N/4', 'n÷4']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+        self.assertFalse(q.grade_text_answer('4/n'))   # reversed operands
+        self.assertFalse(q.grade_text_answer('n/5'))   # wrong divisor
+        self.assertFalse(q.grade_text_answer('4n'))    # multiplied, not divided
+
+        # ...and the same when the stored answer is the slash form.
+        q2 = self._question('text', ['n/4'])
+        for ans in ['n/4', 'n ÷ 4']:
+            self.assertTrue(q2.grade_text_answer(ans), ans)
+
+    def test_algebra_format_is_division_insensitive(self):
+        # Authored as algebra, the same question routes through the polynomial
+        # grader — a quotient is a valid simplified term there too.
+        q = self._question('algebra', ['n ÷ 4'])
+        for ans in ['n/4', 'n ÷ 4', '0.25n', '1/4n']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+        for ans in ['4/n', 'n/5', '4n']:
+            self.assertFalse(q.grade_text_answer(ans), ans)
+
     def test_text_format_is_degree_insensitive(self):
         # The ° button is available on all typed maths answers, so an angle
         # answer must grade correct with or without the degree sign — a stored

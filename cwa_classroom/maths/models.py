@@ -353,10 +353,12 @@ class Question(models.Model):
         # keypad buttons are usable on ordinary maths answers: the x² button
         # (cm^2 == cm² == cm2), a typed inequality however the student spells the
         # operator (x ≥ 2 == x>=2 == x=>2), and the ° button so an angle grades
-        # the same with or without it (50 == 50°). See fold_exponents /
-        # fold_inequalities / fold_degrees.
+        # the same with or without it (50 == 50°), and the ÷ button so a
+        # quotient grades the same typed either way (n ÷ 4 == n/4). See
+        # fold_exponents / fold_inequalities / fold_degrees / fold_division.
         from maths.algebra_grading import (
             fold_degrees,
+            fold_division,
             fold_exponents,
             fold_inequalities,
             option_label_set,
@@ -386,7 +388,11 @@ class Question(models.Model):
             # [x×*] split already used for prime_factorization in maths.plugin.
             value = re.sub(r'[×✕✖·∙⋅]', '*', value)
             value = re.sub(r'(?<=\d)\s*[x*]\s*(?=\d)', '*', value)
-            return fold_exponents(fold_inequalities(fold_degrees(value)))
+            # Division is the same operation however it is spelled, so a
+            # stored "n ÷ 4" accepts "n/4" and vice versa.
+            return fold_exponents(
+                fold_inequalities(fold_degrees(fold_division(value)))
+            )
 
         user = _fold(text_answer)
         if any(user == _fold(c) for c in correct):
