@@ -1,16 +1,18 @@
-"""The quiz must not serve questions it cannot mark.
+"""The quiz must not serve a question it cannot mark FOR THIS STUDENT.
 
 483 questions site-wide are ``extended_answer`` or ``validation_type`` of
 ``ai_graded`` / ``human_graded`` — written answers a person or a model has to
-judge. The quiz served them anyway and then graded them by exact match against
-a stored answer that, by definition, does not exist, so every student who met
-one lost the mark whatever they wrote. Year 10 Inequalities is 19 of its 25
-questions; Year 9 Angles is 34 of 59.
+judge. The quiz served them to everyone and then graded them by exact match
+against a stored answer that, by definition, does not exist, so every student
+who met one lost the mark whatever they wrote. Year 10 Inequalities is 19 of
+its 25 questions; Year 9 Angles is 34 of 59.
 
-Those questions are not broken: they carry the diagram and the marking rubric
-AI grading needs. Until the quiz can call that grader, they are hidden rather
-than served as unpassable.
+Who now sees them is in ``test_ai_graded_quiz.py``. What this file pins is the
+other half: a student the quiz CANNOT AI-grade — one at a school without the
+module — is not shown those questions at all, and the shorter quiz that leaves
+is visible in the log rather than looking like thin content.
 """
+from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
@@ -19,6 +21,12 @@ from maths.models import Answer, Question
 from quiz.views import gradable_for
 
 User = get_user_model()
+
+
+def no_ai_grading():
+    """Stand in for a student at a school that has not bought the module."""
+    return patch('worksheets.grading_service.student_can_be_ai_graded',
+                 return_value=False)
 
 
 class GradableForTests(TestCase):
@@ -60,10 +68,15 @@ class GradableForTests(TestCase):
             question_type=Question.SHORT_ANSWER,
             validation_type=Question.VALIDATION_HUMAN)
 
-    def _kept(self):
-        return set(gradable_for(
-            self.student, Question.objects.filter(topic=self.topic),
-        ).values_list('id', flat=True))
+    def _kept(self, ai_graded=False):
+        if ai_graded:
+            return set(gradable_for(
+                self.student, Question.objects.filter(topic=self.topic),
+            ).values_list('id', flat=True))
+        with no_ai_grading():
+            return set(gradable_for(
+                self.student, Question.objects.filter(topic=self.topic),
+            ).values_list('id', flat=True))
 
     def test_questions_the_quiz_can_mark_are_kept(self):
         kept = self._kept()
@@ -74,11 +87,16 @@ class GradableForTests(TestCase):
         # It has no stored answer either, but the quiz CAN mark it.
         self.assertIn(self.pattern.id, self._kept())
 
-    def test_an_ai_graded_written_question_is_hidden(self):
+    def test_an_ai_graded_written_question_is_hidden_without_the_module(self):
         self.assertNotIn(self.written.id, self._kept())
 
-    def test_a_human_graded_question_is_hidden(self):
+    def test_the_same_question_is_offered_when_ai_grading_is_available(self):
+        self.assertIn(self.written.id, self._kept(ai_graded=True))
+
+    def test_a_human_graded_question_is_hidden_from_everyone(self):
+        # No quiz can wait for a teacher, whatever the school pays for.
         self.assertNotIn(self.teacher_marked.id, self._kept())
+        self.assertNotIn(self.teacher_marked.id, self._kept(ai_graded=True))
 
 
 class TopicQuizHidesUngradableTests(TestCase):
@@ -112,9 +130,11 @@ class TopicQuizHidesUngradableTests(TestCase):
         self.client.login(username='quiz-hidden-student', password='pass1234')
 
     def _start_quiz(self):
-        return self.client.get(
-            f'/maths/level/{self.level.level_number}'
-            f'/topic/{self.topic.id}/quiz/')
+        """Start the quiz as a student whose school has no AI grading."""
+        with no_ai_grading():
+            return self.client.get(
+                f'/maths/level/{self.level.level_number}'
+                f'/topic/{self.topic.id}/quiz/')
 
     def test_the_unmarkable_question_is_not_served(self):
         response = self._start_quiz()

@@ -71,9 +71,29 @@
   let _submitting = false;
   let _selectedAnswerId = null;   // which MCQ option the student tapped
 
+  // An AI-marked written answer takes a second or two to come back. Without a
+  // sign that anything is happening, a child presses Submit again — or decides
+  // it is broken. Removed the moment feedback (or an error) replaces it.
+  function _showChecking() {
+    const card = document.getElementById('question-card');
+    if (!card || card.querySelector('#checking-note')) return;
+    const el = document.createElement('div');
+    el.id = 'checking-note';
+    el.className = 'mt-5 rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 '
+                 + 'text-blue-800 font-semibold';
+    el.textContent = '⏳ Checking your answer…';
+    card.appendChild(el);
+  }
+
+  function _clearChecking() {
+    const el = document.getElementById('checking-note');
+    if (el) el.remove();
+  }
+
   async function _submitAndAdvance(sessionId, payload) {
     if (_answered || _submitting) return;
     _submitting = true;
+    _showChecking();
     try {
       const resp = await fetch('/api/submit-topic-answer/', {
         method: 'POST',
@@ -81,6 +101,7 @@
         body: JSON.stringify(payload),
       });
       const data = await resp.json();
+      _clearChecking();
       if (!resp.ok) {
         _showError(data.error || 'Something went wrong. Please refresh and try again.');
         return;
@@ -88,6 +109,7 @@
       _answered = true;
       _showFeedback(data, sessionId);
     } catch (err) {
+      _clearChecking();
       _showError('Could not submit your answer. Please check your connection and try again.');
     } finally {
       _submitting = false;
@@ -139,7 +161,16 @@
       ? `<div class="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-blue-800 text-sm">${_esc(data.feedback)}</div>`
       : '';
 
-    if (data.is_correct) {
+    if (data.ungraded) {
+      // No verdict was reached — AI marking was unavailable or out of quota.
+      // Deliberately NOT red: the student did nothing wrong, and this answer
+      // has been left out of their score rather than counted against them.
+      fb.innerHTML = `
+        <div class="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-amber-900">
+          <p class="font-semibold">⏳ Not marked yet</p>
+        </div>
+        ${note}`;
+    } else if (data.is_correct) {
       fb.innerHTML = `
         <div class="flex items-center gap-2 rounded-xl bg-green-50 border border-green-200 px-4 py-3 font-semibold text-green-800">
           ✅ Correct!

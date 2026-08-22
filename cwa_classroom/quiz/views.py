@@ -79,25 +79,35 @@ def gradable_for(user, questions_qs):
     - ``validation_type`` of ``ai_graded`` / ``human_graded`` — the author said
       explicitly that a person or a model must judge this one.
 
-    Until now the quiz served them anyway and then graded them by exact match
-    against a stored answer that, by definition, isn't there — so every student
-    who met one lost the mark, whatever they wrote. 483 questions site-wide are
-    in this state, and they are not broken content: they carry the diagram and
-    the marking rubric AI grading needs. They are simply being marked by the
-    wrong grader.
+    A quiz gives its verdict the instant the student presses Submit, so it may
+    only serve questions it can mark then and there. What that leaves out
+    depends on the student:
 
-    Hiding them is the honest interim: a question nobody can pass should not be
-    put in front of a child. This is also where the entitlement check belongs
-    once AI grading is wired into the quiz — the question becomes "may THIS
-    student be shown this question", answered by their school's AI grading
-    module or their own subscription. *user* is taken now so that call site
-    doesn't have to change again.
+    - ``validation_type='human_graded'`` is hidden from everyone. A teacher has
+      to mark it, and no quiz can wait for that.
+    - AI-graded questions (``extended_answer``, or ``validation_type=
+      'ai_graded'``) are shown to students the quiz can AI-grade: every
+      individual student, and school students whose school buys the AI grading
+      module. For anyone else they are hidden, because the alternative is
+      showing a child a question that will be marked wrong however well they
+      answer it.
+
+    Before this, all of them were served to everyone and then graded by exact
+    match against a stored answer that, by definition, isn't there. 483
+    questions site-wide are in that state, and they are not broken content:
+    they carry the diagram and the marking rubric AI grading needs.
     """
     from maths.models import Question
+    from worksheets.grading_service import student_can_be_ai_graded
 
-    ungradable = Q(question_type=Question.EXTENDED_ANSWER) | Q(
-        validation_type__in=(Question.VALIDATION_AI, Question.VALIDATION_HUMAN))
-    return questions_qs.exclude(ungradable)
+    # Nobody can be marked on these inside a quiz.
+    hidden = Q(validation_type=Question.VALIDATION_HUMAN)
+
+    if not student_can_be_ai_graded(user):
+        hidden |= (Q(question_type=Question.EXTENDED_ANSWER)
+                   | Q(validation_type=Question.VALIDATION_AI))
+
+    return questions_qs.exclude(hidden)
 
 
 def _log_hidden(user, level_number, topic, shown, total):
@@ -111,11 +121,48 @@ def _log_hidden(user, level_number, topic, shown, total):
         return
     logger.warning(
         'Quiz for %s (year %s%s): %s of %s questions hidden because the quiz '
-        'cannot grade them (extended_answer / ai_graded / human_graded). '
-        '%s left.',
+        'cannot mark them for this student (teacher-graded, or AI-graded '
+        'without the module). %s left.',
         getattr(user, 'username', user), level_number,
         f', topic {topic}' if topic else '', hidden, total, shown,
     )
+
+
+def ai_grade(question, raw, user):
+    """AI-grade a written answer. Returns ``(is_correct, feedback, graded)``.
+
+    ``graded`` is False when the grader could not reach a verdict — the API
+    failed, or the school's monthly quota ran out mid-quiz. Both come back from
+    ``grade_extended_answer`` as ``is_correct: False``, and taking that at face
+    value would mark a child wrong for a billing state or an outage. So the
+    answer is recorded as ungraded instead and dropped from the score's
+    denominator: not right, not wrong, not counted.
+    """
+    from worksheets.grading_service import grade_extended_answer
+
+    school = _get_student_school(user)
+    if not raw:
+        return False, 'Write your answer in the box so it can be marked.', True
+
+    result = grade_extended_answer(question, raw, school=school)
+
+    if result.get('quota_exceeded') or result.get('error'):
+        logger.warning(
+            'AI grading unavailable for Q%s (student %s, school %s): %s — '
+            'the answer was left ungraded rather than scored wrong.',
+            question.id, getattr(user, 'username', user),
+            getattr(school, 'name', None),
+            result.get('error') or 'monthly quota reached',
+        )
+        return False, (
+            'This one could not be marked automatically just now, so it has '
+            'not been counted. Your teacher will look at it.'), False
+
+    feedback = result.get('feedback') or ''
+    extra = result.get('what_to_add')
+    if extra and not result.get('is_correct'):
+        feedback = f'{feedback} {extra}'.strip()
+    return bool(result.get('is_correct')), feedback, True
 
 
 # ── Basic Facts ─────────────────────────────────────────────────────────────
@@ -771,6 +818,7 @@ class MixedQuizView(LoginRequiredMixin, View):
         questions = Question.objects.filter(id__in=question_ids).prefetch_related('answers', 'topic')
 
         correct_count = 0
+        ungraded = 0        # answers no grader could reach a verdict on
         topic_results = {}  # {topic_name: {'correct': 0, 'total': 0}}
         answer_records = []
         review_data = []  # per-question review payload for later viewing
@@ -794,6 +842,16 @@ class MixedQuizView(LoginRequiredMixin, View):
                     is_correct = bool(answer and answer.is_correct)
                     student_answer = answer.answer_text if answer else ''
                     selected_answer_obj = answer
+            elif (q.question_type == Question.EXTENDED_ANSWER
+                  or q.validation_type == Question.VALIDATION_AI):
+                # Written answer — same AI grader as the topic quiz. One it
+                # could not reach a verdict on is dropped from the total rather
+                # than counted wrong.
+                raw = request.POST.get(f'text_{q.id}', '').strip()
+                student_answer = typed_answer = raw
+                is_correct, _feedback, graded = ai_grade(q, raw, request.user)
+                if not graded:
+                    ungraded += 1
             else:
                 # Every typed answer grades on the model, which routes by
                 # answer_format (text / algebra / equation / set) internally.
@@ -825,7 +883,9 @@ class MixedQuizView(LoginRequiredMixin, View):
                 is_correct=is_correct,
             ))
 
-        total = len(question_ids) or 1
+        # Ungraded answers (AI grading down or out of quota) are not part of
+        # the paper — see ai_grade().
+        total = max(1, len(question_ids) - ungraded)
         points = calculate_points(correct_count, total, time_taken)
 
         from django.db import transaction
@@ -915,8 +975,12 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         correct_answer_text = ''
         correct_answer_id = None
         # Grader-written explanation, for question types where the mark needs
-        # one (see the pattern branch below). Empty for everything else.
+        # one (see the pattern and AI branches below). Empty for everything else.
         feedback = ''
+        # Set when no verdict could be reached (AI grading down or out of
+        # quota). Such an answer is dropped from the score rather than counted
+        # against the student.
+        ungraded = False
         # The option the student actually clicked. Persisted on StudentAnswer
         # below: without it the row records only *that* an answer scored zero,
         # never *what* was chosen, which makes a "this was marked wrong
@@ -996,6 +1060,16 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             raw = data.get('text_answer', '').strip()
             is_correct = q.grade_text_answer(raw)
             correct_answer_text = q.correct_answer_display()
+        elif (q.question_type == Question.EXTENDED_ANSWER
+              or q.validation_type == Question.VALIDATION_AI):
+            # A written answer, judged by Claude against the question's rubric.
+            # Only reachable when gradable_for() offered the question, so the
+            # student is one the quiz can AI-grade.
+            raw = data.get('text_answer', '').strip()
+            is_correct, feedback, graded = ai_grade(q, raw, request.user)
+            if not graded:
+                ungraded = True
+            correct_answer_text = ''
         elif q.answer_format == Question.ANSWER_FORMAT_PATTERN:
             # "Create your own number pattern" — no stored answer exists, so the
             # typed numbers are graded against what the question asks for. The
@@ -1073,6 +1147,8 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         # Update session
         if is_correct:
             session_data['correct'] += 1
+        if ungraded:
+            session_data['ungraded'] = session_data.get('ungraded', 0) + 1
         session_data['current'] = current + 1
         # Record this question for later review, but guard against a replayed or
         # double-clicked POST re-recording a question already answered — that
@@ -1111,7 +1187,11 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             # Save final result
             start_time = session_data.get('start_time', time.time())
             time_taken = max(1, int(time.time() - start_time))
-            total = len(questions)
+            # Questions nobody could mark are not part of the paper: scoring a
+            # student 7/8 because the grader was down is a mark they did not
+            # lose. max(1, ...) keeps calculate_points from dividing by zero on
+            # the (pathological) all-ungraded quiz.
+            total = max(1, len(questions) - session_data.get('ungraded', 0))
             correct = session_data['correct']
             points = calculate_points(correct, total, time_taken)
 
@@ -1167,6 +1247,7 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             'correct_answer_id': correct_answer_id,
             'correct_answer_text': correct_answer_text,
             'feedback': feedback,
+            'ungraded': ungraded,
             'explanation': q.explanation,
             'is_last_question': is_last,
             'next_url': next_url,
