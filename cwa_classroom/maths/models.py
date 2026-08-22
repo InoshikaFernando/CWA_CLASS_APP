@@ -359,6 +359,7 @@ class Question(models.Model):
             fold_degrees,
             fold_exponents,
             fold_inequalities,
+            is_reordered_expression_correct,
             option_label_set,
         )
 
@@ -390,6 +391,15 @@ class Question(models.Model):
 
         user = _fold(text_answer)
         if any(user == _fold(c) for c in correct):
+            return True
+
+        # "Write an expression for the total cost" is authored as a plain text
+        # answer, so a literal match marked "110 + 12p" wrong against a stored
+        # "12p + 110" — the same expression with its terms commuted. Compare the
+        # two as polynomials when both are written as a simple expression; the
+        # student's answer is still graded strictly, so un-combined like terms
+        # and un-expanded brackets stay wrong (see is_reordered_expression_correct).
+        if any(is_reordered_expression_correct(text_answer, c) for c in correct):
             return True
 
         # A "list every value" answer is a *set*: the student must give every

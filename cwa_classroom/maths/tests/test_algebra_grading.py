@@ -12,12 +12,14 @@ import pytest
 from maths.algebra_grading import (
     MathAnswerError,
     _collect,
+    _is_simple_expression,
     _parse_term,
     _split_terms,
     fold_degrees,
     fold_exponents,
     fold_inequalities,
     is_algebraic_answer_correct,
+    is_reordered_expression_correct,
     normalize_notation,
 )
 
@@ -267,3 +269,69 @@ class TestFoldDegrees:
     def test_plain_values_unaffected(self):
         assert fold_degrees("8") == "8"
         assert fold_degrees("2x + 3") == "2x + 3"
+
+
+# --------------------------------------------------------------------------- #
+# The term-order fallback used by plain-text ('text') answers.
+# --------------------------------------------------------------------------- #
+class TestReorderedExpression:
+    """A written expression must grade the same whichever order its terms are in.
+
+    "The cost is $110 room hire plus $12 per person — write an expression for
+    p people" is an ordinary typed question, so it was graded by literal match
+    and "110 + 12p" came back WRONG against the stored "12p + 110".
+    """
+
+    @pytest.mark.parametrize("typed", [
+        "110+12p",
+        "110 + 12p",
+        "12p + 110",
+        "12p+110",
+        "110+12*p",
+    ])
+    def test_either_term_order_is_accepted(self, typed):
+        assert is_reordered_expression_correct(typed, "12p + 110") is True
+
+    @pytest.mark.parametrize("typed", [
+        "110 + 11p",     # wrong coefficient
+        "12p - 110",     # wrong sign
+        "12p + 100",     # wrong constant
+        "110 + 12",      # variable dropped
+        "12q + 110",     # wrong variable
+        "110 + 12p + 1",  # extra term
+    ])
+    def test_a_different_expression_is_still_wrong(self, typed):
+        assert is_reordered_expression_correct(typed, "12p + 110") is False
+
+    def test_unsimplified_work_is_still_wrong(self):
+        # The fallback forgives term ORDER only — it never marks work the
+        # student was asked to finish as correct.
+        assert is_reordered_expression_correct("6p + 6p + 110", "12p + 110") is False
+        assert is_reordered_expression_correct("2(6p + 55)", "12p + 110") is False
+
+    @pytest.mark.parametrize("typed,correct", [
+        ("felt", "left"),          # same letters, different word
+        ("was", "saw"),
+        ("fifty-three", "three-fifty"),
+        ("63, 54", "54, 63"),      # "write these in order" stays ordered
+        ("1/4 2", "2 1/4"),
+    ])
+    def test_word_and_ordered_answers_are_not_reordered(self, typed, correct):
+        # The polynomial parser reads a run of letters as a product of
+        # single-letter variables, so the guard must keep worded answers out.
+        assert is_reordered_expression_correct(typed, correct) is False
+
+    def test_alternatives_are_each_tried(self):
+        assert is_reordered_expression_correct("110 + 12p", "12p + 110|110 + 12p") is True
+
+    @pytest.mark.parametrize("text,expected", [
+        ("12p + 110", True),
+        ("2x^2 - 7x - 15", True),
+        ("x + y", True),
+        ("12p", False),          # one term: nothing to reorder
+        ("felt", False),         # word
+        ("3(x + 2)", False),     # brackets
+        ("", False),
+    ])
+    def test_simple_expression_guard(self, text, expected):
+        assert _is_simple_expression(text) is expected

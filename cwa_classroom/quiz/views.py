@@ -84,7 +84,8 @@ def _grade_short_answer(question, raw, correct_texts):
     instead, so the comma-as-alternatives rule above can't accept half of it.
     """
     from maths.algebra_grading import (
-        fold_exponents, fold_inequalities, option_label_set,
+        fold_exponents, fold_inequalities, is_reordered_expression_correct,
+        option_label_set,
     )
     from maths.models import Question
 
@@ -101,6 +102,10 @@ def _grade_short_answer(question, raw, correct_texts):
     user_labels = option_label_set(raw)
     for text in correct_texts:
         if any(user == _fold(alt) for alt in text.split(',')):
+            return True
+        # Term order must not decide the mark on a written expression: a stored
+        # "12p + 110" accepts "110 + 12p" (mirrors Question.grade_text_answer).
+        if any(is_reordered_expression_correct(raw, alt) for alt in text.split(',')):
             return True
         if user_labels is not None and user_labels == option_label_set(text):
             return True

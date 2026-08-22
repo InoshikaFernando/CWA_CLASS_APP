@@ -76,9 +76,13 @@ class GradeTextAnswerRoutingTests(TestCase):
         self.assertTrue(q.grade_text_answer('paris'))     # case-insensitive
         self.assertTrue(q.grade_text_answer('  PARIS '))  # space-insensitive
         self.assertFalse(q.grade_text_answer('London'))
-        # Text mode does NOT understand algebra: reordering is just a wrong string.
+        # Term order is the one thing text mode does forgive on an expression
+        # (see WrittenExpressionOrderTests) — everything else stays a literal
+        # match, so un-simplified work is still wrong.
         q2 = self._question('text', ['2x^2 - 7x - 15'])
-        self.assertFalse(q2.grade_text_answer('-7x + 2x^2 - 15'))
+        self.assertTrue(q2.grade_text_answer('-7x + 2x^2 - 15'))
+        self.assertFalse(q2.grade_text_answer('2x^2 - 3x - 4x - 15'))
+        self.assertFalse(q2.grade_text_answer('(2x + 3)(x - 5)'))
 
     def test_text_format_is_exponent_insensitive(self):
         # The x² button is available on all typed maths answers, so a unit answer
@@ -378,3 +382,54 @@ class CorrectAnswerDisplayTests(TestCase):
     def test_no_correct_row_is_blank(self):
         q = self._question([], wrong=['45'])
         self.assertEqual(q.correct_answer_display(), '')
+
+
+class WrittenExpressionOrderTests(TestCase):
+    """A "write an expression for..." answer must not be marked wrong for the
+    order its terms are written in.
+
+    These questions are authored as plain typed answers (answer_format='text'),
+    so the literal match rejected a student's "110 + 12p" against the stored
+    "12p + 110" — the same expression, commuted.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=993,
+            defaults={'display_name': 'written expression fixture'},
+        )
+
+    def _question(self, correct, text='Write an expression for the total cost'):
+        q = Question.objects.create(
+            level=self.level,
+            question_text=text,
+            question_type=Question.SHORT_ANSWER,
+            answer_format=Question.ANSWER_FORMAT_TEXT,
+            difficulty=1,
+            points=1,
+        )
+        for value in correct:
+            Answer.objects.create(question=q, answer_text=value, is_correct=True)
+        return q
+
+    def test_either_term_order_is_correct(self):
+        q = self._question(['12p + 110'])
+        for ans in ['12p + 110', '110 + 12p', '110+12p', '12p+110']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+
+    def test_a_different_expression_is_still_wrong(self):
+        q = self._question(['12p + 110'])
+        for ans in ['110 + 11p', '12p - 110', '110 + 12', '12q + 110', '110p + 12']:
+            self.assertFalse(q.grade_text_answer(ans), ans)
+
+    def test_unsimplified_answer_is_still_wrong(self):
+        q = self._question(['12p + 110'])
+        self.assertFalse(q.grade_text_answer('6p + 6p + 110'))
+        self.assertFalse(q.grade_text_answer('2(6p + 55)'))
+
+    def test_ordered_and_worded_answers_keep_their_order(self):
+        ordered = self._question(['54, 63'], text='Write these numbers in order')
+        self.assertFalse(ordered.grade_text_answer('63, 54'))
+        words = self._question(['left'], text='Which way does it turn?')
+        self.assertFalse(words.grade_text_answer('felt'))

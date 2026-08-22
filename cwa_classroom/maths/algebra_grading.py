@@ -332,6 +332,84 @@ def is_algebraic_answer_correct(user_answer: str, correct_answer: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Term-order fallback for plain-text ('text') answers
+# ---------------------------------------------------------------------------
+# "Write an algebraic expression for the total cost" is authored as an ordinary
+# typed short answer (answer_format='text'), so it is graded by literal match —
+# which marked a student's ``110 + 12p`` wrong against the stored ``12p + 110``
+# even though addition commutes and the answer is the one being taught. Rather
+# than requiring every such question to be re-tagged as 'algebra', the text path
+# falls back to comparing the two as polynomials when BOTH sides are written as
+# a simple expression (see _is_simple_expression).
+#
+# The guard matters: the polynomial parser reads a run of letters as a product
+# of single-letter variables, so an unguarded fallback would grade the word
+# answers "felt" and "left" — same letters — as equal. Only strings whose every
+# term is ``number? letter? ^exponent?`` (so at most one letter per term) and
+# which have two or more terms take this path; a worded answer, a hyphenated
+# number word ("fifty-three") or anything with brackets keeps its exact match.
+
+# One term of a "simple expression": optional sign, optional coefficient, at
+# most ONE variable letter with an optional exponent.
+_SIMPLE_TERM_RE = re.compile(rf"^[+-]?(?:{_NUM})?(?:\*?[a-z](?:\^\d+)?)?$")
+
+
+def _is_simple_expression(text: str) -> bool:
+    """True when *text* is a multi-term expression of number/single-letter terms.
+
+    >>> _is_simple_expression("12p + 110")
+    True
+    >>> _is_simple_expression("2x^2 - 7x - 15")
+    True
+    >>> _is_simple_expression("12p")            # one term: nothing to reorder
+    False
+    >>> _is_simple_expression("felt")           # word, not an expression
+    False
+    >>> _is_simple_expression("fifty-three")    # hyphenated number word
+    False
+    >>> _is_simple_expression("3(x + 2)")       # brackets: not simplified
+    False
+    """
+    s = normalize_notation(text)
+    if not s or "(" in s or ")" in s:
+        return False
+    terms = _split_terms(s)
+    if len(terms) < 2:
+        return False
+    return all(term not in ("", "+", "-") and _SIMPLE_TERM_RE.match(term) for term in terms)
+
+
+def is_reordered_expression_correct(user_answer: str, correct_answer: str) -> bool:
+    """Return True iff both answers are simple expressions with the same terms.
+
+    The order the terms are written in is all that may differ: the student's
+    answer is still graded strictly (brackets and un-combined like terms are
+    wrong), so this only forgives commuting a sum — it never accepts work the
+    student was asked to finish.
+
+    >>> is_reordered_expression_correct("110 + 12p", "12p + 110")
+    True
+    >>> is_reordered_expression_correct("12p - 110", "12p + 110")
+    False
+    >>> is_reordered_expression_correct("110 + 11p", "12p + 110")
+    False
+    >>> is_reordered_expression_correct("felt", "left")
+    False
+    """
+    if not user_answer or not correct_answer:
+        return False
+    if not _is_simple_expression(user_answer):
+        return False
+    for alternative in correct_answer.split("|"):
+        alternative = alternative.strip()
+        if _is_simple_expression(alternative) and is_algebraic_answer_correct(
+            user_answer, alternative
+        ):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Equation-equivalence grading (answer_format = 'equation')
 # ---------------------------------------------------------------------------
 # For "write the equation of this parabola" questions, the answer key is vertex
