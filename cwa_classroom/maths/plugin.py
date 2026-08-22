@@ -111,7 +111,10 @@ class MathsPlugin(SubjectPlugin):
             return []
 
         classroom_levels = classroom.levels.all()
-        qs = Question.objects.filter(topic__in=topics).select_related('topic')
+        # Scope to what this CLASS may draw on. Unscoped, homework generated for
+        # one school pulled in every other school's private questions.
+        qs = (Question.objects.visible_to_classroom(classroom)
+              .filter(topic__in=topics).select_related('topic'))
         if classroom_levels.exists():
             qs = qs.filter(level__in=classroom_levels)
         if question_type:
@@ -301,12 +304,13 @@ class MathsPlugin(SubjectPlugin):
             .select_related('subject', 'parent', 'parent__parent')
             .order_by('subject__name', 'parent__name', 'name')
         )
+        visible = Question.objects.visible_to_classroom(classroom)
         if classroom_levels.exists():
-            question_filter = Question.objects.filter(
+            question_filter = visible.filter(
                 topic=OuterRef('pk'), level__in=classroom_levels,
             )
         else:
-            question_filter = Question.objects.filter(topic=OuterRef('pk'))
+            question_filter = visible.filter(topic=OuterRef('pk'))
         return base_qs.filter(Exists(question_filter))
 
     @staticmethod
