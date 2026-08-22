@@ -274,6 +274,9 @@
           {% if q.answers %}
           <div>
             <label class="text-xs text-gray-500 font-medium mb-1 block">Answers (tick the correct one)</label>
+            {% if q.answer_warning %}
+            <p class="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">⚠ {{ q.answer_warning }}</p>
+            {% endif %}
             <div class="space-y-1.5">
               {% for ans in q.answers %}
               <div class="flex items-center gap-2">

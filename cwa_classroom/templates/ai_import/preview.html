@@ -336,6 +336,9 @@
             <!-- Answers -->
             <div id="answers-section-{{ forloop.counter0 }}" {% if q.question_type == 'column_operation' or q.question_type == 'long_division' or q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' or q.question_type == 'read_graph' or q.question_type == 'measure' or q.question_type == 'number_line' %}class="hidden"{% endif %}>
               <label class="block text-xs font-semibold text-gray-500 mb-1">Answers</label>
+              {% if q.answer_warning %}
+              <p class="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">⚠ {{ q.answer_warning }}</p>
+              {% endif %}
               <div class="space-y-2 answers-container" data-idx="{{ forloop.counter0 }}">
                 {% for ans in q.answers %}
                 <div class="flex items-center gap-2 answer-row">
