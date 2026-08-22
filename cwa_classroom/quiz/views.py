@@ -621,7 +621,10 @@ class TopicQuizView(LoginRequiredMixin, View):
         topic = get_object_or_404(ClassroomTopic, id=topic_id)
 
         from maths.models import Question
-        questions_qs = list(Question.objects.filter(
+        # Global bank only. A plain .filter() here reads every school's private
+        # questions too, so one school's content was being served to every other
+        # school's students — and to students in no school at all.
+        questions_qs = list(Question.objects.global_only().filter(
             topic=topic, level=level
         ).prefetch_related('answers'))
 
@@ -707,7 +710,8 @@ class MixedQuizView(LoginRequiredMixin, View):
         topics = level.topics.all()
         all_questions = []
         for topic in topics:
-            qs = list(Question.objects.filter(topic=topic, level=level).prefetch_related('answers'))
+            qs = list(Question.objects.global_only()
+                      .filter(topic=topic, level=level).prefetch_related('answers'))
             rnd.shuffle(qs)
             all_questions.extend(qs[:5])  # max 5 per topic
 

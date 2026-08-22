@@ -83,6 +83,17 @@ class VisibleQuestionsQuerySet(models.QuerySet):
 
         return self.filter(Q(school__isnull=True) | local)
 
+    def global_only(self):
+        """Only the shared bank (``school IS NULL``).
+
+        ``visible_to`` widens to a user's own school as well; this is the
+        narrower rule for the places that must serve the *same* questions to
+        everyone — the topic and mixed quizzes, and the topic picker that links
+        into them. Without it those views read the whole table and hand one
+        school's private questions to every other school's students.
+        """
+        return self.filter(school__isnull=True)
+
 
 class VisibleQuestionsManager(models.Manager):
     """Manager for questions with visibility filtering."""
@@ -98,6 +109,10 @@ class VisibleQuestionsManager(models.Manager):
     def visible_to_classroom(self, classroom):
         """Get questions a classroom may draw on."""
         return self.get_queryset().visible_to_classroom(classroom)
+
+    def global_only(self):
+        """Get the shared-bank questions only."""
+        return self.get_queryset().global_only()
 
 
 class MathsQuestionsQuerySet(VisibleQuestionsQuerySet):

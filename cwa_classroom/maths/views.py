@@ -660,8 +660,12 @@ def dashboard(request):
     all_year_levels = ClassroomLevel.objects.filter(level_number__lt=100).order_by('level_number')
 
     # One query: classroom level_id → set of classroom topic_ids that have questions
+    # Global bank only — this flag decides whether a topic renders as a link to
+    # the topic quiz, and that quiz serves global questions only. Counting
+    # school-private questions here would offer a topic whose quiz then turns
+    # the student straight back to this page with "no questions available".
     topics_with_q_by_level = defaultdict(set)
-    for row in Question.objects.values('level_id', 'topic_id').distinct():
+    for row in Question.objects.global_only().values('level_id', 'topic_id').distinct():
         topics_with_q_by_level[row['level_id']].add(row['topic_id'])
 
     year_data = []
