@@ -4,16 +4,25 @@ sub-title — the live-DB twin of ``scripts/export_school_questions_from_dump.py
 The output is consumed by ``manage.py import_global_questions`` to promote the
 questions into the global bank (school=NULL).
 
+``--year`` / ``--topic`` narrow the export to one slice of the school's bank.
+Promoting a whole school in one go is a large, hard-to-review content change;
+the filters let a promotion be scoped to the gap that was actually found (e.g.
+"Year 4 Number Patterns is empty in global").
+
 Usage
 -----
     python manage.py export_school_questions --school 4 -o mhm.json
     python manage.py export_school_questions --school-slug maths-hub-melbourne-pty-ltd -o mhm.json
+    python manage.py export_school_questions --school 4 --year 4 \
+        --topic "Number Patterns" -o mhm_y4_patterns.json
 """
 import json
 from collections import defaultdict
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand, CommandError
+
+from maths.topic_lookup import matching_topics, topic_path
 
 SCALAR_FIELDS = (
     'question_text', 'question_type', 'difficulty', 'points', 'explanation',
@@ -39,6 +48,14 @@ class Command(BaseCommand):
         parser.add_argument('--school', type=int, help='School id to export.')
         parser.add_argument('--school-slug', type=str, help='School slug to export.')
         parser.add_argument('-o', '--output', required=True, help='Output JSON path.')
+        parser.add_argument('--year', type=int,
+                            help='Only export this year level (Level.level_number).')
+        parser.add_argument('--topic', type=str,
+                            help='Only export this topic — matched case-insensitively '
+                                 "against the topic name, its parent strand's name, "
+                                 'or its slug, so a strand pulls in its sub-topics.')
+        parser.add_argument('--exact-topic', action='store_true',
+                            help='Match --topic as a full name instead of a substring.')
 
     def handle(self, *args, **opts):
         from classroom.models import School
@@ -58,6 +75,26 @@ class Command(BaseCommand):
             .select_related('level', 'topic', 'topic__parent')
             .prefetch_related('answers')
         )
+
+        topics = []
+        if opts['topic']:
+            topics = matching_topics(opts['topic'], exact=opts['exact_topic'])
+            # An unmatched name would otherwise export zero questions and read
+            # as "the school has none of these", which is a different fact.
+            if not topics:
+                raise CommandError(f"No topic matches {opts['topic']!r}.")
+            qs = qs.filter(topic__in=topics)
+            self.stdout.write('Topic filter matches %d topic row(s): %s' % (
+                len(topics), '; '.join(topic_path(t) for t in topics)))
+        if opts['year'] is not None:
+            qs = qs.filter(level__level_number=opts['year'])
+
+        if not qs.exists():
+            raise CommandError(
+                f"No questions for school '{school.name}'"
+                + (f" at year {opts['year']}" if opts['year'] is not None else '')
+                + (f" on topic {opts['topic']!r}" if opts['topic'] else '')
+                + ' — nothing to export.')
 
         grouped = defaultdict(list)
         for q in qs:
@@ -104,6 +141,8 @@ class Command(BaseCommand):
                 'generated_from': 'live-db',
                 'question_count': qs.count(),
                 'group_count': len(groups),
+                'filter_year': opts['year'],
+                'filter_topic': opts['topic'] or None,
             },
             'groups': groups,
         }
