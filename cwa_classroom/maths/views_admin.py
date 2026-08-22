@@ -317,6 +317,7 @@ BULK_ACTIONS = (
     ('delete_duplicates', 'Delete duplicated options (works on worded answers)'),
     ('pad_options', 'Add wrong answers (up to four options)'),
     ('to_short_answer', 'Change question type to Short Answer'),
+    ('to_ai_graded', 'Convert to AI graded (Claude marks the written answer)'),
     ('trim_options', 'Trim to four options (keeps the correct one)'),
     ('fill_answer', 'Work out the missing answer (arithmetic only)'),
     ('fix_answer_key', 'Correct the answer key (arithmetic only)'),
@@ -351,7 +352,14 @@ FIXES_FOR_CODE = {
 # it applies a judgement the reviewer made in the row, so running it inside an
 # automatic sweep would either do nothing (no tick) or, worse, look like the
 # machine had settled a question it cannot settle.
-MANUAL_FIXES = frozenset({'set_answer_key'})
+#
+# 'to_ai_graded' is excluded for a different reason: it spends money and, for a
+# school without the AI grading module, REMOVES the question from quizzes
+# altogether (quiz.views.gradable_for). Neither is a consequence an automatic
+# sweep may choose on a reviewer's behalf, so it stays a deliberate pick from
+# the menu. It is absent from FIXES_FOR_CODE too, which is what actually keeps
+# 'auto' away from it; this is the belt to that pair of braces.
+MANUAL_FIXES = frozenset({'set_answer_key', 'to_ai_graded'})
 
 # The codes whose only remaining route needs a person to tick an option. The
 # check page renders that ticker inline for these rows, so the answer key can
@@ -418,7 +426,7 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
                      .filter(id__in=ids)
                      .prefetch_related('answers'))
 
-        changed, skipped = 0, []
+        changed, skipped, rubricless = 0, [], []
         for question in questions:
             answers = list(question.answers.order_by('order', 'id'))
             if action == 'auto':
@@ -432,6 +440,8 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
 
             changed += 1
             for name, detail in applied:
+                if detail.get('needs_rubric'):
+                    rubricless.append(question.id)
                 log_event(
                     user=request.user, school=question.school,
                     category='data_change', action=f'bulk_fix_{name}',
@@ -447,6 +457,18 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
             # Reported individually rather than as a count: "3 skipped" tells
             # the reviewer nothing about what still needs a human.
             messages.warning(request, f'Left alone — {note}')
+
+        if rubricless:
+            # Converted, but not finished. Without a marking guide the grader
+            # judges the answer on the question text alone, so the mark drifts
+            # between two students who wrote the same thing. Saying so here is
+            # the difference between a job done and a job that looks done.
+            messages.warning(
+                request,
+                'AI graded, but no marking guide yet — '
+                f'{", ".join(f"Q{qid}" for qid in rubricless)}. '
+                'Add a grading rubric in the editor saying what a correct '
+                'answer must contain, or the AI marks them inconsistently.')
 
         return redirect(request.POST.get('next')
                         or 'question_check_admin_dashboard')
@@ -518,9 +540,9 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
     def _apply(self, action, question, answers, request=None):
         """Perform one fix. Returns an audit detail dict, or None for a no-op."""
         from .duplicate_repair import (
-            Skipped, plan_answer_fill, plan_answer_key, plan_blank_removal,
-            plan_chosen_answer_key, plan_duplicate_removal, plan_padding,
-            plan_repair, plan_type_change)
+            Skipped, plan_ai_grading, plan_answer_fill, plan_answer_key,
+            plan_blank_removal, plan_chosen_answer_key, plan_duplicate_removal,
+            plan_padding, plan_repair, plan_type_change)
         from .models import Answer
 
         if action == 'replace_duplicates':
@@ -633,5 +655,22 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
             question.question_type = 'short_answer'
             question.save(update_fields=['question_type', 'updated_at'])
             return {'question_type_was': was, 'question_type_now': 'short_answer'}
+
+        if action == 'to_ai_graded':
+            from .models import Question
+
+            if not plan_ai_grading(question, answers):
+                return None
+            was = question.validation_type
+            question.validation_type = Question.VALIDATION_AI
+            question.save(update_fields=['validation_type', 'updated_at'])
+            # A rubric is what the grader marks AGAINST, so a question converted
+            # without one is only half-converted — it will be marked on the
+            # question text alone, inconsistently. The caller turns this flag
+            # into a warning naming the question, rather than letting the run
+            # report a clean success over work still to do.
+            return {'validation_type_was': was,
+                    'validation_type_now': Question.VALIDATION_AI,
+                    'needs_rubric': not (question.grading_rubric or '').strip()}
 
         return None
