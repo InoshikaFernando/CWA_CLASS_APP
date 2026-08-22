@@ -378,12 +378,21 @@ def _choose_sequence(numbers, length, text):
 # Reading the rule the student stated
 # --------------------------------------------------------------------------
 
+# An operator SYMBOL only counts as a rule when a number follows it: "rule -2"
+# states a rule, but the dash in "20, 18, 16 — rule: subtract 2" is punctuation.
+# Folding em/en dashes to "-" (so a typed minus is read whichever character the
+# student reached for) means that punctuation would otherwise be read as
+# "subtract" and contradict any addition rule written beside it — which failed
+# a correct answer to every "create your own ADDITION pattern" question.
 _RULE_WORDS = [
     (r'take\s*away|takeaway|subtract\w*|minus|less|down|back|smaller', SUBTRACT),
-    (r'add\w*|plus|\+|up|more|bigger|larger', ADD),
-    (r'multipl\w*|times|double|doubl\w*|\*|\bx\b', MULTIPLY),
-    (r'divid\w*|halve|halv\w*|half|/', DIVIDE),
-    (r'-', SUBTRACT),
+    (r'add\w*|plus|up|more|bigger|larger', ADD),
+    (r'multipl\w*|times|double|doubl\w*', MULTIPLY),
+    (r'divid\w*|halve|halv\w*|half', DIVIDE),
+    (r'-\s*\d', SUBTRACT),
+    (r'\+\s*\d', ADD),
+    (r'[x*]\s*\d', MULTIPLY),
+    (r'/\s*\d', DIVIDE),
 ]
 
 
