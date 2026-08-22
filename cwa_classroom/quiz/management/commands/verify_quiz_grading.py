@@ -15,7 +15,9 @@ checks the outcome against the maths:
     (the CPP-377 defect: '2/6' rejected when the answer is '1/3')
 
 For typed questions it submits each stored correct answer and requires it to
-be accepted.
+be accepted. For "create your own pattern" questions, which have no stored
+answer to submit, it builds a model pattern from the question's own wording and
+requires that to be accepted.
 
 Nothing is written. Each question's answer rows are rolled back in their own
 short transaction, and the throwaway student account is deleted at the end —
@@ -167,6 +169,20 @@ class Command(BaseCommand):
                     f'WRONG when typed')
         return problems
 
+    def _check_pattern(self, client, question):
+        """A "create your own pattern" question has no stored answer, so the
+        sweep submits a worked example built from the question's own wording —
+        which is exactly what the student is being asked to produce."""
+        from maths.pattern_grading import example_answer, parse_pattern_request
+
+        text = example_answer(parse_pattern_request(question.question_text))
+        result = self._submit(client, question, {'text_answer': text})
+        if result is None:
+            return [f'endpoint error submitting {text!r}']
+        if not result:
+            return [f'MISMARK: the model pattern {text!r} was scored WRONG']
+        return []
+
     def _check_measure(self, client, question):
         if question.numeric_answer is None:
             return ['measure question with no numeric_answer']
@@ -234,6 +250,10 @@ class Command(BaseCommand):
 
                 if question.question_type in CHOICE_TYPES:
                     check = self._check_choice
+                elif question.answer_format == 'pattern':
+                    # Before the typed-answer branch: these ARE short answers,
+                    # but there is no stored answer for _check_text to submit.
+                    check = self._check_pattern
                 elif question.question_type in TEXT_TYPES:
                     check = self._check_text
                 elif question.question_type == 'measure':
