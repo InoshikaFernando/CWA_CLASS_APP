@@ -82,7 +82,9 @@ def normalize_short_answer(text: str) -> str:
        and the quiz views, so a student can use the x² button anywhere.
        (fold_exponents also lowercases and strips ALL whitespace, so
        "py thon" == "python".)
-    2. Remove commas (digit-grouping or list commas are insignificant, so
+    2. Fold every division sign onto "/" so a quotient answer matches however
+       it is written — "n ÷ 4" == "n/4".
+    3. Remove commas (digit-grouping or list commas are insignificant, so
        "1,000" == "1000" and "red,green" == "red green").
 
     Args:
@@ -106,12 +108,18 @@ def normalize_short_answer(text: str) -> str:
 
         >>> normalize_short_answer("3 × 10²") == normalize_short_answer("3 × 10^2")
         True
+
+        >>> normalize_short_answer("n ÷ 4") == normalize_short_answer("n/4")
+        True
     """
     # Lazy import keeps scoring.py importable without the maths app loaded.
-    from maths.algebra_grading import fold_exponents, fold_inequalities
+    from maths.algebra_grading import (
+        fold_division, fold_exponents, fold_inequalities,
+    )
 
-    # Fold inequalities then exponents (lowercases + strips whitespace).
-    text = fold_exponents(fold_inequalities(text))
+    # Fold division, then inequalities, then exponents (the last lowercases +
+    # strips whitespace).
+    text = fold_exponents(fold_inequalities(fold_division(text)))
 
     # Commas are insignificant (digit-grouping or list commas).
     text = text.replace(',', '')
