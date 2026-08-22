@@ -271,6 +271,11 @@ CHOICE_TYPES = ('multiple_choice', 'true_false')
 # a defect, on questions that were working exactly as designed.
 GRADED_TYPES = ('extended_answer',)
 
+# answer_format of a question whose answer the student invents (Question.
+# ANSWER_FORMAT_PATTERN — spelled out here to keep this module import-free of
+# the models).
+PATTERN_FORMAT = 'pattern'
+
 
 def _is_graded_by_a_person(question):
     """Is this question's answer judged rather than matched?
@@ -298,6 +303,13 @@ def verify_question(question, min_options=2, max_options=MAX_OPTIONS):
     # editor's normal state rather than a fault. Returning early says that
     # plainly instead of reporting the format as broken.
     if _is_graded_by_a_person(question):
+        return issues, False
+
+    # Same for a "create your own number pattern" question: the student invents
+    # the answer, so it is graded against the question's requirements
+    # (maths.pattern_grading) and having no stored answer is its healthy state,
+    # not the NO-CORRECT defect below.
+    if getattr(question, 'answer_format', '') == PATTERN_FORMAT:
         return issues, False
 
     options = list(question.answers.all())

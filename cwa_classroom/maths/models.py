@@ -182,11 +182,13 @@ class Question(models.Model):
     ANSWER_FORMAT_ALGEBRA = 'algebra'
     ANSWER_FORMAT_EQUATION = 'equation'
     ANSWER_FORMAT_SET = 'set'
+    ANSWER_FORMAT_PATTERN = 'pattern'
     ANSWER_FORMAT_CHOICES = [
         ('text', 'Text — exact match (case/space-insensitive)'),
         ('algebra', 'Algebra — simplified polynomial (e.g. expand & simplify)'),
         ('equation', 'Equation — algebraic equivalence (accepts vertex / factored / expanded form)'),
         ('set', 'Set — list every value, any order (e.g. "what are the multiples of 9 between 50 and 70?")'),
+        ('pattern', 'Pattern — student invents their own number pattern (no stored answer)'),
     ]
     answer_format = models.CharField(
         max_length=10, choices=ANSWER_FORMAT_CHOICES, default='text',
@@ -199,7 +201,11 @@ class Question(models.Model):
             '"Set" is for "list every value" questions — store the values as one '
             'comma-separated answer ("54, 63"); the student must give them all, in any '
             'order. Leave as "Text" when the order of the values is part of the answer '
-            '(e.g. "write these numbers in order").'
+            '(e.g. "write these numbers in order"). "Pattern" is for "create your own '
+            'number pattern" questions, which have no single right answer and so store '
+            'no Answer row at all: the typed numbers are graded against what the '
+            'question asks for (same step each time, right operation, right count). '
+            'Without it such a question marks every student wrong.'
         ),
     )
 
@@ -326,12 +332,22 @@ class Question(models.Model):
           - 'algebra' → simplified-polynomial match (see maths.algebra_grading);
                         any of the correct answers may be the canonical form, and
                         each may itself list ``|`` separated acceptable forms.
+          - 'pattern' → the student invents the answer, so it is graded against
+                        the question's requirements (see maths.pattern_grading).
 
         Centralised here so every delivery surface (worksheets, the maths plugin)
         grades identically. Returns a bool.
         """
         if not text_answer:
             return False
+
+        # A "create your own pattern" question stores no correct answer — there
+        # isn't one — so this MUST come before the no-stored-answer guard below,
+        # which would otherwise mark every answer wrong.
+        if self.answer_format == self.ANSWER_FORMAT_PATTERN:
+            from maths.pattern_grading import grade_pattern
+            return grade_pattern(self.question_text, text_answer).is_correct
+
         correct = [
             a.answer_text for a in self.answers.filter(is_correct=True)
             if a.answer_text
@@ -431,15 +447,28 @@ class Question(models.Model):
         is a list of values may store one value per row, and showing only
         ``.first()`` tells the student "54" when the answer is "54 and 63"
         (CPP-376). Separate rows are alternatives, so they are joined with
-        " or "; a single row is shown verbatim, commas and all. Returns '' when
-        the question has no stored correct answer.
+        " or "; a single row is shown verbatim, commas and all. A "create your
+        own pattern" question has no stored answer at all, so a worked example
+        of what the question asked for stands in. Returns '' when there is
+        neither.
         """
         texts = [
             a.answer_text.strip()
             for a in self.answers.filter(is_correct=True)
             if a.answer_text and a.answer_text.strip()
         ]
-        return ' or '.join(texts)
+        if texts:
+            return ' or '.join(texts)
+
+        # "Create your own pattern" questions have no stored answer because
+        # there is no single right one. Showing the student a blank where the
+        # answer should be says nothing, so show a worked example of the thing
+        # the question asked for instead.
+        if self.answer_format == self.ANSWER_FORMAT_PATTERN:
+            from maths.pattern_grading import example_answer, parse_pattern_request
+            request = parse_pattern_request(self.question_text)
+            return f'Any pattern that fits — for example {example_answer(request)}'
+        return ''
 
     class Meta:
         ordering = ['level', 'difficulty', 'created_at']

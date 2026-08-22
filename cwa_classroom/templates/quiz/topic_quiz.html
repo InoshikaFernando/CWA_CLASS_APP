@@ -103,6 +103,11 @@
     card.appendChild(el);
   }
 
+  function _esc(text) {
+    return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
   function _showFeedback(data, sessionId) {
     const card = document.getElementById('question-card');
     if (!card) return;
@@ -126,11 +131,20 @@
     const fb = document.createElement('div');
     fb.className = 'mt-5 space-y-3';
 
+    // Some questions have no printable "the answer" — a created number pattern
+    // is right or wrong for reasons only the grader knows — so it sends back a
+    // sentence explaining the mark. Shown on correct answers too: that is where
+    // "you forgot to write your rule" belongs.
+    const note = data.feedback
+      ? `<div class="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-blue-800 text-sm">${_esc(data.feedback)}</div>`
+      : '';
+
     if (data.is_correct) {
       fb.innerHTML = `
         <div class="flex items-center gap-2 rounded-xl bg-green-50 border border-green-200 px-4 py-3 font-semibold text-green-800">
           ✅ Correct!
-        </div>`;
+        </div>
+        ${note}`;
     } else {
       const correctText = data.correct_answer_text || '';
       // Escape for safe use inside the data-speak="" attribute.
@@ -146,6 +160,7 @@
           <p class="font-semibold">❌ Incorrect</p>
           ${correctText ? `<p class="text-sm mt-1">Correct answer: <strong>${correctText}</strong>${speaker}</p>` : ''}
         </div>
+        ${note}
         ${data.explanation ? `<div class="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-blue-800 text-sm">${data.explanation}</div>` : ''}`;
     }
 

@@ -1,6 +1,7 @@
-import uuid
 import json
+import logging
 import time
+import uuid
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views import View
@@ -15,6 +16,8 @@ from .basic_facts import (
     SUBTOPIC_CONFIG, SUBTOPIC_LABELS, get_display_level,
     generate_questions, check_answer
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _get_student_school(user):
@@ -82,11 +85,21 @@ def _grade_short_answer(question, raw, correct_texts):
     A question marked ``answer_format='set'`` — "list every value", where the
     student must give them all in any order (CPP-376) — is graded on the model
     instead, so the comma-as-alternatives rule above can't accept half of it.
+
+    A question marked ``answer_format='pattern'`` — "create your own number
+    pattern" — has no stored answer to match at all, so it is graded against
+    what the question asks for. That check runs BEFORE the empty-correct_texts
+    guard below: reaching the guard is what used to mark every answer to those
+    questions wrong.
     """
     from maths.algebra_grading import (
         fold_exponents, fold_inequalities, option_label_set,
     )
     from maths.models import Question
+
+    if question.answer_format == Question.ANSWER_FORMAT_PATTERN:
+        from maths.pattern_grading import grade_pattern
+        return grade_pattern(question.question_text, raw).is_correct
 
     if not raw or not correct_texts:
         return False
@@ -896,6 +909,9 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         is_correct = False
         correct_answer_text = ''
         correct_answer_id = None
+        # Grader-written explanation, for question types where the mark needs
+        # one (see the pattern branch below). Empty for everything else.
+        feedback = ''
         # The option the student actually clicked. Persisted on StudentAnswer
         # below: without it the row records only *that* an answer scored zero,
         # never *what* was chosen, which makes a "this was marked wrong
@@ -975,10 +991,36 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             raw = data.get('text_answer', '').strip()
             is_correct = q.grade_text_answer(raw)
             correct_answer_text = q.correct_answer_display()
+        elif q.answer_format == Question.ANSWER_FORMAT_PATTERN:
+            # "Create your own number pattern" — no stored answer exists, so the
+            # typed numbers are graded against what the question asks for. The
+            # grader also explains itself, and that explanation is the only
+            # useful feedback such a question can give.
+            from maths.pattern_grading import grade_pattern
+            raw = data.get('text_answer', '').strip()
+            grade = grade_pattern(q.question_text, raw)
+            is_correct = grade.is_correct
+            feedback = grade.feedback
+            # There is no "the" answer, so this is a worked example. The client
+            # shows it only when the student got the question wrong.
+            correct_answer_text = q.correct_answer_display()
         else:
             raw = data.get('text_answer', '').strip()
             correct_texts = _correct_answer_texts(q)
-            if correct_texts:
+            if not correct_texts:
+                # Nothing to grade against: every student who ever answers this
+                # question scores zero, whatever they type. That is a content
+                # defect, not a student mistake — so say so in the log rather
+                # than letting it fail silently for years. Fix it by
+                # adding the answer, or by setting answer_format='pattern' if
+                # the question asks the student to invent one.
+                logger.warning(
+                    'Question %s (%r) has no stored correct answer — the typed '
+                    'answer %r was scored wrong because there is nothing to '
+                    'match it against.',
+                    q.id, q.question_text[:80], raw[:80],
+                )
+            else:
                 is_correct = _grade_short_answer(q, raw, correct_texts)
                 if not is_correct and q.answer_format != Question.ANSWER_FORMAT_SET:
                     # Numeric answers also grade within a small tolerance. Not
@@ -1113,6 +1155,7 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             'is_correct': is_correct,
             'correct_answer_id': correct_answer_id,
             'correct_answer_text': correct_answer_text,
+            'feedback': feedback,
             'explanation': q.explanation,
             'is_last_question': is_last,
             'next_url': next_url,
