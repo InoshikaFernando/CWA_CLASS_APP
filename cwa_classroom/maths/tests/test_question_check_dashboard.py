@@ -1438,8 +1438,7 @@ class TypedAnswerEditorTests(QuestionCheckTestBase):
         self.client.login(username='checkadmin', password='pass1234')
 
     def test_several_accepted_spellings_all_grade_correct(self):
-        from quiz.views import _correct_answer_texts, _grade_short_answer
-
+        """Graded through the model, which is what every quiz path calls."""
         q = Question.objects.create(
             level=self.y7, topic=self.fractions,
             question_text='Calculate the surface area of the half-cylinder.',
@@ -1448,11 +1447,10 @@ class TypedAnswerEditorTests(QuestionCheckTestBase):
             Answer.objects.create(question=q, answer_text=text,
                                   is_correct=True, order=order)
 
-        texts = _correct_answer_texts(q)
-        self.assertEqual(len(texts), 3)
+        self.assertEqual(q.answers.filter(is_correct=True).count(), 3)
         for typed in ('593 cm^2', '593', '593 cm2'):
             with self.subTest(typed):
-                self.assertTrue(_grade_short_answer(q, typed, texts))
+                self.assertTrue(q.grade_text_answer(typed))
 
     def test_multi_correct_is_not_reported_on_a_typed_question(self):
         """Only choice questions are single-select, so only they can break."""
