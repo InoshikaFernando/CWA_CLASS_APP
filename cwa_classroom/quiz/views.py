@@ -679,7 +679,13 @@ class TopicQuizView(LoginRequiredMixin, View):
         topic = get_object_or_404(ClassroomTopic, id=topic_id)
 
         from maths.models import Question
-        in_topic = Question.objects.filter(topic=topic, level=level)
+        # Global bank only. A plain .filter() here reads every school's private
+        # questions too, so one school's content was being served to every other
+        # school's students — and to students in no school at all. The gradable
+        # filter then drops what this student's quiz cannot mark; both narrow
+        # the same pool, so the hidden-count log counts against the global bank
+        # rather than against questions the student was never entitled to.
+        in_topic = Question.objects.global_only().filter(topic=topic, level=level)
         questions_qs = list(
             gradable_for(request.user, in_topic).prefetch_related('answers'))
         _log_hidden(request.user, level_number, topic.id,
@@ -770,7 +776,8 @@ class MixedQuizView(LoginRequiredMixin, View):
         # below reports what the level holds rather than what this draw took.
         pool_total = pool_gradable = 0
         for topic in topics:
-            in_topic = Question.objects.filter(topic=topic, level=level)
+            # Global bank only (see TopicQuizView), then drop the ungradable.
+            in_topic = Question.objects.global_only().filter(topic=topic, level=level)
             gradable = gradable_for(request.user, in_topic)
             pool_total += in_topic.count()
             pool_gradable += gradable.count()
