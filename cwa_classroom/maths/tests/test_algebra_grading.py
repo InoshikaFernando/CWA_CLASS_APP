@@ -19,6 +19,7 @@ from maths.algebra_grading import (
     fold_exponents,
     fold_inequalities,
     is_algebraic_answer_correct,
+    is_equation_answer_correct,
     is_reordered_expression_correct,
     normalize_notation,
 )
@@ -338,6 +339,26 @@ class TestReorderedExpression:
 
     def test_alternatives_are_each_tried(self):
         assert is_reordered_expression_correct("110 + 12p", "12p + 110|110 + 12p") is True
+
+    @pytest.mark.parametrize("typed", [
+        "-(3p - 12)",   # negated bracket
+        "3(4 - p)",     # common factor taken out
+        "-3(p - 4)",
+    ])
+    def test_a_bracketed_equivalent_is_not_accepted(self, typed):
+        # The line the fallback must not cross: these are the SAME value as
+        # "12 - 3p", but the student was asked to expand. Term order is
+        # forgiven; unfinished work is not. A question that should accept
+        # these belongs on answer_format='equation' (is_equation_answer_correct),
+        # which grades by algebraic equivalence — not on the text path.
+        assert is_reordered_expression_correct(typed, "12 - 3p") is False
+        assert is_algebraic_answer_correct(typed, "12 - 3p") is False
+
+    @pytest.mark.parametrize("typed", ["-(3x - 12)", "3(4 - x)", "-3(x - 4)"])
+    def test_equation_format_is_where_bracketed_forms_belong(self, typed):
+        # The counterpart to the test above: the same spellings the text and
+        # algebra paths reject ARE accepted by the equivalence grader.
+        assert is_equation_answer_correct(typed, "12 - 3x") is True
 
     @pytest.mark.parametrize("text,expected", [
         ("12p + 110", True),
