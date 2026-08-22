@@ -8,8 +8,11 @@ comma-as-alternatives rule in quiz.views._grade_short_answer be deleted? It
 can, iff no question actually relies on it to accept a correct answer.
 
     cd /home/cwa/CWA_CLASS_APP
-    venv/bin/python cwa_classroom/manage.py shell \
+    PYTHONIOENCODING=utf-8 venv/bin/python cwa_classroom/manage.py shell \
         < scripts/audit_comma_answers.py
+
+PYTHONIOENCODING is not optional: question text carries unicode (cm2 as cm²,
+angles as 50°) and a droplet with LANG unset dies on the first print without it.
 
 Locally:
     cd cwa_classroom && python manage.py shell < ../scripts/audit_comma_answers.py
@@ -100,9 +103,9 @@ for q in questions:
 
 W = 78
 for kind, header in (
-    ('ALTERNATIVES', 'Comma means OR — the legacy rule is doing real work here'),
-    ('PARTS',        'Comma joins ONE answer — a fragment is wrongly accepted'),
-    ('UNKNOWN',      'Non-numeric — needs a human eye'),
+    ('ALTERNATIVES', 'Comma means OR - the legacy rule is doing real work here'),
+    ('PARTS',        'Comma joins ONE answer - a fragment is wrongly accepted'),
+    ('UNKNOWN',      'Non-numeric - needs a human eye'),
 ):
     rows = buckets[kind]
     print(f'\n{"=" * W}\n{kind}  ({len(rows)})\n  {header}\n{"=" * W}')
