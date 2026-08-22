@@ -321,6 +321,21 @@ class TestReorderedExpression:
         # single-letter variables, so the guard must keep worded answers out.
         assert is_reordered_expression_correct(typed, correct) is False
 
+    @pytest.mark.parametrize("typed,correct", [
+        ("12-3p", "-3p+12"),        # constant first
+        ("-3p+12", "12-3p"),        # negative term first
+        ("12 - 3p", "-3p + 12"),
+        ("-x+5", "5-x"),
+        ("-15-7x+2x^2", "2x^2-7x-15"),
+    ])
+    def test_a_negative_term_may_lead_either_side(self, typed, correct):
+        # The sign travels with its term, so subtraction reorders too.
+        assert is_reordered_expression_correct(typed, correct) is True
+
+    @pytest.mark.parametrize("typed", ["3p+12", "12+3p", "-12-3p", "3p-12"])
+    def test_moving_a_sign_is_a_different_expression(self, typed):
+        assert is_reordered_expression_correct(typed, "12-3p") is False
+
     def test_alternatives_are_each_tried(self):
         assert is_reordered_expression_correct("110 + 12p", "12p + 110|110 + 12p") is True
 
