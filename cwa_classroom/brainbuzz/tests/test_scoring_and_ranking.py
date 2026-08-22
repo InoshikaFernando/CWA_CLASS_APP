@@ -189,6 +189,13 @@ class TestNormalizeShortAnswer(TestCase):
         assert normalize_short_answer("C++") == "c++"
         assert normalize_short_answer("C#") == "c#"
 
+    def test_division_spellings_fold_together(self):
+        """"n ÷ 4" and "n/4" are the same answer written two ways."""
+        assert normalize_short_answer("n ÷ 4") == normalize_short_answer("n/4")
+        assert normalize_short_answer("n ÷ 4") == "n/4"
+        # Folding the operator must not make the reversed quotient equal.
+        assert normalize_short_answer("n ÷ 4") != normalize_short_answer("4 ÷ n")
+
     def test_superscript_and_caret_fold_together(self):
         """Unicode superscript, caret and ** notation fold to one form."""
         assert normalize_short_answer("3 × 10²") == normalize_short_answer("3 × 10^2")

@@ -27,6 +27,8 @@ Input notation accepted:
     variables    : single letters ``a``-``z`` (multi-variable OK: ``x^2 - y^2``)
     exponents    : ``^n`` / ``**n`` / unicode superscripts (``x^2``, ``x**2``, ``x^2``)
     products     : implicit (``2x``, ``xy``) or explicit (``2*x``, ``x*y``)
+    quotients    : a term may be written as a quotient (``n/4`` == ``n ÷ 4`` ==
+                   ``0.25n``); ``÷`` folds to ``/`` (see fold_division)
 
 The expected answer may list ``|`` separated alternative correct forms, matching
 the convention already used elsewhere for short answers.
@@ -45,8 +47,11 @@ _SUPERSCRIPT_MAP = str.maketrans(_SUPERSCRIPTS, "0123456789")
 
 # A coefficient token: integer, decimal, or simple fraction (e.g. 2, 1.5, 3/4).
 _NUM = r"\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)?"
-# One full term: optional sign, optional coefficient, then variable factors.
-_TERM_RE = re.compile(rf"^([+-]?)({_NUM})?((?:\*?[a-z](?:\^\d+)?)*)$")
+# One full term: optional sign, optional coefficient, variable factors, and an
+# optional trailing divisor so a term may be written as a quotient — "n/4" is
+# the same monomial as "(1/4)n", which is how a student naturally writes "a
+# number divided by 4" (the ÷ button folds to "/" in normalize_notation).
+_TERM_RE = re.compile(rf"^([+-]?)({_NUM})?((?:\*?[a-z](?:\^\d+)?)*)(?:/({_NUM}))?$")
 # A single variable factor inside a term: optional '*', a letter, optional '^n'.
 _VAR_RE = re.compile(r"\*?([a-z])(?:\^(\d+))?")
 
@@ -59,8 +64,9 @@ def normalize_notation(text: str) -> str:
     """Fold the many ways of typing an exponent/product into one canonical form.
 
     Lowercases, converts unicode superscripts (``x^2``) and ``**`` to ``^``,
-    treats ``*``, ``·``, ``×``, ``•`` as multiplication, and strips ALL
-    whitespace so ``2x^2 - 7x`` and ``2x^2-7x`` compare equal.
+    treats ``*``, ``·``, ``×``, ``•`` as multiplication, folds every division
+    sign onto ``/`` (see :func:`fold_division`), and strips ALL whitespace so
+    ``2x^2 - 7x`` and ``2x^2-7x`` compare equal.
 
     >>> normalize_notation("2X^2 - 7x - 15")
     '2x^2-7x-15'
@@ -68,6 +74,8 @@ def normalize_notation(text: str) -> str:
     '2x^2'
     >>> normalize_notation("2x**2 - 7x")
     '2x^2-7x'
+    >>> normalize_notation("n ÷ 4")
+    'n/4'
     """
     s = text.strip().lower()
     # Unicode superscripts: a run of superscript digits -> "^" + the digits.
@@ -79,6 +87,7 @@ def normalize_notation(text: str) -> str:
     s = s.replace("**", "^")
     for mult in ("·", "×", "•"):
         s = s.replace(mult, "*")
+    s = fold_division(s)
     s = re.sub(r"\s+", "", s)
     return s
 
@@ -155,6 +164,35 @@ def fold_degrees(text: str) -> str:
     '50'
     """
     return text.replace("°", "")
+
+
+# Every character a student or a teacher may reach for to mean "divide": the
+# keypad/worksheet ``÷``, and the unicode slashes that render like ``/`` but are
+# a different codepoint (division slash, fraction slash, fullwidth solidus).
+_DIVISION_SIGNS = ("÷", "∕", "⁄", "／")
+
+
+def fold_division(text: str) -> str:
+    """Fold every spelling of the division operator onto ASCII ``/``.
+
+    A question like "write an expression for a number divided by 4" has one
+    answer written two equally correct ways — ``n ÷ 4`` and ``n/4`` — and the
+    stored answer can only be one of them, so a student typing the other was
+    marked wrong even though the question's own explanation offered both.
+    Folding both onto ``/`` makes them the same answer.
+
+    Whitespace is left untouched here (the caller folds it) so this composes
+    cleanly with :func:`fold_exponents`, exactly like :func:`fold_inequalities`
+    and :func:`fold_degrees`.
+
+    >>> fold_division("n ÷ 4")
+    'n / 4'
+    >>> fold_division("n/4")
+    'n/4'
+    """
+    for sign in _DIVISION_SIGNS:
+        text = text.replace(sign, "/")
+    return text
 
 
 # Separators a student (or a teacher) may use between the option labels of a
@@ -245,6 +283,8 @@ def _parse_term(term: str) -> Tuple[Fraction, Signature]:
     (Fraction(-15, 1), ())
     >>> _parse_term("-x")
     (Fraction(-1, 1), (('x', 1),))
+    >>> _parse_term("n/4")
+    (Fraction(1, 4), (('n', 1),))
     """
     match = _TERM_RE.match(term)
     if not match:
@@ -252,6 +292,13 @@ def _parse_term(term: str) -> Tuple[Fraction, Signature]:
     sign, num, var_part = match.group(1), match.group(2), match.group(3)
 
     coeff = _to_fraction(num) if num else Fraction(1)
+    divisor = match.group(4)
+    if divisor is not None:
+        denominator = _to_fraction(divisor)
+        if denominator == 0:
+            # "n/0" — an unparseable (wrong) answer, not an HTTP 500.
+            raise MathAnswerError(f"Division by zero in term: {term!r}")
+        coeff = coeff / denominator
     if sign == "-":
         coeff = -coeff
 

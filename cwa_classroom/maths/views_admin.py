@@ -267,6 +267,13 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
                     # A question that reads oddly on its own may be perfectly
                     # clear with its diagram, so the evidence is shown rather
                     # than the row being silently dropped.
+                    # The options themselves, so an answer key that no
+                    # evaluator can settle ("666 in expanded form") can still
+                    # be set from this page — tick one, choose "Use the answer
+                    # I ticked". Without it the only route was the editor, one
+                    # question at a time.
+                    'options': list(question.answers.order_by('order', 'id')),
+                    'needs_pick': any(i.code in PICKER_CODES for i in issues),
                     'has_image': bool(question.image),
                     'specs': [name for name in (
                         'grid_spec', 'shape_spec', 'plane_spec', 'graph_spec',
@@ -304,7 +311,10 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
 # narrow and reversible-by-inspection: the audit log records the previous state
 # so a bad run can be traced without a database restore.
 BULK_ACTIONS = (
+    ('auto', 'Fix automatically — try every fix that suits each problem'),
+    ('set_answer_key', 'Use the answer I ticked in the row'),
     ('replace_duplicates', 'Replace duplicated options with distinct values'),
+    ('delete_duplicates', 'Delete duplicated options (works on worded answers)'),
     ('pad_options', 'Add wrong answers (up to four options)'),
     ('to_short_answer', 'Change question type to Short Answer'),
     ('trim_options', 'Trim to four options (keeps the correct one)'),
@@ -313,21 +323,59 @@ BULK_ACTIONS = (
     ('drop_blank_options', 'Delete blank answer options'),
 )
 
-# Which fix addresses which finding. Every code in CODE_LABELS must appear
-# here: a problem the page reports but offers no route out of is how a
-# reviewer ends up with a list they cannot act on. A test enforces it.
-FIX_FOR_CODE = {
-    'NO-CORRECT': 'fill_answer',
-    'MULTI-CORRECT': 'fix_answer_key',
-    'WRONG-ANSWER-KEY': 'fix_answer_key',
-    'BLANK-OPTION': 'drop_blank_options',
-    'DUPLICATE-OPTION': 'replace_duplicates',
-    'DUPLICATE-CORRECT': 'replace_duplicates',
-    'EQUIVALENT-OPTION': 'replace_duplicates',
-    'DUPLICATE-VALUE': 'replace_duplicates',
-    'TOO-FEW-OPTIONS': 'pad_options',
-    'TOO-MANY-OPTIONS': 'trim_options',
+# Which fixes address which finding, best first. Every code in CODE_LABELS
+# must appear here: a problem the page reports but offers no route out of is
+# how a reviewer ends up with a list they cannot act on. A test enforces it.
+#
+# Each code carries a CHAIN rather than a single fix, because the first-choice
+# fix is usually the narrow one. 'Replace duplicated options' keeps the option
+# count but only works on numbers; 'Delete duplicated options' works on any
+# answer text but costs a choice. Listing both, in that order, is what makes
+# the promise true for a bank whose options are mostly words — the earlier
+# one-fix-per-code map was satisfied by a fix that skipped nine questions in
+# ten.
+FIXES_FOR_CODE = {
+    'NO-CORRECT': ('fill_answer', 'set_answer_key'),
+    'MULTI-CORRECT': ('fix_answer_key', 'delete_duplicates', 'set_answer_key'),
+    'WRONG-ANSWER-KEY': ('fix_answer_key', 'set_answer_key'),
+    'BLANK-OPTION': ('drop_blank_options',),
+    'DUPLICATE-OPTION': ('replace_duplicates', 'delete_duplicates'),
+    'DUPLICATE-CORRECT': ('replace_duplicates', 'delete_duplicates'),
+    'EQUIVALENT-OPTION': ('replace_duplicates', 'delete_duplicates'),
+    'DUPLICATE-VALUE': ('replace_duplicates', 'delete_duplicates'),
+    'TOO-FEW-OPTIONS': ('pad_options', 'to_short_answer'),
+    'TOO-MANY-OPTIONS': ('trim_options',),
 }
+
+# Fixes that decide for themselves. 'set_answer_key' is deliberately excluded:
+# it applies a judgement the reviewer made in the row, so running it inside an
+# automatic sweep would either do nothing (no tick) or, worse, look like the
+# machine had settled a question it cannot settle.
+MANUAL_FIXES = frozenset({'set_answer_key'})
+
+# The codes whose only remaining route needs a person to tick an option. The
+# check page renders that ticker inline for these rows, so the answer key can
+# be set without opening the editor.
+PICKER_CODES = frozenset(
+    code for code, fixes in FIXES_FOR_CODE.items() if 'set_answer_key' in fixes
+)
+
+
+def auto_fix_sequence(codes):
+    """Fixes to try, in order, for a question reporting ``codes``.
+
+    Ordered by the chains above and de-duplicated, so a question with three
+    duplicate faults tries 'replace_duplicates' once rather than three times.
+    Blank rows are cleared first wherever they are present: nearly every other
+    planner refuses outright on a question that still holds one.
+    """
+    ordered = []
+    for code in sorted(codes, key=lambda c: c != 'BLANK-OPTION'):
+        for fix in FIXES_FOR_CODE.get(code, ()):
+            if fix not in MANUAL_FIXES and fix not in ordered:
+                ordered.append(fix)
+    return ordered
+
 
 # Padding target — four options is the house style for multiple choice.
 PAD_TO = 4
@@ -373,24 +421,23 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
         changed, skipped = 0, []
         for question in questions:
             answers = list(question.answers.order_by('order', 'id'))
-            try:
-                with transaction.atomic():
-                    detail = self._apply(action, question, answers)
-            except Skipped as exc:
-                skipped.append(f'Q{question.id}: {exc}')
-                continue
+            if action == 'auto':
+                applied, why = self._auto(request, question, answers)
+            else:
+                applied, why = self._one(request, action, question, answers)
 
-            if detail is None:
-                skipped.append(f'Q{question.id}: nothing to change')
+            if not applied:
+                skipped.append(f'Q{question.id}: {why}')
                 continue
 
             changed += 1
-            log_event(
-                user=request.user, school=question.school,
-                category='data_change', action=f'bulk_fix_{action}',
-                detail={'question_id': question.id, **detail},
-                request=request,
-            )
+            for name, detail in applied:
+                log_event(
+                    user=request.user, school=question.school,
+                    category='data_change', action=f'bulk_fix_{name}',
+                    detail={'question_id': question.id, **detail},
+                    request=request,
+                )
 
         if changed:
             messages.success(
@@ -404,11 +451,76 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
         return redirect(request.POST.get('next')
                         or 'question_check_admin_dashboard')
 
-    def _apply(self, action, question, answers):
+    def _one(self, request, action, question, answers):
+        """Apply a single named fix. Returns ``([(action, detail)], reason)``.
+
+        An empty first element means nothing happened, and the reason says why
+        — reported to the reviewer verbatim rather than counted, because "3
+        skipped" tells them nothing about what still needs a person.
+        """
+        from .duplicate_repair import Skipped
+
+        try:
+            with transaction.atomic():
+                detail = self._apply(action, question, answers, request=request)
+        except Skipped as exc:
+            return [], str(exc)
+        if detail is None:
+            return [], 'nothing to change'
+        return [(action, detail)], ''
+
+    def _auto(self, request, question, answers):
+        """Try each fix that suits this question's actual problems, in turn.
+
+        Re-verifies the question rather than trusting the codes the page was
+        rendered with: the row may have been fixed by an earlier run, or by
+        someone else, and applying a repair to a stale finding is how a good
+        question gets damaged.
+
+        Stops at the first fix that changes something. Fixes are not chained
+        further in one pass on purpose — after a change the findings differ,
+        and the reviewer should see the new state before more is done to it.
+        """
+        from .answer_verification import verify_question
+        from .duplicate_repair import Skipped
+
+        issues, _ = verify_question(question)
+        codes = {issue.code for issue in issues}
+        if not codes:
+            return [], 'nothing wrong with it now'
+
+        sequence = auto_fix_sequence(codes)
+        if not sequence:
+            return [], 'no automatic fix suits this problem'
+
+        reasons = []
+        for name in sequence:
+            try:
+                with transaction.atomic():
+                    detail = self._apply(name, question, answers,
+                                         request=request)
+            except Skipped as exc:
+                reasons.append(f'{name}: {exc}')
+                continue
+            if detail is None:
+                reasons.append(f'{name}: nothing to change')
+                continue
+            return [(name, detail)], ''
+
+        # Every fix declined. The reviewer is told what each one refused and
+        # why, which is the difference between "needs a human" and "the tool
+        # is broken".
+        needs_pick = codes & PICKER_CODES
+        tail = ('  Tick the right answer in the row and choose '
+                '"Use the answer I ticked".' if needs_pick else '')
+        return [], '; '.join(reasons) + tail
+
+    def _apply(self, action, question, answers, request=None):
         """Perform one fix. Returns an audit detail dict, or None for a no-op."""
         from .duplicate_repair import (
-            plan_answer_fill, plan_answer_key, plan_blank_removal,
-            plan_padding, plan_repair)
+            Skipped, plan_answer_fill, plan_answer_key, plan_blank_removal,
+            plan_chosen_answer_key, plan_duplicate_removal, plan_padding,
+            plan_repair, plan_type_change)
         from .models import Answer
 
         if action == 'replace_duplicates':
@@ -482,8 +594,40 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
                 option.delete()
             return {'removed': removed}
 
+        if action == 'delete_duplicates':
+            doomed = plan_duplicate_removal(question, answers)
+            if not doomed:
+                return None
+            detail = {'deleted': [{'answer_id': o.id, 'was': o.answer_text}
+                                  for o in doomed]}
+            for option in doomed:
+                option.delete()
+            return detail
+
+        if action == 'set_answer_key':
+            # One radio group per question on the check page, so a single
+            # submission can set the key on many rows at once.
+            raw = (request.POST.get(f'answer_key_{question.id}', '')
+                   if request is not None else '')
+            try:
+                chosen_id = int(raw)
+            except (TypeError, ValueError):
+                raise Skipped('no answer was ticked for this question')
+            to_flag, to_unflag = plan_chosen_answer_key(
+                question, chosen_id, answers)
+            if not to_flag and not to_unflag:
+                return None
+            for answer in to_flag:
+                answer.is_correct = True
+                answer.save(update_fields=['is_correct'])
+            for answer in to_unflag:
+                answer.is_correct = False
+                answer.save(update_fields=['is_correct'])
+            return {'flagged': [a.answer_text for a in to_flag],
+                    'unflagged': [a.answer_text for a in to_unflag]}
+
         if action == 'to_short_answer':
-            if question.question_type == 'short_answer':
+            if not plan_type_change(question, answers):
                 return None
             was = question.question_type
             question.question_type = 'short_answer'

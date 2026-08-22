@@ -148,8 +148,11 @@ class HomeView(LoginRequiredMixin, View):
             # Question.topic and Question.level now reference classroom.Topic/Level directly
             from maths.models import Question
             from django.db.models import Count
+            # Global bank only, to match the topic quiz these tiles link into.
+            # Counting school-private questions here lights up a topic whose
+            # quiz then bounces the student back with "no questions available".
             questions_exist = set()
-            for row in (Question.objects
+            for row in (Question.objects.global_only()
                         .values('topic_id', 'level_id')
                         .annotate(cnt=Count('id'))
                         .filter(cnt__gt=0)):

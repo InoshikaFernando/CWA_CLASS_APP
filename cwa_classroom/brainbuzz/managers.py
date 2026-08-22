@@ -57,6 +57,43 @@ class VisibleQuestionsQuerySet(models.QuerySet):
         # Combine global and local filters
         return self.filter(global_filter | local_filter)
 
+    def visible_to_classroom(self, classroom):
+        """Filter to what a CLASS may draw on, by the same scope hierarchy as
+        ``visible_to`` — global ⊃ school ⊃ department ⊃ class.
+
+        The homework generators pick questions for a *classroom*, not for the
+        teacher driving the form, so they can't use ``visible_to(user)``: a
+        teacher with rights over several classes would otherwise pull another
+        class's private questions into this class's homework.
+
+        A class with no school (or no class at all) sees global content only —
+        the same answer ``_get_questions_for_level`` gives an individual
+        student. A class with no department cannot see department-scoped rows,
+        since it is in no department to be scoped to.
+        """
+        if classroom is None or classroom.school_id is None:
+            return self.filter(school__isnull=True)
+
+        local = Q(school=classroom.school_id)
+        if classroom.department_id:
+            local &= Q(department__isnull=True) | Q(department=classroom.department_id)
+        else:
+            local &= Q(department__isnull=True)
+        local &= Q(classroom__isnull=True) | Q(classroom=classroom.pk)
+
+        return self.filter(Q(school__isnull=True) | local)
+
+    def global_only(self):
+        """Only the shared bank (``school IS NULL``).
+
+        ``visible_to`` widens to a user's own school as well; this is the
+        narrower rule for the places that must serve the *same* questions to
+        everyone — the topic and mixed quizzes, and the topic picker that links
+        into them. Without it those views read the whole table and hand one
+        school's private questions to every other school's students.
+        """
+        return self.filter(school__isnull=True)
+
 
 class VisibleQuestionsManager(models.Manager):
     """Manager for questions with visibility filtering."""
@@ -68,6 +105,14 @@ class VisibleQuestionsManager(models.Manager):
     def visible_to(self, user):
         """Get questions visible to user."""
         return self.get_queryset().visible_to(user)
+
+    def visible_to_classroom(self, classroom):
+        """Get questions a classroom may draw on."""
+        return self.get_queryset().visible_to_classroom(classroom)
+
+    def global_only(self):
+        """Get the shared-bank questions only."""
+        return self.get_queryset().global_only()
 
 
 class MathsQuestionsQuerySet(VisibleQuestionsQuerySet):
