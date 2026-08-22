@@ -402,3 +402,113 @@ class CorrectAnswerDisplayTests(TestCase):
     def test_no_correct_row_is_blank(self):
         q = self._question([], wrong=['45'])
         self.assertEqual(q.correct_answer_display(), '')
+
+
+class PositionalNumberListTests(TestCase):
+    """CPP-378 — a list of numbers is compared value-by-value, not as one blob.
+
+    The fold that makes punctuation insignificant deletes the comma, which also
+    deletes the boundary between one value and the next: "(3,11)" and "(31,1)"
+    both fold to "(311)". A transposed coordinate therefore graded as correct.
+
+    Comparing the values in order keeps the boundary. It applies only when BOTH
+    sides are lists of plain numbers — a word list ("red, green") or an
+    assignment list ("x = 4, y = 2") stays on the flat comparison, so nothing
+    that graded correct before grades wrong now.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=992,
+            defaults={'display_name': 'positional list fixture'},
+        )
+
+    def _question(self, correct, text='Write the coordinates of the ship.',
+                  answer_format=Question.ANSWER_FORMAT_TEXT):
+        q = Question.objects.create(
+            level=self.level, question_text=text,
+            question_type=Question.SHORT_ANSWER, answer_format=answer_format,
+            difficulty=1, points=1,
+        )
+        for value in correct:
+            Answer.objects.create(question=q, answer_text=value, is_correct=True)
+        return q
+
+    # ── the defect ──────────────────────────────────────────────────────────
+    def test_transposed_coordinate_is_wrong(self):
+        """'(31,1)' folds to the same blob as '(3,11)' but is a different point."""
+        q = self._question(['(3,11)'])
+        self.assertFalse(q.grade_text_answer('(31,1)'))
+        self.assertFalse(q.grade_text_answer('(1,31)'))
+
+    def test_regrouped_values_are_wrong(self):
+        """Same defect without brackets: '3,22' is not '32, 2'."""
+        q = self._question(['32, 2'], text='Missing terms')
+        self.assertFalse(q.grade_text_answer('3,22'))
+        q2 = self._question(['3, 5, 7, 9'], text='Missing terms')
+        self.assertFalse(q2.grade_text_answer('35, 79'))
+
+    # ── what must still be accepted ─────────────────────────────────────────
+    def test_the_coordinate_itself_grades_however_it_is_punctuated(self):
+        q = self._question(['(3,11)'])
+        for ans in ['(3,11)', '(3, 11)', '(3 , 11)']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+
+    def test_brackets_are_optional(self):
+        """Several coordinate questions already store a paren-less second row."""
+        q = self._question(['(3,11)'])
+        for ans in ['3,11', '3, 11']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+
+    def test_negative_and_decimal_coordinates(self):
+        q = self._question(['(0, -2.5)'])
+        self.assertTrue(q.grade_text_answer('(0,-2.5)'))
+        self.assertTrue(q.grade_text_answer('0, -2.5'))
+        self.assertFalse(q.grade_text_answer('(0, 2.5)'))
+        self.assertFalse(q.grade_text_answer('(-2.5, 0)'))
+
+    def test_a_wrong_point_is_still_wrong(self):
+        q = self._question(['(3,11)'])
+        for ans in ['(11,3)', '(3,12)', '(4,11)']:
+            self.assertFalse(q.grade_text_answer(ans), ans)
+
+    def test_multi_value_answers_keep_every_separator(self):
+        q = self._question(['32, 2', '32 and 2'], text='Missing terms')
+        for ans in ['32,2', '32, 2', '32 and 2', '32 2', '32;2']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+
+    def test_order_still_decides_a_positional_answer(self):
+        q = self._question(['32, 2'], text='Missing terms')
+        self.assertFalse(q.grade_text_answer('2, 32'))
+
+    # ── everything else is untouched ────────────────────────────────────────
+    def test_word_lists_stay_on_the_flat_comparison(self):
+        """'red green' must keep matching 'red, green' — not a number list."""
+        q = self._question(['red, green'], text='Name two colours')
+        for ans in ['red, green', 'red green', 'red,green']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+
+    def test_assignment_lists_stay_on_the_flat_comparison(self):
+        q = self._question(['x = 4, y = 2'], text='Solve the system')
+        for ans in ['x = 4, y = 2', 'x=4, y=2', 'x=4 y=2']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+        self.assertFalse(q.grade_text_answer('x = 2, y = 4'))
+
+    def test_digit_grouping_is_not_a_list(self):
+        q = self._question(['1,000'], text='How many people?')
+        for ans in ['1000', '1,000', '1 000']:
+            self.assertTrue(q.grade_text_answer(ans), ans)
+        self.assertFalse(q.grade_text_answer('1, 000, 0'))
+
+    def test_a_single_blob_is_unchanged(self):
+        """No answer that graded correct before grades wrong now."""
+        q = self._question(['32, 2'], text='Missing terms')
+        self.assertTrue(q.grade_text_answer('322'))
+
+    def test_set_answers_are_unaffected(self):
+        q = self._question(['54, 63'], text='Multiples of 9 between 50 and 70',
+                           answer_format=Question.ANSWER_FORMAT_SET)
+        self.assertTrue(q.grade_text_answer('63, 54'))
+        self.assertTrue(q.grade_text_answer('54, 63'))
+        self.assertFalse(q.grade_text_answer('54'))
