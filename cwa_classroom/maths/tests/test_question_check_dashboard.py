@@ -1116,13 +1116,47 @@ class EveryProblemHasAFixTests(QuestionCheckTestBase):
     """A problem the page reports but offers no route out of is a dead end."""
 
     def test_every_reported_code_maps_to_a_fix(self):
-        from maths.views_admin import BULK_ACTIONS, CODE_LABELS, FIX_FOR_CODE
+        from maths.views_admin import BULK_ACTIONS, CODE_LABELS, FIXES_FOR_CODE
         actions = {value for value, _label in BULK_ACTIONS}
         for code in CODE_LABELS:
             with self.subTest(code):
-                self.assertIn(code, FIX_FOR_CODE,
+                self.assertIn(code, FIXES_FOR_CODE,
                               f'{code} is reported with no fix offered')
-                self.assertIn(FIX_FOR_CODE[code], actions)
+                self.assertTrue(FIXES_FOR_CODE[code],
+                                f'{code} maps to an empty list of fixes')
+                for fix in FIXES_FOR_CODE[code]:
+                    self.assertIn(fix, actions)
+
+    def test_every_code_keeps_a_fix_that_worded_answers_can_use(self):
+        """The arithmetic-only fixes are not enough on their own.
+
+        Most of the bank's options are words, so a code whose ONLY fix refuses
+        anything non-numeric is reported with no usable route out — which is
+        the dead end this class exists to prevent, dressed up as a mapping.
+        """
+        from maths.views_admin import CODE_LABELS, FIXES_FOR_CODE
+        arithmetic_only = {'fill_answer', 'fix_answer_key',
+                           'replace_duplicates', 'pad_options'}
+        for code in CODE_LABELS:
+            with self.subTest(code):
+                general = [f for f in FIXES_FOR_CODE[code]
+                           if f not in arithmetic_only]
+                self.assertTrue(
+                    general,
+                    f'{code} only offers arithmetic-only fixes '
+                    f'({FIXES_FOR_CODE[code]}) — a worded question is stuck')
+
+    def test_auto_never_runs_a_fix_that_needs_a_human_pick(self):
+        from maths.views_admin import MANUAL_FIXES, auto_fix_sequence
+        for code in ('NO-CORRECT', 'MULTI-CORRECT', 'WRONG-ANSWER-KEY'):
+            with self.subTest(code):
+                self.assertFalse(set(auto_fix_sequence({code})) & MANUAL_FIXES)
+
+    def test_auto_clears_blank_rows_before_anything_else(self):
+        """Nearly every planner refuses outright on a blank row."""
+        from maths.views_admin import auto_fix_sequence
+        sequence = auto_fix_sequence({'DUPLICATE-OPTION', 'BLANK-OPTION'})
+        self.assertEqual(sequence[0], 'drop_blank_options')
 
     def test_every_fix_is_offered_in_the_dropdown(self):
         from maths.views_admin import BULK_ACTIONS
@@ -1252,3 +1286,231 @@ class BlankOptionFixTests(QuestionCheckTestBase):
         q = self._question(options=(('3/4', True), ('1/4', False)))
         response = self._fix(q)
         self.assertContains(response, 'nothing to change')
+
+
+class WordedAnswerFixTests(QuestionCheckTestBase):
+    """The fixes that work when the options are words, not numbers.
+
+    Every generator-based fix refuses non-numeric options by design — it
+    cannot invent a plausible worded distractor. These are the routes that
+    remain, and they are what makes "a fix for every problem" true for a bank
+    whose options are mostly prose.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def _fix(self, action, question, **extra):
+        return self.client.post(
+            reverse('question_bulk_fix_admin_dashboard'),
+            {'action': action, 'question_id': [question.id], **extra},
+            follow=True)
+
+    def test_delete_duplicates_removes_a_repeated_worded_option(self):
+        q = self._question(
+            text='Which shape has four equal sides?',
+            options=(('Square', True), ('Circle', False),
+                     ('Circle', False), ('Triangle', False)))
+        self._fix('delete_duplicates', q)
+        texts = sorted(a.answer_text for a in q.answers.all())
+        self.assertEqual(texts, ['Circle', 'Square', 'Triangle'])
+        self.assertEqual(
+            [a.answer_text for a in q.answers.filter(is_correct=True)],
+            ['Square'])
+
+    def test_delete_duplicates_keeps_the_correct_copy(self):
+        """Deleting the flagged copy would rewrite the answer key."""
+        q = self._question(
+            text='Name the capital of New Zealand.',
+            options=(('Wellington', False), ('Wellington', True),
+                     ('Auckland', False)))
+        self._fix('delete_duplicates', q)
+        survivors = list(q.answers.order_by('order', 'id'))
+        self.assertEqual(len(survivors), 2)
+        kept = next(a for a in survivors if a.answer_text == 'Wellington')
+        self.assertTrue(kept.is_correct)
+
+    def test_delete_duplicates_refuses_to_leave_one_option(self):
+        q = self._question(
+            text='Is the sky blue?',
+            options=(('Yes', True), ('Yes', False)))
+        response = self._fix('delete_duplicates', q)
+        self.assertEqual(q.answers.count(), 2)
+        self.assertContains(response, 'too few to choose from')
+
+    def test_set_answer_key_applies_the_option_the_reviewer_ticked(self):
+        """The escape hatch for a key no evaluator will settle."""
+        q = self._question(
+            text='What is 666 in expanded form?',
+            options=(('6x100 + 6x10 + 6', True), ('600+70+6', True),
+                     ('666 + 0', False)))
+        keep = q.answers.get(answer_text='6x100 + 6x10 + 6')
+        self._fix('set_answer_key', q, **{f'answer_key_{q.id}': str(keep.id)})
+        self.assertEqual(
+            [a.answer_text for a in q.answers.filter(is_correct=True)],
+            ['6x100 + 6x10 + 6'])
+
+    def test_set_answer_key_refuses_a_blank_pick(self):
+        q = self._question(
+            text='Name a prime number.',
+            options=(('', False), ('7', True)))
+        blank = q.answers.get(answer_text='')
+        response = self._fix('set_answer_key', q,
+                             **{f'answer_key_{q.id}': str(blank.id)})
+        self.assertContains(response, 'cannot be the answer')
+        self.assertTrue(q.answers.get(answer_text='7').is_correct)
+
+    def test_set_answer_key_says_so_when_nothing_was_ticked(self):
+        q = self._question(
+            text='Which is a mammal?',
+            options=(('Cat', True), ('Cat', True), ('Frog', False)))
+        response = self._fix('set_answer_key', q)
+        self.assertContains(response, 'no answer was ticked')
+
+    def test_to_short_answer_refuses_an_unanswerable_question(self):
+        """Retyping a question with no key hides the worse fault."""
+        q = self._question(
+            text='Explain why the sum is even.',
+            options=(('Because it is', False),))
+        response = self._fix('to_short_answer', q)
+        q.refresh_from_db()
+        self.assertEqual(q.question_type, 'multiple_choice')
+        self.assertContains(response, 'no correct answer is stored')
+
+    def test_to_short_answer_rescues_a_worded_question_padding_cannot(self):
+        q = self._question(
+            text='What is the name of this shape?',
+            options=(('Rhombus', True),))
+        self._fix('to_short_answer', q)
+        q.refresh_from_db()
+        self.assertEqual(q.question_type, 'short_answer')
+
+
+class AutoFixTests(QuestionCheckTestBase):
+    """One button that tries each fix suited to what the question reports."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def _auto(self, *questions):
+        return self.client.post(
+            reverse('question_bulk_fix_admin_dashboard'),
+            {'action': 'auto',
+             'question_id': [q.id for q in questions]},
+            follow=True)
+
+    def test_auto_falls_through_to_the_fix_that_works(self):
+        """replace_duplicates refuses words; delete_duplicates does not."""
+        q = self._question(
+            text='Which animal barks?',
+            options=(('Dog', True), ('Cat', False),
+                     ('Cat', False), ('Bird', False)))
+        self._auto(q)
+        self.assertEqual(
+            sorted(a.answer_text for a in q.answers.all()),
+            ['Bird', 'Cat', 'Dog'])
+
+    def test_auto_reports_what_each_fix_refused(self):
+        """A question needing a person is named, with the reasons."""
+        q = self._question(
+            text='Flooring comes in lengths which are multiples of 300 mm.',
+            options=(('900mm', True), ('1800mm', True),
+                     ('2700mm', True), ('3600mm', True)))
+        response = self._auto(q)
+        self.assertContains(response, f'Q{q.id}')
+        self.assertContains(response, 'Tick the right answer in the row')
+
+    def test_auto_re_verifies_rather_than_trusting_a_stale_row(self):
+        q = self._question(
+            text='What is 1/2 + 1/4?',
+            options=(('3/4', True), ('1/4', False), ('2/4', False)))
+        response = self._auto(q)
+        self.assertContains(response, 'nothing wrong with it now')
+
+
+class TypedAnswerEditorTests(QuestionCheckTestBase):
+    """A typed question's rows are accepted spellings, not rival options."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='checkadmin', password='pass1234')
+
+    def test_several_accepted_spellings_all_grade_correct(self):
+        """Graded through the model, which is what every quiz path calls."""
+        q = Question.objects.create(
+            level=self.y7, topic=self.fractions,
+            question_text='Calculate the surface area of the half-cylinder.',
+            question_type='calculation')
+        for order, text in enumerate(('593 cm^2', '593', '593 cm2')):
+            Answer.objects.create(question=q, answer_text=text,
+                                  is_correct=True, order=order)
+
+        self.assertEqual(q.answers.filter(is_correct=True).count(), 3)
+        for typed in ('593 cm^2', '593', '593 cm2'):
+            with self.subTest(typed):
+                self.assertTrue(q.grade_text_answer(typed))
+
+    def test_multi_correct_is_not_reported_on_a_typed_question(self):
+        """Only choice questions are single-select, so only they can break."""
+        from maths.answer_verification import verify_question
+
+        q = Question.objects.create(
+            level=self.y7, topic=self.fractions,
+            question_text='Calculate the surface area of the half-cylinder.',
+            question_type='calculation')
+        for order, text in enumerate(('593 cm^2', '593')):
+            Answer.objects.create(question=q, answer_text=text,
+                                  is_correct=True, order=order)
+
+        issues, _ = verify_question(q)
+        self.assertNotIn('MULTI-CORRECT', [i.code for i in issues])
+
+    def test_editor_offers_a_checkbox_for_a_typed_question(self):
+        q = Question.objects.create(
+            level=self.y7, topic=self.fractions,
+            question_text='Calculate the surface area of the half-cylinder.',
+            question_type='calculation')
+        Answer.objects.create(question=q, answer_text='593 cm^2',
+                              is_correct=True, order=0)
+
+        response = self.client.get(
+            reverse('edit_question', kwargs={'question_id': q.id}))
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        # The mode switch is what turns the radio group into checkboxes on
+        # load; without it a second accepted spelling cannot be ticked.
+        self.assertIn('applyCorrectMode', body)
+        self.assertIn('toggleCorrectAnswer', body)
+
+    def test_saving_two_ticked_rows_keeps_both(self):
+        q = Question.objects.create(
+            level=self.y7, topic=self.fractions,
+            question_text='Calculate the surface area of the half-cylinder.',
+            question_type='calculation')
+        Answer.objects.create(question=q, answer_text='593 cm^2',
+                              is_correct=True, order=0)
+        Answer.objects.create(question=q, answer_text='593',
+                              is_correct=False, order=1)
+
+        self.client.post(
+            reverse('edit_question', kwargs={'question_id': q.id}),
+            {
+                'topic': q.topic_id,
+                'question_type': 'calculation',
+                'question_text': q.question_text,
+                'difficulty': 2,
+                'points': 2,
+                'answer_text_1': '593 cm^2',
+                'answer_correct_1': 'true',
+                'answer_order_1': 1,
+                'answer_text_2': '593',
+                'answer_correct_2': 'true',
+                'answer_order_2': 2,
+            },
+            follow=True)
+
+        self.assertEqual(
+            sorted(a.answer_text for a in q.answers.filter(is_correct=True)),
+            ['593', '593 cm^2'])

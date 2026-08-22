@@ -16,6 +16,7 @@ from maths.algebra_grading import (
     _parse_term,
     _split_terms,
     fold_degrees,
+    fold_division,
     fold_exponents,
     fold_inequalities,
     is_algebraic_answer_correct,
@@ -371,3 +372,61 @@ class TestReorderedExpression:
     ])
     def test_simple_expression_guard(self, text, expected):
         assert _is_simple_expression(text) is expected
+
+
+# --------------------------------------------------------------------------- #
+# fold_division — "n ÷ 4" and "n/4" are the same answer written two ways, so a
+# stored answer in either spelling must accept the other.
+# --------------------------------------------------------------------------- #
+class TestFoldDivision:
+    def test_division_spellings_collapse_equal(self):
+        forms = ["n ÷ 4", "n/4", "n ∕ 4", "n ⁄ 4", "n／4"]
+        folded = {fold_exponents(fold_inequalities(fold_division(f))) for f in forms}
+        assert folded == {"n/4"}
+
+    def test_division_sign_folded_to_slash(self):
+        assert fold_division("n ÷ 4") == "n / 4"
+        assert fold_division("12 ÷ 3 = 4") == "12 / 3 = 4"
+
+    def test_operand_order_still_matters(self):
+        # n ÷ 4 is not 4 ÷ n — folding the operator must not make the two equal.
+        assert fold_division("n ÷ 4") != fold_division("4 ÷ n")
+
+    def test_plain_values_unaffected(self):
+        assert fold_division("8") == "8"
+        assert fold_division("2x + 3") == "2x + 3"
+
+
+# --------------------------------------------------------------------------- #
+# Division inside an algebra answer: a quotient is a legitimate simplified term
+# ("a number divided by 4" is n/4), and the ÷ button must work there too.
+# --------------------------------------------------------------------------- #
+class TestQuotientTerms:
+    @pytest.mark.parametrize("answer", ["n/4", "n ÷ 4", "n/4 ", "N/4", "0.25n", "1/4n"])
+    def test_accepts_every_spelling_of_a_quarter_of_n(self, answer):
+        assert is_algebraic_answer_correct(answer, "n ÷ 4") is True
+
+    @pytest.mark.parametrize("answer", ["4/n", "4 ÷ n", "n/5", "n", "n*4"])
+    def test_rejects_a_different_expression(self, answer):
+        assert is_algebraic_answer_correct(answer, "n ÷ 4") is False
+
+    def test_parses_quotient_term_as_a_fractional_coefficient(self):
+        assert _parse_term("n/4") == (Fraction(1, 4), (("n", 1),))
+        assert _parse_term("-2x/3") == (Fraction(-2, 3), (("x", 1),))
+        assert _parse_term("x^2/2") == (Fraction(1, 2), (("x", 2),))
+
+    def test_division_by_zero_is_a_wrong_answer_not_a_crash(self):
+        with pytest.raises(MathAnswerError):
+            _parse_term("n/0")
+        assert is_algebraic_answer_correct("n/0", "n ÷ 4") is False
+
+    def test_plain_fraction_coefficients_still_parse(self):
+        # The new trailing-divisor group must not steal "3/4" from the
+        # coefficient token.
+        assert _parse_term("3/4") == (Fraction(3, 4), ())
+        assert _parse_term("3/4x") == (Fraction(3, 4), (("x", 1),))
+
+    def test_like_quotient_terms_must_still_be_combined(self):
+        # Strictness is unchanged: two x terms written as quotients is still
+        # an un-simplified answer.
+        assert is_algebraic_answer_correct("x/2 + x/2", "x") is False

@@ -1013,3 +1013,102 @@ class SetAnswerQuizGradingTests(TestCase):
             content_type='application/json',
         )
         self.assertTrue(resp.json()['is_correct'])
+
+
+class TestTopicQuizDivisionNotationGrading(TestCase):
+    """Grading "Write an algebraic expression for a number divided by 4."
+
+    The stored answer is ``n ÷ 4`` and the question's own explanation offers
+    both spellings ("n ÷ 4 or n/4"), but a student typing ``n/4`` was marked
+    incorrect because the grader compared the two strings literally. Both
+    spellings are the same answer and both must be accepted — whichever way
+    round the stored answer is written.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = School.objects.create(name='Division Notation School')
+        cls.student = User.objects.create_user(
+            username='dnstudent', password='pass1234', email='dn@test.com',
+        )
+        SchoolStudent.objects.create(
+            school=cls.school, student=cls.student, is_active=True,
+        )
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        cls.level = Level.objects.create(level_number=7, display_name='Year 7')
+        cls.topic = Topic.objects.create(
+            subject=cls.subject, name='Algebra and Factorisation',
+            slug='algebra-and-factorisation', is_active=True,
+        )
+        cls.topic.levels.add(cls.level)
+
+        cls.obelus = cls._question('n ÷ 4')   # stored with the ÷ button
+        cls.slash = cls._question('n/4')      # stored with a slash
+
+    @classmethod
+    def _question(cls, correct_text, answer_format='text'):
+        q = Question.objects.create(
+            question_text='Write an algebraic expression for a number divided by 4.',
+            question_type='short_answer', answer_format=answer_format,
+            topic=cls.topic, level=cls.level,
+        )
+        Answer.objects.create(question=q, answer_text=correct_text, is_correct=True)
+        return q
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='dnstudent', password='pass1234')
+
+    def _submit(self, question, text_answer):
+        session_id = str(uuid.uuid4())
+        session = self.client.session
+        session[f'tq_{session_id}'] = {
+            'current': 0,
+            'questions': [{'id': question.id}, {'id': question.id}],
+            'correct': 0,
+            'start_time': time.time(),
+            'level_number': 7,
+            'subject': 'mathematics',
+        }
+        session.save()
+        resp = self.client.post(
+            reverse('api_submit_topic_answer'),
+            data=json.dumps({
+                'session_id': session_id,
+                'question_id': question.id,
+                'text_answer': text_answer,
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()
+
+    def test_slash_accepted_for_a_stored_obelus(self):
+        for ans in ['n/4', 'n / 4', 'N/4', 'n ÷ 4']:
+            self.assertTrue(self._submit(self.obelus, ans)['is_correct'], ans)
+
+    def test_obelus_accepted_for_a_stored_slash(self):
+        for ans in ['n ÷ 4', 'n÷4', 'n/4']:
+            self.assertTrue(self._submit(self.slash, ans)['is_correct'], ans)
+
+    def test_a_different_expression_is_still_incorrect(self):
+        # Folding the operator must not make "4 divided by n" the same answer,
+        # nor accept the wrong divisor.
+        for ans in ['4/n', '4 ÷ n', 'n/5', 'n', '4n']:
+            self.assertFalse(self._submit(self.obelus, ans)['is_correct'], ans)
+
+    def test_algebra_format_accepts_both_spellings_too(self):
+        # The same question authored as answer_format='algebra' routes through
+        # the polynomial grader, which had no notion of division at all.
+        q = self._question('n ÷ 4', answer_format='algebra')
+        for ans in ['n/4', 'n ÷ 4', '0.25n']:
+            self.assertTrue(self._submit(q, ans)['is_correct'], ans)
+        for ans in ['4/n', 'n/5', '4n']:
+            self.assertFalse(self._submit(q, ans)['is_correct'], ans)
+
+    def test_correct_answer_text_is_shown_as_authored(self):
+        data = self._submit(self.obelus, 'wrong')
+        self.assertEqual(data['correct_answer_text'], 'n ÷ 4')

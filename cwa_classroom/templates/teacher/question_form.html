@@ -271,6 +271,8 @@ function addAnswerRow() {
   answerCounter++;
   var idx = answerCounter;
   var container = document.getElementById('answers-container');
+  var typeSelect = document.getElementById('q-type-select');
+  var multi = isMultiAnswer(typeSelect ? typeSelect.value : '');
   var div = document.createElement('div');
   div.className = 'answer-row flex items-start gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50';
   div.dataset.idx = idx;
@@ -281,7 +283,11 @@ function addAnswerRow() {
       '<input type="file" name="answer_image_' + idx + '" accept="image/*" class="text-xs text-gray-400 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-gray-100 file:text-gray-600 file:text-xs" /></div>' +
     '</div>' +
     '<label class="flex items-center gap-1.5 text-sm font-semibold text-gray-600 cursor-pointer whitespace-nowrap mt-2">' +
-      '<input type="radio" name="correct_answer" value="' + idx + '" onchange="syncCorrectAnswer(this)" class="text-emerald-500 focus:ring-emerald-500" /> Correct' +
+      '<input type="' + (multi ? 'checkbox' : 'radio') + '"' +
+             ' name="' + (multi ? 'correct_answer_' + idx : 'correct_answer') + '"' +
+             ' value="' + idx + '"' +
+             ' onchange="' + (multi ? 'toggleCorrectAnswer(this)' : 'syncCorrectAnswer(this)') + '"' +
+             ' class="text-emerald-500 focus:ring-emerald-500" /> Correct' +
     '</label>' +
     '<input type="hidden" name="answer_correct_' + idx + '" class="correct-hidden" value="false" />' +
     '<input type="hidden" name="answer_order_' + idx + '" value="' + idx + '" />' +
@@ -298,6 +304,68 @@ function syncCorrectAnswer(radio) {
   var row = radio.closest('.answer-row');
   if (row) {
     row.querySelector('.correct-hidden').value = 'true';
+  }
+}
+
+// Checkbox mode: each row owns its own flag, so ticking one leaves the others
+// alone. Used for typed-answer questions, where every ticked row is an
+// ACCEPTED SPELLING of one answer rather than a competing option — grading
+// reads them all (quiz/views.py `_correct_answer_texts`), so '593 cm²',
+// '593 cm^2' and '593' should all be tickable. The radio group made that
+// impossible: ticking the second spelling silently un-ticked the first, and
+// the student who typed it was marked wrong.
+function toggleCorrectAnswer(box) {
+  var row = box.closest('.answer-row');
+  if (row) {
+    row.querySelector('.correct-hidden').value = box.checked ? 'true' : 'false';
+  }
+}
+
+// Types whose Answer rows are accepted spellings, not choices.
+var MULTI_ANSWER_TYPES = ['short_answer', 'calculation', 'fill_blank'];
+
+function isMultiAnswer(type) {
+  return MULTI_ANSWER_TYPES.indexOf(type) !== -1;
+}
+
+// Rewrite every row's Correct control for the current question type. Only the
+// visible control changes: the server reads the hidden answer_correct_N field
+// either way, so nothing about saving depends on which mode is showing.
+function applyCorrectMode(type) {
+  var multi = isMultiAnswer(type);
+  var rows = document.querySelectorAll('.answer-row');
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var idx = row.dataset.idx;
+    var control = row.querySelector('input[type=radio], input[type=checkbox]');
+    var hidden = row.querySelector('.correct-hidden');
+    if (!control || !hidden) continue;
+    var ticked = hidden.value === 'true';
+    // Assigning .type is enough in every browser that supports the editor;
+    // the checked state is re-applied from the hidden field afterwards so the
+    // switch never loses a tick.
+    control.type = multi ? 'checkbox' : 'radio';
+    control.name = multi ? ('correct_answer_' + idx) : 'correct_answer';
+    control.value = idx;
+    control.checked = ticked;
+    control.setAttribute(
+      'onchange', multi ? 'toggleCorrectAnswer(this)' : 'syncCorrectAnswer(this)');
+    control.onchange = multi ? function (e) { toggleCorrectAnswer(e.target); }
+                             : function (e) { syncCorrectAnswer(e.target); };
+  }
+  // A radio group cannot represent two ticks, so switching TO single-select
+  // has to drop the extras — otherwise the hidden fields would keep saying
+  // 'true' while the page shows one selection.
+  if (!multi) {
+    var seen = false;
+    for (var j = 0; j < rows.length; j++) {
+      var h = rows[j].querySelector('.correct-hidden');
+      var c = rows[j].querySelector('input[type=radio]');
+      if (!h) continue;
+      if (h.value === 'true' && !seen) { seen = true; continue; }
+      h.value = 'false';
+      if (c) c.checked = false;
+    }
   }
 }
 
@@ -319,6 +387,7 @@ function toggleSections(type) {
 
 function handleTypeChange(type) {
   toggleSections(type);
+  applyCorrectMode(type);
 
   var container = document.getElementById('answers-container');
   var addBtn = document.getElementById('add-answer-btn');
@@ -349,19 +418,28 @@ function handleTypeChange(type) {
     help.textContent = 'Select True or False as the correct answer.';
     answerCounter = 2;
 
-  } else if (type === 'short_answer' || type === 'fill_blank' || type === 'calculation') {
+  } else if (isMultiAnswer(type)) {
+    // Typed answers: every ticked row is an accepted spelling, so several are
+    // normal and the reviewer must be able to add them. This used to collapse
+    // the rows to one and hide "+ Add Answer", which threw away the extra
+    // spellings a question had been written with — '593 cm^2' and '593' both
+    // vanished, and a student typing either was marked wrong.
     var existing = container.querySelectorAll('.answer-row');
-    if (existing.length === 0 || existing.length > 1) {
+    if (existing.length === 0) {
       container.innerHTML =
         '<div class="answer-row flex items-start gap-3 p-3 rounded-lg border border-gray-100 bg-gray-50" data-idx="1">' +
           '<div class="flex-1"><input type="text" name="answer_text_1" placeholder="Correct answer..." class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" /></div>' +
+          '<label class="flex items-center gap-1.5 text-sm font-semibold text-gray-600 cursor-pointer whitespace-nowrap mt-2">' +
+            '<input type="checkbox" name="correct_answer_1" value="1" checked onchange="toggleCorrectAnswer(this)" class="text-emerald-500 focus:ring-emerald-500" /> Correct' +
+          '</label>' +
           '<input type="hidden" name="answer_correct_1" class="correct-hidden" value="true" />' +
           '<input type="hidden" name="answer_order_1" value="1" />' +
         '</div>';
       answerCounter = 1;
     }
-    addBtn.style.display = 'none';
-    help.textContent = 'Enter the correct answer.';
+    addBtn.style.display = '';
+    help.textContent = 'Tick every accepted answer — add a row for each spelling '
+                     + 'a student might type (593 cm², 593 cm^2, 593).';
 
   } else {
     // multiple_choice — ensure at least 4 rows
@@ -381,6 +459,13 @@ document.addEventListener('DOMContentLoaded', function() {
     // Section visibility must be correct on edit too (e.g. an existing measure
     // question), but we must NOT rebuild answer rows on edit.
     toggleSections(typeSelect.value);
+    // Runs on edit too: an existing typed-answer question must show its
+    // ticks as checkboxes, or a second accepted spelling cannot be added.
+    // Answer ROWS are still never rebuilt on edit.
+    applyCorrectMode(typeSelect.value);
+    typeSelect.addEventListener('change', function () {
+      applyCorrectMode(typeSelect.value);
+    });
     {% if not question %}
     handleTypeChange(typeSelect.value);
     {% endif %}

@@ -6,7 +6,10 @@ Run with:
     pytest worksheets/tests/test_views_builder.py -v
 """
 import json
+import re
+from pathlib import Path
 
+from django.conf import settings
 from django.test import TestCase
 from django.urls import reverse
 
@@ -582,3 +585,44 @@ class TestBuilderPreviewView(BuilderTestBase):
     def test_preview_invalid_subject_slug_returns_404(self):
         resp = self.client.get(self._preview_url(subject_slug='science'))
         self.assertEqual(resp.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# WorksheetBuilderView — assets
+# ---------------------------------------------------------------------------
+
+class TestBuilderAssetsAreSelfHosted(BuilderTestBase):
+    """The builder must not depend on a third-party CDN to function.
+
+    SortableJS used to be loaded from cdn.jsdelivr.net, and ``Sortable.create``
+    runs at the top of the page's IIFE — so any failure to fetch it (blocked
+    network, CDN outage) threw before a single handler was bound and the whole
+    builder went dead: no adding questions, no search, no save, no error the
+    teacher could see. The library is vendored in static/js/ like htmx, Alpine
+    and Tailwind already are; this keeps it that way.
+    """
+
+    SCRIPT_SRC_RE = re.compile(rb'<script[^>]+src=["\']([^"\']+)["\']')
+
+    def test_builder_page_loads_no_external_scripts(self):
+        resp = self.client.get(reverse('worksheets:builder'))
+        self.assertEqual(resp.status_code, 200)
+        external = [
+            src.decode() for src in self.SCRIPT_SRC_RE.findall(resp.content)
+            if src.startswith((b'http://', b'https://', b'//'))
+        ]
+        self.assertEqual(
+            external, [],
+            'The worksheet builder must serve its JS from static/, not a CDN: '
+            + ', '.join(external),
+        )
+
+    def test_builder_page_loads_sortable_from_static(self):
+        resp = self.client.get(reverse('worksheets:builder'))
+        self.assertIn(b'js/sortable.min.js', resp.content)
+
+    def test_vendored_sortable_file_exists_and_is_the_library(self):
+        path = Path(settings.BASE_DIR) / 'static' / 'js' / 'sortable.min.js'
+        self.assertTrue(path.exists(), f'missing vendored library: {path}')
+        head = path.read_text(encoding='utf-8')[:200]
+        self.assertIn('Sortable', head)

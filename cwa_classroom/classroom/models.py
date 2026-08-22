@@ -228,6 +228,16 @@ class School(models.Model):
         help_text='The admin user who owns this school.',
     )
     is_active = models.BooleanField(default=True)
+    free_ai_grading = models.BooleanField(
+        default=False,
+        help_text=(
+            'Give this school AI grading without the paid module and without a '
+            'monthly cap — for schools the owner has granted free access. '
+            'The grading service has always looked for this flag; until now it '
+            'was read off a field that did not exist, so it was silently '
+            'always False and the escape hatch never worked.'
+        ),
+    )
     # Bank details for invoices
     bank_name = models.CharField(max_length=100, blank=True)
     bank_bsb = models.CharField('BSB', max_length=20, blank=True)

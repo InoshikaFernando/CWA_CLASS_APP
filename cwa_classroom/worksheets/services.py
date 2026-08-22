@@ -28,6 +28,124 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+# Page numbers baked into generated image_ref filenames, most-specific first:
+#   worksheet_img_q4_p3.png   -> "_p3"   (worksheet / homework crops)
+#   page3_img1.png / page3_figure2.png -> "page3"  (ai_import crops)
+# These give a deterministic page even when the model omits per-question page info.
+_REF_PAGE_PATTERNS = (
+    re.compile(r'_p(\d+)(?=\.|_|$)', re.IGNORECASE),
+    re.compile(r'(?:^|[^a-z])page[_-]?(\d+)', re.IGNORECASE),
+)
+
+
+def question_source_page(q):
+    """Best-effort 1-based page a question maps to, for the "Adjust image" editor.
+
+    The crop modal opens on this page so the teacher lands on the page the
+    question actually came from. Resolution order (most reliable first):
+
+      1. ``image_page`` — explicit crop provenance recorded when a figure was
+         rendered/cropped for this question.
+      2. the page encoded in the generated ``image_ref`` filename
+         (e.g. ``worksheet_img_q4_p3.png`` -> 3, ``page3_img1.png`` -> 3) —
+         survives even when the classifier drops the per-question page field.
+      3. the classifier's per-question page (``page_num`` / ``source_page`` /
+         ``page``).
+      4. ``1`` as a last resort.
+    """
+    def _as_page(value):
+        try:
+            page = int(value)
+        except (TypeError, ValueError):
+            return None
+        return page if page > 0 else None
+
+    page = _as_page(q.get('image_page'))
+    if page:
+        return page
+
+    ref = q.get('image_ref')
+    if ref:
+        for pattern in _REF_PAGE_PATTERNS:
+            match = pattern.search(str(ref))
+            if match:
+                return int(match.group(1))
+
+    for key in ('page_num', 'source_page', 'page'):
+        page = _as_page(q.get(key))
+        if page:
+            return page
+
+    return 1
+
+
+# Phrases that betray unfinished / self-correcting reasoning the model left in an
+# explanation ("The differences are: … Wait — Buenos Aires is 45 and Oslo is 44").
+# Their presence means the model second-guessed itself, so the ticked answer is
+# suspect even when the reasoning eventually lands on the right value.
+_SCRATCH_WORK_RE = re.compile(
+    r'\b(?:wait|hold on|whoops|oops|scratch that|'
+    r'actually[,\s]|on second thought|i(?:\'m| am)? not sure|'
+    r'let me (?:re)?(?:check|do|redo|recompute|reconsider|try)|'
+    r'recompute|recalculate|correction|i made a mistake|'
+    r'that(?:\'s| is) (?:wrong|incorrect)|no[,\s]+(?:wait|actually))\b',
+    re.IGNORECASE,
+)
+
+
+def _norm_text(value):
+    return re.sub(r'\s+', ' ', (value or '').strip().lower())
+
+
+def answer_review_warning(q):
+    """Return a short reason to flag a question's answer key for review, else None.
+
+    Auto-graded questions are only as trustworthy as the answer key the model
+    produced. Two signals reliably indicate the key may be wrong even when the
+    explanation reasons its way to the right value — which is exactly the
+    "explanation is correct but the ticked answer isn't" failure:
+
+      1. The explanation contains scratch work / self-correction ("Wait —",
+         "let me redo") — the model wasn't sure, so its ticked answer is suspect.
+      2. (multiple choice) the explanation clearly names a DIFFERENT option than
+         the one ticked correct, and never names the ticked one.
+
+    Surfacing this in the review editor keeps a wrong key from shipping silently
+    (the teacher is already reviewing the question there).
+    """
+    explanation = (q.get('explanation') or '').strip()
+    if not explanation:
+        return None
+
+    if _SCRATCH_WORK_RE.search(explanation):
+        return ('The explanation contains second-guessing or scratch work — '
+                'check the ticked answer matches its final conclusion.')
+
+    if q.get('question_type') == 'multiple_choice':
+        expl = _norm_text(explanation)
+
+        def named(opt):
+            # Word-boundary match so a short option ("2") isn't found inside a
+            # longer number ("12"); skip trivially short option text entirely.
+            opt = _norm_text(opt)
+            if len(opt) < 3:
+                return None
+            return re.search(r'(?<!\w){}(?!\w)'.format(re.escape(opt)), expl) is not None
+
+        answers = q.get('answers') or []
+        correct = [named(a.get('text')) for a in answers if a.get('is_correct')]
+        others = [named(a.get('text')) for a in answers if not a.get('is_correct')]
+        # Only decide when at least one correct option was long enough to check.
+        if any(c is not None for c in correct):
+            correct_named = any(c for c in correct)
+            other_named = any(o for o in others)
+            if not correct_named and other_named:
+                return ('The explanation names a different option than the one '
+                        'ticked correct — verify the answer.')
+
+    return None
+
+
 # DPI for the page screenshots sent to Claude. 150 is the quality sweet spot —
 # lower values make Claude miss questions (small text becomes illegible). Tune
 # down via WORKSHEET_SCREENSHOT_DPI only if memory is tight (all page screenshots
@@ -451,6 +569,14 @@ Rules:
    arrow/marker is already drawn and the student reads its value — put the marked position(s) in given
    (target defaults to given). Every target/given value must land exactly on a tick. The app draws the
    line, so set has_image=false. Leave answers=[]; validation_type="auto".
+15. TABLES: if the question depends on reading a DATA TABLE (rows/columns of values — a
+   timetable, price list, tally/frequency table, results table, conversion table, etc.), set
+   has_image=true and give image_bbox tightly around the WHOLE table (all its rows, columns and
+   header cells — never clip a column). Do NOT transcribe the table's data into question_text —
+   keep question_text to the actual instruction ("Using the table, which city had the largest
+   range?") and let the cropped table image carry the figures. The app cannot redraw a table, so
+   the image is the only record of it: attaching it is required whenever the answer can't be found
+   without the table.
 
 IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
 - has_image=true ONLY when the question genuinely depends on a visual that cannot be written
