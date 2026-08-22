@@ -394,3 +394,117 @@ def plan_blank_removal(question, options=None):
         raise Skipped('the only correct option is blank — deleting it would '
                       'leave nothing to answer')
     return blanks
+
+
+def plan_duplicate_removal(question, options=None, min_remaining=2):
+    """Return the option rows to DELETE so each answer is offered once.
+
+    The fallback for every duplicate fault when :func:`plan_repair` refuses.
+    ``plan_repair`` REPLACES a repeated option with a freshly generated value,
+    which keeps the question's option count but only works when every option
+    reads as a single number. Most of the bank's options are words, so on those
+    the reviewer got "options are not all single numbers" and no way forward.
+
+    Deleting the repeat needs no generator and so works on any answer text. It
+    costs the question one choice, which is why it is the SECOND fix offered
+    rather than the first — but a three-option question is a working question,
+    and one that lists the same answer twice is not.
+
+    The correct copy is always the survivor: deleting it would rewrite the
+    answer key. Refused when it would leave fewer than ``min_remaining``
+    options, because a question nobody can choose from is not a repair.
+    """
+    options = list(options if options is not None
+                   else question.answers.order_by('order', 'id'))
+    texts = [(o.answer_text or '').strip() for o in options]
+    quantities = dict(zip(options, (parse_answer_quantity(t) for t in texts)))
+
+    doomed = []
+
+    def collapse(group):
+        if len(group) < 2:
+            return
+        # Prefer the correct copy, then the earliest — a stable choice a
+        # reviewer can predict before applying it.
+        keep = next((o for o in group if o.is_correct), group[0])
+        doomed.extend(o for o in group if o is not keep)
+
+    # Pass 1 — the same text listed twice. Blank rows are excluded: they are
+    # BLANK-OPTION's fault and drop_blank_options' job, and folding them in
+    # here would delete them under a label that does not say so.
+    by_text = {}
+    for option, text in zip(options, texts):
+        if text:
+            by_text.setdefault(text.lower(), []).append(option)
+    for group in by_text.values():
+        collapse(group)
+
+    # Pass 2 — one number, two spellings ('6/10' beside '3/5'). Options that
+    # are not readable as a quantity are skipped by group_by_quantity, so two
+    # unrelated words never land in the same group.
+    remaining = [o for o in options
+                 if o not in doomed and (o.answer_text or '').strip()]
+    for group in group_by_quantity(remaining, quantities.get):
+        collapse(group)
+
+    if not doomed:
+        return []
+    if len(options) - len(doomed) < min_remaining:
+        raise Skipped(
+            f'deleting the repeats would leave '
+            f'{len(options) - len(doomed)} option(s) — too few to choose from')
+    return doomed
+
+
+def plan_chosen_answer_key(question, chosen_id, options=None):
+    """Return ``(to_flag, to_unflag)`` for the option a reviewer PICKED.
+
+    The escape hatch for every answer-key fault the arithmetic cannot settle.
+    ``plan_answer_key`` can only act where the question's own maths decides the
+    answer; on "What is 666 in expanded form?" — two options flagged correct,
+    neither computable — it refuses, and rightly so, because choosing between
+    them is choosing the answer.
+
+    So the reviewer chooses, and this applies it. No inference happens here at
+    all: the judgement is a human's, and this only does the bookkeeping that
+    leaves exactly one option flagged. That keeps the safety rule intact (the
+    module never invents an answer) while still giving the fault a fix.
+
+    Raises :class:`Skipped` when the pick is not an option on this question, or
+    is blank — a blank answer key marks every student wrong.
+    """
+    options = list(options if options is not None
+                   else question.answers.order_by('order', 'id'))
+    keep = next((o for o in options if o.id == chosen_id), None)
+    if keep is None:
+        raise Skipped('no answer was picked for this question')
+    if not (keep.answer_text or '').strip():
+        raise Skipped('the option picked is blank — it cannot be the answer')
+
+    to_unflag = [o for o in options if o.is_correct and o.id != keep.id]
+    to_flag = [] if keep.is_correct else [keep]
+    return (to_flag, to_unflag)
+
+
+def plan_type_change(question, options=None, to='short_answer'):
+    """Check that retyping ``question`` to ``to`` leaves it gradeable.
+
+    Changing a choice question to Short Answer is the universal way out of
+    TOO-FEW-OPTIONS: a question with one or two options is not a real multiple
+    choice, and when its options are words there is no distractor generator
+    that can honestly pad it. Typed grading needs no distractors at all.
+
+    What it DOES need is a correct answer to match against — typed grading
+    reads the ``is_correct`` rows and marks everything wrong when there are
+    none. Converting an unanswerable question would therefore hide the worse
+    fault behind a fixed-looking one, so it is refused.
+    """
+    options = list(options if options is not None
+                   else question.answers.order_by('order', 'id'))
+    if question.question_type == to:
+        return False
+    correct = [o for o in options if (o.answer_text or '').strip() and o.is_correct]
+    if not correct:
+        raise Skipped('no correct answer is stored — typed grading would mark '
+                      'every student wrong; supply the answer first')
+    return True
