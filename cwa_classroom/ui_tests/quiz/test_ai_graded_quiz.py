@@ -71,8 +71,6 @@ class TestAIGradedTopicQuiz:
         page = self.page
         page.goto(f'{self.url}/maths/level/{self.level.level_number}'
                   f'/topic/{self.topic.id}/quiz/')
-        page.wait_for_load_state('networkidle')
-
         answer_box = page.locator('#text-answer-input')
         expect(answer_box).to_be_visible(timeout=10_000)
         answer_box.fill(text)
@@ -86,7 +84,6 @@ class TestAIGradedTopicQuiz:
         page = self.page
         page.goto(f'{self.url}/maths/level/{self.level.level_number}'
                   f'/topic/{self.topic.id}/quiz/')
-        page.wait_for_load_state('networkidle')
         expect(page.locator('#question-container')).to_contain_text(
             'which side of the line', timeout=10_000)
 
