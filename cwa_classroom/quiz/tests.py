@@ -735,6 +735,20 @@ class TestTopicQuizShortAnswerGrading(TestCase):
         Answer.objects.create(question=cls.alts, answer_text='2 1/4', is_correct=True)
         Answer.objects.create(question=cls.alts, answer_text='4/9', is_correct=False)
 
+        # "Write an expression for the total cost" — a plain typed answer whose
+        # terms the student may legitimately write in either order.
+        cls.expression = Question.objects.create(
+            question_text=(
+                'A banquet costs $110 room rental plus $12 per person. Write an '
+                'expression for the cost for p people.'
+            ),
+            question_type='short_answer',
+            topic=cls.topic, level=cls.level,
+        )
+        Answer.objects.create(
+            question=cls.expression, answer_text='12p + 110', is_correct=True,
+        )
+
     def setUp(self):
         self.client = Client()
         self.client.login(username='sastudent', password='pass1234')
@@ -782,18 +796,29 @@ class TestTopicQuizShortAnswerGrading(TestCase):
         self.assertTrue(self._submit(self.alts, '2 1/4')['is_correct'])
         self.assertFalse(self._submit(self.alts, '4/9')['is_correct'])
 
+    def test_expression_accepted_in_either_term_order(self):
+        # "110+12p" is the stored "12p + 110" with its terms commuted — the
+        # literal match marked it wrong.
+        for ans in ['12p + 110', '110 + 12p', '110+12p']:
+            self.assertTrue(self._submit(self.expression, ans)['is_correct'], ans)
+
+    def test_a_different_expression_is_still_incorrect(self):
+        for ans in ['110 + 11p', '12p - 110', '110 + 12', '6p + 6p + 110']:
+            self.assertFalse(self._submit(self.expression, ans)['is_correct'], ans)
+
     def test_correct_answer_text_still_reported(self):
         data = self._submit(self.multi, 'A')
         self.assertEqual(data['correct_answer_text'], 'D and E')
 
-    def _submit_mixed(self, text_answer):
+    def _submit_mixed(self, text_answer, question=None):
         """POST the whole-page mixed quiz (MixedQuizView.post) — the second
         grading path, which had its own copy of the comparison."""
+        question = question or self.multi
         session_id = str(uuid.uuid4())
         session = self.client.session
         session[f'mq_{session_id}'] = {
             'level_number': 7,
-            'question_ids': [self.multi.id],
+            'question_ids': [question.id],
             'start_time': time.time(),
         }
         session.save()
@@ -801,7 +826,7 @@ class TestTopicQuizShortAnswerGrading(TestCase):
             reverse('mixed_quiz', kwargs={
                 'subject': 'mathematics', 'level_number': 7,
             }),
-            data={'session_id': session_id, f'text_{self.multi.id}': text_answer},
+            data={'session_id': session_id, f'text_{question.id}': text_answer},
         )
         self.assertIn(resp.status_code, (200, 302))
         return StudentFinalAnswer.objects.filter(student=self.student).latest('id')
@@ -811,6 +836,10 @@ class TestTopicQuizShortAnswerGrading(TestCase):
 
     def test_mixed_quiz_still_rejects_a_wrong_selection(self):
         self.assertEqual(self._submit_mixed('A and B').score, 0)
+
+    def test_mixed_quiz_accepts_either_term_order(self):
+        self.assertEqual(self._submit_mixed('110 + 12p', self.expression).score, 1)
+        self.assertEqual(self._submit_mixed('110 + 11p', self.expression).score, 0)
 
 
 class TimesTablesSelectViewTest(TestCase):
