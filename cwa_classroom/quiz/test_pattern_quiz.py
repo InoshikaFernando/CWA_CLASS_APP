@@ -158,9 +158,9 @@ class PatternQuestionsInTheMixedQuizTests(TestCase):
         )
 
     def test_the_shared_short_answer_grader_accepts_a_valid_pattern(self):
-        from quiz.views import _correct_answer_texts, _grade_short_answer
+        from quiz.views import _correct_answer_texts
 
-        texts = _correct_answer_texts(self.question)
-        self.assertEqual(texts, [])          # nothing stored, by design
-        self.assertTrue(_grade_short_answer(self.question, '5, 8, 11, 14', texts))
-        self.assertFalse(_grade_short_answer(self.question, '14, 11, 8, 5', texts))
+        # Nothing stored, by design — which is what used to make it unanswerable.
+        self.assertEqual(_correct_answer_texts(self.question), [])
+        self.assertTrue(self.question.grade_text_answer('5, 8, 11, 14'))
+        self.assertFalse(self.question.grade_text_answer('14, 11, 8, 5'))
