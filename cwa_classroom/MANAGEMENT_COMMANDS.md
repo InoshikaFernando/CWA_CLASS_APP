@@ -99,6 +99,21 @@ python manage.py reset_invoice_counters            # apply
 python manage.py reset_invoice_counters --dry-run  # preview
 ```
 
+### `reset_individual_billing`
+Reset ONE student hit by the legacy one-off charge (succeeded `Payment`, but a
+local `Subscription` with an EMPTY `stripe_subscription_id` — paid once, never
+renews) so they re-enter Stripe Checkout in subscription mode and end up on a
+real recurring subscription. Cancels the stale local subscription, keeps
+`stripe_customer_id` (so checkout reuses the same Stripe customer) and never
+touches succeeded `Payment` rows. Refuses to run while Stripe still holds a live
+subscription — that case is `reconcile_subscription`, not a reset.
+```bash
+python manage.py reset_individual_billing --username siheli.gamage                   # dry run
+python manage.py reset_individual_billing --username siheli.gamage --apply           # commit
+python manage.py reset_individual_billing --email x@y.com --make-individual --apply  # + role swap
+```
+Use `audit_legacy_oneoff_payments` first to confirm the student is in that cohort.
+
 ### `send_trial_expiry_warnings`
 Send email warnings to schools/students whose trial expires within N days.
 ```bash
