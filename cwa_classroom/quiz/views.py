@@ -68,12 +68,21 @@ def _correct_answer_texts(question):
 def _grade_short_answer(question, raw, correct_texts):
     """Grade a typed short answer against *every* accepted answer.
 
-    Two rules, either of which accepts:
+    Three rules, any of which accepts:
 
-    - Exact match, exponent- and inequality-insensitive (mirrors
-      ``Question.grade_text_answer`` so the keypad buttons work here too). Each
-      stored answer may itself list comma-separated accepted forms — legacy
-      authoring that predates one Answer row per alternative.
+    - The canonical grading on the model (``Question.grade_text_answer``), so
+      this surface accepts exactly what the worksheet / homework / plugin
+      surfaces accept. It folds commas, the filler word "and", hyphens,
+      degrees, exponents, inequalities and multiplication marks, which is what
+      makes a two-part answer match however the student punctuates it —
+      ``"32,2"`` == ``"32, 2"`` == ``"32 and 2"`` (CPP-378). This runs *first*:
+      grading here used to start from the comma rule below, which splits the
+      stored ``"32, 2"`` into two alternatives and so rejected the answer the
+      student was shown.
+    - Exact match where a stored answer itself lists comma-separated accepted
+      forms — legacy authoring that predates one Answer row per alternative
+      (e.g. ``"1/2, 0.5"``). Kept as a fallback so those questions still grade,
+      but it can no longer be the reason a complete answer is marked wrong.
     - Set match on option labels, so a "select all that apply" answer stored as
       ``"D and E"`` is accepted however the student orders it — ``"E,D"``,
       ``"E D"`` (CPP-374). Only lists of single letters qualify, so an ordered
@@ -81,7 +90,7 @@ def _grade_short_answer(question, raw, correct_texts):
 
     A question marked ``answer_format='set'`` — "list every value", where the
     student must give them all in any order (CPP-376) — is graded on the model
-    instead, so the comma-as-alternatives rule above can't accept half of it.
+    alone, so the comma-as-alternatives rule can't accept half of it.
     """
     from maths.algebra_grading import (
         fold_exponents, fold_inequalities, option_label_set,
@@ -93,6 +102,9 @@ def _grade_short_answer(question, raw, correct_texts):
 
     if question.answer_format == Question.ANSWER_FORMAT_SET:
         return question.grade_text_answer(raw)
+
+    if question.grade_text_answer(raw):
+        return True
 
     def _fold(value):
         return fold_exponents(fold_inequalities(value))
