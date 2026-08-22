@@ -60,6 +60,26 @@ class ReadingTheQuestionTests(TestCase):
         request = parse_pattern_request('Make up your own number pattern.')
         self.assertEqual(request, PatternRequest())
 
+    def test_the_four_live_questions_in_topic_147_are_detected(self):
+        """Wording taken from the production catalogue — these are the four
+        questions in Patterns/Year 4 that store no answer at all."""
+        live = [
+            ('Create your own tricky addition number pattern. '
+             'Write down your rule.', ADD, None),
+            ('Create your own tricky subtraction number pattern. '
+             'Write down your rule.', SUBTRACT, None),
+            ('Create your own tricky addition number pattern of six numbers '
+             'and write down the rule you used.', ADD, 6),
+            (THE_QUESTION, SUBTRACT, 6),
+        ]
+        for text, operation, length in live:
+            with self.subTest(text=text):
+                self.assertTrue(looks_like_pattern_question(text))
+                request = parse_pattern_request(text)
+                self.assertEqual(request.operation, operation)
+                self.assertEqual(request.length, length)
+                self.assertTrue(request.needs_rule)
+
     def test_only_invent_your_own_questions_are_detected(self):
         self.assertTrue(looks_like_pattern_question(THE_QUESTION))
         self.assertTrue(looks_like_pattern_question(
