@@ -17,7 +17,8 @@ from collections import Counter
 
 from django.core.management.base import BaseCommand
 
-from maths.answer_verification import verify_question
+from maths.answer_verification import (
+    verify_question, verify_typed_answer_question)
 from maths.management.commands.verify_question_answers import ADVISORY_CODES
 
 
@@ -60,10 +61,22 @@ class Command(BaseCommand):
             .select_related('topic', 'topic__parent', 'level')
             .prefetch_related('answers')
         )
+        # Typed answers carry their own checks (CPP-378) and were previously
+        # not measured at all, so the dashboard reported a bank far healthier
+        # than it was.
+        typed = (
+            Question.objects
+            .exclude(question_type__in=(Question.MULTIPLE_CHOICE,
+                                        Question.TRUE_FALSE))
+            .select_related('topic', 'topic__parent', 'level')
+            .prefetch_related('answers')
+        )
         if options['level'] is not None:
             questions = questions.filter(level__level_number=options['level'])
+            typed = typed.filter(level__level_number=options['level'])
         if options['topic'] is not None:
             questions = questions.filter(topic_id=options['topic'])
+            typed = typed.filter(topic_id=options['topic'])
 
         choice_total = 0
         verified = 0
@@ -110,7 +123,31 @@ class Command(BaseCommand):
                     'is_global': question.school_id is None,
                 })
 
+        typed_total = 0
+        for question in typed.iterator(chunk_size=200):
+            typed_total += 1
+            issues = verify_typed_answer_question(question)
+            if not issues:
+                continue
+            issue_codes = [issue.code for issue in issues]
+            codes.update(issue_codes)
+            # Neither typed code is advisory: each one mismarks a student.
+            blocking += 1
+            if len(flagged) < max_flagged:
+                flagged.append({
+                    'id': question.id,
+                    'codes': sorted(set(issue_codes)),
+                    'detail': issues[0].detail[:200],
+                    'text': (question.question_text or '')[:120],
+                    'level': (question.level.level_number
+                              if question.level_id else None),
+                    'topic': _parent_topic_name(question),
+                    'subtopic': _subtopic_name(question),
+                    'is_global': question.school_id is None,
+                })
+
         snapshot = QuestionHealthSnapshot.objects.create(
+            typed_questions=typed_total,
             level_number=options['level'],
             topic=Topic.objects.filter(id=options['topic']).first(),
             total_questions=Question.objects.count(),
