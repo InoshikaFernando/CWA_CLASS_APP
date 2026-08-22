@@ -66,9 +66,10 @@ def student_can_be_ai_graded(user):
       AI grading is included and unmetered. There is no school subscription to
       check and no quota to run out.
     - **School students** — AI grading is their school's paid add-on. If the
-      school buys it they get the questions; if not, the quiz does not show
-      them, because the alternative is marking a child wrong for something
-      their school did not buy.
+      school buys it — or the owner has granted it free via
+      ``School.free_ai_grading`` — they get the questions; if not, the quiz
+      does not show them, because the alternative is marking a child wrong for
+      something their school did not buy.
 
     Note the asymmetry with AI *import*, which gates a teacher's access to a
     feature. This gates whether a question is offered at all — never whether a
@@ -79,7 +80,8 @@ def student_can_be_ai_graded(user):
     schools = list(get_all_schools_for_user(user))
     if not schools:
         return True
-    return any(get_ai_grading_tier(school) for school in schools)
+    return any(getattr(school, 'free_ai_grading', False)
+               or get_ai_grading_tier(school) for school in schools)
 
 
 def check_ai_grading_quota(school):

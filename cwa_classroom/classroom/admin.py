@@ -82,8 +82,11 @@ class ClassSessionInline(admin.TabularInline):
 
 @admin.register(School)
 class SchoolAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'admin', 'default_currency', 'is_active', 'created_at')
-    list_filter = ('is_active', 'default_currency')
+    list_display = ('name', 'slug', 'admin', 'default_currency', 'is_active',
+                    'free_ai_grading', 'created_at')
+    # Filterable so "which schools am I giving AI grading to for free?" is one
+    # click rather than a query.
+    list_filter = ('is_active', 'free_ai_grading', 'default_currency')
     search_fields = ('name', 'slug')
     prepopulated_fields = {'slug': ('name',)}
     autocomplete_fields = ('default_currency',)
