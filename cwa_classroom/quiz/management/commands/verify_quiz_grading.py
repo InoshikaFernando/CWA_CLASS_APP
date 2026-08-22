@@ -41,8 +41,9 @@ import time
 import uuid
 from collections import Counter
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.test import Client
 from django.urls import reverse
@@ -55,6 +56,26 @@ TEXT_TYPES = (
     'short_answer', 'fill_blank', 'calculation',
     'long_division', 'prime_factorization', 'column_operation',
 )
+
+
+def _allowed_host():
+    """A Host header this deployment will accept.
+
+    Django's test client sends ``Host: testserver``, which production's
+    ALLOWED_HOSTS does not list — so every submission came back 400 before it
+    reached any grading code, and the sweep reported 280 questions as
+    mismarking a correct answer when it had in fact never graded one.
+    """
+    hosts = [h.strip() for h in getattr(settings, 'ALLOWED_HOSTS', []) if h.strip()]
+    if not hosts or '*' in hosts:
+        return 'testserver'          # ALLOWED_HOSTS accepts anything (or DEBUG).
+    for host in hosts:
+        # A leading dot means "this domain and its subdomains"; the bare domain
+        # is itself allowed, so drop the dot rather than skipping the entry.
+        host = host.lstrip('.')
+        if host and '*' not in host:
+            return host
+    return 'testserver'
 
 
 class Command(BaseCommand):
@@ -216,6 +237,7 @@ class Command(BaseCommand):
 
         checked = 0
         failed = 0
+        endpoint_errors = 0     # requests the app refused — not content faults
         unsupported = Counter()
         failures = []
 
@@ -238,8 +260,24 @@ class Command(BaseCommand):
                     email='quiz-grading-sweep@example.invalid',
                     password=password,
                 )
-            client = Client()
+            host = _allowed_host()
+            client = Client(SERVER_NAME=host)
             client.force_login(user)
+
+            # Prove the endpoint answers before grinding through the catalogue.
+            # Without this the sweep submits thousands of requests that are all
+            # rejected before reaching the grader, then reports every question
+            # as mismarking a correct answer — an accusation against content
+            # that was never graded. Whatever is wrong, saying it once here is
+            # the honest version.
+            probe = client.get('/api/health/')
+            if probe.status_code >= 400:
+                raise CommandError(
+                    f'The grading endpoint is not reachable: GET /api/health/ '
+                    f'returned {probe.status_code} with Host: {host!r}. '
+                    f'Nothing was graded. If this is a 400, the host is not in '
+                    f'ALLOWED_HOSTS (currently '
+                    f'{list(getattr(settings, "ALLOWED_HOSTS", []))}).')
 
             # chunk_size is required to combine iterator() with
             # prefetch_related() — without it Django 5 raises.
@@ -271,7 +309,12 @@ class Command(BaseCommand):
 
                 checked += 1
                 if problems:
-                    failed += 1
+                    # A question whose every problem is a refused request has
+                    # not been shown to mismark anything.
+                    if all('endpoint error' in p for p in problems):
+                        endpoint_errors += 1
+                    else:
+                        failed += 1
                     failures.append((question, problems))
                     if not quiet:
                         topic = (question.topic.name
@@ -297,6 +340,10 @@ class Command(BaseCommand):
         self.stdout.write('')
         self.stdout.write(f'Answered via the real endpoint : {checked}')
         self.stdout.write(f'Questions that mismark         : {failed}')
+        if endpoint_errors:
+            self.stdout.write(self.style.WARNING(
+                f'Questions the endpoint refused : {endpoint_errors} '
+                f'(never graded — NOT a content fault)'))
         self.stdout.write(f'Not machine-answerable         : {total_unsupported}')
         for question_type, count in sorted(unsupported.items()):
             self.stdout.write(f'    {question_type:<34} {count}')
@@ -305,6 +352,11 @@ class Command(BaseCommand):
                 '  (these need the UI test or a human — they are NOT counted '
                 'as passing)')
 
+        if endpoint_errors:
+            self.stdout.write(self.style.ERROR(
+                f'FAILED — the endpoint refused {endpoint_errors} question(s). '
+                f'Those were never graded, so nothing is known about them.'))
+            sys.exit(1)
         if failed:
             self.stdout.write(self.style.ERROR(
                 f'FAILED — {failed} question(s) mismark a correct answer'))

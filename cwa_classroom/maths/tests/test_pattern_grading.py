@@ -142,6 +142,38 @@ class GradingTheReportedQuestionTests(TestCase):
                 # Rule given, so no reminder to give it.
                 self.assertNotIn('next time', grade.feedback)
 
+    def test_a_dash_beside_a_rule_is_punctuation_not_a_minus(self):
+        """Found on production. Em and en dashes fold to "-" so a typed minus
+        is read whichever character the student reached for — but the dash in
+        "5, 8, 11 — rule: add 3" is punctuation. Reading it as "subtract" made
+        it contradict the stated rule, so every correct answer to a "create
+        your own ADDITION pattern" question was failed. The equivalent
+        subtraction answer passed by coincidence, which is what hid it."""
+        addition = ('Create your own tricky addition number pattern of six '
+                    'numbers and write down the rule you used.')
+        for answer in (
+            '5, 8, 11, 14, 17, 20 — rule: add 3',    # em dash
+            '5, 8, 11, 14, 17, 20 – rule: add 3',    # en dash
+            '5, 8, 11, 14, 17, 20 - add 3',          # hyphen
+        ):
+            with self.subTest(answer=answer):
+                grade = grade_pattern(addition, answer)
+                self.assertTrue(grade.is_correct, grade.feedback)
+
+    def test_a_minus_on_a_number_is_still_a_rule(self):
+        # The fix must not stop "-2" being read as the rule it is.
+        for answer in ('20, 18, 16, 14, 12, 10 rule -2',
+                       '20, 18, 16, 14, 12, 10 - 2 each time'):
+            with self.subTest(answer=answer):
+                self.assertTrue(grade_pattern(THE_QUESTION, answer).is_correct)
+
+    def test_a_rule_that_really_contradicts_the_numbers_still_fails(self):
+        addition = ('Create your own tricky addition number pattern of six '
+                    'numbers and write down the rule you used.')
+        grade = grade_pattern(addition, '5, 8, 11, 14, 17, 20 — rule: subtract 3')
+        self.assertFalse(grade.is_correct)
+        self.assertIn('subtraction', grade.feedback)
+
     def test_a_rule_that_contradicts_the_numbers_is_wrong(self):
         grade = grade_pattern(THE_QUESTION,
                               '20, 18, 16, 14, 12, 10 my rule was subtract 3')

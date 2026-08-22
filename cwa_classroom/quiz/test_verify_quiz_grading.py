@@ -8,6 +8,9 @@ Two properties matter and are both asserted here:
 
 Property 2 is what makes it safe to point at a live database weekly.
 """
+from io import StringIO
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
@@ -108,3 +111,57 @@ class VerifyQuizGradingTests(TestCase):
 
         self.assertEqual(StudentAnswer.objects.count(), answers_before)
         self.assertEqual(User.objects.count(), users_before)
+
+
+class HostHeaderTests(TestCase):
+    """The sweep must talk to the app, or say plainly that it could not.
+
+    Pointed at production it sent Django's default ``Host: testserver``, which
+    is not in prod's ALLOWED_HOSTS, so every submission was rejected with a 400
+    before reaching the grader — and the sweep reported "FAILED — 280
+    question(s) mismark a correct answer" about questions it had never graded.
+    A tool that blames the content for its own transport failure is worse than
+    one that stops.
+    """
+
+    def test_a_configured_host_is_used(self):
+        from quiz.management.commands.verify_quiz_grading import _allowed_host
+
+        with self.settings(ALLOWED_HOSTS=['www.example.co.nz', 'example.co.nz']):
+            self.assertEqual(_allowed_host(), 'www.example.co.nz')
+
+    def test_a_subdomain_wildcard_yields_the_bare_domain(self):
+        from quiz.management.commands.verify_quiz_grading import _allowed_host
+
+        with self.settings(ALLOWED_HOSTS=['.example.co.nz']):
+            self.assertEqual(_allowed_host(), 'example.co.nz')
+
+    def test_an_open_or_empty_allowed_hosts_keeps_the_default(self):
+        from quiz.management.commands.verify_quiz_grading import _allowed_host
+
+        with self.settings(ALLOWED_HOSTS=['*']):
+            self.assertEqual(_allowed_host(), 'testserver')
+        with self.settings(ALLOWED_HOSTS=[]):
+            self.assertEqual(_allowed_host(), 'testserver')
+
+    def test_an_unreachable_endpoint_stops_the_sweep(self):
+        """It must refuse to run rather than blame every question it meets.
+
+        Reproduces production exactly: the client sends a Host the site does
+        not allow, so the app rejects every request with a 400. Before, that
+        produced a per-question "endpoint error" and a final line accusing 280
+        questions of mismarking. Now it stops on the first probe.
+        """
+        from django.core.management.base import CommandError
+
+        with self.settings(ALLOWED_HOSTS=['www.example.co.nz']), \
+                patch('quiz.management.commands.verify_quiz_grading.'
+                      '_allowed_host', return_value='testserver'):
+            with self.assertRaises(CommandError) as caught:
+                call_command('verify_quiz_grading', stdout=StringIO(),
+                             stderr=StringIO())
+        message = str(caught.exception)
+        self.assertIn('not reachable', message)
+        self.assertIn('Nothing was graded', message)
+        # The operator is told what to change, not just that it broke.
+        self.assertIn('ALLOWED_HOSTS', message)

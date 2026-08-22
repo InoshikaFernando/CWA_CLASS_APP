@@ -265,7 +265,12 @@ class TestImportedUserLogin:
         # Login via Playwright
         page = self.page
         page.goto(f"{self.url}/accounts/login/")
-        page.wait_for_load_state("networkidle")
+        # Wait for the field this test is about to type into, not for the
+        # network to fall idle. "networkidle" has no bearing on whether the
+        # login form is ready, and under four parallel workers it can simply
+        # never arrive — it timed out here twice on CI while the same test
+        # passed locally. expect() waits for the thing that actually matters.
+        expect(page.locator("#id_username")).to_be_visible(timeout=15_000)
         page.locator("#id_username").fill(teacher_cred["username"])
         page.locator("#id_password").fill(teacher_cred["password"])
         page.locator("button[type='submit'], input[type='submit']").first.click()
@@ -288,7 +293,12 @@ class TestImportedUserLogin:
         # Login via Playwright
         page = self.page
         page.goto(f"{self.url}/accounts/login/")
-        page.wait_for_load_state("networkidle")
+        # Wait for the field this test is about to type into, not for the
+        # network to fall idle. "networkidle" has no bearing on whether the
+        # login form is ready, and under four parallel workers it can simply
+        # never arrive — it timed out here twice on CI while the same test
+        # passed locally. expect() waits for the thing that actually matters.
+        expect(page.locator("#id_username")).to_be_visible(timeout=15_000)
         page.locator("#id_username").fill(student_cred["username"])
         page.locator("#id_password").fill(student_cred["password"])
         page.locator("button[type='submit'], input[type='submit']").first.click()
@@ -315,7 +325,12 @@ class TestImportedUserLogin:
 
         page = self.page
         page.goto(f"{self.url}/accounts/login/")
-        page.wait_for_load_state("networkidle")
+        # Wait for the field this test is about to type into, not for the
+        # network to fall idle. "networkidle" has no bearing on whether the
+        # login form is ready, and under four parallel workers it can simply
+        # never arrive — it timed out here twice on CI while the same test
+        # passed locally. expect() waits for the thing that actually matters.
+        expect(page.locator("#id_username")).to_be_visible(timeout=15_000)
         page.locator("#id_username").fill(teacher_cred["username"])
         page.locator("#id_password").fill(teacher_cred["password"])
         page.locator("button[type='submit'], input[type='submit']").first.click()
@@ -342,7 +357,12 @@ class TestImportedUserLogin:
 
         page = self.page
         page.goto(f"{self.url}/accounts/login/")
-        page.wait_for_load_state("networkidle")
+        # Wait for the field this test is about to type into, not for the
+        # network to fall idle. "networkidle" has no bearing on whether the
+        # login form is ready, and under four parallel workers it can simply
+        # never arrive — it timed out here twice on CI while the same test
+        # passed locally. expect() waits for the thing that actually matters.
+        expect(page.locator("#id_username")).to_be_visible(timeout=15_000)
         page.locator("#id_username").fill(student_cred["username"])
         page.locator("#id_password").fill(student_cred["password"])
         page.locator("button[type='submit'], input[type='submit']").first.click()
@@ -366,7 +386,12 @@ class TestImportedUserLogin:
         # Login via Playwright
         page = self.page
         page.goto(f"{self.url}/accounts/login/")
-        page.wait_for_load_state("networkidle")
+        # Wait for the field this test is about to type into, not for the
+        # network to fall idle. "networkidle" has no bearing on whether the
+        # login form is ready, and under four parallel workers it can simply
+        # never arrive — it timed out here twice on CI while the same test
+        # passed locally. expect() waits for the thing that actually matters.
+        expect(page.locator("#id_username")).to_be_visible(timeout=15_000)
         page.locator("#id_username").fill(parent_cred["username"])
         page.locator("#id_password").fill(parent_cred["password"])
         page.locator("button[type='submit'], input[type='submit']").first.click()
@@ -391,7 +416,12 @@ class TestImportedUserLogin:
 
         page = self.page
         page.goto(f"{self.url}/accounts/login/")
-        page.wait_for_load_state("networkidle")
+        # Wait for the field this test is about to type into, not for the
+        # network to fall idle. "networkidle" has no bearing on whether the
+        # login form is ready, and under four parallel workers it can simply
+        # never arrive — it timed out here twice on CI while the same test
+        # passed locally. expect() waits for the thing that actually matters.
+        expect(page.locator("#id_username")).to_be_visible(timeout=15_000)
         page.locator("#id_username").fill(parent_cred["username"])
         page.locator("#id_password").fill(parent_cred["password"])
         page.locator("button[type='submit'], input[type='submit']").first.click()
