@@ -39,7 +39,8 @@ import sys
 from collections import Counter, defaultdict
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db.models import Q
+
+from maths.topic_lookup import matching_topics, topic_path
 
 SCOPE_ALL = 'all'
 SCOPE_GLOBAL = 'global'
@@ -50,15 +51,6 @@ CSV_FIELDS = (
     'question_type', 'difficulty', 'points', 'answer_count', 'correct_answers',
     'has_image', 'question_text',
 )
-
-
-def topic_path(topic):
-    """'Strand › Sub-topic' for a sub-topic, plain name for a strand."""
-    if topic is None:
-        return '(no topic)'
-    if topic.parent_id:
-        return f'{topic.parent.name} › {topic.name}'
-    return topic.name
 
 
 def _scope_of(question):
@@ -105,7 +97,7 @@ class Command(BaseCommand):
 
     # ------------------------------------------------------------------
     def handle(self, *args, **opts):
-        from classroom.models import Level, School, Topic
+        from classroom.models import Level, School
         from maths.models import Question
 
         year = opts['year']
@@ -129,17 +121,7 @@ class Command(BaseCommand):
         # ── the topic rows this name resolves to ─────────────────────────
         topics = []
         if topic_term:
-            if opts['exact_topic']:
-                match = (Q(name__iexact=topic_term) |
-                         Q(parent__name__iexact=topic_term) |
-                         Q(slug__iexact=topic_term))
-            else:
-                match = (Q(name__icontains=topic_term) |
-                         Q(parent__name__icontains=topic_term) |
-                         Q(slug__icontains=topic_term))
-            topics = list(Topic.objects.filter(match)
-                          .select_related('parent', 'subject')
-                          .order_by('parent__name', 'name'))
+            topics = matching_topics(topic_term, exact=opts['exact_topic'])
             if not topics:
                 # A silent empty list here reads as "the bank has nothing",
                 # when the truth is the name never existed.

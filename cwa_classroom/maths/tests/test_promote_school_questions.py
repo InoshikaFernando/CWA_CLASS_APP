@@ -53,3 +53,47 @@ def test_promote_is_idempotent(setup):
 def test_promote_dry_run_writes_nothing(setup):
     call_command('promote_school_questions', school=setup['school'].id, dry_run=True)
     assert Question.objects.filter(school__isnull=True).count() == 0
+
+
+@pytest.fixture
+def wider_bank(setup):
+    """A second year + topic, so the --year / --topic scoping has something to
+    leave behind."""
+    from classroom.models import Subject
+    subject = Subject.objects.get(slug='mathematics')
+    y4 = Level.objects.create(level_number=4, display_name='Year 4', school=None)
+    number = Topic.objects.create(subject=subject, name='Number', slug='number')
+    patterns = Topic.objects.create(subject=subject, name='Number Patterns',
+                                    slug='number-patterns', parent=number)
+    fractions = Topic.objects.create(subject=subject, name='Fractions',
+                                     slug='fractions', parent=number)
+    for topic, text in ((patterns, 'Complete: 14, 18, 22, __'),
+                        (fractions, 'Add 1/2 + 1/4')):
+        q = Question.objects.create(
+            school=setup['school'], level=y4, topic=topic, question_text=text,
+            question_type='short_answer', difficulty=1, points=1)
+        Answer.objects.create(question=q, answer_text='x', is_correct=True)
+    return setup
+
+
+def test_promote_scoped_to_one_year_and_topic(wider_bank):
+    """The whole point: fill the Y4 Number Patterns gap without publishing the
+    school's entire private bank."""
+    call_command('promote_school_questions', school=wider_bank['school'].id,
+                 year=4, topic='Number Patterns')
+
+    promoted = set(Question.objects.filter(school__isnull=True)
+                   .values_list('question_text', flat=True))
+    assert promoted == {'Complete: 14, 18, 22, __'}
+
+
+def test_promote_accepts_a_school_slug(wider_bank):
+    call_command('promote_school_questions', school_slug='promo-school',
+                 year=4, topic='Number Patterns')
+    assert Question.objects.filter(school__isnull=True).count() == 1
+
+
+def test_promote_without_a_school_is_an_error(wider_bank):
+    from django.core.management.base import CommandError
+    with pytest.raises(CommandError, match='--school'):
+        call_command('promote_school_questions', year=4)
