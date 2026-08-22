@@ -122,6 +122,13 @@ class BulkConvertTests(AiGradingTestBase):
 
     def test_the_option_is_offered_on_the_page(self):
         self.assertIn('to_ai_graded', [value for value, _label in BULK_ACTIONS])
+        # ...and reaches the rendered menu, not just the constant behind it.
+        # A question with a fault, so the results table (and its toolbar) render.
+        self._question(qtype=Question.MULTIPLE_CHOICE,
+                       options=(('160', False), ('150', False)))
+        response = self.client.get(
+            reverse('question_check_admin_dashboard'), {'run': '1'})
+        self.assertContains(response, 'to_ai_graded')
 
     def test_converting_sets_the_validation_type(self):
         question = self._question()
