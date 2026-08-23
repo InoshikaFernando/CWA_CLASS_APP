@@ -5,6 +5,12 @@ Turn existing typed questions whose text carries "___" gaps into real
 fill-in-the-blank questions, so they render as a sentence with an input in each
 gap instead of one box for the whole thing.
 
+This is the BACKFILL. Questions arriving from now on are converted as they are
+saved — the AI importer, the spreadsheet/ZIP upload and the teacher form all
+route through ``Question.apply_blank_format``, the same entry point this command
+uses. Run this once over what was already in the database; after that it should
+find nothing.
+
 The underscores ARE the identifier — a question written
 
     "Out of 100 000 births, 99 231 females are expected to survive to the age
@@ -156,12 +162,14 @@ class Command(BaseCommand):
 
         converted, skipped = [], []
         for q in candidates:
-            applied, reason = q.rebuild_blank_spec()
-            if not applied:
-                skipped.append((q, reason))
-                continue
             was = q.question_type
-            q.question_type = Question.FILL_BLANK
+            # The same entry point the AI importer, the spreadsheet upload and
+            # the teacher form use, so a question converted in bulk comes out
+            # identical to one that arrived already marked up.
+            changed, reason = q.apply_blank_format()
+            if reason or not changed:
+                skipped.append((q, reason or 'nothing to convert'))
+                continue
             if apply_changes:
                 q.save(update_fields=['blank_spec', 'question_type'])
             converted.append((q, was))

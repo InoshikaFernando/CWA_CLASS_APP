@@ -332,6 +332,20 @@ class MathsQuestionParser(BaseQuestionParser):
                             order=a.get('order') or a.get('display_order', 1),
                         )
 
+                    # A question whose text carries "___" gaps becomes a
+                    # fill-in-the-blank sentence, with an input in each gap
+                    # instead of one box for the whole thing. Runs after the
+                    # answers are written — the per-gap answers are derived from
+                    # them. One whose answers do not map onto its gaps stays a
+                    # working single box and is reported rather than guessed at.
+                    changed, blank_reason = question.apply_blank_format()
+                    if changed:
+                        question.save(update_fields=['question_type', 'blank_spec'])
+                    if blank_reason:
+                        result.errors.append(
+                            f'Q{i}: has blanks but stayed a single box — {blank_reason}'
+                        )
+
                     result.saved.append({
                         'subject_slug': 'mathematics',
                         'content_id': question.pk,

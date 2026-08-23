@@ -1768,7 +1768,6 @@ def save_questions_from_session(session, user, overrides=None):
     from classroom.models import Subject, Topic, Level, School
     from classroom.views import _get_question_scope
     from maths.models import Question as MathsQuestion, Answer as MathsAnswer
-    from maths.blank_grading import count_blanks
 
     data = overrides if overrides else session.extracted_data
     questions_data = data.get('questions', [])
@@ -2046,27 +2045,23 @@ def save_questions_from_session(session, user, overrides=None):
                         )
 
                 # Fill in the blanks: a question whose text carries "___" gaps
-                # is built into a blank_spec (one set of accepted answers per
-                # gap) so it renders as a sentence with an input in each gap
-                # instead of one box for the whole thing. Detected here rather
-                # than trusted from the extractor's question_type, because a
-                # two-gap sentence routinely comes back typed short_answer.
-                # Runs after the Answer rows are written — the spec is derived
-                # FROM them — and leaves them in place.
-                if (count_blanks(q_text)
-                        and q_type in ('fill_blank', 'short_answer', 'calculation')):
-                    applied, reason = question.rebuild_blank_spec()
-                    if applied:
-                        question.question_type = MathsQuestion.FILL_BLANK
-                        question.save(update_fields=['question_type', 'blank_spec'])
+                # becomes a sentence with an input in each gap instead of one
+                # box for the whole thing. Detected here rather than trusted
+                # from the extractor's question_type, because a two-gap sentence
+                # routinely comes back typed short_answer. Runs after the Answer
+                # rows are written — the spec is derived FROM them — and leaves
+                # them in place.
+                changed, reason = question.apply_blank_format()
+                if changed:
+                    question.save(update_fields=['question_type', 'blank_spec'])
+                    if question.question_type == MathsQuestion.FILL_BLANK:
                         blanks_built += 1
-                    else:
-                        # Left as it came in — still a working question, just a
-                        # single box. Said out loud rather than swallowed, so the
-                        # teacher can fix the answer and re-import.
-                        warnings.append(
-                            f'Q{idx}: has blanks but stayed a single box — {reason}'
-                        )
+                if reason:
+                    # Left as a working single box. Said out loud rather than
+                    # swallowed, so the teacher can fix the answer and re-import.
+                    warnings.append(
+                        f'Q{idx}: has blanks but stayed a single box — {reason}'
+                    )
 
         except Exception as e:
             errors.append(f'Q{idx}: {str(e)}')

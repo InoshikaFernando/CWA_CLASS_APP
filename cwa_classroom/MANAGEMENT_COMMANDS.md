@@ -174,6 +174,11 @@ rows) and sets `question_type='fill_blank'`; the answer rows themselves are left
 alone, so the conversion is reversible and BrainBuzz/exports are unaffected.
 Questions whose answers can't be mapped onto their gaps unambiguously are listed,
 never guessed at.
+
+This is the **backfill**. Questions arriving from now on are converted as they
+are saved — the AI importer, the spreadsheet/ZIP upload and the teacher form all
+route through the same `Question.apply_blank_format` entry point — so this
+should find nothing after its first run.
 ```bash
 python manage.py convert_fill_blanks                    # dry run — report only
 python manage.py convert_fill_blanks --min-blanks 2     # only multi-gap sentences

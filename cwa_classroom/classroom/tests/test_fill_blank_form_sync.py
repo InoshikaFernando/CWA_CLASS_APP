@@ -77,13 +77,32 @@ class SyncBlankSpecTests(TestCase):
         self._sync(q)
         self.assertIsNone(q.blank_spec)
 
-    def test_clears_the_spec_when_the_type_changes(self):
-        # Mirrors how the measure fields are cleared on a type switch — a spec
-        # left behind would be rejected by clean() on the next save.
+    def test_a_typed_question_with_gaps_is_promoted_back(self):
+        # A gapped sentence is a fill-in-the-blank question whichever TYPED type
+        # is chosen for it — a teacher who marked up gaps meant gaps. To get one
+        # box back, take the underscores out of the sentence.
         q = self._question(blank_spec=SPEC)
         q.question_type = Question.SHORT_ANSWER
         self._sync(q)
+        self.assertEqual(q.question_type, Question.FILL_BLANK)
+        self.assertEqual(q.blank_spec, SPEC)
+
+    def test_promotes_a_short_answer_that_was_never_marked_fill_blank(self):
+        # The point of the follow-up: gaps are what decide, not the type picked.
+        q = self._question(question_type=Question.SHORT_ANSWER)
+        self.assertEqual(self._sync(q), [])
+        self.assertEqual(q.question_type, Question.FILL_BLANK)
+        self.assertEqual(q.blank_spec, SPEC)
+
+    def test_clears_the_spec_when_the_type_is_no_longer_a_typed_one(self):
+        # A choice question whose stem contains a gap is still a question you
+        # pick an option for; a spec there would never be read, and clean()
+        # rejects one, so it is dropped.
+        q = self._question(blank_spec=SPEC)
+        q.question_type = Question.MULTIPLE_CHOICE
+        self._sync(q)
         self.assertIsNone(q.blank_spec)
+        self.assertEqual(q.question_type, Question.MULTIPLE_CHOICE)
 
     def test_an_unmappable_answer_saves_as_a_single_box_and_warns(self):
         q = self._question(answers=('three sides and three angles',))

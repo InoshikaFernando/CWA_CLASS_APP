@@ -534,6 +534,62 @@ class Question(models.Model):
         self.blank_spec = spec
         return True, ''
 
+    # Types whose answer is typed into a box, and so could instead be typed into
+    # the gaps of a sentence. A choice question whose stem happens to contain a
+    # gap is still a question you pick an option for, and an extended answer is
+    # prose a person or a rubric judges — neither is ever promoted.
+    BLANK_PROMOTABLE_TYPES = ('short_answer', 'calculation', 'fill_blank')
+
+    def apply_blank_format(self):
+        """Make this a fill-in-the-blank question if its text has gaps.
+
+        The single entry point every path that writes a question calls — the AI
+        importer, the spreadsheet/ZIP upload, the teacher form and the
+        ``convert_fill_blanks`` command — so a question with "___" in it comes
+        out the same shape no matter how it arrived. Call it AFTER the answer
+        rows are written: the spec is derived from them.
+
+        Returns ``(changed, reason)``. ``changed`` says whether this question
+        was modified (the caller saves); ``reason`` is set only when the
+        question HAS gaps and could not be built into a spec, so a caller can
+        report it. The two silent outcomes — not a typed question, or no gaps —
+        return no reason, because neither is a problem to tell anyone about.
+
+        Also the repair path: a question whose gaps or answers were edited out
+        from under its spec has the stale spec cleared, rather than keeping one
+        that no longer describes the sentence.
+        """
+        from maths.blank_grading import count_blanks
+
+        if self.question_type not in self.BLANK_PROMOTABLE_TYPES:
+            # A spec here would never be read, so it is a leftover from a type
+            # switch rather than a stored preference.
+            if self.blank_spec is not None:
+                self.blank_spec = None
+                return True, ''
+            return False, ''
+
+        if not count_blanks(self.question_text):
+            if self.blank_spec is not None:
+                self.blank_spec = None
+                return True, ''
+            return False, ''
+
+        previous = self.blank_spec
+        applied, reason = self.rebuild_blank_spec()
+        if applied:
+            was = self.question_type
+            self.question_type = self.FILL_BLANK
+            return (self.blank_spec != previous or was != self.FILL_BLANK), ''
+
+        # Gaps, but nothing that maps onto them. The question stays a working
+        # single box; any spec that no longer describes it is dropped, because a
+        # stale spec grades against the wrong gaps.
+        if previous is not None:
+            self.blank_spec = None
+            return True, reason
+        return False, reason
+
     def display_text_answer(self, text_answer):
         """A stored typed answer as it should be *shown* back to a student.
 

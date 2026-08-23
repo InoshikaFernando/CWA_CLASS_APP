@@ -158,6 +158,80 @@ class FillBlankModelTests(TestCase):
         self.assertIsNone(q.blank_spec)
         self.assertTrue(reason)
 
+    # ── apply_blank_format — the shared entry point every writer uses ────
+
+    def _typed(self, text=SENTENCE, answers=('15; live',),
+               question_type=Question.SHORT_ANSWER, blank_spec=None):
+        q = Question.objects.create(
+            level=self.level, question_text=text, question_type=question_type,
+            difficulty=1, points=1, blank_spec=blank_spec,
+        )
+        for order, text_ in enumerate(answers, start=1):
+            Answer.objects.create(question=q, answer_text=text_,
+                                  is_correct=True, order=order)
+        return q
+
+    def test_promotes_a_short_answer_with_gaps(self):
+        q = self._typed()
+        changed, reason = q.apply_blank_format()
+        self.assertTrue(changed)
+        self.assertEqual(reason, '')
+        self.assertEqual(q.question_type, Question.FILL_BLANK)
+        self.assertIsNotNone(q.blank_spec)
+
+    def test_promotes_a_calculation_with_a_trailing_gap(self):
+        q = self._typed(text='5531 - 4414 = ___', answers=('1117',),
+                        question_type=Question.CALCULATION)
+        changed, _ = q.apply_blank_format()
+        self.assertTrue(changed)
+        self.assertEqual(q.question_type, Question.FILL_BLANK)
+
+    def test_leaves_a_choice_question_alone(self):
+        q = self._typed(question_type=Question.MULTIPLE_CHOICE)
+        changed, reason = q.apply_blank_format()
+        self.assertFalse(changed)
+        self.assertEqual(reason, '')
+        self.assertEqual(q.question_type, Question.MULTIPLE_CHOICE)
+        self.assertIsNone(q.blank_spec)
+
+    def test_a_question_without_gaps_is_untouched_and_silent(self):
+        q = self._typed(text='What is 2 + 2?', answers=('4',))
+        changed, reason = q.apply_blank_format()
+        self.assertFalse(changed)
+        self.assertEqual(reason, '')       # not having gaps is not a problem
+        self.assertEqual(q.question_type, Question.SHORT_ANSWER)
+
+    def test_gaps_with_unmappable_answers_report_but_do_not_promote(self):
+        q = self._typed(answers=('fifteen and living',))
+        changed, reason = q.apply_blank_format()
+        self.assertFalse(changed)
+        self.assertIn('does not split', reason)
+        self.assertEqual(q.question_type, Question.SHORT_ANSWER)
+
+    def test_clears_a_spec_whose_gaps_were_edited_away(self):
+        q = self._typed(text='How old are they?', answers=('15',),
+                        question_type=Question.FILL_BLANK, blank_spec=SPEC)
+        changed, _ = q.apply_blank_format()
+        self.assertTrue(changed)
+        self.assertIsNone(q.blank_spec)
+
+    def test_clears_a_spec_that_no_longer_maps(self):
+        # The dangerous case: a stale spec grades against the wrong gaps.
+        q = self._typed(answers=('fifteen and living',),
+                        question_type=Question.FILL_BLANK, blank_spec=SPEC)
+        changed, reason = q.apply_blank_format()
+        self.assertTrue(changed)
+        self.assertIsNone(q.blank_spec)
+        self.assertTrue(reason)
+
+    def test_is_idempotent(self):
+        q = self._typed()
+        q.apply_blank_format()
+        q.save()
+        changed, reason = q.apply_blank_format()
+        self.assertFalse(changed)
+        self.assertEqual(reason, '')
+
     # ── answer display ───────────────────────────────────────────────────
 
     def test_correct_answer_display_reads_the_spec(self):

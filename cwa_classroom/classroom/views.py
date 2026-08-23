@@ -2946,48 +2946,36 @@ def _parse_measure_post(request):
 
 
 def _sync_blank_spec(question, request):
-    """Keep a question's ``blank_spec`` in step with its text and answer rows.
+    """Keep a question's fill-in-the-blank shape in step with what was saved.
 
     Called after the answers are written on both the create and the edit path,
-    because the spec is derived FROM them. Without this a teacher who adds a gap
-    to a fill-in-the-blank sentence would leave a spec that no longer matches its
-    text — the take page would quietly fall back to a single box, and nobody
-    would know why the gaps stopped rendering.
+    because the per-gap answers are derived FROM them. A question whose text
+    carries "___" gaps becomes a fill-in-the-blank sentence whatever type was
+    picked — a teacher who writes gaps into a short answer meant a
+    fill-in-the-blank question — and one that no longer has gaps, or is no
+    longer a typed question, has its spec cleared rather than left describing a
+    sentence that has changed underneath it.
 
-    Clears the spec when the question is no longer a fill-in-the-blank one, or no
-    longer has gaps — mirroring how the measure fields are cleared when a
-    question is switched away from ``measure``. When the answers cannot be mapped
-    onto the gaps the question saves anyway, as a working single box, and the
-    teacher is told why rather than left guessing.
+    All of that decision lives in ``Question.apply_blank_format``, shared with
+    the AI importer, the spreadsheet upload and the ``convert_fill_blanks``
+    command, so a question comes out the same shape however it was created.
+    Everything here is the teacher-facing half: saving, and saying what
+    happened.
     """
-    from maths.blank_grading import count_blanks
-    from maths.models import Question as MathsQuestion
+    changed, reason = question.apply_blank_format()
+    if changed:
+        question.save(update_fields=['question_type', 'blank_spec'])
 
-    previous = question.blank_spec
-    wants_blanks = (
-        question.question_type == MathsQuestion.FILL_BLANK
-        and count_blanks(question.question_text)
-    )
-    if not wants_blanks:
-        if previous is not None:
-            question.blank_spec = None
-            question.save(update_fields=['blank_spec'])
-        return
-
-    applied, reason = question.rebuild_blank_spec()
-    if applied:
-        question.save(update_fields=['blank_spec'])
-        return
-
-    if previous is not None:
-        question.blank_spec = None
-        question.save(update_fields=['blank_spec'])
-    messages.warning(request, (
-        f'Saved, but the blanks could not be filled in from the answers, so this '
-        f'question shows one answer box instead of a gap per blank — {reason}. '
-        f'Give one answer per blank, or a single answer listing them in order '
-        f'separated by ";" (for example "15; live").'
-    ))
+    if reason:
+        # It saved and it works — it just shows one answer box rather than a gap
+        # per blank. Told plainly, because the alternative is a teacher who
+        # marked up a sentence and cannot see why the gaps did not appear.
+        messages.warning(request, (
+            f'Saved, but the blanks could not be filled in from the answers, so '
+            f'this question shows one answer box instead of a gap per blank — '
+            f'{reason}. Give one answer per blank, or a single answer listing '
+            f'them in order separated by ";" (for example "15; live").'
+        ))
 
 
 def _parse_number_line_post(request):
