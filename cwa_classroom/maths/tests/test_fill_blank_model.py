@@ -151,7 +151,7 @@ class FillBlankModelTests(TestCase):
     def test_rebuild_refuses_and_leaves_the_field_alone(self):
         q = self._build(blank_spec=None)
         q.save()
-        Answer.objects.create(question=q, answer_text='fifteen and living',
+        Answer.objects.create(question=q, answer_text='fifteen living',
                               is_correct=True, order=1)
         applied, reason = q.rebuild_blank_spec()
         self.assertFalse(applied)
@@ -202,7 +202,7 @@ class FillBlankModelTests(TestCase):
         self.assertEqual(q.question_type, Question.SHORT_ANSWER)
 
     def test_gaps_with_unmappable_answers_report_but_do_not_promote(self):
-        q = self._typed(answers=('fifteen and living',))
+        q = self._typed(answers=('fifteen living',))
         changed, reason = q.apply_blank_format()
         self.assertFalse(changed)
         self.assertIn('does not split', reason)
@@ -217,7 +217,7 @@ class FillBlankModelTests(TestCase):
 
     def test_clears_a_spec_that_no_longer_maps(self):
         # The dangerous case: a stale spec grades against the wrong gaps.
-        q = self._typed(answers=('fifteen and living',),
+        q = self._typed(answers=('fifteen living',),
                         question_type=Question.FILL_BLANK, blank_spec=SPEC)
         changed, reason = q.apply_blank_format()
         self.assertTrue(changed)

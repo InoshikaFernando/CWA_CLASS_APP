@@ -39,8 +39,14 @@ REPORTED, never guessed at. A gap filled from the wrong value marks a correct
 student wrong and nobody would find out, so an unmappable question keeps working
 exactly as it does today and is listed for a human to fix.
 
+Start with the single-gap questions: there, every stored row becomes an accepted
+spelling of the one gap, which cannot land on the wrong blank. Multi-gap
+questions are only converted when their answers say unambiguously what goes in
+each gap; the rest are reported for a content fix.
+
 Usage (run from the app dir, e.g. /home/cwa/CWA_CLASS_APP_TEST):
     python manage.py convert_fill_blanks                    # dry run — report only
+    python manage.py convert_fill_blanks --max-blanks 1     # the safe single-gap set
     python manage.py convert_fill_blanks --min-blanks 2     # only multi-gap ones
     python manage.py convert_fill_blanks --topic Statistics # one topic subtree
     python manage.py convert_fill_blanks --level 10
@@ -84,6 +90,21 @@ class Command(BaseCommand):
         parser.add_argument(
             '--id', type=int, action='append', default=[], metavar='PK',
             help='Limit to specific question ids — repeatable.',
+        )
+        parser.add_argument(
+            '--max-blanks', type=int, default=None, metavar='N',
+            help='Only convert questions with at most N gaps. Use 1 to take the '
+                 'single-gap questions on their own — the mapping there is one '
+                 'row per accepted spelling, which cannot land on the wrong gap.',
+        )
+        parser.add_argument(
+            '--map-rows-to-gaps', action='store_true',
+            help='Trust N answer rows on an N-gap question to be one value per '
+                 'gap, in order. OFF by default: rows on legacy questions were '
+                 'written to fill a single answer box, so three of them is no '
+                 'evidence there is one per gap, and mapping them positionally '
+                 'marks correct students wrong. Turn it on only for content you '
+                 'know was authored gap by gap.',
         )
         parser.add_argument(
             '--force', action='store_true',
@@ -148,10 +169,15 @@ class Command(BaseCommand):
         if opts['revert']:
             return self._revert(opts, apply_changes)
 
-        candidates = [
-            q for q in self._queryset(opts)
-            if count_blanks(q.question_text) >= min_blanks
-        ]
+        max_blanks = opts['max_blanks']
+        if max_blanks is not None and max_blanks < min_blanks:
+            raise CommandError('--max-blanks must not be below --min-blanks.')
+
+        def _in_range(q):
+            gaps = count_blanks(q.question_text)
+            return gaps >= min_blanks and (max_blanks is None or gaps <= max_blanks)
+
+        candidates = [q for q in self._queryset(opts) if _in_range(q)]
 
         if not candidates:
             self.stdout.write(self.style.WARNING(
@@ -166,7 +192,8 @@ class Command(BaseCommand):
             # The same entry point the AI importer, the spreadsheet upload and
             # the teacher form use, so a question converted in bulk comes out
             # identical to one that arrived already marked up.
-            changed, reason = q.apply_blank_format()
+            changed, reason = q.apply_blank_format(
+                positional_rows=opts['map_rows_to_gaps'])
             if reason or not changed:
                 skipped.append((q, reason or 'nothing to convert'))
                 continue

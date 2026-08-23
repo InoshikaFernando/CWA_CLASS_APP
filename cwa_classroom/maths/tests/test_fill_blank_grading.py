@@ -19,6 +19,7 @@ from maths.blank_grading import (
     describe_blank_spec,
     grade_fill_blank,
     split_on_blanks,
+    unit_repeat_blanks,
     validate_blank_spec,
 )
 
@@ -181,9 +182,18 @@ class DeriveBlankSpecTests(SimpleTestCase):
         self.assertEqual(spec, SPEC)
 
     def test_refuses_a_row_that_will_not_split(self):
-        spec, reason = derive_blank_spec(SENTENCE, ['fifteen and living'])
+        # No separator at all, so there is no honest way to say which half of it
+        # belongs to which gap.
+        spec, reason = derive_blank_spec(SENTENCE, ['fifteen living'])
         self.assertIsNone(spec)
         self.assertIn('does not split', reason)
+
+    def test_and_is_a_separator_too(self):
+        # "15 and live" says the same as "15; live" — a teacher writing the
+        # natural English form should not have the question refused.
+        spec, _ = derive_blank_spec(SENTENCE, ['15 and live'])
+        self.assertEqual(
+            spec, {'blanks': [{'answers': ['15']}, {'answers': ['live']}]})
 
     def test_refuses_a_mismatched_row_count(self):
         spec, reason = derive_blank_spec(SENTENCE, ['15', 'live', 'extra'])
@@ -204,6 +214,142 @@ class DeriveBlankSpecTests(SimpleTestCase):
         spec, reason = derive_blank_spec('___ ' * (MAX_BLANKS + 1), ['x'])
         self.assertIsNone(spec)
         self.assertIn('more than the', reason)
+
+
+class DeriveFromProductionShapesTests(SimpleTestCase):
+    """The answer shapes a real conversion run over the question bank turned up.
+
+    Every case here is a question that existed in production; the first dry run
+    mapped several of them onto the wrong gaps, which is what these pin shut.
+    ``positional_rows=False`` is what the bulk command passes — rows on legacy
+    questions were written to fill one answer box.
+    """
+
+    def _derive(self, text, rows, **kwargs):
+        kwargs.setdefault('positional_rows', False)
+        spec, reason = derive_blank_spec(text, rows, **kwargs)
+        return (describe_blank_spec(spec) if spec else None), reason
+
+    # ── rows that are spellings of one answer, not one value per gap ─────
+
+    def test_refuses_rows_that_are_spellings_of_the_rule(self):
+        # 3 gaps, 3 rows — but the rows spell the RULE, and the gap values
+        # (45, 90, 105) are not stored at all. Mapping row i onto gap i asked
+        # the student for "+15" where the answer was 45.
+        got, reason = self._derive(
+            'Complete the pattern: 30, ___, 60, 75, ___, ___. What is the rule?',
+            ['+15', 'add 15', '+ 15'])
+        self.assertIsNone(got)
+        self.assertTrue(reason)
+
+    def test_refuses_a_rule_prefixed_row_list(self):
+        got, _ = self._derive(
+            'Complete the pattern: 14, 18, 22, __, __, __.',
+            ['+4; 26, 30, 34', 'add 4; 26, 30, 34', '26, 30, 34'])
+        self.assertIsNone(got)
+
+    def test_refuses_a_whole_answer_repeated_in_words(self):
+        # "9" and "9 and 9" are one answer twice over; gap 2 was being taught to
+        # demand the literal string "9 and 9".
+        got, _ = self._derive(
+            'Write the sum: 3 + 3 + 3 = ______, then the product: 3 x 3 = ______',
+            ['9', '9 and 9'])
+        self.assertIsNone(got)
+
+    def test_positional_rows_stay_available_when_asked_for(self):
+        # The authoring paths keep the row-per-gap convention; only the bulk
+        # backfill declines it. Atomic, distinct rows still map.
+        got, reason = self._derive(
+            'A triangle has ___ sides and ___ angles.',
+            ['3', '4'], positional_rows=True)
+        self.assertEqual(got, '3, 4')
+        self.assertEqual(reason, '')
+
+    def test_identical_rows_still_map_per_gap(self):
+        # "3" and "3" for a two-gap sentence: whether they were meant as one
+        # value per gap or as one answer written twice, both gaps take 3 — so
+        # there is nothing the mapping can get wrong, and refusing it would lose
+        # a perfectly good question.
+        got, reason = self._derive(
+            'A triangle has ___ sides and ___ angles.',
+            ['3', '3'], positional_rows=True)
+        self.assertEqual(got, '3, 3')
+        self.assertEqual(reason, '')
+
+    def test_positional_rows_are_screened_even_when_allowed(self):
+        got, _ = self._derive(
+            'Complete the pattern: 30, ___, 60, 75, ___, ___.',
+            ['+15', 'add 15', '+ 15'], positional_rows=True)
+        self.assertIsNone(got)
+
+    # ── rows that each list every value ──────────────────────────────────
+
+    def test_every_row_listing_all_values_becomes_alternatives(self):
+        got, _ = self._derive(
+            'Fill in the missing numbers of this sequence: 14, 17, 20, 23, ___, ___',
+            ['26, 29', '26 and 29'])
+        self.assertEqual(got, '26, 29')
+
+    def test_and_separates_values_like_a_comma(self):
+        got, _ = self._derive('___ and ___ are the two.', ['26 and 29'])
+        self.assertEqual(got, '26, 29')
+
+    def test_a_split_may_not_cut_across_an_earlier_separator(self):
+        # "+4; 26, 30, 34" splits into three parts on "," — but the first still
+        # holds the ";" that should have divided rule from values, so the split
+        # is a coincidence and taking it would mark "26" wrong.
+        got, _ = self._derive(
+            'Complete the pattern: 14, 18, 22, __, __, __.', ['+4; 26, 30, 34'])
+        self.assertIsNone(got)
+
+    # ── a unit already printed after the gap ─────────────────────────────
+
+    def test_refuses_an_answer_that_repeats_the_following_unit(self):
+        got, reason = self._derive(
+            'Convert to millilitres: 5.3 L = _____ mL', ['5300 mL'])
+        self.assertIsNone(got)
+        self.assertIn('repeat the unit', reason)
+
+    def test_allows_it_when_the_bare_value_is_also_stored(self):
+        got, _ = self._derive(
+            'The total weight is ___ pounds.', ['27.445', '27.445 pounds'])
+        self.assertEqual(got, '27.445 or 27.445 pounds')
+
+    def test_a_unit_that_is_not_repeated_is_fine(self):
+        got, _ = self._derive(
+            'Convert the following length to centimetres: 1.3 m = ___ cm.', ['130'])
+        self.assertEqual(got, '130')
+
+    def test_an_operator_after_the_gap_is_not_a_unit(self):
+        got, _ = self._derive('Fill in the missing number: 8 + 8 = ____ x 8', ['2'])
+        self.assertEqual(got, '2')
+
+    # ── the single-gap rule, which cannot land on the wrong blank ────────
+
+    def test_single_gap_rows_are_always_alternatives(self):
+        got, _ = self._derive(
+            'The product of any fraction and its reciprocal is _______.',
+            ['1', 'one'])
+        self.assertEqual(got, '1 or one')
+
+
+class UnitRepeatTests(SimpleTestCase):
+    def test_finds_the_repeating_blank(self):
+        spec = {'blanks': [{'answers': ['5300 mL']}]}
+        self.assertEqual(
+            unit_repeat_blanks('5.3 L = _____ mL', spec), [0])
+
+    def test_ignores_a_blank_with_a_bare_alternative(self):
+        spec = {'blanks': [{'answers': ['5300', '5300 mL']}]}
+        self.assertEqual(unit_repeat_blanks('5.3 L = _____ mL', spec), [])
+
+    def test_a_unit_inside_a_longer_word_is_not_a_repeat(self):
+        spec = {'blanks': [{'answers': ['warm']}]}
+        self.assertEqual(unit_repeat_blanks('It feels ___ m', spec), [])
+
+    def test_unusable_input_never_raises(self):
+        self.assertEqual(unit_repeat_blanks('no gaps', {'blanks': []}), [])
+        self.assertEqual(unit_repeat_blanks('___', None), [])
 
 
 class DescribeTests(SimpleTestCase):
