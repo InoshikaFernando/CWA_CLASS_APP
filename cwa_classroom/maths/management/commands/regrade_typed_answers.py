@@ -72,6 +72,21 @@ REGRADABLE_TYPES = ('short_answer', 'fill_blank', 'calculation')
 REGRADABLE_FORMATS = ('text', 'set', 'algebra', 'equation', 'pattern')
 
 
+def typed_answer(entry):
+    """Read a student's typed answer out of a stored quiz review payload.
+
+    questions_data is JSON written by the quiz view, and a bare numeric answer
+    can land in it as a number rather than a string, so this coerces instead of
+    assuming str. Zero has to survive that coercion — "0" is a real answer to a
+    maths question, not a blank — which is why this cannot be `or ''`. A list
+    or dict is not a typed answer at all, so it reads as blank.
+    """
+    raw = entry.get('student_answer')
+    if raw is None or isinstance(raw, (list, dict, bool)):
+        return ''
+    return str(raw).strip()
+
+
 class Command(BaseCommand):
     help = ('Re-mark past typed answers the grader now accepts, and correct the '
             'attempt scores and statistics that were built on them.')
@@ -326,7 +341,7 @@ class Command(BaseCommand):
                     if not isinstance(entry, dict) or entry.get('is_correct'):
                         continue
                     question = cache.get(entry.get('id'))
-                    typed = (entry.get('student_answer') or '').strip()
+                    typed = typed_answer(entry)
                     if question and typed and question.grade_text_answer(typed):
                         flips += 1
                 if flips:
@@ -438,7 +453,7 @@ class Command(BaseCommand):
                 if not isinstance(entry, dict) or entry.get('is_correct'):
                     continue
                 question = cache.get(entry.get('id'))
-                typed = (entry.get('student_answer') or '').strip()
+                typed = typed_answer(entry)
                 if not question or not typed:
                     continue
                 if question.grade_text_answer(typed):

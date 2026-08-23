@@ -126,6 +126,85 @@ class RegradeTypedAnswersTests(TestCase):
         output = self._run('--apply')
         self.assertIn('Nothing to correct', output)
 
+    def test_a_numeric_typed_answer_in_the_payload_is_read_not_crashed_on(self):
+        """questions_data is JSON, so a bare number stays a number.
+
+        Production carries attempts where student_answer is an int rather than
+        a string — the quiz view wrote what it was given. Reading that as text
+        is the command's job; falling over on it strands every other mark in
+        the same run.
+        """
+        numeric = Question.objects.create(
+            topic=self.topic, level=self.level, question_text='What is 2 + 2?',
+            question_type='short_answer', answer_format='text', points=1,
+        )
+        Answer.objects.create(question=numeric, answer_text='4',
+                              is_correct=True)
+        self._answer(numeric, '4')
+        result = StudentFinalAnswer.objects.create(
+            student=self.student, topic=self.topic, level=self.level,
+            score=0, total_questions=1, time_taken_seconds=60, points=0.0,
+            questions_data=[
+                {'id': numeric.id, 'question': 'What is 2 + 2?',
+                 'student_answer': 4, 'is_correct': False},
+            ],
+        )
+        self._run('--apply')
+        result.refresh_from_db()
+        self.assertEqual(result.score, 1)
+        self.assertTrue(result.questions_data[0]['is_correct'])
+
+    def test_zero_is_an_answer_not_a_blank(self):
+        """`0` is falsy in Python and correct in maths."""
+        zero = Question.objects.create(
+            topic=self.topic, level=self.level, question_text='What is 5 - 5?',
+            question_type='short_answer', answer_format='text', points=1,
+        )
+        Answer.objects.create(question=zero, answer_text='0', is_correct=True)
+        self._answer(zero, '0')
+        result = StudentFinalAnswer.objects.create(
+            student=self.student, topic=self.topic, level=self.level,
+            score=0, total_questions=1, time_taken_seconds=60, points=0.0,
+            questions_data=[
+                {'id': zero.id, 'question': 'What is 5 - 5?',
+                 'student_answer': 0, 'is_correct': False},
+            ],
+        )
+        self._run('--apply')
+        result.refresh_from_db()
+        self.assertEqual(result.score, 1)
+        self.assertTrue(result.questions_data[0]['is_correct'])
+
+    def test_the_dry_run_projects_a_numeric_payload_without_crashing(self):
+        """The dry run reads the same payload the apply path does.
+
+        A missing answer and a non-text one sit alongside the numeric entry:
+        neither is a typed answer, so both are skipped, and neither may take
+        the run down with it.
+        """
+        numeric = Question.objects.create(
+            topic=self.topic, level=self.level, question_text='What is 2 + 2?',
+            question_type='short_answer', answer_format='text', points=1,
+        )
+        Answer.objects.create(question=numeric, answer_text='4',
+                              is_correct=True)
+        self._answer(numeric, '4')
+        StudentFinalAnswer.objects.create(
+            student=self.student, topic=self.topic, level=self.level,
+            score=0, total_questions=3, time_taken_seconds=60, points=0.0,
+            questions_data=[
+                {'id': numeric.id, 'question': 'What is 2 + 2?',
+                 'student_answer': 4, 'is_correct': False},
+                {'id': numeric.id, 'question': 'What is 2 + 2?',
+                 'student_answer': None, 'is_correct': False},
+                {'id': numeric.id, 'question': 'What is 2 + 2?',
+                 'student_answer': ['4'], 'is_correct': False},
+            ],
+        )
+        output = self._run()
+        self.assertIn('Marks before', output)
+        self.assertIn('0/3 \u2192 1/3', output)      # the numeric entry only
+
     # ------------------------------------------------------------ out of scope
 
     def test_ai_and_teacher_graded_answers_are_never_re_rolled(self):
