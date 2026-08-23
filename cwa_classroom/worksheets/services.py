@@ -278,6 +278,14 @@ def is_unanswerable_construction(q):
     return any(p.search(text) for p in _CONSTRUCTION_PATTERNS)
 
 
+# Stands in for a rubric the model didn't write, so a teacher opening one of
+# these knows why it is theirs to mark rather than finding an empty box.
+CONSTRUCTION_RUBRIC = (
+    'The student has to draw this answer on paper — the app cannot take a '
+    'drawing, so mark their working by hand.'
+)
+
+
 def route_constructions_to_teacher(questions):
     """Set every draw-it-on-paper question to human_graded. Returns the count.
 
@@ -298,12 +306,54 @@ def route_constructions_to_teacher(questions):
             continue
         q['validation_type'] = 'human_graded'
         q['include'] = False
-        q['grading_rubric'] = q.get('grading_rubric') or (
-            'The student has to draw this answer on paper — the app cannot take '
-            'a drawing, so mark their working by hand.'
-        )
+        q['grading_rubric'] = q.get('grading_rubric') or CONSTRUCTION_RUBRIC
         routed += 1
     return routed
+
+
+def resolve_grading(q):
+    """The one decision on how a question gets marked. Returns (type, rubric).
+
+    Every import path saves through this — the worksheet and homework PDF
+    uploads and the AI PDF import — so a question that would be teacher-graded
+    in one is teacher-graded in all of them. Before this, each saver had its own
+    rules: ai_import wrote no validation_type at all (everything landed on the
+    model default, ``auto``), and homework coerced anything non-extended back to
+    ``auto``, which silently threw away exactly the routing this module exists
+    to do.
+
+    Order matters:
+
+    1. A drawing the app can't accept is the teacher's, whatever its type. This
+       is first because it is the only rule that overrides an explicit choice —
+       an ai_graded "draw a Venn diagram" is wrong however confidently it was
+       set.
+    2. human_graded is never downgraded. A teacher-graded question is a standing
+       decision by a person; no type rule may quietly undo it.
+    3. An extended answer left on auto has no stored answer to match against, so
+       it becomes ai_graded rather than being marked wrong by exact match.
+    4. ai_graded on a question that is NOT an extended answer is meaningless —
+       an MCQ has options to check — so it drops back to auto.
+    """
+    validation_type = q.get('validation_type') or 'auto'
+    grading_rubric = q.get('grading_rubric') or ''
+    q_type = q.get('question_type') or 'short_answer'
+
+    if is_unanswerable_construction(q):
+        return 'human_graded', grading_rubric or CONSTRUCTION_RUBRIC
+
+    if validation_type == 'human_graded':
+        return 'human_graded', grading_rubric
+
+    if q_type == 'extended_answer':
+        if validation_type == 'auto':
+            return 'ai_graded', grading_rubric
+        return validation_type, grading_rubric
+
+    if validation_type == 'ai_graded':
+        return 'auto', grading_rubric
+
+    return validation_type, grading_rubric
 
 
 # Marks a session's question list as already swept for drawing questions, so the
@@ -488,7 +538,8 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                      "fill_blank", "calculation", "extended_answer",
                                      "long_division", "column_operation",
                                      "plot_points", "plot_line", "identify_coords",
-                                     "read_graph", "measure", "number_line"],
+                                     "read_graph", "measure", "number_line",
+                                     "table_of_values"],
                         },
                         "plane_spec": {
                             "type": "object",
@@ -522,6 +573,20 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                 "on the scale, each landing on a tick); given = value(s) already "
                                 "marked with an arrow (read mode). The app draws the line, so set "
                                 "has_image=false for this type."
+                            ),
+                        },
+                        "table_spec": {
+                            "type": "object",
+                            "description": (
+                                "For table_of_values only — a table the student fills in. "
+                                "headers = the column names, e.g. [\"x\", \"y\"]. rows = one list "
+                                "per row with exactly one cell per header; each cell is either "
+                                "{\"given\": \"-3\"} (printed on the sheet, the student reads it) "
+                                "or {\"answer\": \"7\"} (a blank the student fills). Every answer "
+                                "value must be NUMERIC — grading is numeric-within-tolerance — and "
+                                "at least one answer cell is required. Optional tolerance (default "
+                                "0). Work each answer out from the rule in the question and check "
+                                "it. The app draws the table, so set has_image=false."
                             ),
                         },
                         "numeric_answer": {
@@ -766,19 +831,31 @@ Rules:
    range?") and let the cropped table image carry the figures. The app cannot redraw a table, so
    the image is the only record of it: attaching it is required whenever the answer can't be found
    without the table.
-16. DRAWING / CONSTRUCTION — questions the app cannot take an answer for. A student
+16. TABLE TO COMPLETE: if the question gives a rule and a table to fill in — "complete
+   the table for y = x² - 5", a table of x values with the y row blank, an in/out or
+   function table — use "table_of_values" and fill table_spec. headers = the column names
+   ("x", "y"); rows = one list per row, one cell per header, each cell either
+   {"given": "3"} for a value printed on the sheet or {"answer": "4"} for a blank the
+   student fills. Work every answer out from the rule and verify it — they are graded
+   numerically, so they must be numbers, and at least one answer cell is required. The app
+   draws the table, so set has_image=false, leave answers=[] and validation_type="auto".
+   This is a REAL answerable question: prefer it over sending the table to the teacher
+   under rule 17. Only when you cannot express the table this way — the cells are not
+   numeric, or there is no rule to compute them from — fall back to rule 17.
+17. DRAWING / CONSTRUCTION — questions the app cannot take an answer for. A student
    answers in this app by typing, picking an option, or using one of the drawing surfaces
    the app itself renders (rules 9-14). They CANNOT draw a picture. So if the task is to
    PRODUCE a visual — "Draw a tree diagram to illustrate this situation", "Draw a Venn
    diagram", "Sketch the graph of y = 2x", "Construct a triangle with compasses", "Draw a
-   bar chart", "Shade the region", "Complete the table", "Colour the shape", "Join the
+   bar chart", "Shade the region", "Colour the shape", "Join the
    points to form a quadrilateral" — set validation_type="human_graded". This covers every
    way of asking for the same drawing, not just the ones starting with "draw": "Illustrate
    on a Venn diagram the sets A = {1, 3, 5} and B = {2, 4, 6}", "Represent this data in a
    pie chart", "Show the information on a bar graph", "Display the results using a
    pictograph", "Use a tree diagram to work out the probability", "Add these elements to
    the Venn diagram", "Record your results in a tally chart". If the finished answer is a
-   picture, it is human_graded however the instruction is worded. NOT ai_graded:
+   picture, it is human_graded however the instruction is worded. A table to fill in is
+   NOT one of these — that is rule 16, and it is answerable. NOT ai_graded:
    the student writes no prose, so there is nothing for a grader to read. Put what the
    finished drawing must show in grading_rubric so the teacher can mark it on paper. Keep
    the question (do not drop it) — the app deselects teacher-graded questions by default
@@ -786,8 +863,9 @@ Rules:
    EXCEPTIONS, because the app draws these answer surfaces itself — keep them as their own
    question type with validation_type="auto": marking or reading a horizontal NUMBER LINE
    (rule 14), plotting/joining points on a CARTESIAN PLANE (rule 11), LONG DIVISION
-   (rule 9), COLUMN ARITHMETIC (rule 10). "Plot (3, -2) on the grid" is answerable;
-   "Draw a tree diagram" is not.
+   (rule 9), COLUMN ARITHMETIC (rule 10), a TABLE TO COMPLETE (rule 16). "Plot (3, -2) on
+   the grid" and "complete the table for y = 3x" are answerable; "Draw a tree diagram" is
+   not.
 
 IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
 - has_image=true ONLY when the question genuinely depends on a visual that cannot be written
@@ -822,12 +900,12 @@ Choosing validation_type per question:
                  where the student writes free text and partial credit is meaningful.
                  Write a detailed grading_rubric describing what a full-mark answer must
                  include, common errors to penalise, and partial-credit criteria.
-                 NEVER ai_graded when the answer is a DRAWING (rule 16) — the student
+                 NEVER ai_graded when the answer is a DRAWING (rule 17) — the student
                  types nothing, so there is no written answer to grade.
 - human_graded → Two cases:
-                 (a) the answer is a drawing/construction the app can't accept (rule 16) —
+                 (a) the answer is a drawing/construction the app can't accept (rule 17) —
                      "draw a tree diagram", "illustrate on a Venn diagram", "represent this
-                     data in a bar graph", "shade the region", "complete the table";
+                     data in a bar graph", "shade the region";
                  (b) highly open-ended/subjective questions where even AI cannot reliably
                      determine correctness (creative responses, complex multi-step proofs
                      that vary widely).
@@ -1166,10 +1244,11 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
             "another question's figure, the question text, or the answer options. "
             "Any question whose ANSWER IS A PICTURE — draw a tree or Venn diagram, "
             "illustrate sets on a Venn diagram, represent data in a pie chart or bar graph, "
-            "sketch a curve, a compass construction, a shaded region, a completed table — "
+            "sketch a curve, a compass construction, a shaded region — "
             "must be validation_type=\"human_graded\", never "
             "ai_graded: there is no answer surface for a drawing, so the student types "
-            "nothing. Number lines, Cartesian plots, long division and column sums are the "
+            "nothing. Number lines, Cartesian plots, long division, column sums and a "
+            "TABLE TO COMPLETE (question_type table_of_values, with table_spec) are the "
             "exception — the app draws those, so keep them auto. "
             "Use the classify_worksheet_questions tool now."
         )
@@ -2071,7 +2150,7 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
 
         # Questions whose answer is a DRAWING the app can't take — "draw a tree
         # diagram", "shade the region". The model is told to mark these
-        # human_graded (rule 16), but a missed one would reach students as
+        # human_graded (rule 17), but a missed one would reach students as
         # ai_graded and be marked on prose they were never asked to write, so
         # re-route deterministically. Runs before the include default below so a
         # re-routed question also arrives unticked.

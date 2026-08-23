@@ -313,6 +313,22 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
             return redirect('ai_import:upload')
         data = session.extracted_data
 
+        # Sessions classified before drawing questions were routed to the teacher
+        # still hold them as auto-graded with an invented answer. Sweep once on
+        # first open — the same sweep the worksheet and homework previews run —
+        # and say what moved rather than re-grading silently.
+        from worksheets.services import backfill_constructions
+        routed = backfill_constructions(data)
+        if routed is not None:
+            session.extracted_data = data
+            session.save(update_fields=['extracted_data'])
+            if routed:
+                messages.info(
+                    request,
+                    f'{routed} question(s) ask the student to draw something the app '
+                    'cannot accept an answer for. They are set to teacher-graded and '
+                    'left unticked — tick one to import it for marking by hand.')
+
         # Get available topics and levels for override dropdowns
         from classroom.models import Topic, Level
         topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
