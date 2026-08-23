@@ -3,12 +3,15 @@ AI Import services: PDF extraction (PyMuPDF) and AI classification (Claude API).
 """
 import base64
 import json
+import logging
 import os
 import re
 import tempfile
 
 from django.conf import settings
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -743,6 +746,30 @@ CLASSIFICATION_TOOL = {
                             "type": "integer",
                             "description": "For long_division only: the number dividing (outside/left of the bar), e.g. 47.",
                         },
+                        "validation_type": {
+                            "type": "string",
+                            "enum": ["auto", "human_graded"],
+                            "description": (
+                                "How this answer is marked. auto = the system checks it (the "
+                                "default, and right for nearly everything). human_graded = a "
+                                "teacher marks it on paper, REQUIRED when the answer is a DRAWING "
+                                "the app cannot accept: draw a tree or Venn diagram, illustrate "
+                                "sets on a Venn diagram, represent data in a pie chart or bar "
+                                "graph, sketch a curve, a compass construction, a shaded region. "
+                                "A student cannot draw anything here, so do not invent a typed "
+                                "answer for one of these — mark it human_graded and describe the "
+                                "expected drawing in grading_rubric. Number lines, Cartesian "
+                                "plots, long division and column sums are the exception: the app "
+                                "draws those answer surfaces, so keep them auto."
+                            ),
+                        },
+                        "grading_rubric": {
+                            "type": "string",
+                            "description": (
+                                "For human_graded only: what the finished drawing must show, so "
+                                "the teacher can mark it. Leave empty otherwise."
+                            ),
+                        },
                         "difficulty": {"type": "integer", "enum": [1, 2, 3]},
                         "points": {"type": "integer", "default": 1},
                         "explanation": {"type": "string", "description": "Brief explanation of the answer"},
@@ -1193,6 +1220,18 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
     # Running this first also means those questions are already flagged, so the
     # paid GPT pass skips them.
     comparison_flags = flag_visual_comparisons(merged.get('questions', []))
+
+    # Questions whose answer is a DRAWING the app can't take — "draw a tree
+    # diagram", "illustrate on a Venn diagram". Shared with the worksheet and
+    # homework PDF uploads so all three imports agree on what a student can
+    # actually answer; without it these arrived here as auto-graded questions
+    # with an invented answer, marking a child wrong for not typing a picture.
+    from worksheets.services import route_constructions_to_teacher
+    routed = route_constructions_to_teacher(merged.get('questions'))
+    if routed:
+        logger.info(
+            '%s question(s) re-routed to human_graded: they ask the student to '
+            'draw something the app has no answer surface for.', routed)
 
     verification = verify_answers(merged.get('questions', []), page_images=page_images)
     if verification is not None:
@@ -1768,6 +1807,7 @@ def save_questions_from_session(session, user, overrides=None):
     from classroom.models import Subject, Topic, Level, School
     from classroom.views import _get_question_scope
     from maths.models import Question as MathsQuestion, Answer as MathsAnswer
+    from worksheets.services import resolve_grading
 
     data = overrides if overrides else session.extracted_data
     questions_data = data.get('questions', [])
@@ -1809,6 +1849,12 @@ def save_questions_from_session(session, user, overrides=None):
             continue
 
         q_type = q.get('question_type', 'short_answer')
+        # How this one gets marked — the same decision the homework saver makes,
+        # so an import cannot land teacher-graded on one path and auto on
+        # another. Without this the field was never written at all and every
+        # question fell to the model default, auto: a "draw a Venn diagram"
+        # question was handed to a student to type an answer to.
+        validation_type, grading_rubric = resolve_grading(q)
         difficulty = q.get('difficulty', 1)
         points = q.get('points', 1)
         explanation = q.get('explanation', '')
@@ -1912,11 +1958,13 @@ def save_questions_from_session(session, user, overrides=None):
                     except (ValueError, TypeError):
                         graph_spec = None  # fall back to the image; don't fail the import
 
-        # Draw-on-grid / shape-select / number-line: validate the structured spec;
-        # skip a malformed one rather than import a question that can't be graded.
+        # Draw-on-grid / shape-select / number-line / table-of-values: validate the
+        # structured spec; skip a malformed one rather than import a question
+        # that can't be graded.
         grid_spec = None
         shape_spec = None
         number_line_spec = None
+        table_spec = None
         if q_type == 'draw_on_grid':
             from maths.geometry_grading import validate_grid_spec
             grid_spec = q.get('grid_spec')
@@ -1944,6 +1992,15 @@ def save_questions_from_session(session, user, overrides=None):
                 errors.append(f'Q{idx}: Invalid number_line_spec ({exc})')
                 failed += 1
                 continue
+        elif q_type == 'table_of_values':
+            from maths.geometry_grading import validate_table_spec
+            table_spec = q.get('table_spec')
+            try:
+                validate_table_spec(table_spec)
+            except (ValueError, TypeError) as exc:
+                errors.append(f'Q{idx}: Invalid table_spec ({exc})')
+                failed += 1
+                continue
 
         try:
             with transaction.atomic():
@@ -1958,6 +2015,8 @@ def save_questions_from_session(session, user, overrides=None):
                 if existing:
                     # Update
                     existing.question_type = q_type
+                    existing.validation_type = validation_type
+                    existing.grading_rubric = grading_rubric
                     existing.difficulty = difficulty
                     existing.points = points
                     existing.explanation = explanation
@@ -1970,6 +2029,7 @@ def save_questions_from_session(session, user, overrides=None):
                     existing.grid_spec = grid_spec
                     existing.shape_spec = shape_spec
                     existing.number_line_spec = number_line_spec
+                    existing.table_spec = table_spec
                     existing.numeric_answer = numeric_answer
                     existing.answer_tolerance = answer_tolerance
                     existing.answer_unit = answer_unit
@@ -1984,6 +2044,8 @@ def save_questions_from_session(session, user, overrides=None):
                         school_id=school_id, department_id=dept_id,
                         classroom_id=classroom_id,
                         question_text=q_text, question_type=q_type,
+                        validation_type=validation_type,
+                        grading_rubric=grading_rubric,
                         difficulty=difficulty, points=points,
                         explanation=explanation,
                         operands=operands, operator=operator,
@@ -1991,6 +2053,7 @@ def save_questions_from_session(session, user, overrides=None):
                         plane_spec=plane_spec, graph_spec=graph_spec,
                         grid_spec=grid_spec, shape_spec=shape_spec,
                         number_line_spec=number_line_spec,
+                        table_spec=table_spec,
                         numeric_answer=numeric_answer,
                         answer_tolerance=answer_tolerance, answer_unit=answer_unit,
                     )
