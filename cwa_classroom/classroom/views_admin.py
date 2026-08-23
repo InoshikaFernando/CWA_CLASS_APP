@@ -1981,8 +1981,8 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             ss.can_clear_discount = can_clear_discount and ss.discount_state in ('free_100', 'partial')
         add_student_classes = (
             _allowed_classes_for_user(request.user, school)
-            .select_related('subject', 'department')
-            .order_by('name')
+            .select_related('subject', 'department', 'location')
+            .order_by('name', 'start_time')
         ) if not request.headers.get('HX-Request') else []
         # Possible duplicate students (same name + same parent set). Leadership
         # only, and only on a full-page render (skip on HTMX search swaps).
@@ -2691,8 +2691,8 @@ class StudentEditModalView(RoleRequiredMixin, View):
         guardian_links = student.student_guardians.select_related('guardian').all()
         allowed_classes = (
             _allowed_classes_for_user(request.user, school)
-            .select_related('department', 'subject')
-            .order_by('name')
+            .select_related('department', 'subject', 'location')
+            .order_by('name', 'start_time')
         )
         enrolled_class_ids = set(
             ClassStudent.objects.filter(

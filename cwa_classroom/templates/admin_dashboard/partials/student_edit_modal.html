@@ -61,16 +61,8 @@
       <label class="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 cursor-pointer">
         <input type="checkbox" name="class_ids" value="{{ cls.id }}"
                {% if cls.id in enrolled_class_ids %}checked{% endif %}
-               class="w-4 h-4 rounded border-slate-300 text-accent focus:ring-accent">
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium text-gray-800 truncate">{{ cls.name }}</p>
-          <p class="text-xs text-gray-500 truncate">
-            {% if cls.department %}{{ cls.department.name }}{% endif %}
-            {% if cls.department and cls.subject %} &middot; {% endif %}
-            {% if cls.subject %}{{ cls.subject.name }}{% endif %}
-            {% if not cls.department and not cls.subject %}&mdash;{% endif %}
-          </p>
-        </div>
+               class="w-4 h-4 shrink-0 rounded border-slate-300 text-accent focus:ring-accent">
+        {% include "partials/class_picker_option.html" with cls=cls %}
       </label>
       {% endfor %}
     </div>
