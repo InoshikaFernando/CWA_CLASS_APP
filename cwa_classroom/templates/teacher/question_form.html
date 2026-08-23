@@ -104,6 +104,18 @@
         <label class="block text-sm font-semibold text-gray-700 mb-1.5">Question Text <span class="text-red-500">*</span></label>
         <textarea name="question_text" rows="3" required
                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition resize-y">{{ question.question_text|default:'' }}</textarea>
+        {% comment %}Shown only for fill_blank (toggled by q-type-select below): the
+        underscores in the text are what put an input into each gap, so a teacher who
+        does not know to type them gets one box for the whole sentence.{% endcomment %}
+        <p id="fill-blank-hint" class="hidden mt-1.5 text-xs text-gray-500">
+          Mark each blank with <code class="font-mono">___</code> (three underscores), e.g.
+          <span class="italic">"The survivors are expected to ___ for another ___ years."</span>
+          Then give one answer per blank, in order — or a single answer listing them
+          separated by <code class="font-mono">;</code> (for example
+          <code class="font-mono">live; 67.0</code>). Use
+          <code class="font-mono">|</code> inside a blank for alternatives
+          (<code class="font-mono">live|survive</code>).
+        </p>
       </div>
 
       <!-- Media Uploads -->
@@ -323,6 +335,19 @@ function toggleCorrectAnswer(box) {
 
 // Types whose Answer rows are accepted spellings, not choices.
 var MULTI_ANSWER_TYPES = ['short_answer', 'calculation', 'fill_blank'];
+
+// The "___" hint only makes sense for the one type that reads the underscores.
+function _syncFillBlankHint() {
+  var select = document.getElementById('q-type-select');
+  var hint = document.getElementById('fill-blank-hint');
+  if (!select || !hint) return;
+  hint.classList.toggle('hidden', select.value !== 'fill_blank');
+}
+document.addEventListener('DOMContentLoaded', function () {
+  var select = document.getElementById('q-type-select');
+  if (select) select.addEventListener('change', _syncFillBlankHint);
+  _syncFillBlankHint();
+});
 
 function isMultiAnswer(type) {
   return MULTI_ANSWER_TYPES.indexOf(type) !== -1;

@@ -2945,6 +2945,39 @@ def _parse_measure_post(request):
     return numeric_answer, tolerance, unit, None
 
 
+def _sync_blank_spec(question, request):
+    """Keep a question's fill-in-the-blank shape in step with what was saved.
+
+    Called after the answers are written on both the create and the edit path,
+    because the per-gap answers are derived FROM them. A question whose text
+    carries "___" gaps becomes a fill-in-the-blank sentence whatever type was
+    picked — a teacher who writes gaps into a short answer meant a
+    fill-in-the-blank question — and one that no longer has gaps, or is no
+    longer a typed question, has its spec cleared rather than left describing a
+    sentence that has changed underneath it.
+
+    All of that decision lives in ``Question.apply_blank_format``, shared with
+    the AI importer, the spreadsheet upload and the ``convert_fill_blanks``
+    command, so a question comes out the same shape however it was created.
+    Everything here is the teacher-facing half: saving, and saying what
+    happened.
+    """
+    changed, reason = question.apply_blank_format()
+    if changed:
+        question.save(update_fields=['question_type', 'blank_spec'])
+
+    if reason:
+        # It saved and it works — it just shows one answer box rather than a gap
+        # per blank. Told plainly, because the alternative is a teacher who
+        # marked up a sentence and cannot see why the gaps did not appear.
+        messages.warning(request, (
+            f'Saved, but the blanks could not be filled in from the answers, so '
+            f'this question shows one answer box instead of a gap per blank — '
+            f'{reason}. Give one answer per blank, or a single answer listing '
+            f'them in order separated by ";" (for example "15; live").'
+        ))
+
+
 def _parse_number_line_post(request):
     """Pull and validate the ``number_line_spec`` JSON for a number_line question.
 
@@ -3118,6 +3151,8 @@ class AddQuestionView(RoleRequiredMixin, View):
                         is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
                         order=int(request.POST.get(f'answer_order_{i}', i)),
                     )
+            # Derived from the answers just written, so it must come after them.
+            _sync_blank_spec(question, request)
         log_event(
             user=request.user,
             school=School.objects.filter(id=school_id).first() if school_id else None,
@@ -3206,6 +3241,8 @@ class EditQuestionView(RoleRequiredMixin, View):
                         is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
                         order=int(request.POST.get(f'answer_order_{i}', i)),
                     )
+            # Derived from the answers just written, so it must come after them.
+            _sync_blank_spec(question, request)
         log_event(
             user=request.user,
             school=question.school,

@@ -216,6 +216,11 @@ jobs:
               - 'cwa_classroom/homework/**'
               - 'cwa_classroom/maths/**'
               - 'cwa_classroom/templates/maths/**'
+              # The interactive question types are exercised through the homework
+              # take page, so its partials decide whether a maths widget renders
+              # at all — a change there can break every test in this group
+              # without touching templates/maths/.
+              - 'cwa_classroom/templates/homework/**'
             # The sidebars link into every subject app, so a change to any of
             # them can break a nav test. Broad on purpose.
             ui_navigation:

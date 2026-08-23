@@ -47,3 +47,6 @@ venv-test/
 
 # Claude Code worktrees (machine-local)
 .claude/worktrees/
+
+# Throwaway database built by scripts/demo_fill_blanks.sh
+cwa_classroom/fill_blank_demo.sqlite3*
