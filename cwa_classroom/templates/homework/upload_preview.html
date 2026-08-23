@@ -322,6 +322,16 @@
               <p class="text-[11px] text-sky-500 mt-1">mode "mark" (tap ticks to mark target) or "read" (arrow at given, student types it). Every target/given value must land on a tick. The answer is graded from this.</p>
             </div>
 
+            <!-- Table of values — shown only for table_of_values -->
+            <div id="table-section-{{ q_idx }}"
+                 class="bg-sky-50 rounded-lg p-3 {% if not q.question_type == 'table_of_values' %}hidden{% endif %}">
+              <label class="block text-xs font-medium text-sky-600 mb-1">Table spec (JSON)</label>
+              <textarea name="q_{{ q_idx }}_table_spec" rows="4"
+                        placeholder='{"headers":["Money value","Decimal form"],"rows":[[{"given":"56c"},{"answer":"0.56"}]],"tolerance":0}'
+                        class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 resize-y">{% if q.table_spec %}{{ q.table_spec_json }}{% endif %}</textarea>
+              <p class="text-[11px] text-sky-500 mt-1">One cell per header per row: {"given": …} is printed for the student, {"answer": …} is a blank they fill (numeric). The app draws the table and grades it, so there are no answer options.</p>
+            </div>
+
             <!-- Grading rubric (shown only for ai_graded / human_graded) -->
             <div id="rubric-row-{{ q_idx }}" {% if q.validation_type == 'auto' %}class="hidden"{% endif %}>
               <label class="block text-xs font-medium text-gray-500 mb-1">
@@ -338,7 +348,7 @@
             BACK to short answer left no answers list in the page at all.
             {% endcomment %}
             <div id="answers-row-{{ q_idx }}"
-                 {% if q.question_type == 'extended_answer' or q.question_type == 'long_division' or q.question_type == 'column_operation' or q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' or q.question_type == 'read_graph' or q.question_type == 'measure' or q.question_type == 'number_line' %}class="hidden"{% endif %}>
+                 {% if q.question_type == 'extended_answer' or q.question_type == 'long_division' or q.question_type == 'column_operation' or q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' or q.question_type == 'read_graph' or q.question_type == 'measure' or q.question_type == 'number_line' or q.question_type == 'table_of_values' %}class="hidden"{% endif %}>
               <label class="block text-xs font-medium text-gray-500 mb-2">Answers <span class="text-gray-400 font-normal">(tick the correct one — add alternatives that should also be accepted)</span></label>
               {% if q.answer_warning %}
               <p class="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">⚠ {{ q.answer_warning }}</p>
@@ -472,7 +482,8 @@
       'plane': planeTypes.indexOf(newType) !== -1,
       'graph': newType === 'read_graph',
       'measure': newType === 'measure',
-      'numberline': newType === 'number_line'
+      'numberline': newType === 'number_line',
+      'table': newType === 'table_of_values'
     };
     var anyStructured = false;
     for (var name in panels) {
