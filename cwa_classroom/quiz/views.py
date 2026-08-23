@@ -861,10 +861,15 @@ class MixedQuizView(LoginRequiredMixin, View):
                     ungraded += 1
             else:
                 # Every typed answer grades on the model, which routes by
-                # answer_format (text / algebra / equation / set) internally.
+                # answer_format (text / algebra / equation / set) and by
+                # question_type (a fill-in-the-blank sentence posts one value per
+                # gap as JSON) internally.
                 raw = request.POST.get(f'text_{q.id}', '').strip()
-                student_answer = raw
                 typed_answer = raw
+                # A blanks payload is JSON — unreadable in the review list — so
+                # what is SHOWN back is the readable form; what is STORED on the
+                # StudentAnswer row stays the raw payload it was graded from.
+                student_answer = q.display_text_answer(raw)
                 is_correct = q.grade_text_answer(raw)
 
             if is_correct:
@@ -1061,6 +1066,16 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             correct_answer_text = ', '.join(
                 str(v) for v in (q.number_line_data or {}).get('target_values', [])
             )
+        elif q.question_type == Question.FILL_BLANK and q.blank_spec:
+            # A fill-in-the-blank sentence posts one value per gap as JSON in
+            # text_answer, graded all-or-nothing against blank_spec. It needs its
+            # own branch (rather than the typed fallback below) because its
+            # answers live in the spec, not in Answer rows: the fallback would
+            # log it as a question with no stored answer and try to compare the
+            # JSON payload as a number.
+            raw = data.get('text_answer', '')
+            is_correct = q.grade_text_answer(raw)
+            correct_answer_text = q.correct_answer_display()
         elif q.answer_format in ('algebra', 'equation'):
             # Algebra (expand & simplify) and equation (algebraic-equivalence)
             # answers are both graded on the model, which routes by answer_format.
@@ -1149,7 +1164,12 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             ordered_answer_ids = [int(i) for i in _raw_ids]
         else:
             typed_answer = data.get('text_answer', '').strip()
-            student_answer_text = typed_answer
+            # A fill-in-the-blank sentence posts its gaps as a JSON payload,
+            # which is unreadable in the review list — so what is SHOWN back is
+            # the readable form ("15, live"); what is STORED on the StudentAnswer
+            # row stays the raw payload it was graded from. Every other answer
+            # passes through unchanged.
+            student_answer_text = q.display_text_answer(typed_answer)
 
         # Update session
         if is_correct:

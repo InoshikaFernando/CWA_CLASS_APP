@@ -651,6 +651,7 @@ class ConfirmImportView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                 'updated': result['updated'],
                 'failed': result['failed'],
                 'images_saved': result['images_saved'],
+                'blanks_built': result['blanks_built'],
             },
             request=request,
         )

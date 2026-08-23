@@ -6,10 +6,10 @@
  * stage's hidden input as {"marks":[...]} on the line's own scale. Read-mode
  * number lines are answered with a plain text box and need no JS.
  *
- * Idempotent (a `data-nl-mounted` flag guards re-mounts) and re-scans on
- * DOMContentLoaded AND via a MutationObserver, because the topic quiz swaps
- * questions in with innerHTML. Each stage is scoped to its own element, so any
- * number of number-line questions can share a page. Reads the hidden input's
+ * Idempotent (a `data-nl-mounted` flag guards re-mounts); mounting — on load
+ * and again after the topic quiz swaps a question in with innerHTML — is
+ * handled by the shared registry in maths_mounts.js. Each stage is scoped to
+ * its own element, so any number of number-line questions can share a page. Reads the hidden input's
  * current value on mount, so a restored/resumed draft re-renders correctly.
  */
 (function () {
@@ -103,53 +103,11 @@
 
   var SELECTOR = "[data-nl-stage]";
 
-  // Mount every matching stage within a freshly-added subtree (the node itself
-  // or any descendants). Scoped to what actually changed — never a
-  // full-document rescan.
-  function scanRoot(node) {
-    if (!node || node.nodeType !== 1) return;
-    if (node.matches && node.matches(SELECTOR)) mount(node);
-    if (node.querySelectorAll) node.querySelectorAll(SELECTOR).forEach(mount);
+  if (!window.MathsMounts) {
+    // Loud, not silent: without the registry the widget simply would not mount
+    // and the student would face an inert question.
+    console.error("number_line.js: maths_mounts.js must load first.");
+    return;
   }
-
-  function scanAll() {
-    document.querySelectorAll(SELECTOR).forEach(mount);
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", scanAll);
-  } else {
-    scanAll();
-  }
-
-  if (typeof MutationObserver !== "undefined") {
-    // NOTE: this observer block is duplicated in table_of_values.js. If a THIRD
-    // observer-mounted interactive type is added (or draw_on_grid / plot_points /
-    // shape_select move off their inline scripts onto the quiz/worksheet
-    // surfaces), consolidate all of them into one shared maths_mounts.js registry
-    // — register({selector, mount}) + a single debounced observer — instead of
-    // copying this again. Not worth it for two files today.
-    //
-    // Coalesce a burst of mutations into one requestAnimationFrame-batched pass,
-    // and only scan the subtrees that were actually added — not the whole
-    // document on every mutation (the quiz/worksheet surfaces mutate a lot).
-    var queue = [];
-    var scheduled = false;
-    var raf = window.requestAnimationFrame || function (cb) { return setTimeout(cb, 16); };
-    function flush() {
-      scheduled = false;
-      var nodes = queue;
-      queue = [];
-      nodes.forEach(scanRoot);
-    }
-    new MutationObserver(function (muts) {
-      for (var i = 0; i < muts.length; i++) {
-        var added = muts[i].addedNodes;
-        for (var j = 0; j < added.length; j++) {
-          if (added[j].nodeType === 1) queue.push(added[j]);
-        }
-      }
-      if (queue.length && !scheduled) { scheduled = true; raf(flush); }
-    }).observe(document.documentElement, { childList: true, subtree: true });
-  }
+  window.MathsMounts.register(SELECTOR, mount);
 })();
