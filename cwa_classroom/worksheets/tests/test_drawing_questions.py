@@ -102,6 +102,9 @@ class IsUnanswerableConstructionTests(SimpleTestCase):
         'Use a square number greater than 20.',
         'Use a protractor to measure the angle.',
         'Use a calculator to find the answer.',
+        # fill_blank sentence gaps — the app's own answer surface for these.
+        'There is ___ number of cats.',
+        'Out of 100 000 births, 99 231 females survive to the age of ___.',
     ]
 
     def test_drawing_instructions_are_unanswerable(self):
@@ -132,6 +135,19 @@ class IsUnanswerableConstructionTests(SimpleTestCase):
             with self.subTest(q_type):
                 self.assertFalse(is_unanswerable_construction(
                     {'question_text': text, 'question_type': q_type}))
+
+    def test_a_table_is_answerable_only_as_table_of_values(self):
+        # fill_blank renders a SENTENCE with an input at each gap — no grid — so
+        # a table question saved as fill_blank has lost its table. Only
+        # table_of_values gives the student a table to fill in.
+        self.assertFalse(is_unanswerable_construction({
+            'question_text': 'Complete the table of values for y = 3x.',
+            'question_type': 'table_of_values',
+        }))
+        self.assertTrue(is_unanswerable_construction({
+            'question_text': 'Complete the table of values for y = 3x.',
+            'question_type': 'fill_blank',
+        }))
 
     def test_multiple_choice_with_options_is_exempt(self):
         # The student picks an option; nobody has to draw anything.

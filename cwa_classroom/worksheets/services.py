@@ -178,10 +178,18 @@ _DRAWABLE_QUESTION_TYPES = {
     'draw_on_grid', 'shape_select', 'table_of_values', 'prime_factorization',
 }
 
+# fill_blank is deliberately NOT on that list. It renders the question as a
+# SENTENCE with an input at each "___" gap — there is no grid, so a table
+# question saved as fill_blank has lost its table and the student is typing into
+# a row of gaps with nothing to read them against. "Complete the table" is
+# answerable only as table_of_values, which is exempt above; every other type
+# still belongs to the teacher.
+
 # Pick-an-option types: the student chooses, never draws, so a figure verb in
 # the stem ("Which diagram shows the line drawn correctly?") is not a
 # construction task. Requires real options — a bare type label doesn't exempt it.
 _CHOICE_QUESTION_TYPES = {'multiple_choice', 'true_false'}
+
 
 # Anything a question can ask a student to make a picture of. Deliberately broad
 # (it includes bare shapes) because it is only ever used with a construction

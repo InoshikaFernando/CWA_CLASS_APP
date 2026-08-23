@@ -132,6 +132,20 @@ class FixDrawingQuestionsTests(TestCase):
             self.assertEqual(question.validation_type, 'auto',
                              question.question_text)
 
+    def test_a_table_saved_as_fill_blank_still_goes_to_the_teacher(self):
+        # fill_blank renders a sentence with gaps, not a grid, so the table is
+        # gone. table_of_values is the only type that can take one.
+        gapped = self._q('Complete the table of values for y = 3x: 3, 6, ___, 12.',
+                         validation='auto', q_type='fill_blank')
+        real_table = self._q('Complete the table of values for y = 3x.',
+                             validation='auto', q_type='table_of_values')
+        self._run('--apply')
+
+        gapped.refresh_from_db()
+        real_table.refresh_from_db()
+        self.assertEqual(gapped.validation_type, 'human_graded')
+        self.assertEqual(real_table.validation_type, 'auto')
+
     def test_multiple_choice_with_options_is_left_alone(self):
         mcq = self._q('Which diagram shows the line drawn correctly?',
                       validation='auto', q_type='multiple_choice', answers=3)
