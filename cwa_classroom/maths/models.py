@@ -379,7 +379,10 @@ class Question(models.Model):
         # matching it has always used.
         if self.question_type == self.FILL_BLANK and self.blank_spec:
             from maths.blank_grading import grade_fill_blank
-            return grade_fill_blank(self.blank_spec, text_answer)
+            # answer_format goes with it, so a converted algebra question keeps
+            # grading by algebraic equivalence rather than string equality.
+            return grade_fill_blank(
+                self.blank_spec, text_answer, self.answer_format)
 
         # A "create your own pattern" question stores no correct answer — there
         # isn't one — so this MUST come before the no-stored-answer guard below,

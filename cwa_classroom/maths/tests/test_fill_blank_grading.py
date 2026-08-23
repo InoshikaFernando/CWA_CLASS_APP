@@ -242,19 +242,10 @@ class DeriveFromProductionShapesTests(SimpleTestCase):
         self.assertIsNone(got)
         self.assertTrue(reason)
 
-    def test_refuses_a_rule_prefixed_row_list(self):
-        got, _ = self._derive(
-            'Complete the pattern: 14, 18, 22, __, __, __.',
-            ['+4; 26, 30, 34', 'add 4; 26, 30, 34', '26, 30, 34'])
-        self.assertIsNone(got)
-
-    def test_refuses_a_whole_answer_repeated_in_words(self):
-        # "9" and "9 and 9" are one answer twice over; gap 2 was being taught to
-        # demand the literal string "9 and 9".
-        got, _ = self._derive(
-            'Write the sum: 3 + 3 + 3 = ______, then the product: 3 x 3 = ______',
-            ['9', '9 and 9'])
-        self.assertIsNone(got)
+    # NOTE: the rule-prefixed row list and the "9" / "9 and 9" pair used to be
+    # refused here. Both now convert correctly, because one of their rows does
+    # list every value — see OneRowSaysWhereTheValuesGoTests below, which is
+    # where those two shapes are now asserted.
 
     def test_positional_rows_stay_available_when_asked_for(self):
         # The authoring paths keep the row-per-gap convention; only the bulk
@@ -331,6 +322,110 @@ class DeriveFromProductionShapesTests(SimpleTestCase):
             'The product of any fraction and its reciprocal is _______.',
             ['1', 'one'])
         self.assertEqual(got, '1 or one')
+
+
+class OneRowSaysWhereTheValuesGoTests(SimpleTestCase):
+    """A row that lists all N values decides the gaps, even beside prose rows.
+
+    The importer routinely wrote a question's answer twice — once with a
+    separator, once as prose ("up, 2" beside "up by 2"). Only the separated one
+    says where the halves go. Requiring EVERY row to split refused these; the
+    row-per-gap rule would have handed gap 1 the whole string "up by 2".
+    """
+
+    def _derive(self, text, rows):
+        spec, reason = derive_blank_spec(text, rows, positional_rows=False)
+        return (describe_blank_spec(spec) if spec else None), reason
+
+    def test_prose_row_beside_a_separated_row(self):
+        got, _ = self._derive('This pattern is going ______ by ______.',
+                              ['up by 2', 'up, 2'])
+        self.assertEqual(got, 'up, 2')
+
+    def test_the_prose_row_is_dropped_not_merged(self):
+        # "up by 2" must not become an accepted answer for either gap.
+        spec, _ = derive_blank_spec('This pattern is going ______ by ______.',
+                                    ['up by 2', 'up, 2'], positional_rows=False)
+        self.assertEqual(spec['blanks'][0]['answers'], ['up'])
+        self.assertEqual(spec['blanks'][1]['answers'], ['2'])
+
+    def test_comma_row_beside_a_spaceless_row(self):
+        got, _ = self._derive('…one event ______ affect the ______ of the other.',
+                              ['does, occurrence', 'does occurrence'])
+        self.assertEqual(got, 'does, occurrence')
+
+    def test_a_rule_prefixed_row_beside_a_clean_one(self):
+        # The "+4; 26, 30, 34" rows cannot split (the ";" survives a "," split),
+        # but "26, 30, 34" can — and it is the one that names the gaps.
+        got, _ = self._derive('Complete the pattern: 14, 18, 22, __, __, __.',
+                              ['+4; 26, 30, 34', 'add 4; 26, 30, 34', '26, 30, 34'])
+        self.assertEqual(got, '26, 30, 34')
+
+    def test_still_refused_when_no_row_lists_the_values(self):
+        got, reason = self._derive('30, ___, 60, 75, ___, ___. What is the rule?',
+                                   ['+15', 'add 15', '+ 15'])
+        self.assertIsNone(got)
+        self.assertTrue(reason)
+
+
+class ThousandsSeparatorTests(SimpleTestCase):
+    """A comma inside one number is not a list separator."""
+
+    def test_a_thousands_number_is_never_split(self):
+        spec, reason = derive_blank_spec('___ and ___ are the two.', ['1,000'],
+                                         positional_rows=False)
+        self.assertIsNone(spec, 'split "1,000" into "1" and "000"')
+        self.assertIn('does not split', reason)
+
+    def test_thousands_numbers_still_split_on_a_real_separator(self):
+        spec, _ = derive_blank_spec('___ then ___', ['1,000; 2,000'],
+                                    positional_rows=False)
+        self.assertEqual(
+            spec, {'blanks': [{'answers': ['1,000']}, {'answers': ['2,000']}]})
+
+    def test_a_spaced_pair_is_still_a_pair(self):
+        # "122, 121" has a space, so it is two values, not one number.
+        spec, _ = derive_blank_spec('100, 132, 116, 124, 120, ___, ___',
+                                    ['122, 121'], positional_rows=False)
+        self.assertEqual(
+            spec, {'blanks': [{'answers': ['122']}, {'answers': ['121']}]})
+
+
+class GradeByAnswerFormatTests(SimpleTestCase):
+    """Each gap is judged by the question's answer_format, not by string equality.
+
+    Converting a question used to drop its answer_format silently: the gap
+    grader compared folded strings, so an algebra question stopped accepting
+    "2ba" for "2ab".
+    """
+
+    SPEC = {'blanks': [{'answers': ['2ab']}, {'answers': ['81/4']}]}
+
+    def _grade(self, typed, answer_format):
+        return grade_fill_blank(self.SPEC, json.dumps({'blanks': typed}), answer_format)
+
+    def test_algebra_accepts_a_commuted_product(self):
+        self.assertTrue(self._grade(['2ba', '81/4'], 'algebra'))
+
+    def test_algebra_accepts_an_equal_value_written_differently(self):
+        self.assertTrue(self._grade(['2ab', '20.25'], 'algebra'))
+
+    def test_algebra_still_rejects_a_wrong_value(self):
+        self.assertFalse(self._grade(['3ab', '81/4'], 'algebra'))
+
+    def test_text_stays_literal(self):
+        self.assertFalse(self._grade(['2ba', '20.25'], 'text'))
+        self.assertTrue(self._grade(['2ab', '81/4'], 'text'))
+
+    def test_default_is_text(self):
+        self.assertFalse(self._grade(['2ba', '81/4'], 'text'))
+        self.assertFalse(grade_fill_blank(
+            self.SPEC, json.dumps({'blanks': ['2ba', '81/4']})))
+
+    def test_a_commuted_expression_is_accepted_without_algebra_format(self):
+        # The allowance a plain typed answer already has, kept per gap.
+        spec = {'blanks': [{'answers': ['12p + 110']}]}
+        self.assertTrue(grade_fill_blank(spec, json.dumps({'blanks': ['110 + 12p']})))
 
 
 class UnitRepeatTests(SimpleTestCase):

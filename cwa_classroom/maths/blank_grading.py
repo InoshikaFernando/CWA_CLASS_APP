@@ -32,7 +32,7 @@ what a blank is.
 import json
 import re
 
-from maths.algebra_grading import fold_answer
+from maths.algebra_grading import fold_answer, match_value
 
 # A run of two or more underscores is a blank. Two rather than one because a
 # lone "_" turns up as a subscript in ordinary maths text ("a_1"), where a run
@@ -57,6 +57,13 @@ _AND_SPLIT_RE = re.compile(r'\s+and\s+', re.IGNORECASE)
 # these separators is a whole answer rather than one gap's worth of it — see
 # _looks_positional.
 _LIST_MARKERS = (';', ',')
+
+# A single number written with thousands separators — "1,000", "1,000,000",
+# "12,500.75". Splitting one of these on the comma yields parts that look like
+# values ("1", "000") and are fragments of one, so a two-gap question answered
+# "1,000" would teach gap 1 to expect "1". Deliberately strict: it requires no
+# space after the comma, so "122, 121" (two values) is still split.
+_THOUSANDS_NUMBER_RE = re.compile(r'^-?\d{1,3}(?:,\d{3})+(?:\.\d+)?$')
 
 # Within one blank, "|" separates equally acceptable spellings — the same
 # convention algebra answers already use.
@@ -152,7 +159,7 @@ def validate_blank_spec(blank_spec, question_text=None):
             )
 
 
-def grade_fill_blank(blank_spec, payload):
+def grade_fill_blank(blank_spec, payload, answer_format='text'):
     """Grade a ``fill_blank`` answer. Returns ``True``/``False``, never raises.
 
     All-or-nothing: correct when EVERY blank matches one of its accepted
@@ -162,6 +169,11 @@ def grade_fill_blank(blank_spec, payload):
     ``payload`` is the JSON the client serialises, ``{"blanks": ["15", "live"]}``
     — positional, one entry per blank. A malformed spec or payload, a missing
     entry, or a blank left empty simply grades wrong.
+
+    ``answer_format`` is the question's, and each gap is judged by it through
+    :func:`~maths.algebra_grading.match_value` — so an algebra question keeps
+    accepting "2ba" for "2ab" after conversion, and every gap keeps the
+    commuted-expression allowance a plain typed answer has.
     """
     accepted = blank_answers(blank_spec)
     # A spec with no blanks is unanswerable — never silently "correct".
@@ -181,10 +193,10 @@ def grade_fill_blank(blank_spec, payload):
     for typed, options in zip(given, accepted):
         if typed is None:
             return False
-        typed = fold_answer(str(typed).strip())
+        typed = str(typed).strip()
         if not typed:
             return False
-        if not any(typed == fold_answer(o) for o in options):
+        if not any(match_value(typed, o, answer_format) for o in options):
             return False
     return True
 
@@ -230,6 +242,10 @@ def _split_row(text, n):
     that can't be split unambiguously is reported for a human to fix, never
     silently mapped onto the wrong blanks.
     """
+    if _THOUSANDS_NUMBER_RE.match(text.strip()):
+        # One number, not a list — see _THOUSANDS_NUMBER_RE.
+        return None
+
     for sep in _ROW_SPLITS:
         if sep not in text:
             continue
@@ -370,9 +386,11 @@ def derive_blank_spec(question_text, correct_texts, *, positional_rows=True):
       alternatives are what several rows already mean everywhere else.
     * **N blanks, one row** — the row is split on ";", then ",", then " and ",
       and must yield exactly N parts ("15; live").
-    * **N blanks, every row splitting into N** — each row is a whole answer
-      listing all N values, so they are alternatives: gap *i* accepts the *i*-th
-      value of every row. Strictly safer than the rule below, and tried first.
+    * **N blanks, at least one row splitting into N** — that row is a whole
+      answer listing all N values, so it says what goes in each gap: gap *i*
+      accepts the *i*-th value of every row that splits, and rows that do not
+      split are dropped as prose spellings of the same answer. Strictly safer
+      than the rule below, and tried first.
     * **N blanks, N rows** — row *i* fills gap *i*, but only when
       ``positional_rows`` is set AND the rows look like per-gap values rather
       than spellings of one answer (see :func:`_looks_positional`).
@@ -407,14 +425,22 @@ def derive_blank_spec(question_text, correct_texts, *, positional_rows=True):
                 f'split into {n} values on ";", "," or " and "'
             )
         values = [_alternatives(p) for p in parts]
-    elif all(_split_row(t, n) is not None for t in texts):
-        # Every row lists all N values, so the rows are alternative whole
-        # answers: gap i accepts the i-th value of each. Preferred over the
-        # row-per-gap rule below, which would instead hand one whole answer to
-        # each gap.
+    elif any(_split_row(t, n) is not None for t in texts):
+        # At least one row lists all N values, so THAT row says what goes in
+        # each gap: gap i accepts the i-th value of every row that splits.
+        # Rows that do not split are prose spellings of the whole answer and
+        # are dropped — "up by 2" beside "up, 2" is the same answer written
+        # twice, and only the second says where the halves go.
+        #
+        # Preferred over the row-per-gap rule below, and tried first: given
+        # rows ["up by 2", "up, 2"] that rule would hand gap 1 the whole
+        # string "up by 2".
         values = [[] for _ in range(n)]
         for text in texts:
-            for index, part in enumerate(_split_row(text, n)):
+            parts = _split_row(text, n)
+            if parts is None:
+                continue
+            for index, part in enumerate(parts):
                 for option in _alternatives(part):
                     if option not in values[index]:
                         values[index].append(option)
