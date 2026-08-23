@@ -110,5 +110,11 @@ class AnswerReviewWarningTests(SimpleTestCase):
         self.assertIsNone(answer_review_warning(q))
 
     def test_no_explanation_never_flags(self):
+        # The explanation-driven signals need an explanation to fire. The choice
+        # question carries options: a multiple choice with NONE is flagged on its
+        # own (nothing to tick), explanation or not.
         self.assertIsNone(answer_review_warning({'question_type': 'short_answer', 'explanation': ''}))
-        self.assertIsNone(answer_review_warning({'question_type': 'multiple_choice'}))
+        self.assertIsNone(answer_review_warning({
+            'question_type': 'multiple_choice',
+            'answers': [{'text': '12', 'is_correct': True}, {'text': '2'}],
+        }))

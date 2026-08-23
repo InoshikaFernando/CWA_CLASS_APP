@@ -2002,6 +2002,17 @@ def save_questions_from_session(session, user, overrides=None):
                 failed += 1
                 continue
 
+        # A pick-an-option question with no options can never be attempted: the
+        # student sees the stem and an empty space. Report it rather than import
+        # a dead question — this is what a type the review dropdown could not
+        # offer looked like after the browser fell back to "Multiple Choice".
+        if q_type in ('multiple_choice', 'true_false') and not [
+            a for a in answers_data if (a.get('text') or '').strip()
+        ]:
+            errors.append(f'Q{idx}: {q_type} has no answer options — nothing to pick from')
+            failed += 1
+            continue
+
         try:
             with transaction.atomic():
                 # Check for existing question (same text + topic + level + scope)
@@ -2093,10 +2104,12 @@ def save_questions_from_session(session, user, overrides=None):
                         order=1,
                     )
                 elif q_type in ('plot_points', 'plot_line', 'identify_coords', 'read_graph',
-                                'measure', 'draw_on_grid', 'shape_select', 'number_line'):
+                                'measure', 'draw_on_grid', 'shape_select', 'number_line',
+                                'table_of_values'):
                     # Graded by the structured spec (plane / grid / shapes / number
-                    # line) or numeric tolerance (measure / read_graph) — never Answer
-                    # rows. The model's clean() also forbids answer options here.
+                    # line / table) or numeric tolerance (measure / read_graph) —
+                    # never Answer rows. The model's clean() also forbids answer
+                    # options here.
                     pass
                 else:
                     for a_idx, ans in enumerate(answers_data):

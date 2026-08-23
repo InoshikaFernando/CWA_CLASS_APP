@@ -2043,7 +2043,8 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
 
         from classroom.models import Topic, Level
         from worksheets.services import (
-            answer_review_warning, backfill_constructions, question_source_page,
+            answer_review_warning, backfill_constructions,
+            preview_question_type_choices, question_source_page,
         )
 
         # Sessions extracted before drawing questions were routed to the teacher
@@ -2090,6 +2091,8 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                 q['graph_spec_json'] = json.dumps(q['graph_spec'], indent=2)
             if q.get('number_line_spec'):
                 q['number_line_spec_json'] = json.dumps(q['number_line_spec'], indent=2)
+            if q.get('table_spec'):
+                q['table_spec_json'] = json.dumps(q['table_spec'], indent=2)
 
         # Pages the extractor deliberately skipped (answer sheet / answer key).
         # Told to the teacher rather than silently dropped, so "50 questions but
@@ -2112,22 +2115,11 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             'skipped_pages': skipped_pages,
             'page_selection': describe_page_selection(data),
             'answer_key': answer_key,
-            'question_types': [
-                ('multiple_choice', 'Multiple Choice'),
-                ('true_false', 'True / False'),
-                ('short_answer', 'Short Answer'),
-                ('fill_blank', 'Fill in the Blank'),
-                ('calculation', 'Calculation'),
-                ('extended_answer', 'Extended Answer (written)'),
-                ('long_division', 'Long Division'),
-                ('column_operation', 'Column Arithmetic'),
-                ('plot_points', 'Plot Points (Cartesian plane)'),
-                ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
-                ('identify_coords', 'Identify Coordinates (type the point)'),
-                ('read_graph', 'Read a Graph (read off a value)'),
-                ('measure', 'Measure (angle/scale, tolerance-graded)'),
-                ('number_line', 'Number Line (mark or read a value)'),
-            ],
+            # Built from the extractor's own type list (plus anything else this
+            # session actually holds) so the dropdown can never be missing the
+            # type a question arrived as — a <select> with no matching option
+            # shows "Multiple Choice" and the POST saves that.
+            'question_types': preview_question_type_choices(questions),
             'validation_types': [
                 ('auto', 'Auto (system checks)'),
                 ('ai_graded', 'AI Graded (Claude evaluates)'),
@@ -2162,6 +2154,8 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         data['strand'] = request.POST.get('strand', data.get('strand', ''))
         data['subject'] = request.POST.get('subject', data.get('subject', 'Mathematics'))
 
+        from worksheets.services import accepted_question_type
+
         original_questions = data.get('questions', [])
 
         def _apply_question_fields(q, idx):
@@ -2169,7 +2163,8 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             prefix = f'q_{idx}_'
             q['include'] = request.POST.get(f'{prefix}include') == 'on'
             q['question_text'] = request.POST.get(f'{prefix}text', q.get('question_text', ''))
-            q['question_type'] = request.POST.get(f'{prefix}type', q.get('question_type', 'short_answer'))
+            q['question_type'] = accepted_question_type(
+                request.POST.get(f'{prefix}type'), q.get('question_type', 'short_answer'))
             q['validation_type'] = request.POST.get(f'{prefix}validation_type', q.get('validation_type', 'auto'))
             q['grading_rubric'] = request.POST.get(f'{prefix}grading_rubric', q.get('grading_rubric', ''))
             q['difficulty'] = int(request.POST.get(f'{prefix}difficulty', q.get('difficulty', 1)))
@@ -2256,6 +2251,17 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                 if raw:
                     try:
                         q['number_line_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
+            # Table-of-values spec — same contract as the number line: raw JSON,
+            # and a parse failure keeps the prior spec so the import-time
+            # validator is the one that reports it.
+            if q['question_type'] == 'table_of_values':
+                raw = request.POST.get(f'{prefix}table_spec', '').strip()
+                if raw:
+                    try:
+                        q['table_spec'] = json.loads(raw)
                     except (ValueError, TypeError):
                         pass
 
@@ -2508,6 +2514,12 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
                 messages.error(request, 'Failed to save questions. Please try again.')
                 return redirect('homework:pdf_preview', session_id=session.pk)
 
+            # Questions the saver could not build (no answer options, a spec it
+            # could not validate) are dropped there. Count them before the
+            # duplicate collapse below, and say so rather than letting the
+            # teacher discover a short homework later.
+            unsaved = len(questions_data) - len(saved_questions)
+
             # Two extracted questions can resolve to the same maths.Question via
             # get_or_create (identical text/topic/level). Drop duplicates so we
             # don't insert two HomeworkQuestion rows with the same content_id,
@@ -2576,6 +2588,14 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
                     'max_attempts': max_attempts,
                 },
                 request=request,
+            )
+
+        if unsaved > 0:
+            messages.warning(
+                request,
+                f'{unsaved} of the {len(questions_data)} included question(s) could not be '
+                'imported — a question with no answer options, or with a layout the app '
+                'could not build, is skipped rather than given to students unanswerable.',
             )
 
         schedule_note = (
@@ -2854,26 +2874,26 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         q_type = q.get('question_type', 'short_answer')
         validation_type, grading_rubric = resolve_grading(q)
 
-        # Map question_type to model constant
-        type_map = {
-            'multiple_choice': MQ.MULTIPLE_CHOICE,
-            'true_false': MQ.TRUE_FALSE,
-            'short_answer': MQ.SHORT_ANSWER,
-            'fill_blank': MQ.FILL_BLANK,
-            'calculation': MQ.CALCULATION if hasattr(MQ, 'CALCULATION') else MQ.SHORT_ANSWER,
-            'extended_answer': MQ.EXTENDED_ANSWER,
-            'long_division': MQ.LONG_DIVISION,
-            'column_operation': MQ.COLUMN_OPERATION,
-            'plot_points': MQ.PLOT_POINTS,
-            'plot_line': MQ.PLOT_LINE,
-            'identify_coords': MQ.IDENTIFY_COORDS,
-            'read_graph': MQ.READ_GRAPH,
-            'measure': MQ.MEASURE,
-            'draw_on_grid': MQ.DRAW_ON_GRID,
-            'shape_select': MQ.SHAPE_SELECT,
-            'number_line': MQ.NUMBER_LINE,
-        }
-        mapped_type = type_map.get(q_type, MQ.SHORT_ANSWER)
+        # Map question_type to model constant. Taken from the model's own
+        # choices rather than a hand-kept dict: the dict this replaced was
+        # missing 'table_of_values', so every extracted table fell through to
+        # short_answer — one text box for a whole chart — and the table_spec
+        # validation below could never run.
+        mapped_type = q_type if q_type in {v for v, _ in MQ.QUESTION_TYPES} else MQ.SHORT_ANSWER
+
+        # A pick-an-option question with no options can never be attempted: the
+        # student is shown the stem and an empty space, and the marker has
+        # nothing to mark. Skip it rather than import a dead question. This is
+        # the backstop for the review dropdown silently rewriting a type it
+        # could not offer into "Multiple Choice".
+        if mapped_type in (MQ.MULTIPLE_CHOICE, MQ.TRUE_FALSE) and not [
+            a for a in (q.get('answers') or []) if (a.get('text') or '').strip()
+        ]:
+            import logging as _skip_log
+            _skip_log.getLogger('homework').warning(
+                'Skipped %s question with no answer options: %r', mapped_type, q_text[:80],
+            )
+            continue
 
         # Long-division: parse dividend/divisor; the answer is computed (not AI-supplied)
         # and the layout is drawn by the app, so any attached image would be noise.
@@ -3113,10 +3133,11 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         elif mapped_type in (
             MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS, MQ.READ_GRAPH,
             MQ.MEASURE, MQ.DRAW_ON_GRID, MQ.SHAPE_SELECT, MQ.NUMBER_LINE,
+            MQ.TABLE_OF_VALUES,
         ):
-            # Graded by the structured spec (plane / grid / shapes / number line)
-            # or numeric tolerance (measure / read_graph) — never Answer rows. The
-            # model's clean() also forbids answer options on these types.
+            # Graded by the structured spec (plane / grid / shapes / number line /
+            # table) or numeric tolerance (measure / read_graph) — never Answer
+            # rows. The model's clean() also forbids answer options on these types.
             pass
         elif mapped_type != MQ.EXTENDED_ANSWER:
             answers_data = [a for a in q.get('answers', []) if a.get('text', '').strip()]

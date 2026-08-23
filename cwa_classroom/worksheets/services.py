@@ -113,6 +113,18 @@ def answer_review_warning(q):
     Surfacing this in the review editor keeps a wrong key from shipping silently
     (the teacher is already reviewing the question there).
     """
+    # A pick-an-option question with nothing to pick is unanswerable — the
+    # student would see the stem and an empty space. It is also exactly what a
+    # question whose real type the review dropdown could not offer looks like
+    # after the browser fell back to its first option, so say so out loud
+    # instead of rendering an empty answers box.
+    if q.get('question_type') in _CHOICE_QUESTION_TYPES:
+        options = [a for a in (q.get('answers') or []) if (a.get('text') or '').strip()]
+        if not options:
+            return ('This is a choice question with no options to pick from — '
+                    'add the options, or change the question type to the one '
+                    'this question really is.')
+
     explanation = (q.get('explanation') or '').strip()
     if not explanation:
         return None
@@ -529,6 +541,76 @@ def extract_worksheet_pages(doc, screenshot_dpi=None, selected_pages=None):
 
 
 # ---------------------------------------------------------------------------
+# Question types the extractor can emit — one list, used twice
+# ---------------------------------------------------------------------------
+#
+# The classification schema's enum is BUILT from this list, and the three review
+# previews (worksheet upload, homework upload, AI import) render their "Question
+# Type" <select> from it. They must not drift apart, because the drift fails
+# SILENTLY: a <select> whose options don't include the extracted type renders
+# showing its FIRST option instead — "Multiple Choice" — and the preview POST
+# then saves that. That is how a "complete the chart" question extracted as
+# table_of_values (with a table_spec the app can draw and grade) reached the
+# teacher as a multiple choice with no options to tick.
+EXTRACTED_QUESTION_TYPE_CHOICES = [
+    ('multiple_choice', 'Multiple Choice'),
+    ('true_false', 'True / False'),
+    ('short_answer', 'Short Answer'),
+    ('fill_blank', 'Fill in the Blank'),
+    ('calculation', 'Calculation'),
+    ('extended_answer', 'Extended Answer (written)'),
+    ('long_division', 'Long Division'),
+    ('column_operation', 'Column Arithmetic'),
+    ('plot_points', 'Plot Points (Cartesian plane)'),
+    ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
+    ('identify_coords', 'Identify Coordinates (type the point)'),
+    ('read_graph', 'Read a Graph (read off a value)'),
+    ('measure', 'Measure (angle/scale, tolerance-graded)'),
+    ('number_line', 'Number Line (mark or read a value)'),
+    ('table_of_values', 'Table of Values (fill in the table)'),
+]
+
+EXTRACTED_QUESTION_TYPES = [value for value, _label in EXTRACTED_QUESTION_TYPE_CHOICES]
+
+
+def accepted_question_type(posted, stored):
+    """The type a review POST should store: ``posted``, unless it is a value we
+    do not recognise — then ``stored`` is kept.
+
+    Fail towards the type the extractor worked out. A posted value that is
+    neither an extractor type nor a real question type is a stale page, a
+    tampered form or a renamed type; taking it would quietly replace a working
+    question with one that grades as nothing.
+    """
+    from maths.models import Question
+
+    posted = (posted or '').strip()
+    if not posted:
+        return stored
+    known = set(EXTRACTED_QUESTION_TYPES) | {v for v, _ in Question.QUESTION_TYPES}
+    return posted if posted in known else stored
+
+
+def preview_question_type_choices(questions=None):
+    """(value, label) pairs for a review preview's "Question Type" dropdown.
+
+    Every type in ``questions`` is guaranteed to appear, even one this module
+    has never heard of (an older session, another extractor, a hand-authored
+    import). A type with no matching <option> is not a cosmetic problem — the
+    browser shows the first option instead and the POST silently rewrites the
+    question to it, losing the type AND the spec that made it gradeable.
+    """
+    choices = list(EXTRACTED_QUESTION_TYPE_CHOICES)
+    known = {value for value, _ in choices}
+    for q in questions or []:
+        q_type = (q.get('question_type') or '').strip()
+        if q_type and q_type not in known:
+            known.add(q_type)
+            choices.append((q_type, q_type.replace('_', ' ').title()))
+    return choices
+
+
+# ---------------------------------------------------------------------------
 # AI classification tool schema
 # ---------------------------------------------------------------------------
 
@@ -561,12 +643,7 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                         },
                         "question_type": {
                             "type": "string",
-                            "enum": ["multiple_choice", "true_false", "short_answer",
-                                     "fill_blank", "calculation", "extended_answer",
-                                     "long_division", "column_operation",
-                                     "plot_points", "plot_line", "identify_coords",
-                                     "read_graph", "measure", "number_line",
-                                     "table_of_values"],
+                            "enum": list(EXTRACTED_QUESTION_TYPES),
                         },
                         "plane_spec": {
                             "type": "object",

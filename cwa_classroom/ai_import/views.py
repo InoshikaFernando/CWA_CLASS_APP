@@ -14,7 +14,9 @@ from accounts.models import Role
 from billing.entitlements import get_school_for_user, has_module, has_module_any_school, check_ai_import_quota
 from classroom.views import RoleRequiredMixin, _get_question_scope
 
-from worksheets.services import answer_review_warning, question_source_page
+from worksheets.services import (
+    answer_review_warning, preview_question_type_choices, question_source_page,
+)
 
 from .models import AIImportSession, AIImportUsage
 
@@ -377,22 +379,10 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
             'page_selection': describe_page_selection(data),
             'image_list': image_list,
             'image_refs_json': json.dumps([img['ref'] for img in image_list]),
-            'question_types': [
-                ('multiple_choice', 'Multiple Choice'),
-                ('true_false', 'True / False'),
-                ('short_answer', 'Short Answer'),
-                ('fill_blank', 'Fill in the Blank'),
-                ('calculation', 'Calculation'),
-                ('column_operation', 'Column Arithmetic'),
-                ('long_division', 'Long Division'),
-                ('extended_answer', 'Extended Answer (written)'),
-                ('plot_points', 'Plot Points (Cartesian plane)'),
-                ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
-                ('identify_coords', 'Identify Coordinates (type the point)'),
-                ('read_graph', 'Read a Graph (read off a value)'),
-                ('measure', 'Measure (angle/scale, tolerance-graded)'),
-                ('number_line', 'Number Line (mark or read a value)'),
-            ],
+            # Shared with the worksheet/homework previews, and widened with any
+            # type this session actually holds, so the dropdown always contains
+            # the question's own type — see preview_question_type_choices.
+            'question_types': preview_question_type_choices(questions),
         })
 
     def post(self, request, session_id):
