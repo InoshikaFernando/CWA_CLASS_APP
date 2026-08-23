@@ -508,3 +508,56 @@ def plan_type_change(question, options=None, to='short_answer'):
         raise Skipped('no correct answer is stored — typed grading would mark '
                       'every student wrong; supply the answer first')
     return True
+
+
+def plan_ai_grading(question, options=None):
+    """Check that handing ``question`` to the AI grader is the right move.
+
+    Some questions have no answer key that exact matching can hold. "160 can be
+    written as 100 + 60 — write two other ways 160 could be split" has infinitely
+    many right answers; "What does area mean?" has as many as there are ways to
+    say it. Stored as a plain text answer, every student who answers one well is
+    marked wrong, which is the fault this dashboard exists to catch. Handing them
+    to the AI grader is the way out.
+
+    It is not free, though, so three kinds are refused rather than converted:
+
+      * **Choice questions** — multiple choice and true/false are graded on
+        ``Answer.is_correct`` and already mark every student correctly. There is
+        nothing here for a grader to judge.
+      * **Questions that already grade themselves** — ``answer_format='pattern'``
+        marks the pattern a student invented without spending a token, and the
+        same will be true of any later format of that kind.
+      * **Questions already handed to a grader** — ``ai_graded`` is a no-op, and
+        ``human_graded`` is a teacher's standing decision that this one needs a
+        person, which a bulk sweep must not quietly overturn.
+
+    The refusals matter because an AI-graded question is HIDDEN from students
+    whose school has not bought the AI grading module
+    (``quiz.views.gradable_for``). Converting a question that already grades
+    correctly therefore costs those students the question and buys nothing.
+
+    Returns True when the conversion should go ahead, False when it would change
+    nothing, and raises ``Skipped`` with the reason when it must not happen.
+    """
+    from .models import Question
+
+    if question.question_type in (Question.MULTIPLE_CHOICE, Question.TRUE_FALSE):
+        raise Skipped(
+            'a choice question is already marked correctly from its options — '
+            'AI grading would only hide it from schools without the module')
+
+    if question.answer_format == Question.ANSWER_FORMAT_PATTERN:
+        raise Skipped(
+            'this question already grades itself without AI '
+            f'(answer_format={question.answer_format!r})')
+
+    if question.validation_type == Question.VALIDATION_HUMAN:
+        raise Skipped(
+            'a teacher marks this one — change it in the editor if AI grading '
+            'should take over')
+
+    if question.validation_type == Question.VALIDATION_AI:
+        return False
+
+    return True
