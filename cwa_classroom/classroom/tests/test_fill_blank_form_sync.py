@@ -105,21 +105,21 @@ class SyncBlankSpecTests(TestCase):
         self.assertEqual(q.question_type, Question.MULTIPLE_CHOICE)
 
     def test_an_unmappable_answer_saves_as_a_single_box_and_warns(self):
-        q = self._question(answers=('three sides and three angles',))
+        q = self._question(answers=('three sides three angles',))
         messages = self._sync(q)
         self.assertIsNone(q.blank_spec)
         self.assertEqual(len(messages), 1)
         self.assertIn('one answer box', messages[0])
         self.assertIn('does not split', messages[0])
         # Still a working question — it grades the way a short answer does.
-        self.assertTrue(q.grade_text_answer('three sides and three angles'))
+        self.assertTrue(q.grade_text_answer('three sides three angles'))
 
     def test_a_newly_unmappable_edit_clears_the_stale_spec(self):
         # The dangerous case: the old spec must not survive an edit it no longer
         # describes, or the question would grade against the wrong gaps.
         q = self._question(blank_spec=SPEC)
         q.answers.all().delete()
-        Answer.objects.create(question=q, answer_text='three sides and three angles',
+        Answer.objects.create(question=q, answer_text='three sides three angles',
                               is_correct=True, order=1)
         self._sync(q)
         self.assertIsNone(q.blank_spec)

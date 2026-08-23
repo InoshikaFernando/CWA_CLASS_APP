@@ -502,7 +502,7 @@ class Question(models.Model):
             return False
         return any(user_labels == option_label_set(c) for c in correct)
 
-    def rebuild_blank_spec(self):
+    def rebuild_blank_spec(self, *, positional_rows=True):
         """Derive this question's ``blank_spec`` from its text + Answer rows.
 
         Returns ``(applied, reason)``. ``applied`` is True when a spec was built
@@ -528,7 +528,8 @@ class Question(models.Model):
             a.answer_text for a in self.answers.filter(is_correct=True).order_by('order', 'id')
             if a.answer_text
         ]
-        spec, reason = derive_blank_spec(self.question_text, correct)
+        spec, reason = derive_blank_spec(
+            self.question_text, correct, positional_rows=positional_rows)
         if spec is None:
             return False, reason
         self.blank_spec = spec
@@ -540,7 +541,7 @@ class Question(models.Model):
     # prose a person or a rubric judges — neither is ever promoted.
     BLANK_PROMOTABLE_TYPES = ('short_answer', 'calculation', 'fill_blank')
 
-    def apply_blank_format(self):
+    def apply_blank_format(self, *, positional_rows=True):
         """Make this a fill-in-the-blank question if its text has gaps.
 
         The single entry point every path that writes a question calls — the AI
@@ -558,6 +559,12 @@ class Question(models.Model):
         Also the repair path: a question whose gaps or answers were edited out
         from under its spec has the stale spec cleared, rather than keeping one
         that no longer describes the sentence.
+
+        ``positional_rows`` is passed through to
+        :func:`~maths.blank_grading.derive_blank_spec`. It stays True here — the
+        paths that call this saved rows against the documented convention (one
+        value per gap, in order) — and ``convert_fill_blanks`` passes False for
+        legacy content, where N rows are no evidence of one row per gap.
         """
         from maths.blank_grading import count_blanks
 
@@ -576,7 +583,7 @@ class Question(models.Model):
             return False, ''
 
         previous = self.blank_spec
-        applied, reason = self.rebuild_blank_spec()
+        applied, reason = self.rebuild_blank_spec(positional_rows=positional_rows)
         if applied:
             was = self.question_type
             self.question_type = self.FILL_BLANK

@@ -40,17 +40,40 @@ class SaveDrawingQuestionTests(TestCase):
         return save_questions_from_session(session, self.user, session.extracted_data)
 
     def test_a_drawing_question_lands_human_graded(self):
+        # The reported shape: no stored answer, because there is nothing to
+        # type. This is what the extractor actually produces for these.
         result = self._save({
             'question_text': 'Suppose we are rolling a die. Illustrate on a Venn '
                              'diagram the sets A = {1, 3, 5} and B = {2, 4, 6}.',
             'question_type': 'short_answer', 'difficulty': 2, 'points': 2,
-            'answers': [{'text': 'two circles', 'is_correct': True}],
+            'answers': [],
         })
         self.assertEqual(result['failed'], 0, result.get('errors'))
 
         q = Question.objects.get(question_text__startswith='Suppose we are rolling')
         self.assertEqual(q.validation_type, Question.VALIDATION_HUMAN)
         self.assertEqual(q.grading_rubric, CONSTRUCTION_RUBRIC)
+
+    def test_a_ticked_answer_keeps_the_question_gradable(self):
+        """An accepted trade-off, not an oversight.
+
+        If the extractor is confident enough to tick an answer, the app can mark
+        what the student types and this leaves it alone — even though the
+        wording mentions a diagram. A production dry run over 19,773 bank
+        questions showed the opposite bias is far more expensive: keying on the
+        wording alone hid ~40 questions that had graded correctly for years
+        ("Complete the table for Output = 6x", "Write the coordinates of the
+        ship shown on the grid"). A missed drawing stays AI-graded and a teacher
+        can see it; a hidden question is invisible to everyone.
+        """
+        self._save({
+            'question_text': 'Draw a tree diagram and give the probability of '
+                             'two heads.',
+            'question_type': 'short_answer', 'difficulty': 2, 'points': 2,
+            'answers': [{'text': '0.25', 'is_correct': True}],
+        })
+        q = Question.objects.get(question_text__startswith='Draw a tree diagram and')
+        self.assertEqual(q.validation_type, 'auto')
 
     def test_a_teacher_marked_question_keeps_its_rubric(self):
         self._save({

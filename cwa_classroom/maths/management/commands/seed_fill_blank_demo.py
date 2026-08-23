@@ -69,6 +69,29 @@ SAMPLES = [
         'answers': ['100, 0'],
         'note': 'one answer row, split on "," when there is no ";"',
     },
+    # The shapes a real conversion run over the production bank turned up, which
+    # the first pass mapped onto the wrong gaps. Each stays a working single box
+    # and is reported, rather than being guessed at.
+    {
+        'text': 'Complete the pattern: 30, ___, 60, 75, ___, ___. What is the rule?',
+        'answers': ['+15', 'add 15', '+ 15'],
+        'note': 'REFUSED — 3 rows spelling the RULE, not one value per gap',
+    },
+    {
+        'text': 'Write the sum: 3 + 3 + 3 = ______, then the product: 3 x 3 = ______',
+        'answers': ['9', '9 and 9'],
+        'note': 'REFUSED — one answer written twice over, not one per gap',
+    },
+    {
+        'text': 'Convert to millilitres: 5.3 L = _____ mL',
+        'answers': ['5300 mL'],
+        'note': 'REFUSED — the answer repeats the "mL" already after the gap',
+    },
+    {
+        'text': 'Fill in the missing numbers of this sequence: 14, 17, 20, 23, ___, ___',
+        'answers': ['26, 29', '26 and 29'],
+        'note': 'every row lists both values, so they become alternatives per gap',
+    },
 ]
 
 

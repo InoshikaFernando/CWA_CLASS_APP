@@ -23,9 +23,11 @@ from classroom.views import RoleRequiredMixin
 from .grading_service import grade_extended_answer
 from .page_selection import describe_page_selection
 from .services import (
+    accepted_question_type,
     answer_review_warning,
     backfill_constructions,
     describe_skipped_pages,
+    preview_question_type_choices,
     question_source_page,
 )
 from .models import (
@@ -419,15 +421,11 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             'subtopics_json': json.dumps(subtopics_map),
             'image_list': image_list,
             'image_refs_json': json.dumps([img['ref'] for img in image_list]),
-            'question_types': [
-                ('multiple_choice', 'Multiple Choice'),
-                ('true_false', 'True / False'),
-                ('short_answer', 'Short Answer'),
-                ('fill_blank', 'Fill in the Blank'),
-                ('calculation', 'Calculation'),
-                ('measure', 'Measure (angle/scale, tolerance-graded)'),
-                ('number_line', 'Number Line (mark or read a value)'),
-            ],
+            # Built from the extractor's own type list (plus anything else this
+            # session actually holds). The hand-kept list this replaced offered
+            # seven of the fifteen types the extractor emits, so a long division,
+            # a plot or a table silently re-saved itself as multiple choice.
+            'question_types': preview_question_type_choices(questions),
         })
 
     def post(self, request, session_id):
@@ -453,7 +451,8 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             prefix = f'q_{idx}_'
             q['include'] = request.POST.get(f'{prefix}include') == 'on'
             q['question_text'] = request.POST.get(f'{prefix}text', q.get('question_text', ''))
-            q['question_type'] = request.POST.get(f'{prefix}type', q.get('question_type', 'short_answer'))
+            q['question_type'] = accepted_question_type(
+                request.POST.get(f'{prefix}type'), q.get('question_type', 'short_answer'))
             q['difficulty'] = int(request.POST.get(f'{prefix}difficulty', q.get('difficulty', 1)))
             q['points'] = int(request.POST.get(f'{prefix}points', q.get('points', 1)))
             q['explanation'] = request.POST.get(f'{prefix}explanation', q.get('explanation', ''))

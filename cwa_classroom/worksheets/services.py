@@ -113,6 +113,18 @@ def answer_review_warning(q):
     Surfacing this in the review editor keeps a wrong key from shipping silently
     (the teacher is already reviewing the question there).
     """
+    # A pick-an-option question with nothing to pick is unanswerable — the
+    # student would see the stem and an empty space. It is also exactly what a
+    # question whose real type the review dropdown could not offer looks like
+    # after the browser fell back to its first option, so say so out loud
+    # instead of rendering an empty answers box.
+    if q.get('question_type') in _CHOICE_QUESTION_TYPES:
+        options = [a for a in (q.get('answers') or []) if (a.get('text') or '').strip()]
+        if not options:
+            return ('This is a choice question with no options to pick from — '
+                    'add the options, or change the question type to the one '
+                    'this question really is.')
+
     explanation = (q.get('explanation') or '').strip()
     if not explanation:
         return None
@@ -196,7 +208,7 @@ _CHOICE_QUESTION_TYPES = {'multiple_choice', 'true_false'}
 # VERB in front of it — see pattern A below.
 _VISUAL = (
     r'(?:tree\s+diagram|venn\s+diagram|diagram|graph|chart|histogram|'
-    r'pictogram|pictograph|net|figure|picture|drawing|sketch|plan|map|'
+    r'pictogram|pictograph|net|figure|picture|scale\s+drawing|plan|map|'
     r'axes|number\s+line|table|grid|shape|points?|'
     r'triangle|rectangle|square|circle|quadrilateral|polygon|pentagon|'
     r'hexagon|octagon|parallelogram|trapezium|rhombus|'
@@ -218,22 +230,35 @@ _CHART = (
 
 _ARTICLE = r'(?:a|an|the|your|this|these|each|one)\s+'
 
-# Four ways a worksheet asks for a drawing. A question matching ANY of them is
+# Three ways a worksheet asks for a drawing. A question matching ANY of them is
 # asking the student to make a picture, which this app gives them no way to do.
+#
+# There used to be a fourth — placement verbs plus a preposition, meant to catch
+# "add these elements to the Venn diagram". It was removed after a production dry
+# run: it cannot tell writing ONTO a figure from writing an answer to what is
+# shown ON one, and it swept up a dozen working read-off questions ("Write down
+# the equation of Line A shown on the graph", "Write the coordinates of the ship
+# shown on the grid", "Write the number shown with an arrow on the number line").
+# Those are the app's own read modes. Losing "add these to the Venn diagram" is
+# the cheaper mistake — a missed one stays AI-graded, where a false positive
+# hides a working question from every student.
 _CONSTRUCTION_PATTERNS = (
     # A. Construction verb + the visual it produces, within four words and in
-    #    the same clause: "draw a tree diagram", "shade the region", "complete
-    #    the table". BOTH halves are required — "draw a conclusion" has no visual
-    #    noun and "use the diagram below" has no verb — which keeps this off
-    #    questions that merely mention a figure. The in-between words may not
-    #    carry sentence punctuation, so verb and object have to sit in the same
-    #    clause ("Complete the sentence: a triangle has ___ sides" is not a
-    #    construction), and the four-word window stops the verb reaching across a
-    #    whole instruction ("Complete the calculation to find the angle" stays
-    #    auto-graded).
+    #    the same clause: "draw a tree diagram", "shade the region". BOTH halves
+    #    are required — "draw a conclusion" has no visual noun, "use the diagram
+    #    below" has no verb. The in-between words carry no sentence punctuation,
+    #    so verb and object sit in the same clause ("Complete the sentence: a
+    #    triangle has ___ sides" is not a construction), and the four-word window
+    #    stops the verb reaching across a whole instruction ("Complete the
+    #    calculation to find the angle" stays auto-graded).
+    #
+    #    "complete the square" is excluded outright: it is the algebra technique,
+    #    answered by typing vertex form, and `square` is in the visual list as a
+    #    shape. Production had "For the parabola y = x² + 6x − 10, complete the
+    #    square to express it in vertex form" flagged as a drawing.
     re.compile(
-        r'\b(?:draw|redraw|sketch|construct|shade|colou?r|plot|label|complete|'
-        r'copy|join|mark|illustrate)\b'
+        r'\b(?:draw|redraw|sketch|construct|shade|colou?r|plot|label|'
+        r'complete(?!\s+the\s+square\b)|copy|join|mark|illustrate)\b'
         r'(?:\s+[^\s.:;?!]+){0,4}?\s+' + _VISUAL + r'\b',
         re.IGNORECASE,
     ),
@@ -250,27 +275,41 @@ _CONSTRUCTION_PATTERNS = (
         r'\b(?:on|onto|in|into|as|using|with)\s+' + _ARTICLE + _CHART + r'\b',
         re.IGNORECASE,
     ),
-    # C. Place things INTO a medium: "add the following elements to the Venn
-    #    diagram", "put the numbers on the tally chart". Bare "in" is excluded
-    #    here on purpose — "add the numbers in the table" is arithmetic over a
-    #    table that already exists, not an instruction to build one.
-    re.compile(
-        r'\b(?:put|place|add|enter|insert|write|move|list)\b'
-        r'[^.:;?!]{0,40}?'
-        r'\b(?:on|onto|into|to)\s+' + _ARTICLE + _CHART + r'\b',
-        re.IGNORECASE,
-    ),
-    # D. "Use A tree diagram to work out the probability" — the indefinite
+    # C. "Use A tree diagram to work out the probability" — the indefinite
     #    article means there is no diagram yet, so the student has to build one.
     #    "Use THE diagram below" is the opposite: read the one that is printed.
     re.compile(r'\buse\s+(?:a|an)\s+' + _CHART + r'\b', re.IGNORECASE),
 )
 
 
+def _has_stored_answer(q):
+    """Whether *q* carries an answer the app can already mark it against.
+
+    The decisive signal, learned from a production dry run over 19,773 bank
+    questions: every false positive it produced had one. A question with a
+    ticked answer is one a student types into and the grader checks — whatever
+    figure its wording mentions. "Complete the table for Output = 6x" and "Write
+    the coordinates of the ship shown on the grid" both read a figure and type a
+    value, and both have graded correctly for as long as they have existed.
+
+    So this outranks the patterns: the cost of a false positive is a working
+    question hidden from every student, and the cost of a miss is a question
+    that stays AI-graded — recoverable, and visible to a teacher.
+    """
+    for answer in (q.get('answers') or []):
+        if not isinstance(answer, dict):
+            continue
+        if answer.get('is_correct') and str(answer.get('text') or '').strip():
+            return True
+    return False
+
+
 def is_unanswerable_construction(q):
     """Whether *q* asks for a drawing the app gives the student no way to make."""
     q_type = q.get('question_type')
     if q_type in _DRAWABLE_QUESTION_TYPES:
+        return False
+    if _has_stored_answer(q):
         return False
     if q_type in _CHOICE_QUESTION_TYPES and len(q.get('answers') or []) >= 2:
         return False
@@ -502,6 +541,76 @@ def extract_worksheet_pages(doc, screenshot_dpi=None, selected_pages=None):
 
 
 # ---------------------------------------------------------------------------
+# Question types the extractor can emit — one list, used twice
+# ---------------------------------------------------------------------------
+#
+# The classification schema's enum is BUILT from this list, and the three review
+# previews (worksheet upload, homework upload, AI import) render their "Question
+# Type" <select> from it. They must not drift apart, because the drift fails
+# SILENTLY: a <select> whose options don't include the extracted type renders
+# showing its FIRST option instead — "Multiple Choice" — and the preview POST
+# then saves that. That is how a "complete the chart" question extracted as
+# table_of_values (with a table_spec the app can draw and grade) reached the
+# teacher as a multiple choice with no options to tick.
+EXTRACTED_QUESTION_TYPE_CHOICES = [
+    ('multiple_choice', 'Multiple Choice'),
+    ('true_false', 'True / False'),
+    ('short_answer', 'Short Answer'),
+    ('fill_blank', 'Fill in the Blank'),
+    ('calculation', 'Calculation'),
+    ('extended_answer', 'Extended Answer (written)'),
+    ('long_division', 'Long Division'),
+    ('column_operation', 'Column Arithmetic'),
+    ('plot_points', 'Plot Points (Cartesian plane)'),
+    ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
+    ('identify_coords', 'Identify Coordinates (type the point)'),
+    ('read_graph', 'Read a Graph (read off a value)'),
+    ('measure', 'Measure (angle/scale, tolerance-graded)'),
+    ('number_line', 'Number Line (mark or read a value)'),
+    ('table_of_values', 'Table of Values (fill in the table)'),
+]
+
+EXTRACTED_QUESTION_TYPES = [value for value, _label in EXTRACTED_QUESTION_TYPE_CHOICES]
+
+
+def accepted_question_type(posted, stored):
+    """The type a review POST should store: ``posted``, unless it is a value we
+    do not recognise — then ``stored`` is kept.
+
+    Fail towards the type the extractor worked out. A posted value that is
+    neither an extractor type nor a real question type is a stale page, a
+    tampered form or a renamed type; taking it would quietly replace a working
+    question with one that grades as nothing.
+    """
+    from maths.models import Question
+
+    posted = (posted or '').strip()
+    if not posted:
+        return stored
+    known = set(EXTRACTED_QUESTION_TYPES) | {v for v, _ in Question.QUESTION_TYPES}
+    return posted if posted in known else stored
+
+
+def preview_question_type_choices(questions=None):
+    """(value, label) pairs for a review preview's "Question Type" dropdown.
+
+    Every type in ``questions`` is guaranteed to appear, even one this module
+    has never heard of (an older session, another extractor, a hand-authored
+    import). A type with no matching <option> is not a cosmetic problem — the
+    browser shows the first option instead and the POST silently rewrites the
+    question to it, losing the type AND the spec that made it gradeable.
+    """
+    choices = list(EXTRACTED_QUESTION_TYPE_CHOICES)
+    known = {value for value, _ in choices}
+    for q in questions or []:
+        q_type = (q.get('question_type') or '').strip()
+        if q_type and q_type not in known:
+            known.add(q_type)
+            choices.append((q_type, q_type.replace('_', ' ').title()))
+    return choices
+
+
+# ---------------------------------------------------------------------------
 # AI classification tool schema
 # ---------------------------------------------------------------------------
 
@@ -534,12 +643,7 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                         },
                         "question_type": {
                             "type": "string",
-                            "enum": ["multiple_choice", "true_false", "short_answer",
-                                     "fill_blank", "calculation", "extended_answer",
-                                     "long_division", "column_operation",
-                                     "plot_points", "plot_line", "identify_coords",
-                                     "read_graph", "measure", "number_line",
-                                     "table_of_values"],
+                            "enum": list(EXTRACTED_QUESTION_TYPES),
                         },
                         "plane_spec": {
                             "type": "object",
