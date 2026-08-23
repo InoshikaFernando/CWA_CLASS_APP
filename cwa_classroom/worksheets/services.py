@@ -146,6 +146,90 @@ def answer_review_warning(q):
     return None
 
 
+# ---------------------------------------------------------------------------
+# Drawing / construction questions the app has no answer surface for
+# ---------------------------------------------------------------------------
+#
+# "Draw a tree diagram to illustrate this situation." A student cannot draw
+# anything in this app: the only answer surfaces that exist are the ones the
+# structured question types render (a number line to mark, a coordinate plane to
+# plot on, a division bracket, a stacked sum). Every other "draw it" instruction
+# — a tree or Venn diagram, a bar chart, a net, a compass construction, a shaded
+# region — is paper-only work.
+#
+# Such a question must never be imported as ai_graded. There is no written
+# answer to grade, so the grader would be marking prose the child was never
+# asked to write, and would mark them wrong however well they drew it. They are
+# routed to human_graded instead, which the rest of the app already handles:
+# quizzes hide them from every student (``quiz.views.gradable_for``) and the
+# upload preview leaves them unticked, so the teacher opts in rather than out.
+
+# Types that DO give the student something to draw on. The app renders the
+# interaction and grades it, so "draw"/"plot"/"mark" is answerable there.
+_DRAWABLE_QUESTION_TYPES = {
+    'number_line', 'plot_points', 'plot_line', 'identify_coords',
+    'long_division', 'column_operation', 'read_graph', 'measure',
+}
+
+# Pick-an-option types: the student chooses, never draws, so a figure verb in
+# the stem ("Which diagram shows the line drawn correctly?") is not a
+# construction task. Requires real options — a bare type label doesn't exempt it.
+_CHOICE_QUESTION_TYPES = {'multiple_choice', 'true_false'}
+
+# An instruction to PRODUCE a visual: a construction verb followed, within four
+# words, by the thing to be produced. BOTH halves are required — "draw a
+# conclusion" has no visual noun, "use the diagram below" has no verb — which
+# keeps this off questions that merely mention a figure. The in-between words
+# may not carry sentence punctuation, so the verb and its object have to sit in
+# the same clause ("Complete the sentence: a triangle has ___ sides" is not a
+# construction), and the four-word window stops the verb reaching across a whole
+# instruction ("Complete the calculation to find the angle" stays auto-graded).
+_CONSTRUCTION_RE = re.compile(
+    r'\b(?:draw|redraw|sketch|construct|shade|colou?r|plot|label|complete|'
+    r'copy|join|mark|illustrate)\b'
+    r'(?:\s+[^\s.:;?!]+){0,4}?\s+'
+    r'(?:tree\s+diagram|venn\s+diagram|diagram|graph|chart|histogram|'
+    r'pictogram|pictograph|net|figure|picture|drawing|sketch|plan|map|'
+    r'axes|number\s+line|table|grid|shape|points?|'
+    r'triangle|rectangle|square|circle|quadrilateral|polygon|pentagon|'
+    r'hexagon|octagon|parallelogram|trapezium|rhombus|'
+    r'angle|line|curve|region|arrow)\b',
+    re.IGNORECASE,
+)
+
+
+def is_unanswerable_construction(q):
+    """Whether *q* asks for a drawing the app gives the student no way to make."""
+    q_type = q.get('question_type')
+    if q_type in _DRAWABLE_QUESTION_TYPES:
+        return False
+    if q_type in _CHOICE_QUESTION_TYPES and len(q.get('answers') or []) >= 2:
+        return False
+    return bool(_CONSTRUCTION_RE.search(q.get('question_text') or ''))
+
+
+def route_constructions_to_teacher(questions):
+    """Set every draw-it-on-paper question to human_graded. Returns the count.
+
+    Call BEFORE the ``include`` default is applied so a re-routed question also
+    reaches the preview unticked. Questions the model already marked
+    human_graded are left exactly as they are.
+    """
+    routed = 0
+    for q in (questions or []):
+        if q.get('validation_type') == 'human_graded':
+            continue
+        if not is_unanswerable_construction(q):
+            continue
+        q['validation_type'] = 'human_graded'
+        q['grading_rubric'] = q.get('grading_rubric') or (
+            'The student has to draw this answer on paper — the app cannot take '
+            'a drawing, so mark their working by hand.'
+        )
+        routed += 1
+    return routed
+
+
 # DPI for the page screenshots sent to Claude. 150 is the quality sweet spot —
 # lower values make Claude miss questions (small text becomes illegible). Tune
 # down via WORKSHEET_SCREENSHOT_DPI only if memory is tight (all page screenshots
@@ -376,7 +460,11 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                 "How this answer will be validated. "
                                 "auto = system checks exact answer (MCQ, T/F, numeric). "
                                 "ai_graded = Claude evaluates written reasoning (proofs, explanations). "
-                                "human_graded = teacher reviews manually (very open-ended / subjective)."
+                                "human_graded = teacher marks it on paper. Required whenever the "
+                                "answer is a DRAWING the app cannot accept (draw a tree/Venn "
+                                "diagram, sketch a graph, construct a triangle, shade a region, "
+                                "complete a table) — the student writes nothing, so ai_graded is "
+                                "wrong. Also for very open-ended / subjective questions."
                             ),
                         },
                         "grading_rubric": {
@@ -577,6 +665,22 @@ Rules:
    range?") and let the cropped table image carry the figures. The app cannot redraw a table, so
    the image is the only record of it: attaching it is required whenever the answer can't be found
    without the table.
+16. DRAWING / CONSTRUCTION — questions the app cannot take an answer for. A student
+   answers in this app by typing, picking an option, or using one of the drawing surfaces
+   the app itself renders (rules 9-14). They CANNOT draw a picture. So if the task is to
+   PRODUCE a visual — "Draw a tree diagram to illustrate this situation", "Draw a Venn
+   diagram", "Sketch the graph of y = 2x", "Construct a triangle with compasses", "Draw a
+   bar chart", "Shade the region", "Complete the table", "Colour the shape", "Join the
+   points to form a quadrilateral" — set validation_type="human_graded". NOT ai_graded:
+   the student writes no prose, so there is nothing for a grader to read. Put what the
+   finished drawing must show in grading_rubric so the teacher can mark it on paper. Keep
+   the question (do not drop it) — the app deselects teacher-graded questions by default
+   and the teacher decides.
+   EXCEPTIONS, because the app draws these answer surfaces itself — keep them as their own
+   question type with validation_type="auto": marking or reading a horizontal NUMBER LINE
+   (rule 14), plotting/joining points on a CARTESIAN PLANE (rule 11), LONG DIVISION
+   (rule 9), COLUMN ARITHMETIC (rule 10). "Plot (3, -2) on the grid" is answerable;
+   "Draw a tree diagram" is not.
 
 IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
 - has_image=true ONLY when the question genuinely depends on a visual that cannot be written
@@ -611,9 +715,16 @@ Choosing validation_type per question:
                  where the student writes free text and partial credit is meaningful.
                  Write a detailed grading_rubric describing what a full-mark answer must
                  include, common errors to penalise, and partial-credit criteria.
-- human_graded → Highly open-ended/subjective questions where even AI cannot reliably
-                 determine correctness (e.g., creative responses, complex multi-step
-                 proofs that vary widely). Use sparingly — prefer ai_graded.
+                 NEVER ai_graded when the answer is a DRAWING (rule 16) — the student
+                 types nothing, so there is no written answer to grade.
+- human_graded → Two cases:
+                 (a) the answer is a drawing/construction the app can't accept (rule 16) —
+                     "draw a tree diagram", "shade the region", "complete the table";
+                 (b) highly open-ended/subjective questions where even AI cannot reliably
+                     determine correctness (creative responses, complex multi-step proofs
+                     that vary widely).
+                 For (b) use sparingly — prefer ai_graded. For (a) human_graded is the ONLY
+                 correct answer; never downgrade one of these to ai_graded or auto.
 
 For extended_answer questions (ai_graded / human_graded):
 - Set question_type = "extended_answer"
@@ -945,6 +1056,12 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
             "none. When has_image=true, give image_bbox [left, top, right, bottom] in the page "
             "screenshot's pixel coordinates, cropping ONLY that question's own visual — never "
             "another question's figure, the question text, or the answer options. "
+            "Any question that asks the student to DRAW or CONSTRUCT something — a tree or "
+            "Venn diagram, a sketched graph, a bar chart, a compass construction, a shaded "
+            "region, a completed table — must be validation_type=\"human_graded\", never "
+            "ai_graded: there is no answer surface for a drawing, so the student types "
+            "nothing. Number lines, Cartesian plots, long division and column sums are the "
+            "exception — the app draws those, so keep them auto. "
             "Use the classify_worksheet_questions tool now."
         )
     content_blocks.append({
@@ -1842,6 +1959,18 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
             progress=report,
         )
         result['page_selection'] = summary
+
+        # Questions whose answer is a DRAWING the app can't take — "draw a tree
+        # diagram", "shade the region". The model is told to mark these
+        # human_graded (rule 16), but a missed one would reach students as
+        # ai_graded and be marked on prose they were never asked to write, so
+        # re-route deterministically. Runs before the include default below so a
+        # re-routed question also arrives unticked.
+        routed = route_constructions_to_teacher(result.get('questions'))
+        if routed:
+            logger.info(
+                '%s question(s) re-routed to human_graded: they ask the student '
+                'to draw something the app has no answer surface for.', routed)
 
         for q in result.get('questions', []):
             # Teacher-graded (human_graded) questions are deselected by default so
