@@ -109,6 +109,140 @@ def aggregate_grading(days=None):
     }
 
 
+# Column headers for the generation table, with their alignment. Kept as data
+# and rendered through ``_row`` so every line — data, empty state, totals —
+# is built against the same column count: the totals row silently lost its
+# Source cell when the Vendor column was added (CPP-382), which shifted every
+# figure in it one column left on the published issue.
+_GEN_COLUMNS = (
+    ('Vendor', '---'), ('Source', '---'), ('Pages', '--:'),
+    ('Input tok', '--:'), ('Output tok', '--:'), ('Cost (USD)', '--:'),
+    ('$/page', '--:'), ('100 pages', '--:'), ('500 pages', '--:'),
+    ('1000 pages', '--:'),
+)
+
+_GRADING_COLUMNS = (
+    ('Answers graded', '--:'), ('Tokens', '--:'), ('Cost (USD)', '--:'),
+    ('$/answer', '--:'),
+)
+
+_VENDOR_COLUMNS = (
+    ('Vendor', '---'), ('Input tok', '--:'), ('Output tok', '--:'),
+    ('Cost (USD)', '--:'), ('Share', '--:'), ('Rate in / out ($/Mtok)', '---'),
+)
+
+
+def _row(cells, columns):
+    """Render one markdown table row, refusing to emit a mis-shaped one.
+
+    A row with the wrong number of cells doesn't fail — GitHub renders it,
+    shifted, and the numbers silently line up under the wrong headers. Raising
+    turns that into a test failure instead. Callers of the dashboard already
+    swallow their own errors, so this can never fail an AI call.
+    """
+    cells = list(cells)
+    if len(cells) != len(columns):
+        raise ValueError(
+            f'Table row has {len(cells)} cells but the table has '
+            f'{len(columns)} columns: {cells!r}')
+    return '| ' + ' | '.join(cells) + ' |'
+
+
+def _header(columns):
+    return [
+        _row([name for name, _ in columns], columns),
+        '|' + '|'.join(align for _, align in columns) + '|',
+    ]
+
+
+def _rate_summary(rates):
+    """One line naming each vendor's configured $/Mtok rates."""
+    parts = []
+    for info in rates.values():
+        if info['input'] is None or info['output'] is None:
+            parts.append(f'{info["label"]} rates not configured')
+        else:
+            parts.append(
+                f'{info["label"]} ${info["input"]}/${info["output"]} per Mtok in/out')
+    return ' • '.join(parts)
+
+
+def _render_vendor_table(tot, rates):
+    """Cost split by vendor — Anthropic vs OpenAI — for the window.
+
+    Every priced vendor gets a line even with no usage: OpenAI's second-opinion
+    spend was invisible for as long as the dashboard only ever showed one
+    vendor, and a vendor missing from the table is indistinguishable from a
+    vendor that cost nothing. Rows with usage but no configured rate are
+    impossible (``estimate_cost_usd`` refuses to price them), so an unpriced
+    vendor shows $0.0000 and says its rates are unset.
+    """
+    by_provider = tot.get('by_provider') or {}
+    total_cost = tot['cost']
+    providers = list(rates) + [p for p in by_provider if p not in rates]
+
+    lines = ['', '### Cost by vendor', '', *_header(_VENDOR_COLUMNS)]
+    for provider in providers:
+        info = rates.get(provider, {})
+        spend = by_provider.get(provider) or {
+            'label': info.get('label', provider), 'cost': Decimal('0'),
+            'input_tokens': 0, 'output_tokens': 0,
+        }
+        cost = spend['cost']
+        share = (cost / total_cost * 100) if total_cost else Decimal('0')
+        if info.get('input') is None or info.get('output') is None:
+            rate = '_not configured_'
+        else:
+            rate = f'${info["input"]} / ${info["output"]}'
+        lines.append(_row([
+            spend.get('label', provider), f'{spend["input_tokens"]:,}',
+            f'{spend["output_tokens"]:,}', f'${cost:.4f}', f'{share:.1f}%', rate,
+        ], _VENDOR_COLUMNS))
+
+    lines.append(_row([
+        '**Total**',
+        f'**{tot["input_tokens"]:,}**', f'**{tot["output_tokens"]:,}**',
+        f'**${total_cost:.4f}**', '**100.0%**' if total_cost else '**0.0%**', '',
+    ], _VENDOR_COLUMNS))
+    lines += _unpriced_vendor_warnings(rates)
+    return lines
+
+
+# A vendor is "wired up" when the pipeline that bills it is switched on. Only
+# OpenAI has such a switch — Anthropic is always in use.
+_PROVIDER_ENABLED_SETTING = {AIUsageLog.PROVIDER_OPENAI: 'OPENAI_API_KEY'}
+
+
+def _unpriced_vendor_warnings(rates):
+    """Say out loud when a vendor's spend can't be priced — and is being lost.
+
+    An unpriced row isn't recorded at all: ``estimate_cost_usd`` raises and
+    ``record_ai_usage`` swallows it so a successful PDF never fails, which means
+    the call vanishes from the ledger. Showing that vendor as a quiet $0 would
+    report "OpenAI costs nothing" when the truth is "we aren't counting OpenAI"
+    — so the dashboard names the missing settings instead.
+    """
+    lines = []
+    for provider, info in rates.items():
+        if info['input'] is not None and info['output'] is not None:
+            continue
+        setting = _PROVIDER_ENABLED_SETTING.get(provider)
+        active = bool(getattr(settings, setting, '')) if setting else True
+        fix = (f'set `{info["input_setting"]}` and `{info["output_setting"]}` '
+               '(USD per million tokens) in the environment file')
+        if active:
+            lines.append(
+                f'> ⚠️ **{info["label"]} spend is not being counted.** Its calls '
+                f'are running but cannot be priced, so they are dropped from the '
+                f'ledger entirely and every total above understates real cost — '
+                f'{fix}.')
+        else:
+            lines.append(
+                f'> ℹ️ {info["label"]} is not in use here and has no rates '
+                f'configured. To start counting it, {fix}.')
+    return ['', *lines] if lines else []
+
+
 def render_markdown(rows, tot, window, *, generated_at=None, grading=None, env_label=None):
     """Render the GitHub-flavoured dashboard (page-based generation + grading).
 
@@ -116,39 +250,44 @@ def render_markdown(rows, tot, window, *, generated_at=None, grading=None, env_l
     is one environment's section of a shared issue; otherwise it's a standalone
     dashboard.
     """
-    in_rate = getattr(settings, 'CLAUDE_INPUT_COST_PER_MTOK', 3.0)
-    out_rate = getattr(settings, 'CLAUDE_OUTPUT_COST_PER_MTOK', 15.0)
+    from taskqueue.services import provider_rates
+
+    rates = provider_rates()
     now = (generated_at or timezone.now()).strftime('%Y-%m-%dT%H:%M:%SZ')
 
     lines = [
         f'## {env_label}' if env_label else '## 🤖 AI Generation Usage',
         '',
         f'_Auto-updated after each AI call • last update `{now}`_',
-        f'_Window: **{window}** • cost estimated at ${in_rate}/Mtok in, ${out_rate}/Mtok out_',
+        f'_Window: **{window}** • cost estimated at {_rate_summary(rates)}_',
         '',
         '### Generation & classification (per page)',
         '',
-        '| Vendor | Source | Pages | Input tok | Output tok | Cost (USD) | $/page | '
-        '100 pages | 500 pages | 1000 pages |',
-        '|---|---|--:|--:|--:|--:|--:|--:|--:|--:|',
+        *_header(_GEN_COLUMNS),
     ]
     for r in rows:
         pp = r['per_page']
-        lines.append(
+        lines.append(_row([
             # .get: render_markdown takes plain dicts and is called with
             # hand-built rows elsewhere; a missing vendor must not break it.
-            f'| {r.get("provider_label", "—")} | {r["label"]} | {r["pages"]:,} | {r["input_tokens"]:,} | '
-            f'{r["output_tokens"]:,} | ${r["cost"]:.4f} | ${pp:.4f} | '
-            f'${pp * 100:.2f} | ${pp * 500:.2f} | ${pp * 1000:.2f} |'
-        )
+            r.get('provider_label', '—'), r['label'], f'{r["pages"]:,}',
+            f'{r["input_tokens"]:,}', f'{r["output_tokens"]:,}',
+            f'${r["cost"]:.4f}', f'${pp:.4f}',
+            f'${pp * 100:.2f}', f'${pp * 500:.2f}', f'${pp * 1000:.2f}',
+        ], _GEN_COLUMNS))
     if not rows:
-        lines.append('| _no usage recorded_ | 0 | 0 | 0 | $0.0000 | $0.0000 | $0.00 | $0.00 | $0.00 |')
+        lines.append(_row(
+            ['_no usage recorded_', '—', '0', '0', '0',
+             '$0.0000', '$0.0000', '$0.00', '$0.00', '$0.00'],
+            _GEN_COLUMNS))
     tpp = tot['per_page']
-    lines.append(
-        f'| **Total** | **{tot["pages"]:,}** | **{tot["input_tokens"]:,}** | '
-        f'**{tot["output_tokens"]:,}** | **${tot["cost"]:.4f}** | **${tpp:.4f}** | '
-        f'**${tpp * 100:.2f}** | **${tpp * 500:.2f}** | **${tpp * 1000:.2f}** |'
-    )
+    lines.append(_row([
+        '**Total**', '', f'**{tot["pages"]:,}**', f'**{tot["input_tokens"]:,}**',
+        f'**{tot["output_tokens"]:,}**', f'**${tot["cost"]:.4f}**', f'**${tpp:.4f}**',
+        f'**${tpp * 100:.2f}**', f'**${tpp * 500:.2f}**', f'**${tpp * 1000:.2f}**',
+    ], _GEN_COLUMNS))
+
+    lines += _render_vendor_table(tot, rates)
 
     grand_total = tot['cost']
     if grading is not None:
@@ -157,10 +296,10 @@ def render_markdown(rows, tot, window, *, generated_at=None, grading=None, env_l
             '',
             '### AI grading (per answer)',
             '',
-            '| Answers graded | Tokens | Cost (USD) | $/answer |',
-            '|--:|--:|--:|--:|',
-            f'| {grading["answers"]:,} | {grading["tokens"]:,} | '
-            f'${grading["cost"]:.4f} | ${grading["per_answer"]:.4f} |',
+            *_header(_GRADING_COLUMNS),
+            _row([f'{grading["answers"]:,}', f'{grading["tokens"]:,}',
+                  f'${grading["cost"]:.4f}', f'${grading["per_answer"]:.4f}'],
+                 _GRADING_COLUMNS),
         ]
 
     lines += [
@@ -177,8 +316,10 @@ def render_markdown(rows, tot, window, *, generated_at=None, grading=None, env_l
             'billing month, so its window is approximate). '
         )
     footnote += (
-        'Costs are estimated from token counts at list price, not billed '
-        "amounts. This issue is rewritten automatically — don't edit by hand."
+        'Cost by vendor splits the same generation ledger by billing vendor, '
+        'each priced at its own configured rate. Costs are estimated from token '
+        'counts at list price, not billed amounts. This issue is rewritten '
+        "automatically — don't edit by hand."
     )
     lines += ['', f'<sub>{footnote}</sub>']
     return '\n'.join(lines)
