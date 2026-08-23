@@ -229,6 +229,66 @@ class RegradeTypedAnswersTests(TestCase):
         self.assertTrue(quiz_row.is_correct)
         self.assertFalse(hw_row.is_correct)
 
+    # ------------------------------------------------------ before → after
+
+    def test_the_dry_run_shows_the_mark_before_and_after(self):
+        """A count of answers is not something a teacher or parent can act on.
+        The mark it was, and the mark it becomes, is."""
+        self._answer(self.question, '40 ,36 ,28')
+        StudentFinalAnswer.objects.create(
+            student=self.student, topic=self.topic, level=self.level,
+            score=0, total_questions=2, time_taken_seconds=60,
+            questions_data=[
+                {'id': self.question.id, 'student_answer': '40 ,36 ,28',
+                 'is_correct': False},
+                {'id': self.other.id, 'student_answer': '5', 'is_correct': False},
+            ],
+        )
+        output = self._run()
+        self.assertIn('Marks before → after:', output)
+        self.assertIn('0/2 → 1/2', output)
+        self.assertIn('(+1)', output)
+
+    def _consistent_homework(self, typed, already_right=2):
+        """A submission whose stored score matches its answer rows."""
+        from homework.models import HomeworkStudentAnswer
+
+        row, submission = self._homework_answer(typed)
+        for i in range(already_right):
+            HomeworkStudentAnswer.objects.create(
+                submission=submission, question=self.other,
+                text_answer='4', is_correct=True, content_id=self.other.id + i,
+                review_status=HomeworkStudentAnswer.REVIEW_AUTO)
+        submission.total_questions = 5
+        submission.score = already_right
+        submission.save(update_fields=['total_questions', 'score'])
+        return row, submission
+
+    def test_the_homework_mark_before_and_after_is_shown(self):
+        self._consistent_homework('40 ,36 ,28')
+        self.assertIn('2/5 → 3/5', self._run())
+
+    def test_the_projection_matches_what_apply_actually_writes(self):
+        """The dry run is a promise. It has to be kept."""
+        _row, submission = self._consistent_homework('40 ,36 ,28')
+        self.assertIn('2/5 → 3/5', self._run())
+        self._run('--apply')
+        submission.refresh_from_db()
+        self.assertEqual(submission.score, 3)
+
+    def test_a_recount_never_takes_a_mark_away(self):
+        """Where a stored score is higher than its rows justify, recounting
+        would drop the child's mark. That is not what this was asked to do."""
+        _row, submission = self._homework_answer('40 ,36 ,28')
+        submission.total_questions = 5
+        submission.score = 4          # higher than the one row can justify
+        submission.save(update_fields=['total_questions', 'score'])
+        output = self._run('--apply')
+        submission.refresh_from_db()
+        self.assertEqual(submission.score, 4)      # kept, not lowered
+        self.assertIn('no mark taken away', output)
+        self.assertIn('disagree', output)
+
     def test_scope_can_be_narrowed(self):
         self._answer(self.question, '40 ,36 ,28')
         output = self._run('--student', str(self.student.id + 999))
