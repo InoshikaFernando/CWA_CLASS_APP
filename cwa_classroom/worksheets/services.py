@@ -266,9 +266,14 @@ def is_unanswerable_construction(q):
 def route_constructions_to_teacher(questions):
     """Set every draw-it-on-paper question to human_graded. Returns the count.
 
-    Call BEFORE the ``include`` default is applied so a re-routed question also
-    reaches the preview unticked. Questions the model already marked
-    human_graded are left exactly as they are.
+    Also unticks each one it routes: a question nobody can answer in the app is
+    not one to import by default, so the teacher opts in rather than out. At
+    classification time that matches the ``include`` default anyway (teacher-
+    graded questions start unticked); on a session extracted before this rule
+    existed it is the correction — those arrived ticked.
+
+    Questions the model already marked human_graded are left exactly as they
+    are, so re-running this never disturbs a teacher's own decision.
     """
     routed = 0
     for q in (questions or []):
@@ -277,11 +282,37 @@ def route_constructions_to_teacher(questions):
         if not is_unanswerable_construction(q):
             continue
         q['validation_type'] = 'human_graded'
+        q['include'] = False
         q['grading_rubric'] = q.get('grading_rubric') or (
             'The student has to draw this answer on paper — the app cannot take '
             'a drawing, so mark their working by hand.'
         )
         routed += 1
+    return routed
+
+
+# Marks a session's question list as already swept for drawing questions, so the
+# sweep runs at most once per upload and a teacher who deliberately sets one back
+# to AI graded keeps that choice.
+CONSTRUCTIONS_ROUTED_KEY = 'constructions_routed'
+
+
+def backfill_constructions(data):
+    """Sweep one upload session's questions for drawings. Idempotent per session.
+
+    ``extract_and_classify_worksheet`` already routes at classification time, so
+    a fresh upload arrives correct and this is a no-op that just stamps the key.
+    A session extracted BEFORE the rule existed still holds ai_graded drawing
+    questions, and its teacher would otherwise have to spot and fix every one by
+    hand in the preview — so the preview sweeps it on first open instead.
+
+    Returns the number of questions routed, or None if this session was already
+    swept (in which case the caller has nothing to persist).
+    """
+    if not isinstance(data, dict) or data.get(CONSTRUCTIONS_ROUTED_KEY):
+        return None
+    routed = route_constructions_to_teacher(data.get('questions'))
+    data[CONSTRUCTIONS_ROUTED_KEY] = True
     return routed
 
 
@@ -2030,6 +2061,7 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
         # re-route deterministically. Runs before the include default below so a
         # re-routed question also arrives unticked.
         routed = route_constructions_to_teacher(result.get('questions'))
+        result[CONSTRUCTIONS_ROUTED_KEY] = True
         if routed:
             logger.info(
                 '%s question(s) re-routed to human_graded: they ask the student '

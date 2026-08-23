@@ -8,12 +8,21 @@ human_graded, which the rest of the app already handles: quizzes hide them
 
 Zero-token: no Anthropic client is built and no API call is made.
 """
+import json
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from worksheets import services
+from accounts.models import CustomUser, Role
+from classroom.models import School
+from django.test import TestCase
+from django.urls import reverse
+
+from worksheets.models import WorksheetUploadSession
 from worksheets.services import (
+    CONSTRUCTIONS_ROUTED_KEY,
+    backfill_constructions,
     is_unanswerable_construction,
     route_constructions_to_teacher,
 )
@@ -200,6 +209,16 @@ class RouteConstructionsToTeacherTests(SimpleTestCase):
         }]
         self.assertEqual(route_constructions_to_teacher(questions), 0)
 
+    def test_a_routed_question_is_also_unticked(self):
+        # "Skip it" is half the ask: a question nobody can answer in the app is
+        # not one to import by default.
+        questions = [{
+            'question_text': 'Show this information on a Venn diagram.',
+            'validation_type': 'ai_graded', 'include': True,
+        }]
+        route_constructions_to_teacher(questions)
+        self.assertFalse(questions[0]['include'])
+
     def test_ordinary_questions_are_untouched(self):
         questions = [
             {'question_text': 'What is 3 + 4?', 'validation_type': 'auto'},
@@ -276,3 +295,121 @@ class PromptTellsTheModelToUseHumanGradedTests(SimpleTestCase):
                       ['properties']['questions']['items']['properties'])
         description = properties['validation_type']['description']
         self.assertIn('DRAWING', description)
+
+
+class BackfillConstructionsTests(SimpleTestCase):
+    """Sessions extracted before the rule existed are swept once, on first open."""
+
+    OLD_SESSION = {
+        'questions': [
+            {'question_text': 'A tennis club has 42 members. 13 have fair hair, '
+                              '15 have blue eyes, and 22 have neither fair hair nor '
+                              'blue eyes. Show this information on a Venn diagram.',
+             'question_type': 'extended_answer',
+             'validation_type': 'ai_graded', 'include': True},
+            {'question_text': 'What is 4 + 4?', 'question_type': 'short_answer',
+             'validation_type': 'auto', 'include': True},
+        ],
+    }
+
+    def test_sweeps_an_unswept_session(self):
+        data = json.loads(json.dumps(self.OLD_SESSION))
+        self.assertEqual(backfill_constructions(data), 1)
+        drawing, arithmetic = data['questions']
+        self.assertEqual(drawing['validation_type'], 'human_graded')
+        self.assertFalse(drawing['include'])
+        self.assertEqual(arithmetic['validation_type'], 'auto')
+        self.assertTrue(arithmetic['include'])
+        self.assertTrue(data[CONSTRUCTIONS_ROUTED_KEY])
+
+    def test_second_call_is_a_no_op(self):
+        # The teacher may deliberately set one of these back to AI graded; a
+        # sweep that ran on every page load would keep undoing that.
+        data = json.loads(json.dumps(self.OLD_SESSION))
+        backfill_constructions(data)
+        data['questions'][0]['validation_type'] = 'ai_graded'
+        data['questions'][0]['include'] = True
+
+        self.assertIsNone(backfill_constructions(data))
+        self.assertEqual(data['questions'][0]['validation_type'], 'ai_graded')
+        self.assertTrue(data['questions'][0]['include'])
+
+    def test_fresh_upload_is_already_stamped(self):
+        # extract_and_classify_worksheet routes at classification time and marks
+        # the result, so the preview sweep has nothing to do.
+        data = {'questions': [], CONSTRUCTIONS_ROUTED_KEY: True}
+        self.assertIsNone(backfill_constructions(data))
+
+    def test_junk_data_is_survivable(self):
+        self.assertIsNone(backfill_constructions(None))
+        self.assertEqual(backfill_constructions({}), 0)
+
+
+class PreviewSweepsAnOldSessionTests(TestCase):
+    """The teacher opening a pre-existing preview gets the fix without re-uploading."""
+
+    @classmethod
+    def setUpTestData(cls):
+        role, _ = Role.objects.get_or_create(
+            name=Role.INSTITUTE_OWNER, defaults={'display_name': 'Institute Owner'})
+        cls.owner = CustomUser.objects.create_user(
+            'dq_owner', 'dq_owner@test.internal', 'pass1!',
+            profile_completed=True, must_change_password=False)
+        cls.owner.roles.add(role)
+        cls.school = School.objects.create(
+            name='DQ Test School', slug='dq-test-school', admin=cls.owner)
+
+    def setUp(self):
+        self.client.force_login(self.owner)
+
+    def _session(self):
+        return WorksheetUploadSession.objects.create(
+            user=self.owner, school=self.school, pdf_filename='dq.pdf',
+            worksheet_name='DQ Worksheet', is_confirmed=False,
+            status=WorksheetUploadSession.STATUS_READY,
+            extracted_data={
+                'year_level': 6, 'subject': 'Mathematics',
+                'questions': [
+                    {'question_text': 'Suppose we are rolling a die, so the universal '
+                                      'set U = {1, 2, 3, 4, 5, 6}. Illustrate on a Venn '
+                                      'diagram the sets A = {1, 3, 5} and B = {2, 4, 6}.',
+                     'question_type': 'extended_answer', 'validation_type': 'ai_graded',
+                     'include': True, 'difficulty': 2, 'points': 2, 'answers': []},
+                    {'question_text': 'What is 4 + 4?', 'question_type': 'short_answer',
+                     'validation_type': 'auto', 'include': True,
+                     'difficulty': 1, 'points': 1, 'answers': []},
+                ],
+            },
+        )
+
+    def test_opening_the_preview_routes_and_persists(self):
+        session = self._session()
+        response = self.client.get(
+            reverse('worksheets:preview', kwargs={'session_id': session.pk}))
+        self.assertEqual(response.status_code, 200)
+
+        session.refresh_from_db()
+        drawing, arithmetic = session.extracted_data['questions']
+        self.assertEqual(drawing['validation_type'], 'human_graded')
+        self.assertFalse(drawing['include'])
+        self.assertEqual(arithmetic['validation_type'], 'auto')
+        self.assertTrue(arithmetic['include'])
+        # Persisted, so the sweep does not run again on the next page load.
+        self.assertTrue(session.extracted_data[CONSTRUCTIONS_ROUTED_KEY])
+
+    def test_the_teacher_is_told_what_moved(self):
+        session = self._session()
+        response = self.client.get(
+            reverse('worksheets:preview', kwargs={'session_id': session.pk}),
+            follow=True)
+        notes = [str(m) for m in response.context['messages']]
+        self.assertTrue(any('teacher-graded' in n for n in notes), notes)
+
+    def test_transient_image_data_is_not_persisted(self):
+        # The preview attaches base64 crops to each question dict for rendering
+        # only; writing those back would bloat the session row.
+        session = self._session()
+        self.client.get(reverse('worksheets:preview', kwargs={'session_id': session.pk}))
+        session.refresh_from_db()
+        for q in session.extracted_data['questions']:
+            self.assertNotIn('image_b64', q)
