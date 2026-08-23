@@ -2042,7 +2042,25 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         questions = data.get('questions', [])
 
         from classroom.models import Topic, Level
-        from worksheets.services import answer_review_warning, question_source_page
+        from worksheets.services import (
+            answer_review_warning, backfill_constructions, question_source_page,
+        )
+
+        # Sessions extracted before drawing questions were routed to the teacher
+        # still hold them as ai_graded and ticked — "Show this information on a
+        # Venn diagram" would import and be marked on prose the student never
+        # wrote. Sweep once on first open (nothing to do for a fresh upload,
+        # which the pipeline already routed) and tell the teacher what moved.
+        routed = backfill_constructions(data)
+        if routed is not None:
+            session.extracted_data = data
+            session.save(update_fields=['extracted_data'])
+            if routed:
+                messages.info(
+                    request,
+                    f'{routed} question(s) ask the student to draw something the app '
+                    'cannot accept an answer for. They are set to teacher-graded and '
+                    'left unticked — tick one to import it for marking by hand.')
         topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
         classrooms = _assignable_classrooms(request.user)
@@ -2793,6 +2811,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
     image writes are NOT transactional and would survive the rollback.
     """
     from maths.models import Question as MQ, Answer as MA
+    from worksheets.services import resolve_grading
     from classroom.models import Topic, Level, Subject
     from classroom.views import _get_question_scope
 
@@ -2828,17 +2847,12 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         if not topic:
             continue
 
-        # Determine validation type — downgrade to 'auto' for non-extended types
+        # How this one gets marked — shared with the worksheet and AI PDF
+        # imports so the three paths cannot disagree. The old rule here
+        # ("anything non-extended is auto") silently undid a teacher-graded
+        # drawing question whenever the extractor typed it short_answer.
         q_type = q.get('question_type', 'short_answer')
-        validation_type = q.get('validation_type', 'auto')
-        if q_type != MQ.EXTENDED_ANSWER and validation_type != 'auto':
-            # MCQ/T-F etc. should always be auto
-            validation_type = 'auto'
-        if q_type == MQ.EXTENDED_ANSWER and validation_type == 'auto':
-            # Default extended answers to AI graded
-            validation_type = 'ai_graded'
-
-        grading_rubric = q.get('grading_rubric', '')
+        validation_type, grading_rubric = resolve_grading(q)
 
         # Map question_type to model constant
         type_map = {
@@ -2965,6 +2979,17 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             except (ValueError, TypeError):
                 continue
 
+        # Table of values: validate headers/rows; skip a malformed one. Same
+        # contract as the AI import saver so a table imports identically here.
+        table_spec = None
+        if mapped_type == MQ.TABLE_OF_VALUES:
+            from maths.geometry_grading import validate_table_spec
+            table_spec = q.get('table_spec')
+            try:
+                validate_table_spec(table_spec)
+            except (ValueError, TypeError):
+                continue
+
         # Image-based questions are visually distinct even when they share a
         # generic stem (e.g. 79 "What is the name of this shape?" questions, one
         # per shape image). Keying dedup on text alone collapsed them all into a
@@ -2982,6 +3007,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 MQ.LONG_DIVISION, MQ.COLUMN_OPERATION,
                 MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS,
                 MQ.DRAW_ON_GRID, MQ.SHAPE_SELECT, MQ.NUMBER_LINE,
+                MQ.TABLE_OF_VALUES,
             )
         )
         # read_graph carries a graph image but its IDENTITY is the numeric answer,
@@ -3016,6 +3042,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             'grid_spec': grid_spec,
             'shape_spec': shape_spec,
             'number_line_spec': number_line_spec,
+            'table_spec': table_spec,
             'numeric_answer': numeric_answer,
             'answer_tolerance': answer_tolerance,
             'answer_unit': answer_unit,

@@ -165,6 +165,62 @@ python manage.py consolidate_to_maths            # apply
 python manage.py consolidate_to_maths --dry-run  # preview
 ```
 
+### `convert_fill_blanks`
+Turn typed questions whose text carries `___` gaps into real fill-in-the-blank
+questions — the sentence renders with an input in each gap instead of one box for
+the whole thing. The underscores are the identifier. Writes `blank_spec` (the
+accepted answers per gap, derived from the question's existing correct answer
+rows) and sets `question_type='fill_blank'`; the answer rows themselves are left
+alone, so the conversion is reversible and BrainBuzz/exports are unaffected.
+Questions whose answers can't be mapped onto their gaps unambiguously are listed,
+never guessed at.
+
+This is the **backfill**. Questions arriving from now on are converted as they
+are saved — the AI importer, the spreadsheet/ZIP upload and the teacher form all
+route through the same `Question.apply_blank_format` entry point — so this
+should find nothing after its first run.
+```bash
+python manage.py convert_fill_blanks                    # dry run — report only
+python manage.py convert_fill_blanks --min-blanks 2     # only multi-gap sentences
+python manage.py convert_fill_blanks --topic Statistics # one topic subtree
+python manage.py convert_fill_blanks --level 10
+python manage.py convert_fill_blanks --id 4021 --id 4022
+python manage.py convert_fill_blanks --apply            # actually write
+python manage.py convert_fill_blanks --revert --apply   # undo: clear the specs
+```
+
+### `fix_drawing_questions`
+Re-grade bank questions whose answer is a **drawing the app cannot accept** —
+"Draw a tree diagram to illustrate this situation", "Illustrate on a Venn diagram
+the sets A and B", "Show this information on a bar graph". A student has no way to
+draw in the app, so one of these left `ai_graded` hands them a text box and marks
+them wrong however well they drew it on paper. Sets them to `human_graded`, which
+hides them from quizzes and leaves them for a teacher to mark.
+
+Uploads are already handled at their source (`worksheets.services` routes these at
+classification time, and the upload preview sweeps sessions that predate that), so
+this is only for what is already in the bank. It shares the upload path's predicate,
+so the two can't drift apart on what counts as a drawing.
+
+Questions the app *can* take a drawing for are never touched — `number_line`,
+`plot_points`, `draw_on_grid`, `shape_select`, `table_of_values` and the rest all
+render their own answer surface, as do MCQs with real options. Note `fill_blank`
+is **not** exempt: it renders a sentence with an input at each gap, so a table
+question saved under it has lost its table — `table_of_values` is the only type
+that can take one.
+
+Dry run by default, and exits non-zero while anything is outstanding, so a
+scheduled run surfaces drift. Idempotent: `human_graded` questions are excluded
+from the scan, so a rubric a teacher wrote is never re-read.
+```bash
+python manage.py fix_drawing_questions                  # dry run — report only
+python manage.py fix_drawing_questions --apply          # actually write
+python manage.py fix_drawing_questions --topic 75       # one topic
+python manage.py fix_drawing_questions --level 7        # one year
+python manage.py fix_drawing_questions --school 3       # one school's questions
+python manage.py fix_drawing_questions --apply --quiet  # summary only
+```
+
 ### `generate_puzzles`
 Generate number puzzles and store them in the database.
 ```bash

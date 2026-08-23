@@ -25,8 +25,8 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.17.25'        # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-08-22'     # ISO date of this release
+APP_VERSION       = '1.17.26'        # MAJOR.MINOR.PATCH
+APP_VERSION_DATE  = '2026-08-23'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -363,10 +363,15 @@ WSGI_APPLICATION = 'cwa_classroom.wsgi.application'
 _DB_ENGINE = os.environ.get('DB_ENGINE', 'mysql')
 
 if _DB_ENGINE == 'sqlite':
+    # SQLITE_NAME points the file somewhere other than the usual db.sqlite3 —
+    # used by throwaway databases (e.g. scripts/demo_fill_blanks.sh) so a demo
+    # or an experiment cannot overwrite the dev database sitting next to it.
+    # Deliberately NOT DB_NAME: that is already set to the MySQL database name
+    # in most environments, and reusing it would silently redirect the file.
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'NAME': BASE_DIR / os.environ.get('SQLITE_NAME', 'db.sqlite3'),
             # Live-server tests (Playwright UI suite) run the dev server in a
             # thread that writes to the same SQLite file as the test, so writers
             # contend. Wait up to 30s for the lock instead of erroring at

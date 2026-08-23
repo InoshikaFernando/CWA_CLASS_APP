@@ -195,6 +195,45 @@ def fold_division(text: str) -> str:
     return text
 
 
+def fold_answer(text: str) -> str:
+    """Normalise a typed answer for exact-match comparison.
+
+    The single place the "same answer, different spelling" rules live, so every
+    surface that compares a typed answer to a stored one — ``Question.
+    grade_text_answer`` for whole answers, ``maths.blank_grading`` for one blank
+    of a fill-in-the-blank sentence — folds identically. Lifted out of
+    ``grade_text_answer`` when the second caller appeared; the rules themselves
+    are unchanged.
+
+    Folds, in order: hyphens *between letters* and the filler word "and" (so
+    "fifty-three" == "fifty three" == "and fifty three"), digit-grouping and
+    list commas ("1,000" == "1000"), every multiplication mark (the dedicated
+    symbols always; a bare "x" or "*" only between two digits, so "box" is left
+    alone), then division, degrees, inequalities and exponents via the folds
+    above — which also strip all whitespace.
+
+    A leading "-" on a negative number is significant and always survives.
+
+    >>> fold_answer("nine dollars and fifty-three cents")
+    'ninedollarsfiftythreecents'
+    >>> fold_answer("1,000") == fold_answer("1000")
+    True
+    >>> fold_answer("3 × 10^4") == fold_answer("3x10^4")
+    True
+    >>> fold_answer("-5") == fold_answer("5")
+    False
+    """
+    # Only hyphens *between letters* fold to a space — a leading "-" on a
+    # negative number stays significant ("-5" must not match "5"). Run before
+    # fold_exponents collapses whitespace so "and" is still a separable word.
+    text = re.sub(r"(?<=[A-Za-z])-(?=[A-Za-z])", " ", text)
+    text = re.sub(r"\band\b", " ", text, flags=re.IGNORECASE)
+    text = text.replace(",", "")
+    text = re.sub(r"[×✕✖·∙⋅]", "*", text)
+    text = re.sub(r"(?<=\d)\s*[x*]\s*(?=\d)", "*", text)
+    return fold_exponents(fold_inequalities(fold_degrees(fold_division(text))))
+
+
 # Separators a student (or a teacher) may use between the option labels of a
 # "select every correct option" answer: commas, "and", "&", ";" or plain spaces.
 # Kept here next to the folds because every grading surface needs the same

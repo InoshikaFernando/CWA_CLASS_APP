@@ -24,6 +24,7 @@ from .grading_service import grade_extended_answer
 from .page_selection import describe_page_selection
 from .services import (
     answer_review_warning,
+    backfill_constructions,
     describe_skipped_pages,
     question_source_page,
 )
@@ -44,7 +45,7 @@ ANSWER_PARTIAL_MAP = {
     'multiple_choice':    _PARTIAL + '_answer_mcq.html',
     'true_false':         _PARTIAL + '_answer_mcq.html',
     'short_answer':       _PARTIAL + '_answer_short.html',
-    'fill_blank':         _PARTIAL + '_answer_text.html',
+    'fill_blank':         _PARTIAL + '_answer_fill_blank.html',
     'calculation':        _PARTIAL + '_answer_text.html',
     'extended_answer':    _PARTIAL + '_answer_extended.html',
     'long_division':      _PARTIAL + '_answer_long_division.html',
@@ -325,6 +326,22 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
             return redirect('worksheets:upload')
         data = session.extracted_data
         questions = data.get('questions', [])
+
+        # Sessions extracted before drawing questions were routed to the teacher
+        # still hold them as ai_graded and ticked — "Show this information on a
+        # Venn diagram" would import and be marked on prose the student never
+        # wrote. Sweep once on first open (nothing to do for a fresh upload,
+        # which the pipeline already routed) and tell the teacher what moved.
+        routed = backfill_constructions(data)
+        if routed is not None:
+            session.extracted_data = data
+            session.save(update_fields=['extracted_data'])
+            if routed:
+                messages.info(
+                    request,
+                    f'{routed} question(s) ask the student to draw something the app '
+                    'cannot accept an answer for. They are set to teacher-graded and '
+                    'left unticked — tick one to import it for marking by hand.')
 
         from classroom.models import Topic, Level
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')

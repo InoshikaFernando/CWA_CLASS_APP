@@ -3,12 +3,15 @@ AI Import services: PDF extraction (PyMuPDF) and AI classification (Claude API).
 """
 import base64
 import json
+import logging
 import os
 import re
 import tempfile
 
 from django.conf import settings
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -503,7 +506,13 @@ QUESTION TYPE RULES (important):
 - If the correct answer contains TEXT or WORDS (e.g. "Day 3 had the most sales", "True", "Red"),
   use question_type "multiple_choice" and generate 3-4 plausible wrong answers alongside the correct one.
 - For true/false questions, use "true_false" type.
-- For fill-in-the-blank, use "fill_blank" type.
+- For fill-in-the-blank, use "fill_blank" type. Mark EVERY gap in question_text with three
+  underscores "___" — that is how the app finds the gaps and lays an input into each one — and
+  keep the rest of the sentence exactly as printed. Give the answers as ONE answer entry whose
+  text lists the gaps in order separated by "; " (e.g. "15; live"), or as one answer entry per
+  gap in gap order. Where a gap accepts more than one wording, separate the alternatives with
+  "|" inside that gap's value (e.g. "15; live|survive"). A sentence with several gaps must NOT
+  be typed "short_answer" — one box for a whole sentence cannot be graded.
 - If the question shows a BLANK Cartesian plane (numbered x/y axes, four quadrants) and asks the
   student to PLOT given coordinates, use "plot_points". Put the visible axis range in
   plane_spec.bounds, set mode "points", and put the coordinates to plot in plane_spec.target.points
@@ -736,6 +745,30 @@ CLASSIFICATION_TOOL = {
                         "divisor": {
                             "type": "integer",
                             "description": "For long_division only: the number dividing (outside/left of the bar), e.g. 47.",
+                        },
+                        "validation_type": {
+                            "type": "string",
+                            "enum": ["auto", "human_graded"],
+                            "description": (
+                                "How this answer is marked. auto = the system checks it (the "
+                                "default, and right for nearly everything). human_graded = a "
+                                "teacher marks it on paper, REQUIRED when the answer is a DRAWING "
+                                "the app cannot accept: draw a tree or Venn diagram, illustrate "
+                                "sets on a Venn diagram, represent data in a pie chart or bar "
+                                "graph, sketch a curve, a compass construction, a shaded region. "
+                                "A student cannot draw anything here, so do not invent a typed "
+                                "answer for one of these — mark it human_graded and describe the "
+                                "expected drawing in grading_rubric. Number lines, Cartesian "
+                                "plots, long division and column sums are the exception: the app "
+                                "draws those answer surfaces, so keep them auto."
+                            ),
+                        },
+                        "grading_rubric": {
+                            "type": "string",
+                            "description": (
+                                "For human_graded only: what the finished drawing must show, so "
+                                "the teacher can mark it. Leave empty otherwise."
+                            ),
                         },
                         "difficulty": {"type": "integer", "enum": [1, 2, 3]},
                         "points": {"type": "integer", "default": 1},
@@ -1187,6 +1220,18 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
     # Running this first also means those questions are already flagged, so the
     # paid GPT pass skips them.
     comparison_flags = flag_visual_comparisons(merged.get('questions', []))
+
+    # Questions whose answer is a DRAWING the app can't take — "draw a tree
+    # diagram", "illustrate on a Venn diagram". Shared with the worksheet and
+    # homework PDF uploads so all three imports agree on what a student can
+    # actually answer; without it these arrived here as auto-graded questions
+    # with an invented answer, marking a child wrong for not typing a picture.
+    from worksheets.services import route_constructions_to_teacher
+    routed = route_constructions_to_teacher(merged.get('questions'))
+    if routed:
+        logger.info(
+            '%s question(s) re-routed to human_graded: they ask the student to '
+            'draw something the app has no answer surface for.', routed)
 
     verification = verify_answers(merged.get('questions', []), page_images=page_images)
     if verification is not None:
@@ -1762,6 +1807,7 @@ def save_questions_from_session(session, user, overrides=None):
     from classroom.models import Subject, Topic, Level, School
     from classroom.views import _get_question_scope
     from maths.models import Question as MathsQuestion, Answer as MathsAnswer
+    from worksheets.services import resolve_grading
 
     data = overrides if overrides else session.extracted_data
     questions_data = data.get('questions', [])
@@ -1776,7 +1822,12 @@ def save_questions_from_session(session, user, overrides=None):
     updated = 0
     failed = 0
     images_saved = 0
+    # Questions turned into fill-in-the-blank sentences, and the ones that carry
+    # blanks but could not be — reported separately from errors: nothing failed,
+    # they simply came in as a single box and stayed one.
+    blanks_built = 0
     errors = []
+    warnings = []
 
     for idx, q in enumerate(questions_data, 1):
         # Skip if not included (from preview form)
@@ -1798,6 +1849,12 @@ def save_questions_from_session(session, user, overrides=None):
             continue
 
         q_type = q.get('question_type', 'short_answer')
+        # How this one gets marked — the same decision the homework saver makes,
+        # so an import cannot land teacher-graded on one path and auto on
+        # another. Without this the field was never written at all and every
+        # question fell to the model default, auto: a "draw a Venn diagram"
+        # question was handed to a student to type an answer to.
+        validation_type, grading_rubric = resolve_grading(q)
         difficulty = q.get('difficulty', 1)
         points = q.get('points', 1)
         explanation = q.get('explanation', '')
@@ -1901,11 +1958,13 @@ def save_questions_from_session(session, user, overrides=None):
                     except (ValueError, TypeError):
                         graph_spec = None  # fall back to the image; don't fail the import
 
-        # Draw-on-grid / shape-select / number-line: validate the structured spec;
-        # skip a malformed one rather than import a question that can't be graded.
+        # Draw-on-grid / shape-select / number-line / table-of-values: validate the
+        # structured spec; skip a malformed one rather than import a question
+        # that can't be graded.
         grid_spec = None
         shape_spec = None
         number_line_spec = None
+        table_spec = None
         if q_type == 'draw_on_grid':
             from maths.geometry_grading import validate_grid_spec
             grid_spec = q.get('grid_spec')
@@ -1933,6 +1992,15 @@ def save_questions_from_session(session, user, overrides=None):
                 errors.append(f'Q{idx}: Invalid number_line_spec ({exc})')
                 failed += 1
                 continue
+        elif q_type == 'table_of_values':
+            from maths.geometry_grading import validate_table_spec
+            table_spec = q.get('table_spec')
+            try:
+                validate_table_spec(table_spec)
+            except (ValueError, TypeError) as exc:
+                errors.append(f'Q{idx}: Invalid table_spec ({exc})')
+                failed += 1
+                continue
 
         try:
             with transaction.atomic():
@@ -1947,6 +2015,8 @@ def save_questions_from_session(session, user, overrides=None):
                 if existing:
                     # Update
                     existing.question_type = q_type
+                    existing.validation_type = validation_type
+                    existing.grading_rubric = grading_rubric
                     existing.difficulty = difficulty
                     existing.points = points
                     existing.explanation = explanation
@@ -1959,6 +2029,7 @@ def save_questions_from_session(session, user, overrides=None):
                     existing.grid_spec = grid_spec
                     existing.shape_spec = shape_spec
                     existing.number_line_spec = number_line_spec
+                    existing.table_spec = table_spec
                     existing.numeric_answer = numeric_answer
                     existing.answer_tolerance = answer_tolerance
                     existing.answer_unit = answer_unit
@@ -1973,6 +2044,8 @@ def save_questions_from_session(session, user, overrides=None):
                         school_id=school_id, department_id=dept_id,
                         classroom_id=classroom_id,
                         question_text=q_text, question_type=q_type,
+                        validation_type=validation_type,
+                        grading_rubric=grading_rubric,
                         difficulty=difficulty, points=points,
                         explanation=explanation,
                         operands=operands, operator=operator,
@@ -1980,6 +2053,7 @@ def save_questions_from_session(session, user, overrides=None):
                         plane_spec=plane_spec, graph_spec=graph_spec,
                         grid_spec=grid_spec, shape_spec=shape_spec,
                         number_line_spec=number_line_spec,
+                        table_spec=table_spec,
                         numeric_answer=numeric_answer,
                         answer_tolerance=answer_tolerance, answer_unit=answer_unit,
                     )
@@ -2033,6 +2107,25 @@ def save_questions_from_session(session, user, overrides=None):
                             order=a_idx + 1,
                         )
 
+                # Fill in the blanks: a question whose text carries "___" gaps
+                # becomes a sentence with an input in each gap instead of one
+                # box for the whole thing. Detected here rather than trusted
+                # from the extractor's question_type, because a two-gap sentence
+                # routinely comes back typed short_answer. Runs after the Answer
+                # rows are written — the spec is derived FROM them — and leaves
+                # them in place.
+                changed, reason = question.apply_blank_format()
+                if changed:
+                    question.save(update_fields=['question_type', 'blank_spec'])
+                    if question.question_type == MathsQuestion.FILL_BLANK:
+                        blanks_built += 1
+                if reason:
+                    # Left as a working single box. Said out loud rather than
+                    # swallowed, so the teacher can fix the answer and re-import.
+                    warnings.append(
+                        f'Q{idx}: has blanks but stayed a single box — {reason}'
+                    )
+
         except Exception as e:
             errors.append(f'Q{idx}: {str(e)}')
             failed += 1
@@ -2046,5 +2139,7 @@ def save_questions_from_session(session, user, overrides=None):
         'updated': updated,
         'failed': failed,
         'errors': errors,
+        'warnings': warnings,
         'images_saved': images_saved,
+        'blanks_built': blanks_built,
     }
