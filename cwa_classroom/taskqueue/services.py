@@ -35,6 +35,28 @@ _RATE_SETTINGS = {
 }
 
 
+def provider_rates():
+    """Return every priced provider's label and configured rates.
+
+    ``{provider: {'label', 'input', 'output', 'input_setting', 'output_setting'}}``
+    with ``input`` / ``output`` in USD per million tokens, or ``None`` when the
+    rate isn't configured. The dashboard uses this to name the rate behind each
+    vendor's cost — an unconfigured vendor is reported as such rather than
+    rendered as $0, which would read as "OpenAI is free".
+    """
+    labels = dict(AIUsageLog.PROVIDER_CHOICES)
+    rates = {}
+    for provider, (in_name, out_name, in_default, out_default) in _RATE_SETTINGS.items():
+        rates[provider] = {
+            'label': labels.get(provider, provider),
+            'input': getattr(settings, in_name, in_default),
+            'output': getattr(settings, out_name, out_default),
+            'input_setting': in_name,
+            'output_setting': out_name,
+        }
+    return rates
+
+
 class UnknownProvider(ValueError):
     """Raised for a provider with no configured rate.
 
