@@ -176,25 +176,79 @@ _DRAWABLE_QUESTION_TYPES = {
 # construction task. Requires real options — a bare type label doesn't exempt it.
 _CHOICE_QUESTION_TYPES = {'multiple_choice', 'true_false'}
 
-# An instruction to PRODUCE a visual: a construction verb followed, within four
-# words, by the thing to be produced. BOTH halves are required — "draw a
-# conclusion" has no visual noun, "use the diagram below" has no verb — which
-# keeps this off questions that merely mention a figure. The in-between words
-# may not carry sentence punctuation, so the verb and its object have to sit in
-# the same clause ("Complete the sentence: a triangle has ___ sides" is not a
-# construction), and the four-word window stops the verb reaching across a whole
-# instruction ("Complete the calculation to find the angle" stays auto-graded).
-_CONSTRUCTION_RE = re.compile(
-    r'\b(?:draw|redraw|sketch|construct|shade|colou?r|plot|label|complete|'
-    r'copy|join|mark|illustrate)\b'
-    r'(?:\s+[^\s.:;?!]+){0,4}?\s+'
+# Anything a question can ask a student to make a picture of. Deliberately broad
+# (it includes bare shapes) because it is only ever used with a construction
+# VERB in front of it — see pattern A below.
+_VISUAL = (
     r'(?:tree\s+diagram|venn\s+diagram|diagram|graph|chart|histogram|'
     r'pictogram|pictograph|net|figure|picture|drawing|sketch|plan|map|'
     r'axes|number\s+line|table|grid|shape|points?|'
     r'triangle|rectangle|square|circle|quadrilateral|polygon|pentagon|'
     r'hexagon|octagon|parallelogram|trapezium|rhombus|'
-    r'angle|line|curve|region|arrow)\b',
-    re.IGNORECASE,
+    r'angle|line|curve|region|arrow)'
+)
+
+# The narrower set: visuals a student BUILDS rather than reads off. No bare
+# shapes here — patterns B-D below match on weaker verbs, and "use a square
+# number" or "put the answer to the right" must not read as a construction.
+_CHART = (
+    r'(?:venn\s+diagram|tree\s+diagram|flow\s*chart|mind\s+map|scale\s+drawing|'
+    r'stem[-\s]and[-\s]leaf(?:\s+(?:plot|diagram))?|'
+    r'box(?:[-\s]and[-\s]whisker)?\s+plot|scatter\s+(?:graph|plot|diagram)|'
+    r'bar\s+(?:graph|chart)|pie\s+chart|line\s+graph|tally\s+chart|'
+    r'frequency\s+table|dot\s+plot|histogram|pictogram|pictograph|'
+    r'number\s+line|diagram|graph|chart|table|grid|axes|net|'
+    r'sketch|drawing|picture|figure|map|plan)'
+)
+
+_ARTICLE = r'(?:a|an|the|your|this|these|each|one)\s+'
+
+# Four ways a worksheet asks for a drawing. A question matching ANY of them is
+# asking the student to make a picture, which this app gives them no way to do.
+_CONSTRUCTION_PATTERNS = (
+    # A. Construction verb + the visual it produces, within four words and in
+    #    the same clause: "draw a tree diagram", "shade the region", "complete
+    #    the table". BOTH halves are required — "draw a conclusion" has no visual
+    #    noun and "use the diagram below" has no verb — which keeps this off
+    #    questions that merely mention a figure. The in-between words may not
+    #    carry sentence punctuation, so verb and object have to sit in the same
+    #    clause ("Complete the sentence: a triangle has ___ sides" is not a
+    #    construction), and the four-word window stops the verb reaching across a
+    #    whole instruction ("Complete the calculation to find the angle" stays
+    #    auto-graded).
+    re.compile(
+        r'\b(?:draw|redraw|sketch|construct|shade|colou?r|plot|label|complete|'
+        r'copy|join|mark|illustrate)\b'
+        r'(?:\s+[^\s.:;?!]+){0,4}?\s+' + _VISUAL + r'\b',
+        re.IGNORECASE,
+    ),
+    # B. Represent data ON a medium: "Illustrate on a Venn diagram the sets A and
+    #    B", "represent this data in a pie chart", "display the results using a
+    #    pictograph". "show" is excluded before "that" — "Show that the angle is
+    #    90° using the diagram" is a proof to AI-grade, not a drawing. Every verb
+    #    is matched as a bare stem, so the passive read-off forms ("the graph
+    #    SHOWS", "the data is RECORDED in the table") don't match.
+    re.compile(
+        r'\b(?:represent|display|record|illustrate|sort|group|arrange|'
+        r'organi[sz]e|summari[sz]e|show(?!\s+that))\b'
+        r'[^.:;?!]{0,40}?'
+        r'\b(?:on|onto|in|into|as|using|with)\s+' + _ARTICLE + _CHART + r'\b',
+        re.IGNORECASE,
+    ),
+    # C. Place things INTO a medium: "add the following elements to the Venn
+    #    diagram", "put the numbers on the tally chart". Bare "in" is excluded
+    #    here on purpose — "add the numbers in the table" is arithmetic over a
+    #    table that already exists, not an instruction to build one.
+    re.compile(
+        r'\b(?:put|place|add|enter|insert|write|move|list)\b'
+        r'[^.:;?!]{0,40}?'
+        r'\b(?:on|onto|into|to)\s+' + _ARTICLE + _CHART + r'\b',
+        re.IGNORECASE,
+    ),
+    # D. "Use A tree diagram to work out the probability" — the indefinite
+    #    article means there is no diagram yet, so the student has to build one.
+    #    "Use THE diagram below" is the opposite: read the one that is printed.
+    re.compile(r'\buse\s+(?:a|an)\s+' + _CHART + r'\b', re.IGNORECASE),
 )
 
 
@@ -205,7 +259,8 @@ def is_unanswerable_construction(q):
         return False
     if q_type in _CHOICE_QUESTION_TYPES and len(q.get('answers') or []) >= 2:
         return False
-    return bool(_CONSTRUCTION_RE.search(q.get('question_text') or ''))
+    text = q.get('question_text') or ''
+    return any(p.search(text) for p in _CONSTRUCTION_PATTERNS)
 
 
 def route_constructions_to_teacher(questions):
@@ -671,7 +726,13 @@ Rules:
    PRODUCE a visual — "Draw a tree diagram to illustrate this situation", "Draw a Venn
    diagram", "Sketch the graph of y = 2x", "Construct a triangle with compasses", "Draw a
    bar chart", "Shade the region", "Complete the table", "Colour the shape", "Join the
-   points to form a quadrilateral" — set validation_type="human_graded". NOT ai_graded:
+   points to form a quadrilateral" — set validation_type="human_graded". This covers every
+   way of asking for the same drawing, not just the ones starting with "draw": "Illustrate
+   on a Venn diagram the sets A = {1, 3, 5} and B = {2, 4, 6}", "Represent this data in a
+   pie chart", "Show the information on a bar graph", "Display the results using a
+   pictograph", "Use a tree diagram to work out the probability", "Add these elements to
+   the Venn diagram", "Record your results in a tally chart". If the finished answer is a
+   picture, it is human_graded however the instruction is worded. NOT ai_graded:
    the student writes no prose, so there is nothing for a grader to read. Put what the
    finished drawing must show in grading_rubric so the teacher can mark it on paper. Keep
    the question (do not drop it) — the app deselects teacher-graded questions by default
@@ -719,7 +780,8 @@ Choosing validation_type per question:
                  types nothing, so there is no written answer to grade.
 - human_graded → Two cases:
                  (a) the answer is a drawing/construction the app can't accept (rule 16) —
-                     "draw a tree diagram", "shade the region", "complete the table";
+                     "draw a tree diagram", "illustrate on a Venn diagram", "represent this
+                     data in a bar graph", "shade the region", "complete the table";
                  (b) highly open-ended/subjective questions where even AI cannot reliably
                      determine correctness (creative responses, complex multi-step proofs
                      that vary widely).
@@ -1056,9 +1118,10 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
             "none. When has_image=true, give image_bbox [left, top, right, bottom] in the page "
             "screenshot's pixel coordinates, cropping ONLY that question's own visual — never "
             "another question's figure, the question text, or the answer options. "
-            "Any question that asks the student to DRAW or CONSTRUCT something — a tree or "
-            "Venn diagram, a sketched graph, a bar chart, a compass construction, a shaded "
-            "region, a completed table — must be validation_type=\"human_graded\", never "
+            "Any question whose ANSWER IS A PICTURE — draw a tree or Venn diagram, "
+            "illustrate sets on a Venn diagram, represent data in a pie chart or bar graph, "
+            "sketch a curve, a compass construction, a shaded region, a completed table — "
+            "must be validation_type=\"human_graded\", never "
             "ai_graded: there is no answer surface for a drawing, so the student types "
             "nothing. Number lines, Cartesian plots, long division and column sums are the "
             "exception — the app draws those, so keep them auto. "

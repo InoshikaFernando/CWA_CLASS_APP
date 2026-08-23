@@ -38,6 +38,26 @@ class IsUnanswerableConstructionTests(SimpleTestCase):
         'On the grid, draw an accurate scale drawing of the field.',
     ]
 
+    # The same drawing, asked for without the word "draw". A worksheet says
+    # "illustrate on", "represent in", "record in", "use a" just as often, and
+    # every one of these leaves the student with a picture to produce.
+    DRAWING_QUESTIONS_WITHOUT_A_DRAW_VERB = [
+        'Suppose we are rolling a die, so the universal set U = {1, 2, 3, 4, 5, 6}. '
+        'Illustrate on a Venn diagram the sets A = {1, 3, 5} and B = {2, 4, 6}.',
+        'Show the information on a bar graph.',
+        'Show this set on a number line.',
+        'Represent this data in a pie chart.',
+        'Display the results using a pictograph.',
+        'Summarise the results in a frequency table.',
+        'Group the animals in a Venn diagram.',
+        'Sort these numbers into the Venn diagram.',
+        'Record your results in a tally chart.',
+        'Put the numbers in the correct place on the Venn diagram.',
+        'Add the following elements to the Venn diagram.',
+        'Use a tree diagram to work out the probability of two heads.',
+        'Use a scatter graph to display the relationship.',
+    ]
+
     # Each of these either mentions a figure without asking for one to be made,
     # or uses a construction verb on something that is not a visual. Marking any
     # of them teacher-graded would hide a perfectly gradable question from every
@@ -55,10 +75,33 @@ class IsUnanswerableConstructionTests(SimpleTestCase):
         'Calculate the area of the shape shown below.',
         'From the table, which city had the largest range?',
         'Write down the coordinates of the point marked A.',
+        # "Show that" is a proof to AI-grade, not a drawing.
+        'Show that the angle x = 40 degrees.',
+        'Show that the two triangles are congruent.',
+        'Show your working.',
+        # A figure that already exists is read, not built.
+        'Use the Venn diagram below to find n(A and B).',
+        'The bar graph shows how many students chose each colour. How many chose blue?',
+        'The results are shown in the table below. How many students were absent?',
+        'The data is recorded in the table. What is the mode?',
+        'Which number is represented on the number line?',
+        'Explain, using the graph, why the trend is increasing.',
+        # Ordinary instructions that happen to use a placement verb.
+        'Add the numbers in the table.',
+        'Put the numbers in order from smallest to largest.',
+        'Write your answer in the box.',
+        'Use a square number greater than 20.',
+        'Use a protractor to measure the angle.',
+        'Use a calculator to find the answer.',
     ]
 
     def test_drawing_instructions_are_unanswerable(self):
         for text in self.DRAWING_QUESTIONS:
+            with self.subTest(text):
+                self.assertTrue(is_unanswerable_construction({'question_text': text}))
+
+    def test_drawings_asked_for_without_a_draw_verb(self):
+        for text in self.DRAWING_QUESTIONS_WITHOUT_A_DRAW_VERB:
             with self.subTest(text):
                 self.assertTrue(is_unanswerable_construction({'question_text': text}))
 
@@ -103,6 +146,23 @@ class IsUnanswerableConstructionTests(SimpleTestCase):
 
 
 class RouteConstructionsToTeacherTests(SimpleTestCase):
+
+    def test_venn_diagram_illustration_becomes_human_graded(self):
+        # The reported case: extracted as an ai_graded extended answer with a
+        # rubric describing the picture the student was supposed to draw.
+        questions = [{
+            'question_text': 'Suppose we are rolling a die, so the universal set '
+                             'U = {1, 2, 3, 4, 5, 6}. Illustrate on a Venn diagram '
+                             'the sets A = {1, 3, 5} and B = {2, 4, 6}.',
+            'question_type': 'extended_answer',
+            'validation_type': 'ai_graded',
+            'grading_rubric': 'Full marks: A and B are disjoint so the circles do '
+                              'not overlap; 1, 3, 5 in A; 2, 4, 6 in B.',
+        }]
+        self.assertEqual(route_constructions_to_teacher(questions), 1)
+        self.assertEqual(questions[0]['validation_type'], 'human_graded')
+        # The rubric the model wrote is what the teacher marks against, so it stays.
+        self.assertIn('circles do not overlap', questions[0]['grading_rubric'])
 
     def test_ai_graded_drawing_becomes_human_graded(self):
         questions = [{
