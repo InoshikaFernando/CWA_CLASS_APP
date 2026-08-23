@@ -165,10 +165,17 @@ def answer_review_warning(q):
 # upload preview leaves them unticked, so the teacher opts in rather than out.
 
 # Types that DO give the student something to draw on. The app renders the
-# interaction and grades it, so "draw"/"plot"/"mark" is answerable there.
+# interaction and grades it, so "draw"/"plot"/"mark"/"colour" is answerable
+# there. This is every structured type in ``maths.models.Question``, which is
+# WIDER than what the worksheet extractor can emit: draw_on_grid, shape_select
+# and table_of_values only reach the bank through the question builder, and the
+# bank sweep (``maths.management.commands.fix_drawing_questions``) has to leave
+# them alone — a shape_select question says "colour the triangles" and the app
+# renders exactly that.
 _DRAWABLE_QUESTION_TYPES = {
     'number_line', 'plot_points', 'plot_line', 'identify_coords',
     'long_division', 'column_operation', 'read_graph', 'measure',
+    'draw_on_grid', 'shape_select', 'table_of_values', 'prime_factorization',
 }
 
 # Pick-an-option types: the student chooses, never draws, so a figure verb in
