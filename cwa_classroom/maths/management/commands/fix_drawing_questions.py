@@ -31,7 +31,7 @@ import sys
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 
 # Single source of truth for "is this answer a drawing?" — the same predicate
 # the upload path uses, so the bank and new imports can never disagree.
@@ -84,10 +84,13 @@ class Command(BaseCommand):
             Question.objects
             .exclude(validation_type=Question.VALIDATION_HUMAN)
             .select_related('topic', 'level')
-            # The predicate only measures how many options a question has, so
-            # count them in the same query rather than fetching every answer row
-            # for every question in the bank.
-            .annotate(answer_count=Count('answers'))
+            # The predicate asks two things of the answers: how many options
+            # there are, and whether any is ticked correct. Count both in the
+            # same query rather than fetching every answer row in the bank.
+            .annotate(
+                answer_count=Count('answers'),
+                correct_count=Count('answers', filter=Q(answers__is_correct=True)),
+            )
         )
         if options['topic'] is not None:
             questions = questions.filter(topic_id=options['topic'])
@@ -103,10 +106,18 @@ class Command(BaseCommand):
             scanned += 1
             # is_unanswerable_construction reads the dict shape the extractor
             # produces; the two fields it looks at map straight across.
+            # Rebuild the answer shape the predicate expects: one dict per
+            # option, with the ticked ones marked. A question with a ticked
+            # answer is already gradable, so the predicate exempts it.
+            answers = (
+                [{'is_correct': True, 'text': '.'}] * question.correct_count
+                + [{'is_correct': False, 'text': '.'}]
+                * (question.answer_count - question.correct_count)
+            )
             if not is_unanswerable_construction({
                 'question_text': question.question_text,
                 'question_type': question.question_type,
-                'answers': [None] * question.answer_count,
+                'answers': answers,
             }):
                 continue
             affected.append(question)

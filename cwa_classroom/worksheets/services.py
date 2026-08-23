@@ -208,7 +208,7 @@ _CHOICE_QUESTION_TYPES = {'multiple_choice', 'true_false'}
 # VERB in front of it — see pattern A below.
 _VISUAL = (
     r'(?:tree\s+diagram|venn\s+diagram|diagram|graph|chart|histogram|'
-    r'pictogram|pictograph|net|figure|picture|drawing|sketch|plan|map|'
+    r'pictogram|pictograph|net|figure|picture|scale\s+drawing|plan|map|'
     r'axes|number\s+line|table|grid|shape|points?|'
     r'triangle|rectangle|square|circle|quadrilateral|polygon|pentagon|'
     r'hexagon|octagon|parallelogram|trapezium|rhombus|'
@@ -230,22 +230,35 @@ _CHART = (
 
 _ARTICLE = r'(?:a|an|the|your|this|these|each|one)\s+'
 
-# Four ways a worksheet asks for a drawing. A question matching ANY of them is
+# Three ways a worksheet asks for a drawing. A question matching ANY of them is
 # asking the student to make a picture, which this app gives them no way to do.
+#
+# There used to be a fourth — placement verbs plus a preposition, meant to catch
+# "add these elements to the Venn diagram". It was removed after a production dry
+# run: it cannot tell writing ONTO a figure from writing an answer to what is
+# shown ON one, and it swept up a dozen working read-off questions ("Write down
+# the equation of Line A shown on the graph", "Write the coordinates of the ship
+# shown on the grid", "Write the number shown with an arrow on the number line").
+# Those are the app's own read modes. Losing "add these to the Venn diagram" is
+# the cheaper mistake — a missed one stays AI-graded, where a false positive
+# hides a working question from every student.
 _CONSTRUCTION_PATTERNS = (
     # A. Construction verb + the visual it produces, within four words and in
-    #    the same clause: "draw a tree diagram", "shade the region", "complete
-    #    the table". BOTH halves are required — "draw a conclusion" has no visual
-    #    noun and "use the diagram below" has no verb — which keeps this off
-    #    questions that merely mention a figure. The in-between words may not
-    #    carry sentence punctuation, so verb and object have to sit in the same
-    #    clause ("Complete the sentence: a triangle has ___ sides" is not a
-    #    construction), and the four-word window stops the verb reaching across a
-    #    whole instruction ("Complete the calculation to find the angle" stays
-    #    auto-graded).
+    #    the same clause: "draw a tree diagram", "shade the region". BOTH halves
+    #    are required — "draw a conclusion" has no visual noun, "use the diagram
+    #    below" has no verb. The in-between words carry no sentence punctuation,
+    #    so verb and object sit in the same clause ("Complete the sentence: a
+    #    triangle has ___ sides" is not a construction), and the four-word window
+    #    stops the verb reaching across a whole instruction ("Complete the
+    #    calculation to find the angle" stays auto-graded).
+    #
+    #    "complete the square" is excluded outright: it is the algebra technique,
+    #    answered by typing vertex form, and `square` is in the visual list as a
+    #    shape. Production had "For the parabola y = x² + 6x − 10, complete the
+    #    square to express it in vertex form" flagged as a drawing.
     re.compile(
-        r'\b(?:draw|redraw|sketch|construct|shade|colou?r|plot|label|complete|'
-        r'copy|join|mark|illustrate)\b'
+        r'\b(?:draw|redraw|sketch|construct|shade|colou?r|plot|label|'
+        r'complete(?!\s+the\s+square\b)|copy|join|mark|illustrate)\b'
         r'(?:\s+[^\s.:;?!]+){0,4}?\s+' + _VISUAL + r'\b',
         re.IGNORECASE,
     ),
@@ -262,27 +275,41 @@ _CONSTRUCTION_PATTERNS = (
         r'\b(?:on|onto|in|into|as|using|with)\s+' + _ARTICLE + _CHART + r'\b',
         re.IGNORECASE,
     ),
-    # C. Place things INTO a medium: "add the following elements to the Venn
-    #    diagram", "put the numbers on the tally chart". Bare "in" is excluded
-    #    here on purpose — "add the numbers in the table" is arithmetic over a
-    #    table that already exists, not an instruction to build one.
-    re.compile(
-        r'\b(?:put|place|add|enter|insert|write|move|list)\b'
-        r'[^.:;?!]{0,40}?'
-        r'\b(?:on|onto|into|to)\s+' + _ARTICLE + _CHART + r'\b',
-        re.IGNORECASE,
-    ),
-    # D. "Use A tree diagram to work out the probability" — the indefinite
+    # C. "Use A tree diagram to work out the probability" — the indefinite
     #    article means there is no diagram yet, so the student has to build one.
     #    "Use THE diagram below" is the opposite: read the one that is printed.
     re.compile(r'\buse\s+(?:a|an)\s+' + _CHART + r'\b', re.IGNORECASE),
 )
 
 
+def _has_stored_answer(q):
+    """Whether *q* carries an answer the app can already mark it against.
+
+    The decisive signal, learned from a production dry run over 19,773 bank
+    questions: every false positive it produced had one. A question with a
+    ticked answer is one a student types into and the grader checks — whatever
+    figure its wording mentions. "Complete the table for Output = 6x" and "Write
+    the coordinates of the ship shown on the grid" both read a figure and type a
+    value, and both have graded correctly for as long as they have existed.
+
+    So this outranks the patterns: the cost of a false positive is a working
+    question hidden from every student, and the cost of a miss is a question
+    that stays AI-graded — recoverable, and visible to a teacher.
+    """
+    for answer in (q.get('answers') or []):
+        if not isinstance(answer, dict):
+            continue
+        if answer.get('is_correct') and str(answer.get('text') or '').strip():
+            return True
+    return False
+
+
 def is_unanswerable_construction(q):
     """Whether *q* asks for a drawing the app gives the student no way to make."""
     q_type = q.get('question_type')
     if q_type in _DRAWABLE_QUESTION_TYPES:
+        return False
+    if _has_stored_answer(q):
         return False
     if q_type in _CHOICE_QUESTION_TYPES and len(q.get('answers') or []) >= 2:
         return False
