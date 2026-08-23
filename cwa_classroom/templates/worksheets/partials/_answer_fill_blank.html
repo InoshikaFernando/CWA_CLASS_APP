@@ -1,0 +1,15 @@
+{% comment %}
+Worksheet fill-in-the-blanks answer: the shared sentence widget. The student
+types into a gap in the sentence itself; the values serialise to text_answer as
+{"blanks":["15","live"]} via static/js/fill_blank.js, graded server-side by
+grade_fill_blank. A fill_blank question with no blank_spec has no blank_data and
+falls back to the plain single-line box (_answer_text.html), which is what it
+has always used. Context: question
+{% endcomment %}
+<div>
+  {% if question.blank_data %}
+    {% include "maths/partials/_fill_blank_tool.html" with q=question field_name='text_answer' %}
+  {% else %}
+    {% include "worksheets/partials/_answer_text.html" with question=question %}
+  {% endif %}
+</div>

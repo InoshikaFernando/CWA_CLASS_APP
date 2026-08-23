@@ -2945,6 +2945,51 @@ def _parse_measure_post(request):
     return numeric_answer, tolerance, unit, None
 
 
+def _sync_blank_spec(question, request):
+    """Keep a question's ``blank_spec`` in step with its text and answer rows.
+
+    Called after the answers are written on both the create and the edit path,
+    because the spec is derived FROM them. Without this a teacher who adds a gap
+    to a fill-in-the-blank sentence would leave a spec that no longer matches its
+    text — the take page would quietly fall back to a single box, and nobody
+    would know why the gaps stopped rendering.
+
+    Clears the spec when the question is no longer a fill-in-the-blank one, or no
+    longer has gaps — mirroring how the measure fields are cleared when a
+    question is switched away from ``measure``. When the answers cannot be mapped
+    onto the gaps the question saves anyway, as a working single box, and the
+    teacher is told why rather than left guessing.
+    """
+    from maths.blank_grading import count_blanks
+    from maths.models import Question as MathsQuestion
+
+    previous = question.blank_spec
+    wants_blanks = (
+        question.question_type == MathsQuestion.FILL_BLANK
+        and count_blanks(question.question_text)
+    )
+    if not wants_blanks:
+        if previous is not None:
+            question.blank_spec = None
+            question.save(update_fields=['blank_spec'])
+        return
+
+    applied, reason = question.rebuild_blank_spec()
+    if applied:
+        question.save(update_fields=['blank_spec'])
+        return
+
+    if previous is not None:
+        question.blank_spec = None
+        question.save(update_fields=['blank_spec'])
+    messages.warning(request, (
+        f'Saved, but the blanks could not be filled in from the answers, so this '
+        f'question shows one answer box instead of a gap per blank — {reason}. '
+        f'Give one answer per blank, or a single answer listing them in order '
+        f'separated by ";" (for example "15; live").'
+    ))
+
+
 def _parse_number_line_post(request):
     """Pull and validate the ``number_line_spec`` JSON for a number_line question.
 
@@ -3118,6 +3163,8 @@ class AddQuestionView(RoleRequiredMixin, View):
                         is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
                         order=int(request.POST.get(f'answer_order_{i}', i)),
                     )
+            # Derived from the answers just written, so it must come after them.
+            _sync_blank_spec(question, request)
         log_event(
             user=request.user,
             school=School.objects.filter(id=school_id).first() if school_id else None,
@@ -3206,6 +3253,8 @@ class EditQuestionView(RoleRequiredMixin, View):
                         is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
                         order=int(request.POST.get(f'answer_order_{i}', i)),
                     )
+            # Derived from the answers just written, so it must come after them.
+            _sync_blank_spec(question, request)
         log_event(
             user=request.user,
             school=question.school,

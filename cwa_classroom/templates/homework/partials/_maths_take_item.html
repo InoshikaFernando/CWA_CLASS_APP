@@ -4,7 +4,12 @@ Renders one maths question on the homework take page.
 Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
 {% endcomment %}
 {% with q=ctx.question %}
+{% comment %}A fill-in-the-blank sentence IS its own widget (the gaps sit inside the
+text), so it prints the question itself further down — printing it here too would
+show the question twice.{% endcomment %}
+{% if not q.blank_data %}
 <p class="text-gray-900 font-medium mb-4">{{ q.question_text|exponents }}</p>
+{% endif %}
 
 {% comment %} measure renders its own figure inside the interactive tool stage. {% endcomment %}
 {% if q.image and q.question_type != 'measure' %}
@@ -643,6 +648,16 @@ static/js/table_of_values.js; graded server-side by numeric tolerance
 (grade_table). Correct answers are never emitted into the page.
 {% endcomment %}
 {% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_table_of_values_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
+
+{% elif q.question_type == 'fill_blank' and q.blank_data %}
+{% comment %}
+Fill in the blanks: the sentence is re-laid-out with an input in each gap. The
+typed values serialise to JSON in answer_<id> via static/js/fill_blank.js;
+graded all-or-nothing server-side (grade_fill_blank). Correct answers are never
+emitted into the page. A fill_blank question with no blank_spec falls through to
+the single box below, which is what it has always used.
+{% endcomment %}
+{% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_fill_blank_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
 
 {% else %}
 <input type="text" name="answer_{{ q.id }}"

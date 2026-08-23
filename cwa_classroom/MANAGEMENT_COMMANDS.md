@@ -165,6 +165,25 @@ python manage.py consolidate_to_maths            # apply
 python manage.py consolidate_to_maths --dry-run  # preview
 ```
 
+### `convert_fill_blanks`
+Turn typed questions whose text carries `___` gaps into real fill-in-the-blank
+questions — the sentence renders with an input in each gap instead of one box for
+the whole thing. The underscores are the identifier. Writes `blank_spec` (the
+accepted answers per gap, derived from the question's existing correct answer
+rows) and sets `question_type='fill_blank'`; the answer rows themselves are left
+alone, so the conversion is reversible and BrainBuzz/exports are unaffected.
+Questions whose answers can't be mapped onto their gaps unambiguously are listed,
+never guessed at.
+```bash
+python manage.py convert_fill_blanks                    # dry run — report only
+python manage.py convert_fill_blanks --min-blanks 2     # only multi-gap sentences
+python manage.py convert_fill_blanks --topic Statistics # one topic subtree
+python manage.py convert_fill_blanks --level 10
+python manage.py convert_fill_blanks --id 4021 --id 4022
+python manage.py convert_fill_blanks --apply            # actually write
+python manage.py convert_fill_blanks --revert --apply   # undo: clear the specs
+```
+
 ### `generate_puzzles`
 Generate number puzzles and store them in the database.
 ```bash

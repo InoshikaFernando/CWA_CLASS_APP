@@ -503,7 +503,13 @@ QUESTION TYPE RULES (important):
 - If the correct answer contains TEXT or WORDS (e.g. "Day 3 had the most sales", "True", "Red"),
   use question_type "multiple_choice" and generate 3-4 plausible wrong answers alongside the correct one.
 - For true/false questions, use "true_false" type.
-- For fill-in-the-blank, use "fill_blank" type.
+- For fill-in-the-blank, use "fill_blank" type. Mark EVERY gap in question_text with three
+  underscores "___" — that is how the app finds the gaps and lays an input into each one — and
+  keep the rest of the sentence exactly as printed. Give the answers as ONE answer entry whose
+  text lists the gaps in order separated by "; " (e.g. "15; live"), or as one answer entry per
+  gap in gap order. Where a gap accepts more than one wording, separate the alternatives with
+  "|" inside that gap's value (e.g. "15; live|survive"). A sentence with several gaps must NOT
+  be typed "short_answer" — one box for a whole sentence cannot be graded.
 - If the question shows a BLANK Cartesian plane (numbered x/y axes, four quadrants) and asks the
   student to PLOT given coordinates, use "plot_points". Put the visible axis range in
   plane_spec.bounds, set mode "points", and put the coordinates to plot in plane_spec.target.points
@@ -1762,6 +1768,7 @@ def save_questions_from_session(session, user, overrides=None):
     from classroom.models import Subject, Topic, Level, School
     from classroom.views import _get_question_scope
     from maths.models import Question as MathsQuestion, Answer as MathsAnswer
+    from maths.blank_grading import count_blanks
 
     data = overrides if overrides else session.extracted_data
     questions_data = data.get('questions', [])
@@ -1776,7 +1783,12 @@ def save_questions_from_session(session, user, overrides=None):
     updated = 0
     failed = 0
     images_saved = 0
+    # Questions turned into fill-in-the-blank sentences, and the ones that carry
+    # blanks but could not be — reported separately from errors: nothing failed,
+    # they simply came in as a single box and stayed one.
+    blanks_built = 0
     errors = []
+    warnings = []
 
     for idx, q in enumerate(questions_data, 1):
         # Skip if not included (from preview form)
@@ -2033,6 +2045,29 @@ def save_questions_from_session(session, user, overrides=None):
                             order=a_idx + 1,
                         )
 
+                # Fill in the blanks: a question whose text carries "___" gaps
+                # is built into a blank_spec (one set of accepted answers per
+                # gap) so it renders as a sentence with an input in each gap
+                # instead of one box for the whole thing. Detected here rather
+                # than trusted from the extractor's question_type, because a
+                # two-gap sentence routinely comes back typed short_answer.
+                # Runs after the Answer rows are written — the spec is derived
+                # FROM them — and leaves them in place.
+                if (count_blanks(q_text)
+                        and q_type in ('fill_blank', 'short_answer', 'calculation')):
+                    applied, reason = question.rebuild_blank_spec()
+                    if applied:
+                        question.question_type = MathsQuestion.FILL_BLANK
+                        question.save(update_fields=['question_type', 'blank_spec'])
+                        blanks_built += 1
+                    else:
+                        # Left as it came in — still a working question, just a
+                        # single box. Said out loud rather than swallowed, so the
+                        # teacher can fix the answer and re-import.
+                        warnings.append(
+                            f'Q{idx}: has blanks but stayed a single box — {reason}'
+                        )
+
         except Exception as e:
             errors.append(f'Q{idx}: {str(e)}')
             failed += 1
@@ -2046,5 +2081,7 @@ def save_questions_from_session(session, user, overrides=None):
         'updated': updated,
         'failed': failed,
         'errors': errors,
+        'warnings': warnings,
         'images_saved': images_saved,
+        'blanks_built': blanks_built,
     }

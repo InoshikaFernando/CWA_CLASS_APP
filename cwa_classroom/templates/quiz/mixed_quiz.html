@@ -34,7 +34,11 @@
           {% if q.image %}
             <img src="{{ q.image.url }}" class="rounded-xl mb-3 max-h-40 object-contain" alt="" />
           {% endif %}
+          {% comment %}A fill-in-the-blank sentence prints itself below, with an input in
+          each gap — printing it here too would show the question twice.{% endcomment %}
+          {% if not q.blank_data %}
           <p class="font-semibold text-gray-800">{{ q.question_text }}</p>
+          {% endif %}
         </div>
       </div>
 
@@ -47,6 +51,15 @@
           </label>
           {% endfor %}
         </div>
+      {% elif q.blank_data %}
+        {% comment %}
+        Fill in the blanks: the sentence is re-laid-out with an input in each gap.
+        The typed values serialise to JSON in text_<id> via static/js/fill_blank.js,
+        graded all-or-nothing by grade_fill_blank server-side. Without this branch the
+        sentence would take one whole-answer box that no blanks payload could match,
+        marking every student wrong.
+        {% endcomment %}
+        {% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_fill_blank_tool.html" with q=q field_name='text_'|add:sid %}{% endwith %}
       {% else %}
         {% if q.question_type == 'column_operation' and q.column_inline %}
         <p class="font-mono text-2xl font-bold text-gray-800 mb-2">{{ q.column_inline }} =</p>
@@ -84,8 +97,15 @@
   const total = {{ total }};
   function updateCount() {
     const radios = document.querySelectorAll('input[type=radio]:checked').length;
-    const texts = [...document.querySelectorAll('input[type=text]')].filter(i => i.value.trim()).length;
-    document.getElementById('count').textContent = (radios + texts) + ' / ' + total + ' answered';
+    // One count per QUESTION, not per input: a fill-in-the-blank sentence has an
+    // input per gap, so counting them all would report a two-gap question as two
+    // questions answered. Its gaps are excluded here and the sentence is counted
+    // once, as soon as any gap has been filled.
+    const texts = [...document.querySelectorAll('input[type=text]:not([data-fb-input])')]
+      .filter(i => i.value.trim()).length;
+    const sentences = [...document.querySelectorAll('[data-fb-stage]')]
+      .filter(s => [...s.querySelectorAll('[data-fb-input]')].some(i => i.value.trim())).length;
+    document.getElementById('count').textContent = (radios + texts + sentences) + ' / ' + total + ' answered';
   }
   document.querySelectorAll('input').forEach(i => i.addEventListener('change', updateCount));
   document.querySelectorAll('input[type=text]').forEach(i => i.addEventListener('input', updateCount));

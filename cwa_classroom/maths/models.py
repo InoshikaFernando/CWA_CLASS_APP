@@ -28,6 +28,13 @@ _PLAIN_NUMBER_RE = re.compile(r'^-?\d+(?:\.\d+)?$')
 # "(3", "11)", "-2.5)". Used to compare such a list value-by-value.
 _LIST_VALUE_BRACKETS = '()[]'
 
+# Width, in characters, of a fill-in-the-blank input. Sized from the longest
+# accepted answer and clamped: narrow enough that a one-digit gap reads as a
+# gap in the sentence, wide enough that a phrase is not typed through a
+# keyhole.
+_BLANK_MIN_SIZE = 4
+_BLANK_MAX_SIZE = 20
+
 
 def _split_answer_list(value):
     """Split a list-style answer into its values, preserving digit grouping.
@@ -315,6 +322,25 @@ class Question(models.Model):
         help_text="table_of_values only. Headers + rows of given/answer cells (numeric-tolerance graded).",
     )
 
+    # Fill-in-the-blank question data: the accepted answers for each blank, in
+    # the order the blanks appear in question_text. The blanks themselves are
+    # marked IN the text as runs of underscores ("... to the age of ___."), so
+    # the sentence stays readable everywhere it is printed and the spec only
+    # carries what is missing from it. Graded all-or-nothing, every blank folded
+    # like a short answer (maths.blank_grading.grade_fill_blank). Schema
+    # validation lives in Question.clean() (validate_blank_spec), which also
+    # cross-checks the count against the text. Shape:
+    #   {"blanks": [{"answers": ["15"]}, {"answers": ["live", "survive"]}]}
+    # Null on a fill_blank question is the legacy shape — one plain text box for
+    # the whole answer — which still works and still grades.
+    blank_spec = models.JSONField(
+        null=True, blank=True,
+        help_text=(
+            'fill_blank only. Accepted answers per blank, positional. Mark each '
+            'blank in the question text with "___".'
+        ),
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -343,6 +369,17 @@ class Question(models.Model):
         """
         if not text_answer:
             return False
+
+        # A fill-in-the-blank sentence posts one value per blank as JSON, not a
+        # single answer, and its accepted answers live in blank_spec rather than
+        # in Answer rows — so it must come before the no-stored-answer guard
+        # below. Routing it here (rather than in each view) is what makes the
+        # quiz, worksheet and homework surfaces grade it identically; a
+        # fill_blank question with no spec falls through to the plain text
+        # matching it has always used.
+        if self.question_type == self.FILL_BLANK and self.blank_spec:
+            from maths.blank_grading import grade_fill_blank
+            return grade_fill_blank(self.blank_spec, text_answer)
 
         # A "create your own pattern" question stores no correct answer — there
         # isn't one — so this MUST come before the no-stored-answer guard below,
@@ -373,46 +410,15 @@ class Question(models.Model):
         # (cm^2 == cm² == cm2), a typed inequality however the student spells the
         # operator (x ≥ 2 == x>=2 == x=>2), and the ° button so an angle grades
         # the same with or without it (50 == 50°), and the ÷ button so a
-        # quotient grades the same typed either way (n ÷ 4 == n/4). See
-        # fold_exponents / fold_inequalities / fold_degrees / fold_division.
+        # quotient grades the same typed either way (n ÷ 4 == n/4). All of it
+        # lives in maths.algebra_grading.fold_answer, which one blank of a
+        # fill-in-the-blank sentence is folded by too, so a gap in a sentence is
+        # graded exactly as forgivingly as a whole answer.
         from maths.algebra_grading import (
-            fold_degrees,
-            fold_division,
-            fold_exponents,
-            fold_inequalities,
+            fold_answer as _fold,
             is_reordered_expression_correct,
             option_label_set,
         )
-
-        def _fold(value):
-            # Make word-form answers tolerant of hyphenation and the filler
-            # word "and" so a single stored answer matches every natural
-            # phrasing, e.g. "nine dollars fifty-three cents" ==
-            # "nine dollars and fifty three cents". Run before fold_exponents
-            # collapses whitespace so "and" is still a separable word.
-            # Only hyphens *between letters* fold to a space — a leading "-"
-            # on a negative number stays significant ("-5" must not match "5").
-            value = re.sub(r'(?<=[A-Za-z])-(?=[A-Za-z])', ' ', value)
-            value = re.sub(r'\band\b', ' ', value, flags=re.IGNORECASE)
-            # Commas are insignificant for short answers: a digit-grouping or
-            # list comma should not change the match ("1,000" == "1000",
-            # "red, green" == "red green"). fold_exponents then strips all
-            # whitespace, so spacing around the comma is irrelevant too.
-            value = value.replace(',', '')
-            # Multiplication marks are interchangeable so a stored "3 × 10^4"
-            # matches whichever sign the student reaches for. The dedicated
-            # symbols (× ✕ ✖ · ∙ ⋅) are *always* multiplication, so fold them
-            # to "*" everywhere. A bare "x" or "*" only counts as a times sign
-            # when it sits *between two numbers* ("3x10^4", "3 * 10^4"), so an
-            # ordinary word answer ("box", "six") is left untouched. Mirrors the
-            # [x×*] split already used for prime_factorization in maths.plugin.
-            value = re.sub(r'[×✕✖·∙⋅]', '*', value)
-            value = re.sub(r'(?<=\d)\s*[x*]\s*(?=\d)', '*', value)
-            # Division is the same operation however it is spelled, so a
-            # stored "n ÷ 4" accepts "n/4" and vice versa.
-            return fold_exponents(
-                fold_inequalities(fold_degrees(fold_division(value)))
-            )
 
         def _positional_values(value):
             """The ordered values when *value* is a list of plain numbers.
@@ -496,6 +502,53 @@ class Question(models.Model):
             return False
         return any(user_labels == option_label_set(c) for c in correct)
 
+    def rebuild_blank_spec(self):
+        """Derive this question's ``blank_spec`` from its text + Answer rows.
+
+        Returns ``(applied, reason)``. ``applied`` is True when a spec was built
+        and assigned to ``self.blank_spec`` (the caller saves); False leaves the
+        field untouched and ``reason`` says, in words a person can act on, what
+        stopped it — an unmappable question is reported, never guessed at, because
+        a blank filled from the wrong value marks a correct student wrong and
+        nobody would know.
+
+        The one place the derivation happens, so the AI importer, the teacher
+        form and the ``convert_fill_blanks`` command all build the same spec from
+        the same question. Mapping rules live in
+        :func:`maths.blank_grading.derive_blank_spec`.
+
+        Non-destructive: the Answer rows are left exactly as they are. They are
+        still what BrainBuzz snapshots and what an export carries, and keeping
+        them is what makes a conversion reversible — clearing ``blank_spec``
+        returns the question to its single-box form with its answer intact.
+        """
+        from maths.blank_grading import derive_blank_spec
+
+        correct = [
+            a.answer_text for a in self.answers.filter(is_correct=True).order_by('order', 'id')
+            if a.answer_text
+        ]
+        spec, reason = derive_blank_spec(self.question_text, correct)
+        if spec is None:
+            return False, reason
+        self.blank_spec = spec
+        return True, ''
+
+    def display_text_answer(self, text_answer):
+        """A stored typed answer as it should be *shown* back to a student.
+
+        Only fill-in-the-blank answers differ from what was stored: they post one
+        value per gap as JSON, which is unreadable in a review list, so
+        ``{"blanks":["15","live"]}`` is shown as ``"15, live"``. Every other
+        answer is returned unchanged, so a review payload can be built by
+        calling this on whatever the student typed without first asking what
+        type the question was.
+        """
+        if self.question_type == self.FILL_BLANK and self.blank_spec:
+            from maths.blank_grading import describe_blank_answer
+            return describe_blank_answer(text_answer)
+        return text_answer
+
     def correct_answer_display(self):
         """The correct answer as it should be *shown* to a student.
 
@@ -508,6 +561,15 @@ class Question(models.Model):
         of what the question asked for stands in. Returns '' when there is
         neither.
         """
+        # A fill-in-the-blank sentence keeps its answers in blank_spec, one set
+        # per gap, so reading the Answer rows would show the student nothing (or,
+        # on a converted question, the pre-conversion row rather than the gaps).
+        if self.question_type == self.FILL_BLANK and self.blank_spec:
+            from maths.blank_grading import describe_blank_spec
+            shown = describe_blank_spec(self.blank_spec)
+            if shown:
+                return shown
+
         texts = [
             a.answer_text.strip()
             for a in self.answers.filter(is_correct=True)
@@ -688,6 +750,28 @@ class Question(models.Model):
                         'and must not have answer options.'
                     )
                 })
+
+        # Fill-in-the-blank questions are graded from blank_spec — one set of
+        # accepted answers per blank, positional. The spec is optional (a
+        # fill_blank with none is the legacy single-box shape), but a spec that
+        # IS set must line up with the underscores in the question text: a
+        # count mismatch mis-grades every attempt, silently.
+        if self.question_type == self.FILL_BLANK and self.blank_spec:
+            from maths.blank_grading import validate_blank_spec
+            try:
+                validate_blank_spec(self.blank_spec, self.question_text)
+            except ValueError as exc:
+                raise ValidationError({'blank_spec': str(exc)})
+
+        # A blank_spec on any other type would never be read — the grader routes
+        # on question_type — so it is a mis-set field, not a stored preference.
+        if self.blank_spec and self.question_type != self.FILL_BLANK:
+            raise ValidationError({
+                'blank_spec': (
+                    'blank_spec only applies to fill_blank questions. This one '
+                    f'is {self.question_type!r}.'
+                )
+            })
 
     @property
     def long_division_step_count(self):
@@ -984,6 +1068,63 @@ class Question(models.Model):
                     out_cells.append({'given': False, 'rc': f'{r},{c}', 'answer': value})
             out_rows.append(out_cells)
         return {'headers': headers, 'rows': out_rows}
+
+    @property
+    def blank_data(self):
+        """Render-ready data for a fill_blank question, or None.
+
+        Interleaves the literal text around the blanks with the blanks
+        themselves, so a template can lay the sentence back out with an input
+        sitting in each gap::
+
+            {'count': 2,
+             'parts': [{'text': 'Out of 100 000 births, ... to the age of '},
+                       {'index': 0, 'size': 4, 'answer': '15'},
+                       {'text': '. From that age, ... expected to '},
+                       {'index': 1, 'size': 8, 'answer': 'live or survive'},
+                       {'text': ' for another 67.0 years.'}]}
+
+        Each part has exactly one of ``text`` (literal) or ``index`` (a blank).
+        ``size`` is the input's width in characters, from the longest accepted
+        answer, so a one-digit gap isn't a full-width box and a wordy one still
+        fits. ``answer`` is kept on blank parts so the worksheets answer-key
+        surface can print the correct value — the student take template renders
+        only the empty input and never prints it, exactly as ``table_data``
+        does.
+
+        Returns None when there's nothing renderable (no spec, or a spec out of
+        step with the text), so templates guard with a single check and fall
+        back to the plain single-box input rather than rendering a broken
+        sentence. Mirrors ``table_data`` / ``number_line_data`` — render data on
+        the model, no per-view plumbing.
+        """
+        if self.question_type != self.FILL_BLANK or not self.blank_spec:
+            return None
+        from maths.blank_grading import blank_answers, split_on_blanks
+
+        answers = blank_answers(self.blank_spec)
+        if not answers:
+            return None
+        segments = split_on_blanks(self.question_text)
+        # A spec that no longer matches its sentence cannot be laid out — some
+        # gap would have no input, or some input no gap. clean() rejects that,
+        # but content edited around the validator must degrade to the plain box
+        # rather than render a sentence that is missing an answer.
+        if len(segments) != len(answers) + 1:
+            return None
+
+        parts = []
+        for i, segment in enumerate(segments):
+            if segment:
+                parts.append({'text': segment})
+            if i < len(answers):
+                longest = max(len(a) for a in answers[i])
+                parts.append({
+                    'index': i,
+                    'size': max(_BLANK_MIN_SIZE, min(longest, _BLANK_MAX_SIZE)),
+                    'answer': ' or '.join(answers[i]),
+                })
+        return {'count': len(answers), 'parts': parts}
 
     @property
     def prime_factorization_rows(self):

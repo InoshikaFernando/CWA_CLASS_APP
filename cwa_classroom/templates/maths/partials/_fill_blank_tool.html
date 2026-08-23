@@ -1,0 +1,36 @@
+{% load maths_format %}
+{% comment %}
+Shared fill-in-the-blanks widget. Renders the question sentence with an input
+sitting in each gap, so the student reads the sentence as a sentence rather than
+answering a detached box. The typed values serialise to JSON in the hidden
+``field_name`` input as {"blanks":["15","live"]} via static/js/fill_blank.js —
+no inline script, so it survives the innerHTML question swap on the quiz /
+worksheet surfaces. The accepted answers live in the spec and are never emitted
+into the page.
+
+Because the sentence IS the widget, every surface that includes this must
+suppress its own separate question-text paragraph (guard it with
+``{% if not q.blank_data %}``) or the question would be printed twice.
+
+Deliberately NOT "cwa-exp-input": that class makes maths_exponent.js move the
+field into a flex row and hang a 12-button symbol keypad off it, which is right
+for one answer box at the end of a question and unusable for a gap sitting
+inside a sentence — a keypad per gap, each breaking the line. A blank takes a
+word or a number, so it takes a plain input.
+
+Context: q (the Question), field_name (the hidden input's name — "answer_<id>"
+on homework, "text_answer" on quiz / worksheets).
+{% endcomment %}
+{% if q.blank_data %}{% with d=q.blank_data %}
+<div data-fb-stage>
+  <input type="hidden" name="{{ field_name }}" data-fb-hidden value='{"blanks":[]}' />
+  <p class="text-gray-900 font-medium leading-loose">
+    {% for part in d.parts %}{% if part.text %}{{ part.text|exponents }}{% else %}<input
+      type="text" data-fb-input data-index="{{ part.index }}" size="{{ part.size }}"
+      autocomplete="off" aria-label="Blank {{ part.index|add:1 }} of {{ d.count }}"
+      class="inline-block align-baseline mx-1 w-auto text-center bg-blue-50
+             border-0 border-b-2 border-blue-300 rounded-t font-bold text-blue-700
+             px-1 py-0.5 focus:border-blue-600 focus:bg-white focus:outline-none" />{% endif %}{% endfor %}
+  </p>
+</div>
+{% endwith %}{% endif %}

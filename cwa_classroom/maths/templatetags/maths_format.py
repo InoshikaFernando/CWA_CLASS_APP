@@ -52,6 +52,30 @@ CREDIT_PARTIAL_FLOOR = 0.5  # >= this (but below full) shows amber "Partially co
 
 
 @register.filter
+def blank_answer(value):
+    """Render a fill-in-the-blank answer payload as readable text.
+
+    A fill-in-the-blank sentence posts one value per gap as JSON
+    (``{"blanks":["15","live"]}``), so a review page that printed the stored
+    text verbatim showed the student their own answer as raw JSON. This turns it
+    back into ``"15, live"``, with an unfilled gap shown as "—".
+
+    Display-only, and safe to apply to any typed answer: anything that is not a
+    blanks payload is returned unchanged, so a review template can pipe every
+    answer through it without first asking what type the question was.
+
+    >>> blank_answer('{"blanks": ["15", "live"]}')
+    '15, live'
+    >>> blank_answer('42')
+    '42'
+    """
+    if not value:
+        return value
+    from maths.blank_grading import describe_blank_answer
+    return describe_blank_answer(value)
+
+
+@register.filter
 def credit_state(answer):
     """Return ``'correct'``, ``'partial'`` or ``'wrong'`` for how to *display* an answer.
 

@@ -44,7 +44,7 @@ ANSWER_PARTIAL_MAP = {
     'multiple_choice':    _PARTIAL + '_answer_mcq.html',
     'true_false':         _PARTIAL + '_answer_mcq.html',
     'short_answer':       _PARTIAL + '_answer_short.html',
-    'fill_blank':         _PARTIAL + '_answer_text.html',
+    'fill_blank':         _PARTIAL + '_answer_fill_blank.html',
     'calculation':        _PARTIAL + '_answer_text.html',
     'extended_answer':    _PARTIAL + '_answer_extended.html',
     'long_division':      _PARTIAL + '_answer_long_division.html',

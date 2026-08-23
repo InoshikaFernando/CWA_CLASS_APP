@@ -21,7 +21,12 @@
 
   <!-- Question text (with read-aloud speaker) -->
   <div class="flex items-start gap-2 mb-6">
+    {% comment %}A fill-in-the-blank sentence IS its own widget (the gaps sit inside the
+    text), so it prints the question itself below — printing it here too would show the
+    question twice. The read-aloud button still reads the whole sentence.{% endcomment %}
+    {% if not question.blank_data %}
     <p class="text-gray-800 font-semibold text-lg leading-snug flex-1">{{ question.question_text }}</p>
+    {% else %}<span class="flex-1"></span>{% endif %}
     {% if question.question_text %}
     <button type="button"
             class="tts-btn shrink-0 w-10 h-10 rounded-full bg-accent-light text-accent
@@ -281,6 +286,21 @@
         Submit
       </button>
     </div>
+
+  {% elif question.question_type == 'fill_blank' and question.blank_data %}
+    {% comment %}
+    Fill in the blanks: the sentence is re-laid-out with an input in each gap.
+    fill_blank.js keeps the hidden text_answer field in sync as JSON
+    {"blanks":[...]}, graded by grade_fill_blank server-side. The Submit button's
+    onclick survives the innerHTML question swap; fill_blank.js re-mounts via the
+    shared maths_mounts.js registry.
+    {% endcomment %}
+    {% include "maths/partials/_fill_blank_tool.html" with q=question field_name='text_answer' %}
+    <button type="button"
+            class="mt-4 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+            onclick="submitFillBlank('{{ session_id }}', {{ question.id }})">
+      Submit
+    </button>
 
   {% elif question.question_type == 'number_line' and question.number_line_data %}
     {% comment %}

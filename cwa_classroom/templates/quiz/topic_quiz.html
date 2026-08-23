@@ -288,6 +288,25 @@
     });
   }
 
+  function submitFillBlank(sessionId, questionId) {
+    // The gaps post as one hidden {"blanks":[...]} JSON (kept in sync by
+    // fill_blank.js), graded all-or-nothing by grade_fill_blank server-side.
+    // An untouched sentence is not submitted — the student has answered nothing
+    // yet, and posting it would burn the question as wrong.
+    const stage = document.querySelector('[data-fb-stage]');
+    const hidden = stage ? stage.querySelector('[data-fb-hidden]') : null;
+    if (!hidden) return;
+    let filled = false;
+    try {
+      const blanks = (JSON.parse(hidden.value || '{}').blanks) || [];
+      filled = blanks.some(v => (v || '').trim() !== '');
+    } catch (e) { /* malformed — treat as empty */ }
+    if (!filled) return;
+    _submitAndAdvance(sessionId, {
+      session_id: sessionId, question_id: questionId, text_answer: hidden.value,
+    });
+  }
+
   function submitNumberLine(sessionId, questionId) {
     // mark mode posts the hidden {"marks":[...]} JSON (kept in sync by
     // number_line.js); read mode posts the typed value. Both go as text_answer,
