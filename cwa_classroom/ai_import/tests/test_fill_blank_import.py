@@ -99,7 +99,7 @@ class SaveFillBlankTests(TestCase):
         self.assertEqual(q.question_type, Question.FILL_BLANK)
 
     def test_an_unmappable_sentence_imports_as_a_single_box_and_is_reported(self):
-        result = self._save(_payload(answers=('fifteen and living',)))
+        result = self._save(_payload(answers=('fifteen living',)))
         self.assertEqual(result['failed'], 0)      # it imported fine
         self.assertEqual(result['inserted'], 1)
         self.assertEqual(result['blanks_built'], 0)
@@ -109,7 +109,7 @@ class SaveFillBlankTests(TestCase):
         q = Question.objects.get(question_text=SENTENCE)
         self.assertIsNone(q.blank_spec)
         # Still a working question — it grades the way it always did.
-        self.assertTrue(q.grade_text_answer('fifteen and living'))
+        self.assertTrue(q.grade_text_answer('fifteen living'))
 
     def test_choice_questions_are_never_promoted(self):
         self._save(_payload(question_type='multiple_choice',
