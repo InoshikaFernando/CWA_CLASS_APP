@@ -61,8 +61,6 @@ class IsUnanswerableConstructionTests(SimpleTestCase):
         'Group the animals in a Venn diagram.',
         'Sort these numbers into the Venn diagram.',
         'Record your results in a tally chart.',
-        'Put the numbers in the correct place on the Venn diagram.',
-        'Add the following elements to the Venn diagram.',
         'Use a tree diagram to work out the probability of two heads.',
         'Use a scatter graph to display the relationship.',
     ]
@@ -116,6 +114,52 @@ class IsUnanswerableConstructionTests(SimpleTestCase):
         for text in self.DRAWING_QUESTIONS_WITHOUT_A_DRAW_VERB:
             with self.subTest(text):
                 self.assertTrue(is_unanswerable_construction({'question_text': text}))
+
+    # Every one of these was flagged by a production dry run over 19,773 bank
+    # questions, and every one is answerable by typing. They are the reason the
+    # placement-verb pattern was removed and the stored-answer rule added.
+    PRODUCTION_FALSE_POSITIVES = [
+        # Read a figure, type the answer — the app's own read modes.
+        'Write down the equation of Line A shown on the graph.',
+        'Write the number shown with an arrow on the number line below.',
+        'Write the coordinates of the pink ship shown on the grid.',
+        'Write the missing numbers on the number line that counts from 0 to 10.',
+        # Algebra technique, not a shape. `square` is in the visual list.
+        'For the parabola y = x2 + 6x - 10, complete the square to express it '
+        'in vertex form.',
+        # A noun phrase describing a figure the sheet already provides; the task
+        # is calculating carpet area.
+        "This is a sketch drawing of Kirin's office, which needs new carpet.",
+        # Describes someone else completing a table.
+        'Sam is completing a table of values for the formula 2(n+1).',
+    ]
+
+    def test_production_false_positives_stay_answerable(self):
+        for text in self.PRODUCTION_FALSE_POSITIVES:
+            with self.subTest(text):
+                self.assertFalse(is_unanswerable_construction({'question_text': text}))
+
+    def test_a_ticked_answer_means_the_question_is_answerable(self):
+        # "Complete the table for Output = 6x" has graded correctly for as long
+        # as it has existed. Its stored answer outranks the word "table".
+        q = {'question_text': 'Complete the table for Output = 6x with Input '
+                              'x = 1, 2, 3, 4, 5.',
+             'question_type': 'short_answer',
+             'answers': [{'text': '6, 12, 18, 24, 30', 'is_correct': True}]}
+        self.assertFalse(is_unanswerable_construction(q))
+
+        # Strip the answer and it is a table nobody can fill in.
+        self.assertTrue(is_unanswerable_construction(
+            {**q, 'answers': [{'text': '', 'is_correct': True}]}))
+        self.assertTrue(is_unanswerable_construction({**q, 'answers': []}))
+
+    def test_a_wrong_only_answer_set_does_not_exempt(self):
+        # Distractors with nothing ticked cannot grade anything.
+        self.assertTrue(is_unanswerable_construction({
+            'question_text': 'Draw a tree diagram to illustrate this situation.',
+            'question_type': 'short_answer',
+            'answers': [{'text': 'a', 'is_correct': False}],
+        }))
 
     def test_answerable_questions_are_left_alone(self):
         for text in self.ANSWERABLE_QUESTIONS:
