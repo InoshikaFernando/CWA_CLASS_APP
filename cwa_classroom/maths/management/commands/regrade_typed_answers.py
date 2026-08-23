@@ -22,7 +22,17 @@ grading got stricter, is not a decision a script should make on its own.
 WHAT IS RE-GRADED
   Typed answers whose result is a pure function of the stored data:
   short_answer / fill_blank / calculation, in the text / set / algebra /
-  equation / pattern formats.
+  equation / pattern formats — across all three places a maths answer is
+  recorded:
+
+    quiz        maths.StudentAnswer
+    homework    homework.HomeworkStudentAnswer  (auto-graded rows only)
+    worksheets  worksheets.WorksheetStudentAnswer
+
+  The comma-splitting defect was the quiz's alone — homework and worksheets
+  always called grade_text_answer directly. But the rules that fixed term
+  order ("110+12p" for "12p + 110") and division notation ("n/4" for "n ÷ 4")
+  live in that shared method, so those two stores are owed marks as well.
 
 WHAT IS NOT, and why
   * multiple choice / true-false / drag-drop — graded from the row the student
@@ -75,6 +85,9 @@ class Command(BaseCommand):
                             help='Limit to one question id.')
         parser.add_argument('--limit', type=int, default=None,
                             help='Stop after examining N answers (smoke run).')
+        parser.add_argument(
+            '--source', choices=('all', 'quiz', 'homework', 'worksheets'),
+            default='all', help='Which record of answers to re-grade.')
         parser.add_argument('--apply', action='store_true',
                             help='Write the corrections. Without this the '
                                  'command only reports (dry run).')
@@ -85,8 +98,22 @@ class Command(BaseCommand):
                 and question.answer_format in REGRADABLE_FORMATS
                 and not question.needs_grading)
 
-    def _find(self, opts):
-        """Answers marked wrong whose recorded text the grader now accepts."""
+    def _scan(self, rows, opts):
+        """Rows marked wrong whose recorded text the grader now accepts."""
+        examined = 0
+        found = []
+        for row in rows.iterator(chunk_size=500):
+            if opts['limit'] and examined >= opts['limit']:
+                break
+            examined += 1
+            question = row.question
+            if question is None or not self._regradable(question):
+                continue
+            if question.grade_text_answer(row.text_answer):
+                found.append(row)
+        return examined, found
+
+    def _quiz_rows(self, opts):
         rows = (
             StudentAnswer.objects
             .filter(is_correct=False)
@@ -101,40 +128,100 @@ class Command(BaseCommand):
             rows = rows.filter(student_id=opts['student'])
         if opts['question'] is not None:
             rows = rows.filter(question_id=opts['question'])
+        return rows
 
-        examined = 0
-        found = []
-        for row in rows.iterator(chunk_size=500):
-            if opts['limit'] and examined >= opts['limit']:
-                break
-            examined += 1
-            question = row.question
-            if not self._regradable(question):
-                continue
-            if question.grade_text_answer(row.text_answer):
-                found.append(row)
-        return examined, found
+    def _homework_rows(self, opts):
+        """Auto-graded homework answers only.
+
+        review_status records who marked the row. A row awaiting or carrying an
+        AI or teacher verdict is theirs, not this command's — re-running a
+        grader over it would overwrite a person's judgement.
+        """
+        from homework.models import HomeworkStudentAnswer
+
+        rows = (
+            HomeworkStudentAnswer.objects
+            .filter(is_correct=False,
+                    review_status=HomeworkStudentAnswer.REVIEW_AUTO)
+            .exclude(text_answer='')
+            .exclude(question__isnull=True)
+            .select_related('question', 'question__topic', 'question__level',
+                            'submission')
+            .prefetch_related('question__answers')
+            .order_by('id')
+        )
+        if opts['topic'] is not None:
+            rows = rows.filter(question__topic_id=opts['topic'])
+        if opts['student'] is not None:
+            rows = rows.filter(submission__student_id=opts['student'])
+        if opts['question'] is not None:
+            rows = rows.filter(question_id=opts['question'])
+        return rows
+
+    def _worksheet_rows(self, opts):
+        from worksheets.models import WorksheetStudentAnswer
+
+        rows = (
+            WorksheetStudentAnswer.objects
+            .filter(is_correct=False)
+            .exclude(text_answer='')
+            .exclude(question__isnull=True)
+            .select_related('question', 'question__topic', 'question__level',
+                            'submission')
+            .prefetch_related('question__answers')
+            .order_by('id')
+        )
+        if opts['topic'] is not None:
+            rows = rows.filter(question__topic_id=opts['topic'])
+        if opts['student'] is not None:
+            rows = rows.filter(submission__student_id=opts['student'])
+        if opts['question'] is not None:
+            rows = rows.filter(question_id=opts['question'])
+        return rows
 
     # ------------------------------------------------------------------
     def handle(self, *args, **opts):
-        examined, found = self._find(opts)
+        wanted = opts['source']
+        sources = []
+        if wanted in ('all', 'quiz'):
+            sources.append(('quiz', self._quiz_rows(opts)))
+        if wanted in ('all', 'homework'):
+            sources.append(('homework', self._homework_rows(opts)))
+        if wanted in ('all', 'worksheets'):
+            sources.append(('worksheets', self._worksheet_rows(opts)))
 
-        self.stdout.write(f'Answers examined                : {examined}')
-        self.stdout.write(f'Marked wrong, now grade correct : {len(found)}')
+        found_by_source = {}
+        for name, rows in sources:
+            examined, found = self._scan(rows, opts)
+            found_by_source[name] = found
+            self.stdout.write(
+                f'{name:<11} examined {examined:>5}, owed a mark: {len(found)}')
 
-        if not found:
+        found = found_by_source.get('quiz', [])
+        homework_found = found_by_source.get('homework', [])
+        worksheet_found = found_by_source.get('worksheets', [])
+        total_found = len(found) + len(homework_found) + len(worksheet_found)
+
+        self.stdout.write('')
+        self.stdout.write(f'Marked wrong, now grade correct : {total_found}')
+
+        if not total_found:
             self.stdout.write(self.style.SUCCESS(
                 'Nothing to correct — no past answer is owed a mark.'))
             return
 
         students = {row.student_id for row in found}
+        students |= {row.submission.student_id
+                     for row in homework_found + worksheet_found}
         questions = {row.question_id for row in found}
+        questions |= {row.question_id
+                      for row in homework_found + worksheet_found}
         self.stdout.write(f'Students affected               : {len(students)}')
         self.stdout.write(f'Questions affected              : {len(questions)}')
         self.stdout.write('')
 
         by_question = defaultdict(list)
-        for row in found:
+        for row in found + homework_found + worksheet_found:
             by_question[row.question].append(row)
         for question, rows in list(by_question.items())[:10]:
             year = question.level.level_number if question.level_id else '?'
@@ -143,7 +230,10 @@ class Command(BaseCommand):
                               f'{question.question_text[:60]}')
             self.stdout.write(f'      stored : {question.correct_answer_display()[:70]}')
             for row in rows[:3]:
-                self.stdout.write(f'      student {row.student_id} typed '
+                student = getattr(row, 'student_id', None)
+                if student is None:
+                    student = row.submission.student_id
+                self.stdout.write(f'      student {student} typed '
                                   f'{row.text_answer[:50]!r} — was marked wrong')
         if len(by_question) > 10:
             self.stdout.write(f'  … and {len(by_question) - 10} more question(s)')
@@ -155,24 +245,60 @@ class Command(BaseCommand):
             return
 
         with transaction.atomic():
-            for row in found:
+            for row in found + homework_found + worksheet_found:
                 row.is_correct = True
                 row.points_earned = row.question.points
                 row.save(update_fields=['is_correct', 'points_earned'])
 
             results_fixed, stats_keys = self._fix_results(students, questions)
+            submissions_fixed = self._fix_submissions(
+                homework_found, worksheet_found)
 
         self.stdout.write('')
         self.stdout.write(self.style.SUCCESS(
-            f'Corrected {len(found)} answer(s) for {len(students)} student(s).'))
+            f'Corrected {total_found} answer(s) for {len(students)} student(s).'))
         self.stdout.write(self.style.SUCCESS(
-            f'Recounted {results_fixed} quiz result(s).'))
+            f'Recounted {results_fixed} quiz result(s) and '
+            f'{submissions_fixed} homework/worksheet submission(s).'))
 
         for topic, level in stats_keys:
             TopicLevelStatistics.recalculate(topic, level)
         if stats_keys:
             self.stdout.write(self.style.SUCCESS(
                 f'Rebuilt statistics for {len(stats_keys)} topic/level pair(s).'))
+
+    # ------------------------------------------------------------------
+    def _fix_submissions(self, homework_found, worksheet_found):
+        """Recount the homework and worksheet totals the marks sit inside.
+
+        Each app already owns the arithmetic for its own totals, so this calls
+        theirs rather than keeping a second copy that could drift: homework
+        counts correct answers and sums points_earned, worksheets count correct
+        answers. Recomputing either here would be a third opinion on a sum that
+        already has an owner.
+        """
+        from homework.views import _recalculate_submission_score
+
+        fixed = 0
+        seen = set()
+        for row in homework_found:
+            submission = row.submission
+            if submission.pk in seen:
+                continue
+            seen.add(submission.pk)
+            _recalculate_submission_score(submission)
+            fixed += 1
+
+        seen = set()
+        for row in worksheet_found:
+            submission = row.submission
+            if submission.pk in seen:
+                continue
+            seen.add(submission.pk)
+            submission.score = submission.answers.filter(is_correct=True).count()
+            submission.save(update_fields=['score'])
+            fixed += 1
+        return fixed
 
     # ------------------------------------------------------------------
     def _fix_results(self, students, questions):

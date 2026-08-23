@@ -10,13 +10,15 @@ Proven on production, Q23576: the recorded text "40 ,36 ,28" was marked wrong
 at the time and grades correct against today's rules.
 """
 import uuid
+from datetime import timedelta
 from io import StringIO
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
+from django.utils import timezone
 
-from classroom.models import Level, Subject, Topic
+from classroom.models import ClassRoom, Level, School, Subject, Topic
 from maths.models import (
     Answer, Question, StudentAnswer, StudentFinalAnswer,
 )
@@ -30,6 +32,10 @@ class RegradeTypedAnswersTests(TestCase):
         cls.student = User.objects.create_user(
             username='regrade-student', password='pass1234',
             email='regrade@test.com')
+        cls.school = School.objects.create(
+            name='Regrade School', slug='regrade-school', admin=cls.student)
+        cls.classroom = ClassRoom.objects.create(
+            name='Regrade Class', code='RG01', school=cls.school)
         subject = Subject.objects.create(name='Mathematics', slug='maths-rg')
         cls.level = Level.objects.create(level_number=4, display_name='Year 4')
         cls.topic = Topic.objects.create(
@@ -148,6 +154,80 @@ class RegradeTypedAnswersTests(TestCase):
         self._run('--apply')
         row.refresh_from_db()
         self.assertFalse(row.is_correct)
+
+    # --------------------------------------------------- homework & worksheets
+
+    def _homework_answer(self, text, review=None):
+        from homework.models import (
+            Homework, HomeworkStudentAnswer, HomeworkSubmission,
+        )
+        homework = Homework.objects.create(
+            classroom=self.classroom, title='Patterns homework',
+            due_date=timezone.now() + timedelta(days=3),
+            created_by=self.student)
+        submission = HomeworkSubmission.objects.create(
+            homework=homework, student=self.student,
+            score=0, total_questions=1)
+        return HomeworkStudentAnswer.objects.create(
+            submission=submission, question=self.question, text_answer=text,
+            is_correct=False, content_id=self.question.id,
+            review_status=review or HomeworkStudentAnswer.REVIEW_AUTO,
+        ), submission
+
+    def _worksheet_answer(self, text):
+        from worksheets.models import (
+            Worksheet, WorksheetAssignment, WorksheetStudentAnswer,
+            WorksheetSubmission,
+        )
+        worksheet = Worksheet.objects.create(
+            school=self.school, name='Patterns worksheet',
+            original_filename='patterns.pdf', created_by=self.student)
+        assignment = WorksheetAssignment.objects.create(
+            worksheet=worksheet, classroom=self.classroom)
+        submission = WorksheetSubmission.objects.create(
+            assignment=assignment, student=self.student,
+            score=0, total_questions=1)
+        return WorksheetStudentAnswer.objects.create(
+            submission=submission, question=self.question, text_answer=text,
+            is_correct=False, content_id=self.question.id,
+        ), submission
+
+    def test_a_homework_answer_is_corrected_and_the_total_recounted(self):
+        row, submission = self._homework_answer('40 ,36 ,28')
+        self._run('--apply')
+        row.refresh_from_db()
+        submission.refresh_from_db()
+        self.assertTrue(row.is_correct)
+        self.assertEqual(submission.score, 1)
+
+    def test_a_worksheet_answer_is_corrected_and_the_total_recounted(self):
+        row, submission = self._worksheet_answer('40 ,36 ,28')
+        self._run('--apply')
+        row.refresh_from_db()
+        submission.refresh_from_db()
+        self.assertTrue(row.is_correct)
+        self.assertEqual(submission.score, 1)
+
+    def test_a_teacher_or_ai_marked_homework_row_is_left_to_them(self):
+        """review_status records who marked it. Not this command's to overwrite."""
+        from homework.models import HomeworkStudentAnswer
+
+        for review in (HomeworkStudentAnswer.REVIEW_AI_DONE,
+                       HomeworkStudentAnswer.REVIEW_TEACHER_DONE,
+                       HomeworkStudentAnswer.REVIEW_PENDING_TEACHER):
+            row, _ = self._homework_answer('40 ,36 ,28', review=review)
+            self._run('--apply')
+            row.refresh_from_db()
+            self.assertFalse(row.is_correct, review)
+
+    def test_source_can_be_limited_to_one_store(self):
+        quiz_row = self._answer(self.question, '40 ,36 ,28')
+        hw_row, _ = self._homework_answer('40 ,36 ,28')
+        self._run('--apply', '--source', 'quiz')
+        quiz_row.refresh_from_db()
+        hw_row.refresh_from_db()
+        self.assertTrue(quiz_row.is_correct)
+        self.assertFalse(hw_row.is_correct)
 
     def test_scope_can_be_narrowed(self):
         self._answer(self.question, '40 ,36 ,28')
