@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ report.label }} — Progress Report{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6" data-testid="period-report">
+
+  <!-- Header -->
+  <div class="flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <a href="{% url 'progress:period_report_list' %}{% if not is_self %}?student={{ student.id }}{% endif %}"
+         class="text-xs text-slate-400 hover:text-slate-600">&larr; All reports</a>
+      <h1 class="font-display text-3xl text-gray-800 mt-1">
+        {{ report.get_period_type_display }} Progress Report
+      </h1>
+      <p class="text-slate-500 text-sm mt-1">
+        {% if not is_self %}{{ student.first_name }} {{ student.last_name }} &middot; {% endif %}
+        {{ report.label }} &middot;
+        {{ report.period_start|date:"d M Y" }} – {{ report.period_end|date:"d M Y" }}
+      </p>
+    </div>
+    <a href="{% url 'progress:period_report_pdf' report_id=report.id %}"
+       data-testid="report-pdf-link"
+       class="shrink-0 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+      Download PDF
+    </a>
+  </div>
+
+  {% if not report.has_activity %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center space-y-2"
+         data-testid="report-empty">
+      <p class="text-slate-700 font-semibold">No homework was submitted in this period</p>
+      <p class="text-slate-500 text-sm">
+        There is nothing to report yet. Every attempt counts — including the second one.
+      </p>
+    </div>
+  {% else %}
+
+  <!-- Headline figures -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="report-kpis">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="text-3xl font-bold text-indigo-600">{{ totals.avg_best_pct }}%</p>
+      <p class="text-xs text-slate-400 font-medium mt-1">Average (best attempt)</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="text-3xl font-bold text-slate-600">{{ totals.avg_first_pct }}%</p>
+      <p class="text-xs text-slate-400 font-medium mt-1">Average (first attempt)</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="text-3xl font-bold {% if totals.improvement_pct > 0 %}text-emerald-600{% else %}text-slate-400{% endif %}">
+        {{ totals.improvement_pct|stringformat:"+d" }}
+      </p>
+      <p class="text-xs text-slate-400 font-medium mt-1">Points gained by retrying</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="text-3xl font-bold text-slate-700">{{ totals.time_minutes }}<span class="text-lg">m</span></p>
+      <p class="text-xs text-slate-400 font-medium mt-1">Time on task</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center text-sm">
+    <div class="bg-slate-50 rounded-xl border border-slate-200 p-3">
+      <span class="font-bold text-slate-700">{{ totals.completed }}/{{ totals.assigned }}</span>
+      <span class="text-slate-400 block text-xs">homework due, attempted</span>
+    </div>
+    <div class="bg-slate-50 rounded-xl border border-slate-200 p-3">
+      <span class="font-bold text-slate-700">{{ totals.submissions }}</span>
+      <span class="text-slate-400 block text-xs">total attempts</span>
+    </div>
+    <div class="bg-slate-50 rounded-xl border border-slate-200 p-3">
+      <span class="font-bold text-slate-700">{{ totals.on_time_pct }}%</span>
+      <span class="text-slate-400 block text-xs">handed in on time</span>
+    </div>
+    <div class="bg-slate-50 rounded-xl border border-slate-200 p-3">
+      <span class="font-bold text-slate-700">{{ totals.best_single_pct }}%</span>
+      <span class="text-slate-400 block text-xs">best single score</span>
+    </div>
+  </div>
+
+  <!-- Recognition -->
+  {% if awards %}
+  <div class="bg-gradient-to-br from-amber-50 to-white rounded-2xl border border-amber-200 shadow-sm p-6"
+       data-testid="report-awards">
+    <h2 class="font-display text-xl text-gray-800">Recognition</h2>
+    <p class="text-xs text-slate-500 mb-4">Earned against classmates over this same period.</p>
+    <div class="grid gap-3 sm:grid-cols-2">
+      {% for award in awards %}
+        <div class="bg-white rounded-xl border border-amber-200 p-4">
+          <p class="font-semibold text-amber-700">{{ award.label }}</p>
+          <p class="text-sm text-slate-600 mt-1">{{ award.detail }}</p>
+          {% if award.classroom %}
+            <p class="text-[11px] text-slate-400 mt-1">{{ award.classroom }}</p>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Charts -->
+  <div class="grid gap-6 lg:grid-cols-2">
+    {% if topics %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <h2 class="font-display text-xl text-gray-800">By topic</h2>
+      <p class="text-xs text-slate-500 mb-4">Accuracy across every question answered, weakest first.</p>
+      <canvas id="topicChart" height="220" data-testid="chart-topics"></canvas>
+    </div>
+    {% endif %}
+
+    {% if attempts.distribution %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <h2 class="font-display text-xl text-gray-800">Effort</h2>
+      <p class="text-xs text-slate-500 mb-4">
+        {{ attempts.repeat_rate_pct }}% of homework was attempted more than once,
+        averaging {{ attempts.avg_attempts }} attempts each.
+      </p>
+      <canvas id="attemptsChart" height="220" data-testid="chart-attempts"></canvas>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if report.trend|length > 1 %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <h2 class="font-display text-xl text-gray-800">Over the period</h2>
+    <p class="text-xs text-slate-500 mb-4">Average score per attempt.</p>
+    <canvas id="trendChart" height="160" data-testid="chart-trend"></canvas>
+  </div>
+  {% endif %}
+
+  <!-- Attempts detail -->
+  {% if attempts.items %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-attempts">
+    <h2 class="font-display text-xl text-gray-800">First attempt vs. best</h2>
+    <p class="text-xs text-slate-500 mb-4">What going back a second time was worth.</p>
+    <canvas id="firstVsBestChart" height="200" data-testid="chart-first-vs-best"></canvas>
+
+    <div class="overflow-x-auto mt-6">
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200">
+            <th class="py-2 pr-4">Homework</th>
+            <th class="py-2 px-2 text-center">Attempts</th>
+            <th class="py-2 px-2 text-center">First</th>
+            <th class="py-2 px-2 text-center">Best</th>
+            <th class="py-2 pl-2 text-center">Gain</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in attempts.items %}
+          <tr class="border-b border-slate-100">
+            <td class="py-2 pr-4 text-slate-700">
+              {{ row.title }}
+              {% if row.classroom %}<span class="block text-[11px] text-slate-400">{{ row.classroom }}</span>{% endif %}
+            </td>
+            <td class="py-2 px-2 text-center text-slate-600">{{ row.attempts }}</td>
+            <td class="py-2 px-2 text-center text-slate-500">{{ row.first_pct }}%</td>
+            <td class="py-2 px-2 text-center font-semibold text-slate-800">{{ row.best_pct }}%</td>
+            <td class="py-2 pl-2 text-center {% if row.gain_pct > 0 %}text-emerald-600 font-semibold{% else %}text-slate-400{% endif %}">
+              {{ row.gain_pct|stringformat:"+d" }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Topic table -->
+  {% if topics %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-topics">
+    <h2 class="font-display text-xl text-gray-800">Topic detail</h2>
+    <div class="overflow-x-auto mt-4">
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200">
+            <th class="py-2 pr-4">Topic</th>
+            <th class="py-2 px-2 text-center">Answered</th>
+            <th class="py-2 px-2 text-center">Correct</th>
+            <th class="py-2 pl-2 text-center">Accuracy</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in topics %}
+          <tr class="border-b border-slate-100">
+            <td class="py-2 pr-4 text-slate-700">{{ row.topic }}</td>
+            <td class="py-2 px-2 text-center text-slate-600">{{ row.answered }}</td>
+            <td class="py-2 px-2 text-center text-slate-600">{{ row.correct }}</td>
+            <td class="py-2 pl-2 text-center font-semibold
+                       {% if row.accuracy_pct >= 75 %}text-emerald-600
+                       {% elif row.accuracy_pct >= 50 %}text-amber-600
+                       {% else %}text-red-600{% endif %}">{{ row.accuracy_pct }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Worksheets -->
+  {% if worksheets.items %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-worksheets">
+    <h2 class="font-display text-xl text-gray-800">Worksheets</h2>
+    <p class="text-xs text-slate-500 mb-4">
+      {{ worksheets.completed }} completed, averaging {{ worksheets.average_pct }}%.
+    </p>
+    <ul class="divide-y divide-slate-100 text-sm">
+      {% for row in worksheets.items %}
+        <li class="py-2 flex items-center justify-between">
+          <span class="text-slate-700">{{ row.title }}</span>
+          <span class="text-slate-500">{{ row.score }}/{{ row.total }} &middot; <b>{{ row.pct }}%</b></span>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if report.has_activity %}
+<script id="report-charts-data" type="application/json">{{ charts_json|safe }}</script>
+{# Chart.js is served from our own static files, not a CDN: the report is the
+   one page a parent may open on a school network that blocks third-party
+   script hosts, and a silently chart-less report reads as "no data". #}
+<script src="{% static 'js/chart.min.js' %}"></script>
+<script>
+(function () {
+  // The snapshot is already frozen server-side, so the page reads it straight
+  // out of the document rather than calling an API that could drift from the PDF.
+  var el = document.getElementById('report-charts-data');
+  if (!el || typeof Chart === 'undefined') { return; }
+  var data = JSON.parse(el.textContent);
+
+  var INK = '#1f2937', GRID = '#e5e7eb';
+  var scoreColour = function (pct) {
+    return pct >= 75 ? '#059669' : pct >= 50 ? '#d97706' : '#dc2626';
+  };
+  var percentScale = {
+    y: { beginAtZero: true, max: 100, ticks: { callback: function (v) { return v + '%'; } },
+         grid: { color: GRID } },
+    x: { grid: { display: false } }
+  };
+
+  var topics = document.getElementById('topicChart');
+  if (topics && data.topics.labels.length) {
+    new Chart(topics, {
+      type: 'bar',
+      data: {
+        labels: data.topics.labels,
+        datasets: [{
+          label: 'Accuracy',
+          data: data.topics.values,
+          backgroundColor: data.topics.values.map(scoreColour),
+          borderRadius: 4
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } }, scales: percentScale }
+    });
+  }
+
+  var attempts = document.getElementById('attemptsChart');
+  if (attempts && data.attempts.labels.length) {
+    new Chart(attempts, {
+      type: 'pie',
+      data: {
+        labels: data.attempts.labels,
+        datasets: [{
+          data: data.attempts.values,
+          backgroundColor: ['#c7d2fe', '#818cf8', '#4338ca', '#a5b4fc'],
+          borderColor: '#fff',
+          borderWidth: 2
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    });
+  }
+
+  var trend = document.getElementById('trendChart');
+  if (trend && data.trend.labels.length > 1) {
+    new Chart(trend, {
+      type: 'line',
+      data: {
+        labels: data.trend.labels,
+        datasets: [{
+          label: 'Average score',
+          data: data.trend.values,
+          borderColor: '#4f46e5',
+          backgroundColor: 'rgba(79,70,229,0.12)',
+          fill: true,
+          tension: 0.3
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } }, scales: percentScale }
+    });
+  }
+
+  var firstVsBest = document.getElementById('firstVsBestChart');
+  if (firstVsBest && data.firstVsBest.labels.length) {
+    new Chart(firstVsBest, {
+      type: 'bar',
+      data: {
+        labels: data.firstVsBest.labels,
+        datasets: [
+          { label: 'First attempt', data: data.firstVsBest.first, backgroundColor: '#cbd5e1', borderRadius: 4 },
+          { label: 'Best attempt', data: data.firstVsBest.best, backgroundColor: '#4f46e5', borderRadius: 4 }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: 'bottom', labels: { color: INK } } },
+        scales: percentScale
+      }
+    });
+  }
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -150,6 +150,36 @@ Intended to run as a cron job every ~5 minutes. On the DigitalOcean server (`cwa
 
 ---
 
+## Progress Reports
+
+### `generate_progress_reports`
+Generate the weekly / monthly / term progress reports for any period that closed
+on the given date, and deliver them: an in-app notification to the student and
+their linked parents, plus — at term end only — an email to the parents. Reports
+key on `(student, period_type, period_start)`, so re-running never duplicates a
+report or re-notifies a family.
+
+```bash
+python manage.py generate_progress_reports                  # whatever closed today
+python manage.py generate_progress_reports --period weekly  # the last closed week
+python manage.py generate_progress_reports --date 2026-09-01 --dry-run
+python manage.py generate_progress_reports --force          # recompute existing data
+python manage.py generate_progress_reports --no-notify      # generate, send nothing
+```
+
+The command decides for itself which periods closed (weekly on Mondays, monthly
+on the 1st, term the day after a `Term.end_date`), so it runs daily as one line.
+A run on any other day is a legitimate no-op and says so. Installed by
+`deploy/setup-app-prod.sh` as `/etc/cron.d/cwa-progress-reports`:
+
+```cron
+10 6 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_generate_progress_reports.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/progress_reports.log 2>&1
+```
+
+See [`docs/specs/CPP-388_period_progress_reports.md`](docs/specs/CPP-388_period_progress_reports.md).
+
+---
+
 ## Maths & Quiz Data
 
 ### `backfill_final_answer_scores`
