@@ -234,6 +234,35 @@ def fold_answer(text: str) -> str:
     return fold_exponents(fold_inequalities(fold_degrees(fold_division(text))))
 
 
+def match_value(user_answer: str, stored_answer: str, answer_format: str = "text") -> bool:
+    """Does one typed VALUE match one stored value, under *answer_format*?
+
+    The per-value half of answer matching, split out so a gap of a
+    fill-in-the-blank sentence is judged by the same rules as a whole short
+    answer. ``Question.grade_text_answer`` handles a whole answer, which may be
+    a list or a set of values and needs logic a single gap never does; what is
+    shared is how ONE value is compared, and that is this.
+
+    - ``algebra``  — simplified-polynomial equivalence ("2ab" == "2ba").
+    - ``equation`` — algebraic equivalence of a whole equation.
+    - anything else — folded exact match, then commuted-expression equivalence
+      ("110 + 12p" == "12p + 110"), exactly as a plain typed answer gets.
+
+    Without this a converted question quietly lost its answer_format: the gap
+    grader compared strings, so an algebra question stopped accepting "2ba" for
+    "2ab" and nobody would have seen it happen.
+    """
+    if not user_answer or not stored_answer:
+        return False
+    if answer_format == "algebra":
+        return is_algebraic_answer_correct(user_answer, stored_answer)
+    if answer_format == "equation":
+        return is_equation_answer_correct(user_answer, stored_answer)
+    if fold_answer(user_answer) == fold_answer(stored_answer):
+        return True
+    return is_reordered_expression_correct(user_answer, stored_answer)
+
+
 # Separators a student (or a teacher) may use between the option labels of a
 # "select every correct option" answer: commas, "and", "&", ";" or plain spaces.
 # Kept here next to the folds because every grading surface needs the same
