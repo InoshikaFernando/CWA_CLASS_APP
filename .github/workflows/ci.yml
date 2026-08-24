@@ -30,7 +30,14 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      # ui_already_tested looks up whether this tree already passed on the PR.
+      actions: read
     outputs:
+      # True when the tree this push lands is byte-identical to one a PR run
+      # already validated, so the UI matrix would re-run over identical
+      # content. Scoped to the UI matrix ONLY — see the step for why the unit
+      # suites can never use it.
+      ui_already_tested: ${{ steps.tested.outputs.already_tested }}
       # True on a release PR (test -> main). Its tree is byte-identical to
       # what `test` already validated, so re-running the matrix over it
       # proves nothing; release-already-tested checks that instead.
@@ -307,6 +314,93 @@ jobs:
               # feedback block, so a change there breaks a worksheet test
               # without touching templates/worksheets/.
               - 'cwa_classroom/templates/maths/**'
+
+      # ---- Has this exact tree already been through the UI matrix? ----------
+      #
+      # A `pull_request` run does NOT test the PR head — it tests
+      # `refs/pull/N/merge`, i.e. the PR merged into its base. So when a merge
+      # to `test` lands a tree the PR run already had, the push re-runs the UI
+      # groups over byte-identical content. Roughly half of merges here are in
+      # that position (the PR branch was up to date with `test`), and the UI
+      # matrix is ~60 of the ~105 billed minutes a full run costs.
+      #
+      # THIS IS FOR THE UI MATRIX ONLY. The unit suites are unfiltered on a
+      # push precisely because a PR run is narrowed to the apps it touched —
+      # that push is what catches one app breaking another, and skipping it
+      # against a narrowed PR run would delete exactly that signal. The UI
+      # matrix is different: it is path-filtered identically on both events
+      # (since 2026-08-24), so for one tree the two runs select the same
+      # groups and the second proves nothing.
+      #
+      # The claim is only made when all four hold, so the PR really did run
+      # this content through the same groups:
+      #
+      #   1. the push is a two-parent merge commit — parents [base, head];
+      #   2. tree(merge) == tree(head): the merge brought in nothing new, so
+      #      what lands IS what the PR branch held;
+      #   3. base is an ancestor of head: the PR was up to date with `test`,
+      #      so `refs/pull/N/merge` reduced to the head commit itself and the
+      #      PR therefore tested this tree — and the PR's path filter ran
+      #      against a base no newer than this one, so it selected these
+      #      groups or a superset of them;
+      #   4. a `pull_request` CI run on that head SHA actually concluded
+      #      success.
+      #
+      # Any doubt resolves to running the matrix — every path out of this step
+      # except the last one is `false`.
+      - name: Has this tree already passed the UI matrix?
+        id: tested
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/test' }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const run = (why) => {
+              core.info(`Running the UI matrix: ${why}`);
+              core.setOutput('already_tested', 'false');
+            };
+
+            const { data: merge } = await github.rest.git.getCommit({
+              owner, repo, commit_sha: context.sha,
+            });
+            if (merge.parents.length !== 2) {
+              return run(`${context.sha.slice(0, 8)} is not a two-parent merge`);
+            }
+            const [base, head] = merge.parents.map((p) => p.sha);
+
+            const { data: headCommit } = await github.rest.git.getCommit({
+              owner, repo, commit_sha: head,
+            });
+            if (headCommit.tree.sha !== merge.tree.sha) {
+              return run(
+                `the merge of ${head.slice(0, 8)} changed the tree, so this ` +
+                `content has not been tested as a whole`);
+            }
+
+            const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({
+              owner, repo, basehead: `${base}...${head}`,
+            });
+            if (!['ahead', 'identical'].includes(cmp.status)) {
+              return run(
+                `${head.slice(0, 8)} was not up to date with test ` +
+                `(${cmp.status}), so the PR tested a different merge`);
+            }
+
+            const { data: runs } = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: 'ci.yml', head_sha: head,
+              event: 'pull_request',
+            });
+            const passed = runs.workflow_runs.find(
+              (r) => r.conclusion === 'success');
+            if (!passed) {
+              return run(`no successful PR run for ${head.slice(0, 8)}`);
+            }
+
+            core.info(
+              `Tree ${merge.tree.sha.slice(0, 8)} already passed in PR run ` +
+              `#${passed.run_number} (${passed.html_url}) — skipping the UI ` +
+              `matrix. Unit suites still run in full.`);
+            core.setOutput('already_tested', 'true');
 
   # Always runs — missing/conflicting migrations must never slip through, and the
   # check is cheap. Not gated on `changes`.
@@ -876,7 +970,7 @@ jobs:
   ui-matrix:
     name: Select UI suites
     needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test')) }}
+    if: ${{ needs.changes.outputs.release != 'true' && needs.changes.outputs.ui_already_tested != 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test')) }}
     runs-on: ubuntu-latest
     outputs:
       groups: ${{ steps.pick.outputs.groups }}
@@ -916,6 +1010,24 @@ jobs:
             echo "UI groups selected: $groups (of $all)"
           fi
           echo "groups=$groups" >> "$GITHUB_OUTPUT"
+
+  # Skipping is not the same as not checking: a push showing no UI check at all
+  # is how a dead CI went unnoticed here for four days. When the matrix is
+  # deduped this job says so, and names the PR run that covered the tree, so the
+  # claim is readable rather than implied by an absent job.
+  ui-already-tested:
+    name: UI matrix already ran for this tree
+    needs: changes
+    if: ${{ needs.changes.outputs.ui_already_tested == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report which run covered it
+        run: |
+          echo "This push lands a tree a pull_request run already took through"
+          echo "the UI matrix — see 'Detect changed areas' for the run number"
+          echo "and the four conditions that were checked."
+          echo
+          echo "The unit suites are NOT deduped and ran in full on this push."
 
   ui-tests:
     name: UI Tests (${{ matrix.group }})
@@ -986,6 +1098,7 @@ jobs:
           MATRIX: ${{ needs.ui-matrix.result }}
           TESTS: ${{ needs.ui-tests.result }}
           GROUPS: ${{ needs.ui-matrix.outputs.groups }}
+          ALREADY_TESTED: ${{ needs.changes.outputs.ui_already_tested }}
         run: |
           set -euo pipefail
           echo "changes:   $CHANGES"
@@ -1019,7 +1132,14 @@ jobs:
               echo "UI suite green for: ${GROUPS:-(none)}"
               ;;
             skipped)
-              echo "No UI suites needed to run."
+              # Three different reasons land here, and "nothing changed" is the
+              # only one that is self-evident. Say which it was.
+              if [ "$ALREADY_TESTED" = "true" ]; then
+                echo "UI matrix already ran for this tree on the PR — see the"
+                echo "'UI matrix already ran for this tree' check."
+              else
+                echo "No UI suites needed to run."
+              fi
               ;;
             *)
               echo "::error::UI suite did not pass ($TESTS)"

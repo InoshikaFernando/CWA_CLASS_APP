@@ -107,10 +107,13 @@ def test_ci_still_runs_every_suite_on_a_push():
     on a partial matrix.
     """
     jobs = _ci()['jobs']
+    # These two run INSTEAD OF suites, and only when the tree they cover has
+    # already passed elsewhere. Requiring the push escape on them would mean
+    # reporting "already tested" on a push that was not.
+    stands_in_for_a_suite = {'release-already-tested', 'ui-already-tested'}
     gated = {name: job for name, job in jobs.items()
              if 'needs.changes.outputs' in (job.get('if') or '')
-             # Release-PR-only: it stands in FOR the suites on that event.
-             and name != 'release-already-tested'}
+             and name not in stands_in_for_a_suite}
     assert gated, 'Expected the path-filtered jobs to carry an if: condition'
     for name, job in gated.items():
         assert "github.event_name == 'push'" in job['if'], (
@@ -492,6 +495,79 @@ def test_a_release_pr_still_gets_a_check():
     script = '\n'.join(str(step) for step in job['steps'])
     assert 'listWorkflowRuns' in script
     assert 'setFailed' in script
+
+
+# ── The UI matrix is deduped against the PR run, and ONLY the UI matrix ──────
+#
+# A `pull_request` run tests `refs/pull/N/merge`, not the PR head, so when a
+# merge to `test` lands a tree the PR already held, the push re-runs the UI
+# groups over byte-identical content. `changes.ui_already_tested` detects that.
+#
+# The danger is that someone extends it to the unit suites, where the same
+# reasoning does NOT hold: PR runs are path-filtered, so a green PR means the
+# touched app passed, not that app A's change left app B working. The push run
+# is the only thing that checks that, and it must stay unconditional.
+
+_DEDUPE_OUTPUT = 'ui_already_tested'
+_DEDUPE_REPORT_JOB = 'ui-already-tested'
+
+
+def test_only_the_ui_matrix_is_deduped_against_the_pr_run():
+    """The unit suites must never skip because a (narrowed) PR run was green.
+
+    They are unfiltered on a push precisely to catch one app breaking another,
+    which a PR run scoped to the changed app cannot see. Gating them on
+    ui_already_tested would delete that signal while still looking green.
+    """
+    jobs = _ci_data()['jobs']
+    users = {name for name, job in jobs.items()
+             if _DEDUPE_OUTPUT in (job.get('if') or '')}
+    assert users == {'ui-matrix', _DEDUPE_REPORT_JOB}, (
+        f'ci.yml: {_DEDUPE_OUTPUT} gates {sorted(users)}. It is only sound for '
+        f'the UI matrix — the unit suites run unfiltered on a push because a '
+        f'PR run is narrowed to the apps it touched.')
+
+
+def test_the_ui_matrix_dedupe_proves_the_tree_is_identical():
+    """The skip rests on four claims; none of them may quietly disappear.
+
+    tree equality alone is not enough (the PR must also have been up to date
+    with `test`, or `refs/pull/N/merge` tested a different merge), and neither
+    is an up-to-date branch without a run that actually passed.
+    """
+    step = None
+    for candidate in _ci_data()['jobs']['changes']['steps']:
+        if candidate.get('id') == 'tested':
+            step = candidate
+    assert step is not None, (
+        'ci.yml: the `changes` job has no step id: tested, so '
+        f'{_DEDUPE_OUTPUT} can never be true')
+
+    script = step['with']['script']
+    for claim, why in (
+        ('parents.length !== 2', 'only a merge commit has a PR head to compare'),
+        ('tree.sha !== merge.tree.sha', 'the landed tree must be the tested one'),
+        ('compareCommitsWithBasehead', 'the PR must have been up to date with test'),
+        ('listWorkflowRuns', 'a PR run must actually exist'),
+        ("conclusion === 'success'", 'and it must have passed'),
+    ):
+        assert claim in script, (
+            f'ci.yml: the UI dedupe no longer checks {claim!r} — {why}')
+
+    assert step['if'].count('refs/heads/test') == 1, (
+        'ci.yml: the UI dedupe must only ever fire on a push to test')
+
+
+def test_a_deduped_push_still_gets_a_ui_check():
+    """Skipping is not the same as not checking.
+
+    A push showing no UI check at all is indistinguishable from a CI that has
+    silently stopped running the suite — which went unnoticed here for four
+    days once already.
+    """
+    job = _ci_data()['jobs'][_DEDUPE_REPORT_JOB]
+    assert f"needs.changes.outputs.{_DEDUPE_OUTPUT} == 'true'" in job['if']
+    assert job.get('name'), 'the report job needs a readable check name'
 
 
 def test_the_ui_groups_are_not_limited_to_the_runner_cpu_count():
