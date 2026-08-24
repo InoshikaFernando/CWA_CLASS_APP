@@ -114,7 +114,9 @@ cannot see would be arbitrary.
    (`classroom.ParentStudent`), for every period type, linking to the report.
    Notification email is deliberately suppressed here: a weekly email per child
    per week is how a school ends up in a spam folder.
-2. **Email to parents at term end only** — `progress_report_term` via
+2. **Email to parents at term end only**, and only when the term had activity —
+   an email reading "0% average across 0 homework" lands as a system error
+   rather than as news. Sent as `progress_report_term` via
    `classroom.email_service.send_templated_email`, template
    `email/transactional/term_progress_report.html`, carrying the headline
    figures, the awards, and a link to the full report.
@@ -159,8 +161,9 @@ report's data (leaving its notification state alone) for the case where a
 grading fix landed after generation.
 
 **Never silently empty.** A student with no submissions in the window still gets
-a report row so the absence is visible in the UI, but no notification is sent —
-telling a child "here is your report: nothing" every Monday is not motivating.
+a report row so the absence is visible in the UI, but nothing is notified or
+emailed for it — telling a child "here is your report: nothing" every Monday is
+not motivating, and the school's own dashboards already surface non-submission.
 The command prints counts for generated / skipped / notified.
 
 ---

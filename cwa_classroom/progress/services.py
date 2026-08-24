@@ -154,12 +154,20 @@ def notify_report(report):
 def email_parents_term_report(report):
     """End-of-term email to the parents. Term reports only, once each.
 
+    Skipped for a term with no submissions, matching the in-app rule: an email
+    reading "0% average across 0 homework" lands as a system error rather than
+    as news, and a child who submitted nothing all term is a conversation for
+    their teacher, not an automated mail-out. The report row still exists and is
+    still viewable, and the school's own dashboards already show non-submission.
+
     Never raises: a bounced report email must not abort the nightly run for
     every student after this one.
     """
     from classroom.email_service import send_templated_email
 
     if report.period_type != TERM or report.parent_emailed_at is not None:
+        return 0
+    if not report.has_activity:
         return 0
 
     parents = [p for p in linked_parents(report.student) if p.email]
@@ -174,7 +182,8 @@ def email_parents_term_report(report):
         'period_label': report.label,
         'totals': report.totals,
         'awards': report.awards,
-        'top_topics': report.topics[-3:][::-1],
+        # The topic list is sorted weakest-first, so the head of it is where the
+        # next bit of work is — which is what a parent can actually act on.
         'weak_topics': report.topics[:3],
         'report_url': f'{site_url}{_report_url(report)}',
         'pdf_url': f'{site_url}{reverse("progress:period_report_pdf", kwargs={"report_id": report.id})}',

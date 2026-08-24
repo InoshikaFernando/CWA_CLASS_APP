@@ -217,6 +217,20 @@ class TermReportTests(TestCase):
         with self.assertRaises(CommandError):
             run('--period', periods.TERM, '--date', '2026-03-01')
 
+    def test_a_term_with_no_submissions_sends_no_email(self):
+        # "0% across 0 homework" reads as a broken system, not as news.
+        quiet = make_user('term_quiet')
+        quiet_parent = make_user('term_quiet_parent', 'parent')
+        enrol(self.classroom, quiet)
+        link_parent(quiet_parent, quiet, self.school)
+
+        run('--date', '2026-09-26')
+
+        report = PeriodReport.objects.get(student=quiet, period_type=periods.TERM)
+        self.assertFalse(report.has_activity)
+        self.assertIsNone(report.parent_emailed_at)
+        self.assertNotIn(quiet_parent.email, [to for m in mail.outbox for to in m.to])
+
     def test_a_student_with_no_parent_link_is_not_a_failure(self):
         orphan = make_user('term_orphan')
         enrol(self.classroom, orphan)
