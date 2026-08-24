@@ -30,7 +30,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      # ui_already_tested looks up whether this tree already passed on the PR.
+      # skip_ui_matrix looks up whether this tree already passed on the PR.
       actions: read
     outputs:
       # The unit suites this diff needs, as a pytest argument list. One job
@@ -41,7 +41,14 @@ jobs:
       # already validated, so the UI matrix would re-run over identical
       # content. Scoped to the UI matrix ONLY — see the step for why the unit
       # suites can never use it.
-      ui_already_tested: ${{ steps.tested.outputs.already_tested }}
+      #
+      # NOT named `ui_*`. ui-matrix builds its group list from every output
+      # whose name starts with `ui_`, so an output called `ui_already_tested`
+      # became a matrix group called `already_tested` and the run died on
+      # `pytest ui_tests/already_tested` (exit 5, no tests collected). It only
+      # showed on a push: on a `pull_request` the step is skipped, its output
+      # is the empty string, and toJSON drops empty outputs.
+      skip_ui_matrix: ${{ steps.tested.outputs.already_tested }}
       # True on a release PR (test -> main). Its tree is byte-identical to
       # what `test` already validated, so re-running the matrix over it
       # proves nothing; release-already-tested checks that instead.
@@ -666,7 +673,7 @@ jobs:
   ui-matrix:
     name: Select UI suites
     needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && needs.changes.outputs.ui_already_tested != 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test')) }}
+    if: ${{ needs.changes.outputs.release != 'true' && needs.changes.outputs.skip_ui_matrix != 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test')) }}
     runs-on: ubuntu-latest
     outputs:
       groups: ${{ steps.pick.outputs.groups }}
@@ -714,7 +721,7 @@ jobs:
   ui-already-tested:
     name: UI matrix already ran for this tree
     needs: changes
-    if: ${{ needs.changes.outputs.ui_already_tested == 'true' }}
+    if: ${{ needs.changes.outputs.skip_ui_matrix == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Report which run covered it
@@ -794,7 +801,7 @@ jobs:
           MATRIX: ${{ needs.ui-matrix.result }}
           TESTS: ${{ needs.ui-tests.result }}
           GROUPS: ${{ needs.ui-matrix.outputs.groups }}
-          ALREADY_TESTED: ${{ needs.changes.outputs.ui_already_tested }}
+          ALREADY_TESTED: ${{ needs.changes.outputs.skip_ui_matrix }}
         run: |
           set -euo pipefail
           echo "changes:   $CHANGES"
