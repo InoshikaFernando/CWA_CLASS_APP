@@ -60,6 +60,7 @@
 </head>
 
 <body class="{% if is_parent %}bg-slate-50{% elif is_student or is_individual_student %}bg-emerald-50{% else %}bg-slate-50{% endif %} font-body text-gray-700 antialiased">
+  {% include "partials/_impersonation_banner.html" %}
 
   <!-- ── Topbar ─────────────────────────────────────────────── -->
   {% include "partials/topbar.html" %}

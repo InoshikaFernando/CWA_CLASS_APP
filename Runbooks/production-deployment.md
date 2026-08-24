@@ -265,15 +265,32 @@ The script path still works by hand exactly as before — bump the version
 (§ 2.1) and run the script on the server (§ 2.2). The automated workflows run
 those same steps for you.
 
-### 2.1 Bump the version (optional but recommended)
+### 2.1 Bump the version — on the FEATURE BRANCH, before the merge
 
 `APP_VERSION` in `settings.py` is what `/api/health/` reports — bump it so you
-can confirm the new build is live:
+can confirm the new build is live.
+
+**Bump before the PR merges, never on `test` afterwards.** A push to `test`
+runs the full CI matrix (~29 jobs, ~119 billed Actions minutes; path filters
+are ignored there on purpose). Bumping on `test` after a merge buys a second
+full matrix per release, and that second push cancels the first mid-flight, so
+~25 already-running jobs are paid for and thrown away. Three of those in one
+evening exhausted the Actions spending limit on 2026-08-24 and stopped every
+workflow in the repo — the production deploy included.
 
 ```bash
+git checkout <your-feature-branch>
 python scripts/bump_version.py patch   # or minor / major
-git commit -am "Release vX.Y.Z" && git push origin main
+git commit -am "Release vX.Y.Z" && git push
 ```
+
+Then merge the PR into `test`. That single push carries the version, costs one
+matrix, and is the run the release gate ("Release tree already tested on test")
+looks for when you open the `test` → `main` PR.
+
+`bump_version.py` refuses to run on `test` or `main` for this reason. A hotfix
+going straight out can override with `--allow-protected`, accepting the second
+matrix.
 
 ### 2.2 Deploy on the Droplet
 

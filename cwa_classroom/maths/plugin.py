@@ -154,13 +154,23 @@ class MathsPlugin(SubjectPlugin):
         Returns fields suitable for ``HomeworkStudentAnswer(**result)`` —
         plus ``points_earned`` computed as 1.0 per correct row (legacy
         behaviour — callers can override by passing question.points).
+
+        The multi-part types (fill_blank, table_of_values) are the exception:
+        they are marked part by part, so ``points_earned`` is the share of
+        gaps/cells the student got right and ``answer_data`` carries the
+        breakdown the result page needs to say which one was wrong.
+        ``is_correct`` still means *every* part right.
         """
         from maths.models import Answer, Question
+        from maths.partial_credit import points_for
 
         q = Question.objects.get(pk=content_id)
         is_correct = False
         selected_answer_obj = None
         text_answer = ''
+        # Set only by the part-graded types below (fill_blank, table_of_values);
+        # None everywhere else means "one answer, marked all or nothing".
+        partial = None
 
         if q.question_type in (Question.MULTIPLE_CHOICE, Question.TRUE_FALSE):
             answer_id = post_data.get(f'answer_{q.id}')
@@ -260,13 +270,22 @@ class MathsPlugin(SubjectPlugin):
             from maths.geometry_grading import grade_number_line
             text_answer = post_data.get(f'answer_{q.id}', '')
             is_correct = grade_number_line(q.number_line_spec, text_answer)
-        elif q.question_type == Question.TABLE_OF_VALUES and q.table_spec:
-            # Fill-in table of values (e.g. compute y for each x). The client
-            # serialises the typed cells to JSON in answer_{id} as
-            # {"cells":{"r,c":"value"}}; graded all-or-nothing by numeric tolerance.
-            from maths.geometry_grading import grade_table
+        elif ((q.question_type == Question.TABLE_OF_VALUES and q.table_spec)
+              or (q.question_type == Question.FILL_BLANK and q.blank_spec)):
+            # Several answers in one question: a fill-in table of values
+            # (cells serialised as {"cells":{"r,c":"value"}}) or a
+            # fill-in-the-blank sentence ({"blanks":[...]}), both posted in
+            # answer_{id}. Marked part by part, so nine of ten right earns nine
+            # tenths of the points and answer_data names the tenth — see
+            # maths.partial_credit.
             text_answer = post_data.get(f'answer_{q.id}', '')
-            is_correct = grade_table(q.table_spec, text_answer)
+            partial = q.grade_text_answer_parts(text_answer)
+            if partial is None:
+                # No verdict part by part (spec and payload don't line up) —
+                # fall back to the all-or-nothing grader.
+                is_correct = q.grade_text_answer(text_answer.strip())
+            else:
+                is_correct = partial.is_correct
         else:
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
             # Routes to algebra grading when q.answer_format == 'algebra',
@@ -278,8 +297,15 @@ class MathsPlugin(SubjectPlugin):
             'selected_answer_id': selected_answer_obj.pk if selected_answer_obj else None,
             'text_answer': text_answer,
             'is_correct': is_correct,
-            'points_earned': q.points if is_correct else 0,
-            'answer_data': {},                  # unused for maths
+            # A part-graded answer is worth the share of its parts that are
+            # right (0.9 of a 1-point money chart for nine of ten cells);
+            # everything else is still all-or-nothing.
+            'points_earned': (points_for(q.points, partial) if partial is not None
+                              else (q.points if is_correct else 0)),
+            # The per-part breakdown for the result page — which cell was
+            # wrong, what was typed, what was wanted. Empty for the
+            # single-answer types, which have nothing to break down.
+            'answer_data': partial.as_answer_data() if partial is not None else {},
         }
 
     def result_item_template(self) -> str:

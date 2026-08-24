@@ -120,3 +120,155 @@ class PeriodReport(models.Model):
         not hidden — but nothing is notified or celebrated for an empty one.
         """
         return bool(self.totals.get('submissions'))
+
+
+class ProgressReportSetting(models.Model):
+    """Which period reports a school, department or class actually sends.
+
+    Reports are **off until switched on**. Generating for every student in
+    every school the moment the cron lands would notify thousands of families
+    about a feature nobody had seen yet, so there is no "enabled by default"
+    here: an unset field inherits, and an unset chain resolves to off.
+
+    Scope is one row per level, most specific wins — the same shape as the fee
+    cascade in ``classroom.fee_utils``:
+
+        classroom row → department row → school row → off
+
+    Each flag is ``NULL`` = "inherit from the level above", so a department can
+    turn weekly reports on without saying anything about term reports, and a
+    single class can opt out of what its department enabled.
+    """
+
+    school = models.ForeignKey(
+        'classroom.School', on_delete=models.CASCADE,
+        related_name='progress_report_settings',
+    )
+    department = models.ForeignKey(
+        'classroom.Department', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='progress_report_settings',
+        help_text='Set for a department-level rule. Null = school-level.',
+    )
+    classroom = models.ForeignKey(
+        'classroom.ClassRoom', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='progress_report_settings',
+        help_text='Set for a single class. Null = department/school-level.',
+    )
+
+    # Which periods are reported. NULL = inherit.
+    weekly = models.BooleanField(null=True, blank=True)
+    monthly = models.BooleanField(null=True, blank=True)
+    term = models.BooleanField(null=True, blank=True)
+
+    # Who hears about it. NULL = inherit. Separating these from the period
+    # flags is what makes a silent trial possible: generate the reports, look
+    # at the numbers, and only then turn the notifications on.
+    notify_student = models.BooleanField(null=True, blank=True)
+    notify_parents = models.BooleanField(null=True, blank=True)
+    email_parents_at_term = models.BooleanField(null=True, blank=True)
+
+    # Manual or automatic. NULL = inherit; an unset chain resolves to MANUAL,
+    # because a schedule that starts sending on its own is not something a
+    # school should acquire by not noticing a setting.
+    MODE_MANUAL = 'manual'
+    MODE_AUTO = 'auto'
+    MODE_CHOICES = [
+        (MODE_MANUAL, 'Manual — staff review and send'),
+        (MODE_AUTO, 'Automatic — send on the scheduled day'),
+    ]
+    mode = models.CharField(
+        max_length=10, choices=MODE_CHOICES, null=True, blank=True,
+        help_text='Null = inherit. An unset chain resolves to manual.',
+    )
+
+    # When an automatic run fires. Ignored in manual mode. NULL = inherit.
+    send_weekly_on = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text='Day of week for the weekly run: 0=Monday … 6=Sunday.',
+    )
+    send_monthly_on = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text=(
+            'Day of month for the monthly run (1–28). Capped at 28 so the run '
+            'exists in February; a "31st" schedule would skip four months a year.'
+        ),
+    )
+    send_term_after_days = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text='Days after a term ends before its report is sent.',
+    )
+
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # Field name -> whether it defaults to on *once a period is enabled*.
+    # The period flags themselves have no such default: off is off.
+    PERIOD_FIELDS = ('weekly', 'monthly', 'term')
+    DELIVERY_FIELDS = ('notify_student', 'notify_parents', 'email_parents_at_term')
+    SCHEDULE_FIELDS = ('send_weekly_on', 'send_monthly_on', 'send_term_after_days')
+
+    # Where an automatic run lands when nobody has said otherwise. These match
+    # what the periods module already treats as the close of each window:
+    # Monday for the week just gone, the 1st for the month, the day after a
+    # term ends (so the last day's submissions are inside the window).
+    SCHEDULE_DEFAULTS = {
+        'send_weekly_on': 0,
+        'send_monthly_on': 1,
+        'send_term_after_days': 1,
+    }
+    # The period a schedule field governs.
+    SCHEDULE_FOR_PERIOD = {
+        'weekly': 'send_weekly_on',
+        'monthly': 'send_monthly_on',
+        'term': 'send_term_after_days',
+    }
+    # Delivery defaults apply only to a class that is generating at all, so a
+    # school that switches weekly on gets the obvious behaviour without having
+    # to tick three more boxes — but can still turn any of them off.
+    DELIVERY_DEFAULTS = {
+        'notify_student': True,
+        'notify_parents': True,
+        'email_parents_at_term': True,
+    }
+
+    class Meta:
+        ordering = ['school', 'department', 'classroom']
+        constraints = [
+            # One row per scope. Partial constraints because NULL never equals
+            # NULL in SQL, so a plain unique_together would let duplicate
+            # school-level rows through and make the cascade non-deterministic.
+            models.UniqueConstraint(
+                fields=['school'],
+                condition=models.Q(department__isnull=True, classroom__isnull=True),
+                name='unique_progress_setting_school',
+            ),
+            models.UniqueConstraint(
+                fields=['department'],
+                condition=models.Q(department__isnull=False, classroom__isnull=True),
+                name='unique_progress_setting_department',
+            ),
+            models.UniqueConstraint(
+                fields=['classroom'],
+                condition=models.Q(classroom__isnull=False),
+                name='unique_progress_setting_classroom',
+            ),
+        ]
+
+    def __str__(self):
+        if self.classroom_id:
+            return f'Report settings — {self.classroom}'
+        if self.department_id:
+            return f'Report settings — {self.department}'
+        return f'Report settings — {self.school}'
+
+    @property
+    def scope_label(self):
+        if self.classroom_id:
+            return 'Class'
+        if self.department_id:
+            return 'Department'
+        return 'School'

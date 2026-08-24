@@ -51,8 +51,12 @@ def _mean(values):
 # Raw material
 # ---------------------------------------------------------------------------
 
-def student_submissions(student, start, end):
+def student_submissions(student, start, end, classroom_ids=None):
     """Every homework attempt this student submitted inside the window.
+
+    *classroom_ids* restricts the report to the classes that actually switched
+    reporting on, so enabling one class shows that class's work and nothing
+    else. ``None`` means every class the student is in.
 
     Soft-deleted homework is excluded. Its submissions are kept in the database
     so grades survive a teacher removing an assignment, but the homework itself
@@ -64,24 +68,26 @@ def student_submissions(student, start, end):
     from homework.models import HomeworkSubmission
 
     begin, finish = _bounds(start, end)
+    qs = HomeworkSubmission.objects.filter(
+        student=student,
+        homework__deleted_at__isnull=True,
+        submitted_at__gte=begin,
+        submitted_at__lte=finish,
+    )
+    if classroom_ids is not None:
+        qs = qs.filter(homework__classroom_id__in=classroom_ids)
     return list(
-        HomeworkSubmission.objects
-        .filter(
-            student=student,
-            homework__deleted_at__isnull=True,
-            submitted_at__gte=begin,
-            submitted_at__lte=finish,
-        )
-        .select_related('homework', 'homework__classroom')
+        qs.select_related('homework', 'homework__classroom')
         .order_by('submitted_at')
     )
 
 
-def homework_due_in_window(student, start, end):
+def homework_due_in_window(student, start, end, classroom_ids=None):
     """Published homework whose due date falls in the window, for this student.
 
     Scoped to the classes the student is actively in — homework assigned to a
-    class they left is not theirs to be measured against.
+    class they left is not theirs to be measured against — and further to
+    *classroom_ids* when only some classes report.
     """
     from classroom.models import ClassStudent
     from homework.models import Homework
@@ -92,6 +98,8 @@ def homework_due_in_window(student, start, end):
         .filter(student=student, is_active=True)
         .values_list('classroom_id', flat=True)
     )
+    if classroom_ids is not None:
+        class_ids = [cid for cid in class_ids if cid in set(classroom_ids)]
     if not class_ids:
         return []
     return list(
@@ -275,21 +283,20 @@ def trend_section(submissions, period_type):
     ]
 
 
-def worksheets_section(student, start, end):
+def worksheets_section(student, start, end, classroom_ids=None):
     """Worksheet completions in the window — the secondary source (§2)."""
     from worksheets.models import WorksheetSubmission
 
     begin, finish = _bounds(start, end)
-    completed = list(
-        WorksheetSubmission.objects
-        .filter(
-            student=student,
-            completed_at__isnull=False,
-            completed_at__gte=begin,
-            completed_at__lte=finish,
-        )
-        .select_related('assignment__worksheet')
+    qs = WorksheetSubmission.objects.filter(
+        student=student,
+        completed_at__isnull=False,
+        completed_at__gte=begin,
+        completed_at__lte=finish,
     )
+    if classroom_ids is not None:
+        qs = qs.filter(assignment__classroom_id__in=classroom_ids)
+    completed = list(qs.select_related('assignment__worksheet'))
     return {
         'completed': len(completed),
         'average_pct': _mean([s.percentage for s in completed]),
@@ -472,15 +479,15 @@ def awards_for(student, classroom, start, end, due_count, cohort_cache=None):
     return earned
 
 
-def _student_classrooms(student):
+def _student_classrooms(student, classroom_ids=None):
     from classroom.models import ClassRoom
 
-    return list(
-        ClassRoom.objects
-        .filter(class_students__student=student, class_students__is_active=True)
-        .distinct()
-        .order_by('name')
+    qs = ClassRoom.objects.filter(
+        class_students__student=student, class_students__is_active=True,
     )
+    if classroom_ids is not None:
+        qs = qs.filter(id__in=classroom_ids)
+    return list(qs.distinct().order_by('name'))
 
 
 def _due_count_for(classroom, due):
@@ -492,19 +499,25 @@ def _due_count_for(classroom, due):
 # ---------------------------------------------------------------------------
 
 def build_report_data(student, period_type, start, end, term=None,
-                      cohort_cache=None):
+                      cohort_cache=None, classroom_ids=None):
     """The whole snapshot for one student and one closed window.
 
     Returns a plain dict — this is exactly what gets stored in
     ``PeriodReport.data`` and rendered by both the page and the PDF. Pass
     *cohort_cache* (a plain dict) when building many students' reports for the
     same window so each class's cohort figures are computed once.
+
+    *classroom_ids* limits the report to the classes that switched reporting
+    on. A student in two classes where only one reports gets a report about
+    that one — which is what makes "only configured classes get it" true of the
+    contents, not just of the trigger.
     """
-    submissions = student_submissions(student, start, end)
-    due = homework_due_in_window(student, start, end)
+    submissions = student_submissions(student, start, end, classroom_ids)
+    due = homework_due_in_window(student, start, end, classroom_ids)
 
     awards = []
-    for classroom in _student_classrooms(student):
+    classrooms = _student_classrooms(student, classroom_ids)
+    for classroom in classrooms:
         awards.extend(awards_for(
             student, classroom, start, end, _due_count_for(classroom, due),
             cohort_cache=cohort_cache,
@@ -517,6 +530,14 @@ def build_report_data(student, period_type, start, end, term=None,
             'start': start.isoformat(),
             'end': end.isoformat(),
         },
+        # Which classes this report actually covers. Recorded so a reader
+        # asking "why is my other class missing?" can be answered from the
+        # snapshot rather than from today's settings, which may have changed.
+        'scope': {
+            'classroom_ids': [c.id for c in classrooms],
+            'classrooms': [c.name for c in classrooms],
+            'all_classes': classroom_ids is None,
+        },
         'student': {
             'name': student.get_full_name() or student.username,
             'username': student.username,
@@ -525,6 +546,6 @@ def build_report_data(student, period_type, start, end, term=None,
         'topics': topics_section(submissions),
         'attempts': attempts_section(submissions),
         'trend': trend_section(submissions, period_type),
-        'worksheets': worksheets_section(student, start, end),
+        'worksheets': worksheets_section(student, start, end, classroom_ids),
         'awards': awards,
     }

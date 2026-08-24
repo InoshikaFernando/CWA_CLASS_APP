@@ -38,13 +38,25 @@ bulk-fill script: [`Runbooks/jira-story-points.md`](Runbooks/jira-story-points.m
   `tests_*.py` are collected. `tests_workflows.py` fails the build if any test
   file ends up in no job, i.e. never runs anywhere.
 - Playwright UI tests are split by app area into `cwa_classroom/ui_tests/<group>/`
-  and CI runs only the groups a change touches — where a group's filter watches
-  every app its tests drive, not just its namesake. A new UI test goes **inside** a
-  group package — one left at the `ui_tests/` root belongs to no CI job and would
-  never run (`tests_workflows.py` fails the build if that happens). See
+  and CI runs only the groups a change touches — on pull requests **and on the
+  merge to `test`** — where a group's filter watches every app its tests drive,
+  not just its namesake. A `ui_core`/`shared` change still runs every group. So
+  **a group's path filter is the only thing that makes its tests run**: get it
+  wrong and they go quiet rather than red. The unit suites are NOT filtered on a
+  push — the merge to `test` runs all of them, and that is what catches one app
+  breaking another. A new UI test goes **inside** a group package — one left at
+  the `ui_tests/` root belongs to no CI job and would never run
+  (`tests_workflows.py` fails the build if that happens). See
   [`cwa_classroom/ui_tests/README.md`](cwa_classroom/ui_tests/README.md).
 - Branch discipline: develop on a feature branch; `test` deploys to the test
   site, `main` deploys to production. Open a PR; never push to `main` directly.
+- **Bump `APP_VERSION` on the feature branch, before the PR merges — never on
+  `test` afterwards.** A push to `test` runs the full CI matrix (~119 billed
+  Actions minutes), so a later bump buys a second one AND cancels the first
+  mid-flight. `scripts/bump_version.py` refuses to run on `test`/`main`
+  (`--allow-protected` for a hotfix). This exhausted the Actions spending limit
+  once, which stopped the production deploy:
+  [`Runbooks/production-deployment.md`](Runbooks/production-deployment.md) § 2.1.
 - No silent failure — surface errors (blank data, swallowed 4xx, no-op commands)
   rather than hiding them.
 

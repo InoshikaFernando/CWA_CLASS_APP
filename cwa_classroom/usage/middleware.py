@@ -46,6 +46,12 @@ class UsageTrackingMiddleware:
         if request.method != 'GET':
             return False
 
+        # A super admin browsing as someone else is not that person visiting the
+        # site. Recording it would credit their pages, and the "most visited
+        # page" figures, to a student who never opened them.
+        if getattr(request, 'is_impersonating', False):
+            return False
+
         path = request.path
         if path.startswith(EXCLUDED_PREFIXES):
             return False

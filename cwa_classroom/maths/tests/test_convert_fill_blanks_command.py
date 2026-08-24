@@ -174,3 +174,105 @@ class ConvertFillBlanksTests(TestCase):
         self._run('--revert')
         q.refresh_from_db()
         self.assertIsNotNone(q.blank_spec)
+
+
+class BareUnitAnswerRepairTests(TestCase):
+    """``--add-bare-unit-answers``: the one refusal with a mechanical fix.
+
+    Fourteen metric-conversion questions on production stored "5300 mL" as the
+    only answer to "= _____ mL", which inline reads "= [5300 mL] mL" and marks
+    the obvious "5300" wrong. The flag stores the bare value beside it.
+    """
+
+    UNIT_Q = 'Convert to millilitres: 5.3 L = _____ mL'
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=992, defaults={'display_name': 'unit fixture'})
+
+    def _question(self, text=None, answers=('5300 mL',)):
+        q = Question.objects.create(
+            level=self.level, question_text=text or self.UNIT_Q,
+            question_type=Question.SHORT_ANSWER, difficulty=1, points=1)
+        for order, answer_text in enumerate(answers, start=1):
+            Answer.objects.create(question=q, answer_text=answer_text,
+                                  is_correct=True, order=order)
+        return q
+
+    def _run(self, *args):
+        out = StringIO()
+        call_command('convert_fill_blanks', *args, stdout=out, stderr=out)
+        return out.getvalue()
+
+    def test_without_the_flag_the_question_is_refused(self):
+        q = self._question()
+        out = self._run('--apply')
+        self.assertIn('repeat the unit', out)
+        q.refresh_from_db()
+        self.assertIsNone(q.blank_spec)
+        self.assertEqual(q.answers.count(), 1)
+
+    def test_the_flag_adds_the_bare_value_and_converts(self):
+        q = self._question()
+        out = self._run('--add-bare-unit-answers', '--apply')
+        q.refresh_from_db()
+        self.assertEqual(q.question_type, Question.FILL_BLANK)
+        self.assertEqual(q.blank_spec,
+                         {'blanks': [{'answers': ['5300 mL', '5300']}]})
+        self.assertIn("+ '5300'", out)
+        self.assertIn('Added a bare-value answer to 1 question', out)
+
+    def test_the_original_answer_row_is_kept(self):
+        # A student who writes the unit was correct before the gap went inline
+        # and must still be.
+        q = self._question()
+        self._run('--add-bare-unit-answers', '--apply')
+        texts = sorted(a.answer_text for a in q.answers.all())
+        self.assertEqual(texts, ['5300', '5300 mL'])
+        self.assertTrue(q.answers.filter(answer_text='5300 mL',
+                                         is_correct=True).exists())
+
+    def test_both_spellings_grade_correct_afterwards(self):
+        q = self._question()
+        self._run('--add-bare-unit-answers', '--apply')
+        q.refresh_from_db()
+        self.assertTrue(q.grade_text_answer('{"blanks": ["5300"]}'))
+        self.assertTrue(q.grade_text_answer('{"blanks": ["5300 mL"]}'))
+        self.assertFalse(q.grade_text_answer('{"blanks": ["53"]}'))
+
+    def test_a_dry_run_writes_nothing_but_reports_the_real_outcome(self):
+        # The rows are written inside a savepoint and rolled back, so the dry
+        # run can show the spec the real run would build. Nothing may survive.
+        q = self._question()
+        out = self._run('--add-bare-unit-answers')
+        self.assertIn('Would add a bare-value answer to 1 question', out)
+        self.assertIn('Would convert 1 question', out)
+        q.refresh_from_db()
+        self.assertIsNone(q.blank_spec)
+        self.assertEqual(q.question_type, Question.SHORT_ANSWER)
+        self.assertEqual(q.answers.count(), 1)
+
+    def test_running_twice_adds_nothing_the_second_time(self):
+        q = self._question()
+        self._run('--add-bare-unit-answers', '--apply')
+        self._run('--add-bare-unit-answers', '--apply', '--force')
+        self.assertEqual(q.answers.count(), 2)
+
+    def test_a_question_it_cannot_repair_keeps_its_own_reason(self):
+        # Not re-reported as "nothing to convert" — the refusal a human has to
+        # act on must survive the attempted repair.
+        self._question(text='The area is ___ and the perimeter is ___.',
+                       answers=('12 and 14 and 16',))
+        out = self._run('--add-bare-unit-answers', '--apply')
+        self.assertIn('does not split into 2 values', out)
+        self.assertNotIn('nothing to convert', out)
+
+    def test_it_leaves_other_questions_alone(self):
+        q = self._question(text='An _______ is a whole number.',
+                           answers=('integer',))
+        self._run('--add-bare-unit-answers', '--apply')
+        q.refresh_from_db()
+        self.assertEqual(q.answers.count(), 1)
+        self.assertEqual(q.blank_spec, {'blanks': [{'answers': ['integer']}]})
+

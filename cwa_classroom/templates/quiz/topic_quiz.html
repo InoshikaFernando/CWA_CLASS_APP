@@ -161,6 +161,21 @@
       ? `<div class="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-blue-800 text-sm">${_esc(data.feedback)}</div>`
       : '';
 
+    // A fill-in-the-blank sentence is several answers in one question, marked
+    // one gap at a time (see maths/partial_credit.py). Nine of ten right is
+    // nine tenths of the marks, so it must not be shown as a flat "Incorrect" —
+    // and the one gap that cost the mark is named, with what was typed beside
+    // what was wanted, because that is the part a child can learn from.
+    const parts = Array.isArray(data.parts) ? data.parts : [];
+    const partly = parts.length > 0 && !data.is_correct;
+    const wrongList = parts.filter(p => !p.is_correct).map(p => `
+      <li><strong>${_esc(p.label)}:</strong>
+        ${p.typed ? `you wrote <code>${_esc(p.typed)}</code>` : 'you left it empty'}
+        — the answer is <strong>${_esc(p.expected)}</strong></li>`).join('');
+    const breakdown = parts.length
+      ? `<ul class="mt-2 space-y-1 text-sm list-disc list-inside">${wrongList}</ul>`
+      : '';
+
     if (data.ungraded) {
       // No verdict was reached — AI marking was unavailable or out of quota.
       // Deliberately NOT red: the student did nothing wrong, and this answer
@@ -176,6 +191,17 @@
           ✅ Correct!
         </div>
         ${note}`;
+    } else if (partly) {
+      // Amber, not red: these marks were earned, and the score says so.
+      const scored = data.parts_correct > 0;
+      fb.innerHTML = `
+        <div class="rounded-xl ${scored ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-red-50 border-red-200 text-red-800'} border px-4 py-3">
+          <p class="font-semibold">${scored ? '🟡 Almost — partly correct' : '❌ Incorrect'}</p>
+          <p class="text-sm mt-1">${_esc(data.what_was_correct || '')}</p>
+          ${breakdown}
+        </div>
+        ${note}
+        ${data.explanation ? `<div class="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-blue-800 text-sm">${data.explanation}</div>` : ''}`;
     } else {
       const correctText = data.correct_answer_text || '';
       // Escape for safe use inside the data-speak="" attribute.
@@ -290,7 +316,7 @@
 
   function submitFillBlank(sessionId, questionId) {
     // The gaps post as one hidden {"blanks":[...]} JSON (kept in sync by
-    // fill_blank.js), graded all-or-nothing by grade_fill_blank server-side.
+    // fill_blank.js), graded gap by gap by grade_fill_blank_parts server-side.
     // An untouched sentence is not submitted — the student has answered nothing
     // yet, and posting it would burn the question as wrong.
     const stage = document.querySelector('[data-fb-stage]');

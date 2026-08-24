@@ -160,6 +160,7 @@
       Progress
     </a>
 
+    {% if show_period_reports %}
     <a href="{% url 'progress:period_report_list' %}"
        class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition
               {% if '/progress/reports/' in request.path %}
@@ -172,6 +173,7 @@
       </svg>
       Reports
     </a>
+    {% endif %}
 
     <!-- Section divider -->
     <div class="pt-3 pb-1">

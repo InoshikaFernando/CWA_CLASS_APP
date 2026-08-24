@@ -159,12 +159,32 @@ their linked parents, plus — at term end only — an email to the parents. Rep
 key on `(student, period_type, period_start)`, so re-running never duplicates a
 report or re-notifies a family.
 
+**Reports are opt-in and manual by default.** This command serves the classes
+set to **automatic**, and only those whose configured day is today — so it is
+one generic daily entry for the whole install, and no school configures
+anything at the OS level. Classes left on manual wait for a staff member to
+send them from *Preview Reports* (`/progress/reports/preview/`). Configure both
+under *Report Automation* (`/progress/reports/settings/`).
+
+On an install where nobody has configured anything, or on a day no schedule
+lands, this generates nothing and says so — silence is indistinguishable from
+a broken cron.
+
 ```bash
 python manage.py generate_progress_reports                  # whatever closed today
 python manage.py generate_progress_reports --period weekly  # the last closed week
 python manage.py generate_progress_reports --date 2026-09-01 --dry-run
 python manage.py generate_progress_reports --force          # recompute existing data
 python manage.py generate_progress_reports --no-notify      # generate, send nothing
+python manage.py generate_progress_reports --school wizards --classroom 42
+python manage.py generate_progress_reports --manual --period weekly   # the manual classes
+```
+
+`--school` (id or slug) and `--classroom` (id) narrow the run, which is how you
+try one class before switching anything on for real:
+
+```bash
+python manage.py generate_progress_reports --period weekly --classroom 42 --dry-run
 ```
 
 The command decides for itself which periods closed (weekly on Mondays, monthly
@@ -187,6 +207,38 @@ Backfill score and total_questions on StudentFinalAnswer records where total_que
 ```bash
 python manage.py backfill_final_answer_scores
 ```
+
+### `backfill_partial_credit`
+Give back the marks all-or-nothing grading took off past answers to questions
+that ask for **more than one value** — a fill-in-the-blank sentence, a table of
+values. A money chart with nine of ten cells right used to score zero; grading
+was fixed forward (see `maths/partial_credit.py`), and this re-runs today's
+grader over the payload each answer row already stores and awards the share the
+student earned.
+
+**One direction only** — a stored mark is never lowered, not a row's points and
+not a submission's totals. Where a stored total is higher than its own rows
+justify it is kept and the disagreement is reported.
+
+Covers the two stores that keep both the raw payload and a per-answer points
+field: auto-graded `homework.HomeworkStudentAnswer` and
+`worksheets.WorksheetStudentAnswer` rows. **Quiz attempts are not backfilled**
+— `StudentFinalAnswer` carries its own session id rather than the answers'
+`attempt_id`, so an attempt's total cannot be recomputed from the answers under
+it, and its saved review payload holds only the readable form of the answer.
+The command counts and reports those rather than skipping them silently.
+
+```bash
+python manage.py backfill_partial_credit                       # dry run — report only
+python manage.py backfill_partial_credit --source worksheets   # one store
+python manage.py backfill_partial_credit --student 42
+python manage.py backfill_partial_credit --question 4021
+python manage.py backfill_partial_credit --limit 200           # smoke run
+python manage.py backfill_partial_credit --apply               # actually write
+```
+
+Safe to re-run: an answer already worth what the grader says it is worth is
+left alone, so a second run reports nothing.
 
 ### `consolidate_to_maths`
 Migrate question/progress data from shared quiz and progress apps into the maths app.
