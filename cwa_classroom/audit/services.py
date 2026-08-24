@@ -74,6 +74,19 @@ def log_event(
         user_to_save = user if (user and hasattr(user, 'pk') and user.pk) else None
         school_to_save = school if (school and hasattr(school, 'pk') and school.pk) else None
 
+        # Super-admin "view as": request.user IS the impersonated user, so every
+        # caller passing request.user would file this event against a student or
+        # parent who did nothing. Record the real actor and keep the person whose
+        # account was on screen in detail, or the audit trail lies about who acted.
+        impersonator = getattr(request, 'impersonator', None) if request else None
+        if impersonator is not None and getattr(impersonator, 'pk', None):
+            detail = dict(detail or {})
+            detail['impersonating'] = True
+            if user_to_save is not None:
+                detail['impersonated_user_id'] = user_to_save.pk
+                detail['impersonated_username'] = user_to_save.username
+            user_to_save = impersonator
+
         AuditLog.objects.create(
             user=user_to_save,
             school=school_to_save,
