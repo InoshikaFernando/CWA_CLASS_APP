@@ -223,9 +223,11 @@
 {% block extra_js %}
 {% if report.has_activity %}
 <script id="report-charts-data" type="application/json">{{ charts_json|safe }}</script>
-{# Chart.js is served from our own static files, not a CDN: the report is the
-   one page a parent may open on a school network that blocks third-party
-   script hosts, and a silently chart-less report reads as "no data". #}
+{% comment %}
+Chart.js is served from our own static files, not a CDN: the report is the one
+page a parent may open on a school network that blocks third-party script hosts,
+and a silently chart-less report reads as "no data".
+{% endcomment %}
 <script src="{% static 'js/chart.min.js' %}"></script>
 <script>
 (function () {

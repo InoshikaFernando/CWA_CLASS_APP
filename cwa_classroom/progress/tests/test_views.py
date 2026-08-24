@@ -150,6 +150,16 @@ class DetailRenderTests(ReportViewBase):
             [row['first_pct'] for row in self.report.attempts['items']],
         )
 
+    def test_no_template_syntax_leaks_into_the_page(self):
+        """A multi-line `{# … #}` renders verbatim — Django only ends it at the
+        line break. It shipped once as a paragraph of implementation notes
+        printed under the footer, and nothing in the test suite noticed."""
+        self.login(self.student)
+        content = self.client.get(self.detail_url()).content.decode()
+
+        for token in ('{#', '{%', '{{'):
+            self.assertNotIn(token, content, f'unrendered {token} in the page')
+
     def test_an_empty_report_says_so_rather_than_showing_zeros(self):
         empty = PeriodReport.objects.create(
             student=self.student, school=self.school,
