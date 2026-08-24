@@ -293,3 +293,36 @@ def test_soft_deleted_homework_still_counts_as_evidence(bank):
 
     q.refresh_from_db()
     assert q.level.level_number == 9
+
+
+def test_assigned_homework_still_serves_the_same_questions(bank):
+    """Re-levelling must not disturb homework already out with students.
+
+    An assigned homework loads its items purely by
+    ``HomeworkQuestion.objects.filter(homework=...)``
+    (``homework/views_student.py:323``) with no level filter, so moving a
+    question between years cannot change what a student is served. That is the
+    behaviour this pins — a level filter introduced there later would silently
+    empty every homework whose questions this command moved.
+    """
+    y9 = bank['make_class']('Year 9', 311)
+    questions = [bank['question'](y9) for _ in range(3)]
+    homework = Homework.objects.filter(classroom=y9).first()
+    # One homework per question above; re-point them all at a single homework
+    # so we can assert the served set as a whole.
+    HomeworkQuestion.objects.update(homework=homework)
+    before = list(HomeworkQuestion.objects.filter(homework=homework)
+                  .order_by('order', 'id')
+                  .values_list('content_id', 'question_id', 'order'))
+    assert len(before) == 3
+
+    relevel()
+
+    after = list(HomeworkQuestion.objects.filter(homework=homework)
+                 .order_by('order', 'id')
+                 .values_list('content_id', 'question_id', 'order'))
+    assert after == before
+    for q in questions:
+        q.refresh_from_db()
+        assert q.level.level_number == 9      # the level did move
+    assert Question.objects.filter(id__in=[q.id for q in questions]).count() == 3
