@@ -51,19 +51,28 @@ Usage (run from the app dir, e.g. /home/cwa/CWA_CLASS_APP_TEST):
     python manage.py convert_fill_blanks --topic Statistics # one topic subtree
     python manage.py convert_fill_blanks --level 10
     python manage.py convert_fill_blanks --id 4021 --id 4022
+    python manage.py convert_fill_blanks --add-bare-unit-answers  # "5300 mL" -> also "5300"
     python manage.py convert_fill_blanks --apply            # actually write
     python manage.py convert_fill_blanks --revert --apply   # undo: clear the specs
 """
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
+from django.db.models import Max
 
 from classroom.models import Topic
-from maths.blank_grading import count_blanks, describe_blank_spec
-from maths.models import Question
+from maths.blank_grading import (
+    bare_unit_answers, count_blanks, describe_blank_spec,
+)
+from maths.models import Answer, Question
 
 # Only typed answers. An MCQ whose stem happens to contain a gap is still a
 # question you pick an option for, and rendering an input into its stem would
 # break it.
 TYPED_TYPES = ['short_answer', 'calculation', 'fill_blank']
+
+
+class _DryRun(Exception):
+    """Unwinds the savepoint a dry-run repair was simulated inside."""
 
 
 class Command(BaseCommand):
@@ -105,6 +114,16 @@ class Command(BaseCommand):
                  'evidence there is one per gap, and mapping them positionally '
                  'marks correct students wrong. Turn it on only for content you '
                  'know was authored gap by gap.',
+        )
+        parser.add_argument(
+            '--add-bare-unit-answers', action='store_true',
+            help='Repair the questions refused because every stored answer '
+                 'repeats the unit printed after the gap ("= ___ mL" answered '
+                 '"5300 mL"), by ALSO storing the bare value ("5300"), then '
+                 'converting them. The existing row is kept, so a student who '
+                 'writes the unit is still marked correct. Single-gap questions '
+                 'only — which row feeds which gap is exactly what this command '
+                 'refuses to guess at elsewhere.',
         )
         parser.add_argument(
             '--force', action='store_true',
@@ -186,7 +205,7 @@ class Command(BaseCommand):
             ))
             return
 
-        converted, skipped = [], []
+        converted, skipped, repaired = [], [], []
         for q in candidates:
             was = q.question_type
             # The same entry point the AI importer, the spreadsheet upload and
@@ -194,6 +213,19 @@ class Command(BaseCommand):
             # identical to one that arrived already marked up.
             changed, reason = q.apply_blank_format(
                 positional_rows=opts['map_rows_to_gaps'])
+            if reason and opts['add_bare_unit_answers']:
+                # The one refusal with a mechanical fix: store the bare value
+                # beside the one that repeats the unit, then ask again. Every
+                # other refusal is a judgement call about which value fills
+                # which gap and stays a human's.
+                added, retried, retry_reason = self._repair_and_retry(
+                    q, opts, apply_changes)
+                # Only when something was actually added. A question this
+                # cannot repair keeps the reason it was refused for, rather
+                # than being re-reported as "nothing to convert".
+                if added:
+                    repaired.append((q, added))
+                    changed, reason = retried, retry_reason
             if reason or not changed:
                 skipped.append((q, reason or 'nothing to convert'))
                 continue
@@ -201,10 +233,58 @@ class Command(BaseCommand):
                 q.save(update_fields=['blank_spec', 'question_type'])
             converted.append((q, was))
 
-        self._report(converted, skipped, apply_changes)
+        self._report(converted, skipped, repaired, apply_changes)
 
     # ------------------------------------------------------------------
-    def _report(self, converted, skipped, apply_changes):
+    def _repair_and_retry(self, question, opts, apply_changes):
+        """Add the bare-value answers, then ask ``apply_blank_format`` again.
+
+        Returns ``(added, changed, reason)``.
+
+        A dry run really writes the rows and then rolls them back, rather than
+        attaching them in memory: ``rebuild_blank_spec`` re-reads the correct
+        answers from the database, so a row that existed only on the instance
+        would not be seen and the dry run would report the same refusal it is
+        offering to fix. The spec built during the savepoint stays on the
+        instance after the rollback, which is what the report prints — the same
+        "changed in memory, saved only under --apply" the ordinary conversion
+        path already uses.
+        """
+        added, changed, reason = [], False, ''
+        try:
+            with transaction.atomic():
+                added = self._add_bare_units(question)
+                if added:
+                    changed, reason = question.apply_blank_format(
+                        positional_rows=opts['map_rows_to_gaps'])
+                if not apply_changes:
+                    raise _DryRun
+        except _DryRun:
+            pass
+        return added, changed, reason
+
+    def _add_bare_units(self, question):
+        """Store the bare value beside answers that repeat their gap's unit.
+
+        Returns the texts written (``[]`` when there was nothing to add). Adds
+        rows rather than editing them: "5300 mL" was a correct answer before
+        the gap went inline and stays one.
+        """
+        correct = [a.answer_text for a in question.answers.filter(is_correct=True)]
+        extra = bare_unit_answers(question.question_text, correct)
+        if not extra:
+            return []
+
+        order = question.answers.aggregate(top=Max('order'))['top'] or 0
+        Answer.objects.bulk_create([
+            Answer(question=question, answer_text=text,
+                   is_correct=True, order=order + offset)
+            for offset, text in enumerate(extra, start=1)
+        ])
+        return extra
+
+    # ------------------------------------------------------------------
+    def _report(self, converted, skipped, repaired, apply_changes):
         for q, was in converted:
             self.stdout.write(
                 f'  Q{q.pk} [{was}] {count_blanks(q.question_text)} gap(s): '
@@ -224,6 +304,16 @@ class Command(BaseCommand):
             for q, reason in skipped:
                 self.stdout.write(self.style.WARNING(f'  Q{q.pk}: {reason}'))
                 self.stdout.write(f'        {q.question_text[:110]}')
+
+        if repaired:
+            self.stdout.write('')
+            wrote = 'Added' if apply_changes else 'Would add'
+            self.stdout.write(self.style.SUCCESS(
+                f'{wrote} a bare-value answer to {len(repaired)} question(s) '
+                f'whose only stored answer repeated the unit after the gap '
+                f'(the existing answer is kept):'))
+            for q, added in repaired:
+                self.stdout.write(f'  Q{q.pk}: + {", ".join(repr(t) for t in added)}')
 
         self.stdout.write('')
         verb = 'Converted' if apply_changes else 'Would convert'

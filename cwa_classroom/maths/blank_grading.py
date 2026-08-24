@@ -356,6 +356,61 @@ def unit_repeat_blanks(question_text, blank_spec):
     return out
 
 
+def bare_unit_answers(question_text, correct_texts):
+    """The bare values to store BESIDE answers that repeat their gap's unit.
+
+    The other half of :func:`unit_repeat_blanks`. That function names the
+    defect — "Convert to millilitres: 5.3 L = ___ mL" answered "5300 mL" reads
+    inline as "= [5300 mL] mL" and marks the obvious "5300" wrong — and this
+    works out what to store to fix it, so the fix is applied from the same
+    reading of the sentence that refused the question rather than by hand,
+    fourteen times, with a typo in one of them.
+
+    Returns texts to ADD, never a replacement. "5300 mL" stays an accepted
+    answer: a student who writes the unit was marked correct before the gap
+    went inline and must still be. Adding an accepted spelling is also true
+    of the question in its single-box form, so this is a safe write even if
+    the conversion that follows is later reverted.
+
+    Single-gap questions only. Deciding which row feeds which gap on a
+    multi-gap question is the exact ambiguity :func:`derive_blank_spec`
+    refuses to guess at, and stripping the unit off a row that fills a
+    different gap would corrupt the answer rather than repair it.
+
+    Returns ``[]`` when there is nothing to add — no gap, no unit after it, an
+    answer that already omits the unit, or the bare value already stored — so
+    running it twice adds nothing the second time.
+    """
+    if count_blanks(question_text) != 1:
+        return []
+
+    texts = [t.strip() for t in correct_texts if t and t.strip()]
+    if not texts:
+        return []
+
+    segments = split_on_blanks(question_text)
+    if len(segments) != 2:
+        return []
+    match = _UNIT_TOKEN_RE.match(segments[1] or '')
+    if not match:
+        return []
+    unit = match.group(1)
+
+    options = sum((_alternatives(t) for t in texts), [])
+    # Only when EVERY spelling repeats the unit. If one already reads "5300",
+    # the student can answer without repeating it and there is no defect to
+    # repair — the same test unit_repeat_blanks applies before flagging.
+    if not all(_repeats_unit(option, unit) for option in options):
+        return []
+
+    out = []
+    for option in options:
+        bare = option[:-len(unit)].strip()
+        if bare and bare not in options and bare not in out:
+            out.append(bare)
+    return out
+
+
 def _repeats_unit(answer, unit):
     """Does *answer* end with *unit* as a separate trailing token?"""
     answer = answer.strip()
