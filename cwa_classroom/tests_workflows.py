@@ -118,23 +118,48 @@ def test_ci_still_runs_every_suite_on_a_push():
             f'a merge to main/test could skip it')
 
 
-def test_ui_matrix_runs_every_group_on_a_push():
-    """Same promotion gate, for the UI suite's dynamic matrix.
-
-    ui-tests is gated on the matrix the ui-matrix job emits rather than on the
-    filters directly, so the rule above cannot see it. The full-suite escape
-    lives in ui-matrix's RUN_ALL expression instead — if that lost its `push`
-    arm, a merge to `test` would deploy on a partial UI matrix.
-    """
+def _ui_matrix_run_all():
     pick = None
     for step in _ci()['jobs']['ui-matrix']['steps']:
         if step.get('id') == 'pick':
             pick = step
     assert pick is not None, 'ci.yml: the ui-matrix job has no step id: pick'
-    run_all = pick.get('env', {}).get('RUN_ALL', '')
-    assert "github.event_name == 'push'" in run_all, (
-        'ci.yml: ui-matrix RUN_ALL no longer forces the full UI matrix on a '
-        'push, so the pre-production gate on `test` could run a subset')
+    return pick.get('env', {}).get('RUN_ALL', '')
+
+
+def test_ui_matrix_is_path_filtered_on_a_push():
+    """The UI matrix follows the diff on a push, not the event.
+
+    It used to force all 15 groups on every push to `test`. That is 67 of the
+    ~120 billed minutes a full matrix costs, on every merge — and the groups
+    are large rather than slow (classroom 231 tests, billing 233, navigation
+    223), so the only lever is running fewer of them. At ~8 merges a day it was
+    ~$5.75 of a ~$16.50 daily bill, and on 2026-08-24 the account hit its
+    Actions spending limit, which stopped every workflow in the repo including
+    the production deploy.
+
+    The unit suites stay unfiltered on a push — see the test above. They are
+    the cheap half and the half that catches cross-app breakage.
+    """
+    assert "github.event_name == 'push'" not in _ui_matrix_run_all(), (
+        'ci.yml: ui-matrix RUN_ALL forces the whole UI matrix on every push '
+        'again. That is the most expensive thing in CI and it is what '
+        'exhausted the Actions spending limit.')
+
+
+def test_ui_matrix_still_runs_everything_for_a_shared_change():
+    """The escape that makes the filter safe.
+
+    A change to base templates, the sidebar, shared static or shared fixtures
+    can break any page, so those bypass the per-group filter on BOTH events. If
+    this went, a `ui_core` change would run only the groups whose own paths
+    happened to change and the rest would go quiet.
+    """
+    run_all = _ui_matrix_run_all()
+    for key in ('needs.changes.outputs.shared', 'needs.changes.outputs.ui_core'):
+        assert key in run_all, (
+            f'ci.yml: ui-matrix RUN_ALL no longer forces the full matrix on a '
+            f'{key} change — a change that can break any page would run a subset')
 
 
 # ---------------------------------------------------------------------------
