@@ -19,6 +19,7 @@ import pytest
 import yaml
 
 WORKFLOW_DIR = Path(__file__).resolve().parent.parent / '.github' / 'workflows'
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class _DuplicateKeyLoader(yaml.SafeLoader):
@@ -483,3 +484,49 @@ def test_the_ui_groups_are_not_limited_to_the_runner_cpu_count():
     assert int(run_step['env']['UI_WORKERS']) > 2, (
         'a private runner has 2 CPUs; this would not help'
     )
+
+
+# ── Release hygiene: one CI matrix per release ───────────────────────────────
+#
+# A push to `test` runs the full matrix (~29 jobs, ~119 billed Actions
+# minutes) — the path filters are deliberately ignored there so the promotion
+# gate is always the whole suite. Bumping APP_VERSION on `test` AFTER a merge
+# therefore buys a second full matrix per release, and the second push cancels
+# the first mid-flight so ~25 already-running jobs are paid for and discarded.
+#
+# On 2026-08-24 that happened three times in one evening and helped exhaust the
+# Actions spending limit, which stopped every workflow in the repo — including
+# the production deploy. bump_version.py refuses to run on a protected branch
+# so the bump lands in the feature PR and the merge is a single push.
+#
+# These live here because this file runs in the ungated migration-check job, so
+# a change that quietly removes the guard cannot slip through on a path filter.
+
+def _bump_script():
+    return (REPO_ROOT / 'scripts' / 'bump_version.py').read_text(encoding='utf-8')
+
+
+def test_bump_version_refuses_to_run_on_a_protected_branch():
+    src = _bump_script()
+    assert 'PROTECTED_BRANCHES' in src, (
+        'bump_version.py must refuse to bump on test/main — bumping there costs '
+        'a second full CI matrix per release and cancels the first one.'
+    )
+    assert "'test'" in src and "'main'" in src, (
+        'both protected branches must be named in PROTECTED_BRANCHES'
+    )
+
+
+def test_bump_version_keeps_an_escape_hatch():
+    # A hotfix straight to a protected branch must still be possible; the guard
+    # is there to stop the accident, not to block a deliberate release.
+    assert '--allow-protected' in _bump_script()
+
+
+def test_bump_version_says_why_it_refused():
+    # A bare "refused" teaches people to reach for the escape hatch. The cost
+    # and the alternative have to be in the message.
+    src = _bump_script()
+    for phrase in ('feature branch', 'matrix'):
+        assert phrase in src, f'the refusal message should mention {phrase!r}'
+
