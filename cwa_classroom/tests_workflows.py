@@ -102,23 +102,98 @@ def test_ci_still_runs_every_suite_on_a_push():
     """A push to `test` is the promotion gate and must not be path-filtered.
 
     PR runs are narrowed to the affected apps to save Actions minutes; the
-    safety net is that the merge to `test` runs everything. If that
-    `github.event_name == 'push'` escape were dropped, a release could promote
-    on a partial matrix.
+    safety net is that the merge to `test` runs everything. If that escape
+    were dropped, a release could promote on a partial matrix.
+
+    The 20 per-app unit jobs are now one job whose targets come from the diff,
+    so for those the escape moved from 20 `if:` conditions into the RUN_ALL of
+    the step that builds the list. Both forms are checked here — a job that
+    still decides for itself must carry it in its `if:`, and the step that
+    decides for the rest must carry it in RUN_ALL.
     """
     jobs = _ci()['jobs']
     # These two run INSTEAD OF suites, and only when the tree they cover has
     # already passed elsewhere. Requiring the push escape on them would mean
     # reporting "already tested" on a push that was not.
     stands_in_for_a_suite = {'release-already-tested', 'ui-already-tested'}
+    # unit-tests runs whatever `changes` selected for it; the escape that
+    # fills that list in full on a push is asserted below instead.
+    decided_by_a_step = {'unit-tests'}
     gated = {name: job for name, job in jobs.items()
              if 'needs.changes.outputs' in (job.get('if') or '')
-             and name not in stands_in_for_a_suite}
+             and name not in stands_in_for_a_suite | decided_by_a_step}
     assert gated, 'Expected the path-filtered jobs to carry an if: condition'
     for name, job in gated.items():
         assert "github.event_name == 'push'" in job['if'], (
             f'ci.yml job {name!r} is path-filtered without the push escape, so '
             f'a merge to main/test could skip it')
+
+    run_all = _unit_step()['env']['RUN_ALL']
+    assert "github.event_name == 'push'" in run_all, (
+        'ci.yml: the unit suites no longer all run on a push to test. They are '
+        'the cheap half of CI and the half that catches one app breaking '
+        'another — which a PR narrowed to the changed app cannot see.')
+    assert 'shared' in run_all, (
+        'ci.yml: a change to the project package, requirements or conftest no '
+        'longer runs every unit suite, so it would run only the apps whose '
+        'own paths happened to change')
+
+
+def test_the_unit_job_is_the_only_thing_that_can_orphan_a_suite():
+    """One job now decides whether ~20 suites run at all.
+
+    Losing a line from UNIT_SUITES does not fail anything at runtime — the job
+    still passes, having quietly run one suite fewer. `classroom` is absent by
+    design (it keeps its own job), so it is named here rather than left to
+    look like an omission.
+    """
+    targets = _unit_suite_targets()
+    assert 'classroom/' not in targets, (
+        'ci.yml: classroom is in UNIT_SUITES as well as its own job, so it '
+        'would run twice')
+    assert _ci()['jobs'].get('classroom-tests'), (
+        'ci.yml: classroom has neither its own job nor a UNIT_SUITES entry'
+    )
+    assert len(targets) == len(set(targets)), (
+        f'ci.yml: UNIT_SUITES repeats a target: {sorted(targets)}')
+
+    job = _ci()['jobs']['unit-tests']
+    run_step = next(s for s in job['steps']
+                    if str(s.get('name', '')).startswith('Run unit suites'))
+    assert '$DIRS' in run_step['run'], (
+        'ci.yml: the unit job no longer runs the list `changes` built for it')
+    assert "needs.changes.outputs.unit_dirs != ''" in job['if'], (
+        'ci.yml: the unit job would run with an empty argument list, which is '
+        '`pytest` over the whole tree')
+
+
+def _unit_step():
+    """The step in `changes` that picks the unit suites for this diff."""
+    for step in _ci()['jobs']['changes']['steps']:
+        if step.get('id') == 'unit':
+            return step
+    raise AssertionError(
+        "ci.yml: the `changes` job has no step id: unit, so unit_dirs is "
+        "always empty and NO unit suite runs anywhere")
+
+
+def _unit_suite_targets():
+    """Every pytest target the one unit job can be asked to run.
+
+    The 20 per-app jobs became a single job whose arguments come from this map,
+    so it — not a `run:` line — is now what decides whether a suite ever runs.
+    """
+    env = _unit_step()['env']
+    targets = []
+    for line in env['UNIT_SUITES'].splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        key, _, target = line.partition(':')
+        assert target, f'ci.yml: UNIT_SUITES entry {line!r} has no pytest target'
+        targets.append(target)
+    targets.append(env['UNIT_SHARED_ONLY'])
+    return targets
 
 
 def _ui_matrix_run_all():
@@ -316,6 +391,13 @@ def _pytest_targets():
                     continue
                 for token in line.split():
                     if token.startswith('-') or '=' in token:
+                        continue
+                    if token == '$DIRS':
+                        # `pytest $DIRS` — the unit job's arguments are built
+                        # by the `changes` job, so the map there is the real
+                        # list of targets.
+                        targets.update(t.rstrip('/')
+                                       for t in _unit_suite_targets())
                         continue
                     if not (token.endswith('.py') or '/' in token):
                         continue
