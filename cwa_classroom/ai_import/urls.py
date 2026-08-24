@@ -11,6 +11,8 @@ urlpatterns = [
     path('preview/<int:session_id>/', views.PreviewQuestionsView.as_view(), name='preview'),
     path('preview/<int:session_id>/page-image/', views.PageImageView.as_view(), name='pdf_page_image'),
     path('preview/<int:session_id>/recrop/', views.RecropView.as_view(), name='pdf_recrop'),
+    path('preview/<int:session_id>/question-preview/',
+         views.QuestionPreviewView.as_view(), name='question_preview'),
     path('upload-image/<int:session_id>/', views.UploadImageView.as_view(), name='upload_image'),
     path('confirm/<int:session_id>/', views.ConfirmImportView.as_view(), name='confirm'),
     path('export/<int:session_id>/', views.ExportSessionView.as_view(), name='export'),

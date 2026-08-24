@@ -1,0 +1,36 @@
+{% comment %}
+Class picker label — what a class looks like beside its checkbox while a
+student is being assigned to classes (CPP-387).
+
+Two classes can share a name and a subject, so the name alone is not enough to
+pick the right one. This partial always names when the class runs and where it
+is held; when either is missing on the class it says so ("Time not set" /
+"Location not set") instead of quietly rendering an identical-looking row.
+
+Context: `cls` (a ClassRoom instance).
+{% endcomment %}
+<div class="flex-1 min-w-0">
+  <p class="text-sm font-medium text-gray-800 truncate">{{ cls.name }}</p>
+  {% if cls.department or cls.subject %}
+  <p class="text-xs text-gray-500 truncate">
+    {% if cls.department %}{{ cls.department.name }}{% endif %}
+    {% if cls.department and cls.subject %}&middot;{% endif %}
+    {% if cls.subject %}{{ cls.subject.name }}{% endif %}
+  </p>
+  {% endif %}
+  <p class="text-xs text-gray-500 flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
+    <span class="inline-flex items-center gap-1 {% if not cls.schedule_label %}text-gray-400 italic{% endif %}">
+      <svg class="w-3.5 h-3.5 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      {{ cls.schedule_label|default:"Time not set" }}
+    </span>
+    <span class="inline-flex items-center gap-1 {% if not cls.venue_label %}text-gray-400 italic{% endif %}">
+      <svg class="w-3.5 h-3.5 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/>
+      </svg>
+      {{ cls.venue_label|default:"Location not set" }}
+    </span>
+  </p>
+</div>

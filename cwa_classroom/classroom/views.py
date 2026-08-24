@@ -991,7 +991,11 @@ class ClassDetailView(RoleRequiredMixin, View):
                 target_qs = ClassRoom.objects.filter(
                     school_id=classroom.school_id, is_active=True, teachers=user,
                 )
-            move_target_classes = list(target_qs.exclude(id=classroom.id).order_by('name'))
+            move_target_classes = list(
+                target_qs.exclude(id=classroom.id)
+                .select_related('location')
+                .order_by('name', 'start_time')
+            )
 
         # Bulk "Resend Welcome" is available to admin/HoI and the class's teachers.
         can_resend_welcome = bool(classroom.school_id)

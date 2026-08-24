@@ -3,6 +3,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
 from django.conf import settings
+from django.utils.formats import time_format
 
 
 class Subject(models.Model):
@@ -1087,6 +1088,60 @@ class ClassRoom(models.Model):
             'online': 'Online',
             'in_person': 'In-person',
         }.get(self.delivery_mode, '')
+
+    @property
+    def schedule_label(self):
+        """When this class runs, e.g. ``'Tuesday 4:00 PM – 5:30 PM'``.
+
+        Built from ``day``, ``start_time`` and ``end_time``; each part is
+        optional, so a class with only a day reads ``'Tuesday'`` and one with
+        only times reads ``'4:00 PM – 5:30 PM'``. Returns ``''`` when the class
+        has no schedule at all — callers hide the line rather than print a
+        placeholder.
+        """
+        parts = []
+        if self.day:
+            parts.append(self.get_day_display())
+        if self.start_time and self.end_time:
+            parts.append(
+                f'{time_format(self.start_time, "g:i A")} – '
+                f'{time_format(self.end_time, "g:i A")}'
+            )
+        elif self.start_time:
+            parts.append(time_format(self.start_time, 'g:i A'))
+        return ' '.join(parts)
+
+    @property
+    def venue_label(self):
+        """Where this class is held, e.g. ``'Hamilton Campus'`` or ``'Online'``.
+
+        A hybrid class (a location *and* ``is_online``) reads
+        ``'Hamilton Campus + Online'``. Returns ``''`` when neither has been
+        set, so a class with no venue configured shows nothing rather than a
+        misleading default.
+        """
+        if self.location_id and self.is_online:
+            return f'{self.location.name} + Online'
+        if self.location_id:
+            return self.location.name
+        if self.is_online:
+            return 'Online'
+        return ''
+
+    @property
+    def picker_label(self):
+        """One-line ``<select>`` label, e.g.
+
+        ``'Year 10 Maths — Tuesday 4:00 PM – 5:30 PM · Hamilton Campus'``.
+
+        An ``<option>`` cannot hold markup, so the schedule and venue are folded
+        into the text — otherwise two classes that share a name are impossible to
+        tell apart in a dropdown. Missing parts are named rather than dropped.
+        """
+        return (
+            f'{self.name} — {self.schedule_label or "Time not set"}'
+            f' · {self.venue_label or "Location not set"}'
+        )
 
 
 class ClassTeacher(models.Model):

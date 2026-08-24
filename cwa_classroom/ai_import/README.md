@@ -15,6 +15,8 @@ Mounted at `/ai-import/` (namespace `ai_import`).
 
 - `upload/` — PDF upload entry point
 - `preview/<session_id>/` — review and edit extracted questions
+- `preview/<session_id>/question-preview/` — one question rendered as the student
+  will meet it, and marked by the real grader (see below)
 - `confirm/<session_id>/` — write the session into the question bank
 - `plans/` — tier selection (Starter / Professional / Enterprise)
 
