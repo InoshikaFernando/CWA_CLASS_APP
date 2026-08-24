@@ -74,6 +74,7 @@ jobs:
       notifications: ${{ steps.filter.outputs.notifications }}
       progress: ${{ steps.filter.outputs.progress }}
       usage: ${{ steps.filter.outputs.usage }}
+      rewards: ${{ steps.filter.outputs.rewards }}
       ui_core: ${{ steps.filter.outputs.ui_core }}
       ui_billing: ${{ steps.filter.outputs.ui_billing }}
       ui_brainbuzz: ${{ steps.filter.outputs.ui_brainbuzz }}
@@ -158,6 +159,23 @@ jobs:
               - 'cwa_classroom/accounts/context_processors.py'
             usage:
               - 'cwa_classroom/usage/**'
+            rewards:
+              - 'cwa_classroom/rewards/**'
+              # The ledger's tests drive the real award site in every app that
+              # gives a student points. A change in any of them can stop that
+              # activity crediting the leaderboard without touching a file under
+              # rewards/ — which would show as a board that quietly stops
+              # moving, not as a failure. Watch them all.
+              - 'cwa_classroom/quiz/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/number_puzzles/**'
+              - 'cwa_classroom/brainbuzz/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/templates/hub/**'
             # ---- UI (Playwright) --------------------------------------------
             # One filter per ui_tests/<group>/ package. The names MUST stay in
             # lockstep with the directories on disk — tests_workflows.py fails
@@ -257,6 +275,7 @@ jobs:
             ui_navigation:
               - 'cwa_classroom/ui_tests/navigation/**'
               - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/rewards/**'
               - 'cwa_classroom/ai_import/**'
               - 'cwa_classroom/billing/**'
               - 'cwa_classroom/classroom/**'
@@ -369,6 +388,7 @@ jobs:
             progress:progress/
             puzzles:number_puzzles/
             quiz:quiz/
+            rewards:rewards/
             sprints:sprints/
             taskqueue:taskqueue/
             usage:usage/

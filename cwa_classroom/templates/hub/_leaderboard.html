@@ -1,0 +1,45 @@
+{% comment %}
+Global student leaderboard — the podium, the student's own place, and a line of
+encouragement. Rendered twice on the hub: inline as a card that stays on the
+page, and inside the once-a-day pop-up.
+
+The place badges are numerals in gold/silver/bronze discs rather than the 🥇🥈🥉
+emoji: a device without a full emoji font falls all three back to one identical
+glyph, which makes the podium unreadable — and a numeral is what a screen reader
+should say anyway.
+
+Context: `standing` (rewards.services.Standing).
+{% endcomment %}
+<div class="space-y-2">
+  <ol class="space-y-1.5">
+    {% for row in standing.podium %}
+    <li class="flex items-center gap-2.5 rounded-xl px-3 py-2
+               {% if row.is_me %}bg-amber-100 ring-1 ring-amber-300{% else %}bg-white/70{% endif %}">
+      <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold
+                   text-white flex-shrink-0 tabular-nums shadow-sm
+                   {% if row.rank == 1 %}bg-amber-400
+                   {% elif row.rank == 2 %}bg-slate-400
+                   {% else %}bg-orange-400{% endif %}">{{ row.rank }}</span>
+      <span class="flex-1 min-w-0 truncate text-sm font-semibold text-gray-800">
+        {{ row.name }}{% if row.is_me %} <span class="text-amber-700 font-bold">(you)</span>{% endif %}
+      </span>
+      <span class="text-sm font-bold text-gray-500 tabular-nums flex-shrink-0">{{ row.points|floatformat:0 }}</span>
+    </li>
+    {% endfor %}
+  </ol>
+
+  {% comment %}
+  A student already named on the podium does not need their rank repeated —
+  `show_own_rank` is false for the top three.
+  {% endcomment %}
+  {% if standing.show_own_rank %}
+  <div class="flex items-center gap-2.5 rounded-xl bg-amber-100 ring-1 ring-amber-300 px-3 py-2">
+    <span class="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center
+                 text-xs font-bold text-white flex-shrink-0 tabular-nums shadow-sm">{{ standing.rank }}</span>
+    <span class="flex-1 min-w-0 truncate text-sm font-semibold text-gray-800">Your rank</span>
+    <span class="text-sm font-bold text-gray-500 tabular-nums flex-shrink-0">{{ standing.total_points|floatformat:0 }}</span>
+  </div>
+  {% endif %}
+
+  <p class="text-xs font-medium text-gray-600 pt-0.5">{{ standing.message }}</p>
+</div>

@@ -6,6 +6,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views import View
 
+from rewards.models import PointsSource
+from rewards.services import award_points_safe, normalise
+
 from .models import (
     NumberPuzzle,
     NumberPuzzleLevel,
@@ -304,6 +307,15 @@ def _update_progress(user, level, session):
             progress.best_time_seconds = session.duration_seconds
 
     progress.save()
+
+    # Number puzzles have no points column, so the leaderboard scores a level on
+    # the student's best run of it. Read back from progress.best_score (not this
+    # session's score) so the ledger and the level's own best always agree.
+    award_points_safe(
+        user, PointsSource.NUMBER_PUZZLE, str(level.id),
+        normalise(progress.best_score, session.total_questions),
+        label=f'Number puzzles — level {level.number}',
+    )
 
     # Check unlock for next level
     if session.score >= level.unlock_threshold:
