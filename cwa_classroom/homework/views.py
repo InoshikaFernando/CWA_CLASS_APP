@@ -2358,6 +2358,31 @@ class HomeworkPDFReuseImageView(RoleRequiredMixin, View):
         return reuse_previous_image_response(session, request)
 
 
+class HomeworkPDFQuestionPreviewView(RoleRequiredMixin, View):
+    """AJAX: one extracted question rendered as the student will meet it.
+
+    ``promote_blanks=False`` because this flow's saver
+    (``_save_homework_pdf_questions``) does not call ``apply_blank_format`` —
+    a "___" sentence imported here stays one answer box. The preview says so
+    rather than showing the gaps the AI Import path would build.
+    """
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, session_id):
+        from worksheets.question_preview import preview_response
+
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(
+            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return preview_response(
+            request,
+            extracted_data=session.extracted_data,
+            extracted_images=session.extracted_images,
+            promote_blanks=False,
+        )
+
+
 class HomeworkPDFConfirmView(RoleRequiredMixin, View):
     """Step 3 — create Homework + questions in DB and notify students."""
     required_roles = TEACHER_ROLES

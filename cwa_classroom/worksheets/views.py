@@ -519,6 +519,29 @@ class WorksheetReuseImageView(RoleRequiredMixin, View):
         return reuse_previous_image_response(session, request)
 
 
+class WorksheetQuestionPreviewView(RoleRequiredMixin, View):
+    """AJAX: one extracted question rendered as the student will meet it.
+
+    ``promote_blanks=True`` because this flow confirms through
+    ``ai_import.services.save_questions_from_session``, which calls
+    ``apply_blank_format`` — a "___" sentence imported here really does become
+    a sentence with a box in each gap.
+    """
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, session_id):
+        from .question_preview import preview_response
+        session = get_object_or_404(
+            WorksheetUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return preview_response(
+            request,
+            extracted_data=session.extracted_data,
+            extracted_images=session.extracted_images,
+            promote_blanks=True,
+        )
+
+
 class WorksheetConfirmView(RoleRequiredMixin, View):
     """Step 3: Save questions to DB and create Worksheet record."""
     required_roles = TEACHER_ROLES

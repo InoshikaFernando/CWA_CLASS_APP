@@ -18,6 +18,9 @@ Mounted at the project root (namespace `homework`).
 - `/homework/class/<id>/create/` — teacher creates homework
 - `/homework/<id>/` — teacher detail + submissions
 - `/homework/student/` — student's assigned-homework list
+- `/homework/pdf/preview/<session_id>/` — teacher reviews PDF-extracted questions
+- `/homework/pdf/preview/<session_id>/question-preview/` — one of them rendered as
+  the student will meet it, and marked by the real grader
 - `/homework/<id>/take/` — student takes the quiz
 - `/homework/result/<submission_id>/` — student result page
 

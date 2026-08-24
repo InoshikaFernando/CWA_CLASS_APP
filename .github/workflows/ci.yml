@@ -267,6 +267,11 @@ jobs:
               - 'cwa_classroom/homework/**'
               - 'cwa_classroom/quiz/**'
               - 'cwa_classroom/worksheets/**'
+              # "Preview as student" on the review page builds a maths.Question
+              # and renders the student take partial, so a change to either
+              # breaks the upload screens without touching an upload app.
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/templates/homework/**'
               - 'cwa_classroom/templates/ai_import/**'
               - 'cwa_classroom/templates/_partials/**'
               - 'cwa_classroom/ui_tests/xls_fixtures.py'
