@@ -30,7 +30,18 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      # ui_already_tested looks up whether this tree already passed on the PR.
+      actions: read
     outputs:
+      # The unit suites this diff needs, as a pytest argument list. One job
+      # runs them all: 20 near-identical jobs spent 30s installing deps to run
+      # 15s of tests and then billed a whole minute each.
+      unit_dirs: ${{ steps.unit.outputs.dirs }}
+      # True when the tree this push lands is byte-identical to one a PR run
+      # already validated, so the UI matrix would re-run over identical
+      # content. Scoped to the UI matrix ONLY — see the step for why the unit
+      # suites can never use it.
+      ui_already_tested: ${{ steps.tested.outputs.already_tested }}
       # True on a release PR (test -> main). Its tree is byte-identical to
       # what `test` already validated, so re-running the matrix over it
       # proves nothing; release-already-tested checks that instead.
@@ -311,6 +322,171 @@ jobs:
               # without touching templates/worksheets/.
               - 'cwa_classroom/templates/maths/**'
 
+      # ---- Which unit suites does this diff need? ---------------------------
+      #
+      # These used to be 20 separate jobs, one per app, each doing checkout +
+      # setup-python + `pip install -r requirements-test.txt` before running
+      # its suite. Measured on a full run: 22 unit jobs cost 44 billed minutes
+      # to run 21.7 minutes of tests. Notifications billed a full minute for
+      # six seconds of tests.
+      #
+      # Two thirds of that was setup repeated 20 times and GitHub rounding
+      # every job up to a whole minute, so they are now ONE job — but with a
+      # target list built from the same path filters, not a fixed group. A
+      # fixed group would make the common case worse: an accounts-only PR runs
+      # `pytest accounts/` for ~2 billed minutes today, and would pay for all
+      # 20 suites instead. Deriving the list keeps that PR at ~2 and takes the
+      # full run from 32 billed minutes to ~12.
+      #
+      # `classroom` is deliberately NOT here. At 11 of the 21.7 test-minutes it
+      # is the long pole, and keeping its own job lets it run beside this one
+      # instead of in front of it — merging it would double the wall clock.
+      - name: Which unit suites does this diff need?
+        id: unit
+        env:
+          # filter key -> pytest target. Data rather than shell so
+          # tests_workflows.py can check the same map the job runs on: a suite
+          # dropped from here would stop running everywhere, silently.
+          UNIT_SUITES: |
+            accounts:accounts/
+            ai_import:ai_import/
+            audit:audit/
+            billing:billing/
+            brainbuzz:brainbuzz/
+            coding:coding/
+            feedback:feedback/
+            homework:homework/
+            maths:maths/
+            notifications:notifications/
+            ops:ops/
+            progress:progress/
+            puzzles:number_puzzles/
+            quiz:quiz/
+            sprints:sprints/
+            taskqueue:taskqueue/
+            usage:usage/
+            whatsapp:whatsapp/
+            worksheets:worksheets/
+          # The project package's own tests have no filter of their own — they
+          # ran on `shared` when this was the health-tests job, and `shared` is
+          # one of the two things inside RUN_ALL.
+          UNIT_SHARED_ONLY: cwa_classroom/tests.py
+          CHANGED: ${{ toJSON(steps.filter.outputs) }}
+          # The safety net the per-app jobs used to carry in their own `if:`.
+          # A merge to `test` is the promotion gate and runs EVERY unit suite:
+          # they are the cheap half and the half that catches one app breaking
+          # another, which a PR narrowed to the changed app cannot see.
+          RUN_ALL: ${{ github.event_name == 'push' || steps.filter.outputs.shared == 'true' }}
+        run: |
+          set -euo pipefail
+          dirs=""
+          while IFS=: read -r key target; do
+            [ -n "$key" ] || continue
+            if [ "$RUN_ALL" = "true" ] \
+               || [ "$(jq -r --arg k "$key" '.[$k] // "false"' <<<"$CHANGED")" = "true" ]; then
+              dirs="$dirs $target"
+            fi
+          done <<<"$UNIT_SUITES"
+          if [ "$RUN_ALL" = "true" ]; then
+            dirs="$dirs $UNIT_SHARED_ONLY"
+          fi
+          dirs=$(echo $dirs)
+          # An empty list makes the job vanish, which reads the same as a CI
+          # that has quietly stopped running — say which it was.
+          if [ -z "$dirs" ]; then
+            echo "No unit suites needed for this diff."
+          else
+            echo "Unit suites selected: $dirs"
+          fi
+          echo "dirs=$dirs" >> "$GITHUB_OUTPUT"
+
+      # ---- Has this exact tree already been through the UI matrix? ----------
+      #
+      # A `pull_request` run does NOT test the PR head — it tests
+      # `refs/pull/N/merge`, i.e. the PR merged into its base. So when a merge
+      # to `test` lands a tree the PR run already had, the push re-runs the UI
+      # groups over byte-identical content. Roughly half of merges here are in
+      # that position (the PR branch was up to date with `test`), and the UI
+      # matrix is ~60 of the ~105 billed minutes a full run costs.
+      #
+      # THIS IS FOR THE UI MATRIX ONLY. The unit suites are unfiltered on a
+      # push precisely because a PR run is narrowed to the apps it touched —
+      # that push is what catches one app breaking another, and skipping it
+      # against a narrowed PR run would delete exactly that signal. The UI
+      # matrix is different: it is path-filtered identically on both events
+      # (since 2026-08-24), so for one tree the two runs select the same
+      # groups and the second proves nothing.
+      #
+      # The claim is only made when all four hold, so the PR really did run
+      # this content through the same groups:
+      #
+      #   1. the push is a two-parent merge commit — parents [base, head];
+      #   2. tree(merge) == tree(head): the merge brought in nothing new, so
+      #      what lands IS what the PR branch held;
+      #   3. base is an ancestor of head: the PR was up to date with `test`,
+      #      so `refs/pull/N/merge` reduced to the head commit itself and the
+      #      PR therefore tested this tree — and the PR's path filter ran
+      #      against a base no newer than this one, so it selected these
+      #      groups or a superset of them;
+      #   4. a `pull_request` CI run on that head SHA actually concluded
+      #      success.
+      #
+      # Any doubt resolves to running the matrix — every path out of this step
+      # except the last one is `false`.
+      - name: Has this tree already passed the UI matrix?
+        id: tested
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/test' }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const run = (why) => {
+              core.info(`Running the UI matrix: ${why}`);
+              core.setOutput('already_tested', 'false');
+            };
+
+            const { data: merge } = await github.rest.git.getCommit({
+              owner, repo, commit_sha: context.sha,
+            });
+            if (merge.parents.length !== 2) {
+              return run(`${context.sha.slice(0, 8)} is not a two-parent merge`);
+            }
+            const [base, head] = merge.parents.map((p) => p.sha);
+
+            const { data: headCommit } = await github.rest.git.getCommit({
+              owner, repo, commit_sha: head,
+            });
+            if (headCommit.tree.sha !== merge.tree.sha) {
+              return run(
+                `the merge of ${head.slice(0, 8)} changed the tree, so this ` +
+                `content has not been tested as a whole`);
+            }
+
+            const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({
+              owner, repo, basehead: `${base}...${head}`,
+            });
+            if (!['ahead', 'identical'].includes(cmp.status)) {
+              return run(
+                `${head.slice(0, 8)} was not up to date with test ` +
+                `(${cmp.status}), so the PR tested a different merge`);
+            }
+
+            const { data: runs } = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: 'ci.yml', head_sha: head,
+              event: 'pull_request',
+            });
+            const passed = runs.workflow_runs.find(
+              (r) => r.conclusion === 'success');
+            if (!passed) {
+              return run(`no successful PR run for ${head.slice(0, 8)}`);
+            }
+
+            core.info(
+              `Tree ${merge.tree.sha.slice(0, 8)} already passed in PR run ` +
+              `#${passed.run_number} (${passed.html_url}) — skipping the UI ` +
+              `matrix. Unit suites still run in full.`);
+            core.setOutput('already_tested', 'true');
+
   # Always runs — missing/conflicting migrations must never slip through, and the
   # check is cheap. Not gated on `changes`.
   migration-check:
@@ -416,10 +592,18 @@ jobs:
         working-directory: cwa_classroom
         run: pytest classroom/ -n auto --dist=loadscope -v --tb=short
 
-  maths-tests:
-    name: Maths Tests
+  # One job for every app suite except classroom, with its targets chosen by
+  # the `changes` job. See the "Which unit suites does this diff need?" step
+  # there for the measurements and for why classroom is not in it.
+  #
+  # KEEP THE NAME STABLE. The per-app checks ("Billing Tests", "Accounts
+  # Tests", …) are gone, so branch protection for `test` and `main` must
+  # require this one instead — a required check that no longer exists blocks
+  # every PR forever.
+  unit-tests:
+    name: Unit Tests
     needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.maths == 'true') }}
+    if: ${{ needs.changes.outputs.release != 'true' && needs.changes.outputs.unit_dirs != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -433,411 +617,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r cwa_classroom/requirements-test.txt
 
-      - name: Run maths tests
+      - name: Run unit suites
         working-directory: cwa_classroom
-        run: pytest maths/ -n auto --dist=loadscope -v --tb=short
+        env:
+          DIRS: ${{ needs.changes.outputs.unit_dirs }}
+        # Unquoted on purpose — DIRS is a pytest argument LIST, and the values
+        # are fixed in ci.yml rather than coming from the diff.
+        run: pytest $DIRS -n auto --dist=loadscope -v --tb=short
 
-  quiz-tests:
-    name: Quiz Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.quiz == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run quiz tests
-        working-directory: cwa_classroom
-        run: pytest quiz/ -n auto --dist=loadscope -v --tb=short
-
-  puzzles-tests:
-    name: Number Puzzles Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.puzzles == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run number puzzles tests
-        working-directory: cwa_classroom
-        run: pytest number_puzzles/ -n auto --dist=loadscope -v --tb=short
-
-  coding-tests:
-    name: Coding Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.coding == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run coding tests
-        working-directory: cwa_classroom
-        run: pytest coding/ -n auto --dist=loadscope -v --tb=short
-
-  accounts-tests:
-    name: Accounts Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.accounts == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run accounts tests
-        working-directory: cwa_classroom
-        run: pytest accounts/ -n auto --dist=loadscope -v --tb=short
-
-  health-tests:
-    name: Health Check Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run health check tests
-        working-directory: cwa_classroom
-        run: pytest cwa_classroom/tests.py -n auto --dist=loadscope -v --tb=short
-
-  audit-tests:
-    name: Audit Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.audit == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run audit tests
-        working-directory: cwa_classroom
-        run: pytest audit/ -n auto --dist=loadscope -v --tb=short
-
-  billing-tests:
-    name: Billing Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.billing == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run billing tests
-        working-directory: cwa_classroom
-        run: pytest billing/ -n auto --dist=loadscope -v --tb=short
-
-  homework-tests:
-    name: Homework Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.homework == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run homework tests
-        working-directory: cwa_classroom
-        # One invocation collects all 392 now that pytest.ini's python_files
-        # matches tests.py (this used to need two runs, because the directory
-        # argument alone missed homework/tests.py).
-        run: pytest homework/ -n auto --dist=loadscope -v --tb=short
-
-  brainbuzz-tests:
-    name: BrainBuzz Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.brainbuzz == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run brainbuzz tests
-        working-directory: cwa_classroom
-        run: pytest brainbuzz/ -n auto --dist=loadscope -v --tb=short
-
-  ai-import-tests:
-    name: AI Import Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.ai_import == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run AI import tests
-        working-directory: cwa_classroom
-        run: pytest ai_import/ -n auto --dist=loadscope -v --tb=short
-
-  worksheets-tests:
-    name: Worksheets Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.worksheets == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run worksheets tests
-        working-directory: cwa_classroom
-        run: pytest worksheets/ -n auto --dist=loadscope -v --tb=short
-
-  taskqueue-tests:
-    name: Taskqueue Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.taskqueue == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run taskqueue tests
-        working-directory: cwa_classroom
-        run: pytest taskqueue/ -n auto --dist=loadscope -v --tb=short
-
-  feedback-tests:
-    name: Feedback Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.feedback == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run feedback tests
-        working-directory: cwa_classroom
-        run: pytest feedback/ -n auto --dist=loadscope -v --tb=short
-
-  sprints-tests:
-    name: Sprints Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.sprints == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run sprints tests
-        working-directory: cwa_classroom
-        run: pytest sprints/ -n auto --dist=loadscope -v --tb=short
-
-  whatsapp-tests:
-    name: WhatsApp Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.whatsapp == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run whatsapp tests
-        working-directory: cwa_classroom
-        run: pytest whatsapp/ -n auto --dist=loadscope -v --tb=short
-
-  ops-tests:
-    name: Ops Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.ops == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run ops tests
-        working-directory: cwa_classroom
-        run: pytest ops/ -n auto --dist=loadscope -v --tb=short
-
-  notifications-tests:
-    name: Notifications Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.notifications == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run notifications tests
-        working-directory: cwa_classroom
-        run: pytest notifications/ -n auto --dist=loadscope -v --tb=short
-
-  progress-tests:
-    name: Progress Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.progress == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run progress tests
-        working-directory: cwa_classroom
-        run: pytest progress/ -n auto --dist=loadscope -v --tb=short
-
-  usage-tests:
-    name: Usage Tests
-    needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.usage == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run usage tests
-        working-directory: cwa_classroom
-        run: pytest usage/ -n auto --dist=loadscope -v --tb=short
 
   # ── UI (Playwright) ──────────────────────────────────────────────────────
   # The UI suite is by far the most expensive thing in CI (~33 min as one job),
@@ -879,7 +666,7 @@ jobs:
   ui-matrix:
     name: Select UI suites
     needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test')) }}
+    if: ${{ needs.changes.outputs.release != 'true' && needs.changes.outputs.ui_already_tested != 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test')) }}
     runs-on: ubuntu-latest
     outputs:
       groups: ${{ steps.pick.outputs.groups }}
@@ -919,6 +706,24 @@ jobs:
             echo "UI groups selected: $groups (of $all)"
           fi
           echo "groups=$groups" >> "$GITHUB_OUTPUT"
+
+  # Skipping is not the same as not checking: a push showing no UI check at all
+  # is how a dead CI went unnoticed here for four days. When the matrix is
+  # deduped this job says so, and names the PR run that covered the tree, so the
+  # claim is readable rather than implied by an absent job.
+  ui-already-tested:
+    name: UI matrix already ran for this tree
+    needs: changes
+    if: ${{ needs.changes.outputs.ui_already_tested == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report which run covered it
+        run: |
+          echo "This push lands a tree a pull_request run already took through"
+          echo "the UI matrix — see 'Detect changed areas' for the run number"
+          echo "and the four conditions that were checked."
+          echo
+          echo "The unit suites are NOT deduped and ran in full on this push."
 
   ui-tests:
     name: UI Tests (${{ matrix.group }})
@@ -989,6 +794,7 @@ jobs:
           MATRIX: ${{ needs.ui-matrix.result }}
           TESTS: ${{ needs.ui-tests.result }}
           GROUPS: ${{ needs.ui-matrix.outputs.groups }}
+          ALREADY_TESTED: ${{ needs.changes.outputs.ui_already_tested }}
         run: |
           set -euo pipefail
           echo "changes:   $CHANGES"
@@ -1022,7 +828,14 @@ jobs:
               echo "UI suite green for: ${GROUPS:-(none)}"
               ;;
             skipped)
-              echo "No UI suites needed to run."
+              # Three different reasons land here, and "nothing changed" is the
+              # only one that is self-evident. Say which it was.
+              if [ "$ALREADY_TESTED" = "true" ]; then
+                echo "UI matrix already ran for this tree on the PR — see the"
+                echo "'UI matrix already ran for this tree' check."
+              else
+                echo "No UI suites needed to run."
+              fi
               ;;
             *)
               echo "::error::UI suite did not pass ($TESTS)"
