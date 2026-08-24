@@ -106,10 +106,23 @@ class TableOfValuesModelTests(TestCase):
         self.assertEqual(result['points_earned'], q.points)
 
     def test_plugin_grades_wrong_submission(self):
+        # Two cells of three right: the table is not correct, but the two cells
+        # the student did get still earn their share of the points.
         q = self._build()
         q.save()
         result = MathsPlugin().grade_answer(q.pk, {
             f'answer_{q.id}': '{"cells": {"0,1": "-1", "1,1": "-2", "2,1": "99"}}',
+        })
+        self.assertFalse(result['is_correct'])
+        self.assertEqual(result['points_earned'], round(q.points * 2 / 3, 2))
+        self.assertEqual(result['answer_data']['parts_correct'], 2)
+        self.assertEqual(result['answer_data']['parts_total'], 3)
+
+    def test_plugin_scores_zero_when_every_cell_is_wrong(self):
+        q = self._build()
+        q.save()
+        result = MathsPlugin().grade_answer(q.pk, {
+            f'answer_{q.id}': '{"cells": {"0,1": "97", "1,1": "98", "2,1": "99"}}',
         })
         self.assertFalse(result['is_correct'])
         self.assertEqual(result['points_earned'], 0)

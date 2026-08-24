@@ -302,6 +302,11 @@ jobs:
               - 'cwa_classroom/taskqueue/**'
               - 'cwa_classroom/worksheets/**'
               - 'cwa_classroom/templates/worksheets/**'
+              # The session page renders the shared maths widgets (the table of
+              # values, the fill-in-the-blank sentence) and the partial-credit
+              # feedback block, so a change there breaks a worksheet test
+              # without touching templates/worksheets/.
+              - 'cwa_classroom/templates/maths/**'
 
   # Always runs — missing/conflicting migrations must never slip through, and the
   # check is cheap. Not gated on `changes`.
@@ -841,10 +846,30 @@ jobs:
   #                   `ui_core` or `shared` (base templates, sidebars, static,
   #                   shared fixtures) runs every group, because those can break
   #                   any page.
-  #   push to test  → EVERY group, in full. This is the pre-production gate, so
-  #                   it is never path-filtered.
+  #   push to test  → the same path filter, against the previous `test` tip, so
+  #                   the merge runs the groups it actually brought in. The
+  #                   `ui_core` / `shared` escape still forces every group.
   #   push to main  → nothing. That tree already passed the full suite on `test`;
   #                   re-running it here is pure waste.
+  #
+  # WHY THE PUSH IS FILTERED TOO (changed 2026-08-24)
+  # -------------------------------------------------
+  # It used to run all 15 groups on every push to `test`, unfiltered, as the
+  # pre-production gate. That is 67 of the ~120 billed minutes a full matrix
+  # costs, on every merge — and the UI groups are not slow, they are large
+  # (classroom 231 tests, billing 233, navigation 223), so there is no fat to
+  # trim inside them. The only lever is running the ones a change can affect.
+  #
+  # At ~8 merges a day that unfiltered gate was ~$5.75/day of a ~$16.50/day
+  # bill, and on 2026-08-24 the account hit its Actions spending limit: every
+  # workflow in the repository, including the production deploy, began dying in
+  # two seconds with no logs.
+  #
+  # The unit suites are deliberately NOT filtered on a push (see
+  # test_ci_still_runs_every_suite_on_a_push) — they are cheap and they are
+  # what catches a change in one app breaking another. What this gives up is
+  # narrower: a UI regression in an area whose paths the merge did not touch is
+  # caught at the release PR rather than at the merge.
   #
   # Groups run as a dynamic matrix, so they execute in parallel — a full run is
   # now bounded by the slowest single group rather than the sum of all of them.
@@ -863,7 +888,10 @@ jobs:
           # these keys, so ci.yml stays the single source of truth for which
           # groups exist (tests_workflows.py checks it against the directories).
           CHANGED: ${{ toJSON(needs.changes.outputs) }}
-          RUN_ALL: ${{ github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.ui_core == 'true' }}
+          # No `push` arm: a merge to `test` runs the groups its own diff
+          # touches, exactly as a PR does. `shared` / `ui_core` still force
+          # every group on either event, because those can break any page.
+          RUN_ALL: ${{ needs.changes.outputs.shared == 'true' || needs.changes.outputs.ui_core == 'true' }}
         run: |
           set -euo pipefail
           all=$(jq -c '[to_entries[]

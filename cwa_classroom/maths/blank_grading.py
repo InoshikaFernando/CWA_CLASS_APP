@@ -19,11 +19,13 @@ underscore run, left to right. The number of entries must equal the number of
 runs in the text — a spec that has drifted out of step with its sentence would
 silently mis-grade, so ``validate_blank_spec`` refuses it.
 
-Graded all-or-nothing (:func:`grade_fill_blank`), matching ``grade_table``: a
-sentence is right only when every gap in it is right. Each gap is matched with
-the same :func:`~maths.algebra_grading.fold_answer` rules a short answer gets,
-so "Fifty-Three" and "fifty three" are the same word in a blank exactly as they
-are in a whole answer.
+A sentence is *correct* only when every gap in it is right
+(:func:`grade_fill_blank`), but it is not worth *nothing* short of that:
+:func:`grade_fill_blank_parts` grades the gaps one at a time so nine right out
+of ten earn nine tenths of the marks and the tenth gets named. Each gap is
+matched with the same :func:`~maths.algebra_grading.fold_answer` rules a short
+answer gets, so "Fifty-Three" and "fifty three" are the same word in a blank
+exactly as they are in a whole answer.
 
 Pure and framework-agnostic (no Django import) so the model's ``clean()``, the
 AI importer and the ``convert_fill_blanks`` command all share one definition of
@@ -162,9 +164,9 @@ def validate_blank_spec(blank_spec, question_text=None):
 def grade_fill_blank(blank_spec, payload, answer_format='text'):
     """Grade a ``fill_blank`` answer. Returns ``True``/``False``, never raises.
 
-    All-or-nothing: correct when EVERY blank matches one of its accepted
-    answers, folded by :func:`~maths.algebra_grading.fold_answer` so a blank is
-    as forgiving about case, spacing and hyphens as a whole short answer is.
+    Correct when EVERY blank matches one of its accepted answers, folded by
+    :func:`~maths.algebra_grading.fold_answer` so a blank is as forgiving about
+    case, spacing and hyphens as a whole short answer is.
 
     ``payload`` is the JSON the client serialises, ``{"blanks": ["15", "live"]}``
     — positional, one entry per blank. A malformed spec or payload, a missing
@@ -174,31 +176,62 @@ def grade_fill_blank(blank_spec, payload, answer_format='text'):
     :func:`~maths.algebra_grading.match_value` — so an algebra question keeps
     accepting "2ba" for "2ab" after conversion, and every gap keeps the
     commuted-expression allowance a plain typed answer has.
+
+    This is the boolean view of :func:`grade_fill_blank_parts`, which grades the
+    same gaps one at a time so a nine-out-of-ten answer can be given nine tenths
+    of the marks. Both agree on what "correct" means: every gap right.
     """
+    grade = grade_fill_blank_parts(blank_spec, payload, answer_format)
+    return grade is not None and grade.is_correct
+
+
+def grade_fill_blank_parts(blank_spec, payload, answer_format='text'):
+    """Grade a ``fill_blank`` answer gap by gap, for partial credit.
+
+    Returns a :class:`~maths.partial_credit.PartialGrade` — one
+    :class:`~maths.partial_credit.Part` per gap, in order, each carrying what
+    the student typed, what was accepted and whether it matched — or ``None``
+    when there is nothing to grade against: a spec with no blanks, a payload
+    that isn't a blanks payload, or one whose length has drifted from the
+    spec's. ``None`` means "no verdict", and every caller treats it as the
+    zero-scoring wrong answer :func:`grade_fill_blank` has always returned,
+    rather than inventing a fraction from a payload it can't line up.
+
+    Never raises: it is called on whatever a student's browser posted.
+    """
+    from maths.partial_credit import Part, PartialGrade
+
     accepted = blank_answers(blank_spec)
     # A spec with no blanks is unanswerable — never silently "correct".
     if not accepted:
-        return False
+        return None
 
     try:
         data = json.loads(payload) if isinstance(payload, str) else payload
     except (ValueError, TypeError):
-        return False
+        return None
     if not isinstance(data, dict):
-        return False
+        return None
     given = data.get('blanks')
+    # A payload of the wrong length cannot be lined up with the gaps: gap 3's
+    # value might be gap 4's. Scoring it part by part would hand out credit for
+    # matches that are coincidences, so it gets no verdict at all.
     if not isinstance(given, list) or len(given) != len(accepted):
-        return False
+        return None
 
-    for typed, options in zip(given, accepted):
-        if typed is None:
-            return False
-        typed = str(typed).strip()
-        if not typed:
-            return False
-        if not any(match_value(typed, o, answer_format) for o in options):
-            return False
-    return True
+    parts = []
+    for index, (typed, options) in enumerate(zip(given, accepted)):
+        typed = '' if typed is None else str(typed).strip()
+        is_correct = bool(typed) and any(
+            match_value(typed, o, answer_format) for o in options
+        )
+        parts.append(Part(
+            label=f'Blank {index + 1}',
+            typed=typed,
+            expected=' or '.join(options),
+            is_correct=is_correct,
+        ))
+    return PartialGrade(parts, noun='blank')
 
 
 def describe_blank_answer(payload, blank_spec=None):
@@ -353,6 +386,61 @@ def unit_repeat_blanks(question_text, blank_spec):
         unit = match.group(1)
         if all(_repeats_unit(option, unit) for option in options):
             out.append(index)
+    return out
+
+
+def bare_unit_answers(question_text, correct_texts):
+    """The bare values to store BESIDE answers that repeat their gap's unit.
+
+    The other half of :func:`unit_repeat_blanks`. That function names the
+    defect — "Convert to millilitres: 5.3 L = ___ mL" answered "5300 mL" reads
+    inline as "= [5300 mL] mL" and marks the obvious "5300" wrong — and this
+    works out what to store to fix it, so the fix is applied from the same
+    reading of the sentence that refused the question rather than by hand,
+    fourteen times, with a typo in one of them.
+
+    Returns texts to ADD, never a replacement. "5300 mL" stays an accepted
+    answer: a student who writes the unit was marked correct before the gap
+    went inline and must still be. Adding an accepted spelling is also true
+    of the question in its single-box form, so this is a safe write even if
+    the conversion that follows is later reverted.
+
+    Single-gap questions only. Deciding which row feeds which gap on a
+    multi-gap question is the exact ambiguity :func:`derive_blank_spec`
+    refuses to guess at, and stripping the unit off a row that fills a
+    different gap would corrupt the answer rather than repair it.
+
+    Returns ``[]`` when there is nothing to add — no gap, no unit after it, an
+    answer that already omits the unit, or the bare value already stored — so
+    running it twice adds nothing the second time.
+    """
+    if count_blanks(question_text) != 1:
+        return []
+
+    texts = [t.strip() for t in correct_texts if t and t.strip()]
+    if not texts:
+        return []
+
+    segments = split_on_blanks(question_text)
+    if len(segments) != 2:
+        return []
+    match = _UNIT_TOKEN_RE.match(segments[1] or '')
+    if not match:
+        return []
+    unit = match.group(1)
+
+    options = sum((_alternatives(t) for t in texts), [])
+    # Only when EVERY spelling repeats the unit. If one already reads "5300",
+    # the student can answer without repeating it and there is no defect to
+    # repair — the same test unit_repeat_blanks applies before flagging.
+    if not all(_repeats_unit(option, unit) for option in options):
+        return []
+
+    out = []
+    for option in options:
+        bare = option[:-len(unit)].strip()
+        if bare and bare not in options and bare not in out:
+            out.append(bare)
     return out
 
 
