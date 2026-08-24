@@ -7,7 +7,7 @@
 
 from django.contrib import admin
 
-from .models import PeriodReport
+from .models import PeriodReport, ProgressReportSetting
 
 
 @admin.register(PeriodReport)
@@ -29,3 +29,21 @@ class PeriodReportAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+@admin.register(ProgressReportSetting)
+class ProgressReportSettingAdmin(admin.ModelAdmin):
+    """Escape hatch for support; the real surface is /progress/reports/settings/."""
+
+    list_display = (
+        'school', 'department', 'classroom',
+        'weekly', 'monthly', 'term',
+        'notify_student', 'notify_parents', 'email_parents_at_term',
+        'updated_at',
+    )
+    list_filter = ('school', 'weekly', 'monthly', 'term')
+    search_fields = (
+        'school__name', 'department__name', 'classroom__name',
+    )
+    autocomplete_fields = ('school', 'classroom')
+    readonly_fields = ('created_at', 'updated_at', 'updated_by')

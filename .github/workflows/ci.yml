@@ -135,6 +135,9 @@ jobs:
               - 'cwa_classroom/homework/**'
               - 'cwa_classroom/worksheets/**'
               - 'cwa_classroom/classroom/models.py'
+              # The sidebar visibility flag for period reports is set here, and
+              # its tests assert on it.
+              - 'cwa_classroom/accounts/context_processors.py'
             usage:
               - 'cwa_classroom/usage/**'
             # ---- UI (Playwright) --------------------------------------------
