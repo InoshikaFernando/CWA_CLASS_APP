@@ -311,6 +311,33 @@ def test_every_ui_path_filter_has_a_group():
         f'cwa_classroom/ui_tests/<group>/ package: {orphans}')
 
 
+def test_no_stray_ui_output_becomes_a_matrix_group():
+    """ui-matrix builds its group list from the `changes` job's OUTPUT names.
+
+    Every output called `ui_<x>` (bar `ui_core`) becomes a matrix entry running
+    `pytest ui_tests/<x>`, so an output added for some other purpose that
+    happens to start with `ui_` invents a group with no directory behind it.
+    That is exactly how a `ui_already_tested` output produced a job called
+    "UI Tests (already_tested)" which died on exit 5, no tests collected.
+
+    The filter tests above could not see it: it was an output, not a filter.
+    It also only broke on a push — on a `pull_request` the step that sets it is
+    skipped, so the output is the empty string and toJSON drops it entirely.
+    """
+    outputs = _ci()['jobs']['changes']['outputs']
+    groups = set(_ui_group_dirs())
+    stray = sorted(
+        name for name in outputs
+        if name.startswith('ui_') and name != 'ui_core'
+        and name[len('ui_'):] not in groups
+    )
+    assert not stray, (
+        f'ci.yml: the `changes` job has ui_-prefixed outputs that are not UI '
+        f'groups: {stray}. ui-matrix will run `pytest ui_tests/<name>` for each '
+        f'and the job will fail with no tests collected. Rename them so they '
+        f'do not start with `ui_`.')
+
+
 def test_every_ui_group_filter_watches_its_own_tests():
     """Editing a UI test must at minimum run that test's own group."""
     filters = _ci_filters()
@@ -583,14 +610,14 @@ def test_a_release_pr_still_gets_a_check():
 #
 # A `pull_request` run tests `refs/pull/N/merge`, not the PR head, so when a
 # merge to `test` lands a tree the PR already held, the push re-runs the UI
-# groups over byte-identical content. `changes.ui_already_tested` detects that.
+# groups over byte-identical content. `changes.skip_ui_matrix` detects that.
 #
 # The danger is that someone extends it to the unit suites, where the same
 # reasoning does NOT hold: PR runs are path-filtered, so a green PR means the
 # touched app passed, not that app A's change left app B working. The push run
 # is the only thing that checks that, and it must stay unconditional.
 
-_DEDUPE_OUTPUT = 'ui_already_tested'
+_DEDUPE_OUTPUT = 'skip_ui_matrix'
 _DEDUPE_REPORT_JOB = 'ui-already-tested'
 
 
@@ -599,7 +626,7 @@ def test_only_the_ui_matrix_is_deduped_against_the_pr_run():
 
     They are unfiltered on a push precisely to catch one app breaking another,
     which a PR run scoped to the changed app cannot see. Gating them on
-    ui_already_tested would delete that signal while still looking green.
+    skip_ui_matrix would delete that signal while still looking green.
     """
     jobs = _ci_data()['jobs']
     users = {name for name, job in jobs.items()
