@@ -722,8 +722,8 @@ class AddParentView(RoleRequiredMixin, View):
         from classroom.models import ClassRoom
         classes = (
             ClassRoom.objects.filter(school=school, is_active=True)
-            .select_related('subject', 'department')
-            .order_by('name')
+            .select_related('subject', 'department', 'location')
+            .order_by('name', 'start_time')
         )
         return render(request, 'admin_dashboard/add_parent.html', {
             'school': school,
@@ -741,7 +741,8 @@ class AddParentView(RoleRequiredMixin, View):
             'relationship_choices': ParentStudent.RELATIONSHIP_CHOICES,
             'default_relationship': 'guardian',
             'classes': ClassRoom.objects.filter(school=school, is_active=True)
-                       .select_related('subject', 'department').order_by('name'),
+                       .select_related('subject', 'department', 'location')
+                       .order_by('name', 'start_time'),
         }
         if extra:
             ctx.update(extra)
