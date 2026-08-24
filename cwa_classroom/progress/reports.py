@@ -358,7 +358,7 @@ def _compute_cohort_stats(classroom, start, end):
     stats = {}
     for student_id, subs in by_student.items():
         grouped = _group_by_homework(subs)
-        firsts, bests, gains = [], [], []
+        firsts, bests = [], []
         seconds_per_question = []
         perfect = False
         repeated = False
@@ -367,7 +367,6 @@ def _compute_cohort_stats(classroom, start, end):
             best = max(a.percentage for a in attempts)
             firsts.append(first)
             bests.append(best)
-            gains.append(best - first)
             perfect = perfect or best >= 100
             repeated = repeated or len(attempts) > 1
             for attempt in attempts:
@@ -375,11 +374,18 @@ def _compute_cohort_stats(classroom, start, end):
                     seconds_per_question.append(
                         attempt.time_taken_seconds / attempt.total_questions
                     )
+        avg_first = _mean(firsts)
+        avg_best = _mean(bests)
         stats[student_id] = {
             'attempts': len(subs),
             'homework_count': len(grouped),
-            'avg_best_pct': _mean(bests),
-            'avg_gain_pct': _mean(gains),
+            'avg_first_pct': avg_first,
+            'avg_best_pct': avg_best,
+            # Deliberately best-minus-first rather than the mean of the
+            # per-homework gains: the headline figure is computed that way, and
+            # a report that says "+37 points" at the top and "gained 38" in the
+            # award four lines below teaches the reader not to trust either.
+            'avg_gain_pct': avg_best - avg_first,
             'repeated': repeated,
             'perfect': perfect,
             'seconds_per_question': (

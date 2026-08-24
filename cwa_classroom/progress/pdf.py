@@ -21,7 +21,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
-    KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table,
+    CondPageBreak, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table,
     TableStyle,
 )
 
@@ -110,8 +110,9 @@ def _topic_chart(topics):
     chart.categoryAxis.labels.dy = -6
     chart.categoryAxis.labels.boxAnchor = 'ne'
     chart.categoryAxis.labels.fontSize = 7
-    chart.barWidth = 6
-    chart.groupSpacing = 8
+    # No explicit barWidth: with a single series ReportLab distributes the
+    # width itself, and pinning it made the bars come out visibly uneven.
+    chart.groupSpacing = 12
     for index, row in enumerate(rows):
         chart.bars[(0, index)].fillColor = _score_colour(row['accuracy_pct'])
     drawing.add(chart)
@@ -358,7 +359,9 @@ def render_report_pdf(report):
 
     attempts = report.attempts
     if attempts.get('items'):
-        flow.append(PageBreak())
+        # Enough room for the heading, the pie and its caption, or start a new
+        # page — but not an unconditional break, which left half a page blank.
+        flow.append(CondPageBreak(190))
         flow.append(Paragraph('Effort and attempts', styles['heading']))
         pie = _attempts_pie(attempts.get('distribution') or [])
         if pie is not None:

@@ -173,3 +173,44 @@ class AwardTests(TestCase):
         homework = self.homework()
         submit(homework, self.bob, 1, 10, when=at(date(2026, 8, 18)))
         self.assertEqual(codes(self.alice), set())
+
+
+class AwardArithmeticTests(TestCase):
+    """The award's evidence must agree with the headline figure.
+
+    "Gained 38 percentage points" four lines under "+37 pts" teaches the reader
+    not to trust either number, so the two are computed the same way rather
+    than by two defensible-but-different routes (mean of per-homework gains vs.
+    the difference of the two means).
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = make_school()
+        cls.classroom = make_classroom(cls.school)
+        cls.student = make_user('arith_student')
+        cls.rival = make_user('arith_rival')
+        enrol(cls.classroom, cls.student)
+        enrol(cls.classroom, cls.rival)
+
+    def test_most_improved_quotes_the_headline_gain(self):
+        # Scores chosen so rounding the mean of gains and subtracting the means
+        # would disagree.
+        for index, (first, best) in enumerate([(3, 9), (4, 8), (5, 6)]):
+            homework = make_homework(
+                self.classroom, due=at(date(2026, 8, 21)), title=f'HW{index}',
+            )
+            submit(homework, self.student, 1, first, when=at(date(2026, 8, 18)))
+            submit(homework, self.student, 2, best, when=at(date(2026, 8, 19)))
+        submit(
+            make_homework(self.classroom, due=at(date(2026, 8, 21)), title='Rival'),
+            self.rival, 1, 5, when=at(date(2026, 8, 18)),
+        )
+
+        data = reports.build_report_data(
+            self.student, periods.WEEKLY, START, END,
+        )
+        improvement = data['totals']['improvement_pct']
+        award = next(a for a in data['awards'] if a['code'] == 'most_improved')
+
+        self.assertIn(f'Gained {improvement} percentage points', award['detail'])
