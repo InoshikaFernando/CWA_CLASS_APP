@@ -69,6 +69,10 @@ def _styles():
             'ReportCaption', parent=base['Normal'], fontSize=8.5, leading=11,
             textColor=MUTED, alignment=TA_CENTER,
         ),
+        'cell': ParagraphStyle(
+            'ReportCell', parent=base['Normal'], fontSize=8.5, leading=10.5,
+            textColor=INK,
+        ),
     }
 
 
@@ -235,7 +239,18 @@ def _kpi_table(totals):
     return table
 
 
-def _data_table(header, rows, widths, aligns=None):
+def _data_table(header, rows, widths, aligns=None, wrap_first=True):
+    """A header + body table whose first column wraps.
+
+    ReportLab does not wrap a bare string in a cell — it overflows into the
+    neighbouring column — and homework titles and topic names are exactly the
+    values long enough to do it. Wrapping the label column in a Paragraph is
+    what keeps a real title readable instead of printed over the score.
+    """
+    if wrap_first:
+        cell = _styles()['cell']
+        rows = [[Paragraph(str(row[0]), cell)] + list(row[1:]) for row in rows]
+
     table = Table([header] + rows, colWidths=widths, repeatRows=1)
     style = [
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),

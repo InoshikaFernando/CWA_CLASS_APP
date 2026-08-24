@@ -135,3 +135,26 @@ class PdfTests(TestCase):
 
         self.assertGreater(len(term.trend), 1)
         self.assertTrue(render_report_pdf(term).startswith(b'%PDF'))
+
+    def test_a_long_homework_title_wraps_instead_of_overflowing(self):
+        """ReportLab prints a bare string straight over the next column.
+
+        Real homework titles are long enough to do it, and the value it would
+        run over is the student's score.
+        """
+        long_title = (
+            'Fractions, decimals and percentages — end of unit consolidation '
+            'and revision worksheet number three'
+        )
+        homework = make_homework(
+            self.classroom, due=at(date(2026, 8, 22)), title=long_title,
+        )
+        submit(homework, self.student, 1, 6, when=at(date(2026, 8, 20)))
+        report = self._report(periods.MONTHLY, date(2026, 8, 1), date(2026, 8, 31))
+
+        content = text_of(render_report_pdf(report))
+
+        # The title survives in full — a truncated one would silently rename
+        # the homework in the copy the parent keeps.
+        self.assertIn('consolidation', content)
+        self.assertIn('worksheet number three', content)
