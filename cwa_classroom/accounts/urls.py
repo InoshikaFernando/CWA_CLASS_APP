@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from . import views_impersonation
 from .views_parent_join import ParentSelfJoinView
 
 urlpatterns = [
@@ -30,6 +31,16 @@ urlpatterns = [
 
     # Role switcher
     path('switch-role/', views.SwitchRoleView.as_view(), name='switch_role'),
+
+    # Super-admin "View as" — browse read-only as a real student/teacher/parent.
+    # NOTE: the stop path is duplicated as a literal in accounts.impersonation
+    # (STOP_PATH) because middleware runs before URL resolution; keep them in sync.
+    path('view-as/', views_impersonation.ImpersonationPickerView.as_view(),
+         name='impersonation_picker'),
+    path('view-as/<int:user_id>/', views_impersonation.ImpersonationStartView.as_view(),
+         name='impersonation_start'),
+    path('stop-viewing-as/', views_impersonation.ImpersonationStopView.as_view(),
+         name='impersonation_stop'),
 
     # Parent self-join (public)
     path('register/parent-join/', ParentSelfJoinView.as_view(), name='register_parent_join'),

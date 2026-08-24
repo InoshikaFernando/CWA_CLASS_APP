@@ -304,6 +304,14 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_htmx.middleware.HtmxMiddleware',
+    # Super-admin "view as": swaps request.user for the impersonated user.
+    # Position is load-bearing — after AuthenticationMiddleware (there must be
+    # a real logged-in super admin to verify), after MessageMiddleware (it
+    # reports why a stale session was dropped) and after HtmxMiddleware (it
+    # answers an HTMX write with a bare 403 rather than a whole page), but
+    # before everything below, so the trial wall, the block screen, the
+    # profile gate and usage tracking all see the impersonated user.
+    'accounts.impersonation.ImpersonationMiddleware',
     'cwa_classroom.middleware.TrialExpiryMiddleware',
     'cwa_classroom.middleware.AccountBlockMiddleware',
     'cwa_classroom.middleware.ProfileCompletionMiddleware',
