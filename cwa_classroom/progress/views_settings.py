@@ -24,6 +24,12 @@ CONFIG_ROLES = [Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER, Role.ADMIN]
 ALL_FIELDS = (
     ProgressReportSetting.PERIOD_FIELDS + ProgressReportSetting.DELIVERY_FIELDS
 )
+SCHEDULE_FIELDS = ProgressReportSetting.SCHEDULE_FIELDS
+
+WEEKDAYS = [
+    (0, 'Monday'), (1, 'Tuesday'), (2, 'Wednesday'), (3, 'Thursday'),
+    (4, 'Friday'), (5, 'Saturday'), (6, 'Sunday'),
+]
 
 FIELD_LABELS = {
     'weekly': 'Weekly',
@@ -47,6 +53,27 @@ def _schools_for(user):
         ).values_list('school_id', flat=True),
     )
     return (owned | staffed).distinct()
+
+
+def _mode(request):
+    """Read the manual / automatic / inherit choice."""
+    raw = request.POST.get('mode', 'inherit')
+    if raw in (ProgressReportSetting.MODE_MANUAL, ProgressReportSetting.MODE_AUTO):
+        return raw
+    return None
+
+
+def _number(request, field, low, high):
+    """Read one schedule number, or None for inherit.
+
+    Out-of-range input inherits rather than clamping: silently rewriting a
+    typo into a real send day is worse than falling back to the default.
+    """
+    raw = (request.POST.get(field) or '').strip()
+    if not raw.isdigit():
+        return None
+    value = int(raw)
+    return value if low <= value <= high else None
 
 
 def _tristate(request, prefix, field):
@@ -123,6 +150,8 @@ class ReportSettingsView(RoleRequiredMixin, View):
             classroom.sends_anything = any(
                 resolved[f][0] for f in ProgressReportSetting.PERIOD_FIELDS
             )
+            classroom.mode = resolved['mode'][0]
+            classroom.mode_source = resolved['mode'][1]
 
         return render(request, 'progress/report_settings.html', {
             'school': school,
@@ -135,6 +164,13 @@ class ReportSettingsView(RoleRequiredMixin, View):
                 for field in ALL_FIELDS
             ],
             'enabled_count': sum(1 for c in classrooms if c.sends_anything),
+            'auto_count': sum(
+                1 for c in classrooms
+                if c.sends_anything and c.mode == ProgressReportSetting.MODE_AUTO
+            ),
+            'weekdays': WEEKDAYS,
+            'mode_manual': ProgressReportSetting.MODE_MANUAL,
+            'mode_auto': ProgressReportSetting.MODE_AUTO,
         })
 
     def post(self, request):
@@ -159,6 +195,10 @@ class ReportSettingsView(RoleRequiredMixin, View):
             return redirect(f'{request.path}?school={school.id}')
 
         values = {field: _tristate(request, '', field) for field in ALL_FIELDS}
+        values['mode'] = _mode(request)
+        values['send_weekly_on'] = _number(request, 'send_weekly_on', 0, 6)
+        values['send_monthly_on'] = _number(request, 'send_monthly_on', 1, 28)
+        values['send_term_after_days'] = _number(request, 'send_term_after_days', 0, 60)
         report_settings.set_for(target, kind, school, values, user=request.user)
 
         log_event(

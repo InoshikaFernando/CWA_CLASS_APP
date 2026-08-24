@@ -120,3 +120,59 @@ def test_the_link_appears_once_the_school_switches_reports_on(
     page.goto(f"{live_server.url}/student-dashboard/")
 
     assert_sidebar_has_link(page, "My Reports")
+
+
+# ---------------------------------------------------------------------------
+# Manual / automatic mode and the staff preview
+# ---------------------------------------------------------------------------
+
+PREVIEW_URL = "/progress/reports/preview/"
+
+
+def test_a_school_starts_in_manual_mode(page, live_server, hoi, classroom):
+    from progress.tests.factories import enable_reports
+
+    enable_reports(classroom.school, kind="school", weekly=True)
+    do_login(page, live_server.url, hoi)
+    page.goto(f"{live_server.url}{SETTINGS_URL}")
+
+    # Enabled, but nothing sends on its own until someone chooses automatic.
+    expect(page.get_by_test_id("enabled-count")).to_have_text("1")
+    expect(page.get_by_test_id("auto-count")).to_have_text("0")
+    expect(page.get_by_test_id("class-row").first).to_contain_text("Manual")
+
+
+def test_switching_a_school_to_automatic_shows_in_the_counts(
+        page, live_server, hoi, classroom):
+    from progress.tests.factories import enable_reports
+
+    enable_reports(classroom.school, kind="school", weekly=True, mode="auto")
+    do_login(page, live_server.url, hoi)
+    page.goto(f"{live_server.url}{SETTINGS_URL}")
+
+    expect(page.get_by_test_id("auto-count")).to_have_text("1")
+    expect(page.get_by_test_id("class-row").first).to_contain_text("Auto")
+
+
+def test_hoi_previews_every_student_before_sending(page, live_server, hoi,
+                                                   classroom, enrolled_student):
+    from progress.tests.factories import enable_reports
+
+    enable_reports(classroom.school, kind="school", weekly=True)
+    do_login(page, live_server.url, hoi)
+
+    assert_sidebar_has_link(page, "Preview Reports")
+    page.goto(f"{live_server.url}{PREVIEW_URL}")
+
+    expect(page.get_by_test_id("report-preview")).to_be_visible()
+    expect(page.get_by_test_id("preview-row")).to_have_count(1)
+    expect(page.get_by_test_id("preview-send")).to_be_visible()
+
+
+def test_previewing_an_unconfigured_school_offers_nothing_to_send(
+        page, live_server, hoi, classroom, enrolled_student):
+    do_login(page, live_server.url, hoi)
+    page.goto(f"{live_server.url}{PREVIEW_URL}")
+
+    expect(page.get_by_test_id("preview-empty")).to_be_visible()
+    expect(page.get_by_test_id("preview-send")).to_have_count(0)

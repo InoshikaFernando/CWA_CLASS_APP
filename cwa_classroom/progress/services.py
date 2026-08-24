@@ -28,7 +28,8 @@ NOTIF_TYPE = 'progress_report'
 EMAIL_NOTIFICATION_TYPE = 'progress_report_term'
 
 
-def students_for_period(period_type, school=None, classroom=None):
+def students_for_period(period_type, school=None, classroom=None,
+                        mode=None, reference=None, term=None):
     """Who to generate for, and which classes each of their reports covers.
 
     Reports are opt-in: this walks the classes that resolved to *on* for this
@@ -36,6 +37,11 @@ def students_for_period(period_type, school=None, classroom=None):
     the database. A school that has configured nothing yields nothing, which is
     the whole point — installing the cron must not start mailing families about
     a feature they have not switched on.
+
+    *mode* restricts to manual or automatic classes, and *reference* keeps only
+    the automatic ones whose configured day actually lands on that date — which
+    is what lets one generic daily tick serve every school with nobody
+    configuring a cron per school.
 
     Returns ``{student: {'classroom_ids': [...], 'delivery': {...}}}``. A
     student in two enabled classes gets one report covering both; delivery
@@ -45,7 +51,9 @@ def students_for_period(period_type, school=None, classroom=None):
     from classroom.models import ClassStudent
     from progress import report_settings
 
-    classrooms = report_settings.enabled_classrooms(period_type, school=school)
+    classrooms = report_settings.enabled_classrooms(
+        period_type, school=school, mode=mode, reference=reference, term=term,
+    )
     if classroom is not None:
         classrooms = [c for c in classrooms if c.id == classroom.id]
     if not classrooms:
@@ -264,7 +272,8 @@ def _site_url():
 
 
 def run_period(period_type, start, end, term=None, *, force=False, dry_run=False,
-               notify=True, school=None, classroom=None):
+               notify=True, school=None, classroom=None, mode=None,
+               reference=None):
     """Generate and deliver one window for every class that opted in.
 
     Returns a counts dict so the management command can report what actually
@@ -275,7 +284,10 @@ def run_period(period_type, start, end, term=None, *, force=False, dry_run=False
     if school is None and term is not None:
         school = term.school
 
-    plan = students_for_period(period_type, school=school, classroom=classroom)
+    plan = students_for_period(
+        period_type, school=school, classroom=classroom,
+        mode=mode, reference=reference, term=term,
+    )
 
     # One cohort cache for the whole run: classmates share a class, so without
     # it a class of 25 recomputes the same figures 25 times.

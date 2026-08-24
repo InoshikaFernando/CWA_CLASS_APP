@@ -51,6 +51,14 @@ class Command(BaseCommand):
             '--school', help='Limit to one school, by id or slug.',
         )
         parser.add_argument(
+            '--manual', action='store_true',
+            help=(
+                'Run the classes set to manual instead of the automatic ones. '
+                'Normally a staff member does this from the Report Automation '
+                'page; this is the same path, for scripting and support.'
+            ),
+        )
+        parser.add_argument(
             '--classroom', type=int,
             help=(
                 'Limit to one class, by id. Use with --dry-run to see exactly '
@@ -81,6 +89,14 @@ class Command(BaseCommand):
                 notify=not options['no_notify'],
                 school=school,
                 classroom=classroom,
+                # The daily tick serves the automatic classes only, and only
+                # those whose configured day is today. Manual classes wait for
+                # a person, which is the default and the point.
+                mode=(
+                    periods.MODE_MANUAL if options['manual']
+                    else periods.MODE_AUTO
+                ),
+                reference=None if options['manual'] else reference,
             )
             self._report(period_type, counts, dry_run=options['dry_run'])
 
@@ -136,11 +152,12 @@ class Command(BaseCommand):
 
     def _report(self, period_type, counts, dry_run):
         if not counts['classes']:
-            # The normal state before anyone opts in. Said out loud, because
-            # silence here is indistinguishable from a broken cron.
+            # The normal state before anyone opts in — or a day no automatic
+            # schedule lands on. Said out loud, because silence here is
+            # indistinguishable from a broken cron.
             self.stdout.write(
-                f'{period_type}: {counts["period"]} — no class has '
-                f'{period_type} reports switched on; nothing to do.'
+                f'{period_type}: {counts["period"]} — no class is scheduled to '
+                f'send a {period_type} report today; nothing to do.'
             )
             return
 

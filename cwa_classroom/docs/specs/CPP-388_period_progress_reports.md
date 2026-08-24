@@ -71,6 +71,36 @@ class can opt back out of what its department enabled.
 | `notify_parents` | In-app notification to the linked parents |
 | `email_parents_at_term` | The end-of-term parent email |
 
+### Manual or automatic
+
+Beyond *whether* a scope reports, it configures *when*:
+
+| Mode | Behaviour |
+|------|-----------|
+| `manual` | **The default.** Nothing sends on its own; staff review and send from *Preview Reports* |
+| `auto` | Sends on the configured day, unattended |
+
+Manual is the default deliberately: a school should acquire a schedule by
+choosing one, never by not noticing a setting.
+
+Automatic timing is configured per scope and cascades like everything else:
+
+| Field | Meaning | Default |
+|-------|---------|---------|
+| `send_weekly_on` | Day of week, 0 = Monday | Monday |
+| `send_monthly_on` | Day of month, 1–28 (capped so February exists) | 1st |
+| `send_term_after_days` | Days after the term ends | 1 |
+
+The schedule decides **which day the school hears about it**, never what the
+report covers — the window is always the closed one. `due_periods` therefore
+offers every closed window on every run and lets the per-class schedule pick;
+filtering there would hard-code Monday and the 1st for the whole install.
+
+**One tick serves everyone.** A schedule that nothing reads never fires, so a
+single daily cron still exists — but it is one generic entry for the install,
+installed once, and no school configures anything at the OS level. The command
+asks each class whether today is its day.
+
 The delivery flags default to *on* once a scope generates anything, and to *off*
 when it generates nothing — so switching weekly on does the obvious thing
 without ticking three more boxes, and an unconfigured school stays silent.
@@ -83,7 +113,22 @@ reporting on: a student in two classes where one reports gets a report about
 that one, and `data['scope']` records which. That makes "only configured
 classes get it" true of the contents, not just of the trigger.
 
-Configured at **Report Settings** (`/progress/reports/settings/`), open to Head
+### Preview and manual send
+
+**Preview Reports** (`/progress/reports/preview/`) shows one row per student for
+a chosen period and scope — the figures, the awards, and who each report would
+reach — **computed live and saved nowhere**. A preview that wrote rows would
+stamp delivery state and leave the real send with nothing to do, which would
+make the word "preview" a lie.
+
+The same page carries the *Generate and send* action, which is how a manual
+scope sends at all. Manual sending ignores the schedule entirely: it is a
+person saying "send it now".
+
+Open to Head of Institute / institute owner / admin, plus HoD and teachers, who
+can read what their classes would send without being able to switch reporting on.
+
+Configured at **Report Automation** (`/progress/reports/settings/`), open to Head
 of Institute / institute owner / admin. It is deliberately not a per-teacher
 setting: switching it on starts notifying families.
 
@@ -257,8 +302,11 @@ says nothing.
 
 ## 6. Test coverage
 
-- `progress/tests/test_report_settings.py` — the cascade: the off default, each
-  level overriding the one above, and flags inheriting independently.
+- `progress/tests/test_report_settings.py` — the cascade: the off default, the
+  manual default, each level overriding the one above, and flags inheriting
+  independently.
+- `progress/tests/test_preview_view.py` — who may preview, the figures shown,
+  the manual send, and that previewing writes nothing.
 - `progress/tests/test_settings_view.py` — who may configure it, the tri-state
   form, and the sidebar visibility rule.
 - `progress/tests/test_periods.py` — window maths, including year boundaries.

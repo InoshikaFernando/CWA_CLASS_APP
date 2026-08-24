@@ -139,7 +139,10 @@ def enable_reports(school, scope=None, kind='school', **flags):
     from progress import report_settings
 
     fields = (
-        report_settings.PERIOD_FIELDS + report_settings.DELIVERY_FIELDS
+        report_settings.PERIOD_FIELDS
+        + report_settings.DELIVERY_FIELDS
+        + report_settings.SCHEDULE_FIELDS
+        + ('mode',)
     )
     values = {field: flags.get(field) for field in fields}
     return report_settings.set_for(

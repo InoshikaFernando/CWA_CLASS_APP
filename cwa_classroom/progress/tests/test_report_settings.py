@@ -32,8 +32,12 @@ class CascadeTests(TestCase):
     # -- the default ------------------------------------------------------
 
     def test_nothing_is_enabled_until_someone_enables_it(self):
+        values = self.effective()
         self.assertEqual(
-            self.effective(),
+            {field: values[field] for field in (
+                'weekly', 'monthly', 'term',
+                'notify_student', 'notify_parents', 'email_parents_at_term',
+            )},
             {
                 'weekly': False, 'monthly': False, 'term': False,
                 'notify_student': False, 'notify_parents': False,
@@ -41,6 +45,31 @@ class CascadeTests(TestCase):
             },
         )
         self.assertEqual(self.source('weekly'), 'default')
+
+    def test_the_default_mode_is_manual(self):
+        """Nothing sends on a schedule a school did not ask for."""
+        self.assertEqual(self.effective()['mode'], 'manual')
+        self.assertEqual(self.source('mode'), 'default')
+
+    def test_the_schedule_defaults_match_the_close_of_each_window(self):
+        values = self.effective()
+        self.assertEqual(values['send_weekly_on'], 0)          # Monday
+        self.assertEqual(values['send_monthly_on'], 1)         # the 1st
+        self.assertEqual(values['send_term_after_days'], 1)    # day after term end
+
+    def test_mode_and_schedule_cascade_like_everything_else(self):
+        enable_reports(self.school, kind='school', weekly=True, mode='auto')
+        self.assertEqual(self.effective()['mode'], 'auto')
+        self.assertEqual(self.source('mode'), 'school')
+
+        enable_reports(
+            self.school, self.classroom, kind='class', mode='manual',
+            send_weekly_on=4,
+        )
+        values = self.effective()
+        self.assertEqual(values['mode'], 'manual')
+        self.assertEqual(self.source('mode'), 'class')
+        self.assertEqual(values['send_weekly_on'], 4)
 
     # -- school level -----------------------------------------------------
 

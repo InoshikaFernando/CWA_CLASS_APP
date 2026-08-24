@@ -159,11 +159,16 @@ their linked parents, plus — at term end only — an email to the parents. Rep
 key on `(student, period_type, period_start)`, so re-running never duplicates a
 report or re-notifies a family.
 
-**Reports are opt-in.** Only classes whose school / department / class settings
-switch a period on are generated — see *Report Settings*
-(`/progress/reports/settings/`). On an install where nobody has configured
-anything this command generates nothing and says so, which is the intended
-state: the cron landing must not start notifying families.
+**Reports are opt-in and manual by default.** This command serves the classes
+set to **automatic**, and only those whose configured day is today — so it is
+one generic daily entry for the whole install, and no school configures
+anything at the OS level. Classes left on manual wait for a staff member to
+send them from *Preview Reports* (`/progress/reports/preview/`). Configure both
+under *Report Automation* (`/progress/reports/settings/`).
+
+On an install where nobody has configured anything, or on a day no schedule
+lands, this generates nothing and says so — silence is indistinguishable from
+a broken cron.
 
 ```bash
 python manage.py generate_progress_reports                  # whatever closed today
@@ -172,6 +177,7 @@ python manage.py generate_progress_reports --date 2026-09-01 --dry-run
 python manage.py generate_progress_reports --force          # recompute existing data
 python manage.py generate_progress_reports --no-notify      # generate, send nothing
 python manage.py generate_progress_reports --school wizards --classroom 42
+python manage.py generate_progress_reports --manual --period weekly   # the manual classes
 ```
 
 `--school` (id or slug) and `--classroom` (id) narrow the run, which is how you

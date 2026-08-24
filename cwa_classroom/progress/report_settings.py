@@ -14,10 +14,16 @@ without committing to term reports, and one class can opt back out.
 """
 
 from progress.models import ProgressReportSetting
+from progress.periods import MONTHLY, WEEKLY
 
 PERIOD_FIELDS = ProgressReportSetting.PERIOD_FIELDS
 DELIVERY_FIELDS = ProgressReportSetting.DELIVERY_FIELDS
 DELIVERY_DEFAULTS = ProgressReportSetting.DELIVERY_DEFAULTS
+SCHEDULE_FIELDS = ProgressReportSetting.SCHEDULE_FIELDS
+SCHEDULE_DEFAULTS = ProgressReportSetting.SCHEDULE_DEFAULTS
+SCHEDULE_FOR_PERIOD = ProgressReportSetting.SCHEDULE_FOR_PERIOD
+MODE_MANUAL = ProgressReportSetting.MODE_MANUAL
+MODE_AUTO = ProgressReportSetting.MODE_AUTO
 
 # What a class resolves to when nothing anywhere in its chain says otherwise.
 OFF = {field: False for field in PERIOD_FIELDS}
@@ -73,6 +79,22 @@ def resolve(classroom, chain=None):
                 resolved[field] = (value, source)
                 break
 
+    # Manual unless someone said automatic. A schedule that starts sending on
+    # its own is not something a school should acquire by not noticing.
+    resolved['mode'] = (MODE_MANUAL, 'default')
+    for source, row in rows:
+        if row.mode:
+            resolved['mode'] = (row.mode, source)
+            break
+
+    for field in SCHEDULE_FIELDS:
+        resolved[field] = (SCHEDULE_DEFAULTS[field], 'default')
+        for source, row in rows:
+            value = getattr(row, field)
+            if value is not None:
+                resolved[field] = (value, source)
+                break
+
     generating = any(resolved[field][0] for field in PERIOD_FIELDS)
     for field in DELIVERY_FIELDS:
         # Delivery only means anything for a class that generates at all.
@@ -97,12 +119,40 @@ def sends(classroom, period_type):
     return effective(classroom).get(period_type, False)
 
 
-def enabled_classrooms(period_type, school=None):
+def is_auto(classroom):
+    """Whether this class sends on a schedule rather than on a staff click."""
+    return effective(classroom).get('mode') == MODE_AUTO
+
+
+def scheduled_for(values, period_type, reference, term=None):
+    """Whether an automatic run for *period_type* lands on *reference*.
+
+    Weekly fires on a chosen weekday, monthly on a chosen day of the month, and
+    a term report a chosen number of days after the term ended. The *window* is
+    still the closed one either way — the schedule only decides which day the
+    school wants to hear about it, never what the report covers.
+    """
+    if period_type == WEEKLY:
+        return reference.weekday() == values['send_weekly_on']
+    if period_type == MONTHLY:
+        return reference.day == values['send_monthly_on']
+    if term is None or term.end_date is None:
+        return False
+    return (reference - term.end_date).days == values['send_term_after_days']
+
+
+def enabled_classrooms(period_type, school=None, mode=None, reference=None,
+                       term=None):
     """Every active class that reports *period_type*.
 
     Walks only classes that could possibly be enabled — those in a school with
     at least one setting row — so an install where nobody has configured
     anything costs one query and returns nothing.
+
+    *mode* filters to manual or automatic classes. *reference* additionally
+    keeps only the automatic classes whose schedule actually lands on that
+    date, which is what lets one generic daily tick serve every school without
+    anybody configuring a cron per school.
     """
     from classroom.models import ClassRoom
 
@@ -116,10 +166,18 @@ def enabled_classrooms(period_type, school=None):
     if school is not None:
         qs = qs.filter(school=school)
 
-    return [
-        classroom for classroom in qs.select_related('school', 'department')
-        if sends(classroom, period_type)
-    ]
+    picked = []
+    for classroom in qs.select_related('school', 'department'):
+        values = effective(classroom)
+        if not values.get(period_type):
+            continue
+        if mode is not None and values['mode'] != mode:
+            continue
+        if reference is not None and values['mode'] == MODE_AUTO:
+            if not scheduled_for(values, period_type, reference, term=term):
+                continue
+        picked.append(classroom)
+    return picked
 
 
 def set_for(scope_obj, scope_kind, school, values, user=None):

@@ -49,6 +49,7 @@ class GenerateBase(TestCase):
         # OptInTests below.
         enable_reports(
             cls.school, kind='school', weekly=True, monthly=True, term=True,
+            mode='auto',
         )
 
     def with_activity(self):
@@ -69,12 +70,28 @@ class WeeklyGenerationTests(GenerateBase):
         self.assertEqual(report.totals['avg_best_pct'], 90)
         self.assertEqual(report.school, self.school)
 
-    def test_a_midweek_run_generates_nothing_and_says_so(self):
+    def test_a_run_off_the_configured_day_generates_nothing_and_says_so(self):
+        """The school sends on Mondays, so a Wednesday tick does nothing."""
         self.with_activity()
-        output = run('--date', '2026-08-26')
+        output = run('--date', '2026-08-26')  # a Wednesday
 
         self.assertEqual(PeriodReport.objects.count(), 0)
-        self.assertIn('No period closed', output)
+        self.assertIn('no class is scheduled', output)
+
+    def test_a_school_can_move_its_weekly_send_to_another_day(self):
+        self.with_activity()
+        enable_reports(
+            self.school, kind='school', weekly=True, mode='auto',
+            send_weekly_on=2,  # Wednesday
+        )
+
+        self.assertEqual(len(run('--date', MONDAY_AFTER.isoformat()).split()) > 0, True)
+        self.assertEqual(PeriodReport.objects.count(), 0)
+
+        run('--date', '2026-08-26')  # the Wednesday it now sends on
+        self.assertEqual(
+            PeriodReport.objects.filter(period_type=periods.WEEKLY).count(), 1,
+        )
 
     def test_rerunning_does_not_duplicate_or_re_notify(self):
         self.with_activity()
@@ -119,9 +136,12 @@ class WeeklyGenerationTests(GenerateBase):
         self.assertIsNone(report.notified_at)
         self.assertEqual(Notification.objects.count(), 0)
 
-    def test_an_explicit_period_reports_the_last_closed_window(self):
+    def test_an_explicit_manual_run_ignores_the_schedule(self):
+        """Manual is a person saying "send it now", so no day has to match."""
         self.with_activity()
-        run('--period', periods.WEEKLY, '--date', '2026-08-26')  # a Wednesday
+        enable_reports(self.school, kind='school', weekly=True, mode='manual')
+
+        run('--period', periods.WEEKLY, '--date', '2026-08-26', '--manual')
 
         report = PeriodReport.objects.get(student=self.student)
         self.assertEqual(report.period_start, date(2026, 8, 17))
@@ -184,7 +204,7 @@ class TermReportTests(TestCase):
             school=cls.school, academic_year=cls.year, name='Term 3',
             start_date=date(2026, 7, 20), end_date=date(2026, 9, 25),
         )
-        enable_reports(cls.school, kind='school', term=True)
+        enable_reports(cls.school, kind='school', term=True, mode='auto')
         homework = make_homework(cls.classroom, due=at(date(2026, 8, 21)))
         submit(homework, cls.student, 1, 5, when=at(date(2026, 8, 18)))
         submit(homework, cls.student, 2, 9, when=at(date(2026, 8, 19)))
@@ -315,10 +335,12 @@ class OptInTests(TestCase):
 
         self.assertEqual(PeriodReport.objects.count(), 0)
         self.assertEqual(Notification.objects.count(), 0)
-        self.assertIn('no class has', output)
+        self.assertIn('no class is scheduled', output)
 
     def test_enabling_one_class_reports_only_that_class(self):
-        enable_reports(self.school, self.classroom, kind='class', weekly=True)
+        enable_reports(
+            self.school, self.classroom, kind='class', weekly=True, mode='auto',
+        )
 
         run('--date', MONDAY_AFTER.isoformat())
 
@@ -331,7 +353,9 @@ class OptInTests(TestCase):
         )
 
     def test_a_department_switch_reaches_its_classes(self):
-        enable_reports(self.school, self.dept, kind='department', weekly=True)
+        enable_reports(
+            self.school, self.dept, kind='department', weekly=True, mode='auto',
+        )
 
         run('--date', MONDAY_AFTER.isoformat())
 
@@ -341,7 +365,7 @@ class OptInTests(TestCase):
         )
 
     def test_a_class_opt_out_beats_the_school_switch(self):
-        enable_reports(self.school, kind='school', weekly=True)
+        enable_reports(self.school, kind='school', weekly=True, mode='auto')
         enable_reports(self.school, self.classroom, kind='class', weekly=False)
 
         run('--date', MONDAY_AFTER.isoformat())
@@ -353,7 +377,7 @@ class OptInTests(TestCase):
 
     def test_a_silent_trial_generates_without_telling_anyone(self):
         enable_reports(
-            self.school, kind='school', weekly=True,
+            self.school, kind='school', weekly=True, mode='auto',
             notify_student=False, notify_parents=False,
         )
 
@@ -366,13 +390,13 @@ class OptInTests(TestCase):
         # Nothing was stamped during the silent run, so turning notifications
         # on afterwards must still reach the family.
         enable_reports(
-            self.school, kind='school', weekly=True,
+            self.school, kind='school', weekly=True, mode='auto',
             notify_student=False, notify_parents=False,
         )
         run('--date', MONDAY_AFTER.isoformat())
 
         enable_reports(
-            self.school, kind='school', weekly=True,
+            self.school, kind='school', weekly=True, mode='auto',
             notify_student=True, notify_parents=True,
         )
         run('--date', MONDAY_AFTER.isoformat())
@@ -384,7 +408,8 @@ class OptInTests(TestCase):
 
     def test_notifying_only_the_student_leaves_the_parent_out(self):
         enable_reports(
-            self.school, kind='school', weekly=True, notify_parents=False,
+            self.school, kind='school', weekly=True, mode='auto',
+            notify_parents=False,
         )
 
         run('--date', MONDAY_AFTER.isoformat())
@@ -393,7 +418,7 @@ class OptInTests(TestCase):
         self.assertEqual(recipients, {self.student.id})
 
     def test_the_classroom_flag_limits_a_targeted_run(self):
-        enable_reports(self.school, kind='school', weekly=True)
+        enable_reports(self.school, kind='school', weekly=True, mode='auto')
 
         run(
             '--date', MONDAY_AFTER.isoformat(),

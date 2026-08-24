@@ -34,7 +34,11 @@
     <span class="block mt-2">
       Right now <b data-testid="enabled-count">{{ enabled_count }}</b>
       of {{ classrooms|length }} class{{ classrooms|length|pluralize:"es" }}
-      in {{ school.name }} will generate a report.
+      in {{ school.name }} will generate a report, of which
+      <b data-testid="auto-count">{{ auto_count }}</b>
+      send{{ auto_count|pluralize:"s," }} automatically — the rest wait for
+      staff to send them from
+      <a href="{% url 'progress:report_preview' %}" class="text-indigo-600 hover:underline">Preview Reports</a>.
     </span>
   </div>
 
@@ -107,7 +111,9 @@
             </div>
             <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full
                          {% if classroom.sends_anything %}bg-emerald-100 text-emerald-800{% else %}bg-slate-100 text-slate-500{% endif %}">
-              {% if classroom.sends_anything %}Reporting{% else %}Off{% endif %}
+              {% if classroom.sends_anything %}
+                Reporting &middot; {{ classroom.mode|title }}
+              {% else %}Off{% endif %}
             </span>
           </div>
 
