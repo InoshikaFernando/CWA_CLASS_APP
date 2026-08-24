@@ -302,6 +302,11 @@ jobs:
               - 'cwa_classroom/taskqueue/**'
               - 'cwa_classroom/worksheets/**'
               - 'cwa_classroom/templates/worksheets/**'
+              # The session page renders the shared maths widgets (the table of
+              # values, the fill-in-the-blank sentence) and the partial-credit
+              # feedback block, so a change there breaks a worksheet test
+              # without touching templates/worksheets/.
+              - 'cwa_classroom/templates/maths/**'
 
   # Always runs — missing/conflicting migrations must never slip through, and the
   # check is cheap. Not gated on `changes`.

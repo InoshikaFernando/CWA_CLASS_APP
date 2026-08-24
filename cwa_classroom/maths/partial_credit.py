@@ -160,6 +160,27 @@ class PartialGrade:
         return f'PartialGrade({self.correct}/{self.total} {self.noun}s)'
 
 
+def credit_from_answer_data(answer_data, is_correct):
+    """How much of one question a stored answer earned, 0.0–1.0.
+
+    A whole question for a correct answer and nothing for a wrong one — except
+    where the row was part-graded, in which case ``answer_data.score_fraction``
+    says what share of its gaps was right and that is what the question is
+    worth. Nine of ten cells is 0.9 of a question, not zero.
+
+    Reads defensively (the blob is stored JSON, written by several versions of
+    this app) and falls back to the boolean rather than raising: a row whose
+    fraction is unreadable is scored the way it was before partial credit.
+    """
+    frac = (answer_data or {}).get('score_fraction') if isinstance(answer_data, dict) else None
+    if frac is None:
+        return 1.0 if is_correct else 0.0
+    try:
+        return max(0.0, min(1.0, float(frac)))
+    except (TypeError, ValueError):
+        return 1.0 if is_correct else 0.0
+
+
 def points_for(question_points, grade):
     """What *grade* is worth out of *question_points*, rounded to 2dp.
 

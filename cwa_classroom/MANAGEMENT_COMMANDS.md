@@ -188,6 +188,38 @@ Backfill score and total_questions on StudentFinalAnswer records where total_que
 python manage.py backfill_final_answer_scores
 ```
 
+### `backfill_partial_credit`
+Give back the marks all-or-nothing grading took off past answers to questions
+that ask for **more than one value** — a fill-in-the-blank sentence, a table of
+values. A money chart with nine of ten cells right used to score zero; grading
+was fixed forward (see `maths/partial_credit.py`), and this re-runs today's
+grader over the payload each answer row already stores and awards the share the
+student earned.
+
+**One direction only** — a stored mark is never lowered, not a row's points and
+not a submission's totals. Where a stored total is higher than its own rows
+justify it is kept and the disagreement is reported.
+
+Covers the two stores that keep both the raw payload and a per-answer points
+field: auto-graded `homework.HomeworkStudentAnswer` and
+`worksheets.WorksheetStudentAnswer` rows. **Quiz attempts are not backfilled**
+— `StudentFinalAnswer` carries its own session id rather than the answers'
+`attempt_id`, so an attempt's total cannot be recomputed from the answers under
+it, and its saved review payload holds only the readable form of the answer.
+The command counts and reports those rather than skipping them silently.
+
+```bash
+python manage.py backfill_partial_credit                       # dry run — report only
+python manage.py backfill_partial_credit --source worksheets   # one store
+python manage.py backfill_partial_credit --student 42
+python manage.py backfill_partial_credit --question 4021
+python manage.py backfill_partial_credit --limit 200           # smoke run
+python manage.py backfill_partial_credit --apply               # actually write
+```
+
+Safe to re-run: an answer already worth what the grader says it is worth is
+left alone, so a second run reports nothing.
+
 ### `consolidate_to_maths`
 Migrate question/progress data from shared quiz and progress apps into the maths app.
 ```bash

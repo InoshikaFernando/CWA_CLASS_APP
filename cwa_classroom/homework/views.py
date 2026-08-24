@@ -1720,21 +1720,15 @@ def grade_pending_answers(submission, school):
 
 
 def _answer_credit(graded):
-    """How much of one question a graded answer earned, 0.0–1.0.
+    """How much of one question a freshly graded answer earned, 0.0–1.0.
 
-    A whole question for a correct answer, nothing for a wrong one — except for
-    the part-graded types, where the grader reports the share of gaps/cells the
-    student filled correctly (``answer_data.score_fraction``, set by
-    ``maths.partial_credit``). Nine of ten cells right is 0.9 of the question,
-    not zero.
+    Thin wrapper over ``maths.partial_credit.credit_from_answer_data`` so the
+    submit path and the backfill command read a part-graded answer's worth the
+    same way — one definition, not two that can drift.
     """
-    frac = (graded.get('answer_data') or {}).get('score_fraction')
-    if frac is None:
-        return 1.0 if graded.get('is_correct') else 0.0
-    try:
-        return max(0.0, min(1.0, float(frac)))
-    except (TypeError, ValueError):
-        return 1.0 if graded.get('is_correct') else 0.0
+    from maths.partial_credit import credit_from_answer_data
+    return credit_from_answer_data(
+        graded.get('answer_data'), graded.get('is_correct'))
 
 
 def _recalculate_submission_score(submission):

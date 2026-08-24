@@ -48,16 +48,15 @@ answers fall back to ``is_correct``):
 
     {% if state == 'correct' %}
       {# nothing extra needed for correct #}
-    {% elif state == 'partial' %}
-      {# Partial credit — an AI-scored written answer, or a part-graded one
-         (fill-in-the-blank / table of values) where some gaps were right. #}
-      <p class="text-xs font-medium text-amber-600 mt-1">Partially correct</p>
-      {% if ans.ai_feedback %}
-      <p class="text-xs text-amber-700 mt-0.5">{{ ans.ai_feedback }}</p>
-      {% endif %}
-      {% include "maths/partials/_partial_credit.html" with data=ans.answer_data earned=ans.points_earned possible=q.points %}
     {% else %}
-      {# Wrong — show correct answer and/or explanation #}
+      {# Not full marks — partial or wrong. Both need the same two things: the
+         answer it should have been, and the reason this one fell short. A
+         partly-right answer is NOT excused the correct answer just because its
+         breakdown names the gaps: the student still deserves to read the whole
+         thing. #}
+      {% if state == 'partial' %}
+      <p class="text-xs font-medium text-amber-600 mt-1">Partially correct</p>
+      {% endif %}
       {% comment %}correct_answer_display reads a fill-in-the-blank question's answers
       from its blank_spec (the Answer rows hold the pre-conversion answer, or nothing),
       and every other question's from its ticked rows.{% endcomment %}
@@ -71,12 +70,12 @@ answers fall back to ``is_correct``):
       {% endwith %}
       {% endif %}
       {% if ans.ai_feedback %}
-      <p class="text-xs text-red-600 mt-1">{{ ans.ai_feedback }}</p>
+      <p class="text-xs mt-1 {% if state == 'partial' %}text-amber-700{% else %}text-red-600{% endif %}">{{ ans.ai_feedback }}</p>
       {% elif q.explanation %}
       <p class="text-xs text-gray-400 mt-1 italic">{{ q.explanation|exponents }}</p>
       {% endif %}
-      {# Every gap wrong still gets the gap-by-gap breakdown: which one was
-         wrong is the useful part, whether they got none or nine right. #}
+      {# The gap-by-gap breakdown, whether they got none right or nine: which
+         gap was wrong is the part a student can act on. #}
       {% include "maths/partials/_partial_credit.html" with data=ans.answer_data earned=ans.points_earned possible=q.points %}
     {% endif %}
 
