@@ -26,7 +26,12 @@ def _resolve_subject(request):
     requested_id = request.GET.get('student')
 
     if requested_id:
-        student = get_object_or_404(CustomUser, id=requested_id)
+        # ``?student=abc`` would otherwise reach the ORM as a ValueError and 500
+        # rather than 404 — a hand-edited query string is a wrong URL, not a
+        # server fault.
+        if not requested_id.isdigit():
+            raise Http404
+        student = get_object_or_404(CustomUser, id=int(requested_id))
         if not can_view_student(user, student):
             raise Http404
         return student, student.id == user.id

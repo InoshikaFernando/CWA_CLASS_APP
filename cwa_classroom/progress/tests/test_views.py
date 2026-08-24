@@ -199,6 +199,13 @@ class ListViewTests(ReportViewBase):
         self.assertEqual(response.context['student'], self.student)
         self.assertFalse(response.context['is_self'])
 
+    def test_a_non_numeric_student_id_is_a_404_not_a_500(self):
+        self.login(self.teacher)
+        response = self.client.get(
+            reverse('progress:period_report_list'), {'student': 'abc'},
+        )
+        self.assertEqual(response.status_code, 404)
+
     def test_requesting_a_student_you_cannot_see_is_a_404(self):
         self.login(self.stranger_teacher)
         response = self.client.get(
