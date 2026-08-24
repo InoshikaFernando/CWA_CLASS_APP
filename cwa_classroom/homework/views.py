@@ -1244,6 +1244,13 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             graded_by_index = [_grade(hwq) for hwq in hw_questions]
 
         score = 0
+        # Credit counts the same questions as ``score``, but a part-graded one
+        # (a fill-in-the-blank sentence, a table of values) contributes the
+        # share of its gaps the student got right rather than 0 or 1. ``score``
+        # stays the count of questions answered fully correctly — the two are
+        # different questions ("how many did I get right" vs "what is this
+        # worth"), so they are kept apart rather than one distorting the other.
+        credit = 0.0
         total = len(hw_questions)
         answer_records = []
         for hwq, graded in zip(hw_questions, graded_by_index):
@@ -1251,6 +1258,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
                 continue
             if graded.get('is_correct'):
                 score += 1
+            credit += _answer_credit(graded)
             answer_records.append(HomeworkStudentAnswer(
                 # legacy FK — only populated for maths rows that return a
                 # ``question_id``; other subjects leave it as None.
@@ -1296,7 +1304,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
 
             HomeworkStudentAnswer.objects.bulk_create(answer_records)
 
-            pts = calculate_points(score, total, time_taken)
+            pts = calculate_points(credit, total, time_taken)
             submission.score = score
             submission.points = pts
             submission.save(update_fields=['score', 'points'])
@@ -1709,6 +1717,24 @@ def grade_pending_answers(submission, school):
 
     # Recalculate submission score to include AI-graded points
     _recalculate_submission_score(submission)
+
+
+def _answer_credit(graded):
+    """How much of one question a graded answer earned, 0.0–1.0.
+
+    A whole question for a correct answer, nothing for a wrong one — except for
+    the part-graded types, where the grader reports the share of gaps/cells the
+    student filled correctly (``answer_data.score_fraction``, set by
+    ``maths.partial_credit``). Nine of ten cells right is 0.9 of the question,
+    not zero.
+    """
+    frac = (graded.get('answer_data') or {}).get('score_fraction')
+    if frac is None:
+        return 1.0 if graded.get('is_correct') else 0.0
+    try:
+        return max(0.0, min(1.0, float(frac)))
+    except (TypeError, ValueError):
+        return 1.0 if graded.get('is_correct') else 0.0
 
 
 def _recalculate_submission_score(submission):

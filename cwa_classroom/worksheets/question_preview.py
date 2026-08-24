@@ -225,6 +225,11 @@ def preview_response(request, *, extracted_data, extracted_images, promote_blank
                     'given': shown,
                     'correct_answer': question.correct_answer_display(),
                     'points_earned': graded['points_earned'],
+                    # Part-graded types only (fill_blank, table_of_values): the
+                    # gap-by-gap breakdown, so a teacher trialling the question
+                    # sees the same explanation — and the same fraction of a
+                    # point — their student would get.
+                    'answer_data': graded.get('answer_data') or {},
                 }
 
             context.update({

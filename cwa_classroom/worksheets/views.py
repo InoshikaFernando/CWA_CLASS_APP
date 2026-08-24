@@ -1077,14 +1077,33 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                 if is_correct:
                     points_earned = float(question.points)
 
-            elif question.question_type == 'table_of_values' and question.table_spec:
-                # The filled cells post as JSON {"cells":{"r,c":"value"}} in
-                # text_answer; graded all-or-nothing by numeric tolerance.
-                from maths.geometry_grading import grade_table
+            elif ((question.question_type == 'table_of_values' and question.table_spec)
+                  or (question.question_type == 'fill_blank' and question.blank_spec)):
+                # A chart of cells / a sentence of gaps is several answers, not
+                # one: the filled cells post as JSON {"cells":{"r,c":"value"}}
+                # and the gaps as {"blanks":[...]}, both in text_answer. Marked
+                # part by part — nine of ten cells right is worth 0.9 of the
+                # question's points and the tenth gets named in answer_data, so
+                # the feedback can say what went wrong instead of a flat "Not
+                # quite right" for work that was nearly all correct.
+                from maths.partial_credit import points_for
                 text_answer = request.POST.get('text_answer', '')
-                is_correct = grade_table(question.table_spec, text_answer)
-                if is_correct:
-                    points_earned = float(question.points)
+                grade = question.grade_text_answer_parts(text_answer)
+                if grade is None:
+                    # No verdict part by part (a spec that has drifted out of
+                    # step with its payload) — fall back to the all-or-nothing
+                    # grader rather than inventing a fraction from parts that
+                    # may not line up.
+                    is_correct = question.grade_text_answer(text_answer.strip())
+                    if is_correct:
+                        points_earned = float(question.points)
+                else:
+                    # Full marks still means every part right, so the counted
+                    # score ("7 of 10 correct") keeps meaning what it meant;
+                    # partial credit shows up in the points.
+                    is_correct = grade.is_correct
+                    points_earned = points_for(question.points, grade)
+                    answer_data = grade.as_answer_data()
 
             elif question.question_type == 'column_operation':
                 text_answer = request.POST.get('text_answer', '').strip()

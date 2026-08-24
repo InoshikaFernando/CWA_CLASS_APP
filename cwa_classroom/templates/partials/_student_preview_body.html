@@ -55,10 +55,14 @@ question_number, total_questions, preview_index, not_importable.
   {% endif %}
 
   {% if result %}
+  {# A part-graded question (fill-in-the-blank, table of values) can be marked
+     partly right, and then it is worth a fraction of a point — so "Marked
+     wrong" would misdescribe both the mark and the score beside it. #}
+  {% with partly=result.answer_data.parts_correct %}
   <div data-preview-result="{% if result.is_correct %}correct{% else %}wrong{% endif %}"
-       class="rounded-xl border p-4 {% if result.is_correct %}bg-green-50 border-green-200{% else %}bg-red-50 border-red-200{% endif %}">
-    <p class="text-sm font-semibold {% if result.is_correct %}text-green-800{% else %}text-red-800{% endif %}">
-      {% if result.is_correct %}✓ Marked correct{% else %}✗ Marked wrong{% endif %}
+       class="rounded-xl border p-4 {% if result.is_correct %}bg-green-50 border-green-200{% elif partly %}bg-amber-50 border-amber-200{% else %}bg-red-50 border-red-200{% endif %}">
+    <p class="text-sm font-semibold {% if result.is_correct %}text-green-800{% elif partly %}text-amber-800{% else %}text-red-800{% endif %}">
+      {% if result.is_correct %}✓ Marked correct{% elif partly %}◐ Marked partly correct{% else %}✗ Marked wrong{% endif %}
       <span class="font-normal">— {{ result.points_earned }} point{{ result.points_earned|pluralize }}</span>
     </p>
     {% if result.given %}
@@ -69,10 +73,12 @@ question_number, total_questions, preview_index, not_importable.
     {% if not result.is_correct and result.correct_answer %}
     <p class="text-xs mt-1 text-gray-600">The student is shown: <span class="font-medium">{{ result.correct_answer }}</span></p>
     {% endif %}
+    {% include "maths/partials/_partial_credit.html" with data=result.answer_data earned=result.points_earned possible=question.points %}
     {% if question.explanation %}
     <p class="text-xs mt-2 text-gray-600"><span class="font-medium">Explanation they see:</span> {{ question.explanation }}</p>
     {% endif %}
   </div>
+  {% endwith %}
   {% endif %}
 
   {% endif %}
