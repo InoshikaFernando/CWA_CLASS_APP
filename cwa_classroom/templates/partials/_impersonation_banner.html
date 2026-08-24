@@ -1,0 +1,35 @@
+{% comment %}
+Persistent "you are viewing as someone else" banner, included by every base
+template so a super admin can never lose track of whose account they are
+looking at — or get stranded inside it without a way out.
+{% endcomment %}
+{% if request.is_impersonating %}
+<style>
+  /* The banner owns the top 2.25rem of the viewport, so the app's own fixed
+     topbar and the content offset that matches it both move down by the same
+     amount. Scoped inside this partial, which only renders while impersonating. */
+  header.fixed { top: 2.25rem; }
+  .pt-16 { padding-top: 6.25rem; }
+</style>
+<div class="fixed top-0 inset-x-0 z-[60] h-9 bg-amber-500 text-white shadow-md print:hidden">
+  <div class="h-full max-w-screen-2xl mx-auto flex items-center justify-between gap-3 px-4">
+    <p class="text-sm font-semibold flex items-center gap-2 min-w-0">
+      <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+      </svg>
+      <span class="truncate">
+        Viewing as {{ request.user.get_full_name|default:request.user.username }}
+        <span class="font-normal opacity-90 hidden sm:inline">— read-only, signed in as {{ request.impersonator.username }}</span>
+      </span>
+    </p>
+    <form method="post" action="{% url 'impersonation_stop' %}" class="shrink-0">
+      {% csrf_token %}
+      <button type="submit"
+              class="rounded-lg bg-white/25 hover:bg-white/40 px-3 py-1 text-xs font-bold uppercase tracking-wide transition">
+        Stop
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}

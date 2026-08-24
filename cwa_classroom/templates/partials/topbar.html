@@ -163,6 +163,11 @@
           <a href="{% url 'profile' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-primary-light transition">
             My Profile
           </a>
+          {% if request.user.is_superuser and not request.is_impersonating %}
+          <a href="{% url 'impersonation_picker' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-primary-light transition">
+            View as User
+          </a>
+          {% endif %}
           {% if is_individual_student %}
           <a href="{% url 'change_package' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-primary-light transition">
             Billing

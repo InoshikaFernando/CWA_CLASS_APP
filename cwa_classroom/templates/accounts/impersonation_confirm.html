@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}View as {{ target_user.get_full_name|default:target_user.username }}{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+
+  <div>
+    <h1 class="font-display text-3xl text-primary">View as this user</h1>
+    <p class="text-gray-500 text-sm mt-1">Confirm before the site switches over.</p>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
+    <div>
+      <p class="text-xs text-gray-400 uppercase tracking-wide font-semibold">You will view as</p>
+      <p class="text-xl font-bold text-gray-800 mt-1">{{ target_user.get_full_name|default:target_user.username }}</p>
+      <p class="text-sm text-gray-500">
+        <span class="font-mono">{{ target_user.username }}</span>
+        {% if target_user.email %} · {{ target_user.email }}{% endif %}
+        {% if target_role %} · {{ target_role }}{% endif %}
+      </p>
+    </div>
+
+    {% if blocked_reason %}
+    <div class="rounded-xl bg-red-50 border border-red-200 p-4">
+      <p class="text-sm font-semibold text-red-700">{{ blocked_reason }}</p>
+    </div>
+    <a href="{% url 'impersonation_picker' %}"
+       class="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-slate-50 transition">
+      Back to search
+    </a>
+    {% else %}
+    <ul class="text-sm text-gray-600 space-y-2 list-disc pl-5">
+      <li>Every page will render with their permissions and their data — not yours.</li>
+      <li>The session is <strong>read-only</strong>: submitting forms, saving, paying and deleting are all refused.</li>
+      <li>It ends automatically after {{ minutes }} minutes, or when you press <strong>Stop</strong> in the banner.</li>
+      <li>Starting and stopping are both recorded in the audit log against your account.</li>
+    </ul>
+
+    <div class="flex items-center gap-3 pt-1">
+      <form method="post">
+        {% csrf_token %}
+        <button type="submit"
+                class="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-accent-dark transition">
+          Start viewing as this user
+        </button>
+      </form>
+      <a href="{% url 'impersonation_picker' %}"
+         class="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-slate-50 transition">
+        Cancel
+      </a>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

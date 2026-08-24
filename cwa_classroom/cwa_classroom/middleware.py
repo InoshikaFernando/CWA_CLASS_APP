@@ -125,6 +125,8 @@ class TrialExpiryMiddleware:
     ALLOWED_PATHS = (
         '/accounts/trial-expired/',
         '/accounts/logout/',
+        # A super admin viewing as an expired user must still be able to leave.
+        '/accounts/stop-viewing-as/',
         '/billing/',
         '/stripe/',
         '/admin/',
@@ -325,6 +327,8 @@ class AccountBlockMiddleware:
     ALLOWED_PATHS = (
         '/accounts/blocked/',
         '/accounts/logout/',
+        # A super admin viewing as a blocked user must still be able to leave.
+        '/accounts/stop-viewing-as/',
         '/admin/',
     )
 
@@ -357,7 +361,11 @@ class AccountBlockMiddleware:
                 action='blocked_user_access_attempt', result='blocked',
                 request=request,
             )
-            logout(request)
+            # While a super admin is viewing as this user, logout() would flush
+            # the ADMIN's session, not the target's — so show the block screen
+            # instead and leave the "Stop" banner working.
+            if not getattr(request, 'is_impersonating', False):
+                logout(request)
             return redirect('account_blocked')
 
         # Check school suspension
@@ -370,7 +378,8 @@ class AccountBlockMiddleware:
                 action='suspended_school_access_attempt', result='blocked',
                 request=request,
             )
-            logout(request)
+            if not getattr(request, 'is_impersonating', False):
+                logout(request)
             return redirect('account_blocked')
 
         return self.get_response(request)
@@ -386,6 +395,8 @@ class ProfileCompletionMiddleware:
         '/accounts/complete-profile/',
         '/accounts/logout/',
         '/accounts/blocked/',
+        # A super admin viewing as a half-onboarded user must still be able to leave.
+        '/accounts/stop-viewing-as/',
         '/admin/',
         '/static/',
         '/stripe/',   # Stripe webhooks / redirects

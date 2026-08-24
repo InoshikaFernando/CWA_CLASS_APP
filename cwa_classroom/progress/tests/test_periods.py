@@ -53,6 +53,14 @@ class MonthWindowTests(TestCase):
 
 
 class DuePeriodTests(TestCase):
+    """``due_periods`` offers the closed windows; the schedule picks the day.
+
+    Which weekday or date a school actually sends on is a per-class setting
+    (``progress.report_settings``), so this function deliberately does NOT
+    filter by day any more — doing so would hard-code Monday and the 1st for
+    every school on the install.
+    """
+
     @classmethod
     def setUpTestData(cls):
         cls.school = make_school()
@@ -65,39 +73,44 @@ class DuePeriodTests(TestCase):
             start_date=date(2026, 7, 20), end_date=date(2026, 9, 25),
         )
 
-    def test_monday_makes_the_weekly_report_due(self):
-        due = periods.due_periods(date(2026, 8, 24))  # Monday
-        self.assertEqual([entry[0] for entry in due], [periods.WEEKLY])
-        self.assertEqual(due[0][1], date(2026, 8, 17))
+    def types_on(self, day):
+        return sorted(entry[0] for entry in periods.due_periods(day))
 
-    def test_a_midweek_day_is_a_legitimate_no_op(self):
-        self.assertEqual(periods.due_periods(date(2026, 8, 26)), [])
-
-    def test_the_first_of_the_month_makes_the_monthly_report_due(self):
-        due = periods.due_periods(date(2026, 9, 1))  # a Tuesday
-        self.assertEqual([entry[0] for entry in due], [periods.MONTHLY])
-        self.assertEqual(due[0][1:3], (date(2026, 8, 1), date(2026, 8, 31)))
-
-    def test_a_monday_that_is_also_the_first_makes_both_due(self):
-        due = periods.due_periods(date(2026, 6, 1))  # Monday 1 June 2026
+    def test_the_closed_week_and_month_are_always_offered(self):
         self.assertEqual(
-            sorted(entry[0] for entry in due),
+            self.types_on(date(2026, 8, 26)),  # an ordinary Wednesday
             [periods.MONTHLY, periods.WEEKLY],
         )
 
-    def test_the_day_after_a_term_ends_makes_the_term_report_due(self):
+    def test_the_weekly_window_is_the_week_that_just_closed(self):
+        due = periods.due_periods(date(2026, 8, 24))  # Monday
+        weekly = next(e for e in due if e[0] == periods.WEEKLY)
+        self.assertEqual(weekly[1:3], (date(2026, 8, 17), date(2026, 8, 23)))
+
+    def test_the_monthly_window_is_the_month_that_just_closed(self):
+        due = periods.due_periods(date(2026, 9, 1))
+        monthly = next(e for e in due if e[0] == periods.MONTHLY)
+        self.assertEqual(monthly[1:3], (date(2026, 8, 1), date(2026, 8, 31)))
+
+    def test_a_recently_ended_term_is_offered(self):
         due = periods.due_periods(date(2026, 9, 26))
-        types = [entry[0] for entry in due]
-        self.assertIn(periods.TERM, types)
         term_entry = next(e for e in due if e[0] == periods.TERM)
+
         self.assertEqual(term_entry[1:3], (date(2026, 7, 20), date(2026, 9, 25)))
         self.assertEqual(term_entry[3], self.term)
 
-    def test_the_last_day_of_term_is_not_yet_due(self):
+    def test_a_term_is_still_offered_a_week_after_it_ended(self):
+        # A school may schedule its term report several days out; the window
+        # has to stay on offer long enough for that setting to land.
+        due = periods.due_periods(date(2026, 10, 2))
+        self.assertIn(periods.TERM, [e[0] for e in due])
+
+    def test_the_last_day_of_term_is_not_yet_offered(self):
         # Generating on the final day would race that day's submissions.
-        self.assertEqual(
-            [e[0] for e in periods.due_periods(date(2026, 9, 25))], [],
-        )
+        self.assertNotIn(periods.TERM, self.types_on(date(2026, 9, 25)))
+
+    def test_a_long_finished_term_is_not_re_offered(self):
+        self.assertNotIn(periods.TERM, self.types_on(date(2026, 12, 1)))
 
 
 class LabelTests(TestCase):

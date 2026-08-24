@@ -47,10 +47,30 @@ class Command(BaseCommand):
             '--dry-run', action='store_true',
             help='Report what would be generated without writing anything.',
         )
+        parser.add_argument(
+            '--school', help='Limit to one school, by id or slug.',
+        )
+        parser.add_argument(
+            '--manual', action='store_true',
+            help=(
+                'Run the classes set to manual instead of the automatic ones. '
+                'Normally a staff member does this from the Report Automation '
+                'page; this is the same path, for scripting and support.'
+            ),
+        )
+        parser.add_argument(
+            '--classroom', type=int,
+            help=(
+                'Limit to one class, by id. Use with --dry-run to see exactly '
+                'what a class would produce before switching it on for real.'
+            ),
+        )
 
     def handle(self, *args, **options):
         reference = self._reference_date(options.get('date'))
         windows = self._windows(options.get('period'), reference)
+        school = self._school(options.get('school'))
+        classroom = self._classroom(options.get('classroom'))
 
         if not windows:
             # A run on a Tuesday that is not the day after a term end is a
@@ -67,6 +87,16 @@ class Command(BaseCommand):
                 force=options['force'],
                 dry_run=options['dry_run'],
                 notify=not options['no_notify'],
+                school=school,
+                classroom=classroom,
+                # The daily tick serves the automatic classes only, and only
+                # those whose configured day is today. Manual classes wait for
+                # a person, which is the default and the point.
+                mode=(
+                    periods.MODE_MANUAL if options['manual']
+                    else periods.MODE_AUTO
+                ),
+                reference=None if options['manual'] else reference,
             )
             self._report(period_type, counts, dry_run=options['dry_run'])
 
@@ -97,12 +127,46 @@ class Command(BaseCommand):
         start, end = periods.window_for(forced, reference)
         return [(forced, start, end, None)]
 
+    def _school(self, raw):
+        from classroom.models import School
+
+        if not raw:
+            return None
+        school = (
+            School.objects.filter(pk=raw).first() if str(raw).isdigit()
+            else School.objects.filter(slug=raw).first()
+        )
+        if school is None:
+            raise CommandError(f'No school matches {raw!r} (tried id and slug).')
+        return school
+
+    def _classroom(self, raw):
+        from classroom.models import ClassRoom
+
+        if not raw:
+            return None
+        classroom = ClassRoom.objects.filter(pk=raw).first()
+        if classroom is None:
+            raise CommandError(f'No class with id {raw}.')
+        return classroom
+
     def _report(self, period_type, counts, dry_run):
+        if not counts['classes']:
+            # The normal state before anyone opts in — or a day no automatic
+            # schedule lands on. Said out loud, because silence here is
+            # indistinguishable from a broken cron.
+            self.stdout.write(
+                f'{period_type}: {counts["period"]} — no class is scheduled to '
+                f'send a {period_type} report today; nothing to do.'
+            )
+            return
+
         prefix = 'Would generate' if dry_run else 'Generated'
         line = (
             f'{period_type}: {counts["period"]} — '
             f'{prefix} {counts["generated"]} report(s) for '
-            f'{counts["students"]} student(s)'
+            f'{counts["students"]} student(s) across '
+            f'{counts["classes"]} class(es)'
         )
         if not dry_run:
             line += (
