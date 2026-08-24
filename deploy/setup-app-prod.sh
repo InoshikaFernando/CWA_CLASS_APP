@@ -157,6 +157,19 @@ cat > /etc/cron.d/cwa-email-health <<'MAILHEALTHCRON'
 MAILHEALTHCRON
 chmod 644 /etc/cron.d/cwa-email-health
 
+# ── Progress report cron ─────────────────────────────────────────────────────
+# Nothing else calls the report generator, and its absence is invisible: the
+# reports page just stays empty, which reads as "no activity yet" rather than as
+# a dead job. Installed here for the same reason as the email cron — a crontab
+# entry added by hand is one that points at the wrong checkout.
+echo "==> Installing progress-report cron..."
+cat > /etc/cron.d/cwa-progress-reports <<'REPORTCRON'
+# CWA progress reports — close the week / month / term and notify families.
+# Managed by deploy/setup-app-prod.sh; edit there, not here.
+10 6 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_generate_progress_reports.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/progress_reports.log 2>&1
+REPORTCRON
+chmod 644 /etc/cron.d/cwa-progress-reports
+
 # ── Sudoers for deploy ───────────────────────────────────────────────────────
 echo "==> Granting cwa user restart permissions..."
 cat > /etc/sudoers.d/cwa <<'SUDOERS'

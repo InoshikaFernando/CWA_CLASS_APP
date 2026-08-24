@@ -54,6 +54,7 @@ jobs:
       whatsapp: ${{ steps.filter.outputs.whatsapp }}
       ops: ${{ steps.filter.outputs.ops }}
       notifications: ${{ steps.filter.outputs.notifications }}
+      progress: ${{ steps.filter.outputs.progress }}
       usage: ${{ steps.filter.outputs.usage }}
       ui_core: ${{ steps.filter.outputs.ui_core }}
       ui_billing: ${{ steps.filter.outputs.ui_billing }}
@@ -66,6 +67,7 @@ jobs:
       ui_maths: ${{ steps.filter.outputs.ui_maths }}
       ui_navigation: ${{ steps.filter.outputs.ui_navigation }}
       ui_parent: ${{ steps.filter.outputs.ui_parent }}
+      ui_progress: ${{ steps.filter.outputs.ui_progress }}
       ui_quiz: ${{ steps.filter.outputs.ui_quiz }}
       ui_uploads: ${{ steps.filter.outputs.ui_uploads }}
       ui_worksheets: ${{ steps.filter.outputs.ui_worksheets }}
@@ -125,6 +127,14 @@ jobs:
               - 'cwa_classroom/ops/**'
             notifications:
               - 'cwa_classroom/notifications/**'
+            progress:
+              - 'cwa_classroom/progress/**'
+              # The period report reads homework submissions, worksheet results
+              # and class membership — a change in any of those can break the
+              # report without touching a file under progress/.
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/classroom/models.py'
             usage:
               - 'cwa_classroom/usage/**'
             # ---- UI (Playwright) --------------------------------------------
@@ -248,6 +258,14 @@ jobs:
               - 'cwa_classroom/maths/**'
               - 'cwa_classroom/number_puzzles/**'
               - 'cwa_classroom/templates/parent/**'
+            ui_progress:
+              - 'cwa_classroom/ui_tests/progress/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/progress/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/templates/progress/**'
             ui_quiz:
               - 'cwa_classroom/ui_tests/quiz/**'
               - 'cwa_classroom/classroom/**'
@@ -770,6 +788,27 @@ jobs:
       - name: Run notifications tests
         working-directory: cwa_classroom
         run: pytest notifications/ -n auto --dist=loadscope -v --tb=short
+
+  progress-tests:
+    name: Progress Tests
+    needs: changes
+    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.progress == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements-test.txt
+
+      - name: Run progress tests
+        working-directory: cwa_classroom
+        run: pytest progress/ -n auto --dist=loadscope -v --tb=short
 
   usage-tests:
     name: Usage Tests

@@ -87,6 +87,7 @@ urlpatterns = [
     path('', include('classroom.urls')),
     path('maths/', include('number_puzzles.urls')),
     path('', include('progress.urls')),
+    path('', include('progress.report_urls', namespace='progress')),
     path('', include('quiz.subject_urls')),  # /<subject>/level/<n>/topic/<id>/quiz/ etc.
 
     # --- Homework ---

@@ -28,3 +28,8 @@ svix>=1.0,<3.0
 redis>=5.0.0
 django-rq>=2.10.0
 phonenumbers>=8.13
+# Server-side PDF rendering for the end-of-period progress reports (CPP-388).
+# Pure Python — no system libraries to install on the droplet — and its
+# graphics package draws the report's charts so the PDF is not a stripped-down
+# copy of the web view.
+reportlab>=4.2,<5

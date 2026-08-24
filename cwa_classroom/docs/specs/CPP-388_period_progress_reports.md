@@ -1,0 +1,197 @@
+# CPP-388 — Weekly / Monthly / Term progress reports
+
+**Status:** implemented
+**App:** `progress`
+**Jira:** [CPP-388](https://codewizardsaotearoa.atlassian.net/browse/CPP-388)
+
+A student's homework results already exist in the database, but nobody ever gets
+told what they *mean*. The dashboards answer "how am I doing right now"; nothing
+answers "how did this week go, and was it better than last week". This feature
+closes each period — week, month, term — with a report the student and their
+parents actually receive.
+
+---
+
+## 1. What a report is
+
+A **period report** is a point-in-time snapshot of one student's homework and
+worksheet performance over one closed period.
+
+| Period    | Window                                | Generated                     |
+|-----------|---------------------------------------|-------------------------------|
+| `weekly`  | Monday → Sunday                       | Monday, for the week just ended |
+| `monthly` | 1st → last day of month               | 1st, for the month just ended   |
+| `term`    | `Term.start_date` → `Term.end_date`   | The day after a term ends       |
+
+A period is only ever reported **once it has closed** — a half-finished week
+would produce a number that changes under the reader, and a report the reader
+cannot trust is worse than no report. Reports are immutable once generated: the
+computed figures are frozen into `PeriodReport.data`, so the PDF a parent
+downloads in December still says what the notification said in August.
+
+### Cascading period resolution
+
+Term boundaries come from the student's school (`classroom.Term`). Weekly and
+monthly windows are calendar-based and school-independent, so an individual
+student with no school still gets them. The fallback chain for "which school
+does this student belong to" is:
+
+1. the school on an active `ClassStudent` → `ClassRoom.school`,
+2. else the student's `SchoolStudent` link,
+3. else `None` — the student is an individual learner; weekly and monthly
+   reports still generate, term reports do not (there is no term to close).
+
+---
+
+## 2. What is in a report
+
+All figures derive from **homework submissions** (`homework.HomeworkSubmission`)
+in the window, with worksheets (`worksheets.WorksheetSubmission`) as a secondary
+section. Nothing is invented: a period with no submissions produces a report
+that says so rather than a report full of zeros dressed as achievement.
+
+### 2.1 Headline figures (`data['totals']`)
+
+| Figure | Meaning |
+|--------|---------|
+| `assigned` / `completed` / `completion_pct` | Homework due in the window vs. attempted at least once |
+| `submissions` | Total attempts made in the window (not distinct homework) |
+| `avg_best_pct` | Mean of the student's **best** attempt per homework — the "what they can do" number |
+| `avg_first_pct` | Mean of the student's **first** attempt per homework — the "what they could do cold" number |
+| `improvement_pct` | `avg_best_pct − avg_first_pct`; the value retrying actually bought |
+| `time_minutes` | Total time spent across attempts |
+| `on_time_pct` | Share of homework whose first attempt landed before the due date |
+
+`avg_first_pct` vs `avg_best_pct` is the pedagogically important pair, and the
+reason the report exists in this shape: it makes practice visibly worth doing.
+
+### 2.2 By topic (`data['topics']`)
+
+Per `classroom.Topic`, resolved from the questions inside each submission
+(`HomeworkStudentAnswer` → `maths.Question.topic`), an accuracy percentage over
+every answer the student gave in the window. Rendered as a bar chart plus a
+table. Answers whose question carries no topic are grouped under *Unclassified*
+rather than dropped — a silently shrinking denominator is the kind of quiet
+wrongness this codebase does not accept.
+
+### 2.3 By attempts (`data['attempts']`)
+
+One row per homework: attempts taken, first score, best score, gain. Plus a
+distribution (how many homeworks were done once / twice / three or more times),
+rendered as the pie chart. This is the section that exists to *motivate the
+retry* — it shows effort converting into marks.
+
+### 2.4 Trend (`data['trend']`)
+
+Average best-attempt score bucketed by day (weekly reports) or by ISO week
+(monthly and term reports), so a term report is a line the reader can follow
+rather than 90 daily dots.
+
+### 2.5 Recognition (`data['awards']`)
+
+Awards are earned **against the student's classmates over the same window**, so
+they mean something. A class with one active student awards nothing — a badge
+for beating nobody is noise. Every award states its evidence in `detail` so a
+parent can see why it was given.
+
+| Code | Awarded to | Guard |
+|------|-----------|-------|
+| `top_scorer` | Highest `avg_best_pct` in the class | ≥ 2 active students with submissions |
+| `hard_worker` | Most attempts in the class, having retried at least one homework | must have retried; ≥ 2 students |
+| `most_improved` | Largest mean first→best gain | gain > 0; ≥ 2 students |
+| `fast_and_accurate` | `avg_best_pct` ≥ 85 **and** lowest mean seconds per question | ≥ 2 students with timing data |
+| `perfect_score` | Scored 100% on any homework in the window | none (individual) |
+| `full_completion` | Attempted every homework due in the window | ≥ 2 homework due (individual) |
+
+Ties award everyone tied — rationing recognition on a tiebreak the student
+cannot see would be arbitrary.
+
+---
+
+## 3. Delivery
+
+1. **In-app notification** to the student and to every linked parent
+   (`classroom.ParentStudent`), for every period type, linking to the report.
+   Notification email is deliberately suppressed here: a weekly email per child
+   per week is how a school ends up in a spam folder.
+2. **Email to parents at term end only**, and only when the term had activity —
+   an email reading "0% average across 0 homework" lands as a system error
+   rather than as news. Sent as `progress_report_term` via
+   `classroom.email_service.send_templated_email`, template
+   `email/transactional/term_progress_report.html`, carrying the headline
+   figures, the awards, and a link to the full report.
+3. **Graphical view** at `/progress/reports/<id>/` — Chart.js bar, pie and line
+   charts fed from the frozen snapshot.
+4. **Downloadable PDF** at `/progress/reports/<id>/pdf/` — rendered with
+   ReportLab, including the same charts drawn server-side (`reportlab.graphics`),
+   so the PDF is not a degraded copy of the web view.
+
+### Who can see a report
+
+`progress.access.can_view_report(user, report)`:
+
+- the student themselves,
+- a parent with an **active** `ParentStudent` link to them,
+- a teacher who shares an active class with them,
+- Head of Institute / institute owner of the report's school,
+- superusers.
+
+Anyone else gets a 404, not a 403 — a 403 confirms the report exists.
+
+---
+
+## 4. Generation
+
+```bash
+python manage.py generate_progress_reports              # every period due today
+python manage.py generate_progress_reports --period weekly
+python manage.py generate_progress_reports --date 2026-09-01 --dry-run
+```
+
+Run daily from cron; the command itself decides which periods actually closed on
+the given date, so the schedule is one line rather than three:
+
+```cron
+10 6 * * * cd /home/cwa/CWA_CLASS_APP && venv/bin/python cwa_classroom/manage.py generate_progress_reports
+```
+
+**Idempotent.** Reports key on `(student, period_type, period_start)`; a re-run
+finds the existing row and does not re-notify. `--force` recomputes an existing
+report's data (leaving its notification state alone) for the case where a
+grading fix landed after generation.
+
+**Never silently empty.** A student with no submissions in the window still gets
+a report row so the absence is visible in the UI, but nothing is notified or
+emailed for it — telling a child "here is your report: nothing" every Monday is
+not motivating, and the school's own dashboards already surface non-submission.
+The command prints counts for generated / skipped / notified.
+
+---
+
+## 5. Data model
+
+`progress.PeriodReport`
+
+| Field | Notes |
+|-------|-------|
+| `student`, `school`, `term` | `school`/`term` nullable (individual learners) |
+| `period_type`, `period_start`, `period_end` | `unique_together (student, period_type, period_start)` |
+| `data` | `JSONField` — the frozen snapshot described in §2 |
+| `generated_at`, `notified_at`, `parent_emailed_at` | delivery state; null = not yet done |
+
+`data` is the single source of truth for both the HTML view and the PDF, so the
+two can never disagree.
+
+---
+
+## 6. Test coverage
+
+- `progress/tests/test_periods.py` — window maths, including year boundaries.
+- `progress/tests/test_report_builder.py` — totals, topics, attempts, trend.
+- `progress/tests/test_awards.py` — every award rule and its guard.
+- `progress/tests/test_generate_command.py` — idempotency, notification and
+  term-email behaviour, `--dry-run`, `--force`.
+- `progress/tests/test_views.py` — access control for each role, PDF response.
+- `progress/tests/test_pdf.py` — the PDF renders and is a real PDF.
+- `ui_tests/progress/test_period_report_ui.py` — student and parent see the
+  report page, charts mount, PDF link is present.
