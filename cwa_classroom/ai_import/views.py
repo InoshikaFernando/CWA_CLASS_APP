@@ -548,6 +548,28 @@ class RecropView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
         return recrop_response(session, request)
 
 
+class QuestionPreviewView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+    """AJAX: one extracted question rendered as the student will meet it.
+
+    ``promote_blanks=True`` — ``save_questions_from_session`` calls
+    ``apply_blank_format``, so a "___" sentence imported from here really does
+    become a sentence with a box in each gap.
+    """
+    required_roles = _IMPORT_ROLES
+
+    def post(self, request, session_id):
+        from worksheets.question_preview import preview_response
+        session = get_object_or_404(
+            AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return preview_response(
+            request,
+            extracted_data=session.extracted_data,
+            extracted_images=session.extracted_images,
+            promote_blanks=True,
+        )
+
+
 class UploadImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
     """AJAX endpoint: upload an image to the session's image gallery."""
     required_roles = _IMPORT_ROLES

@@ -46,6 +46,29 @@ path('maths/', include('number_puzzles.urls')),
 
 `AppConfig.ready()` registers the maths subject plugin with the subject registry — no further wiring needed.
 
+## Previewing a question before it is imported (`draft_preview.py`)
+
+The three PDF review screens (homework, worksheet, AI import) let a teacher
+preview an extracted question exactly as a student will meet it, try answering
+it, and see it marked. `maths/draft_preview.py` is what makes that honest:
+
+- `preview_question(draft, promote_blanks=...)` builds a **real** `Question` +
+  `Answer` rows from a draft dict inside a transaction it rolls back, so the
+  student template and the real graders run unmodified. Nothing survives the
+  request — never save an image inside that block, since image writes are not
+  transactional.
+- `grading_notes(question, draft, ...)` states the rule the marker will apply
+  (accepted answers, tolerance, per-gap split) and warns about the traps: a
+  comma inside one answer row silently cut across two gaps, a measurement with
+  no tolerance, an algebraic answer matched as plain text.
+- `promote_blanks` is a per-flow fact, not a preference: the AI Import saver
+  calls `Question.apply_blank_format` and the homework PDF saver does not, so a
+  "___" sentence imports differently depending on the screen. The preview
+  reports what THAT flow does.
+
+The HTTP layer lives in `worksheets/question_preview.py`, shared by all three
+screens; each app keeps only its own session-ownership check.
+
 ## Dependencies
 
 - **accounts** — `CustomUser` is the student.
