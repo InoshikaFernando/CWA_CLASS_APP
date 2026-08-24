@@ -25,6 +25,8 @@ from classroom.subject_registry import (
 )
 from classroom.views import RoleRequiredMixin
 from maths.models import Answer, Question, calculate_points
+from rewards.models import PointsSource
+from rewards.services import award_points_safe, normalise
 from maths.views import select_questions_stratified
 
 from .forms import HomeworkCreateForm, HomeworkEditForm
@@ -1319,6 +1321,8 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             # shared attempt-history limit.
             HomeworkSubmission.prune_old_attempts(homework, request.user)
 
+        _award_homework_points(submission)
+
         log_event(
             user=request.user,
             school=homework.classroom.school,
@@ -1739,6 +1743,27 @@ def _recalculate_submission_score(submission):
     submission.score = score
     submission.points = pts
     submission.save(update_fields=['score', 'points'])
+    # A late AI/teacher verdict can only raise the ledger entry, never lower it
+    # (award_points keeps the better of the two), so a student never loses
+    # leaderboard points they were shown on submit.
+    _award_homework_points(submission)
+
+
+def _award_homework_points(submission):
+    """Credit the global leaderboard for a homework attempt.
+
+    Scored on the percentage rather than ``submission.points`` on purpose: the
+    two writers of that column disagree on scale — the submit path sets
+    ``calculate_points(...)`` (0–100), while ``_recalculate_submission_score``
+    sums ``points_earned`` (one per question, so ~0–10). Percentage is what both
+    agree on, and it is the homework leaderboard's own primary sort key.
+    """
+    homework = submission.homework
+    award_points_safe(
+        submission.student, PointsSource.HOMEWORK, str(homework.id),
+        normalise(submission.score, submission.total_questions),
+        label=f'Homework — {homework.title}',
+    )
 
 
 # ---------------------------------------------------------------------------

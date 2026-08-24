@@ -13,6 +13,8 @@ from django.db.models import Q
 from audit.services import log_event
 from classroom.models import Level as ClassroomLevel, SchoolStudent, Topic as ClassroomTopic
 from maths.models import calculate_points
+from rewards.models import PointsSource
+from rewards.services import award_points_safe
 from .basic_facts import (
     SUBTOPIC_CONFIG, SUBTOPIC_LABELS, get_display_level,
     generate_questions, check_answer
@@ -298,6 +300,12 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
 
         # Keep only the most recent attempts for this subtopic/level.
         BasicFactsResult.prune_old_attempts(result)
+
+        award_points_safe(
+            request.user, PointsSource.BASIC_FACTS,
+            f'{subtopic}:{level_number}', result.points,
+            label=f'Basic facts — {subtopic} level {level_number}',
+        )
 
         log_event(
             user=request.user,
@@ -604,6 +612,12 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
 
         # Keep only the most recent attempts for this table/operation.
         StudentFinalAnswer.prune_old_attempts(sfa)
+
+        award_points_safe(
+            request.user, PointsSource.TIMES_TABLES,
+            f'{operation}:{table}:{"shuffled" if shuffled else "in-order"}', sfa.points,
+            label=f'{operation.title()} table {table}',
+        )
 
         log_event(
             user=request.user,
@@ -935,6 +949,12 @@ class MixedQuizView(LoginRequiredMixin, View):
                 questions_data=review_data,
             )
             StudentFinalAnswer.prune_old_attempts(result)
+
+        award_points_safe(
+            request.user, PointsSource.MATHS_QUIZ,
+            f'mixed:{subject}:level:{level.id if level else 0}', result.points,
+            label=f'Mixed quiz — level {level.level_number if level else "?"}',
+        )
 
         log_event(
             user=request.user,
@@ -1291,6 +1311,12 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                 questions_data=session_data.get('review', []),
             )
             StudentFinalAnswer.prune_old_attempts(result)
+            award_points_safe(
+                request.user, PointsSource.MATHS_QUIZ,
+                f'topic:{q.topic_id}:level:{level.id if level else 0}', result.points,
+                label=f'{q.topic.name if q.topic else "Quiz"} — level '
+                      f'{level.level_number if level else "?"}',
+            )
             log_event(
                 user=request.user,
                 school=_get_student_school(request.user),

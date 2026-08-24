@@ -12,6 +12,8 @@ import logging
 
 from audit.services import log_event
 from classroom.models import SchoolStudent
+from rewards.models import PointsSource
+from rewards.services import POINTS_PER_UNIT, award_points_safe
 
 from .models import (
     CodingLanguage,
@@ -342,6 +344,11 @@ def exercise_detail(request, lang_slug, exercise_id):
                 stderr_received='',
                 is_completed=correct,
             )
+            if correct:
+                award_points_safe(
+                    request.user, PointsSource.CODING_EXERCISE, str(exercise.id),
+                    POINTS_PER_UNIT, label=f'Coding exercise — {exercise.title}',
+                )
             log_event(
                 user=request.user,
                 school=_get_student_school(request.user),
@@ -747,6 +754,10 @@ def _save_exercise_submission(user, exercise_id, language, code, stdout, stderr,
         submission.save(update_fields=['code_submitted', 'output_received', 'stderr_received', 'blocks_xml', 'is_completed'])
 
     if completed:
+        award_points_safe(
+            user, PointsSource.CODING_EXERCISE, str(exercise.id),
+            POINTS_PER_UNIT, label=f'Coding exercise — {exercise.title}',
+        )
         log_event(
             user=user,
             school=_get_student_school(user),
@@ -850,6 +861,10 @@ def api_submit_problem(request, problem_id):
                     test_results=[{'blocks_xml': blocks_xml}] if blocks_xml else [],
                     points=100.0,
                     time_taken_seconds=time_taken,
+                )
+                award_points_safe(
+                    request.user, PointsSource.CODING_PROBLEM, str(problem.id),
+                    100.0, label=f'Coding problem — {problem.title}',
                 )
                 is_new_best = best_previous < 100.0
                 return JsonResponse({
@@ -983,6 +998,11 @@ def api_submit_problem(request, problem_id):
             test_results=test_results_store,
             points=best_points,          # leaderboard always uses best-of
             time_taken_seconds=time_taken,
+        )
+
+        award_points_safe(
+            request.user, PointsSource.CODING_PROBLEM, str(problem.id),
+            best_points, label=f'Coding problem — {problem.title}',
         )
 
         log_event(

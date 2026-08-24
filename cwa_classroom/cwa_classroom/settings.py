@@ -25,7 +25,7 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.17.30'        # MAJOR.MINOR.PATCH
+APP_VERSION       = '1.18.0'        # MAJOR.MINOR.PATCH
 APP_VERSION_DATE  = '2026-08-24'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
@@ -113,6 +113,9 @@ INSTALLED_APPS = [
 
     # WhatsApp parent notifications (CPP-XXX) — inert until configured
     'whatsapp',
+
+    # Cross-subject student points + global leaderboard
+    'rewards',
 ]
 
 # ---------------------------------------------------------------------------
