@@ -1,0 +1,41 @@
+{% comment %}
+Per-part breakdown of a part-graded answer — a fill-in-the-blank sentence or a
+table of values, where one question asks for several values and is marked one
+value at a time (see maths/partial_credit.py).
+
+Receives:
+  data     — the blob written by ``PartialGrade.as_answer_data()``. Worksheets
+             and homework store it on the answer row's ``answer_data``; the
+             quiz stores it in the attempt's review payload. One partial
+             explains a partly-right answer on every one of those pages.
+  earned   — points this answer earned (optional)
+  possible — points the question was worth (optional). Both, or neither: half
+             a fraction is worse than none.
+
+Renders nothing unless ``data`` carries a parts list, so a template can include
+it beside any answer without first asking what type the question was.
+
+It names EVERY gap that cost a mark, with what was typed beside what was
+wanted: "9 out of 10" tells a child their score, not their mistake.
+{% endcomment %}
+{% if data.parts %}
+<div class="mt-2 rounded-lg border p-3 {% if data.parts_correct %}border-amber-200 bg-amber-50{% else %}border-red-200 bg-red-50{% endif %}">
+  <p class="text-xs font-semibold {% if data.parts_correct %}text-amber-800{% else %}text-red-800{% endif %}">
+    {{ data.what_was_correct }}
+    {% if possible %}
+    <span class="font-normal">Worth {{ earned|floatformat:"-2" }} of {{ possible|floatformat:"-2" }} point{{ possible|pluralize }}.</span>
+    {% endif %}
+  </p>
+  {% if data.parts_correct != data.parts_total %}
+  <ul class="mt-1.5 space-y-1">
+    {% for part in data.parts %}{% if not part.is_correct %}
+    <li class="text-xs {% if data.parts_correct %}text-amber-700{% else %}text-red-700{% endif %}">
+      <span class="font-medium">{{ part.label }}:</span>
+      {% if part.typed %}you wrote <span class="font-mono">{{ part.typed }}</span>{% else %}you left it empty{% endif %}
+      — the answer is <span class="font-mono font-semibold">{{ part.expected }}</span>
+    </li>
+    {% endif %}{% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endif %}

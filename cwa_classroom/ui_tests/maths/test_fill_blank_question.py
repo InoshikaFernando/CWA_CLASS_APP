@@ -3,7 +3,8 @@
 A student opens a homework containing a fill-in-the-blank question, sees the
 sentence laid out with an input sitting in each gap (not one box for the whole
 thing, and not the sentence printed twice), types into the gaps, submits, and
-the submission is graded all-or-nothing. Mirrors the fixtures in
+the submission is graded gap by gap: correct only when every gap is right, but
+worth the share of the gaps that are. Mirrors the fixtures in
 test_measure_question.py.
 
 The JS half matters as much as the grading half here: the gaps are collected
@@ -192,9 +193,10 @@ class TestFillBlankQuestionTake:
         assert ans.points_earned == blank_question.points
 
     @pytest.mark.django_db(transaction=True)
-    def test_one_wrong_gap_fails_the_whole_sentence(
+    def test_one_wrong_gap_fails_the_sentence_but_keeps_the_other_gaps_marks(
         self, page: Page, live_server, enrolled_student, blank_homework_ready, blank_question
     ):
+        """One gap of two: not a correct sentence, and not worth nothing."""
         _open_take(page, live_server, enrolled_student, blank_homework_ready)
 
         inputs = page.locator("[data-fb-input]")
@@ -204,6 +206,9 @@ class TestFillBlankQuestionTake:
 
         ans = _answer(blank_homework_ready, enrolled_student, blank_question)
         assert ans.is_correct is False
+        assert ans.points_earned == blank_question.points * 0.5
+        assert ans.answer_data["parts_correct"] == 1
+        assert ans.answer_data["parts_total"] == 2
 
     @pytest.mark.django_db(transaction=True)
     def test_result_page_shows_the_answer_readably(
@@ -221,4 +226,25 @@ class TestFillBlankQuestionTake:
         body = page.content()
         assert '{"blanks"' not in body
         assert "15, die" in body
+        # A partly-right answer is still told the whole answer, not only the
+        # gap it lost.
         assert "15, live or survive" in body
+
+    @pytest.mark.django_db(transaction=True)
+    def test_result_page_explains_which_gap_was_wrong(
+        self, page: Page, live_server, enrolled_student, blank_homework_ready
+    ):
+        """The mark is partial, so the page says so and names the gap that
+        cost it — "Not quite right" for work that was half correct tells the
+        student nothing they can act on."""
+        _open_take(page, live_server, enrolled_student, blank_homework_ready)
+
+        inputs = page.locator("[data-fb-input]")
+        inputs.nth(0).fill("15")
+        inputs.nth(1).fill("die")
+        _submit(page)
+
+        body = page.content()
+        assert "Partially correct" in body
+        assert "1 of the 2 blanks are right." in body
+        assert "Blank 2" in body

@@ -352,6 +352,39 @@ class Question(models.Model):
         """True if this question requires AI or human grading (not instant auto-check)."""
         return self.validation_type in (self.VALIDATION_AI, self.VALIDATION_HUMAN)
 
+    def grade_text_answer_parts(self, text_answer):
+        """Grade a multi-part typed answer part by part, or return ``None``.
+
+        A fill-in-the-blank sentence and a table of values ask for several
+        values, so marking them all-or-nothing throws away most of what the
+        student showed: nine of ten money-chart cells right scored zero and the
+        feedback could not say which cell was wrong. This returns a
+        :class:`~maths.partial_credit.PartialGrade` for those types — one part
+        per gap/cell, each with what was typed, what was wanted and whether it
+        matched — so a surface can award ``points × fraction`` and name every
+        wrong part.
+
+        ``None`` means "not part-graded": a single-answer question type, or a
+        multi-part one whose spec or payload could not be lined up (see the
+        ``*_parts`` graders). Callers fall back to the boolean
+        :meth:`grade_text_answer`, which is what they did before partial credit
+        existed, so ``None`` is always safe.
+
+        Routed here, beside :meth:`grade_text_answer`, so the quiz, the
+        worksheet and the homework surfaces award identical credit for
+        identical work rather than each deciding for itself.
+        """
+        if self.question_type == self.FILL_BLANK and self.blank_spec:
+            from maths.blank_grading import grade_fill_blank_parts
+            return grade_fill_blank_parts(
+                self.blank_spec, text_answer, self.answer_format)
+
+        if self.question_type == self.TABLE_OF_VALUES and self.table_spec:
+            from maths.geometry_grading import grade_table_parts
+            return grade_table_parts(self.table_spec, text_answer)
+
+        return None
+
     def grade_text_answer(self, text_answer):
         """Grade a typed short_answer / calculation answer against the stored
         correct answers (the Answer rows with is_correct=True).

@@ -825,6 +825,11 @@ class MixedQuizView(LoginRequiredMixin, View):
         questions = Question.objects.filter(id__in=question_ids).prefetch_related('answers', 'topic')
 
         correct_count = 0
+        # What the paper is worth, as opposed to how many questions were fully
+        # right: a part-graded question (a fill-in-the-blank sentence) adds the
+        # share of its gaps the student filled correctly. See the note on the
+        # topic quiz's session credit.
+        credit_total = 0.0
         ungraded = 0        # answers no grader could reach a verdict on
         topic_results = {}  # {topic_name: {'correct': 0, 'total': 0}}
         answer_records = []
@@ -842,6 +847,8 @@ class MixedQuizView(LoginRequiredMixin, View):
             # row below — see the note on the topic-quiz save path (CPP-377).
             selected_answer_obj = None
             typed_answer = ''
+            # Set only by the part-graded types (fill_blank, table_of_values).
+            partial = None
             if q.question_type in ('multiple_choice', 'true_false'):
                 answer_id = request.POST.get(f'answer_{q.id}')
                 if answer_id:
@@ -870,13 +877,20 @@ class MixedQuizView(LoginRequiredMixin, View):
                 # what is SHOWN back is the readable form; what is STORED on the
                 # StudentAnswer row stays the raw payload it was graded from.
                 student_answer = q.display_text_answer(raw)
-                is_correct = q.grade_text_answer(raw)
+                # A sentence of gaps is several answers: marked gap by gap so a
+                # nearly-right one keeps most of its marks. None for the
+                # single-answer types, which grade as they always have.
+                partial = q.grade_text_answer_parts(raw)
+                is_correct = (partial.is_correct if partial is not None
+                              else q.grade_text_answer(raw))
 
             if is_correct:
                 correct_count += 1
                 topic_results[topic_name]['correct'] += 1
+            credit_total += (partial.fraction if partial is not None
+                             else (1.0 if is_correct else 0.0))
 
-            review_data.append({
+            review_entry = {
                 'id': q.id,
                 'question': q.question_text,
                 'topic': topic_name,
@@ -885,7 +899,10 @@ class MixedQuizView(LoginRequiredMixin, View):
                 # be shown to the student as only its first value.
                 'correct_answer': q.correct_answer_display(),
                 'is_correct': is_correct,
-            })
+            }
+            if partial is not None:
+                review_entry.update(partial.as_answer_data())
+            review_data.append(review_entry)
 
             answer_records.append(StudentAnswer(
                 student=request.user,
@@ -898,7 +915,8 @@ class MixedQuizView(LoginRequiredMixin, View):
         # Ungraded answers (AI grading down or out of quota) are not part of
         # the paper — see ai_grade().
         total = max(1, len(question_ids) - ungraded)
-        points = calculate_points(correct_count, total, time_taken)
+        # Scored on credit rather than the count — see credit_total above.
+        points = calculate_points(credit_total, total, time_taken)
 
         from django.db import transaction
         with transaction.atomic():
@@ -993,6 +1011,11 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         # quota). Such an answer is dropped from the score rather than counted
         # against the student.
         ungraded = False
+        # Set by the part-graded types (a fill-in-the-blank sentence is several
+        # answers, not one), so an answer that is nine tenths right can be
+        # scored and explained as nine tenths right. None = one answer, marked
+        # all or nothing.
+        partial = None
         # The option the student actually clicked. Persisted on StudentAnswer
         # below: without it the row records only *that* an answer scored zero,
         # never *what* was chosen, which makes a "this was marked wrong
@@ -1068,13 +1091,19 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             )
         elif q.question_type == Question.FILL_BLANK and q.blank_spec:
             # A fill-in-the-blank sentence posts one value per gap as JSON in
-            # text_answer, graded all-or-nothing against blank_spec. It needs its
+            # text_answer, graded gap by gap against blank_spec. It needs its
             # own branch (rather than the typed fallback below) because its
             # answers live in the spec, not in Answer rows: the fallback would
             # log it as a question with no stored answer and try to compare the
             # JSON payload as a number.
             raw = data.get('text_answer', '')
-            is_correct = q.grade_text_answer(raw)
+            partial = q.grade_text_answer_parts(raw)
+            if partial is None:
+                # Spec and payload don't line up — no honest per-gap verdict, so
+                # fall back to the all-or-nothing grader.
+                is_correct = q.grade_text_answer(raw)
+            else:
+                is_correct = partial.is_correct
             correct_answer_text = q.correct_answer_display()
         elif q.answer_format in ('algebra', 'equation'):
             # Algebra (expand & simplify) and equation (algebraic-equivalence)
@@ -1172,8 +1201,23 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             student_answer_text = q.display_text_answer(typed_answer)
 
         # Update session
+        #
+        # 'correct' counts questions answered fully correctly — what "7 of 10"
+        # on the results page means. 'credit' is what the paper is WORTH: the
+        # same 1 for a right answer and 0 for a wrong one, but the share of its
+        # gaps for a partly-right fill-in-the-blank sentence. Kept apart so
+        # partial credit reaches the points without inflating the count.
+        credit = (partial.fraction if partial is not None
+                  else (1.0 if is_correct else 0.0))
+        if 'credit' not in session_data:
+            # A quiz already in flight when this shipped has no 'credit' key —
+            # seed it from the count so far (before this answer) so its earlier
+            # questions aren't silently dropped from the total.
+            session_data['credit'] = float(session_data['correct'])
         if is_correct:
             session_data['correct'] += 1
+        if not ungraded:
+            session_data['credit'] += credit
         if ungraded:
             session_data['ungraded'] = session_data.get('ungraded', 0) + 1
         session_data['current'] = current + 1
@@ -1182,13 +1226,19 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         # would duplicate rows in the saved questions_data.
         review = session_data.setdefault('review', [])
         if not any(r.get('id') == q.id for r in review):
-            review.append({
+            entry = {
                 'id': q.id,
                 'question': q.question_text,
                 'student_answer': student_answer_text,
                 'correct_answer': correct_answer_text,
                 'is_correct': is_correct,
-            })
+            }
+            if partial is not None:
+                # What the attempt was worth, and which gaps cost the marks —
+                # so the review page can explain a partly-right answer months
+                # later without re-grading it.
+                entry.update(partial.as_answer_data())
+            review.append(entry)
         request.session[session_key] = session_data
 
         # Save individual answer
@@ -1220,7 +1270,10 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             # the (pathological) all-ungraded quiz.
             total = max(1, len(questions) - session_data.get('ungraded', 0))
             correct = session_data['correct']
-            points = calculate_points(correct, total, time_taken)
+            # Scored on credit, not the count: a paper with one gap wrong in a
+            # ten-gap chart is 9.9/10 of a paper, not 9/10.
+            points = calculate_points(
+                session_data.get('credit', correct), total, time_taken)
 
             from maths.models import StudentFinalAnswer
             level = ClassroomLevel.objects.filter(level_number=session_data['level_number']).first()
@@ -1269,12 +1322,22 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             from maths.models import TopicLevelStatistics
             TopicLevelStatistics.recalculate(q.topic, level)
 
+        payload = partial.as_answer_data() if partial is not None else {}
         return JsonResponse({
             'is_correct': is_correct,
             'correct_answer_id': correct_answer_id,
             'correct_answer_text': correct_answer_text,
             'feedback': feedback,
             'ungraded': ungraded,
+            # Part-graded answers only: what this answer was worth and which
+            # gaps were wrong, so the page can say "9 of the 10 blanks are
+            # right" and name the tenth instead of a flat "Incorrect".
+            'credit': payload.get('score_fraction'),
+            'parts_correct': payload.get('parts_correct'),
+            'parts_total': payload.get('parts_total'),
+            'parts_noun': payload.get('parts_noun'),
+            'parts': payload.get('parts'),
+            'what_was_correct': payload.get('what_was_correct'),
             'explanation': q.explanation,
             'is_last_question': is_last,
             'next_url': next_url,

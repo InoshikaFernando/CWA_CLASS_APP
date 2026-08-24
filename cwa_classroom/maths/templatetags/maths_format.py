@@ -79,12 +79,30 @@ def blank_answer(value):
 def credit_state(answer):
     """Return ``'correct'``, ``'partial'`` or ``'wrong'`` for how to *display* an answer.
 
-    AI-graded answers carry an ``ai_score_fraction`` (0.0–1.0): they show as
-    fully correct only at full marks, partially correct from 0.5 up to that, and
-    wrong below 0.5.  Answers without a fraction (MCQ, exact-match, or not yet
-    AI-graded) fall back to the stored ``is_correct`` boolean and are never
-    "partial".
+    Three kinds of answer, in the order they are checked:
+
+    * **Part-graded** — a fill-in-the-blank sentence or a table of values,
+      marked one gap at a time (``answer_data.parts``, written by
+      ``maths.partial_credit``). Full marks only when every gap is right, and
+      *partial* whenever at least one is: those gaps earned real points, so
+      showing the answer as flat "wrong" would contradict the score on the same
+      page. There is no 0.5 floor here — the fraction isn't a grader's opinion,
+      it is a count of gaps.
+    * **AI-graded** — carries an ``ai_score_fraction`` (0.0–1.0): fully correct
+      only at full marks, partially correct from 0.5 up to that, wrong below,
+      because a low-confidence AI score is not evidence of partial understanding
+      the way a right gap is.
+    * **Everything else** (MCQ, exact-match, not yet graded) falls back to the
+      stored ``is_correct`` boolean and is never "partial".
     """
+    data = getattr(answer, 'answer_data', None)
+    if isinstance(data, dict) and data.get('parts'):
+        total = data.get('parts_total') or 0
+        correct = data.get('parts_correct') or 0
+        if total and correct >= total:
+            return 'correct'
+        return 'partial' if correct else 'wrong'
+
     frac = getattr(answer, 'ai_score_fraction', None)
     if frac is None:
         return 'correct' if getattr(answer, 'is_correct', False) else 'wrong'

@@ -858,29 +858,53 @@ def validate_table_spec(table_spec):
 def grade_table(table_spec, payload):
     """Grade a ``table_of_values`` answer. Returns ``True``/``False``, never raises.
 
-    All-or-nothing: correct when EVERY ``answer`` cell's typed value is within
-    ``tolerance`` of the stored value (``tolerance`` 0 = exact). This matches the
-    boolean per-question grading used everywhere else — a table is right only when
+    Correct when EVERY ``answer`` cell's typed value is within ``tolerance`` of
+    the stored value (``tolerance`` 0 = exact) — a table is right only when
     fully right. ``payload`` is the JSON the client serialises,
     ``{"cells": {"<r>,<c>": "<typed>"}}`` keyed by each answer cell's row,col. A
-    malformed spec/payload or a missing/blank/unparseable cell simply grades wrong.
+    malformed spec/payload or a missing/blank/unparseable cell simply grades
+    wrong.
+
+    This is the boolean view of :func:`grade_table_parts`, which grades the same
+    cells one at a time so a chart with one cell wrong is worth all but that
+    cell rather than nothing.
     """
+    grade = grade_table_parts(table_spec, payload)
+    return grade is not None and grade.is_correct
+
+
+def grade_table_parts(table_spec, payload):
+    """Grade a ``table_of_values`` answer cell by cell, for partial credit.
+
+    Returns a :class:`~maths.partial_credit.PartialGrade` — one
+    :class:`~maths.partial_credit.Part` per ``answer`` cell, in reading order,
+    labelled by the row's given value and the column's header ("Decimal form
+    for 56") so a wrong cell can be pointed at on the student's screen — or
+    ``None`` when there is nothing to grade against: a malformed spec, a
+    malformed payload, or a spec with no answer cells (which is unanswerable,
+    and must never come back "correct").
+
+    A cell left blank or unparseable is one wrong part, not a wrecked answer:
+    the other cells still count. Never raises.
+    """
+    from maths.partial_credit import Part, PartialGrade
+
     if not isinstance(table_spec, dict):
-        return False
+        return None
     headers = table_spec.get('headers')
     rows = table_spec.get('rows')
     if not isinstance(headers, list) or not isinstance(rows, list):
-        return False
+        return None
 
     try:
         data = json.loads(payload) if isinstance(payload, str) else payload
     except (ValueError, TypeError):
-        return False
+        return None
     if not isinstance(data, dict):
-        return False
+        return None
     cells = data.get('cells')
     if not isinstance(cells, dict):
-        return False
+        return None
 
     tol = table_spec.get('tolerance') or 0
     try:
@@ -888,23 +912,46 @@ def grade_table(table_spec, payload):
     except (InvalidOperation, ValueError):
         tol = Decimal('0')
 
-    answer_seen = 0
+    parts = []
     for r, row in enumerate(rows):
         if not isinstance(row, list):
-            return False
+            return None
+        # The row's first given value is what the row is called on screen —
+        # "56" in a money chart, "-3" in a table of values.
+        row_label = _table_row_label(row)
         for c, cell in enumerate(row):
             kind = _table_cell_kind(cell)
             if kind is None:
-                return False
+                return None
             role, value = kind
             if role != 'answer':
                 continue
-            answer_seen += 1
             want = _to_decimal(value)
             if want is None:
-                return False
-            got = _to_decimal(cells.get(f'{r},{c}'))
-            if got is None or abs(got - want) > tol:
-                return False
+                # A non-numeric answer cell is a content defect, not a student
+                # mistake, and there is no honest fraction to give for it.
+                return None
+            typed = cells.get(f'{r},{c}')
+            got = _to_decimal(typed)
+            header = str(headers[c]) if c < len(headers) else f'Column {c + 1}'
+            label = f'{header} for {row_label}' if row_label else f'{header}, row {r + 1}'
+            parts.append(Part(
+                label=label,
+                typed='' if typed is None else str(typed),
+                expected=str(value),
+                is_correct=got is not None and abs(got - want) <= tol,
+            ))
+
     # A spec with no answer cells is unanswerable — never silently "correct".
-    return answer_seen > 0
+    if not parts:
+        return None
+    return PartialGrade(parts, noun='cell')
+
+
+def _table_row_label(row):
+    """What to call a table row in feedback: its first ``given`` value, or ''."""
+    for cell in row:
+        kind = _table_cell_kind(cell)
+        if kind and kind[0] == 'given':
+            return str(kind[1]).strip()
+    return ''

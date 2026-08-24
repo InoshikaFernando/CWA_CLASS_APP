@@ -286,9 +286,21 @@ class FillBlankModelTests(TestCase):
         self.assertEqual(result['points_earned'], q.points)
 
     def test_plugin_grades_wrong_submission(self):
+        # One gap right of two: not a correct answer, but not worth nothing
+        # either — half the gaps are half the marks (CPP partial credit).
         q = self._build()
         q.save()
         result = MathsPlugin().grade_answer(
             q.pk, {f'answer_{q.id}': _payload('15', 'die')})
+        self.assertFalse(result['is_correct'])
+        self.assertEqual(result['points_earned'], q.points * 0.5)
+        self.assertEqual(result['answer_data']['parts_correct'], 1)
+        self.assertEqual(result['answer_data']['parts_total'], 2)
+
+    def test_plugin_scores_zero_when_every_blank_is_wrong(self):
+        q = self._build()
+        q.save()
+        result = MathsPlugin().grade_answer(
+            q.pk, {f'answer_{q.id}': _payload('99', 'die')})
         self.assertFalse(result['is_correct'])
         self.assertEqual(result['points_earned'], 0)
