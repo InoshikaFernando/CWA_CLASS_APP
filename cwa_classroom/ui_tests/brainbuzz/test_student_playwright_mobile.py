@@ -361,12 +361,31 @@ class TestQuestionChrome:
         _open_play(self.page, self.url, 'MOBC01')
 
         expect(_tiles(self.page).first).to_be_visible(timeout=POLL_TIMEOUT)
+
+        # The pill renders whatever the countdown currently is — checked inside
+        # ONE browser evaluation.
+        #
+        # Reading window.bbStudentApp.countdown into Python and THEN asserting
+        # that number is on screen races the timer it is measuring: between the
+        # two steps the pill ticks to the next second, and to_be_visible then
+        # spends its whole timeout waiting for a value that will never come
+        # back. It passed only when the read happened to land early in a tick.
+        # Comparing the DOM against the live value in the same evaluation has no
+        # gap to lose, and wait_for_function simply retries if a tick lands
+        # mid-check.
+        self.page.wait_for_function(
+            """() => {
+                 const app = window.bbStudentApp;
+                 if (!app || !(app.countdown > 0)) return false;
+                 return [...document.querySelectorAll('span')]
+                   .some(el => el.textContent.trim() === String(app.countdown));
+               }""",
+            timeout=POLL_TIMEOUT)
+
+        # ...and it ticks down. Safe to snapshot here: the countdown only ever
+        # decreases, so a stale read makes the wait strictly easier, not flaky.
         first = self.page.evaluate('() => window.bbStudentApp.countdown')
         assert 0 < first <= 25, f'countdown started at {first}'
-
-        # A pill somewhere on the page is rendering that number.
-        expect(self.page.get_by_text(str(first), exact=True).first).to_be_visible()
-
         self.page.wait_for_function(
             f'() => window.bbStudentApp.countdown < {first}', timeout=5_000)
 

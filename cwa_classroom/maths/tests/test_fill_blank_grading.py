@@ -13,6 +13,7 @@ from django.test import SimpleTestCase
 
 from maths.blank_grading import (
     MAX_BLANKS,
+    bare_unit_answers,
     count_blanks,
     derive_blank_spec,
     describe_blank_answer,
@@ -445,6 +446,63 @@ class UnitRepeatTests(SimpleTestCase):
     def test_unusable_input_never_raises(self):
         self.assertEqual(unit_repeat_blanks('no gaps', {'blanks': []}), [])
         self.assertEqual(unit_repeat_blanks('___', None), [])
+
+
+class BareUnitAnswerTests(SimpleTestCase):
+    """The repair for the refusal ``UnitRepeatTests`` covers.
+
+    The production shape: fourteen metric-conversion questions whose only
+    stored answer repeated the unit already printed after the gap.
+    """
+
+    def test_offers_the_bare_value(self):
+        self.assertEqual(
+            bare_unit_answers('Convert to millilitres: 5.3 L = _____ mL',
+                              ['5300 mL']),
+            ['5300'])
+
+    def test_a_unit_written_against_the_number_still_strips(self):
+        self.assertEqual(
+            bare_unit_answers('5.3 L = _____ mL', ['5300mL']), ['5300'])
+
+    def test_offers_nothing_when_a_bare_value_is_already_stored(self):
+        # Nothing to repair — the student can already answer "5300".
+        self.assertEqual(
+            bare_unit_answers('5.3 L = _____ mL', ['5300', '5300 mL']), [])
+
+    def test_offers_nothing_when_no_unit_follows_the_gap(self):
+        self.assertEqual(
+            bare_unit_answers('An _______ is a whole number.', ['integer']), [])
+
+    def test_a_unit_inside_a_longer_word_is_not_stripped(self):
+        self.assertEqual(bare_unit_answers('It feels ___ m', ['warm']), [])
+
+    def test_alternatives_are_stripped_separately(self):
+        self.assertEqual(
+            bare_unit_answers('5.3 L = _____ mL', ['5300 mL|5300.0 mL']),
+            ['5300', '5300.0'])
+
+    def test_refuses_a_multi_gap_question(self):
+        # Which row feeds which gap is the ambiguity derive_blank_spec refuses
+        # to guess at; stripping the wrong row would corrupt the answer.
+        self.assertEqual(
+            bare_unit_answers('___ L = ___ mL', ['5.3 mL', '5300 mL']), [])
+
+    def test_the_repair_makes_the_question_convertible(self):
+        # The whole point: what it returns must satisfy derive_blank_spec.
+        text = 'Convert to millilitres: 5.3 L = _____ mL'
+        self.assertIsNone(derive_blank_spec(text, ['5300 mL'])[0])
+        extra = bare_unit_answers(text, ['5300 mL'])
+        spec, reason = derive_blank_spec(text, ['5300 mL'] + extra)
+        self.assertEqual(reason, '')
+        self.assertEqual(spec, {'blanks': [{'answers': ['5300 mL', '5300']}]})
+        self.assertTrue(grade_fill_blank(spec, _payload('5300')))
+        self.assertTrue(grade_fill_blank(spec, _payload('5300 mL')))
+
+    def test_unusable_input_never_raises(self):
+        self.assertEqual(bare_unit_answers('', ['5300 mL']), [])
+        self.assertEqual(bare_unit_answers('5.3 L = ___ mL', []), [])
+        self.assertEqual(bare_unit_answers('5.3 L = ___ mL', ['   ']), [])
 
 
 class DescribeTests(SimpleTestCase):

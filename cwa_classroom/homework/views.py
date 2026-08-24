@@ -1244,6 +1244,13 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             graded_by_index = [_grade(hwq) for hwq in hw_questions]
 
         score = 0
+        # Credit counts the same questions as ``score``, but a part-graded one
+        # (a fill-in-the-blank sentence, a table of values) contributes the
+        # share of its gaps the student got right rather than 0 or 1. ``score``
+        # stays the count of questions answered fully correctly — the two are
+        # different questions ("how many did I get right" vs "what is this
+        # worth"), so they are kept apart rather than one distorting the other.
+        credit = 0.0
         total = len(hw_questions)
         answer_records = []
         for hwq, graded in zip(hw_questions, graded_by_index):
@@ -1251,6 +1258,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
                 continue
             if graded.get('is_correct'):
                 score += 1
+            credit += _answer_credit(graded)
             answer_records.append(HomeworkStudentAnswer(
                 # legacy FK — only populated for maths rows that return a
                 # ``question_id``; other subjects leave it as None.
@@ -1296,7 +1304,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
 
             HomeworkStudentAnswer.objects.bulk_create(answer_records)
 
-            pts = calculate_points(score, total, time_taken)
+            pts = calculate_points(credit, total, time_taken)
             submission.score = score
             submission.points = pts
             submission.save(update_fields=['score', 'points'])
@@ -1709,6 +1717,18 @@ def grade_pending_answers(submission, school):
 
     # Recalculate submission score to include AI-graded points
     _recalculate_submission_score(submission)
+
+
+def _answer_credit(graded):
+    """How much of one question a freshly graded answer earned, 0.0–1.0.
+
+    Thin wrapper over ``maths.partial_credit.credit_from_answer_data`` so the
+    submit path and the backfill command read a part-graded answer's worth the
+    same way — one definition, not two that can drift.
+    """
+    from maths.partial_credit import credit_from_answer_data
+    return credit_from_answer_data(
+        graded.get('answer_data'), graded.get('is_correct'))
 
 
 def _recalculate_submission_score(submission):
