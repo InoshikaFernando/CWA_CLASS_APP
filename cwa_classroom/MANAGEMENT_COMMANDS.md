@@ -261,6 +261,35 @@ python manage.py generate_puzzles --clear            # remove existing first
 python manage.py generate_puzzles --dry-run          # preview
 ```
 
+### `relevel_questions`
+Repair questions stranded at the wrong year, using the year of the **class** each
+was actually assigned to.
+
+Every upload path defaults `year_level` to 1, so a worksheet whose year the
+extractor could not read files its whole batch at Year 1 — where level practice
+(`_get_questions_for_level`, which filters on `level` alone) serves it to real
+Year 1 students. The class a homework went to is set by a human before any AI
+runs, so it is the signal this command trusts.
+
+Prod carries two Level ladders with duplicate names: the curriculum one
+(`level_number` 1–10) that questions are filed against, and the class one
+(300+) that `ClassRoom.levels` points at. The command bridges them, resolving a
+class level by `--map`, then built-in overrides, then a "Year N" reading of its
+display name. Anything it cannot resolve — no homework link, an unrecognised
+class level, or a tie between two years — is reported and left alone, never
+guessed at. Classes above the ladder (VCE GM 1/2 and 3/4) are listed as
+deliberately skipped rather than squashed into Year 10.
+
+One vote per class, not per homework. Soft-deleted homework still counts as
+evidence. Use `list_questions` first to see where a year's questions actually
+sit.
+```bash
+python manage.py relevel_questions --year 1 --school 4 --dry-run   # preview
+python manage.py relevel_questions --year 1 --school 4             # apply
+python manage.py relevel_questions --year 1 --school 4 --map "JS=5"
+python manage.py relevel_questions --year 1 --topic "Indices" --exact-topic
+```
+
 ---
 
 ## Jira Sprint Burndown
