@@ -6,6 +6,11 @@ Mostly a **utility / view-only** app: the dashboards own no data, they read it f
 
 ## Key models
 
+`ProgressReportSetting` — which periods a school, department or class actually
+sends. Reports are **off until switched on**; the cascade is class → department
+→ school → off, and each flag inherits independently (`NULL` = inherit).
+Configured at `/progress/reports/settings/` by a Head of Institute.
+
 `PeriodReport` — one student's weekly / monthly / term progress report. `data` holds the whole computed snapshot (totals, per-topic accuracy, per-homework attempts, trend, awards); `notified_at` / `parent_emailed_at` track delivery and are what make the nightly generator idempotent. See [`docs/specs/CPP-388_period_progress_reports.md`](../docs/specs/CPP-388_period_progress_reports.md).
 
 Everything else is read from:
@@ -19,6 +24,9 @@ Everything else is read from:
 | Module | Responsibility |
 |--------|----------------|
 | `periods.py` | Which window a period covers, and which windows closed on a given day |
+| `report_settings.py` | The school → department → class opt-in cascade |
+| `visibility.py` | Whether a student/parent sees the reports nav link at all |
+| `views_settings.py` | The Head of Institute configuration page |
 | `reports.py` | Builds the snapshot — totals, topics, attempts, trend, awards |
 | `services.py` | Generates reports and delivers them (in-app notification; term email) |
 | `pdf.py` | Renders a report to PDF with ReportLab, charts included |
@@ -44,6 +52,7 @@ kept separate so the two routes above keep their un-namespaced names):
 - `/progress/reports/` — `progress:period_report_list`
 - `/progress/reports/<id>/` — `progress:period_report_detail`
 - `/progress/reports/<id>/pdf/` — `progress:period_report_pdf`
+- `/progress/reports/settings/` — `progress:report_settings` (HoI / owner / admin)
 
 ## API
 

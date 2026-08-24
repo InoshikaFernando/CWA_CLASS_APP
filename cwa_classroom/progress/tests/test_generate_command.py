@@ -12,8 +12,8 @@ from classroom.models import AcademicYear, Notification, Term
 from progress import periods
 from progress.models import PeriodReport
 from progress.tests.factories import (
-    enrol, link_parent, make_classroom, make_homework, make_school, make_user,
-    submit,
+    enable_reports, enrol, link_parent, make_classroom, make_department,
+    make_homework, make_school, make_user, submit,
 )
 
 START = date(2026, 8, 17)
@@ -44,6 +44,12 @@ class GenerateBase(TestCase):
         link_parent(cls.parent, cls.student, cls.school)
 
         cls.homework = make_homework(cls.classroom, due=at(date(2026, 8, 21)))
+        # Reports are opt-in, so the suite has to switch them on the way a
+        # school would. The off-by-default behaviour is asserted separately in
+        # OptInTests below.
+        enable_reports(
+            cls.school, kind='school', weekly=True, monthly=True, term=True,
+        )
 
     def with_activity(self):
         submit(self.homework, self.student, 1, 4, when=at(date(2026, 8, 18)))
@@ -178,6 +184,7 @@ class TermReportTests(TestCase):
             school=cls.school, academic_year=cls.year, name='Term 3',
             start_date=date(2026, 7, 20), end_date=date(2026, 9, 25),
         )
+        enable_reports(cls.school, kind='school', term=True)
         homework = make_homework(cls.classroom, due=at(date(2026, 8, 21)))
         submit(homework, cls.student, 1, 5, when=at(date(2026, 8, 18)))
         submit(homework, cls.student, 2, 9, when=at(date(2026, 8, 19)))
@@ -267,3 +274,133 @@ class CohortCacheTests(GenerateBase):
 
         self.assertEqual(PeriodReport.objects.count(), 4)
         self.assertEqual(computed.call_count, 1)
+
+
+class OptInTests(TestCase):
+    """Nothing is generated or sent until a school switches it on.
+
+    This is the guard that matters most: the cron landing on a droplet must not
+    start notifying every family about a feature nobody has configured.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = make_school()
+        cls.dept = make_department(cls.school)
+        cls.classroom = make_classroom(cls.school)
+        cls.classroom.department = cls.dept
+        cls.classroom.save(update_fields=['department'])
+
+        cls.other_class = make_classroom(
+            cls.school, name='Untouched', code='OPT00002',
+        )
+
+        cls.student = make_user('opt_student')
+        cls.parent = make_user('opt_parent', 'parent')
+        enrol(cls.classroom, cls.student)
+        enrol(cls.other_class, cls.student)
+        link_parent(cls.parent, cls.student, cls.school)
+
+        cls.homework = make_homework(
+            cls.classroom, due=at(date(2026, 8, 21)), title='Reported',
+        )
+        cls.other_homework = make_homework(
+            cls.other_class, due=at(date(2026, 8, 21)), title='Not reported',
+        )
+        submit(cls.homework, cls.student, 1, 9, when=at(date(2026, 8, 18)))
+        submit(cls.other_homework, cls.student, 1, 3, when=at(date(2026, 8, 18)))
+
+    def test_an_unconfigured_school_generates_nothing(self):
+        output = run('--date', MONDAY_AFTER.isoformat())
+
+        self.assertEqual(PeriodReport.objects.count(), 0)
+        self.assertEqual(Notification.objects.count(), 0)
+        self.assertIn('no class has', output)
+
+    def test_enabling_one_class_reports_only_that_class(self):
+        enable_reports(self.school, self.classroom, kind='class', weekly=True)
+
+        run('--date', MONDAY_AFTER.isoformat())
+
+        report = PeriodReport.objects.get(student=self.student)
+        titles = [row['title'] for row in report.attempts['items']]
+        self.assertEqual(titles, ['Reported'])
+        self.assertEqual(report.totals['avg_best_pct'], 90)
+        self.assertEqual(
+            report.data['scope']['classrooms'], [self.classroom.name],
+        )
+
+    def test_a_department_switch_reaches_its_classes(self):
+        enable_reports(self.school, self.dept, kind='department', weekly=True)
+
+        run('--date', MONDAY_AFTER.isoformat())
+
+        report = PeriodReport.objects.get(student=self.student)
+        self.assertEqual(
+            report.data['scope']['classrooms'], [self.classroom.name],
+        )
+
+    def test_a_class_opt_out_beats_the_school_switch(self):
+        enable_reports(self.school, kind='school', weekly=True)
+        enable_reports(self.school, self.classroom, kind='class', weekly=False)
+
+        run('--date', MONDAY_AFTER.isoformat())
+
+        report = PeriodReport.objects.get(student=self.student)
+        self.assertEqual(
+            report.data['scope']['classrooms'], [self.other_class.name],
+        )
+
+    def test_a_silent_trial_generates_without_telling_anyone(self):
+        enable_reports(
+            self.school, kind='school', weekly=True,
+            notify_student=False, notify_parents=False,
+        )
+
+        run('--date', MONDAY_AFTER.isoformat())
+
+        self.assertEqual(PeriodReport.objects.count(), 1)
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_a_silent_trial_can_be_switched_to_loud_later(self):
+        # Nothing was stamped during the silent run, so turning notifications
+        # on afterwards must still reach the family.
+        enable_reports(
+            self.school, kind='school', weekly=True,
+            notify_student=False, notify_parents=False,
+        )
+        run('--date', MONDAY_AFTER.isoformat())
+
+        enable_reports(
+            self.school, kind='school', weekly=True,
+            notify_student=True, notify_parents=True,
+        )
+        run('--date', MONDAY_AFTER.isoformat())
+
+        recipients = set(
+            Notification.objects.values_list('user_id', flat=True)
+        )
+        self.assertEqual(recipients, {self.student.id, self.parent.id})
+
+    def test_notifying_only_the_student_leaves_the_parent_out(self):
+        enable_reports(
+            self.school, kind='school', weekly=True, notify_parents=False,
+        )
+
+        run('--date', MONDAY_AFTER.isoformat())
+
+        recipients = set(Notification.objects.values_list('user_id', flat=True))
+        self.assertEqual(recipients, {self.student.id})
+
+    def test_the_classroom_flag_limits_a_targeted_run(self):
+        enable_reports(self.school, kind='school', weekly=True)
+
+        run(
+            '--date', MONDAY_AFTER.isoformat(),
+            '--classroom', str(self.classroom.id),
+        )
+
+        report = PeriodReport.objects.get(student=self.student)
+        self.assertEqual(
+            report.data['scope']['classrooms'], [self.classroom.name],
+        )

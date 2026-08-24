@@ -43,6 +43,55 @@ does this student belong to" is:
 
 ---
 
+## 1a. Opt-in: nothing sends until a school switches it on
+
+Reports notify families, so they are **off until configured**. Installing the
+cron on a droplet must not start mailing every parent about a feature nobody
+has seen.
+
+Configuration cascades, most specific wins — the same shape as the fee cascade
+in `classroom.fee_utils`:
+
+    ProgressReportSetting(classroom=…)   a single class
+    → ProgressReportSetting(department=…)
+    → ProgressReportSetting(school=…)
+    → off                                the hard default
+
+So a school setting applies to the whole school, a department setting overrides
+the school for that department's classes, and a class setting overrides both.
+
+Each flag inherits **independently** (`NULL` = inherit), so a department can
+switch weekly reports on without saying anything about term reports, and one
+class can opt back out of what its department enabled.
+
+| Flag | Meaning |
+|------|---------|
+| `weekly` / `monthly` / `term` | Which periods this scope reports |
+| `notify_student` | In-app notification to the student |
+| `notify_parents` | In-app notification to the linked parents |
+| `email_parents_at_term` | The end-of-term parent email |
+
+The delivery flags default to *on* once a scope generates anything, and to *off*
+when it generates nothing — so switching weekly on does the obvious thing
+without ticking three more boxes, and an unconfigured school stays silent.
+Turning all three off gives a **silent trial**: reports generate and staff can
+read them, and nothing reaches a family until the flags are switched on.
+Nothing is stamped during a silent run, so a later switch still notifies.
+
+**Scope follows configuration.** A report covers only the classes that switched
+reporting on: a student in two classes where one reports gets a report about
+that one, and `data['scope']` records which. That makes "only configured
+classes get it" true of the contents, not just of the trigger.
+
+Configured at **Report Settings** (`/progress/reports/settings/`), open to Head
+of Institute / institute owner / admin. It is deliberately not a per-teacher
+setting: switching it on starts notifying families.
+
+The student and parent "My Reports" nav link is hidden until there is something
+behind it — a report already generated, or a class configured to generate one.
+
+---
+
 ## 2. What is in a report
 
 All figures derive from **homework submissions** (`homework.HomeworkSubmission`)
@@ -146,6 +195,15 @@ Anyone else gets a 404, not a 403 — a 403 confirms the report exists.
 python manage.py generate_progress_reports              # every period due today
 python manage.py generate_progress_reports --period weekly
 python manage.py generate_progress_reports --date 2026-09-01 --dry-run
+python manage.py generate_progress_reports --school wizards --classroom 42
+```
+
+`--school` (id or slug) and `--classroom` (id) narrow a run to one scope, which
+is how you try a single class before switching anything on for real:
+
+```bash
+python manage.py generate_progress_reports \
+  --period weekly --classroom 42 --dry-run
 ```
 
 Run daily from cron; the command itself decides which periods actually closed on
@@ -159,6 +217,9 @@ the given date, so the schedule is one line rather than three:
 finds the existing row and does not re-notify. `--force` recomputes an existing
 report's data (leaving its notification state alone) for the case where a
 grading fix landed after generation.
+
+**Off is reported, not passed over.** A run where no class has that period
+switched on says so — silence is indistinguishable from a broken cron.
 
 **Never silently empty.** A student with no submissions in the window still gets
 a report row so the absence is visible in the UI, but nothing is notified or
@@ -180,12 +241,26 @@ The command prints counts for generated / skipped / notified.
 | `generated_at`, `notified_at`, `parent_emailed_at` | delivery state; null = not yet done |
 
 `data` is the single source of truth for both the HTML view and the PDF, so the
-two can never disagree.
+two can never disagree. `data['scope']` records which classes the report covered,
+so a reader asking "why is my other class missing?" can be answered from the
+snapshot rather than from today's settings, which may since have changed.
+
+`progress.ProgressReportSetting`
+
+One row per configured scope, with partial unique constraints per level (NULL
+never equals NULL in SQL, so a plain `unique_together` would allow duplicate
+school rows and make the cascade non-deterministic). A row whose every flag is
+`NULL` is deleted rather than kept, so the cascade never steps over a row that
+says nothing.
 
 ---
 
 ## 6. Test coverage
 
+- `progress/tests/test_report_settings.py` — the cascade: the off default, each
+  level overriding the one above, and flags inheriting independently.
+- `progress/tests/test_settings_view.py` — who may configure it, the tri-state
+  form, and the sidebar visibility rule.
 - `progress/tests/test_periods.py` — window maths, including year boundaries.
 - `progress/tests/test_report_builder.py` — totals, topics, attempts, trend.
 - `progress/tests/test_awards.py` — every award rule and its guard.
@@ -195,3 +270,5 @@ two can never disagree.
 - `progress/tests/test_pdf.py` — the PDF renders and is a real PDF.
 - `ui_tests/progress/test_period_report_ui.py` — student and parent see the
   report page, charts mount, PDF link is present.
+- `ui_tests/progress/test_report_settings_ui.py` — the settings page, the
+  cascade badges, and the hidden-until-configured nav link.

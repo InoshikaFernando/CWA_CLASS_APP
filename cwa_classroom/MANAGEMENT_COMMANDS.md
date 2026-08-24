@@ -159,12 +159,26 @@ their linked parents, plus — at term end only — an email to the parents. Rep
 key on `(student, period_type, period_start)`, so re-running never duplicates a
 report or re-notifies a family.
 
+**Reports are opt-in.** Only classes whose school / department / class settings
+switch a period on are generated — see *Report Settings*
+(`/progress/reports/settings/`). On an install where nobody has configured
+anything this command generates nothing and says so, which is the intended
+state: the cron landing must not start notifying families.
+
 ```bash
 python manage.py generate_progress_reports                  # whatever closed today
 python manage.py generate_progress_reports --period weekly  # the last closed week
 python manage.py generate_progress_reports --date 2026-09-01 --dry-run
 python manage.py generate_progress_reports --force          # recompute existing data
 python manage.py generate_progress_reports --no-notify      # generate, send nothing
+python manage.py generate_progress_reports --school wizards --classroom 42
+```
+
+`--school` (id or slug) and `--classroom` (id) narrow the run, which is how you
+try one class before switching anything on for real:
+
+```bash
+python manage.py generate_progress_reports --period weekly --classroom 42 --dry-run
 ```
 
 The command decides for itself which periods closed (weekly on Mondays, monthly
