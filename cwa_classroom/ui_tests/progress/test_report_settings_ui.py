@@ -47,7 +47,7 @@ def test_hoi_reaches_the_settings_page_from_the_sidebar(page, live_server, hoi,
     do_login(page, live_server.url, hoi)
     page.goto(f"{live_server.url}/admin-dashboard/")
 
-    assert_sidebar_has_link(page, "Report Settings")
+    assert_sidebar_has_link(page, "Report Automation")
     page.goto(f"{live_server.url}{SETTINGS_URL}")
     expect(page.get_by_test_id("report-settings")).to_be_visible()
 
