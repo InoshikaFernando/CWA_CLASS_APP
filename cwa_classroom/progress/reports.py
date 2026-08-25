@@ -313,6 +313,151 @@ def worksheets_section(student, start, end, classroom_ids=None):
 
 
 # ---------------------------------------------------------------------------
+# Maths practice outside homework: quizzes, times tables, basic facts
+#
+# CPP-388 originally read homework submissions only, per the ticket. A report
+# built on homework alone under-reports a child who practises hard: their quiz
+# attempts, times tables and basic facts were invisible. These sections read the
+# same closed window, so a period still means one thing across the whole report.
+# ---------------------------------------------------------------------------
+
+def _final_answers(student, start, end, quiz_types):
+    from maths.models import StudentFinalAnswer
+
+    begin, finish = _bounds(start, end)
+    return list(
+        StudentFinalAnswer.objects
+        .filter(
+            student=student, quiz_type__in=quiz_types,
+            completed_at__gte=begin, completed_at__lte=finish,
+        )
+        .select_related('topic', 'level')
+        .order_by('completed_at')
+    )
+
+
+def _attempt_pct(row):
+    return _pct(row.score, row.total_questions)
+
+
+def quizzes_section(student, start, end):
+    """Topic and mixed maths quizzes attempted in the window.
+
+    Grouped by topic and reported first-attempt vs best, the same shape as
+    homework — retrying a quiz is the same behaviour the homework section is
+    there to encourage, and showing it differently would hide that.
+    """
+    attempts = _final_answers(student, start, end, ('topic', 'mixed'))
+    if not attempts:
+        return {'attempted': 0, 'attempts': 0, 'avg_first_pct': 0,
+                'avg_best_pct': 0, 'improvement_pct': 0, 'items': []}
+
+    by_topic = defaultdict(list)
+    for row in attempts:
+        # Mixed quizzes have no topic; they are one bucket rather than dropped.
+        key = row.topic_id if row.topic_id else '__mixed__'
+        by_topic[key].append(row)
+
+    items, firsts, bests = [], [], []
+    for rows in by_topic.values():
+        first = _attempt_pct(rows[0])
+        best = max(_attempt_pct(r) for r in rows)
+        firsts.append(first)
+        bests.append(best)
+        name = rows[0].topic.name if rows[0].topic_id else 'Mixed quiz'
+        items.append({
+            'name': name,
+            'attempts': len(rows),
+            'first_pct': first,
+            'best_pct': best,
+            'gain_pct': best - first,
+        })
+    items.sort(key=lambda i: (-i['gain_pct'], -i['attempts'], i['name']))
+
+    avg_first, avg_best = _mean(firsts), _mean(bests)
+    return {
+        'attempted': len(by_topic),
+        'attempts': len(attempts),
+        'avg_first_pct': avg_first,
+        'avg_best_pct': avg_best,
+        'improvement_pct': avg_best - avg_first,
+        'items': items,
+    }
+
+
+def times_tables_section(student, start, end):
+    """Times tables practised in the window, best per table and operation."""
+    attempts = _final_answers(student, start, end, ('times_table',))
+    if not attempts:
+        return {'tables': 0, 'attempts': 0, 'avg_best_pct': 0, 'items': []}
+
+    best = defaultdict(dict)
+    for row in attempts:
+        if row.table_number is None:
+            continue
+        # Legacy rows saved no operation; they are still a real attempt.
+        operation = row.operation or 'multiplication'
+        pct = _attempt_pct(row)
+        slot = best[row.table_number]
+        if operation not in slot or pct > slot[operation]:
+            slot[operation] = pct
+
+    items = [
+        {
+            'table': table,
+            'multiplication_pct': ops.get('multiplication'),
+            'division_pct': ops.get('division'),
+            'best_pct': max(ops.values()),
+        }
+        for table, ops in sorted(best.items())
+    ]
+    return {
+        'tables': len(items),
+        'attempts': len(attempts),
+        'avg_best_pct': _mean([i['best_pct'] for i in items]),
+        'items': items,
+    }
+
+
+def basic_facts_section(student, start, end):
+    """Basic-facts attempts in the window, best per subtopic."""
+    from maths.models import BasicFactsResult
+
+    begin, finish = _bounds(start, end)
+    rows = list(
+        BasicFactsResult.objects.filter(
+            student=student,
+            completed_at__gte=begin, completed_at__lte=finish,
+        ).values('subtopic', 'level_number', 'score', 'total_points')
+    )
+    if not rows:
+        return {'subtopics': 0, 'attempts': 0, 'avg_best_pct': 0, 'items': []}
+
+    labels = {'PlaceValue': 'Place Value'}
+    best = {}
+    for row in rows:
+        pct = _pct(row['score'], row['total_points'])
+        key = row['subtopic'] or 'Unclassified'
+        current = best.get(key)
+        # Tie-break on level: the best score at the most advanced level is the
+        # one worth reporting.
+        candidate = (pct, row['level_number'] or 0)
+        if current is None or candidate > current:
+            best[key] = candidate
+
+    items = [
+        {'subtopic': labels.get(k, k), 'level': v[1], 'best_pct': v[0]}
+        for k, v in sorted(best.items())
+    ]
+    return {
+        'subtopics': len(items),
+        'attempts': len(rows),
+        'avg_best_pct': _mean([i['best_pct'] for i in items]),
+        'items': items,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Recognition
 # ---------------------------------------------------------------------------
 
@@ -523,6 +668,31 @@ def build_report_data(student, period_type, start, end, term=None,
             cohort_cache=cohort_cache,
         ))
 
+    quizzes = quizzes_section(student, start, end)
+    times_tables = times_tables_section(student, start, end)
+    basic_facts = basic_facts_section(student, start, end)
+    worksheets = worksheets_section(student, start, end, classroom_ids)
+    totals = totals_section(submissions, due)
+
+    # One figure across everything the child actually did, so a report is not
+    # judged on homework alone. Each strand contributes its own best-attempt
+    # average, weighted by how many distinct things were attempted in it —
+    # otherwise one perfect times table would outweigh a term of homework.
+    strands = [
+        (totals['homework_attempted'], totals['avg_best_pct']),
+        (quizzes['attempted'], quizzes['avg_best_pct']),
+        (times_tables['tables'], times_tables['avg_best_pct']),
+        (basic_facts['subtopics'], basic_facts['avg_best_pct']),
+        (worksheets['completed'], worksheets['average_pct']),
+    ]
+    counted = [(n, pct) for n, pct in strands if n]
+    activity_items = sum(n for n, _ in counted)
+    totals['activity_items'] = activity_items
+    totals['overall_avg_pct'] = (
+        round(sum(n * pct for n, pct in counted) / activity_items)
+        if activity_items else 0
+    )
+
     return {
         'period': {
             'type': period_type,
@@ -542,10 +712,13 @@ def build_report_data(student, period_type, start, end, term=None,
             'name': student.get_full_name() or student.username,
             'username': student.username,
         },
-        'totals': totals_section(submissions, due),
+        'totals': totals,
         'topics': topics_section(submissions),
         'attempts': attempts_section(submissions),
         'trend': trend_section(submissions, period_type),
-        'worksheets': worksheets_section(student, start, end, classroom_ids),
+        'worksheets': worksheets,
+        'quizzes': quizzes,
+        'times_tables': times_tables,
+        'basic_facts': basic_facts,
         'awards': awards,
     }

@@ -194,10 +194,10 @@ def _shorten(text, limit=22):
 
 def _kpi_table(totals):
     cells = [
-        ('Average (best attempt)', f'{totals.get("avg_best_pct", 0)}%'),
-        ('Average (first attempt)', f'{totals.get("avg_first_pct", 0)}%'),
+        ('Overall average', f'{totals.get("overall_avg_pct", totals.get("avg_best_pct", 0))}%'),
+        ('Homework average', f'{totals.get("avg_best_pct", 0)}%'),
         ('Gained by retrying', f'{totals.get("improvement_pct", 0):+d} pts'),
-        ('Homework attempted', str(totals.get('homework_attempted', 0))),
+        ('Activities', str(totals.get('activity_items', 0))),
         ('Total attempts', str(totals.get('submissions', 0))),
         ('Time on task', f'{totals.get("time_minutes", 0)} min'),
         ('Completed on time', f'{totals.get("on_time_pct", 0)}%'),
@@ -392,6 +392,44 @@ def render_report_pdf(report):
         flow.append(Paragraph('Over the period', styles['heading']))
         flow.append(trend_chart)
         flow.append(Paragraph('Average score per attempt.', styles['caption']))
+
+    quizzes = report.quizzes
+    if quizzes.get('items'):
+        flow.append(Paragraph('Maths quizzes', styles['heading']))
+        flow.append(_data_table(
+            ['Topic', 'Attempts', 'First', 'Best', 'Gain'],
+            [[row['name'], row['attempts'], f'{row["first_pct"]}%',
+              f'{row["best_pct"]}%', f'{row["gain_pct"]:+d} pts']
+             for row in quizzes['items']],
+            widths=[CONTENT_WIDTH * 0.44, CONTENT_WIDTH * 0.13,
+                    CONTENT_WIDTH * 0.13, CONTENT_WIDTH * 0.13,
+                    CONTENT_WIDTH * 0.17],
+            aligns=['LEFT', 'CENTER', 'CENTER', 'CENTER', 'CENTER'],
+        ))
+
+    times_tables = report.times_tables
+    if times_tables.get('items'):
+        flow.append(Paragraph('Times tables', styles['heading']))
+        flow.append(_data_table(
+            ['Table', 'Multiplication', 'Division'],
+            [[f'{row["table"]}×',
+              '—' if row['multiplication_pct'] is None else f'{row["multiplication_pct"]}%',
+              '—' if row['division_pct'] is None else f'{row["division_pct"]}%']
+             for row in times_tables['items']],
+            widths=[CONTENT_WIDTH * 0.4, CONTENT_WIDTH * 0.3, CONTENT_WIDTH * 0.3],
+            aligns=['LEFT', 'CENTER', 'CENTER'],
+        ))
+
+    basic_facts = report.basic_facts
+    if basic_facts.get('items'):
+        flow.append(Paragraph('Basic facts', styles['heading']))
+        flow.append(_data_table(
+            ['Subtopic', 'Level', 'Best'],
+            [[row['subtopic'], row['level'] or '—', f'{row["best_pct"]}%']
+             for row in basic_facts['items']],
+            widths=[CONTENT_WIDTH * 0.5, CONTENT_WIDTH * 0.25, CONTENT_WIDTH * 0.25],
+            aligns=['LEFT', 'CENTER', 'CENTER'],
+        ))
 
     worksheets = report.worksheets
     if worksheets.get('items'):

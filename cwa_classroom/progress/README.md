@@ -16,7 +16,9 @@ Configured at `/progress/reports/settings/` by a Head of Institute.
 `PeriodReport` — one student's weekly / monthly / term progress report. `data` holds the whole computed snapshot (totals, per-topic accuracy, per-homework attempts, trend, awards); `notified_at` / `parent_emailed_at` track delivery and are what make the nightly generator idempotent. See [`docs/specs/CPP-388_period_progress_reports.md`](../docs/specs/CPP-388_period_progress_reports.md).
 
 Everything else is read from:
-- `homework.HomeworkSubmission`, `homework.HomeworkStudentAnswer` — the period report's primary source
+- `homework.HomeworkSubmission`, `homework.HomeworkStudentAnswer`
+- `maths.StudentFinalAnswer` — topic/mixed quizzes and times tables
+- `maths.BasicFactsResult` — basic facts
 - `worksheets.WorksheetSubmission`
 - `maths.BasicFactsResult`, `maths.StudentAnswer`, `maths.TimeLog`, `maths.TopicLevelStatistics`
 - `coding.StudentProblemSubmission`, `coding.CodingTimeLog`
