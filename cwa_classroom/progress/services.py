@@ -85,7 +85,7 @@ def students_for_period(period_type, school=None, classroom=None,
 
 
 def generate_report(student, period_type, start, end, term=None, force=False,
-                    cohort_cache=None, classroom_ids=None):
+                    cohort_cache=None, classroom_ids=None, school=None):
     """Create (or refresh) one student's report for one window.
 
     Returns ``(report, created)``. An existing report is left alone unless
@@ -96,7 +96,14 @@ def generate_report(student, period_type, start, end, term=None, force=False,
     supplies one for the whole run so a class's award figures are computed once
     rather than once per student in it.
     """
-    school = term.school if term is not None else student_school(student)
+    # The school being generated FOR, not whichever one the student happens to
+    # resolve to. A child enrolled at two institutes was stamped with the school
+    # `student_school` picked from their most recent class membership, so a
+    # report built for one institute could be labelled with the other — which
+    # decides both the term email's branding and, through can_view_report, which
+    # Head of Institute is allowed to open it.
+    if school is None:
+        school = term.school if term is not None else student_school(student)
 
     report = PeriodReport.objects.filter(
         student=student, period_type=period_type, period_start=start,
@@ -311,6 +318,7 @@ def run_period(period_type, start, end, term=None, *, force=False, dry_run=False
         report, created = generate_report(
             student, period_type, start, end, term=term, force=force,
             cohort_cache=cohort_cache, classroom_ids=entry['classroom_ids'],
+            school=school,
         )
         counts['generated' if created else 'refreshed'] += 1
 
