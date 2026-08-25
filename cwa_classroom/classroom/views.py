@@ -5588,8 +5588,8 @@ class SubjectsHubView(LoginRequiredMixin, View):
         # The board stays on the page all day; the pop-up opens once per local
         # day, on the student's first hub load. should_show_leaderboard_popup()
         # marks it shown as it answers, so a refresh does not re-open it.
-        from rewards.services import get_student_standing, should_show_daily_popup
-        standing = get_student_standing(user)
+        from rewards.services import get_standings, should_show_daily_popup
+        standings = get_standings(user)
         show_leaderboard_popup = should_show_daily_popup(user, _today)
 
         # Common hub context
@@ -5598,7 +5598,7 @@ class SubjectsHubView(LoginRequiredMixin, View):
             'class_attendance': class_attendance,
             'billing_summary': billing_summary,
             'pending_homework_count': pending_homework_count,
-            'standing': standing,
+            'standings': standings,
             'show_leaderboard_popup': show_leaderboard_popup,
         }
 
