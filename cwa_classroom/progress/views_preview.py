@@ -260,6 +260,17 @@ def _preview_query(school, period_type, classroom=None, student=None):
     return query
 
 
+def _no_student_yet(request):
+    """True when the URL names no student at all.
+
+    Distinct from naming one this viewer may not see, which is a 404. Arriving
+    at the bare URL — a truncated link, a bookmark, a walk of the route table —
+    is not an error and must not dead-end: send them to the list that carries
+    the links.
+    """
+    return not request.GET.get('student')
+
+
 def _resolve_one(request):
     """The scope, and the single student's live report within it.
 
@@ -342,6 +353,9 @@ class ReportPreviewDetailView(RoleRequiredMixin, View):
     required_roles = PREVIEW_ROLES
 
     def get(self, request):
+        if _no_student_yet(request):
+            return redirect('progress:report_preview')
+
         school, report, period_type, classroom = _resolve_one(request)
         scope = _preview_query(school, period_type, classroom)
         student_scope = _preview_query(
@@ -361,6 +375,9 @@ class ReportPreviewPdfView(RoleRequiredMixin, View):
     required_roles = PREVIEW_ROLES
 
     def get(self, request):
+        if _no_student_yet(request):
+            return redirect('progress:report_preview')
+
         _school, report, _period_type, _classroom = _resolve_one(request)
         pdf = render_report_pdf(report)
         filename = (

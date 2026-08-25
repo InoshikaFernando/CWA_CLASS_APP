@@ -171,6 +171,18 @@ class PreviewDetailAccessTests(PreviewDetailBase):
 
         self.assertEqual(response.status_code, 404)
 
+    def test_the_bare_url_goes_back_to_the_list_rather_than_dead_ending(self):
+        # Naming no student is not the same as naming one you may not see.
+        # A truncated link or a bookmark should land on the page with the
+        # links on it; test_url_sitemap walks every route with no arguments
+        # and treats a 404 there as a missing route, which it would be.
+        for url in (DETAIL_URL, PDF_URL):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(response['Location'], '/progress/reports/preview/')
+
     def test_a_hand_edited_student_id_is_not_found_rather_than_a_500(self):
         response = self.client.get(
             f'{DETAIL_URL}?school={self.school.id}'
