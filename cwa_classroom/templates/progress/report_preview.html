@@ -108,6 +108,7 @@
                 <th class="py-3 px-2 text-center">Gain</th>
                 <th class="py-3 px-2 text-center">Awards</th>
                 <th class="py-3 px-4">Will send to</th>
+                <th class="py-3 px-4"><span class="sr-only">Preview</span></th>
               </tr>
             </thead>
             <tbody>
@@ -136,6 +137,20 @@
                     </td>
                   {% endif %}
                   <td class="py-2.5 px-4 text-xs {% if row.audience == 'Nobody (silent)' %}text-slate-400{% else %}text-slate-500{% endif %}">{{ row.audience }}</td>
+                  <td class="py-2.5 px-4 text-right">
+                    {% comment %}
+                      Only where there is a report to look at. A "View" on a row
+                      that reads "No submissions — nothing will be sent" would
+                      open the same empty page every time.
+                    {% endcomment %}
+                    {% if row.has_activity %}
+                      <a href="{% url 'progress:report_preview_detail' %}?school={{ school.id }}&amp;period={{ period_type }}{% if classroom %}&amp;classroom={{ classroom.id }}{% endif %}&amp;student={{ row.student.id }}"
+                         data-testid="preview-view-report"
+                         class="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline whitespace-nowrap">
+                        View report
+                      </a>
+                    {% endif %}
+                  </td>
                 </tr>
               {% endfor %}
             </tbody>

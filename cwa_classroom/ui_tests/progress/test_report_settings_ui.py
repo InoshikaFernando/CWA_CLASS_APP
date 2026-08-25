@@ -176,3 +176,84 @@ def test_previewing_an_unconfigured_school_offers_nothing_to_send(
 
     expect(page.get_by_test_id("preview-empty")).to_be_visible()
     expect(page.get_by_test_id("preview-send")).to_have_count(0)
+
+
+@pytest.fixture
+def previewable_work(db, classroom, enrolled_student):
+    """Two attempts on one homework, inside the week the preview will pick.
+
+    Dated from ``periods.previous_week`` rather than a fixed date: the preview
+    always shows the most recently closed window, so a hard-coded week would
+    pass this week and quietly stop covering anything the next.
+    """
+    from datetime import datetime, time
+
+    from django.utils import timezone
+    from homework.models import Homework, HomeworkSubmission
+    from progress import periods
+
+    start = periods.previous_week(periods.today())[0]
+    when = timezone.make_aware(
+        datetime.combine(start, time(10, 0)), timezone.get_current_timezone(),
+    )
+    homework = Homework.objects.create(
+        classroom=classroom, title="Fractions Practice",
+        due_date=when, num_questions=10,
+    )
+    for attempt, score in ((1, 4), (2, 9)):
+        submission = HomeworkSubmission.objects.create(
+            homework=homework, student=enrolled_student,
+            attempt_number=attempt, score=score, total_questions=10,
+            points=score, time_taken_seconds=300,
+        )
+        HomeworkSubmission.objects.filter(pk=submission.pk).update(
+            submitted_at=when,
+        )
+    return enrolled_student
+
+
+def test_hoi_opens_one_students_report_before_sending(
+        page, live_server, hoi, classroom, previewable_work):
+    """The whole point of the link: read the real report, send nothing."""
+    from progress.models import PeriodReport
+    from progress.tests.factories import enable_reports
+
+    enable_reports(classroom.school, kind="school", weekly=True)
+    do_login(page, live_server.url, hoi)
+    page.goto(f"{live_server.url}{PREVIEW_URL}")
+
+    page.get_by_test_id("preview-view-report").first.click()
+
+    expect(page.get_by_test_id("period-report")).to_be_visible()
+    expect(page.get_by_test_id("report-preview-banner")).to_be_visible()
+    expect(page.get_by_test_id("report-kpis")).to_contain_text("90%")
+
+    # Reading a preview must not create the thing it is previewing.
+    assert not PeriodReport.objects.exists()
+
+
+def test_the_preview_offers_a_way_back_without_sending(
+        page, live_server, hoi, classroom, previewable_work):
+    from progress.tests.factories import enable_reports
+
+    enable_reports(classroom.school, kind="school", weekly=True)
+    do_login(page, live_server.url, hoi)
+    page.goto(f"{live_server.url}{PREVIEW_URL}")
+    page.get_by_test_id("preview-view-report").first.click()
+
+    page.get_by_role("link", name=re.compile("Back to preview")).click()
+
+    expect(page.get_by_test_id("report-preview")).to_be_visible()
+    expect(page.get_by_test_id("preview-send")).to_be_visible()
+
+
+def test_a_student_with_no_submissions_has_nothing_to_open(
+        page, live_server, hoi, classroom, enrolled_student):
+    from progress.tests.factories import enable_reports
+
+    enable_reports(classroom.school, kind="school", weekly=True)
+    do_login(page, live_server.url, hoi)
+    page.goto(f"{live_server.url}{PREVIEW_URL}")
+
+    expect(page.get_by_test_id("preview-row")).to_have_count(1)
+    expect(page.get_by_test_id("preview-view-report")).to_have_count(0)
