@@ -19,6 +19,8 @@ from django.views import View
 from accounts.models import Role
 from billing.entitlements import get_school_for_user
 from classroom.views import RoleRequiredMixin
+from rewards.models import PointsSource
+from rewards.services import award_points_safe, normalise
 
 from .grading_service import grade_extended_answer
 from .page_selection import describe_page_selection
@@ -1161,6 +1163,16 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
         # Update submission score
         submission.score = submission.answers.filter(is_correct=True).count()
         submission.save(update_fields=['score'])
+
+        # Worksheets have no points column of their own, so the leaderboard
+        # scores them on the share answered correctly. Awarded per answer rather
+        # than on completion so a worksheet left half-finished still counts the
+        # work that was done.
+        award_points_safe(
+            request.user, PointsSource.WORKSHEET, str(submission.assignment_id),
+            normalise(submission.score, submission.total_questions),
+            label=f'Worksheet — {assignment.worksheet.name}',
+        )
 
         # Determine next question
         answered_pairs = set(submission.answers.values_list('subject_slug', 'content_id'))

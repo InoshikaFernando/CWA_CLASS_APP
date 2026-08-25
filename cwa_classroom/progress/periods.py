@@ -15,6 +15,13 @@ WEEKLY = PeriodReport.PERIOD_WEEKLY
 MONTHLY = PeriodReport.PERIOD_MONTHLY
 TERM = PeriodReport.PERIOD_TERM
 
+# Re-exported for the same reason as the period constants: callers should not
+# have to import the settings model to name a mode.
+from progress.models import ProgressReportSetting as _Setting  # noqa: E402
+
+MODE_MANUAL = _Setting.MODE_MANUAL
+MODE_AUTO = _Setting.MODE_AUTO
+
 
 def week_window(day):
     """The Monday→Sunday week containing *day*."""
@@ -81,17 +88,26 @@ def student_school(student):
     return link.school if link else None
 
 
-def terms_ending_on(day):
-    """Every ``classroom.Term`` whose ``end_date`` is the day before *day*.
+# How far after a term ends a school may still schedule its report. The
+# per-class setting decides the exact day; this only bounds how many terms the
+# daily tick has to consider, so a stale term from last year is never re-offered.
+MAX_TERM_OFFSET_DAYS = 60
 
-    A term report is generated the day *after* the term ends, so the last day's
-    submissions are inside the window rather than racing the cron.
+
+def terms_recently_ended(day):
+    """Terms that ended recently enough for their report to still be due.
+
+    A term report never fires on the term's last day — the last day's
+    submissions would be racing the tick — so this starts from the day after.
+    Which day inside the window a given class actually sends on is the
+    ``send_term_after_days`` setting's business, not this function's.
     """
     from classroom.models import Term
 
-    return Term.objects.filter(end_date=day - timedelta(days=1)).select_related(
-        'school', 'academic_year',
-    )
+    return Term.objects.filter(
+        end_date__lt=day,
+        end_date__gte=day - timedelta(days=MAX_TERM_OFFSET_DAYS),
+    ).select_related('school', 'academic_year')
 
 
 def due_periods(reference):
@@ -103,13 +119,17 @@ def due_periods(reference):
     day is a legitimate no-op rather than a mistake.
     """
     due = []
-    if reference.weekday() == 0:
-        start, end = previous_week(reference)
-        due.append((WEEKLY, start, end, None))
-    if reference.day == 1:
-        start, end = previous_month(reference)
-        due.append((MONTHLY, start, end, None))
-    for term in terms_ending_on(reference):
+    # The weekly and monthly windows are always offered; which day a school
+    # actually sends on is its own setting, checked per class further down the
+    # chain. Filtering here would hard-code Monday and the 1st for everyone.
+    start, end = previous_week(reference)
+    due.append((WEEKLY, start, end, None))
+    start, end = previous_month(reference)
+    due.append((MONTHLY, start, end, None))
+    # Every recently-ended term is offered; the per-class schedule decides
+    # which of them actually sends today. Weekly and monthly work the same way
+    # — the window is offered, the setting picks the day.
+    for term in terms_recently_ended(reference):
         due.append((TERM, term.start_date, term.end_date, term))
     return due
 
@@ -167,6 +187,7 @@ def today():
 __all__ = [
     'WEEKLY', 'MONTHLY', 'TERM',
     'week_window', 'month_window', 'previous_week', 'previous_month',
-    'label_for', 'student_school', 'terms_ending_on', 'due_periods',
+    'label_for', 'student_school', 'terms_recently_ended', 'due_periods',
     'window_for', 'most_recent_ended_terms', 'is_valid_period', 'today',
+    'MODE_MANUAL', 'MODE_AUTO',
 ]

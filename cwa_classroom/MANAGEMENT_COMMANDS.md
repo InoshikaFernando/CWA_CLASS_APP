@@ -159,12 +159,32 @@ their linked parents, plus — at term end only — an email to the parents. Rep
 key on `(student, period_type, period_start)`, so re-running never duplicates a
 report or re-notifies a family.
 
+**Reports are opt-in and manual by default.** This command serves the classes
+set to **automatic**, and only those whose configured day is today — so it is
+one generic daily entry for the whole install, and no school configures
+anything at the OS level. Classes left on manual wait for a staff member to
+send them from *Preview Reports* (`/progress/reports/preview/`). Configure both
+under *Report Automation* (`/progress/reports/settings/`).
+
+On an install where nobody has configured anything, or on a day no schedule
+lands, this generates nothing and says so — silence is indistinguishable from
+a broken cron.
+
 ```bash
 python manage.py generate_progress_reports                  # whatever closed today
 python manage.py generate_progress_reports --period weekly  # the last closed week
 python manage.py generate_progress_reports --date 2026-09-01 --dry-run
 python manage.py generate_progress_reports --force          # recompute existing data
 python manage.py generate_progress_reports --no-notify      # generate, send nothing
+python manage.py generate_progress_reports --school wizards --classroom 42
+python manage.py generate_progress_reports --manual --period weekly   # the manual classes
+```
+
+`--school` (id or slug) and `--classroom` (id) narrow the run, which is how you
+try one class before switching anything on for real:
+
+```bash
+python manage.py generate_progress_reports --period weekly --classroom 42 --dry-run
 ```
 
 The command decides for itself which periods closed (weekly on Mondays, monthly
@@ -291,6 +311,35 @@ python manage.py generate_puzzles --level 3          # specific level
 python manage.py generate_puzzles --count 50         # how many
 python manage.py generate_puzzles --clear            # remove existing first
 python manage.py generate_puzzles --dry-run          # preview
+```
+
+### `relevel_questions`
+Repair questions stranded at the wrong year, using the year of the **class** each
+was actually assigned to.
+
+Every upload path defaults `year_level` to 1, so a worksheet whose year the
+extractor could not read files its whole batch at Year 1 — where level practice
+(`_get_questions_for_level`, which filters on `level` alone) serves it to real
+Year 1 students. The class a homework went to is set by a human before any AI
+runs, so it is the signal this command trusts.
+
+Prod carries two Level ladders with duplicate names: the curriculum one
+(`level_number` 1–10) that questions are filed against, and the class one
+(300+) that `ClassRoom.levels` points at. The command bridges them, resolving a
+class level by `--map`, then built-in overrides, then a "Year N" reading of its
+display name. Anything it cannot resolve — no homework link, an unrecognised
+class level, or a tie between two years — is reported and left alone, never
+guessed at. Classes above the ladder (VCE GM 1/2 and 3/4) are listed as
+deliberately skipped rather than squashed into Year 10.
+
+One vote per class, not per homework. Soft-deleted homework still counts as
+evidence. Use `list_questions` first to see where a year's questions actually
+sit.
+```bash
+python manage.py relevel_questions --year 1 --school 4 --dry-run   # preview
+python manage.py relevel_questions --year 1 --school 4             # apply
+python manage.py relevel_questions --year 1 --school 4 --map "JS=5"
+python manage.py relevel_questions --year 1 --topic "Indices" --exact-topic
 ```
 
 ---

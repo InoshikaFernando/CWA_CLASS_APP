@@ -102,20 +102,98 @@ def test_ci_still_runs_every_suite_on_a_push():
     """A push to `test` is the promotion gate and must not be path-filtered.
 
     PR runs are narrowed to the affected apps to save Actions minutes; the
-    safety net is that the merge to `test` runs everything. If that
-    `github.event_name == 'push'` escape were dropped, a release could promote
-    on a partial matrix.
+    safety net is that the merge to `test` runs everything. If that escape
+    were dropped, a release could promote on a partial matrix.
+
+    The 20 per-app unit jobs are now one job whose targets come from the diff,
+    so for those the escape moved from 20 `if:` conditions into the RUN_ALL of
+    the step that builds the list. Both forms are checked here — a job that
+    still decides for itself must carry it in its `if:`, and the step that
+    decides for the rest must carry it in RUN_ALL.
     """
     jobs = _ci()['jobs']
+    # These two run INSTEAD OF suites, and only when the tree they cover has
+    # already passed elsewhere. Requiring the push escape on them would mean
+    # reporting "already tested" on a push that was not.
+    stands_in_for_a_suite = {'release-already-tested', 'ui-already-tested'}
+    # unit-tests runs whatever `changes` selected for it; the escape that
+    # fills that list in full on a push is asserted below instead.
+    decided_by_a_step = {'unit-tests'}
     gated = {name: job for name, job in jobs.items()
              if 'needs.changes.outputs' in (job.get('if') or '')
-             # Release-PR-only: it stands in FOR the suites on that event.
-             and name != 'release-already-tested'}
+             and name not in stands_in_for_a_suite | decided_by_a_step}
     assert gated, 'Expected the path-filtered jobs to carry an if: condition'
     for name, job in gated.items():
         assert "github.event_name == 'push'" in job['if'], (
             f'ci.yml job {name!r} is path-filtered without the push escape, so '
             f'a merge to main/test could skip it')
+
+    run_all = _unit_step()['env']['RUN_ALL']
+    assert "github.event_name == 'push'" in run_all, (
+        'ci.yml: the unit suites no longer all run on a push to test. They are '
+        'the cheap half of CI and the half that catches one app breaking '
+        'another — which a PR narrowed to the changed app cannot see.')
+    assert 'shared' in run_all, (
+        'ci.yml: a change to the project package, requirements or conftest no '
+        'longer runs every unit suite, so it would run only the apps whose '
+        'own paths happened to change')
+
+
+def test_the_unit_job_is_the_only_thing_that_can_orphan_a_suite():
+    """One job now decides whether ~20 suites run at all.
+
+    Losing a line from UNIT_SUITES does not fail anything at runtime — the job
+    still passes, having quietly run one suite fewer. `classroom` is absent by
+    design (it keeps its own job), so it is named here rather than left to
+    look like an omission.
+    """
+    targets = _unit_suite_targets()
+    assert 'classroom/' not in targets, (
+        'ci.yml: classroom is in UNIT_SUITES as well as its own job, so it '
+        'would run twice')
+    assert _ci()['jobs'].get('classroom-tests'), (
+        'ci.yml: classroom has neither its own job nor a UNIT_SUITES entry'
+    )
+    assert len(targets) == len(set(targets)), (
+        f'ci.yml: UNIT_SUITES repeats a target: {sorted(targets)}')
+
+    job = _ci()['jobs']['unit-tests']
+    run_step = next(s for s in job['steps']
+                    if str(s.get('name', '')).startswith('Run unit suites'))
+    assert '$DIRS' in run_step['run'], (
+        'ci.yml: the unit job no longer runs the list `changes` built for it')
+    assert "needs.changes.outputs.unit_dirs != ''" in job['if'], (
+        'ci.yml: the unit job would run with an empty argument list, which is '
+        '`pytest` over the whole tree')
+
+
+def _unit_step():
+    """The step in `changes` that picks the unit suites for this diff."""
+    for step in _ci()['jobs']['changes']['steps']:
+        if step.get('id') == 'unit':
+            return step
+    raise AssertionError(
+        "ci.yml: the `changes` job has no step id: unit, so unit_dirs is "
+        "always empty and NO unit suite runs anywhere")
+
+
+def _unit_suite_targets():
+    """Every pytest target the one unit job can be asked to run.
+
+    The 20 per-app jobs became a single job whose arguments come from this map,
+    so it — not a `run:` line — is now what decides whether a suite ever runs.
+    """
+    env = _unit_step()['env']
+    targets = []
+    for line in env['UNIT_SUITES'].splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        key, _, target = line.partition(':')
+        assert target, f'ci.yml: UNIT_SUITES entry {line!r} has no pytest target'
+        targets.append(target)
+    targets.append(env['UNIT_SHARED_ONLY'])
+    return targets
 
 
 def _ui_matrix_run_all():
@@ -233,6 +311,33 @@ def test_every_ui_path_filter_has_a_group():
         f'cwa_classroom/ui_tests/<group>/ package: {orphans}')
 
 
+def test_no_stray_ui_output_becomes_a_matrix_group():
+    """ui-matrix builds its group list from the `changes` job's OUTPUT names.
+
+    Every output called `ui_<x>` (bar `ui_core`) becomes a matrix entry running
+    `pytest ui_tests/<x>`, so an output added for some other purpose that
+    happens to start with `ui_` invents a group with no directory behind it.
+    That is exactly how a `ui_already_tested` output produced a job called
+    "UI Tests (already_tested)" which died on exit 5, no tests collected.
+
+    The filter tests above could not see it: it was an output, not a filter.
+    It also only broke on a push — on a `pull_request` the step that sets it is
+    skipped, so the output is the empty string and toJSON drops it entirely.
+    """
+    outputs = _ci()['jobs']['changes']['outputs']
+    groups = set(_ui_group_dirs())
+    stray = sorted(
+        name for name in outputs
+        if name.startswith('ui_') and name != 'ui_core'
+        and name[len('ui_'):] not in groups
+    )
+    assert not stray, (
+        f'ci.yml: the `changes` job has ui_-prefixed outputs that are not UI '
+        f'groups: {stray}. ui-matrix will run `pytest ui_tests/<name>` for each '
+        f'and the job will fail with no tests collected. Rename them so they '
+        f'do not start with `ui_`.')
+
+
 def test_every_ui_group_filter_watches_its_own_tests():
     """Editing a UI test must at minimum run that test's own group."""
     filters = _ci_filters()
@@ -313,6 +418,13 @@ def _pytest_targets():
                     continue
                 for token in line.split():
                     if token.startswith('-') or '=' in token:
+                        continue
+                    if token == '$DIRS':
+                        # `pytest $DIRS` — the unit job's arguments are built
+                        # by the `changes` job, so the map there is the real
+                        # list of targets.
+                        targets.update(t.rstrip('/')
+                                       for t in _unit_suite_targets())
                         continue
                     if not (token.endswith('.py') or '/' in token):
                         continue
@@ -492,6 +604,79 @@ def test_a_release_pr_still_gets_a_check():
     script = '\n'.join(str(step) for step in job['steps'])
     assert 'listWorkflowRuns' in script
     assert 'setFailed' in script
+
+
+# ── The UI matrix is deduped against the PR run, and ONLY the UI matrix ──────
+#
+# A `pull_request` run tests `refs/pull/N/merge`, not the PR head, so when a
+# merge to `test` lands a tree the PR already held, the push re-runs the UI
+# groups over byte-identical content. `changes.skip_ui_matrix` detects that.
+#
+# The danger is that someone extends it to the unit suites, where the same
+# reasoning does NOT hold: PR runs are path-filtered, so a green PR means the
+# touched app passed, not that app A's change left app B working. The push run
+# is the only thing that checks that, and it must stay unconditional.
+
+_DEDUPE_OUTPUT = 'skip_ui_matrix'
+_DEDUPE_REPORT_JOB = 'ui-already-tested'
+
+
+def test_only_the_ui_matrix_is_deduped_against_the_pr_run():
+    """The unit suites must never skip because a (narrowed) PR run was green.
+
+    They are unfiltered on a push precisely to catch one app breaking another,
+    which a PR run scoped to the changed app cannot see. Gating them on
+    skip_ui_matrix would delete that signal while still looking green.
+    """
+    jobs = _ci_data()['jobs']
+    users = {name for name, job in jobs.items()
+             if _DEDUPE_OUTPUT in (job.get('if') or '')}
+    assert users == {'ui-matrix', _DEDUPE_REPORT_JOB}, (
+        f'ci.yml: {_DEDUPE_OUTPUT} gates {sorted(users)}. It is only sound for '
+        f'the UI matrix — the unit suites run unfiltered on a push because a '
+        f'PR run is narrowed to the apps it touched.')
+
+
+def test_the_ui_matrix_dedupe_proves_the_tree_is_identical():
+    """The skip rests on four claims; none of them may quietly disappear.
+
+    tree equality alone is not enough (the PR must also have been up to date
+    with `test`, or `refs/pull/N/merge` tested a different merge), and neither
+    is an up-to-date branch without a run that actually passed.
+    """
+    step = None
+    for candidate in _ci_data()['jobs']['changes']['steps']:
+        if candidate.get('id') == 'tested':
+            step = candidate
+    assert step is not None, (
+        'ci.yml: the `changes` job has no step id: tested, so '
+        f'{_DEDUPE_OUTPUT} can never be true')
+
+    script = step['with']['script']
+    for claim, why in (
+        ('parents.length !== 2', 'only a merge commit has a PR head to compare'),
+        ('tree.sha !== merge.tree.sha', 'the landed tree must be the tested one'),
+        ('compareCommitsWithBasehead', 'the PR must have been up to date with test'),
+        ('listWorkflowRuns', 'a PR run must actually exist'),
+        ("conclusion === 'success'", 'and it must have passed'),
+    ):
+        assert claim in script, (
+            f'ci.yml: the UI dedupe no longer checks {claim!r} — {why}')
+
+    assert step['if'].count('refs/heads/test') == 1, (
+        'ci.yml: the UI dedupe must only ever fire on a push to test')
+
+
+def test_a_deduped_push_still_gets_a_ui_check():
+    """Skipping is not the same as not checking.
+
+    A push showing no UI check at all is indistinguishable from a CI that has
+    silently stopped running the suite — which went unnoticed here for four
+    days once already.
+    """
+    job = _ci_data()['jobs'][_DEDUPE_REPORT_JOB]
+    assert f"needs.changes.outputs.{_DEDUPE_OUTPUT} == 'true'" in job['if']
+    assert job.get('name'), 'the report job needs a readable check name'
 
 
 def test_the_ui_groups_are_not_limited_to_the_runner_cpu_count():

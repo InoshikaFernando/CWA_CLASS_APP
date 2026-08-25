@@ -12,8 +12,8 @@ from django.utils import timezone
 
 from accounts.models import CustomUser, Role
 from classroom.models import (
-    ClassRoom, ClassStudent, ClassTeacher, Level, ParentStudent, School,
-    SchoolTeacher, Subject, Topic,
+    ClassRoom, ClassStudent, ClassTeacher, Department, Level, ParentStudent,
+    School, SchoolTeacher, Subject, Topic,
 )
 from homework.models import (
     Homework, HomeworkStudentAnswer, HomeworkSubmission,
@@ -123,4 +123,28 @@ def answer(submission, question, correct):
     return HomeworkStudentAnswer.objects.create(
         submission=submission, question=question,
         is_correct=correct, points_earned=1.0 if correct else 0.0,
+    )
+
+
+def make_department(school, name='Mathematics', slug='maths'):
+    return Department.objects.create(school=school, name=name, slug=slug)
+
+
+def enable_reports(school, scope=None, kind='school', **flags):
+    """Switch report flags on at one level of the cascade.
+
+    ``kind`` is 'school', 'department' or 'class'; unspecified flags stay
+    ``None`` (inherit), which is what makes the cascade tests meaningful.
+    """
+    from progress import report_settings
+
+    fields = (
+        report_settings.PERIOD_FIELDS
+        + report_settings.DELIVERY_FIELDS
+        + report_settings.SCHEDULE_FIELDS
+        + ('mode',)
+    )
+    values = {field: flags.get(field) for field in fields}
+    return report_settings.set_for(
+        scope if scope is not None else school, kind, school, values,
     )

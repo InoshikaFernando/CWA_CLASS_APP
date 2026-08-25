@@ -5584,12 +5584,22 @@ class SubjectsHubView(LoginRequiredMixin, View):
             .count()
         ) if enrolled_class_ids else 0
 
+        # ── Global leaderboard standing ──
+        # The board stays on the page all day; the pop-up opens once per local
+        # day, on the student's first hub load. should_show_leaderboard_popup()
+        # marks it shown as it answers, so a refresh does not re-open it.
+        from rewards.services import get_student_standing, should_show_daily_popup
+        standing = get_student_standing(user)
+        show_leaderboard_popup = should_show_daily_popup(user, _today)
+
         # Common hub context
         hub_extra = {
             'upcoming_classes': upcoming_classes,
             'class_attendance': class_attendance,
             'billing_summary': billing_summary,
             'pending_homework_count': pending_homework_count,
+            'standing': standing,
+            'show_leaderboard_popup': show_leaderboard_popup,
         }
 
         is_school_student = user.has_role(Role.STUDENT)
