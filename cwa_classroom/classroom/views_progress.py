@@ -1058,6 +1058,21 @@ class StudentProgressReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
         Role.INSTITUTE_OWNER,
     ]
 
+    def _get_accessible_schools(self, user):
+        """Schools whose data this user may see on this page.
+
+        Derived from the classes they can reach rather than from ownership
+        alone, so a HoD or teacher gets exactly the schools they actually
+        teach in.
+        """
+        school_ids = (
+            self._get_accessible_classes(user)
+            .exclude(school__isnull=True)
+            .values_list('school_id', flat=True)
+            .distinct()
+        )
+        return School.objects.filter(id__in=list(school_ids)).order_by('name')
+
     def _get_accessible_classes(self, user):
         """Return ClassRoom queryset the user can see based on role."""
         is_hoi = user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER)
@@ -1081,6 +1096,20 @@ class StudentProgressReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
     def get(self, request):
         accessible_classes = self._get_accessible_classes(request.user)
+
+        # School first: everything below is scoped to one school. Someone who
+        # runs two institutes was previously shown both rosters merged, with a
+        # child enrolled at both counted once per school and no way to tell
+        # which assessments belonged where.
+        schools = self._get_accessible_schools(request.user)
+        filter_school = request.GET.get('school')
+        selected_school = None
+        if filter_school and str(filter_school).isdigit():
+            selected_school = schools.filter(id=filter_school).first()
+        if selected_school is None:
+            selected_school = schools.first()
+        if selected_school is not None:
+            accessible_classes = accessible_classes.filter(school=selected_school)
 
         # Read filters first so the option lists can reflect the selection.
         filter_dept = request.GET.get('department')
@@ -1141,9 +1170,17 @@ class StudentProgressReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
         student_data = []
         for student in students_qs:
             # Get latest record per criteria
+            # Scoped to the selected school. Without this the query returned
+            # every record the student had anywhere, so a child enrolled at two
+            # institutes carried one school's assessments into the other's
+            # report. Criteria always carry a school; ProgressRecord.classroom
+            # is nullable for legacy rows, so scoping on the criteria is what
+            # keeps those rows visible at the school they belong to.
+            record_qs = ProgressRecord.objects.filter(student=student)
+            if selected_school is not None:
+                record_qs = record_qs.filter(criteria__school=selected_school)
             latest_ids_qs = (
-                ProgressRecord.objects
-                .filter(student=student)
+                record_qs
                 .values('criteria_id')
                 .annotate(latest_id=Max('id'))
             )
@@ -1174,9 +1211,12 @@ class StudentProgressReportView(RoleRequiredMixin, ModuleRequiredMixin, View):
 
         return render(request, 'progress/student_progress_report.html', {
             'student_data': student_data,
+            'schools': schools,
+            'selected_school': selected_school,
             'departments': departments,
             'subjects': subjects,
             'classes': classes,
+            'filter_school': str(selected_school.id) if selected_school else '',
             'filter_dept': filter_dept or '',
             'filter_subject': filter_subject or '',
             'filter_class': filter_class or '',

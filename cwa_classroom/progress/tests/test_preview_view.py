@@ -227,3 +227,69 @@ class ManualSendTests(PreviewBase):
         content = self.client.get(URL).content.decode()
         for token in ('{#', '{%', '{{'):
             self.assertNotIn(token, content, f'unrendered {token} in the page')
+
+
+class PreviewSchoolScopeTests(TestCase):
+    """A child at two institutes must not carry one school's work into the other.
+
+    The sibling Student Progress Report page had exactly this leak — its
+    per-student query had no school scope at all — so this asserts the preview
+    does not, rather than assuming it.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.cwa = make_school(name='CWA', slug='cwa-preview')
+        cls.mhm = make_school(name='MHM', slug='mhm-preview')
+        cls.cwa_class = make_classroom(cls.cwa, name='CWA Maths', code='PVS00001')
+        cls.mhm_class = make_classroom(cls.mhm, name='MHM Maths', code='PVS00002')
+
+        cls.hoi = make_user('pvs_hoi', 'head_of_institute')
+        for school in (cls.cwa, cls.mhm):
+            SchoolTeacher.objects.create(
+                school=school, teacher=cls.hoi, role='head_of_institute',
+            )
+
+        # One child at both schools, with work at each.
+        cls.child = make_user('pvs_child', first_name='Dual', last_name='Enrolled')
+        enrol(cls.cwa_class, cls.child)
+        enrol(cls.mhm_class, cls.child)
+
+        monday = periods.previous_week(periods.today())[0]
+        cwa_hw = make_homework(cls.cwa_class, due=at(monday), title='CWA work')
+        mhm_hw = make_homework(cls.mhm_class, due=at(monday), title='MHM work')
+        submit(cwa_hw, cls.child, 1, 9, when=at(monday))
+        submit(mhm_hw, cls.child, 1, 2, when=at(monday))
+
+        enable_reports(cls.cwa, kind='school', weekly=True)
+        enable_reports(cls.mhm, kind='school', weekly=True)
+
+    def setUp(self):
+        self.client.force_login(self.hoi)
+
+    def row_for(self, school):
+        response = self.client.get(URL, {'school': school.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['school'], school)
+        return next(
+            r for r in response.context['rows'] if r['student'] == self.child
+        )
+
+    def test_each_school_sees_only_its_own_work(self):
+        cwa = self.row_for(self.cwa)
+        self.assertEqual(cwa['classes'], [self.cwa_class.name])
+        self.assertEqual(cwa['totals']['avg_best_pct'], 90)
+
+        mhm = self.row_for(self.mhm)
+        self.assertEqual(mhm['classes'], [self.mhm_class.name])
+        self.assertEqual(mhm['totals']['avg_best_pct'], 20)
+
+    def test_sending_for_one_school_reports_only_that_schools_work(self):
+        self.client.post(URL, {
+            'school_id': self.cwa.id, 'period': periods.WEEKLY,
+        }, follow=True)
+
+        report = PeriodReport.objects.get(student=self.child)
+        self.assertEqual(report.school, self.cwa)
+        self.assertEqual(report.data['scope']['classrooms'], [self.cwa_class.name])
+        self.assertEqual(report.totals['avg_best_pct'], 90)

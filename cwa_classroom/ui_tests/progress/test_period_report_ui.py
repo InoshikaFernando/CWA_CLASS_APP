@@ -187,3 +187,64 @@ def test_another_familys_parent_cannot_open_the_report(page, live_server,
 
     response = page.goto(f"{live_server.url}/progress/reports/{weekly_report.id}/")
     assert response.status == 404
+
+
+def test_the_report_shows_practice_beyond_homework(page, live_server, classroom,
+                                                   enrolled_student, level):
+    """Quizzes, times tables and basic facts each get their own section.
+
+    A report built on homework alone told a child who spent the week on times
+    tables that they had done nothing.
+    """
+    from classroom.models import Subject, Topic
+    from maths.models import BasicFactsResult, StudentFinalAnswer
+    from progress.models import PeriodReport
+    from progress.reports import build_report_data
+
+    subject, _ = Subject.objects.get_or_create(
+        slug="mathematics", school=None, defaults={"name": "Mathematics"},
+    )
+    topic = Topic.objects.create(subject=subject, name="Fractions", slug="fr-ui")
+
+    for score in (5, 9):
+        row = StudentFinalAnswer.objects.create(
+            student=enrolled_student, topic=topic, level=level,
+            quiz_type="topic", score=score, total_questions=10, points=score,
+        )
+        StudentFinalAnswer.objects.filter(pk=row.pk).update(
+            completed_at=_at(PERIOD_START),
+        )
+    table = StudentFinalAnswer.objects.create(
+        student=enrolled_student, quiz_type="times_table", table_number=7,
+        operation="multiplication", score=9, total_questions=10, points=9,
+    )
+    StudentFinalAnswer.objects.filter(pk=table.pk).update(
+        completed_at=_at(PERIOD_START),
+    )
+    facts = BasicFactsResult.objects.create(
+        student=enrolled_student, subtopic="Addition", level_number=7,
+        session_id="s", score=10, total_points=10, time_taken_seconds=60,
+        points=10,
+    )
+    BasicFactsResult.objects.filter(pk=facts.pk).update(
+        completed_at=_at(PERIOD_START),
+    )
+
+    report = PeriodReport.objects.create(
+        student=enrolled_student, school=classroom.school,
+        period_type=PeriodReport.PERIOD_WEEKLY,
+        period_start=PERIOD_START, period_end=PERIOD_END,
+        data=build_report_data(
+            enrolled_student, PeriodReport.PERIOD_WEEKLY,
+            PERIOD_START, PERIOD_END,
+        ),
+    )
+
+    do_login(page, live_server.url, enrolled_student)
+    page.goto(f"{live_server.url}/progress/reports/{report.id}/")
+
+    expect(page.get_by_test_id("report-quizzes")).to_contain_text("Fractions")
+    expect(page.get_by_test_id("report-times-tables")).to_contain_text("7×")
+    expect(page.get_by_test_id("report-basic-facts")).to_contain_text("Addition")
+    # Practice alone must register as activity, not as an empty period.
+    expect(page.get_by_test_id("report-empty")).to_have_count(0)
