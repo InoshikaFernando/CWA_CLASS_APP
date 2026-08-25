@@ -6,8 +6,9 @@ from django.utils import timezone
 from accounts.models import Role
 from rewards.models import PointsAward, PointsSource, StudentPointsTotal
 from rewards.services import (
-    POINTS_PER_UNIT, award_points, award_points_safe, get_rank,
-    get_student_standing, normalise, recalculate_total, should_show_daily_popup,
+    POINTS_PER_UNIT, SCOPE_GLOBAL, SCOPE_SCHOOL, award_points, award_points_safe,
+    get_rank, get_school_for, get_standings, get_student_standing, normalise,
+    recalculate_total, should_show_daily_popup,
 )
 
 from .factories import make_student
@@ -232,8 +233,24 @@ class TestStanding:
         standing = get_student_standing(top)
 
         assert standing.rank == 1
-        assert 'keep up the great work' in standing.message.lower()
         assert 'points to reach' not in standing.message.lower()
+
+    def test_topping_the_system_board_does_not_claim_a_school(self):
+        """The board spans every school, so the winner's line must not say
+        'your school' — that is a different, much smaller achievement."""
+        top = _board(90, 70)[0]
+        message = get_student_standing(top).message
+
+        assert 'every school' in message
+        assert 'your whole school' not in message
+
+    def test_topping_a_school_board_says_school(self):
+        top = _board(90, 70)[0]
+        message = get_student_standing(
+            top, scope=SCOPE_SCHOOL, scope_label='Wizards').message
+
+        assert 'your whole school' in message
+        assert 'every school' not in message
 
     def test_everyone_else_is_told_the_gap_to_the_next_place(self):
         second = _board(90, 70)[1]
@@ -317,3 +334,113 @@ class TestDailyPopup:
         should_show_daily_popup(student, today)
         tomorrow = today + timezone.timedelta(days=1)
         assert should_show_daily_popup(student, tomorrow) is True
+
+
+# ---------------------------------------------------------------------------
+# School-scoped boards
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def schools(db):
+    """Two schools, so one school's board can be shown not to leak the other's."""
+    from classroom.models import School, SchoolStudent
+
+    def _make(name, slug):
+        return School.objects.create(
+            name=name, slug=slug, admin=make_student(f'admin-{slug}', Role.ADMIN),
+        )
+
+    def _enrol(student, school):
+        SchoolStudent.objects.create(school=school, student=student, is_active=True)
+        return student
+
+    return {'make': _make, 'enrol': _enrol}
+
+
+class TestSchoolScope:
+
+    def test_a_school_board_excludes_other_schools_students(self, schools):
+        wizards = schools['make']('Wizards', 'wizards')
+        rivals = schools['make']('Rivals', 'rivals')
+
+        mine = schools['enrol'](make_student('mine', first_name='Mine'), wizards)
+        theirs = schools['enrol'](make_student('theirs', first_name='Theirs'), rivals)
+        award_points(mine, PointsSource.HOMEWORK, '1', 50)
+        award_points(theirs, PointsSource.HOMEWORK, '1', 90)
+
+        names = [r['name'] for r in
+                 get_student_standing(mine, school=wizards).podium]
+        assert names == ['Mine']
+
+    def test_a_student_can_rank_higher_in_their_school_than_system_wide(self, schools):
+        """The whole reason for two boards: 3rd of three at school is a place
+        worth showing, even when the same student is 4th overall."""
+        wizards = schools['make']('Wizards', 'wizards')
+        rivals = schools['make']('Rivals', 'rivals')
+
+        me = schools['enrol'](make_student('me', first_name='Me'), wizards)
+        schools['enrol'](make_student('sa', first_name='Sa'), wizards)
+        schools['enrol'](make_student('sb', first_name='Sb'), wizards)
+        outsider = schools['enrol'](make_student('out', first_name='Out'), rivals)
+
+        award_points(me, PointsSource.HOMEWORK, '1', 40)
+        award_points(_u('sa'), PointsSource.HOMEWORK, '1', 90)
+        award_points(_u('sb'), PointsSource.HOMEWORK, '1', 70)
+        award_points(outsider, PointsSource.HOMEWORK, '1', 60)
+
+        assert get_student_standing(me, school=wizards).rank == 3
+        assert get_student_standing(me).rank == 4
+
+    def test_an_inactive_membership_does_not_put_a_student_on_the_board(self, schools):
+        from classroom.models import SchoolStudent
+
+        wizards = schools['make']('Wizards', 'wizards')
+        gone = schools['enrol'](make_student('gone', first_name='Gone'), wizards)
+        award_points(gone, PointsSource.HOMEWORK, '1', 90)
+        SchoolStudent.objects.filter(student=gone).update(is_active=False)
+
+        assert get_student_standing(gone, school=wizards).podium == []
+
+    def test_a_student_appears_once_even_with_two_memberships(self, schools):
+        """A student in two schools must not be listed twice on either board."""
+        from classroom.models import SchoolStudent
+
+        wizards = schools['make']('Wizards', 'wizards')
+        rivals = schools['make']('Rivals', 'rivals')
+        both = schools['enrol'](make_student('both', first_name='Both'), wizards)
+        SchoolStudent.objects.create(school=rivals, student=both, is_active=True)
+        award_points(both, PointsSource.HOMEWORK, '1', 90)
+
+        assert len(get_student_standing(both, school=wizards).podium) == 1
+        assert len(get_student_standing(both).podium) == 1
+
+
+class TestGetStandings:
+
+    def test_a_school_student_gets_their_school_first_then_everyone(self, schools):
+        wizards = schools['make']('Wizards', 'wizards')
+        me = schools['enrol'](make_student('me', first_name='Me'), wizards)
+        award_points(me, PointsSource.HOMEWORK, '1', 50)
+
+        standings = get_standings(me)
+        assert [s.scope for s in standings] == [SCOPE_SCHOOL, SCOPE_GLOBAL]
+        assert standings[0].scope_label == 'Wizards'
+        assert standings[1].scope_label == 'Everyone'
+
+    def test_a_student_with_no_school_gets_the_system_board_alone(self):
+        """An individual student has no school, so there is nothing to tab
+        between — one board, no tab strip."""
+        solo = make_student('solo')
+        award_points(solo, PointsSource.HOMEWORK, '1', 50)
+
+        standings = get_standings(solo)
+        assert len(standings) == 1
+        assert standings[0].scope == SCOPE_GLOBAL
+
+    def test_get_school_for_returns_none_without_a_membership(self):
+        assert get_school_for(make_student('nobody')) is None
+
+
+def _u(username):
+    from accounts.models import CustomUser
+    return CustomUser.objects.get(username=username)

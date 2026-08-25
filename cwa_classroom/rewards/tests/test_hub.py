@@ -45,9 +45,14 @@ class TestHubLeaderboardCard:
         for name in ('Ada S.', 'Grace S.', 'Linus S.'):
             assert name in body
 
-    def test_the_top_student_is_congratulated(self, board):
+    def test_the_top_student_is_congratulated_for_the_right_scope(self, board):
+        """These students are in no school, so the only board is system-wide —
+        the winner's line must say so rather than claiming a school."""
         _client, response = hub(board[0])
-        assert 'keep up the great work' in response.content.decode().lower()
+        body = response.content.decode()
+
+        assert 'every school on the system' in body
+        assert 'your whole school' not in body
 
     def test_a_student_off_the_podium_sees_their_rank_and_the_gap(self, board):
         fourth = make_student('newcomer', first_name='Nia')
@@ -103,6 +108,65 @@ class TestDailyPopup:
         )
         again = client.get(reverse('subjects_hub'))
         assert 'leaderboard-popup' in again.content.decode()
+
+
+class TestScopedBoards:
+
+    @pytest.fixture
+    def schooled(self, db, board):
+        """Put the third-placed student into a school with one classmate."""
+        from classroom.models import School, SchoolStudent
+
+        school = School.objects.create(
+            name='Wizards', slug='wizards', admin=make_student('adm', Role.ADMIN),
+        )
+        me = board[2]
+        classmate = make_student('mate', first_name='Mate', last_name='Ng')
+        award_points(classmate, PointsSource.HOMEWORK, '1', 20)
+        for student in (me, classmate):
+            SchoolStudent.objects.create(school=school, student=student, is_active=True)
+        return me
+
+    def test_both_tabs_render_for_a_school_student(self, schooled):
+        _client, response = hub(schooled)
+        body = response.content.decode()
+
+        assert 'Wizards' in body       # the school tab
+        assert 'Everyone' in body      # the system-wide tab
+
+    def test_the_school_tab_comes_first(self, schooled):
+        _client, response = hub(schooled)
+        body = response.content.decode()
+        assert body.index('card-tab-school') < body.index('card-tab-global')
+
+    def test_the_student_ranks_higher_in_their_school(self, schooled):
+        """3rd of five system-wide, 1st of two at school."""
+        from rewards.services import get_standings
+        school_standing, global_standing = get_standings(schooled)
+
+        assert school_standing.rank == 1
+        assert global_standing.rank == 3
+
+    def test_topping_the_school_board_does_not_claim_the_system(self, schooled):
+        _client, response = hub(schooled)
+        assert 'your whole school' in response.content.decode()
+
+    def test_a_student_with_no_school_gets_no_tab_strip(self, board):
+        _client, response = hub(board[0])
+        body = response.content.decode()
+
+        assert 'role="tablist"' not in body
+        assert 'Top Wizards' in body
+
+    def test_the_card_and_popup_do_not_share_element_ids(self, schooled):
+        """Both copies are on the page at once — a shared id would make the
+        pop-up's tabs drive the card's panels."""
+        _client, response = hub(schooled)
+        body = response.content.decode()
+
+        for scope in ('school', 'global'):
+            assert body.count(f'id="card-panel-{scope}"') == 1
+            assert body.count(f'id="popup-panel-{scope}"') == 1
 
 
 class TestNonStudentsAreUnaffected:

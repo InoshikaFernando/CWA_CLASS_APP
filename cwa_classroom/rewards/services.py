@@ -29,6 +29,15 @@ POINTS_PER_UNIT = 100.0
 # planned; they will reuse everything here with an extra filter on the queryset.
 PODIUM_SIZE = 3
 
+# Board scopes. 'school' is every active member of one school; 'global' is every
+# ranked student on the system. Country and class scopes slot in the same way.
+SCOPE_GLOBAL = 'global'
+SCOPE_SCHOOL = 'school'
+
+# Sentinel for "the caller did not pass a total" — None is a real value
+# (a student who has never scored has no StudentPointsTotal row).
+_UNSET = object()
+
 
 def normalise(score, total) -> float:
     """Scale a raw ``score``/``total`` result onto the 0–:data:`POINTS_PER_UNIT` scale.
@@ -159,30 +168,58 @@ def award_points_safe(student, source, unit_key, points, label='') -> None:
 # Reading the board
 # ---------------------------------------------------------------------------
 
-def board_queryset():
+def board_queryset(school=None):
     """Every ranked student's total, best first.
 
-    The single place the board's population is defined. The planned country /
-    school / class boards filter this queryset; nothing else changes.
+    The single place a board's population is defined. ``school`` narrows it to
+    that school's active members; ``None`` is the whole system. The planned
+    country and class boards add their filter here and nothing else changes.
+
+    Membership is joined rather than denormalised onto StudentPointsTotal: a
+    student who moves school would leave a stale copy behind, and the join is
+    cheap against a table with one row per student.
     """
-    return (
+    qs = (
         StudentPointsTotal.objects
         .filter(is_ranked=True, total_points__gt=0)
         .select_related('student')
         .order_by('-total_points', 'student_id')
     )
+    if school is not None:
+        qs = qs.filter(
+            student__school_student_entries__school=school,
+            student__school_student_entries__is_active=True,
+        ).distinct()
+    return qs
 
 
-def get_rank(total_points) -> int:
+def get_rank(total_points, school=None) -> int:
     """Standard competition rank for a score: joint 2nd is followed by 4th."""
     if total_points <= 0:
         return 0
-    return board_queryset().filter(total_points__gt=total_points).count() + 1
+    return board_queryset(school).filter(total_points__gt=total_points).count() + 1
+
+
+def get_school_for(student):
+    """The school whose board this student belongs on, or None.
+
+    First active membership, matching how the hub already picks the school it
+    shows a student's ID code for. An individual student has none and only ever
+    sees the system-wide board.
+    """
+    from classroom.models import SchoolStudent
+    membership = (
+        SchoolStudent.objects
+        .filter(student=student, is_active=True, school__is_active=True)
+        .select_related('school')
+        .first()
+    )
+    return membership.school if membership else None
 
 
 @dataclass
 class Standing:
-    """Everything the leaderboard card and pop-up need to render."""
+    """Everything one leaderboard card or pop-up tab needs to render."""
 
     podium: list = field(default_factory=list)   # [{rank, name, points, is_me}]
     rank: int = 0                                # 0 = not on the board yet
@@ -191,6 +228,8 @@ class Standing:
     points_to_next: float = 0.0                  # to overtake the rank above
     next_rank: int = 0
     message: str = ''
+    scope: str = SCOPE_GLOBAL                    # 'global' | 'school'
+    scope_label: str = 'Everyone'                # tab label, e.g. the school name
 
     @property
     def on_podium(self) -> bool:
@@ -214,33 +253,60 @@ def _ordinal(n: int) -> str:
     return f'{n}{suffix}'
 
 
-def _message(rank, points_to_next, next_rank, has_points) -> str:
-    """The line of encouragement under the board.
+def _message(rank, points_to_next, next_rank, has_points, scope) -> str:
+    """The line of encouragement under one board.
 
     Deliberately never mentions how far *behind* anyone is — only the next step
     up, which is always within reach.
+
+    The top-of-the-board line names the scope it actually won, because the two
+    are worth very different things: first in your school is not first out of
+    every student on the system.
     """
     if not has_points:
         return "Answer a few questions to get on the board — every subject counts!"
     if rank == 1:
-        return "You're top of the whole school. Keep up the great work! 🎉"
+        if scope == SCOPE_SCHOOL:
+            return "You're top of your whole school. Keep up the great work! 🎉"
+        return "You're number one across every school on the system. Amazing! 🎉"
     gap = max(1, int(round(points_to_next)))
     plural = 'point' if gap == 1 else 'points'
     return f"Just {gap} {plural} to reach {_ordinal(next_rank)} place — keep going! 💪"
 
 
-def get_student_standing(student) -> Standing:
-    """The student's place on the global board, ready to render.
+def get_standings(student):
+    """Every board this student belongs on, in the order they are shown.
 
-    Three queries: the podium, the rank count, and the score directly above.
+    A school student gets their school first — a smaller field they can
+    realistically climb — then the whole system. An individual student belongs
+    to no school and gets the system-wide board alone.
     """
-    board = board_queryset()
+    school = get_school_for(student)
+    # Both boards score the same student, so read their total once and lend it
+    # to each rather than issuing the identical query per board.
+    mine = StudentPointsTotal.objects.filter(student=student).first()
+    if school is None:
+        return [get_student_standing(student, mine=mine)]
+    return [
+        get_student_standing(student, school=school, scope=SCOPE_SCHOOL,
+                             scope_label=school.name, mine=mine),
+        get_student_standing(student, mine=mine),
+    ]
 
-    try:
-        mine = StudentPointsTotal.objects.get(student=student)
-        my_points = mine.total_points if mine.is_ranked else 0.0
-    except StudentPointsTotal.DoesNotExist:
-        my_points = 0.0
+
+def get_student_standing(student, school=None, scope=SCOPE_GLOBAL,
+                         scope_label='Everyone', mine=_UNSET) -> Standing:
+    """The student's place on one board, ready to render.
+
+    ``school`` narrows the board; ``scope``/``scope_label`` only label it.
+    ``mine`` is the student's own StudentPointsTotal when the caller already
+    holds it — :func:`get_standings` reads it once for both boards.
+    """
+    board = board_queryset(school)
+
+    if mine is _UNSET:
+        mine = StudentPointsTotal.objects.filter(student=student).first()
+    my_points = mine.total_points if (mine is not None and mine.is_ranked) else 0.0
 
     podium_rows = list(board[:PODIUM_SIZE])
     podium = [
@@ -253,12 +319,14 @@ def get_student_standing(student) -> Standing:
         for i, row in enumerate(podium_rows)
     ]
 
-    rank = get_rank(my_points)
+    rank = get_rank(my_points, school)
     standing = Standing(
         podium=podium,
         rank=rank,
         total_points=round(my_points, 1),
         board_size=board.count(),
+        scope=scope,
+        scope_label=scope_label,
     )
 
     if rank > 1:
@@ -266,11 +334,12 @@ def get_student_standing(student) -> Standing:
         # it is what actually moves them up, even through a block of ties.
         above = board.filter(total_points__gt=my_points).order_by('total_points').first()
         if above is not None:
-            standing.next_rank = get_rank(above.total_points)
+            standing.next_rank = get_rank(above.total_points, school)
             standing.points_to_next = round(above.total_points - my_points, 1)
 
     standing.message = _message(
-        rank, standing.points_to_next, standing.next_rank or 1, my_points > 0,
+        rank, standing.points_to_next, standing.next_rank or 1,
+        my_points > 0, scope,
     )
     return standing
 
