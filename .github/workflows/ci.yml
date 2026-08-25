@@ -153,6 +153,7 @@ jobs:
               # report without touching a file under progress/.
               - 'cwa_classroom/homework/**'
               - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/maths/**'
               - 'cwa_classroom/classroom/models.py'
               # The sidebar visibility flag for period reports is set here, and
               # its tests assert on it.
@@ -303,6 +304,9 @@ jobs:
               - 'cwa_classroom/accounts/**'
               - 'cwa_classroom/classroom/**'
               - 'cwa_classroom/homework/**'
+              # Quizzes, times tables and basic facts are read straight off
+              # maths models, so a change there can break a report.
+              - 'cwa_classroom/maths/**'
               - 'cwa_classroom/progress/**'
               - 'cwa_classroom/worksheets/**'
               - 'cwa_classroom/templates/progress/**'

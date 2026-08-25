@@ -30,6 +30,28 @@ PREVIEW_ROLES = [
 ]
 
 
+def _activity_summary(data):
+    """A compact "what they actually did" phrase for the preview table.
+
+    Built here rather than in the template so the empty strands drop out
+    cleanly — a row reading "3 homework · 0 quizzes · 0 tables" buries the one
+    number that matters in two that do not.
+    """
+    totals = data['totals']
+    parts = []
+    if totals['homework_attempted']:
+        parts.append(f"{totals['homework_attempted']} homework")
+    if data['quizzes']['attempted']:
+        parts.append(f"{data['quizzes']['attempted']} quiz")
+    if data['times_tables']['tables']:
+        parts.append(f"{data['times_tables']['tables']} tables")
+    if data['basic_facts']['subtopics']:
+        parts.append(f"{data['basic_facts']['subtopics']} basic facts")
+    if data['worksheets']['completed']:
+        parts.append(f"{data['worksheets']['completed']} worksheets")
+    return ' · '.join(parts)
+
+
 def _audience(delivery, has_activity):
     """Who this report would actually reach, as a reader-facing phrase."""
     if not has_activity:
@@ -106,6 +128,11 @@ class ReportPreviewView(RoleRequiredMixin, View):
                 )
                 totals = data['totals']
                 rows.append({
+                    'activity': _activity_summary(data),
+                    'quizzes': data['quizzes'],
+                    'times_tables': data['times_tables'],
+                    'basic_facts': data['basic_facts'],
+                    'worksheets': data['worksheets'],
                     'student': student,
                     'totals': totals,
                     'awards': data['awards'],
@@ -142,7 +169,7 @@ class ReportPreviewView(RoleRequiredMixin, View):
             'rows': rows,
             'with_activity_count': len(with_activity),
             'average': (
-                round(sum(r['totals']['avg_best_pct'] for r in with_activity)
+                round(sum(r['totals']['overall_avg_pct'] for r in with_activity)
                       / len(with_activity))
                 if with_activity else 0
             ),

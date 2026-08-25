@@ -139,9 +139,27 @@ behind it — a report already generated, or a class configured to generate one.
 
 ## 2. What is in a report
 
-All figures derive from **homework submissions** (`homework.HomeworkSubmission`)
-in the window, with worksheets (`worksheets.WorksheetSubmission`) as a secondary
-section. Nothing is invented: a period with no submissions produces a report
+Figures derive from everything the student actually did in the window, not
+homework alone. The ticket asked for homework submissions, and a report built on
+those alone told a child who spent the week on times tables that they had done
+nothing — so each strand is reported in its own right:
+
+| Strand | Source |
+|--------|--------|
+| Homework | `homework.HomeworkSubmission` |
+| Maths quizzes (topic + mixed) | `maths.StudentFinalAnswer`, `quiz_type` in `topic`/`mixed` |
+| Times tables | `maths.StudentFinalAnswer`, `quiz_type='times_table'` |
+| Basic facts | `maths.BasicFactsResult` |
+| Worksheets | `worksheets.WorksheetSubmission` |
+
+Every strand reads the same closed window, so "this period" means one thing
+across the whole report.
+
+`totals['overall_avg_pct']` is the headline: each strand's best-attempt average,
+weighted by how many distinct things were attempted in it. Weighted rather than
+a flat mean so one perfect times table cannot outweigh a term of homework.
+`avg_best_pct` stays homework-only, because the first→best gain is a homework
+story. Nothing is invented: a period with no submissions produces a report
 that says so rather than a report full of zeros dressed as achievement.
 
 ### 2.1 Headline figures (`data['totals']`)

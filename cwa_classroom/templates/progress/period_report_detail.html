@@ -39,12 +39,18 @@
   <!-- Headline figures -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="report-kpis">
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
-      <p class="text-3xl font-bold text-indigo-600">{{ totals.avg_best_pct }}%</p>
-      <p class="text-xs text-slate-400 font-medium mt-1">Average (best attempt)</p>
+      <p class="text-3xl font-bold text-indigo-600">{{ totals.overall_avg_pct }}%</p>
+      <p class="text-xs text-slate-400 font-medium mt-1">
+        Overall average
+        <span class="block text-[10px] text-slate-300">across {{ totals.activity_items }} activit{{ totals.activity_items|pluralize:"y,ies" }}</span>
+      </p>
     </div>
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
-      <p class="text-3xl font-bold text-slate-600">{{ totals.avg_first_pct }}%</p>
-      <p class="text-xs text-slate-400 font-medium mt-1">Average (first attempt)</p>
+      <p class="text-3xl font-bold text-slate-600">{{ totals.avg_best_pct }}%</p>
+      <p class="text-xs text-slate-400 font-medium mt-1">
+        Homework average
+        <span class="block text-[10px] text-slate-300">first attempt {{ totals.avg_first_pct }}%</span>
+      </p>
     </div>
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
       <p class="text-3xl font-bold {% if totals.improvement_pct > 0 %}text-emerald-600{% else %}text-slate-400{% endif %}">
@@ -195,6 +201,84 @@
         </tbody>
       </table>
     </div>
+  </div>
+  {% endif %}
+
+  <!-- Maths quizzes -->
+  {% if quizzes.items %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-quizzes">
+    <h2 class="font-display text-xl text-gray-800">Maths quizzes</h2>
+    <p class="text-xs text-slate-500 mb-4">
+      {{ quizzes.attempts }} attempt{{ quizzes.attempts|pluralize }} across
+      {{ quizzes.attempted }} topic{{ quizzes.attempted|pluralize }}, averaging
+      {{ quizzes.avg_best_pct }}% at best.
+    </p>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200">
+            <th class="py-2 pr-4">Topic</th>
+            <th class="py-2 px-2 text-center">Attempts</th>
+            <th class="py-2 px-2 text-center">First</th>
+            <th class="py-2 px-2 text-center">Best</th>
+            <th class="py-2 pl-2 text-center">Gain</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in quizzes.items %}
+          <tr class="border-b border-slate-100">
+            <td class="py-2 pr-4 text-slate-700">{{ row.name }}</td>
+            <td class="py-2 px-2 text-center text-slate-600">{{ row.attempts }}</td>
+            <td class="py-2 px-2 text-center text-slate-500">{{ row.first_pct }}%</td>
+            <td class="py-2 px-2 text-center font-semibold text-slate-800">{{ row.best_pct }}%</td>
+            <td class="py-2 pl-2 text-center {% if row.gain_pct > 0 %}text-emerald-600 font-semibold{% else %}text-slate-400{% endif %}">
+              {{ row.gain_pct|stringformat:"+d" }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Times tables -->
+  {% if times_tables.items %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-times-tables">
+    <h2 class="font-display text-xl text-gray-800">Times tables</h2>
+    <p class="text-xs text-slate-500 mb-4">
+      {{ times_tables.tables }} table{{ times_tables.tables|pluralize }} practised,
+      averaging {{ times_tables.avg_best_pct }}% at best.
+    </p>
+    <div class="flex flex-wrap gap-2">
+      {% for row in times_tables.items %}
+        <div class="rounded-xl border border-slate-200 px-3 py-2 text-center min-w-[5.5rem]">
+          <p class="text-sm font-bold text-slate-800">{{ row.table }}×</p>
+          <p class="text-[11px] text-slate-500">
+            {% if row.multiplication_pct is not None %}× {{ row.multiplication_pct }}%{% endif %}
+            {% if row.division_pct is not None %}<span class="block">÷ {{ row.division_pct }}%</span>{% endif %}
+          </p>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Basic facts -->
+  {% if basic_facts.items %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-basic-facts">
+    <h2 class="font-display text-xl text-gray-800">Basic facts</h2>
+    <p class="text-xs text-slate-500 mb-4">
+      Best result per subtopic, with the level it was reached at.
+    </p>
+    <ul class="divide-y divide-slate-100 text-sm">
+      {% for row in basic_facts.items %}
+        <li class="py-2 flex items-center justify-between">
+          <span class="text-slate-700">{{ row.subtopic }}{% if row.level %} &middot; Level {{ row.level }}{% endif %}</span>
+          <span class="font-semibold text-slate-800">{{ row.best_pct }}%</span>
+        </li>
+      {% endfor %}
+    </ul>
   </div>
   {% endif %}
 

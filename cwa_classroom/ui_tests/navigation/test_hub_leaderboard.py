@@ -9,6 +9,9 @@ so this covers what a student actually sees on their first visit of the day:
   - the podium names the top three, and the student's own row is highlighted
   - a student off the podium sees their rank and the gap to the next place
   - a student on the podium is not shown a duplicate rank line
+  - a school student gets two tabs (their school, then everyone) and the
+    school one is selected first
+  - switching tabs in the pop-up does not move the card's tabs behind it
 """
 
 from __future__ import annotations
@@ -134,3 +137,71 @@ class TestHubLeaderboard:
         popup = page.locator(POPUP)
         expect(popup).to_contain_text('Your rank')
         expect(popup).to_contain_text('10 points to reach 3rd place')
+
+
+class TestScopedTabs:
+    """A school student sees their school's board and the system-wide one."""
+
+    @pytest.fixture
+    def schooled(self, db, leaderboard, school):
+        """Enrol the student and one classmate, so the school board has two."""
+        from accounts.models import CustomUser, Role
+        from classroom.models import SchoolStudent
+        from rewards.models import PointsSource
+        from rewards.services import award_points
+
+        mate = CustomUser.objects.create_user(
+            'lb-mate', 'lb-mate@example.test', 'pass1234',
+            first_name='Mate', last_name='Ng',
+        )
+        role, _ = Role.objects.get_or_create(
+            name=Role.STUDENT, defaults={'display_name': 'Student'},
+        )
+        mate.roles.add(role)
+        award_points(mate, PointsSource.HOMEWORK, '2', 20)
+        SchoolStudent.objects.get_or_create(school=school, student=mate)
+        return leaderboard
+
+    @pytest.mark.django_db(transaction=True)
+    def test_the_school_tab_is_selected_first(self, page: Page, live_server, schooled):
+        do_login(page, live_server.url, schooled)
+        popup = page.locator(POPUP)
+
+        expect(popup.locator('#popup-tab-school')).to_have_attribute('aria-selected', 'true')
+        expect(popup.locator('#popup-tab-global')).to_have_attribute('aria-selected', 'false')
+        expect(popup.locator('#popup-panel-school')).to_be_visible()
+        expect(popup.locator('#popup-panel-global')).to_be_hidden()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_clicking_everyone_switches_the_panel(self, page: Page, live_server, schooled):
+        do_login(page, live_server.url, schooled)
+        popup = page.locator(POPUP)
+
+        popup.locator('#popup-tab-global').click()
+        expect(popup.locator('#popup-panel-global')).to_be_visible()
+        expect(popup.locator('#popup-panel-school')).to_be_hidden()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_the_popup_tabs_do_not_drive_the_cards_panels(
+        self, page: Page, live_server, schooled
+    ):
+        """Both boards are on the page at once. Switching one must not switch
+        the other — the bug a shared element id would cause."""
+        do_login(page, live_server.url, schooled)
+        page.locator(POPUP).locator('#popup-tab-global').click()
+
+        page.locator(CLOSE).click()
+        expect(page.locator('#card-panel-school')).to_be_visible()
+        expect(page.locator('#card-panel-global')).to_be_hidden()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_the_school_board_excludes_students_from_other_schools(
+        self, page: Page, live_server, schooled
+    ):
+        """Ada and Grace outrank the student system-wide but are in no school,
+        so the school tab must not list them."""
+        do_login(page, live_server.url, schooled)
+        school_panel = page.locator(POPUP).locator('#popup-panel-school')
+
+        expect(school_panel).to_contain_text('Mate N.')
+        expect(school_panel).not_to_contain_text('Ada L.')

@@ -119,6 +119,9 @@ class PeriodReportDetailView(LoginRequiredMixin, View):
             'attempts': attempts,
             'awards': report.awards,
             'worksheets': report.worksheets,
+            'quizzes': report.quizzes,
+            'times_tables': report.times_tables,
+            'basic_facts': report.basic_facts,
             'charts_json': json.dumps(charts),
         })
 
