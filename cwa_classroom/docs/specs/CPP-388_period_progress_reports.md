@@ -128,6 +128,26 @@ person saying "send it now".
 Open to Head of Institute / institute owner / admin, plus HoD and teachers, who
 can read what their classes would send without being able to switch reporting on.
 
+**Opening one student's report before sending.** The table answers *how did they
+do*; it could not answer *what will they actually receive*. Each row with
+activity carries a **View report** link to
+`/progress/reports/preview/report/` (`?school=&period=&classroom=&student=`),
+which renders that student's report exactly as the family would see it, plus
+`.../report/pdf/` for the PDF a parent is sent.
+
+Both build an **unsaved** `PeriodReport` and render it through the same context
+builder the sent report uses (`views_reports.report_detail_context`). Unsaved so
+the preview still writes nothing; shared so it cannot drift — a preview that
+quietly disagrees with what gets sent is worse than no preview at all. The page
+carries an amber banner saying the report has not been generated or sent, since
+the rest of it is deliberately identical to the real thing.
+
+Access is decided by *the same plan that builds the table* rather than by a
+fresh permission rule: if the row is on the list this user just looked at, they
+may open it; if it is not, they get a 404. A second rule would either 404 on
+rows the page shows — a link that is a trap — or grant something the list does
+not.
+
 Configured at **Report Automation** (`/progress/reports/settings/`), open to Head
 of Institute / institute owner / admin. It is deliberately not a per-teacher
 setting: switching it on starts notifying families.

@@ -31,7 +31,7 @@ Everything else is read from:
 | `report_settings.py` | The school → department → class opt-in cascade |
 | `visibility.py` | Whether a student/parent sees the reports nav link at all |
 | `views_settings.py` | The Head of Institute configuration page |
-| `views_preview.py` | Staff preview of every student's report, and manual send |
+| `views_preview.py` | Staff preview — the list, one student's live report + PDF, and manual send |
 | `reports.py` | Builds the snapshot — totals, topics, attempts, trend, awards |
 | `services.py` | Generates reports and delivers them (in-app notification; term email) |
 | `pdf.py` | Renders a report to PDF with ReportLab, charts included |
@@ -59,6 +59,8 @@ kept separate so the two routes above keep their un-namespaced names):
 - `/progress/reports/<id>/pdf/` — `progress:period_report_pdf`
 - `/progress/reports/settings/` — `progress:report_settings` (HoI / owner / admin)
 - `/progress/reports/preview/` — `progress:report_preview` (staff; preview + manual send)
+- `/progress/reports/preview/report/` — `progress:report_preview_detail` (staff; one student's report, computed and discarded)
+- `/progress/reports/preview/report/pdf/` — `progress:report_preview_pdf` (staff; the same, as the parent's PDF)
 
 ## API
 
