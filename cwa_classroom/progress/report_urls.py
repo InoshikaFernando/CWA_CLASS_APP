@@ -21,6 +21,14 @@ urlpatterns = [
          views_settings.ReportSettingsView.as_view(), name='report_settings'),
     path('progress/reports/preview/',
          views_preview.ReportPreviewView.as_view(), name='report_preview'),
+    # Both sit above the <int:report_id> routes for the same reason "settings"
+    # does: a literal path segment must never be parsed as a report id.
+    path('progress/reports/preview/report/',
+         views_preview.ReportPreviewDetailView.as_view(),
+         name='report_preview_detail'),
+    path('progress/reports/preview/report/pdf/',
+         views_preview.ReportPreviewPdfView.as_view(),
+         name='report_preview_pdf'),
     path('progress/reports/<int:report_id>/',
          views_reports.PeriodReportDetailView.as_view(), name='period_report_detail'),
     path('progress/reports/<int:report_id>/pdf/',
