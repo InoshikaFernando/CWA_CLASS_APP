@@ -79,17 +79,14 @@
   </div>
 
   <!-- ── Global leaderboard ────────────────────────────────────── -->
-  {% if standing.has_board %}
+  {% if standings.0.has_board %}
   <section class="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl px-4 py-3.5"
            data-testid="leaderboard-card">
     <div class="flex items-center gap-1.5 mb-2.5">
       <span class="text-base leading-none" aria-hidden="true">🏆</span>
       <h2 class="text-xs font-bold text-amber-800 uppercase tracking-wide">Top Wizards</h2>
-      {% if standing.board_size %}
-      <span class="text-xs text-amber-700/70 ml-auto">{{ standing.board_size }} student{{ standing.board_size|pluralize }}</span>
-      {% endif %}
     </div>
-    {% include "hub/_leaderboard.html" %}
+    {% include "hub/_leaderboard.html" with prefix="card" %}
   </section>
   {% endif %}
 
@@ -406,7 +403,7 @@
 
 </div>
 
-{% if show_leaderboard_popup and standing.has_board %}
+{% if show_leaderboard_popup and standings.0.has_board %}
 <!-- ── Daily standings pop-up (first hub load of the day) ─────────── -->
 <div id="leaderboard-popup" data-testid="leaderboard-popup"
      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
@@ -417,7 +414,7 @@
       <h2 id="leaderboard-popup-title" class="text-lg font-bold text-gray-800">Top Wizards</h2>
       <p class="text-xs text-gray-500">Across every subject, school and year</p>
     </div>
-    {% include "hub/_leaderboard.html" %}
+    {% include "hub/_leaderboard.html" with prefix="popup" %}
     <button type="button" data-testid="leaderboard-popup-close"
             class="w-full rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2.5 transition">
       Let's go!
@@ -437,4 +434,26 @@
   })();
 </script>
 {% endif %}
+
+<script>
+  // Leaderboard scope tabs. Scoped to each [data-leaderboard] block so the card
+  // and the pop-up — both on the page at once — drive only their own panels.
+  document.querySelectorAll('[data-leaderboard]').forEach(function (board) {
+    board.querySelectorAll('[role="tab"]').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        board.querySelectorAll('[role="tab"]').forEach(function (t) {
+          var on = t === tab;
+          t.setAttribute('aria-selected', on ? 'true' : 'false');
+          t.classList.toggle('bg-amber-500', on);
+          t.classList.toggle('text-white', on);
+          t.classList.toggle('shadow-sm', on);
+          t.classList.toggle('text-amber-800', !on);
+          t.classList.toggle('hover:bg-white', !on);
+          document.getElementById(t.dataset.tabTarget)
+                  .classList.toggle('hidden', !on);
+        });
+      });
+    });
+  });
+</script>
 {% endblock %}

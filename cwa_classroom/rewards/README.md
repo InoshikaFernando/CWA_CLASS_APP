@@ -88,6 +88,33 @@ Attempt history is pruned, so a unit whose every surviving attempt is worse than
 a deleted one is rebuilt at the best score still on record. Going forward the
 ledger is written at submit time and never loses that.
 
+## Scopes
+
+`services.board_queryset(school=None)` defines a board's population, and
+`get_standings(student)` returns every board that student belongs on, in display
+order:
+
+| Scope | Population | Shown to |
+|-------|-----------|----------|
+| `school` | active members of the student's first active school | school students, **first** |
+| `global` | every ranked student on the system | everyone |
+
+The school tab leads because a field a student can realistically climb beats one
+where the honest answer is "you are 400th". An individual student belongs to no
+school, gets the system-wide board alone, and sees no tab strip.
+
+Membership is **joined, not denormalised** onto `StudentPointsTotal`: a student
+who changes school would otherwise leave a stale copy behind. The join is cheap
+against a table holding one row per student.
+
+The winner's message names the scope it actually won — "top of your whole
+school" and "number one across every school on the system" are very different
+achievements, and the board must not claim the larger one.
+
+Country and class boards slot in the same way: add the filter to
+`board_queryset()` and an entry to `get_standings()`. `CustomUser.country`
+already exists; class membership is `classroom.ClassStudent`.
+
 ## Where it shows
 
 The student hub (`templates/hub/home.html`, rendered by
@@ -96,18 +123,19 @@ The student hub (`templates/hub/home.html`, rendered by
 - a **"Top Wizards" card** that stays on the page all day
 - a **pop-up** on the first hub load of each local day
 
-Both render `templates/hub/_leaderboard.html` from a
-`rewards.services.Standing`. The board names the top three; a student already on
-the podium is not shown a duplicate rank line.
+Both render `templates/hub/_leaderboard.html`, one tab per `Standing`. Because
+both copies are on the page at once, every element id is namespaced with the
+`prefix` the includer passes (`card` / `popup`) — a shared id would make the
+pop-up's tabs drive the card's panels. A test pins that.
 
-Names are shown as **first name + last initial** — the board is global, spanning
-every school and country, so it must not identify a child in full to strangers.
+The board names the top three; a student already on the podium is not shown a
+duplicate rank line.
 
-## Planned scopes
+Names are shown as **first name + last initial** — the board spans every school
+and country, so it must not identify a child in full to strangers.
 
-Country-, school- and class-wide boards reuse everything here with one extra
-filter on `services.board_queryset()`. `CustomUser.country` already exists;
-school and class come from `classroom.SchoolStudent` / `classroom.ClassStudent`.
+Two boards cost 12 queries per hub load. `get_standings()` reads the student's
+own total once and lends it to both rather than repeating the identical query.
 
 ## Tests
 
