@@ -732,6 +732,7 @@ class ExpenseCategory(models.TextChoices):
     DIGITALOCEAN = 'digitalocean', 'DigitalOcean'
     RESEND = 'resend', 'Resend (email)'
     GODADDY = 'godaddy', 'GoDaddy (domain)'
+    GITHUB = 'github', 'GitHub (Actions)'
     STRIPE_FEES = 'stripe_fees', 'Stripe fees'
     OTHER = 'other', 'Other'
 
@@ -758,6 +759,15 @@ EXPENSE_SOURCE_CHOICES = [
 # Sources a human owns and may edit/delete in the UI. Everything else is
 # machine-synced (re-derived each run) and therefore read-only.
 EXPENSE_EDITABLE_SOURCES = {EXPENSE_SOURCE_MANUAL, EXPENSE_SOURCE_RECURRING}
+
+# Sources carrying a vendor's OWN billed figure for a month, as opposed to the
+# flat estimate a RecurringExpense template books ahead of the invoice. Once
+# one of these exists for a (category, month) the estimate for that month is
+# superseded and must not be re-booked — otherwise the month is counted twice.
+AUTHORITATIVE_AUTO_SOURCES = (
+    EXPENSE_SOURCE_DIGITALOCEAN,
+    EXPENSE_SOURCE_AI_VENDOR,
+)
 
 
 class Expense(models.Model):

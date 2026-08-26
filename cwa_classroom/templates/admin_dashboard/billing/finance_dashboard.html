@@ -42,6 +42,15 @@
   </div>
   {% endif %}
 
+  {% if stale_categories %}
+  <div class="mb-6 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm">
+    Expenses are behind for
+    {% for cat in stale_categories %}{% if not forloop.first %}{% if forloop.last %} and {% else %}, {% endif %}{% endif %}<span class="font-semibold">{{ cat.label }}</span> (last charge {{ cat.last_on|date:"M Y" }}){% endfor %}.
+    Costs with no billing API are entered by hand — until they are, the totals below under-report.
+    <a href="{% url 'billing_admin_expense_list' %}" class="underline hover:text-amber-200">Add the missing charges</a>.
+  </div>
+  {% endif %}
+
   <!-- Summary tiles -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
     <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
@@ -157,7 +166,10 @@
   <!-- Per-month table + category breakdown -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
     <div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
-      <div class="px-6 py-4 border-b border-slate-700"><h3 class="font-semibold text-white">By month</h3></div>
+      <div class="px-6 py-4 border-b border-slate-700">
+        <h3 class="font-semibold text-white">By month</h3>
+        <p class="text-xs text-slate-500 mt-0.5">{{ period_label }}</p>
+      </div>
       <table class="w-full text-left text-sm">
         <thead>
           <tr class="border-b border-slate-700 bg-slate-900/40">
@@ -181,7 +193,10 @@
     </div>
 
     <div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
-      <div class="px-6 py-4 border-b border-slate-700"><h3 class="font-semibold text-white">Expenses by category</h3></div>
+      <div class="px-6 py-4 border-b border-slate-700">
+        <h3 class="font-semibold text-white">Expenses by category</h3>
+        <p class="text-xs text-slate-500 mt-0.5">Total per vendor over the selected {{ months }} months &middot; {{ period_label }}</p>
+      </div>
       <table class="w-full text-left text-sm">
         <thead>
           <tr class="border-b border-slate-700 bg-slate-900/40">
@@ -192,8 +207,15 @@
         <tbody class="divide-y divide-slate-700/60">
           {% for cat in category_totals %}
           <tr class="hover:bg-slate-700/40 transition">
-            <td class="px-6 py-3 text-slate-300">{{ cat.label }}</td>
-            <td class="px-6 py-3 text-right text-white font-medium">${{ cat.amount|floatformat:2 }}</td>
+            <td class="px-6 py-3 text-slate-300">
+              {{ cat.label }}
+              {% if cat.is_stale %}
+              <span class="block text-xs text-amber-400 mt-0.5">
+                Nothing recorded since {{ cat.last_on|date:"M Y" }} — this total covers part of the period only.
+              </span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-3 text-right {% if cat.is_stale %}text-amber-300{% else %}text-white{% endif %} font-medium">${{ cat.amount|floatformat:2 }}</td>
           </tr>
           {% empty %}
           <tr><td colspan="2" class="px-6 py-12 text-center text-slate-500">No expenses recorded for this period.</td></tr>

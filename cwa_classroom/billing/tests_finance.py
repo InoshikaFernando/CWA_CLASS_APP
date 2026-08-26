@@ -4,7 +4,7 @@ materialize_recurring_expenses command.
 Stripe is never called: get_paid_revenue is patched so income is deterministic
 (or unavailable) without hitting the API.
 """
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from io import StringIO
 from unittest.mock import patch
@@ -39,6 +39,20 @@ def _revenue(student='0', institute='0'):
 
 
 class ExpenseModelTests(TestCase):
+    def test_github_is_an_expense_category(self):
+        """GitHub Actions minutes are a real operating cost (the CI matrix),
+        so they need a bucket of their own rather than landing in Other."""
+        self.assertIn(
+            (ExpenseCategory.GITHUB, 'GitHub (Actions)'),
+            ExpenseCategory.choices,
+        )
+        exp = Expense.objects.create(
+            category=ExpenseCategory.GITHUB, vendor='GitHub',
+            amount=Decimal('18.40'), incurred_on=date(2026, 8, 1),
+            source=EXPENSE_SOURCE_MANUAL,
+        )
+        self.assertEqual(exp.get_category_display(), 'GitHub (Actions)')
+
     def test_is_auto_property(self):
         manual = Expense(source=EXPENSE_SOURCE_MANUAL)
         recurring = Expense(source=EXPENSE_SOURCE_RECURRING)
@@ -104,6 +118,62 @@ class IncomeExpenseSummaryTests(TestCase):
         )
         # The pre-window expense is NOT double-counted in the period total.
         self.assertEqual(summary['totals']['expense'], Decimal('65.00'))
+
+    @patch('billing.reporting.get_paid_revenue', side_effect=StripeUnavailable)
+    def test_category_with_no_current_charge_is_flagged_stale(self, mock_rev):
+        """Claude Code has no billing API — its charges are typed in by hand,
+        so a month nobody entered read as $0 and the period total silently
+        showed one month's charge for a three-month window. Say so instead."""
+        two_ago = self._sub_months(self.this_month, 2)
+        Expense.objects.create(
+            category=ExpenseCategory.CLAUDE_CODE, amount=Decimal('171.90'),
+            incurred_on=two_ago, source=EXPENSE_SOURCE_MANUAL,
+        )
+        summary = get_income_expense_summary(months=3)
+
+        cats = {c['category']: c for c in summary['category_totals']}
+        self.assertTrue(cats[ExpenseCategory.CLAUDE_CODE]['is_stale'])
+        self.assertEqual(cats[ExpenseCategory.CLAUDE_CODE]['last_on'], two_ago)
+        # A category charged this month is current, not stale.
+        self.assertFalse(cats[ExpenseCategory.DIGITALOCEAN]['is_stale'])
+        self.assertEqual(
+            [c['category'] for c in summary['stale_categories']],
+            [ExpenseCategory.CLAUDE_CODE],
+        )
+
+    @patch('billing.reporting.get_paid_revenue', side_effect=StripeUnavailable)
+    def test_yearly_cost_is_never_stale(self, mock_rev):
+        """One charge a year is correct for a yearly template — flagging it
+        would cry wolf every month."""
+        RecurringExpense.objects.create(
+            category=ExpenseCategory.GODADDY, vendor='GoDaddy',
+            amount=Decimal('45.99'),
+            frequency=RecurringExpense.FREQUENCY_YEARLY,
+            start_date=self._sub_months(self.this_month, 2),
+        )
+        Expense.objects.filter(category=ExpenseCategory.GODADDY).update(
+            incurred_on=self._sub_months(self.this_month, 2),
+        )
+        summary = get_income_expense_summary(months=3)
+
+        cats = {c['category']: c for c in summary['category_totals']}
+        self.assertFalse(cats[ExpenseCategory.GODADDY]['is_stale'])
+        self.assertEqual(summary['stale_categories'], [])
+
+    @patch('billing.reporting.get_paid_revenue', side_effect=StripeUnavailable)
+    def test_period_label_names_the_window(self, mock_rev):
+        summary = get_income_expense_summary(months=3)
+        self.assertEqual(
+            summary['period_label'],
+            f'{self._sub_months(self.this_month, 2).strftime("%b %Y")} – '
+            f'{self.this_month.strftime("%b %Y")}',
+        )
+
+    @staticmethod
+    def _sub_months(d, n):
+        for _ in range(n):
+            d = (d - timedelta(days=1)).replace(day=1)
+        return d
 
 
 class SyncAIUsageTests(TestCase):
@@ -296,6 +366,98 @@ class MaterializeCommandTests(TestCase):
         self._run()
         self.assertEqual(Expense.objects.filter(source=EXPENSE_SOURCE_RECURRING).count(), 0)
 
+    def test_billed_month_is_not_re_estimated(self):
+        """Regression: the DigitalOcean estimate came back after the actual
+        invoice superseded it, so the month counted twice (the dashboard read
+        roughly double for DigitalOcean)."""
+        today = date.today().replace(day=1)
+        RecurringExpense.objects.create(
+            category=ExpenseCategory.DIGITALOCEAN, vendor='DigitalOcean',
+            amount=Decimal('50.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY, start_date=today,
+        )
+        Expense.objects.create(
+            category=ExpenseCategory.DIGITALOCEAN, amount=Decimal('57.36'),
+            incurred_on=today, source=EXPENSE_SOURCE_DIGITALOCEAN,
+        )
+
+        self._run()
+
+        rows = Expense.objects.filter(incurred_on=today)
+        self.assertEqual([r.source for r in rows], [EXPENSE_SOURCE_DIGITALOCEAN])
+        self.assertEqual(
+            sum(r.amount for r in rows), Decimal('57.36'),
+        )
+
+    def test_existing_superseded_estimate_is_cleared(self):
+        """An estimate already double-booked alongside the actual is removed,
+        so figures self-heal without a manual clean-up."""
+        today = date.today().replace(day=1)
+        tpl = RecurringExpense.objects.create(
+            category=ExpenseCategory.DIGITALOCEAN, vendor='DigitalOcean',
+            amount=Decimal('50.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY, start_date=today,
+        )
+        Expense.objects.create(
+            category=ExpenseCategory.DIGITALOCEAN, amount=Decimal('50.00'),
+            incurred_on=today, source=EXPENSE_SOURCE_RECURRING, recurring=tpl,
+        )
+        Expense.objects.create(
+            category=ExpenseCategory.DIGITALOCEAN, amount=Decimal('57.36'),
+            incurred_on=today, source=EXPENSE_SOURCE_DIGITALOCEAN,
+        )
+
+        self._run()
+
+        self.assertFalse(
+            Expense.objects.filter(source=EXPENSE_SOURCE_RECURRING).exists(),
+        )
+
+    def test_dry_run_never_clears_a_superseded_estimate(self):
+        today = date.today().replace(day=1)
+        tpl = RecurringExpense.objects.create(
+            category=ExpenseCategory.DIGITALOCEAN, vendor='DigitalOcean',
+            amount=Decimal('50.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY, start_date=today,
+        )
+        Expense.objects.create(
+            category=ExpenseCategory.DIGITALOCEAN, amount=Decimal('50.00'),
+            incurred_on=today, source=EXPENSE_SOURCE_RECURRING, recurring=tpl,
+        )
+        Expense.objects.create(
+            category=ExpenseCategory.DIGITALOCEAN, amount=Decimal('57.36'),
+            incurred_on=today, source=EXPENSE_SOURCE_DIGITALOCEAN,
+        )
+
+        self._run(dry_run=True)
+
+        self.assertTrue(
+            Expense.objects.filter(source=EXPENSE_SOURCE_RECURRING).exists(),
+        )
+
+    def test_unbilled_month_still_gets_its_estimate(self):
+        """Superseding is per month — a month DigitalOcean hasn't invoiced yet
+        must still show the estimate rather than $0."""
+        today = date.today().replace(day=1)
+        prev = (today - timedelta(days=1)).replace(day=1)
+        RecurringExpense.objects.create(
+            category=ExpenseCategory.DIGITALOCEAN, vendor='DigitalOcean',
+            amount=Decimal('50.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY, start_date=prev,
+        )
+        Expense.objects.create(
+            category=ExpenseCategory.DIGITALOCEAN, amount=Decimal('57.36'),
+            incurred_on=prev, source=EXPENSE_SOURCE_DIGITALOCEAN,
+        )
+
+        self._run()
+
+        self.assertEqual(
+            [(e.incurred_on, e.amount) for e in Expense.objects.filter(
+                source=EXPENSE_SOURCE_RECURRING)],
+            [(today, Decimal('50.00'))],
+        )
+
 
 class RefreshCurrentMonthExpensesTests(TestCase):
     """The dashboard self-heals the current month between monthly cron runs, so
@@ -361,9 +523,10 @@ class RefreshCurrentMonthExpensesTests(TestCase):
         )
         materialize_recurring_expenses()  # first run books ~19 months
         # Second run creates nothing; it must not fan out into one query per
-        # already-booked month — just the template list (1) + bulk fetch (1),
-        # regardless of how many months are already booked.
-        with self.assertNumQueries(2):
+        # already-booked month — just the template list (1) plus two bulk
+        # fetches (vendor-billed months, already-booked months), regardless of
+        # how many months are already booked.
+        with self.assertNumQueries(3):
             self.assertEqual(len(materialize_recurring_expenses()), 0)
 
     def test_vendor_sync_failure_does_not_break_refresh(self):
@@ -424,6 +587,43 @@ class FinanceDashboardViewTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         current = resp.context['bars'][-1]
         self.assertEqual(current['expense'], Decimal('20.00'))
+
+    @patch('billing.views_admin.get_usd_to_nzd_rate', return_value=(Decimal('1.63'), 'live'))
+    @patch('billing.reporting.get_paid_revenue', side_effect=StripeUnavailable)
+    def test_stale_category_is_called_out_on_the_page(self, mock_rev, mock_rate):
+        this_month = date.today().replace(day=1)
+        two_ago = this_month
+        for _ in range(2):
+            two_ago = (two_ago - timedelta(days=1)).replace(day=1)
+        Expense.objects.create(
+            category=ExpenseCategory.CLAUDE_CODE, amount=Decimal('171.90'),
+            incurred_on=two_ago, source=EXPENSE_SOURCE_MANUAL,
+        )
+
+        self.client.login(username='boss', password='Pass123!')
+        resp = self.client.get(reverse('billing_admin_finance_dashboard') + '?months=3')
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            [c['category'] for c in resp.context['stale_categories']],
+            [ExpenseCategory.CLAUDE_CODE],
+        )
+        self.assertContains(resp, 'Expenses are behind for')
+        # The category panel names the window it totals, so a part-period
+        # figure can't read as a full one.
+        self.assertContains(resp, resp.context['period_label'])
+
+    def test_github_expense_can_be_recorded_from_the_admin_form(self):
+        self.client.login(username='boss', password='Pass123!')
+        resp = self.client.post(reverse('billing_admin_expense_create'), {
+            'category': ExpenseCategory.GITHUB,
+            'amount': '18.40', 'incurred_on': '2026-08-01',
+            'vendor': 'GitHub', 'description': 'Actions minutes',
+        })
+        self.assertEqual(resp.status_code, 302)
+        exp = Expense.objects.get()
+        self.assertEqual(exp.category, ExpenseCategory.GITHUB)
+        self.assertEqual(exp.amount, Decimal('18.40'))
 
     def test_create_manual_expense(self):
         self.client.login(username='boss', password='Pass123!')

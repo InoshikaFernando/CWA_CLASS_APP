@@ -11,6 +11,12 @@ USD amounts are converted to NZD at run time via the live FX helper
 
 Claude API cost is NOT seeded here — it auto-syncs from the taskqueue
 AIUsageLog ledger (PDF scan + marking + worksheets).
+
+Claude Code and GitHub Actions are usage-billed, not flat, and neither figure
+is pulled from an API, so both are booked as actual charges (below / via
+Expenses > New) rather than as a recurring template. A month nobody enters is
+a month the dashboard under-reports — it flags the category as behind rather
+than passing the short total off as a full period.
 """
 from datetime import date
 from decimal import Decimal
@@ -49,6 +55,10 @@ EXPENSES = [
     },
 ]
 
+# GitHub Actions minutes are usage-billed too — add each invoice via
+# Expenses > New under the "GitHub (Actions)" category (the CI matrix is the
+# cost driver; see CLAUDE.md on the spending limit that once stopped a deploy).
+#
 # Claude Code is NOT a flat subscription — there are multiple charges per month
 # (plan + usage top-ups) and no billing API, so we book the ACTUAL charges from
 # the claude.ai billing page (already in NZD). Add each new month's charge(s)

@@ -471,7 +471,10 @@ def materialize_recurring_expenses(until=None, *, dry_run=False):
     Returns a list of (template, month_start) pairs that were (or, in dry-run,
     would be) created.
     """
-    from .models import Expense, RecurringExpense, EXPENSE_SOURCE_RECURRING
+    from .models import (
+        Expense, RecurringExpense, EXPENSE_SOURCE_RECURRING,
+        AUTHORITATIVE_AUTO_SOURCES,
+    )
 
     if until is None:
         until = _first_of_month(timezone.localdate())
@@ -479,6 +482,28 @@ def materialize_recurring_expenses(until=None, *, dry_run=False):
     templates = list(RecurringExpense.objects.filter(is_active=True))
     if not templates:
         return []
+
+    # A month the vendor has actually billed is settled — its estimate is
+    # superseded, and keeping both would count that month twice.
+    # sync_digitalocean_expenses deletes the estimate when it writes the
+    # actual, but materialisation runs on EVERY dashboard load and used to
+    # book the estimate straight back, so DigitalOcean read as estimate +
+    # actual (roughly double) from the next page view onwards. Skip those
+    # months, and clear any estimate that already slipped through so existing
+    # figures self-heal rather than needing a manual clean-up.
+    billed_months = {}
+    for category, month in (
+        Expense.objects.filter(source__in=AUTHORITATIVE_AUTO_SOURCES)
+        .values_list('category', 'incurred_on')
+    ):
+        billed_months.setdefault(category, set()).add(month)
+
+    if not dry_run:
+        for category, months in billed_months.items():
+            Expense.objects.filter(
+                source=EXPENSE_SOURCE_RECURRING,
+                category=category, incurred_on__in=months,
+            ).delete()
 
     # Pull the already-booked (template, month) pairs once and diff in Python —
     # same pull-once approach as get_income_expense_summary — so a dashboard
@@ -490,8 +515,9 @@ def materialize_recurring_expenses(until=None, *, dry_run=False):
 
     created = []
     for template in templates:
+        settled = billed_months.get(template.category, set())
         for month in _recurring_occurrences(template, until):
-            if (template.id, month) in existing:
+            if (template.id, month) in existing or month in settled:
                 continue
             if dry_run:
                 created.append((template, month))
@@ -570,14 +596,15 @@ def get_income_expense_summary(months=6):
         {'label': 'Jun 2026', 'start': date, 'income': Decimal,
          'expense': Decimal, 'net': Decimal}, ...   # oldest -> newest
       ],
-      'category_totals': [{'category': key, 'label': str, 'amount': Decimal}, ...],
+      'category_totals': [{'category': key, 'label': str, 'amount': Decimal,
+                           'last_on': date, 'is_stale': bool}, ...],
       'totals': {'income': Decimal, 'expense': Decimal, 'net': Decimal},
       'income_available': bool,          # False if Stripe was unreachable
       'max_value': Decimal,              # for chart scaling
     }
     """
     from django.db.models import Sum
-    from .models import Expense, ExpenseCategory
+    from .models import Expense, ExpenseCategory, RecurringExpense
 
     months = max(1, min(int(months), 24))
     today = timezone.localdate()
@@ -607,11 +634,16 @@ def get_income_expense_summary(months=6):
     ZERO = Decimal('0.00')
     expense_by_month = {}
     category_totals = {}
+    category_last_seen = {}
     for row in expense_rows:
         key = _first_of_month(row['incurred_on'])
         expense_by_month[key] = expense_by_month.get(key, ZERO) + row['amount']
         category_totals[row['category']] = (
             category_totals.get(row['category'], ZERO) + row['amount']
+        )
+        category_last_seen[row['category']] = max(
+            category_last_seen.get(row['category'], row['incurred_on']),
+            row['incurred_on'],
         )
 
     income_available = True
@@ -640,13 +672,35 @@ def get_income_expense_summary(months=6):
         total_expense += expense
         max_value = max(max_value, income, expense)
 
+    # A category whose last charge predates the current month has stopped
+    # being recorded — either the vendor stopped billing, or (Claude Code has
+    # no billing API, so its charges are typed in by hand) nobody has entered
+    # this month's yet. Either way the period total silently under-reports:
+    # the Claude Code column read as one month's charge inside a three-month
+    # window. Flag it on the row rather than letting a stale figure pass for a
+    # current one. Yearly costs are exempt — one charge a year is correct.
+    yearly_categories = set(
+        RecurringExpense.objects
+        .filter(is_active=True, frequency=RecurringExpense.FREQUENCY_YEARLY)
+        .values_list('category', flat=True),
+    )
     cat_labels = dict(ExpenseCategory.choices)
-    cat_list = [
-        {'category': k, 'label': cat_labels.get(k, k), 'amount': v}
-        for k, v in sorted(
-            category_totals.items(), key=lambda kv: kv[1], reverse=True,
-        )
-    ]
+    cat_list = []
+    for k, v in sorted(
+        category_totals.items(), key=lambda kv: kv[1], reverse=True,
+    ):
+        last_on = category_last_seen.get(k)
+        cat_list.append({
+            'category': k,
+            'label': cat_labels.get(k, k),
+            'amount': v,
+            'last_on': last_on,
+            'is_stale': (
+                k not in yearly_categories
+                and last_on is not None
+                and _first_of_month(last_on) < current
+            ),
+        })
 
     # Carry-forward (opening balance): net of EVERYTHING before this window, so
     # the running total / overall net reflect the full picture regardless of the
@@ -670,6 +724,11 @@ def get_income_expense_summary(months=6):
     return {
         'months': series,
         'category_totals': cat_list,
+        'stale_categories': [c for c in cat_list if c['is_stale']],
+        'period_label': (
+            f'{starts[0].strftime("%b %Y")} – {current.strftime("%b %Y")}'
+            if len(starts) > 1 else current.strftime('%b %Y')
+        ),
         'totals': {
             'income': total_income,
             'expense': total_expense,

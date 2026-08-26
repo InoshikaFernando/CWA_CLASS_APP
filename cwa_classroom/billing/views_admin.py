@@ -1872,6 +1872,8 @@ class FinanceDashboardView(SuperuserRequiredMixin, View):
             'bars': bars,
             'chart_data': chart_data,
             'category_totals': summary['category_totals'],
+            'stale_categories': summary['stale_categories'],
+            'period_label': summary['period_label'],
             'totals': summary['totals'],
             'carry_forward': summary['carry_forward'],
             'overall_net': summary['overall_net'],
