@@ -7,7 +7,11 @@
 #      syncs the Anthropic AI-usage cost from taskqueue.AIUsageLog.
 #   2. sync_vendor_charges — pulls real vendor charges: AI usage again (cheap,
 #      idempotent) + DigitalOcean invoices when DIGITALOCEAN_API_TOKEN is set
-#      (the actual invoice supersedes the DO estimate for that month).
+#      (the actual invoice supersedes the DO estimate for that month) + what
+#      Anthropic and OpenAI actually billed, when ANTHROPIC_ADMIN_API_KEY /
+#      OPENAI_ADMIN_API_KEY are set (each supersedes that month's token
+#      estimate). A vendor with no admin key is reported as skipped and keeps
+#      the estimate — the figure is never silently zeroed.
 #
 # Idempotent and safe to re-run, so run DAILY: the Anthropic AI-usage cost
 # accrues every day as students use AI features, so a monthly run left the

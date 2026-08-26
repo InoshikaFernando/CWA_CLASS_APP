@@ -19,14 +19,14 @@ a month the dashboard under-reports — it flags the category as behind rather
 than passing the short total off as a full period.
 """
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
 from billing.models import (
     Expense, RecurringExpense, ExpenseCategory,
-    EXPENSE_SOURCE_MANUAL, EXPENSE_SOURCE_RECURRING,
+    EXPENSE_SOURCE_MANUAL,
 )
 from billing.reporting import get_usd_to_nzd_rate
 
@@ -60,9 +60,11 @@ EXPENSES = [
 # cost driver; see CLAUDE.md on the spending limit that once stopped a deploy).
 #
 # Claude Code is NOT a flat subscription — there are multiple charges per month
-# (plan + usage top-ups) and no billing API, so we book the ACTUAL charges from
-# the claude.ai billing page (already in NZD). Add each new month's charge(s)
-# here or via the admin UI (Expenses > New). (date, NZD amount) pairs:
+# (plan + usage top-ups) and no billing API that reports what was CHARGED, so we
+# book the ACTUAL charges from the claude.ai billing page (already in NZD). Add
+# each new month's charge(s) here or via the admin UI (Expenses > New).
+# A month with no charge listed falls back to the estimate template seeded
+# below, so it reads like a typical month instead of $0. (date, NZD) pairs:
 CLAUDE_CODE_CHARGES = [
     (date(2026, 3, 1), Decimal('34.78')),
     (date(2026, 3, 6), Decimal('40.00')),
@@ -74,6 +76,26 @@ CLAUDE_CODE_CHARGES = [
     (date(2026, 6, 11), Decimal('171.90')),
 ]
 # ---------------------------------------------------------------------------
+
+
+def claude_code_monthly_average():
+    """Mean recorded Claude Code spend per month, over the months that have
+    charges — or None when none are recorded.
+
+    The template stands in for a month nobody has entered yet, so it should
+    read like a typical month rather than like whichever one happened to be
+    last: the recorded months run from NZ$54.78 to NZ$219.63, and either
+    extreme presented as the standing figure would mislead.
+    """
+    by_month = {}
+    for d, amount in CLAUDE_CODE_CHARGES:
+        key = (d.year, d.month)
+        by_month[key] = by_month.get(key, Decimal('0')) + amount
+    if not by_month:
+        return None
+    total = sum(by_month.values(), Decimal('0'))
+    return (total / len(by_month)).quantize(
+        Decimal('0.01'), rounding=ROUND_HALF_UP)
 
 
 class Command(BaseCommand):
@@ -122,24 +144,26 @@ class Command(BaseCommand):
             verb = 'created' if created else 'updated'
             self.stdout.write(self.style.SUCCESS(f'  {verb} {label}'))
 
-        # Claude Code: actual NZD charges (variable, no API). Book each as a
-        # manual row, and drop any flat Claude Code recurring template a prior
-        # seed may have created (it would double-count these actuals).
+        # Claude Code: actual NZD charges (variable, no API), each booked as a
+        # manual row, plus a monthly ESTIMATE template for the months nobody has
+        # entered yet. The estimate is flagged is_estimate, so a month that has
+        # a real charge drops it rather than adding to it — see
+        # materialize_recurring_expenses.
         cc_total = sum(amount for _, amount in CLAUDE_CODE_CHARGES)
+        cc_average = claude_code_monthly_average()
+        cc_start = min((d for d, _ in CLAUDE_CODE_CHARGES), default=None)
         if dry:
             for d, amount in CLAUDE_CODE_CHARGES:
                 self.stdout.write(f'  + would book Claude Code {d} NZ${amount}')
+            if cc_average:
+                self.stdout.write(
+                    f'  + would seed Claude Code [monthly estimate] '
+                    f'NZ${cc_average}/month from {cc_start:%b %Y}')
             self.stdout.write(
-                f'  (would remove any flat Claude Code template; '
-                f'{len(CLAUDE_CODE_CHARGES)} charges, NZ${cc_total} total)')
+                f'  ({len(CLAUDE_CODE_CHARGES)} charges, NZ${cc_total} total)')
             self.stdout.write('Dry run — nothing written, expenses not materialised.')
             return
 
-        RecurringExpense.objects.filter(
-            category=ExpenseCategory.CLAUDE_CODE).delete()
-        Expense.objects.filter(
-            category=ExpenseCategory.CLAUDE_CODE,
-            source=EXPENSE_SOURCE_RECURRING).delete()
         cc_created = 0
         for d, amount in CLAUDE_CODE_CHARGES:
             _, created = Expense.objects.get_or_create(
@@ -156,6 +180,30 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'  Claude Code: {cc_created} new charge(s) booked '
             f'(NZ${cc_total} total across {len(CLAUDE_CODE_CHARGES)}).'))
+
+        if cc_average:
+            tpl, _ = RecurringExpense.objects.update_or_create(
+                category=ExpenseCategory.CLAUDE_CODE, vendor='Anthropic',
+                defaults={
+                    'description': 'Claude Code (estimate — plan + usage top-ups)',
+                    'amount': cc_average,
+                    'frequency': 'monthly',
+                    'start_date': cc_start,
+                    'is_active': True,
+                    'is_estimate': True,
+                    'note': (
+                        'Placeholder only. Average of the actual charges '
+                        'recorded so far — replace a month by entering its '
+                        'real charge (Expenses > New).'
+                    ),
+                },
+            )
+            # A template under any other vendor name would double-count.
+            RecurringExpense.objects.filter(
+                category=ExpenseCategory.CLAUDE_CODE).exclude(pk=tpl.pk).delete()
+            self.stdout.write(self.style.SUCCESS(
+                f'  Claude Code estimate: NZ${cc_average}/month from '
+                f'{cc_start:%b %Y} (months with a real charge ignore it).'))
 
         self.stdout.write('Materialising recurring expenses...')
         call_command('materialize_recurring_expenses')

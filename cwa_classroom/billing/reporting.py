@@ -473,7 +473,7 @@ def materialize_recurring_expenses(until=None, *, dry_run=False):
     """
     from .models import (
         Expense, RecurringExpense, EXPENSE_SOURCE_RECURRING,
-        AUTHORITATIVE_AUTO_SOURCES,
+        EXPENSE_SOURCE_MANUAL, AUTHORITATIVE_AUTO_SOURCES,
     )
 
     if until is None:
@@ -483,23 +483,43 @@ def materialize_recurring_expenses(until=None, *, dry_run=False):
     if not templates:
         return []
 
-    # A month the vendor has actually billed is settled — its estimate is
-    # superseded, and keeping both would count that month twice.
-    # sync_digitalocean_expenses deletes the estimate when it writes the
-    # actual, but materialisation runs on EVERY dashboard load and used to
-    # book the estimate straight back, so DigitalOcean read as estimate +
-    # actual (roughly double) from the next page view onwards. Skip those
-    # months, and clear any estimate that already slipped through so existing
-    # figures self-heal rather than needing a manual clean-up.
-    billed_months = {}
-    for category, month in (
+    # Months already covered by a figure that outranks the template's, and so
+    # must not also carry its estimate — keeping both counts the month twice.
+    # Two kinds outrank it:
+    #
+    #   * the vendor's own billed figure (a DigitalOcean invoice, billed AI
+    #     spend). sync_digitalocean_expenses deletes the estimate when it
+    #     writes the actual, but materialisation runs on EVERY dashboard load
+    #     and used to book it straight back — so DigitalOcean read as estimate
+    #     + actual (roughly double) from the next page view onwards.
+    #   * for an is_estimate template — a placeholder for a cost nobody can
+    #     fetch, like Claude Code — a charge someone entered by hand.
+    #
+    # Settled months are skipped, and an estimate already sitting beside one is
+    # cleared, so existing figures self-heal instead of needing a clean-up.
+    settled = {}
+
+    def _settle(rows):
+        for category, month in rows:
+            settled.setdefault(category, set()).add(_first_of_month(month))
+
+    _settle(
         Expense.objects.filter(source__in=AUTHORITATIVE_AUTO_SOURCES)
-        .values_list('category', 'incurred_on')
-    ):
-        billed_months.setdefault(category, set()).add(month)
+        .values_list('category', 'incurred_on'),
+    )
+    # Hand-entered charges fall on the day they were billed, not the 1st, so
+    # they are bucketed to their month above before being compared.
+    estimate_categories = {t.category for t in templates if t.is_estimate}
+    if estimate_categories:
+        _settle(
+            Expense.objects.filter(
+                source=EXPENSE_SOURCE_MANUAL,
+                category__in=estimate_categories,
+            ).values_list('category', 'incurred_on'),
+        )
 
     if not dry_run:
-        for category, months in billed_months.items():
+        for category, months in settled.items():
             Expense.objects.filter(
                 source=EXPENSE_SOURCE_RECURRING,
                 category=category, incurred_on__in=months,
@@ -515,9 +535,9 @@ def materialize_recurring_expenses(until=None, *, dry_run=False):
 
     created = []
     for template in templates:
-        settled = billed_months.get(template.category, set())
+        covered = settled.get(template.category, set())
         for month in _recurring_occurrences(template, until):
-            if (template.id, month) in existing or month in settled:
+            if (template.id, month) in existing or month in covered:
                 continue
             if dry_run:
                 created.append((template, month))
@@ -556,9 +576,14 @@ def refresh_current_month_expenses():
     Recurring templates are materialised every call (cheap + idempotent) so a
     newly added template — or a month the cron hasn't reached yet — shows
     immediately instead of reading $0. The heavier vendor syncs (AI-usage
-    ledger scan + DigitalOcean invoice fetch) are throttled to once per
-    FINANCE_REFRESH_LOCK_TTL. Each step is isolated and best-effort: a failure
-    is logged (never silently swallowed) and can't blank the dashboard.
+    ledger scan, DigitalOcean invoices, billed AI spend) are throttled to once
+    per FINANCE_REFRESH_LOCK_TTL. Each step is isolated and best-effort: a
+    failure is logged (never silently swallowed) and can't blank the dashboard.
+
+    Order matters for the AI vendors: the token estimate is synced first, then
+    the vendors' billed figures replace it for every month they cover. Running
+    them the other way round would re-create the estimate the billed sync had
+    just superseded, and the month would count twice.
     """
     try:
         materialize_recurring_expenses()
@@ -571,6 +596,7 @@ def refresh_current_month_expenses():
     for label, sync in (
         ('AI usage', sync_ai_usage_expenses),
         ('DigitalOcean', sync_digitalocean_expenses),
+        ('Billed AI spend', sync_ai_vendor_expenses),
     ):
         try:
             sync()
@@ -597,14 +623,19 @@ def get_income_expense_summary(months=6):
          'expense': Decimal, 'net': Decimal}, ...   # oldest -> newest
       ],
       'category_totals': [{'category': key, 'label': str, 'amount': Decimal,
-                           'last_on': date, 'is_stale': bool}, ...],
+                           'last_on': date, 'last_actual_on': date|None,
+                           'is_estimated': bool, 'is_stale': bool,
+                           'estimate_hint': 'manual'|'vendor_api'|None}, ...],
       'totals': {'income': Decimal, 'expense': Decimal, 'net': Decimal},
       'income_available': bool,          # False if Stripe was unreachable
       'max_value': Decimal,              # for chart scaling
     }
     """
     from django.db.models import Sum
-    from .models import Expense, ExpenseCategory, RecurringExpense
+    from .models import (
+        Expense, ExpenseCategory, RecurringExpense,
+        EXPENSE_SOURCE_RECURRING, EXPENSE_SOURCE_AI_GRADING,
+    )
 
     months = max(1, min(int(months), 24))
     today = timezone.localdate()
@@ -629,12 +660,17 @@ def get_income_expense_summary(months=6):
         Expense.objects.filter(
             incurred_on__gte=range_start, incurred_on__lt=range_end,
         )
-        .values('incurred_on', 'category', 'amount')
+        .values('incurred_on', 'category', 'amount', 'source')
     )
     ZERO = Decimal('0.00')
     expense_by_month = {}
     category_totals = {}
     category_last_seen = {}
+    # Tracked apart from category_last_seen: a template-generated row and a
+    # token-ledger price are both forecasts of the bill, not the bill. A
+    # category standing on those alone is still waiting for its real figure.
+    category_last_actual = {}
+    ledger_priced_categories = set()
     for row in expense_rows:
         key = _first_of_month(row['incurred_on'])
         expense_by_month[key] = expense_by_month.get(key, ZERO) + row['amount']
@@ -645,6 +681,14 @@ def get_income_expense_summary(months=6):
             category_last_seen.get(row['category'], row['incurred_on']),
             row['incurred_on'],
         )
+        if row['source'] == EXPENSE_SOURCE_AI_GRADING:
+            ledger_priced_categories.add(row['category'])
+        if row['source'] not in (EXPENSE_SOURCE_RECURRING,
+                                 EXPENSE_SOURCE_AI_GRADING):
+            category_last_actual[row['category']] = max(
+                category_last_actual.get(row['category'], row['incurred_on']),
+                row['incurred_on'],
+            )
 
     income_available = True
     series = []
@@ -672,33 +716,60 @@ def get_income_expense_summary(months=6):
         total_expense += expense
         max_value = max(max_value, income, expense)
 
-    # A category whose last charge predates the current month has stopped
-    # being recorded — either the vendor stopped billing, or (Claude Code has
-    # no billing API, so its charges are typed in by hand) nobody has entered
-    # this month's yet. Either way the period total silently under-reports:
-    # the Claude Code column read as one month's charge inside a three-month
-    # window. Flag it on the row rather than letting a stale figure pass for a
-    # current one. Yearly costs are exempt — one charge a year is correct.
-    yearly_categories = set(
-        RecurringExpense.objects
-        .filter(is_active=True, frequency=RecurringExpense.FREQUENCY_YEARLY)
-        .values_list('category', flat=True),
-    )
+    # A category with no charge of its own this month has stopped being
+    # recorded — either the vendor stopped billing, or (Claude Code bills per
+    # use with no API, so its charges are typed in by hand) nobody has entered
+    # this month's yet. Either way the period total misreports: the Claude Code
+    # column read as one month's charge inside a three-month window. Flag it on
+    # the row rather than letting the figure pass for a settled one.
+    #
+    # An estimate keeps the total honest in the meantime, but an estimate is
+    # not a charge — such a category is measured by its last ACTUAL, so the
+    # nudge to get the real figure survives the placeholder. Two kinds of
+    # estimate, and the fix differs, so `estimate_hint` says which:
+    #   'manual'     — an is_estimate template (Claude Code): type the charge in.
+    #   'vendor_api' — the AI token ledger priced at list rates: the billed
+    #                  figure lands once the vendor's admin key is configured
+    #                  (sync_ai_vendor_expenses), not by hand.
+    # Yearly costs are exempt either way: one charge a year is correct.
+    templates = RecurringExpense.objects.filter(is_active=True).values_list(
+        'category', 'frequency', 'is_estimate')
+    yearly_categories = {
+        c for c, freq, _ in templates
+        if freq == RecurringExpense.FREQUENCY_YEARLY
+    }
+    placeholder_categories = {c for c, _, is_est in templates if is_est}
+
     cat_labels = dict(ExpenseCategory.choices)
     cat_list = []
     for k, v in sorted(
         category_totals.items(), key=lambda kv: kv[1], reverse=True,
     ):
         last_on = category_last_seen.get(k)
+        estimate_hint = (
+            'manual' if k in placeholder_categories
+            else 'vendor_api' if k in ledger_priced_categories
+            else None
+        )
+        is_estimated = estimate_hint is not None
+        # For an estimated category the estimate itself never counts as proof
+        # the month is settled, so `last_actual_on` may be None even though
+        # `last_on` is this month.
+        last_actual_on = (
+            category_last_actual.get(k) if is_estimated else last_on
+        )
         cat_list.append({
             'category': k,
             'label': cat_labels.get(k, k),
             'amount': v,
             'last_on': last_on,
+            'last_actual_on': last_actual_on,
+            'is_estimated': is_estimated,
+            'estimate_hint': estimate_hint,
             'is_stale': (
                 k not in yearly_categories
-                and last_on is not None
-                and _first_of_month(last_on) < current
+                and (last_actual_on is None
+                     or _first_of_month(last_actual_on) < current)
             ),
         })
 
@@ -985,6 +1056,7 @@ def sync_ai_vendor_expenses(months=3):
     from .ai_vendor_costs import FETCHERS, VendorCostUnavailable
     from .models import (
         Expense, ExpenseCategory, EXPENSE_SOURCE_AI_VENDOR,
+        EXPENSE_SOURCE_AI_GRADING,
     )
 
     today = timezone.localdate()
@@ -1018,12 +1090,13 @@ def sync_ai_vendor_expenses(months=3):
             key = _first_of_month(entry.on)
             buckets[key] = buckets.get(key, Decimal('0')) + entry.amount_usd
 
+        category = getattr(ExpenseCategory, category_name)
         for month_start, usd in sorted(buckets.items()):
             nzd = (usd * rate).quantize(Decimal('0.01'))
             Expense.objects.update_or_create(
                 source=EXPENSE_SOURCE_AI_VENDOR,
                 incurred_on=month_start,
-                category=getattr(ExpenseCategory, category_name),
+                category=category,
                 defaults={
                     'vendor': vendor,
                     'description': f'{vendor} billed usage (auto)',
@@ -1032,6 +1105,23 @@ def sync_ai_vendor_expenses(months=3):
                     'original_currency': 'USD',
                 },
             )
+            # The billed figure supersedes the token estimate for that month —
+            # exactly as a DigitalOcean invoice supersedes the DO estimate.
+            # Both rows in the same month would double the vendor's spend.
+            Expense.objects.filter(
+                source=EXPENSE_SOURCE_AI_GRADING,
+                category=category, incurred_on=month_start,
+            ).delete()
             written += 1
+            if provider == 'openai' and usd > 0:
+                # AMOUNT_TO_USD['openai'] is an assumption: every bucket was
+                # empty when it was written, so nothing could confirm the unit.
+                # Say so the first time real money comes back, rather than
+                # letting a possible 100x error settle into the accounts.
+                logger.warning(
+                    'First non-zero OpenAI billed figure: US$%s for %s. Check '
+                    'this against the OpenAI billing page — AMOUNT_TO_USD'
+                    "['openai'] (dollars) has never been verified against "
+                    'real data.', usd, month_start)
 
     return {'written': written, 'skipped': skipped}

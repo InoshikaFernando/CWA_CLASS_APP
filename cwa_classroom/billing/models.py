@@ -888,6 +888,12 @@ class RecurringExpense(models.Model):
         help_text='Optional: stop generating after this date (e.g. cancelled).',
     )
     is_active = models.BooleanField(default=True)
+    is_estimate = models.BooleanField(
+        default=False,
+        help_text='Placeholder for a cost nobody can fetch (Claude Code bills '
+                  'per use with no API). A charge entered by hand for the same '
+                  'month replaces the estimate instead of adding to it.',
+    )
     note = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

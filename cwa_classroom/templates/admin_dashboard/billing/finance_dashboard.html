@@ -44,10 +44,23 @@
 
   {% if stale_categories %}
   <div class="mb-6 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm">
-    Expenses are behind for
-    {% for cat in stale_categories %}{% if not forloop.first %}{% if forloop.last %} and {% else %}, {% endif %}{% endif %}<span class="font-semibold">{{ cat.label }}</span> (last charge {{ cat.last_on|date:"M Y" }}){% endfor %}.
-    Costs with no billing API are entered by hand — until they are, the totals below under-report.
-    <a href="{% url 'billing_admin_expense_list' %}" class="underline hover:text-amber-200">Add the missing charges</a>.
+    <p class="font-semibold">These figures are not the final charge:</p>
+    <ul class="mt-1.5 space-y-1">
+      {% for cat in stale_categories %}
+      <li>
+        <span class="font-semibold">{{ cat.label }}</span> &mdash;
+        {% if cat.estimate_hint == 'manual' %}
+          estimated{% if cat.last_actual_on %} since {{ cat.last_actual_on|date:"M Y" }}{% endif %}. Enter the real charges in
+          <a href="{% url 'billing_admin_expense_list' %}" class="underline hover:text-amber-200">Expenses</a>.
+        {% elif cat.estimate_hint == 'vendor_api' %}
+          priced from the token ledger at list rates{% if cat.last_actual_on %}; last billed figure {{ cat.last_actual_on|date:"M Y" }}{% endif %}. The vendor's own billed figure needs its admin key set.
+        {% else %}
+          nothing recorded since {{ cat.last_on|date:"M Y" }}, so this period is only part-covered.
+          <a href="{% url 'billing_admin_expense_list' %}" class="underline hover:text-amber-200">Add the missing charges</a>.
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
   </div>
   {% endif %}
 
@@ -211,7 +224,13 @@
               {{ cat.label }}
               {% if cat.is_stale %}
               <span class="block text-xs text-amber-400 mt-0.5">
-                Nothing recorded since {{ cat.last_on|date:"M Y" }} — this total covers part of the period only.
+                {% if cat.estimate_hint == 'manual' %}
+                  Estimated{% if cat.last_actual_on %} since {{ cat.last_actual_on|date:"M Y" }}{% endif %} — enter the actual charges to replace the placeholder.
+                {% elif cat.estimate_hint == 'vendor_api' %}
+                  Priced from the token ledger, not the vendor's bill{% if cat.last_actual_on %} (last billed figure {{ cat.last_actual_on|date:"M Y" }}){% endif %} — set the vendor's admin key to book what was charged.
+                {% else %}
+                  Nothing recorded since {{ cat.last_on|date:"M Y" }} — this total covers part of the period only.
+                {% endif %}
               </span>
               {% endif %}
             </td>
