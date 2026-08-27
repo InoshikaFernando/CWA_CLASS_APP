@@ -1,4 +1,4 @@
-"""Tests for the 0118 / 0119 subject-repair data migrations.
+"""Tests for the 0119 / 0120 subject-repair data migrations.
 
 The migration functions are imported and called directly against the real
 models. That keeps the tests readable and — more importantly — lets them assert
@@ -19,8 +19,8 @@ from classroom.models import (
     Subject,
 )
 
-_backfill = import_module('classroom.migrations.0118_backfill_level_subject')
-_repair = import_module('classroom.migrations.0119_repair_classroom_subject')
+_backfill = import_module('classroom.migrations.0119_backfill_level_subject')
+_repair = import_module('classroom.migrations.0120_repair_classroom_subject')
 
 
 class BackfillLevelSubjectTests(TestCase):

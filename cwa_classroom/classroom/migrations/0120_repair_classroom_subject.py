@@ -124,7 +124,7 @@ def repair(apps, schema_editor):
                 'classroom_name': classroom.name,
                 'previous_subject_id': previous_id,
                 'new_subject_id': proposed_id,
-                'migration': '0119_repair_classroom_subject',
+                'migration': '0120_repair_classroom_subject',
             },
         )
 
@@ -142,7 +142,7 @@ def unrepair(apps, schema_editor):
     entries = AuditLog.objects.filter(action='class_subject_repaired')
     for entry in entries.iterator():
         detail = entry.detail or {}
-        if detail.get('migration') != '0119_repair_classroom_subject':
+        if detail.get('migration') != '0120_repair_classroom_subject':
             continue
         ClassRoom.objects.filter(id=detail.get('classroom_id')).update(
             subject_id=detail.get('previous_subject_id'),
@@ -153,7 +153,7 @@ def unrepair(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('classroom', '0118_backfill_level_subject'),
+        ('classroom', '0119_backfill_level_subject'),
         ('audit', '0003_add_revertible_fields'),
     ]
 

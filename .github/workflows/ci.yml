@@ -85,6 +85,7 @@ jobs:
       ui_homework: ${{ steps.filter.outputs.ui_homework }}
       ui_live: ${{ steps.filter.outputs.ui_live }}
       ui_maths: ${{ steps.filter.outputs.ui_maths }}
+      ui_messaging: ${{ steps.filter.outputs.ui_messaging }}
       ui_navigation: ${{ steps.filter.outputs.ui_navigation }}
       ui_parent: ${{ steps.filter.outputs.ui_parent }}
       ui_progress: ${{ steps.filter.outputs.ui_progress }}
@@ -274,6 +275,14 @@ jobs:
               - 'cwa_classroom/templates/homework/**'
             # The sidebars link into every subject app, so a change to any of
             # them can break a nav test. Broad on purpose.
+            ui_messaging:
+              - 'cwa_classroom/ui_tests/messaging/**'
+              - 'cwa_classroom/accounts/**'
+              # The Messaging Centre lives inside the classroom app
+              # (views_messaging.py, send_due_messages, email_service), so a
+              # change there is what most often breaks these tests.
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/templates/messaging/**'
             ui_navigation:
               - 'cwa_classroom/ui_tests/navigation/**'
               - 'cwa_classroom/accounts/**'

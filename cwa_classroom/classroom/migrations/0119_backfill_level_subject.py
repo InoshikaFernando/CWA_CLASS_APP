@@ -72,7 +72,7 @@ def clear_maths_subject(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('classroom', '0117_school_free_ai_grading'),
+        ('classroom', '0118_merge_20260827_1739'),
     ]
 
     operations = [
