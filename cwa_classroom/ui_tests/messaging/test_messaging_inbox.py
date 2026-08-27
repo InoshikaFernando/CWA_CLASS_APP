@@ -18,7 +18,7 @@ Run locally:
 import pytest
 from playwright.sync_api import expect
 
-from .conftest import do_login
+from ..conftest import do_login
 
 pytestmark = pytest.mark.messaging
 
