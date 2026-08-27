@@ -40,8 +40,8 @@ import re
 import pytest
 from playwright.sync_api import expect
 
-from .conftest import do_login
-from .helpers import assert_sidebar_has_link, assert_sidebar_missing_link, click_sidebar_link
+from ..conftest import do_login
+from ..helpers import assert_sidebar_has_link, assert_sidebar_missing_link, click_sidebar_link
 
 pytestmark = pytest.mark.messaging
 
