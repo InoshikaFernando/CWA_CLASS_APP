@@ -353,6 +353,13 @@ class SyncGitHubTests(TestCase):
                     GITHUB_BILLING_ACCOUNT='acme',
                     GITHUB_BILLING_ACCOUNT_TYPE='user')
 
+    def setUp(self):
+        # Isolate from whatever the dashboard settings happen to be.
+        patcher = self.settings(AI_DASHBOARD_GITHUB_TOKEN='',
+                                AI_DASHBOARD_GITHUB_REPO='')
+        patcher.enable()
+        self.addCleanup(patcher.disable)
+
     def _resp(self, payload, status=200):
         from unittest.mock import MagicMock
         m = MagicMock()
@@ -372,13 +379,62 @@ class SyncGitHubTests(TestCase):
         return item
 
     def test_noop_without_a_token(self):
-        with self.settings(GITHUB_BILLING_TOKEN='', GITHUB_BILLING_ACCOUNT='acme'):
+        with self.settings(GITHUB_BILLING_TOKEN='', GITHUB_BILLING_ACCOUNT='acme',
+                           AI_DASHBOARD_GITHUB_TOKEN=''):
             self.assertEqual(sync_github_expenses(), 0)
         self.assertEqual(Expense.objects.count(), 0)
 
     def test_noop_without_an_account(self):
         with self.settings(GITHUB_BILLING_TOKEN='ghp_test',
-                           GITHUB_BILLING_ACCOUNT=''):
+                           GITHUB_BILLING_ACCOUNT='',
+                           AI_DASHBOARD_GITHUB_REPO=''):
+            self.assertEqual(sync_github_expenses(), 0)
+        self.assertEqual(Expense.objects.count(), 0)
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_falls_back_to_the_github_credentials_already_configured(
+            self, mock_get, mock_rate):
+        """The project already has a GitHub token and repo for the AI-usage
+        dashboard. Billing uses those rather than a second copy of them."""
+        mock_get.return_value = self._resp({'usageItems': [self._item()]})
+        with self.settings(GITHUB_BILLING_TOKEN='', GITHUB_BILLING_ACCOUNT='',
+                           AI_DASHBOARD_GITHUB_TOKEN='ghp_dashboard',
+                           AI_DASHBOARD_GITHUB_REPO='acme/app'):
+            self.assertEqual(sync_github_expenses(months=1), 1)
+
+        self.assertEqual(
+            mock_get.call_args.args[0],
+            'https://api.github.com/users/acme/settings/billing/usage')
+        self.assertEqual(
+            mock_get.call_args.kwargs['headers']['Authorization'],
+            'Bearer ghp_dashboard')
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_explicit_billing_settings_win_over_the_dashboard_ones(
+            self, mock_get, mock_rate):
+        # Billing may need its own credential — reading the bill is a different
+        # permission from writing the dashboard issue.
+        mock_get.return_value = self._resp({'usageItems': [self._item()]})
+        with self.settings(GITHUB_BILLING_TOKEN='ghp_billing',
+                           GITHUB_BILLING_ACCOUNT='other-account',
+                           AI_DASHBOARD_GITHUB_TOKEN='ghp_dashboard',
+                           AI_DASHBOARD_GITHUB_REPO='acme/app'):
+            sync_github_expenses(months=1)
+
+        self.assertEqual(
+            mock_get.call_args.args[0],
+            'https://api.github.com/users/other-account/settings/billing/usage')
+        self.assertEqual(
+            mock_get.call_args.kwargs['headers']['Authorization'],
+            'Bearer ghp_billing')
+
+    def test_a_dashboard_repo_without_an_owner_resolves_to_nothing(self):
+        # "app" with no owner half must not be read as the account name.
+        with self.settings(GITHUB_BILLING_TOKEN='ghp_test',
+                           GITHUB_BILLING_ACCOUNT='',
+                           AI_DASHBOARD_GITHUB_REPO='app'):
             self.assertEqual(sync_github_expenses(), 0)
         self.assertEqual(Expense.objects.count(), 0)
 
@@ -967,7 +1023,8 @@ class SyncVendorChargesCommandTests(TestCase):
             out = self._run()
 
         self.assertIn('GitHub: skipped', out)
-        self.assertIn('GITHUB_BILLING_TOKEN', out)
+        self.assertIn('AI_DASHBOARD_GITHUB_TOKEN', out)
+        self.assertIn('GITHUB_BILLING_', out)
 
     def test_a_vendor_without_a_key_is_named_not_silently_dropped(self):
         with patch(f'{self.CMD}.sync_ai_usage_expenses', return_value=0), \

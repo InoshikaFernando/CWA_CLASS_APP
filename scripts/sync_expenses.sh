@@ -12,8 +12,9 @@
 #      OPENAI_ADMIN_API_KEY are set (each supersedes that month's token
 #      estimate). A vendor with no admin key is reported as skipped and keeps
 #      the estimate — the figure is never silently zeroed. Also GitHub's own
-#      bill (Actions minutes, Packages, LFS, Copilot) when
-#      GITHUB_BILLING_TOKEN + GITHUB_BILLING_ACCOUNT are set.
+#      bill (Actions minutes, Packages, LFS, Copilot), using the GitHub
+#      credentials already set for the AI-usage dashboard unless the
+#      GITHUB_BILLING_* overrides say otherwise.
 #
 # GitHub invoices monthly like DigitalOcean, but its usage report is queried by
 # calendar month and re-read for the last three each run, so a late line item is

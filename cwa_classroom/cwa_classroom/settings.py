@@ -25,7 +25,7 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.18.6'        # MAJOR.MINOR.PATCH
+APP_VERSION       = '1.18.7'        # MAJOR.MINOR.PATCH
 APP_VERSION_DATE  = '2026-08-27'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
@@ -223,20 +223,25 @@ FX_RATE_API_URL = os.environ.get(
 # manual update). Inert when empty — dev/test stay no-op.
 DIGITALOCEAN_API_TOKEN = os.environ.get('DIGITALOCEAN_API_TOKEN', '')
 
-# GitHub billing. When both the token and the account are set,
-# sync_vendor_charges reads the enhanced billing usage report and books what
-# GitHub actually charged — Actions minutes above all (the CI matrix is the
-# cost driver; see CLAUDE.md on the spending limit that once stopped a
-# production deploy), plus anything else on the bill: Packages, LFS, Copilot.
+# GitHub billing. sync_vendor_charges reads the enhanced billing usage report
+# and books what GitHub actually charged — Actions minutes above all (the CI
+# matrix is the cost driver; see CLAUDE.md on the spending limit that once
+# stopped a production deploy), plus anything else on the bill: Packages, LFS,
+# Copilot.
 #
-# The token needs permission to read the account's billing, which the API keys
-# it uses for repositories does NOT confer — GitHub answers 403 with a message
-# naming what is missing, and the sync logs that message verbatim rather than
-# guessing. Inert when either setting is empty; dev/test stay no-op.
+# BOTH SETTINGS BELOW ARE OPTIONAL OVERRIDES. By default the sync uses the
+# GitHub credentials this project already has: AI_DASHBOARD_GITHUB_TOKEN, and
+# the owner half of AI_DASHBOARD_GITHUB_REPO as the account being billed.
+# Set these only when billing needs its own credential or sits on a different
+# account. Reading billing is a different permission from writing an issue, so
+# the dashboard token may be refused — GitHub answers 403 with a message naming
+# what is missing, and the sync logs that message verbatim rather than guessing
+# at the fix. Inert when no token or no account can be resolved, so dev/test
+# stay no-op.
 GITHUB_BILLING_TOKEN = os.environ.get('GITHUB_BILLING_TOKEN', '')
-# The account the bill belongs to: a username, or an organisation login when
-# GITHUB_BILLING_ACCOUNT_TYPE is 'org' (the two use different API paths).
 GITHUB_BILLING_ACCOUNT = os.environ.get('GITHUB_BILLING_ACCOUNT', '')
+# 'user' or 'org' — a user's bill and an organisation's live at different API
+# paths, so this must match the account above.
 GITHUB_BILLING_ACCOUNT_TYPE = os.environ.get(
     'GITHUB_BILLING_ACCOUNT_TYPE', 'user')
 

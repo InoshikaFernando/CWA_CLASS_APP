@@ -1012,13 +1012,41 @@ GITHUB_API_ROOT = 'https://api.github.com'
 GITHUB_API_VERSION = '2022-11-28'
 
 
+def _github_billing_token():
+    """Token to read the bill with.
+
+    Falls back to the AI-usage dashboard's token, which this project already
+    configures, so the sync works off the credentials that are here rather
+    than a second copy of them. Reading billing is a different permission from
+    writing an issue, though, so that token may be refused — GITHUB_BILLING_TOKEN
+    overrides it when billing needs its own credential.
+    """
+    return (getattr(settings, 'GITHUB_BILLING_TOKEN', '')
+            or getattr(settings, 'AI_DASHBOARD_GITHUB_TOKEN', ''))
+
+
+def _github_billing_account():
+    """Account the bill belongs to, or '' when there is nothing to go on.
+
+    Defaults to the owner half of AI_DASHBOARD_GITHUB_REPO ("owner/repo") —
+    the account that owns the repository is the one being billed for its
+    Actions minutes. GITHUB_BILLING_ACCOUNT overrides it when the bill sits
+    elsewhere.
+    """
+    account = (getattr(settings, 'GITHUB_BILLING_ACCOUNT', '') or '').strip()
+    if account:
+        return account
+    repo = (getattr(settings, 'AI_DASHBOARD_GITHUB_REPO', '') or '').strip()
+    return repo.split('/')[0].strip() if '/' in repo else ''
+
+
 def _github_usage_path():
     """API path for the configured account, or None when unconfigured.
 
     User and organisation bills live at different paths, and the org one is
     `/organizations/`, NOT the `/orgs/` prefix the rest of the GitHub API uses.
     """
-    account = (getattr(settings, 'GITHUB_BILLING_ACCOUNT', '') or '').strip()
+    account = _github_billing_account()
     if not account:
         return None
     kind = (getattr(settings, 'GITHUB_BILLING_ACCOUNT_TYPE', 'user') or 'user')
@@ -1041,13 +1069,16 @@ def sync_github_expenses(months=3):
     A month wholly inside the free tier therefore nets zero, and that row IS
     written — "GitHub confirmed $0" and "we never looked" must not read alike.
 
-    No-op (returns 0) unless both GITHUB_BILLING_TOKEN and
-    GITHUB_BILLING_ACCOUNT are set. Idempotent. A month the API refuses is
-    logged with GitHub's own message and left without a row, never zeroed.
+    Credentials come from the GitHub settings this project already has (the
+    AI-usage dashboard's token and repo), so nothing new has to be configured
+    for the sync to run; GITHUB_BILLING_TOKEN / GITHUB_BILLING_ACCOUNT override
+    them. No-op (returns 0) when neither is available. Idempotent. A month the
+    API refuses is logged with GitHub's own message and left without a row,
+    never zeroed.
     """
     from .models import Expense, ExpenseCategory, EXPENSE_SOURCE_GITHUB
 
-    token = getattr(settings, 'GITHUB_BILLING_TOKEN', '')
+    token = _github_billing_token()
     url = _github_usage_path()
     if not token or not url:
         return 0

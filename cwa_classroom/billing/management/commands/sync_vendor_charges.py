@@ -8,10 +8,11 @@ charges without manual updates:
   * DigitalOcean — runs only when settings.DIGITALOCEAN_API_TOKEN is set;
     pulls the real monthly invoices (any addon included) and supersedes the
     recurring DO estimate for those months.
-  * GitHub — runs only when GITHUB_BILLING_TOKEN and GITHUB_BILLING_ACCOUNT
-    are set; reads the enhanced billing usage report and books the net charge
-    per month (Actions minutes, Packages, LFS, Copilot — whatever is on the
-    bill). A month inside the free allowance nets zero and is recorded as such.
+  * GitHub — uses the GitHub credentials already configured for the AI-usage
+    dashboard (overridable with GITHUB_BILLING_TOKEN / GITHUB_BILLING_ACCOUNT);
+    reads the enhanced billing usage report and books the net charge per month
+    (Actions minutes, Packages, LFS, Copilot — whatever is on the bill). A
+    month inside the free allowance nets zero and is recorded as such.
   * Billed AI spend (Anthropic + OpenAI) — runs only for a vendor whose admin
     key is set (ANTHROPIC_ADMIN_API_KEY / OPENAI_ADMIN_API_KEY); reads what the
     vendor actually billed from its own cost API and supersedes that month's
@@ -51,9 +52,10 @@ class Command(BaseCommand):
             self.stdout.write(f'GitHub billing months synced: {gh}')
         else:
             self.stdout.write(
-                'GitHub: skipped (GITHUB_BILLING_TOKEN / '
-                'GITHUB_BILLING_ACCOUNT not set, or every month was refused — '
-                'see the log for GitHub\'s reason)')
+                'GitHub: skipped (no billing token/account resolved from '
+                'AI_DASHBOARD_GITHUB_TOKEN + AI_DASHBOARD_GITHUB_REPO or the '
+                'GITHUB_BILLING_* overrides, or every month was refused — see '
+                'the log for GitHub\'s reason)')
 
         # Runs last: it replaces the token estimate synced above with what the
         # vendor billed, for every month it can cover.
