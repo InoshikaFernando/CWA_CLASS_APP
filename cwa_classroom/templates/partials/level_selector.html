@@ -1,7 +1,14 @@
 <!-- Dynamic Level Selector — loaded via JS after department selection -->
 <div id="level-section" class="hidden space-y-5">
-  <!-- Subject badges -->
+  <!-- The class's subject. A class has exactly one, and it is STORED rather
+       than inferred from the levels: level_number is globally unique, so maths
+       (1-10) always sorted ahead of every other subject (300+) and won any
+       inference. Picking a subject here also unticks levels belonging to the
+       others, so a POST can never carry two subjects' levels. -->
+  <input type="hidden" name="subject" id="selected_subject_id" value="">
   <div id="subject-info" class="hidden">
+    <label class="block text-sm font-semibold text-gray-700 mb-1.5">Subject</label>
+    <p class="text-xs text-gray-400 mb-2">Pick the subject this class teaches — the levels below follow it.</p>
     <div id="subject-badges" class="flex flex-wrap gap-1.5"></div>
   </div>
 
@@ -43,10 +50,10 @@ function loadDepartmentLevels(deptId) {
       const subjects = data.subjects || [];
       let totalLevels = 0;
 
-      // Show subject tabs (clickable to filter)
+      // Subject tabs. These PICK the class's subject — there is deliberately no
+      // "All" tab, because a class has exactly one subject and a POST carrying
+      // two subjects' levels is what produced the maths-always-wins bug.
       if (subjects.length > 1) {
-        // "All" tab
-        subjectBadges.innerHTML = `<button type="button" onclick="filterSubject(null)" class="subject-tab inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-full bg-primary text-white transition" data-subject="all">All</button>`;
         subjects.forEach(subj => {
           subjectBadges.innerHTML += `<button type="button" onclick="filterSubject(${subj.id})" class="subject-tab inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-600 hover:bg-blue-100 hover:text-blue-700 transition" data-subject="${subj.id}">${subj.name}</button>`;
         });
@@ -146,6 +153,12 @@ function loadDepartmentLevels(deptId) {
       if (totalLevels === 0) {
         noMsg.classList.remove('hidden');
       }
+
+      // Preselect when there is no choice to make, so a single-subject
+      // department behaves exactly as it did before.
+      if (subjects.length === 1) {
+        filterSubject(subjects[0].id);
+      }
     })
     .catch(() => {
       noMsg.classList.remove('hidden');
@@ -154,31 +167,35 @@ function loadDepartmentLevels(deptId) {
 }
 
 function filterSubject(subjectId) {
+  // This is the class's subject picker, not just a display filter. It records
+  // the choice for the POST and unticks levels outside the chosen subject —
+  // hiding a checked checkbox with display:none still submits it, which is how
+  // a class ended up carrying two subjects' levels and being labelled by
+  // whichever sorted first (always maths, since level_number 1-10 < 300).
+  const hidden = document.getElementById('selected_subject_id');
+  if (hidden) {
+    hidden.value = subjectId === null ? '' : String(subjectId);
+  }
+
   // Update tab styles
   document.querySelectorAll('.subject-tab').forEach(btn => {
     btn.classList.remove('bg-primary', 'text-white');
     btn.classList.add('bg-gray-100', 'text-gray-600');
   });
-  if (subjectId === null) {
-    const allTab = document.querySelector('.subject-tab[data-subject="all"]');
-    if (allTab) {
-      allTab.classList.remove('bg-gray-100', 'text-gray-600');
-      allTab.classList.add('bg-primary', 'text-white');
-    }
-  } else {
-    const activeTab = document.querySelector(`.subject-tab[data-subject="${subjectId}"]`);
-    if (activeTab) {
-      activeTab.classList.remove('bg-gray-100', 'text-gray-600');
-      activeTab.classList.add('bg-primary', 'text-white');
-    }
+  const activeTab = document.querySelector(`.subject-tab[data-subject="${subjectId}"]`);
+  if (activeTab) {
+    activeTab.classList.remove('bg-gray-100', 'text-gray-600');
+    activeTab.classList.add('bg-primary', 'text-white');
   }
 
-  // Show/hide subject groups
+  // Show only the chosen subject's levels, and untick everything else.
   document.querySelectorAll('.subject-group').forEach(group => {
-    if (subjectId === null) {
-      group.style.display = '';
-    } else {
-      group.style.display = group.dataset.subjectGroup === String(subjectId) ? '' : 'none';
+    const isChosen = group.dataset.subjectGroup === String(subjectId);
+    group.style.display = isChosen ? '' : 'none';
+    if (!isChosen) {
+      group.querySelectorAll('input.level-checkbox:checked').forEach(box => {
+        box.checked = false;
+      });
     }
   });
 }
