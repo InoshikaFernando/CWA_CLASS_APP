@@ -43,10 +43,12 @@ Usage:
 import csv
 
 from django.core.management.base import BaseCommand
+from django.db.models import Q
 
 from classroom.fee_utils import get_effective_fee_for_class
 from classroom.models import (
-    ClassRoom, DepartmentLevel, DepartmentSubject, Level, School, Subject,
+    ClassRoom, ClassStudent, DepartmentLevel, DepartmentSubject, Level,
+    ProgressRecord, ProgressReportComment, School, Subject,
 )
 
 # Levels below this number belong to Mathematics: 1-99 are Year levels and
@@ -94,6 +96,45 @@ class Command(BaseCommand):
             return maths.id
         return None
 
+    def _hidden_by_subject_change(self, classroom, old_subject_id):
+        """Teacher-entered progress that would stop displaying on this class.
+
+        Mirrors the scoping the progress pages actually apply, so the numbers
+        match what a teacher would find missing rather than a rough proxy:
+
+        * records — ``views_progress.py:803`` looks them up via
+          ``criteria__in=criteria_qs`` (scoped by ``classroom.subject``) and
+          ``Q(classroom=classroom) | Q(classroom__isnull=True)``.
+        * comments — the same view filters ``subject=classroom.subject`` for
+          both the class-specific rows and the legacy class-less fallback.
+
+        Nothing is deleted by a repair; these rows survive and stop being shown
+        on this class's page. Student work is unaffected — homework, worksheet,
+        quiz and coding submissions reference neither ``classroom.subject`` nor
+        ``ProgressCriteria``.
+        """
+        if not old_subject_id:
+            return 0, 0
+
+        student_ids = list(
+            ClassStudent.objects.filter(classroom=classroom, is_active=True)
+            .values_list('student_id', flat=True)
+        )
+        if not student_ids:
+            return 0, 0
+
+        records = ProgressRecord.objects.filter(
+            student_id__in=student_ids,
+            criteria__subject_id=old_subject_id,
+        ).filter(Q(classroom=classroom) | Q(classroom__isnull=True)).count()
+
+        comments = ProgressReportComment.objects.filter(
+            student_id__in=student_ids,
+            subject_id=old_subject_id,
+        ).filter(Q(classroom=classroom) | Q(classroom__isnull=True)).count()
+
+        return records, comments
+
     def _proposed_subject_id(self, classroom, maths):
         """Return (subject_id, reason). subject_id None means 'leave alone'."""
         subject_ids = set()
@@ -137,6 +178,7 @@ class Command(BaseCommand):
         self._section_levels(maths)
         rows = self._section_classes(school, maths)
         self._section_fee_exposure(rows)
+        self._section_hidden_progress(rows)
         self._section_cross_subject_mappings(school, maths)
 
         if opts.get('csv_path'):
@@ -207,6 +249,9 @@ class Command(BaseCommand):
             fee_after = get_effective_fee_for_class(classroom)
             classroom.subject_id = original_subject_id
 
+            records, comments = self._hidden_by_subject_change(
+                classroom, original_subject_id)
+
             changed.append({
                 'classroom': classroom,
                 'school': classroom.school.name if classroom.school_id else '',
@@ -218,6 +263,8 @@ class Command(BaseCommand):
                 'fee_before': fee_before,
                 'fee_after': fee_after,
                 'fee_moves': fee_before != fee_after,
+                'hidden_records': records,
+                'hidden_comments': comments,
                 'levels': ', '.join(
                     lv.display_name for lv in classroom.levels.all()) or '(none)',
             })
@@ -232,6 +279,10 @@ class Command(BaseCommand):
                 if row['fee_moves']:
                     self.stdout.write(
                         f"        fee {row['fee_before']} -> {row['fee_after']}")
+                if row['hidden_records'] or row['hidden_comments']:
+                    self.stdout.write(self.style.WARNING(
+                        f"        hides {row['hidden_records']} progress record(s) "
+                        f"and {row['hidden_comments']} teacher comment(s)"))
         else:
             self.stdout.write('  None — every class already names the right subject.')
 
@@ -279,10 +330,39 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING(
             '  Review these with the school before applying any repair.'))
 
-    # -- 5. Cross-subject department mappings ---------------------------
+    # -- 5. Teacher-entered progress that would stop displaying ---------
+
+    def _section_hidden_progress(self, rows):
+        self._heading('5. Teacher-entered progress that would stop displaying')
+        self.stdout.write(
+            '  Nothing is deleted. These rows survive but drop out of scope on\n'
+            '  the class progress page, because criteria and comments are\n'
+            '  filtered by classroom.subject. Student work — homework, worksheet,\n'
+            '  quiz and coding submissions — is NOT affected: none of it\n'
+            '  references classroom.subject or ProgressCriteria.')
+
+        records = sum(r['hidden_records'] for r in rows)
+        comments = sum(r['hidden_comments'] for r in rows)
+
+        if not records and not comments:
+            self.stdout.write(self.style.SUCCESS(
+                '  Nothing would be hidden.'))
+            return
+
+        affected = [r for r in rows if r['hidden_records'] or r['hidden_comments']]
+        self.stdout.write(self.style.WARNING(
+            f'  {records} progress record(s) and {comments} teacher comment(s) '
+            f'across {len(affected)} class(es):'))
+        for row in affected:
+            self.stdout.write(
+                f"    [{row['school']}] {row['name']}: "
+                f"{row['hidden_records']} record(s), {row['hidden_comments']} comment(s) "
+                f"under {row['old_subject']}")
+
+    # -- 6. Cross-subject department mappings ---------------------------
 
     def _section_cross_subject_mappings(self, school, maths):
-        self._heading('5. Department level mappings to review')
+        self._heading('6. Department level mappings to review')
         self.stdout.write(
             '  Maths levels mapped under a department that does not teach maths.\n'
             '  A repair must LEAVE THESE ALONE — they are listed so a human can look.')
@@ -331,7 +411,8 @@ class Command(BaseCommand):
     def _write_csv(self, path, rows):
         fields = [
             'school', 'department', 'name', 'old_subject', 'new_subject',
-            'reason', 'fee_before', 'fee_after', 'fee_moves', 'levels',
+            'reason', 'fee_before', 'fee_after', 'fee_moves',
+            'hidden_records', 'hidden_comments', 'levels',
         ]
         with open(path, 'w', newline='', encoding='utf-8') as handle:
             writer = csv.DictWriter(handle, fieldnames=fields, extrasaction='ignore')

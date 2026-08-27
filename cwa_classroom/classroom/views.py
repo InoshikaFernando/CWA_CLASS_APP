@@ -30,6 +30,56 @@ def _get_user_school_ids(user):
     return list(admin_ids | hoi_ids)
 
 
+def _resolve_class_subject(post_data, department, selected_levels, current=None):
+    """Return ``(subject, error)`` for a class create/edit POST.
+
+    The subject a user picked is the subject we store. It used to be inferred
+    from ``selected_levels.first()``, but ``Level.Meta.ordering`` is
+    ``level_number`` and ``level_number`` is globally unique — Maths owns 1-10
+    while every other subject starts at 300 — so any class holding a maths level
+    was labelled Mathematics whatever it actually taught.
+
+    The posted value is validated against the department's own
+    ``DepartmentSubject`` rows, so a user cannot attach a class to a subject the
+    department does not teach.
+
+    Level-derivation survives only as a fallback for a form submitted without
+    the field (an old page left open), and it now refuses to guess when the
+    levels span more than one subject rather than silently picking the lowest.
+    """
+    from .models import DepartmentSubject
+
+    posted = (post_data.get('subject') or '').strip()
+    if posted:
+        if not posted.isdigit():
+            return None, 'Please select a valid subject.'
+        subject = Subject.objects.filter(
+            id=int(posted),
+            department_subjects__department=department,
+        ).first()
+        if subject is None:
+            return None, 'Please select a subject this department teaches.'
+        return subject, None
+
+    # --- Fallback: no subject field in the POST ---
+    subject_ids = {
+        lv.subject_id for lv in selected_levels if lv.subject_id
+    }
+    if len(subject_ids) > 1:
+        return None, (
+            'These levels belong to different subjects. Pick one subject for '
+            'the class, then choose levels from it.'
+        )
+    if len(subject_ids) == 1:
+        return Subject.objects.filter(pk=subject_ids.pop()).first(), None
+    if current is not None:
+        return current, None
+    first_ds = DepartmentSubject.objects.filter(
+        department=department,
+    ).select_related('subject').first()
+    return (first_ds.subject if first_ds else None), None
+
+
 def _get_billing_classroom_or_404(request, class_id):
     """Fetch an active classroom for a per-student billing edit (fee / billing
     start date), scoped to a school the requesting user actually belongs to.
@@ -874,9 +924,13 @@ class CreateClassView(RoleRequiredMixin, View):
         )
         valid_levels = Level.objects.filter(id__in=mapped_level_ids)
 
-        # Derive subject from the first selected level
-        first_level = valid_levels.select_related('subject').first()
-        subject = first_level.subject if first_level else department.primary_subject
+        # Store the subject the user picked (see _resolve_class_subject).
+        subject, subject_error = _resolve_class_subject(
+            request.POST, department, valid_levels.select_related('subject'),
+        )
+        if subject_error:
+            messages.error(request, subject_error)
+            return redirect('create_class')
 
         with transaction.atomic():
             classroom = ClassRoom.objects.create(
@@ -1189,11 +1243,18 @@ class EditClassView(RoleRequiredMixin, View):
             else:
                 classroom.fee_override = None
 
-        # Derive subject from selected levels
+        # Store the subject the user picked (see _resolve_class_subject).
         selected_levels = Level.objects.filter(id__in=level_ids)
-        first_level = selected_levels.first()
-        if first_level and first_level.subject:
-            classroom.subject = first_level.subject
+        subject, subject_error = _resolve_class_subject(
+            request.POST, classroom.department,
+            selected_levels.select_related('subject'),
+            current=classroom.subject,
+        )
+        if subject_error:
+            messages.error(request, subject_error)
+            return redirect('edit_class', class_id=class_id)
+        if subject is not None:
+            classroom.subject = subject
 
         classroom.save()
         classroom.levels.set(selected_levels)
@@ -5020,9 +5081,13 @@ class HoDCreateClassView(RoleRequiredMixin, View):
         ) if level_ids else set()
         valid_levels = Level.objects.filter(id__in=mapped_level_ids)
 
-        # Derive subject from selected levels
-        first_level = valid_levels.select_related('subject').first()
-        subject = first_level.subject if first_level else department.primary_subject
+        # Store the subject the user picked (see _resolve_class_subject).
+        subject, subject_error = _resolve_class_subject(
+            request.POST, department, valid_levels.select_related('subject'),
+        )
+        if subject_error:
+            messages.error(request, subject_error)
+            return redirect('hod_create_class')
 
         with transaction.atomic():
             classroom = ClassRoom.objects.create(
@@ -5239,6 +5304,51 @@ class PublicHomeView(View):
 # Hub helpers — question availability checks
 # ---------------------------------------------------------------------------
 
+def _subject_question_filter(subject_ids, prefix=''):
+    """``Q`` matching questions that belong to any of *subject_ids*.
+
+    A question's subject is its **topic's** subject. ``Question.level`` is a
+    year / difficulty band that happens to carry a ``subject`` FK, and that FK
+    was NULL on Years 1-9 for most of this app's life — so joining through the
+    level counted almost nothing and the hub reported 4-of-5 where the truth was
+    4-of-205. Topic is the correct join and is populated by every upload path.
+
+    A question with no topic keeps the level join as its only remaining signal.
+    The two branches are mutually exclusive (``topic`` is either set or NULL),
+    so callers may sum per-branch counts without double-counting a row.
+
+    *prefix* reaches the question from a related model, e.g. ``'question__'``
+    from ``StudentAnswer``.
+    """
+    from django.db.models import Q as DQ
+
+    return (
+        DQ(**{f'{prefix}topic__subject_id__in': subject_ids})
+        | DQ(**{
+            f'{prefix}topic__isnull': True,
+            f'{prefix}level__subject_id__in': subject_ids,
+        })
+    )
+
+
+def _effective_subject_expr(prefix=''):
+    """Expression yielding the subject id a question counts against.
+
+    The mirror of :func:`_subject_question_filter` for grouping: the topic's
+    subject where there is a topic, else the level's. Doing it as one CASE keeps
+    the hub's per-subject rollups to a single query, which the N+1 guards in
+    ``test_hub_progress`` / ``test_hub_question_gates`` pin.
+    """
+    from django.db.models import Case, F, IntegerField, When
+
+    return Case(
+        When(**{f'{prefix}topic__isnull': False},
+             then=F(f'{prefix}topic__subject_id')),
+        default=F(f'{prefix}level__subject_id'),
+        output_field=IntegerField(),
+    )
+
+
 def _subject_has_questions(subj, school=None):
     """
     Return True if maths questions exist for *subj* that students can access.
@@ -5256,7 +5366,7 @@ def _subject_has_questions(subj, school=None):
     if subj.global_subject_id:
         subject_ids.append(subj.global_subject_id)
 
-    qs = Question.objects.filter(level__subject_id__in=subject_ids)
+    qs = Question.objects.filter(_subject_question_filter(subject_ids))
     if school is not None:
         return qs.filter(DQ(school__isnull=True) | DQ(school=school)).exists()
     return qs.filter(school__isnull=True).exists()
@@ -5278,8 +5388,9 @@ def _annotate_apps_with_questions(apps):
     if subject_ids:
         has_q_ids = set(
             Question.objects
-            .filter(level__subject_id__in=subject_ids, school__isnull=True)
-            .values_list('level__subject_id', flat=True)
+            .filter(_subject_question_filter(subject_ids), school__isnull=True)
+            .annotate(subject_bucket=_effective_subject_expr())
+            .values_list('subject_bucket', flat=True)
             .distinct()
         )
     else:
@@ -5322,7 +5433,7 @@ def _compute_subject_progress(user, subject_ids, school=None):
 
     total = (
         Question.objects
-        .filter(DQ(level__subject_id__in=subject_ids) & q_school_filter)
+        .filter(_subject_question_filter(subject_ids) & q_school_filter)
         .values('id').distinct().count()
     )
 
@@ -5333,7 +5444,7 @@ def _compute_subject_progress(user, subject_ids, school=None):
         StudentAnswer.objects
         .filter(
             DQ(student=user) &
-            DQ(question__level__subject_id__in=subject_ids) &
+            _subject_question_filter(subject_ids, prefix='question__') &
             DQ(is_correct=True) &
             ans_school_filter,
         )
@@ -5364,23 +5475,25 @@ def _annotate_apps_with_progress(apps, user):
         # Total global questions per subject
         totals = dict(
             Question.objects
-            .filter(level__subject_id__in=subject_ids, school__isnull=True)
-            .values('level__subject_id')
+            .filter(_subject_question_filter(subject_ids), school__isnull=True)
+            .annotate(subject_bucket=_effective_subject_expr())
+            .values('subject_bucket')
             .annotate(cnt=Count('id', distinct=True))
-            .values_list('level__subject_id', 'cnt')
+            .values_list('subject_bucket', 'cnt')
         )
         # Correctly answered global questions per subject
         completed_map = dict(
             StudentAnswer.objects
             .filter(
+                _subject_question_filter(subject_ids, prefix='question__'),
                 student=user,
-                question__level__subject_id__in=subject_ids,
                 question__school__isnull=True,
                 is_correct=True,
             )
-            .values('question__level__subject_id')
+            .annotate(subject_bucket=_effective_subject_expr(prefix='question__'))
+            .values('subject_bucket')
             .annotate(cnt=Count('question_id', distinct=True))
-            .values_list('question__level__subject_id', 'cnt')
+            .values_list('subject_bucket', 'cnt')
         )
     else:
         totals = {}
