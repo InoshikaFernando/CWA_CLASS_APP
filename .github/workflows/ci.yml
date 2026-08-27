@@ -27,6 +27,7 @@ jobs:
   changes:
     name: Detect changed areas
     runs-on: ubuntu-latest
+    timeout-minutes: 10   # ~10s
     permissions:
       contents: read
       pull-requests: read
@@ -532,6 +533,7 @@ jobs:
   migration-check:
     name: Migration Health
     runs-on: ubuntu-latest
+    timeout-minutes: 20   # ~2min
     steps:
       - uses: actions/checkout@v4
 
@@ -569,6 +571,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.release == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5   # instant
     permissions:
       actions: read
       contents: read
@@ -616,6 +619,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.classroom == 'true') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 45   # ~20min
     steps:
       - uses: actions/checkout@v4
 
@@ -645,6 +649,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.release != 'true' && needs.changes.outputs.unit_dirs != '' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 40   # ~8min
     steps:
       - uses: actions/checkout@v4
 
@@ -708,6 +713,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.release != 'true' && needs.changes.outputs.skip_ui_matrix != 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test')) }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10   # instant
     outputs:
       groups: ${{ steps.pick.outputs.groups }}
     steps:
@@ -756,6 +762,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.skip_ui_matrix == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5   # instant
     steps:
       - name: Report which run covered it
         run: |
@@ -770,6 +777,7 @@ jobs:
     needs: ui-matrix
     if: ${{ needs.ui-matrix.outputs.groups != '[]' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 35   # ~11min
     strategy:
       # One broken area must not cancel the others — a full run should report
       # every failing group, not just the first.
@@ -827,6 +835,7 @@ jobs:
     needs: [changes, ui-matrix, ui-tests]
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5   # instant
     steps:
       - name: Report the UI suite result
         env:
