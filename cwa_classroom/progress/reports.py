@@ -22,6 +22,11 @@ from progress.periods import label_for
 
 UNCLASSIFIED = 'Unclassified'
 
+# The slug every maths-domain strand belongs to. Quizzes, times tables and
+# basic facts are maths and only maths, so they have no place in a report
+# covering a coding class.
+MATHS_SLUG = 'mathematics'
+
 # An award only means something measured against classmates. Below this many
 # active students with activity in the window, the class-relative awards are
 # skipped entirely — see the spec's §2.5 guard column.
@@ -51,7 +56,8 @@ def _mean(values):
 # Raw material
 # ---------------------------------------------------------------------------
 
-def student_submissions(student, start, end, classroom_ids=None):
+def student_submissions(student, start, end, classroom_ids=None,
+                        subject_slugs=None):
     """Every homework attempt this student submitted inside the window.
 
     *classroom_ids* restricts the report to the classes that actually switched
@@ -76,13 +82,16 @@ def student_submissions(student, start, end, classroom_ids=None):
     )
     if classroom_ids is not None:
         qs = qs.filter(homework__classroom_id__in=classroom_ids)
+    if subject_slugs is not None:
+        qs = qs.filter(homework__subject_slug__in=subject_slugs)
     return list(
         qs.select_related('homework', 'homework__classroom')
         .order_by('submitted_at')
     )
 
 
-def homework_due_in_window(student, start, end, classroom_ids=None):
+def homework_due_in_window(student, start, end, classroom_ids=None,
+                           subject_slugs=None):
     """Published homework whose due date falls in the window, for this student.
 
     Scoped to the classes the student is actively in — homework assigned to a
@@ -102,16 +111,15 @@ def homework_due_in_window(student, start, end, classroom_ids=None):
         class_ids = [cid for cid in class_ids if cid in set(classroom_ids)]
     if not class_ids:
         return []
-    return list(
-        Homework.objects
-        .filter(
-            classroom_id__in=class_ids,
-            published_at__isnull=False,
-            due_date__gte=begin,
-            due_date__lte=finish,
-        )
-        .order_by('due_date')
+    qs = Homework.objects.filter(
+        classroom_id__in=class_ids,
+        published_at__isnull=False,
+        due_date__gte=begin,
+        due_date__lte=finish,
     )
+    if subject_slugs is not None:
+        qs = qs.filter(subject_slug__in=subject_slugs)
+    return list(qs.order_by('due_date'))
 
 
 def _group_by_homework(submissions):
@@ -340,14 +348,17 @@ def _attempt_pct(row):
     return _pct(row.score, row.total_questions)
 
 
-def quizzes_section(student, start, end):
+def quizzes_section(student, start, end, subject_slugs=None):
     """Topic and mixed maths quizzes attempted in the window.
 
     Grouped by topic and reported first-attempt vs best, the same shape as
     homework — retrying a quiz is the same behaviour the homework section is
     there to encourage, and showing it differently would hide that.
     """
-    attempts = _final_answers(student, start, end, ('topic', 'mixed'))
+    attempts = (
+        _final_answers(student, start, end, ('topic', 'mixed'))
+        if _covers_maths(subject_slugs) else []
+    )
     if not attempts:
         return {'attempted': 0, 'attempts': 0, 'avg_first_pct': 0,
                 'avg_best_pct': 0, 'improvement_pct': 0, 'items': []}
@@ -385,9 +396,12 @@ def quizzes_section(student, start, end):
     }
 
 
-def times_tables_section(student, start, end):
+def times_tables_section(student, start, end, subject_slugs=None):
     """Times tables practised in the window, best per table and operation."""
-    attempts = _final_answers(student, start, end, ('times_table',))
+    attempts = (
+        _final_answers(student, start, end, ('times_table',))
+        if _covers_maths(subject_slugs) else []
+    )
     if not attempts:
         return {'tables': 0, 'attempts': 0, 'avg_best_pct': 0, 'items': []}
 
@@ -419,7 +433,7 @@ def times_tables_section(student, start, end):
     }
 
 
-def basic_facts_section(student, start, end):
+def basic_facts_section(student, start, end, subject_slugs=None):
     """Basic-facts attempts in the window, best per subtopic."""
     from maths.models import BasicFactsResult
 
@@ -429,7 +443,7 @@ def basic_facts_section(student, start, end):
             student=student,
             completed_at__gte=begin, completed_at__lte=finish,
         ).values('subtopic', 'level_number', 'score', 'total_points')
-    )
+    ) if _covers_maths(subject_slugs) else []
     if not rows:
         return {'subtopics': 0, 'attempts': 0, 'avg_best_pct': 0, 'items': []}
 
@@ -624,12 +638,36 @@ def awards_for(student, classroom, start, end, due_count, cohort_cache=None):
     return earned
 
 
+def covered_subject_slugs(classrooms):
+    """The subjects a report covers, or ``None`` when that cannot be known.
+
+    A report has no subject of its own yet, so it takes them from the classes
+    it covers. ``None`` means "do not scope", and is returned whenever any
+    covered class has no subject set — dropping a class's work on the strength
+    of a blank field would be a worse bug than the one this fixes.
+    """
+    if not classrooms:
+        return None
+    slugs = set()
+    for classroom in classrooms:
+        slug = classroom.subject.slug if classroom.subject_id else None
+        if not slug:
+            return None
+        slugs.add(slug)
+    return slugs
+
+
+def _covers_maths(subject_slugs):
+    """Whether the maths-only strands belong in this report at all."""
+    return subject_slugs is None or MATHS_SLUG in subject_slugs
+
+
 def _student_classrooms(student, classroom_ids=None):
     from classroom.models import ClassRoom
 
     qs = ClassRoom.objects.filter(
         class_students__student=student, class_students__is_active=True,
-    )
+    ).select_related('subject')
     if classroom_ids is not None:
         qs = qs.filter(id__in=classroom_ids)
     return list(qs.distinct().order_by('name'))
@@ -657,20 +695,26 @@ def build_report_data(student, period_type, start, end, term=None,
     that one — which is what makes "only configured classes get it" true of the
     contents, not just of the trigger.
     """
-    submissions = student_submissions(student, start, end, classroom_ids)
-    due = homework_due_in_window(student, start, end, classroom_ids)
+    # The classes decide which subjects this report is about, so they are
+    # resolved before anything is queried rather than only for the awards.
+    classrooms = _student_classrooms(student, classroom_ids)
+    subjects = covered_subject_slugs(classrooms)
+
+    submissions = student_submissions(
+        student, start, end, classroom_ids, subjects,
+    )
+    due = homework_due_in_window(student, start, end, classroom_ids, subjects)
 
     awards = []
-    classrooms = _student_classrooms(student, classroom_ids)
     for classroom in classrooms:
         awards.extend(awards_for(
             student, classroom, start, end, _due_count_for(classroom, due),
             cohort_cache=cohort_cache,
         ))
 
-    quizzes = quizzes_section(student, start, end)
-    times_tables = times_tables_section(student, start, end)
-    basic_facts = basic_facts_section(student, start, end)
+    quizzes = quizzes_section(student, start, end, subjects)
+    times_tables = times_tables_section(student, start, end, subjects)
+    basic_facts = basic_facts_section(student, start, end, subjects)
     worksheets = worksheets_section(student, start, end, classroom_ids)
     totals = totals_section(submissions, due)
 
