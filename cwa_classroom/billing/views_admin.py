@@ -1872,6 +1872,8 @@ class FinanceDashboardView(SuperuserRequiredMixin, View):
             'bars': bars,
             'chart_data': chart_data,
             'category_totals': summary['category_totals'],
+            'stale_categories': summary['stale_categories'],
+            'period_label': summary['period_label'],
             'totals': summary['totals'],
             'carry_forward': summary['carry_forward'],
             'overall_net': summary['overall_net'],
@@ -2062,6 +2064,7 @@ class RecurringExpenseCreateView(SuperuserRequiredMixin, View):
             category=clean['category'], vendor=clean['vendor'],
             description=clean['description'], amount=clean['amount'],
             frequency=frequency, start_date=start_val, end_date=end_val,
+            is_estimate=bool(request.POST.get('is_estimate')),
             note=clean['note'],
         )
         messages.success(request, 'Recurring expense created.')
@@ -2077,6 +2080,7 @@ class RecurringExpenseEditView(SuperuserRequiredMixin, View):
                 'description': tpl.description, 'amount': tpl.amount,
                 'frequency': tpl.frequency, 'start_date': tpl.start_date,
                 'end_date': tpl.end_date or '', 'note': tpl.note,
+                'is_estimate': tpl.is_estimate,
             },
             'categories': ExpenseCategory.choices,
             'frequencies': RecurringExpense.FREQUENCY_CHOICES,
@@ -2114,6 +2118,7 @@ class RecurringExpenseEditView(SuperuserRequiredMixin, View):
         tpl.frequency = frequency
         tpl.start_date = start_val
         tpl.end_date = end_val
+        tpl.is_estimate = bool(request.POST.get('is_estimate'))
         tpl.note = clean['note']
         tpl.save()
         messages.success(request, 'Recurring expense updated.')

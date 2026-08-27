@@ -25,7 +25,7 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.18.8'        # MAJOR.MINOR.PATCH
+APP_VERSION       = '1.18.9'        # MAJOR.MINOR.PATCH
 APP_VERSION_DATE  = '2026-08-27'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
@@ -222,6 +222,28 @@ FX_RATE_API_URL = os.environ.get(
 # pulls real monthly invoices (so droplet/DB/Spaces addons are captured with no
 # manual update). Inert when empty — dev/test stay no-op.
 DIGITALOCEAN_API_TOKEN = os.environ.get('DIGITALOCEAN_API_TOKEN', '')
+
+# GitHub billing. sync_vendor_charges reads the enhanced billing usage report
+# and books what GitHub actually charged — Actions minutes above all (the CI
+# matrix is the cost driver; see CLAUDE.md on the spending limit that once
+# stopped a production deploy), plus anything else on the bill: Packages, LFS,
+# Copilot.
+#
+# BOTH SETTINGS BELOW ARE OPTIONAL OVERRIDES. By default the sync uses the
+# GitHub credentials this project already has: AI_DASHBOARD_GITHUB_TOKEN, and
+# the owner half of AI_DASHBOARD_GITHUB_REPO as the account being billed.
+# Set these only when billing needs its own credential or sits on a different
+# account. Reading billing is a different permission from writing an issue, so
+# the dashboard token may be refused — GitHub answers 403 with a message naming
+# what is missing, and the sync logs that message verbatim rather than guessing
+# at the fix. Inert when no token or no account can be resolved, so dev/test
+# stay no-op.
+GITHUB_BILLING_TOKEN = os.environ.get('GITHUB_BILLING_TOKEN', '')
+GITHUB_BILLING_ACCOUNT = os.environ.get('GITHUB_BILLING_ACCOUNT', '')
+# 'user' or 'org' — a user's bill and an organisation's live at different API
+# paths, so this must match the account above.
+GITHUB_BILLING_ACCOUNT_TYPE = os.environ.get(
+    'GITHUB_BILLING_ACCOUNT_TYPE', 'user')
 
 # Chat webhook (Discord/Slack) for critical droplet-health alerts, posted by the
 # record_ops_metrics command when the box first enters a critical state. Reuses

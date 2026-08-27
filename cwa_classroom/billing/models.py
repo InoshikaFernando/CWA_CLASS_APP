@@ -732,6 +732,7 @@ class ExpenseCategory(models.TextChoices):
     DIGITALOCEAN = 'digitalocean', 'DigitalOcean'
     RESEND = 'resend', 'Resend (email)'
     GODADDY = 'godaddy', 'GoDaddy (domain)'
+    GITHUB = 'github', 'GitHub'
     STRIPE_FEES = 'stripe_fees', 'Stripe fees'
     OTHER = 'other', 'Other'
 
@@ -743,6 +744,8 @@ EXPENSE_SOURCE_MANUAL = 'manual'
 EXPENSE_SOURCE_RECURRING = 'recurring'
 EXPENSE_SOURCE_AI_GRADING = 'ai_grading'
 EXPENSE_SOURCE_DIGITALOCEAN = 'digitalocean_api'
+# What GitHub billed, from its enhanced billing usage report (CPP-384).
+EXPENSE_SOURCE_GITHUB = 'github_api'
 # Billed AI spend fetched from the vendor's own API (CPP-383). Kept distinct
 # from EXPENSE_SOURCE_AI_GRADING (the token estimate) so the two can coexist
 # during the switchover and the authoritative one is identifiable.
@@ -752,12 +755,23 @@ EXPENSE_SOURCE_CHOICES = [
     (EXPENSE_SOURCE_RECURRING, 'Recurring template'),
     (EXPENSE_SOURCE_AI_GRADING, 'AI usage (auto)'),
     (EXPENSE_SOURCE_DIGITALOCEAN, 'DigitalOcean API (auto)'),
+    (EXPENSE_SOURCE_GITHUB, 'GitHub billing API (auto)'),
     (EXPENSE_SOURCE_AI_VENDOR, 'AI vendor billed (auto)'),
 ]
 
 # Sources a human owns and may edit/delete in the UI. Everything else is
 # machine-synced (re-derived each run) and therefore read-only.
 EXPENSE_EDITABLE_SOURCES = {EXPENSE_SOURCE_MANUAL, EXPENSE_SOURCE_RECURRING}
+
+# Sources carrying a vendor's OWN billed figure for a month, as opposed to the
+# flat estimate a RecurringExpense template books ahead of the invoice. Once
+# one of these exists for a (category, month) the estimate for that month is
+# superseded and must not be re-booked — otherwise the month is counted twice.
+AUTHORITATIVE_AUTO_SOURCES = (
+    EXPENSE_SOURCE_DIGITALOCEAN,
+    EXPENSE_SOURCE_GITHUB,
+    EXPENSE_SOURCE_AI_VENDOR,
+)
 
 
 class Expense(models.Model):
@@ -878,6 +892,12 @@ class RecurringExpense(models.Model):
         help_text='Optional: stop generating after this date (e.g. cancelled).',
     )
     is_active = models.BooleanField(default=True)
+    is_estimate = models.BooleanField(
+        default=False,
+        help_text='Placeholder for a cost nobody can fetch (Claude Code bills '
+                  'per use with no API). A charge entered by hand for the same '
+                  'month replaces the estimate instead of adding to it.',
+    )
     note = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

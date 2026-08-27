@@ -182,7 +182,7 @@ class SyncBilledExpensesTests(TestCase):
         self.assertEqual(Expense.objects.filter(vendor='OpenAI').count(), 1)
 
     def test_billed_rows_are_distinct_from_the_estimate_rows(self):
-        # Both can coexist during the switchover; they must not collide.
+        # Distinct sources, so the authoritative one stays identifiable.
         from billing.models import EXPENSE_SOURCE_AI_VENDOR, Expense
 
         with mock.patch.dict(ai_vendor_costs.FETCHERS, self._fetchers(
@@ -192,6 +192,64 @@ class SyncBilledExpensesTests(TestCase):
         self.assertEqual(
             Expense.objects.get(vendor='OpenAI').source,
             EXPENSE_SOURCE_AI_VENDOR)
+
+    def test_billed_figure_replaces_that_month_s_token_estimate(self):
+        """The vendor's bill and the ledger's estimate price the same tokens.
+        Leaving both in a month doubles that vendor's spend."""
+        from billing.models import (
+            EXPENSE_SOURCE_AI_GRADING, EXPENSE_SOURCE_AI_VENDOR, Expense,
+            ExpenseCategory,
+        )
+
+        Expense.objects.create(
+            category=ExpenseCategory.OPENAI_API, vendor='OpenAI',
+            amount=Decimal('12.00'), incurred_on=date(2026, 8, 1),
+            source=EXPENSE_SOURCE_AI_GRADING,
+        )
+        with mock.patch.dict(ai_vendor_costs.FETCHERS, self._fetchers(
+                openai=lambda s, e: [DailyCost(date(2026, 8, 3), Decimal('2'))])):
+            sync_ai_vendor_expenses()
+
+        rows = Expense.objects.filter(category=ExpenseCategory.OPENAI_API)
+        self.assertEqual([r.source for r in rows], [EXPENSE_SOURCE_AI_VENDOR])
+
+    def test_a_month_the_vendor_did_not_cover_keeps_its_estimate(self):
+        # Superseding is per month: an earlier month with no billed figure must
+        # keep the estimate rather than being blanked.
+        from billing.models import (
+            EXPENSE_SOURCE_AI_GRADING, Expense, ExpenseCategory,
+        )
+
+        Expense.objects.create(
+            category=ExpenseCategory.OPENAI_API, vendor='OpenAI',
+            amount=Decimal('12.00'), incurred_on=date(2026, 7, 1),
+            source=EXPENSE_SOURCE_AI_GRADING,
+        )
+        with mock.patch.dict(ai_vendor_costs.FETCHERS, self._fetchers(
+                openai=lambda s, e: [DailyCost(date(2026, 8, 3), Decimal('2'))])):
+            sync_ai_vendor_expenses()
+
+        self.assertTrue(Expense.objects.filter(
+            source=EXPENSE_SOURCE_AI_GRADING,
+            incurred_on=date(2026, 7, 1)).exists())
+
+    def test_one_vendor_s_estimate_is_not_touched_by_the_other_s_bill(self):
+        from billing.models import (
+            EXPENSE_SOURCE_AI_GRADING, Expense, ExpenseCategory,
+        )
+
+        Expense.objects.create(
+            category=ExpenseCategory.CLAUDE_API, vendor='Anthropic',
+            amount=Decimal('90.00'), incurred_on=date(2026, 8, 1),
+            source=EXPENSE_SOURCE_AI_GRADING,
+        )
+        with mock.patch.dict(ai_vendor_costs.FETCHERS, self._fetchers(
+                openai=lambda s, e: [DailyCost(date(2026, 8, 3), Decimal('2'))])):
+            sync_ai_vendor_expenses()
+
+        self.assertTrue(Expense.objects.filter(
+            category=ExpenseCategory.CLAUDE_API,
+            source=EXPENSE_SOURCE_AI_GRADING).exists())
 
 
 # ---------------------------------------------------------------------------

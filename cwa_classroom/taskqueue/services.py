@@ -99,11 +99,31 @@ def record_ai_usage(*, school, source, session_id, pages, usage,
     ``usage`` is the dict returned by the classifier — expects ``input_tokens``
     and ``output_tokens``. Never raises into the caller: usage accounting must
     not be able to fail a PDF that already classified successfully.
+
+    A provider with no configured rate still gets its row, priced at zero. The
+    tokens are measured facts and are worth keeping; the price is a guess we
+    decline to make (pricing GPT tokens at Opus rates is the failure this
+    guard exists to prevent). Dropping the row instead — which is what an
+    unconfigured OPENAI_*_COST_PER_MTOK used to do, since the raise happened
+    inside the create() call — lost the usage as well as the cost, so OpenAI
+    work left no trace anywhere. A zero-cost row is skipped by
+    sync_ai_usage_expenses rather than booked as free, and the real money comes
+    from the vendor's billed figure (sync_ai_vendor_expenses) instead.
     """
     try:
         usage = usage or {}
         input_tokens = usage.get('input_tokens', 0) or 0
         output_tokens = usage.get('output_tokens', 0) or 0
+        try:
+            est_cost = estimate_cost_usd(
+                input_tokens, output_tokens, provider=provider)
+        except UnknownProvider as exc:
+            est_cost = Decimal('0')
+            logger.warning(
+                'AI usage for %s recorded UNPRICED (%s in / %s out tokens): %s '
+                'Its cost is not in the ledger — set the rates, or rely on the '
+                'billed figure from the vendor cost API.',
+                provider, input_tokens, output_tokens, exc)
         log = AIUsageLog.objects.create(
             school=school,
             provider=provider,
@@ -112,8 +132,7 @@ def record_ai_usage(*, school, source, session_id, pages, usage,
             pages=pages or 0,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            est_cost_usd=estimate_cost_usd(
-                input_tokens, output_tokens, provider=provider),
+            est_cost_usd=est_cost,
         )
         # Per-call cost line — reuses values already in hand, so it's
         # effectively free (no extra process / query). Shows up in the worker

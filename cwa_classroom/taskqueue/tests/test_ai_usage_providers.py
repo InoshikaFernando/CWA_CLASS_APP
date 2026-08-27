@@ -55,15 +55,25 @@ class UnpricedProviderTests(TestCase):
 
     @override_settings(OPENAI_INPUT_COST_PER_MTOK=None,
                        OPENAI_OUTPUT_COST_PER_MTOK=None)
-    def test_recording_an_unpriced_row_does_not_break_the_caller(self):
+    def test_unpriced_usage_is_still_recorded_at_zero_cost(self):
         # record_ai_usage must never fail work that already succeeded — a
         # missing rate is a configuration problem, not a reason to lose a PDF.
+        # It is not a reason to lose the TOKENS either: they are measured, only
+        # the price is unknown. Dropping the row (the old behaviour) left
+        # OpenAI work with no trace in the usage dashboard or the ledger.
         result = record_ai_usage(
             school=None, provider=AIUsageLog.PROVIDER_OPENAI,
             source=AIUsageLog.SOURCE_AI_IMPORT, session_id=1, pages=1,
             usage={'input_tokens': 100, 'output_tokens': 10})
-        self.assertIsNone(result)
-        self.assertEqual(AIUsageLog.objects.count(), 0)
+
+        self.assertIsNotNone(result)
+        row = AIUsageLog.objects.get()
+        self.assertEqual(row.provider, AIUsageLog.PROVIDER_OPENAI)
+        self.assertEqual(row.input_tokens, 100)
+        self.assertEqual(row.output_tokens, 10)
+        # Zero, not a guess — and sync_ai_usage_expenses skips a zero row
+        # rather than booking the month as free.
+        self.assertEqual(row.est_cost_usd, Decimal('0'))
 
 
 @override_settings(CLAUDE_INPUT_COST_PER_MTOK=5.0,
