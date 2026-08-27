@@ -210,6 +210,44 @@ class ClassSubjectStorageTests(TestCase):
         self.assertEqual(
             ClassRoom.objects.get(name='Inferred Coding').subject, self.coding)
 
+
+    def test_a_class_whose_department_was_deleted_can_still_be_saved(self):
+        """``ClassRoom.department`` is SET_NULL, so a class outlives its
+        department. Scoping the posted subject against an empty
+        ``DepartmentSubject`` set would reject every subject and make such a
+        class impossible to save at all — worse than the bug being fixed.
+        """
+        classroom = ClassRoom.objects.create(
+            name='Orphan Class', school=self.school, department=None,
+            subject=self.maths)
+        ClassTeacher.objects.create(classroom=classroom, teacher=self.owner)
+
+        self.client.post(reverse('edit_class', args=[classroom.id]), {
+            'name': 'Renamed Orphan',
+            'subject': str(self.maths.id),   # what the page renders for it
+            'levels': [],
+        })
+
+        classroom.refresh_from_db()
+        self.assertEqual(classroom.name, 'Renamed Orphan')
+        self.assertEqual(classroom.subject, self.maths)
+
+    def test_department_scoping_still_applies_when_there_is_a_department(self):
+        """The dept-less escape hatch must not weaken the normal path."""
+        other = Subject.objects.create(
+            name='Astronomy 2', slug='astronomy-2', is_active=True)
+        classroom = self._existing_class(
+            'Scoped', subject=self.maths, levels=[self.maths_lv])
+
+        self.client.post(reverse('edit_class', args=[classroom.id]), {
+            'name': 'Scoped',
+            'subject': str(other.id),
+            'levels': [],
+        })
+
+        classroom.refresh_from_db()
+        self.assertEqual(classroom.subject, self.maths, 'rejected, left as found')
+
     # -- the template that carries it ----------------------------------
 
     def test_edit_page_subject_select_is_submittable(self):

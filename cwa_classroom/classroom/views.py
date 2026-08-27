@@ -53,12 +53,21 @@ def _resolve_class_subject(post_data, department, selected_levels, current=None)
     if posted:
         if not posted.isdigit():
             return None, 'Please select a valid subject.'
-        subject = Subject.objects.filter(
-            id=int(posted),
-            department_subjects__department=department,
-        ).first()
+        qs = Subject.objects.filter(id=int(posted))
+        if department is not None:
+            # Scope to what the department actually teaches. Only meaningful
+            # when there IS a department: ClassRoom.department is SET_NULL, so a
+            # class outlives the department it was created in, and scoping a
+            # department-less class against an empty DepartmentSubject set would
+            # reject every subject and make the class impossible to save at all.
+            qs = qs.filter(department_subjects__department=department)
+        subject = qs.first()
         if subject is None:
-            return None, 'Please select a subject this department teaches.'
+            return None, (
+                'Please select a subject this department teaches.'
+                if department is not None
+                else 'Please select a valid subject.'
+            )
         return subject, None
 
     # --- Fallback: no subject field in the POST ---
