@@ -28,6 +28,25 @@ NOTIF_TYPE = 'progress_report'
 EMAIL_NOTIFICATION_TYPE = 'progress_report_term'
 
 
+def classrooms_for_period(period_type, school=None, classroom=None,
+                          mode=None, reference=None, term=None):
+    """The classes a run would cover — the first half of students_for_period.
+
+    Split out so a caller can tell an empty result apart from an empty scope.
+    "No class is switched on" and "the class is switched on but has nobody in
+    it" both end as an empty plan, and a page that guesses between them sends
+    people to change a setting that is already correct.
+    """
+    from progress import report_settings
+
+    classrooms = report_settings.enabled_classrooms(
+        period_type, school=school, mode=mode, reference=reference, term=term,
+    )
+    if classroom is not None:
+        classrooms = [c for c in classrooms if c.id == classroom.id]
+    return classrooms
+
+
 def students_for_period(period_type, school=None, classroom=None,
                         mode=None, reference=None, term=None):
     """Who to generate for, and which classes each of their reports covers.
@@ -51,11 +70,10 @@ def students_for_period(period_type, school=None, classroom=None,
     from classroom.models import ClassStudent
     from progress import report_settings
 
-    classrooms = report_settings.enabled_classrooms(
-        period_type, school=school, mode=mode, reference=reference, term=term,
+    classrooms = classrooms_for_period(
+        period_type, school=school, classroom=classroom, mode=mode,
+        reference=reference, term=term,
     )
-    if classroom is not None:
-        classrooms = [c for c in classrooms if c.id == classroom.id]
     if not classrooms:
         return {}
 

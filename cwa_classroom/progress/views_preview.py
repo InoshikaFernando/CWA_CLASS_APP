@@ -24,7 +24,9 @@ from progress import periods, report_settings
 from progress.models import PeriodReport
 from progress.pdf import render_report_pdf
 from progress.reports import build_report_data
-from progress.services import run_period, students_for_period
+from progress.services import (
+    classrooms_for_period, run_period, students_for_period,
+)
 from progress.views_reports import DETAIL_TEMPLATE, report_detail_context
 from progress.views_settings import _schools_for
 
@@ -114,7 +116,12 @@ class ReportPreviewView(RoleRequiredMixin, View):
 
         rows = []
         plan = {}
-        if start is not None:
+        empty_reason = None
+        if start is None:
+            # Only a term window can be missing: a term report covers a term
+            # that has ended, and this school has none.
+            empty_reason = 'no_period'
+        else:
             plan = students_for_period(
                 period_type, school=school, classroom=classroom,
             )
@@ -153,6 +160,19 @@ class ReportPreviewView(RoleRequiredMixin, View):
                     ).exclude(notified_at=None).exists(),
                 })
 
+            if not rows:
+                # An empty plan has two causes that call for opposite actions:
+                # switch the report on, or put students in the class. Naming
+                # the wrong one sends a head of institute to change a setting
+                # that is already correct.
+                empty_reason = (
+                    'no_students'
+                    if classrooms_for_period(
+                        period_type, school=school, classroom=classroom,
+                    )
+                    else 'not_enabled'
+                )
+
         with_activity = [row for row in rows if row['has_activity']]
         return render(request, 'progress/report_preview.html', {
             'school': school,
@@ -171,6 +191,7 @@ class ReportPreviewView(RoleRequiredMixin, View):
                 school=school, is_active=True,
             ).order_by('name'),
             'rows': rows,
+            'empty_reason': empty_reason,
             'with_activity_count': len(with_activity),
             'average': (
                 round(sum(r['totals']['overall_avg_pct'] for r in with_activity)
