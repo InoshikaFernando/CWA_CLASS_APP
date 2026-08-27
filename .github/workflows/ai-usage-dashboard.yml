@@ -39,6 +39,7 @@ jobs:
   dashboard:
     name: AI usage → pinned issue
     runs-on: ubuntu-latest
+    timeout-minutes: 15   # ~25s
     steps:
       - name: Check deploy secrets
         id: gate
