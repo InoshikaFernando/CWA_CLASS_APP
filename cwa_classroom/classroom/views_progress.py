@@ -182,13 +182,26 @@ def _group_records(records):
     return grouped_progress, overall
 
 
-def _latest_progress_records(student, classroom=_ALL_CLASSES):
+def _latest_progress_records(student, classroom=_ALL_CLASSES, school=None):
     """Latest ProgressRecord per criterion for ``student``.
 
     ``classroom``: a ClassRoom → that class only; ``None`` → legacy class-less
     records (classroom IS NULL); ``_ALL_CLASSES`` (default) → across all classes.
+
+    ``school``: scope to one institute, or None to span every school the
+    student attends. A child enrolled at two institutes has records at both,
+    and every caller showing them under one school's heading must pass it —
+    the roster page had exactly this leak, and a parent found their child's
+    CWA results counted under MHM.
+
+    Scoped on the criteria rather than the classroom: ProgressCriteria.school
+    is non-nullable, while ProgressRecord.classroom is nullable for legacy
+    rows, so scoping on the classroom would silently drop those instead of
+    showing them at the school they belong to.
     """
     qs = ProgressRecord.objects.filter(student=student)
+    if school is not None:
+        qs = qs.filter(criteria__school=school)
     if classroom is None:
         qs = qs.filter(classroom__isnull=True)
     elif classroom is not _ALL_CLASSES:
@@ -204,31 +217,38 @@ def _latest_progress_records(student, classroom=_ALL_CLASSES):
     )
 
 
-def _build_student_progress(student, classroom=_ALL_CLASSES):
+def _build_student_progress(student, classroom=_ALL_CLASSES, school=None):
     """(grouped_progress, overall) — all classes (default), one class, or legacy
-    class-less records (classroom=None). Progress is tracked per class (§12.10)."""
-    return _group_records(_latest_progress_records(student, classroom))
+    class-less records (classroom=None). Progress is tracked per class (§12.10).
+
+    Pass *school* whenever the result is shown under one institute's heading.
+    """
+    return _group_records(_latest_progress_records(student, classroom, school))
 
 
-def _build_student_progress_by_class(student):
+def _build_student_progress_by_class(student, school=None):
     """Per-class progress sections for the student's own page + parent view —
     one section per class the student is in, plus a 'General' section for any
-    legacy class-less records. Each section: {classroom, grouped_progress, overall}."""
+    legacy class-less records. Each section: {classroom, grouped_progress, overall}.
+
+    *school* narrows both halves: the classes listed and the legacy records,
+    which otherwise span every institute the student attends.
+    """
     class_ids = list(
         ClassStudent.objects.filter(student=student, is_active=True)
         .values_list('classroom_id', flat=True)
     )
-    classes = (
-        ClassRoom.objects.filter(id__in=class_ids)
-        .select_related('subject').order_by('name')
-    )
+    classes = ClassRoom.objects.filter(id__in=class_ids)
+    if school is not None:
+        classes = classes.filter(school=school)
+    classes = classes.select_related('subject').order_by('name')
     sections = []
     for cls in classes:
-        gp, ov = _build_student_progress(student, cls)
+        gp, ov = _build_student_progress(student, cls, school)
         if ov['total']:
             sections.append({'classroom': cls, 'grouped_progress': gp, 'overall': ov})
     # Legacy class-less records (from before per-class tracking) → 'General'.
-    gp, ov = _build_student_progress(student, classroom=None)
+    gp, ov = _build_student_progress(student, classroom=None, school=school)
     if ov['total']:
         sections.append({'classroom': None, 'grouped_progress': gp, 'overall': ov})
     return sections
@@ -987,13 +1007,18 @@ class StudentProgressView(RoleRequiredMixin, ModuleRequiredMixin, View):
         from accounts.models import CustomUser
         student = get_object_or_404(CustomUser, pk=student_id)
 
+        # Resolved first because the records are scoped to it: everything else
+        # on this page (comments, reports, subjects) was already school-scoped,
+        # so a child at two institutes saw one school's heading over both
+        # schools' progress.
+        school = _school_for_student(request, student)
+
         # Progress is tracked per class (§12.10): show a section per class, plus
         # an aggregate 'overall' across classes for the summary cards.
-        progress_sections = _build_student_progress_by_class(student)
-        _, overall = _build_student_progress(student)
+        progress_sections = _build_student_progress_by_class(student, school)
+        _, overall = _build_student_progress(student, school=school)
 
         # ── Teacher comments + report controls ──────────────────────────
-        school = _school_for_student(request, student)
         can_comment = _is_teacher(request.user)
 
         terms = []
@@ -1540,7 +1565,9 @@ class ProgressReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
             include_coding=sel['coding'],
             summary_snapshot=build_summary(student, classroom, **sel),
         )
-        grouped_progress, overall = _build_student_progress(student, classroom or _ALL_CLASSES)
+        grouped_progress, overall = _build_student_progress(
+            student, classroom or _ALL_CLASSES, school,
+        )
         return render(request, 'progress/report_preview.html', {
             'report': report, 'student': student, 'school': school,
             'grouped_progress': grouped_progress, 'overall': overall,
@@ -1558,7 +1585,7 @@ class ProgressReportDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):
             pk=report_id,
         )
         grouped_progress, overall = _build_student_progress(
-            report.student, report.classroom or _ALL_CLASSES,
+            report.student, report.classroom or _ALL_CLASSES, report.school,
         )
 
         comments = ProgressReportComment.objects.filter(
@@ -1595,7 +1622,7 @@ class ProgressReportSendView(RoleRequiredMixin, ModuleRequiredMixin, View):
         school = report.school
 
         grouped_progress, overall = _build_student_progress(
-            student, report.classroom or _ALL_CLASSES,
+            student, report.classroom or _ALL_CLASSES, report.school,
         )
         comments = ProgressReportComment.objects.filter(
             student=student, school=school,
