@@ -4,6 +4,7 @@ materialize_recurring_expenses command.
 Stripe is never called: get_paid_revenue is patched so income is deterministic
 (or unavailable) without hitting the API.
 """
+import json
 from datetime import date, timedelta
 from decimal import Decimal
 from io import StringIO
@@ -15,13 +16,13 @@ from django.test import TestCase
 from django.urls import reverse
 
 from billing.models import (
-    Expense, RecurringExpense, ExpenseCategory,
+    Expense, RecurringExpense, ExpenseCategory, EXPENSE_SOURCE_GITHUB,
     EXPENSE_SOURCE_MANUAL, EXPENSE_SOURCE_RECURRING, EXPENSE_SOURCE_AI_GRADING,
     EXPENSE_SOURCE_DIGITALOCEAN,
 )
 from billing.reporting import (
     get_income_expense_summary, sync_ai_usage_expenses,
-    sync_digitalocean_expenses, StripeUnavailable,
+    sync_digitalocean_expenses, sync_github_expenses, StripeUnavailable,
     get_usd_to_nzd_rate, FX_CACHE_KEY,
     materialize_recurring_expenses, refresh_current_month_expenses,
     FINANCE_REFRESH_LOCK_KEY,
@@ -40,18 +41,18 @@ def _revenue(student='0', institute='0'):
 
 class ExpenseModelTests(TestCase):
     def test_github_is_an_expense_category(self):
-        """GitHub Actions minutes are a real operating cost (the CI matrix),
-        so they need a bucket of their own rather than landing in Other."""
+        """GitHub is a real operating cost — Actions minutes above all (the CI
+        matrix), plus whatever else is on the same bill — so it needs a bucket
+        of its own rather than landing in Other."""
         self.assertIn(
-            (ExpenseCategory.GITHUB, 'GitHub (Actions)'),
-            ExpenseCategory.choices,
+            (ExpenseCategory.GITHUB, 'GitHub'), ExpenseCategory.choices,
         )
         exp = Expense.objects.create(
             category=ExpenseCategory.GITHUB, vendor='GitHub',
             amount=Decimal('18.40'), incurred_on=date(2026, 8, 1),
             source=EXPENSE_SOURCE_MANUAL,
         )
-        self.assertEqual(exp.get_category_display(), 'GitHub (Actions)')
+        self.assertEqual(exp.get_category_display(), 'GitHub')
 
     def test_is_auto_property(self):
         manual = Expense(source=EXPENSE_SOURCE_MANUAL)
@@ -338,6 +339,207 @@ class SyncDigitalOceanTests(TestCase):
     def test_api_failure_is_noop(self, mock_get):
         with self.settings(DIGITALOCEAN_API_TOKEN='dop_v1_x'):
             self.assertEqual(sync_digitalocean_expenses(), 0)
+
+
+class SyncGitHubTests(TestCase):
+    """GitHub's enhanced billing usage report (CPP-384).
+
+    The payloads below are the shapes GitHub's own generated client asserts
+    against — field names and the gross/discount/net relationship come from
+    there, not from assumption.
+    """
+
+    SETTINGS = dict(GITHUB_BILLING_TOKEN='ghp_test',
+                    GITHUB_BILLING_ACCOUNT='acme',
+                    GITHUB_BILLING_ACCOUNT_TYPE='user')
+
+    def _resp(self, payload, status=200):
+        from unittest.mock import MagicMock
+        m = MagicMock()
+        m.status_code = status
+        m.json.return_value = payload
+        m.text = json.dumps(payload)
+        return m
+
+    def _item(self, **over):
+        item = {
+            'date': '2026-08-01', 'product': 'Actions', 'sku': 'Actions Linux',
+            'quantity': 100, 'unitType': 'minutes', 'pricePerUnit': 0.008,
+            'grossAmount': 0.8, 'discountAmount': 0.0, 'netAmount': 0.8,
+            'repositoryName': 'acme/app',
+        }
+        item.update(over)
+        return item
+
+    def test_noop_without_a_token(self):
+        with self.settings(GITHUB_BILLING_TOKEN='', GITHUB_BILLING_ACCOUNT='acme'):
+            self.assertEqual(sync_github_expenses(), 0)
+        self.assertEqual(Expense.objects.count(), 0)
+
+    def test_noop_without_an_account(self):
+        with self.settings(GITHUB_BILLING_TOKEN='ghp_test',
+                           GITHUB_BILLING_ACCOUNT=''):
+            self.assertEqual(sync_github_expenses(), 0)
+        self.assertEqual(Expense.objects.count(), 0)
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_books_the_net_charge_per_month(self, mock_get, mock_rate):
+        mock_get.return_value = self._resp({'usageItems': [
+            self._item(netAmount=0.8, grossAmount=0.8),
+            self._item(product='Packages', sku='Packages storage',
+                       grossAmount=1.5, discountAmount=0.3, netAmount=1.2),
+        ]})
+        with self.settings(**self.SETTINGS):
+            self.assertEqual(sync_github_expenses(months=1), 1)
+
+        row = Expense.objects.get()
+        self.assertEqual(row.source, EXPENSE_SOURCE_GITHUB)
+        self.assertEqual(row.category, ExpenseCategory.GITHUB)
+        self.assertEqual(row.original_amount, Decimal('2.00'))   # 0.8 + 1.2 net
+        self.assertEqual(row.amount, Decimal('4.00'))            # x2.0 FX
+        self.assertEqual(row.original_currency, 'USD')
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_free_allowance_is_not_charged_for(self, mock_get, mock_rate):
+        """The included minutes arrive as a discount. Booking grossAmount would
+        bill us for the free tier."""
+        mock_get.return_value = self._resp({'usageItems': [
+            self._item(grossAmount=16.0, discountAmount=16.0, netAmount=0.0),
+        ]})
+        with self.settings(**self.SETTINGS):
+            sync_github_expenses(months=1)
+
+        row = Expense.objects.get()
+        self.assertEqual(row.original_amount, Decimal('0.00'))
+        self.assertEqual(row.amount, Decimal('0.00'))
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_a_month_confirmed_free_is_recorded_not_omitted(self, mock_get, mock_rate):
+        """"GitHub billed nothing" must not look like "we never asked"."""
+        mock_get.return_value = self._resp({'usageItems': []})
+        with self.settings(**self.SETTINGS):
+            self.assertEqual(sync_github_expenses(months=1), 1)
+
+        self.assertEqual(Expense.objects.get().amount, Decimal('0.00'))
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_the_row_names_what_was_on_the_bill(self, mock_get, mock_rate):
+        mock_get.return_value = self._resp({'usageItems': [
+            self._item(product='Actions'),
+            self._item(product='Copilot'),
+        ]})
+        with self.settings(**self.SETTINGS):
+            sync_github_expenses(months=1)
+
+        self.assertEqual(Expense.objects.get().description, 'Actions, Copilot (auto)')
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_a_refused_month_gets_no_row_rather_than_a_zero(self, mock_get, mock_rate):
+        # 403 = the token cannot read billing. That month is unknown, not free.
+        mock_get.return_value = self._resp(
+            {'message': 'Resource not accessible by personal access token'},
+            status=403)
+        with self.settings(**self.SETTINGS):
+            self.assertEqual(sync_github_expenses(months=2), 0)
+
+        self.assertEqual(Expense.objects.count(), 0)
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_a_response_missing_usage_items_is_not_read_as_free(self, mock_get, mock_rate):
+        mock_get.return_value = self._resp({'unexpected': 'shape'})
+        with self.settings(**self.SETTINGS):
+            self.assertEqual(sync_github_expenses(months=1), 0)
+        self.assertEqual(Expense.objects.count(), 0)
+
+    @patch('billing.reporting.requests.get',
+           side_effect=__import__('requests').RequestException('boom'))
+    def test_transport_failure_leaves_no_row(self, mock_get):
+        with self.settings(**self.SETTINGS):
+            self.assertEqual(sync_github_expenses(months=1), 0)
+        self.assertEqual(Expense.objects.count(), 0)
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_sync_is_idempotent(self, mock_get, mock_rate):
+        mock_get.return_value = self._resp({'usageItems': [self._item()]})
+        with self.settings(**self.SETTINGS):
+            sync_github_expenses(months=1)
+            sync_github_expenses(months=1)
+
+        self.assertEqual(Expense.objects.count(), 1)
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_one_request_per_month_asking_for_that_month(self, mock_get, mock_rate):
+        mock_get.return_value = self._resp({'usageItems': [self._item()]})
+        with self.settings(**self.SETTINGS):
+            sync_github_expenses(months=3)
+
+        self.assertEqual(mock_get.call_count, 3)
+        asked = {(c.kwargs['params']['year'], c.kwargs['params']['month'])
+                 for c in mock_get.call_args_list}
+        today = date.today().replace(day=1)
+        expected = set()
+        m = today
+        for _ in range(3):
+            expected.add((m.year, m.month))
+            m = (m - timedelta(days=1)).replace(day=1)
+        self.assertEqual(asked, expected)
+        self.assertEqual(Expense.objects.count(), 3)
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_org_accounts_use_the_organizations_path(self, mock_get, mock_rate):
+        # Not /orgs/ — the billing endpoints use the longer prefix.
+        mock_get.return_value = self._resp({'usageItems': []})
+        with self.settings(GITHUB_BILLING_TOKEN='ghp_test',
+                           GITHUB_BILLING_ACCOUNT='acme-inc',
+                           GITHUB_BILLING_ACCOUNT_TYPE='org'):
+            sync_github_expenses(months=1)
+
+        url = mock_get.call_args.args[0]
+        self.assertEqual(
+            url, 'https://api.github.com/organizations/acme-inc/settings/billing/usage')
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_user_accounts_use_the_users_path(self, mock_get, mock_rate):
+        mock_get.return_value = self._resp({'usageItems': []})
+        with self.settings(**self.SETTINGS):
+            sync_github_expenses(months=1)
+
+        self.assertEqual(
+            mock_get.call_args.args[0],
+            'https://api.github.com/users/acme/settings/billing/usage')
+
+    @patch('billing.reporting.get_usd_to_nzd_rate', return_value=(Decimal('2.0'), 'live'))
+    @patch('billing.reporting.requests.get')
+    def test_a_billed_month_supersedes_a_github_estimate(self, mock_get, mock_rate):
+        # Nothing seeds a GitHub estimate today, but if one is ever added by
+        # hand the billed figure must replace it rather than stack on it.
+        today = date.today().replace(day=1)
+        tpl = RecurringExpense.objects.create(
+            category=ExpenseCategory.GITHUB, vendor='GitHub',
+            amount=Decimal('30.00'),
+            frequency=RecurringExpense.FREQUENCY_MONTHLY, start_date=today,
+        )
+        Expense.objects.create(
+            category=ExpenseCategory.GITHUB, amount=Decimal('30.00'),
+            incurred_on=today, source=EXPENSE_SOURCE_RECURRING, recurring=tpl,
+        )
+        mock_get.return_value = self._resp({'usageItems': [self._item()]})
+        with self.settings(**self.SETTINGS):
+            sync_github_expenses(months=1)
+        materialize_recurring_expenses()
+
+        rows = Expense.objects.filter(category=ExpenseCategory.GITHUB)
+        self.assertEqual([r.source for r in rows], [EXPENSE_SOURCE_GITHUB])
 
 
 class FxRateTests(TestCase):
@@ -692,6 +894,16 @@ class RefreshCurrentMonthExpensesTests(TestCase):
         self.assertIn('billed', calls)
         self.assertLess(calls.index('estimate'), calls.index('billed'))
 
+    def test_refresh_runs_the_github_billing_sync(self):
+        with patch('billing.reporting.sync_github_expenses') as gh:
+            refresh_current_month_expenses()
+        gh.assert_called_once()
+
+    def test_github_sync_failure_does_not_break_refresh(self):
+        with patch('billing.reporting.sync_github_expenses',
+                   side_effect=RuntimeError('403 from GitHub')):
+            refresh_current_month_expenses()   # must not raise
+
     def test_billed_ai_sync_failure_does_not_break_refresh(self):
         with patch('billing.reporting.sync_ai_vendor_expenses',
                    side_effect=RuntimeError('admin key rejected')):
@@ -727,6 +939,7 @@ class SyncVendorChargesCommandTests(TestCase):
     def test_command_runs_the_billed_ai_sync(self):
         with patch(f'{self.CMD}.sync_ai_usage_expenses', return_value=0), \
              patch(f'{self.CMD}.sync_digitalocean_expenses', return_value=0), \
+             patch(f'{self.CMD}.sync_github_expenses', return_value=0), \
              patch(f'{self.CMD}.sync_ai_vendor_expenses',
                    return_value={'written': 2, 'skipped': []}) as billed:
             out = self._run()
@@ -734,9 +947,32 @@ class SyncVendorChargesCommandTests(TestCase):
         billed.assert_called_once()
         self.assertIn('Billed AI rows synced: 2', out)
 
+    def test_command_runs_the_github_billing_sync(self):
+        with patch(f'{self.CMD}.sync_ai_usage_expenses', return_value=0), \
+             patch(f'{self.CMD}.sync_digitalocean_expenses', return_value=0), \
+             patch(f'{self.CMD}.sync_ai_vendor_expenses',
+                   return_value={'written': 0, 'skipped': []}), \
+             patch(f'{self.CMD}.sync_github_expenses', return_value=3) as gh:
+            out = self._run()
+
+        gh.assert_called_once()
+        self.assertIn('GitHub billing months synced: 3', out)
+
+    def test_github_without_a_token_says_so_rather_than_nothing(self):
+        with patch(f'{self.CMD}.sync_ai_usage_expenses', return_value=0), \
+             patch(f'{self.CMD}.sync_digitalocean_expenses', return_value=0), \
+             patch(f'{self.CMD}.sync_ai_vendor_expenses',
+                   return_value={'written': 0, 'skipped': []}), \
+             patch(f'{self.CMD}.sync_github_expenses', return_value=0):
+            out = self._run()
+
+        self.assertIn('GitHub: skipped', out)
+        self.assertIn('GITHUB_BILLING_TOKEN', out)
+
     def test_a_vendor_without_a_key_is_named_not_silently_dropped(self):
         with patch(f'{self.CMD}.sync_ai_usage_expenses', return_value=0), \
              patch(f'{self.CMD}.sync_digitalocean_expenses', return_value=0), \
+             patch(f'{self.CMD}.sync_github_expenses', return_value=0), \
              patch(f'{self.CMD}.sync_ai_vendor_expenses', return_value={
                  'written': 0,
                  'skipped': [('openai', 'no admin API key configured')]}):

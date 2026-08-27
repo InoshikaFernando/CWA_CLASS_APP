@@ -732,7 +732,7 @@ class ExpenseCategory(models.TextChoices):
     DIGITALOCEAN = 'digitalocean', 'DigitalOcean'
     RESEND = 'resend', 'Resend (email)'
     GODADDY = 'godaddy', 'GoDaddy (domain)'
-    GITHUB = 'github', 'GitHub (Actions)'
+    GITHUB = 'github', 'GitHub'
     STRIPE_FEES = 'stripe_fees', 'Stripe fees'
     OTHER = 'other', 'Other'
 
@@ -744,6 +744,8 @@ EXPENSE_SOURCE_MANUAL = 'manual'
 EXPENSE_SOURCE_RECURRING = 'recurring'
 EXPENSE_SOURCE_AI_GRADING = 'ai_grading'
 EXPENSE_SOURCE_DIGITALOCEAN = 'digitalocean_api'
+# What GitHub billed, from its enhanced billing usage report (CPP-384).
+EXPENSE_SOURCE_GITHUB = 'github_api'
 # Billed AI spend fetched from the vendor's own API (CPP-383). Kept distinct
 # from EXPENSE_SOURCE_AI_GRADING (the token estimate) so the two can coexist
 # during the switchover and the authoritative one is identifiable.
@@ -753,6 +755,7 @@ EXPENSE_SOURCE_CHOICES = [
     (EXPENSE_SOURCE_RECURRING, 'Recurring template'),
     (EXPENSE_SOURCE_AI_GRADING, 'AI usage (auto)'),
     (EXPENSE_SOURCE_DIGITALOCEAN, 'DigitalOcean API (auto)'),
+    (EXPENSE_SOURCE_GITHUB, 'GitHub billing API (auto)'),
     (EXPENSE_SOURCE_AI_VENDOR, 'AI vendor billed (auto)'),
 ]
 
@@ -766,6 +769,7 @@ EXPENSE_EDITABLE_SOURCES = {EXPENSE_SOURCE_MANUAL, EXPENSE_SOURCE_RECURRING}
 # superseded and must not be re-booked — otherwise the month is counted twice.
 AUTHORITATIVE_AUTO_SOURCES = (
     EXPENSE_SOURCE_DIGITALOCEAN,
+    EXPENSE_SOURCE_GITHUB,
     EXPENSE_SOURCE_AI_VENDOR,
 )
 

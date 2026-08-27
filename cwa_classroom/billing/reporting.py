@@ -37,6 +37,14 @@ class StripeUnavailable(Exception):
     """Raised when Stripe cannot be reached / is not configured."""
 
 
+class VendorBillUnavailable(Exception):
+    """Raised when a vendor's billed figure could not be obtained.
+
+    Raised rather than returning zero: a period we could not read must be
+    reported as unknown, never as free.
+    """
+
+
 # Subscriptions are tagged with metadata.type at creation (see stripe_service).
 STUDENT_TYPES = {'individual', 'school_student'}
 INSTITUTE_TYPES = {'institute'}
@@ -576,8 +584,8 @@ def refresh_current_month_expenses():
     Recurring templates are materialised every call (cheap + idempotent) so a
     newly added template — or a month the cron hasn't reached yet — shows
     immediately instead of reading $0. The heavier vendor syncs (AI-usage
-    ledger scan, DigitalOcean invoices, billed AI spend) are throttled to once
-    per FINANCE_REFRESH_LOCK_TTL. Each step is isolated and best-effort: a
+    ledger scan, DigitalOcean invoices, GitHub billing, billed AI spend) are
+    throttled to once per FINANCE_REFRESH_LOCK_TTL. Each step is isolated and best-effort: a
     failure is logged (never silently swallowed) and can't blank the dashboard.
 
     Order matters for the AI vendors: the token estimate is synced first, then
@@ -596,6 +604,7 @@ def refresh_current_month_expenses():
     for label, sync in (
         ('AI usage', sync_ai_usage_expenses),
         ('DigitalOcean', sync_digitalocean_expenses),
+        ('GitHub', sync_github_expenses),
         ('Billed AI spend', sync_ai_vendor_expenses),
     ):
         try:
@@ -997,6 +1006,137 @@ def sync_digitalocean_expenses():
         ).delete()
         touched += 1
     return touched
+
+
+GITHUB_API_ROOT = 'https://api.github.com'
+GITHUB_API_VERSION = '2022-11-28'
+
+
+def _github_usage_path():
+    """API path for the configured account, or None when unconfigured.
+
+    User and organisation bills live at different paths, and the org one is
+    `/organizations/`, NOT the `/orgs/` prefix the rest of the GitHub API uses.
+    """
+    account = (getattr(settings, 'GITHUB_BILLING_ACCOUNT', '') or '').strip()
+    if not account:
+        return None
+    kind = (getattr(settings, 'GITHUB_BILLING_ACCOUNT_TYPE', 'user') or 'user')
+    prefix = 'organizations' if kind.strip().lower() in ('org', 'organization') \
+        else 'users'
+    return f'{GITHUB_API_ROOT}/{prefix}/{account}/settings/billing/usage'
+
+
+def sync_github_expenses(months=3):
+    """Pull what GitHub actually billed into monthly Expense rows (NZD).
+
+    Reads the enhanced billing usage report, one calendar month per request
+    (the endpoint takes year + month). Every line item counts — Actions minutes
+    are the driver, but Packages, LFS and Copilot are on the same bill and would
+    otherwise be invisible — so no product filter is applied and the row's
+    description names what was on it.
+
+    `netAmount` is the field booked, not `grossAmount`: the included free
+    allowance arrives as `discountAmount`, and net is what is actually charged.
+    A month wholly inside the free tier therefore nets zero, and that row IS
+    written — "GitHub confirmed $0" and "we never looked" must not read alike.
+
+    No-op (returns 0) unless both GITHUB_BILLING_TOKEN and
+    GITHUB_BILLING_ACCOUNT are set. Idempotent. A month the API refuses is
+    logged with GitHub's own message and left without a row, never zeroed.
+    """
+    from .models import Expense, ExpenseCategory, EXPENSE_SOURCE_GITHUB
+
+    token = getattr(settings, 'GITHUB_BILLING_TOKEN', '')
+    url = _github_usage_path()
+    if not token or not url:
+        return 0
+
+    rate, _ = get_usd_to_nzd_rate()
+    month_start = _first_of_month(timezone.localdate())
+    wanted = []
+    for _ in range(max(1, int(months))):
+        wanted.append(month_start)
+        month_start = _first_of_month(month_start - timedelta(days=1))
+
+    touched = 0
+    for start in sorted(wanted):
+        try:
+            items = _github_usage_items(url, token, start)
+        except VendorBillUnavailable as exc:
+            logger.warning('GitHub billing for %s unavailable: %s', start, exc)
+            continue
+
+        # Amounts carry no currency field. They are USD: the fixtures price
+        # "Actions Linux" at 0.008 per minute, GitHub's published USD rate.
+        usd = Decimal('0')
+        products = set()
+        for item in items:
+            try:
+                usd += Decimal(str(item.get('netAmount', 0) or 0))
+            except InvalidOperation:
+                logger.warning('Skipping unreadable GitHub line item %r', item)
+                continue
+            if item.get('product'):
+                products.add(str(item['product']))
+
+        nzd = (usd * rate).quantize(Decimal('0.01'))
+        detail = ', '.join(sorted(products)) or 'no billable usage'
+        Expense.objects.update_or_create(
+            source=EXPENSE_SOURCE_GITHUB,
+            incurred_on=start,
+            defaults={
+                'category': ExpenseCategory.GITHUB,
+                'vendor': 'GitHub',
+                'description': f'{detail} (auto)'[:255],
+                'amount': nzd,
+                'original_amount': usd.quantize(Decimal('0.01')),
+                'original_currency': 'USD',
+            },
+        )
+        touched += 1
+    return touched
+
+
+def _github_usage_items(url, token, month_start):
+    """One month's billing line items, or raise VendorBillUnavailable.
+
+    A failure is never returned as an empty list: "GitHub billed nothing" and
+    "we could not ask" would then be indistinguishable, and the month would
+    silently book as free.
+    """
+    try:
+        response = requests.get(
+            url,
+            headers={
+                'Authorization': f'Bearer {token}',
+                'Accept': 'application/vnd.github+json',
+                'X-GitHub-Api-Version': GITHUB_API_VERSION,
+            },
+            params={'year': month_start.year, 'month': month_start.month},
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise VendorBillUnavailable(f'Request failed: {exc}') from exc
+
+    if response.status_code != 200:
+        # 403 here means the token cannot read billing — a different permission
+        # from the repository access it already has. GitHub says which in the
+        # body, so relay that instead of guessing at the fix.
+        detail = response.text[:300]
+        raise VendorBillUnavailable(
+            f'HTTP {response.status_code}: {detail}')
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise VendorBillUnavailable(f'Response was not JSON: {exc}') from exc
+
+    items = payload.get('usageItems')
+    if items is None:
+        raise VendorBillUnavailable(
+            f'No "usageItems" in the response (keys: {sorted(payload)})')
+    return items
 
 
 # ---------------------------------------------------------------------------

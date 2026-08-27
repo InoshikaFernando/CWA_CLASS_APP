@@ -55,9 +55,9 @@ EXPENSES = [
     },
 ]
 
-# GitHub Actions minutes are usage-billed too — add each invoice via
-# Expenses > New under the "GitHub (Actions)" category (the CI matrix is the
-# cost driver; see CLAUDE.md on the spending limit that once stopped a deploy).
+# GitHub is NOT seeded here — sync_github_expenses reads the real bill from the
+# billing API (Actions minutes, Packages, LFS, Copilot) once
+# GITHUB_BILLING_TOKEN and GITHUB_BILLING_ACCOUNT are set.
 #
 # Claude Code is NOT a flat subscription — there are multiple charges per month
 # (plan + usage top-ups) and no billing API that reports what was CHARGED, so we
