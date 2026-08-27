@@ -143,3 +143,98 @@ class ProgressReportSchoolScopeTests(TestCase):
             {s.id for s in response.context['schools']},
             {self.cwa.id, self.mhm.id},
         )
+
+
+class StudentProgressDetailSchoolScopeTests(TestCase):
+    """The same leak one click deeper — the single-student page.
+
+    The roster was fixed first; clicking a student's name still opened a page
+    whose summary cards and class sections spanned every institute. The rest of
+    that view was already school-scoped (comments, reports, subjects), so the
+    records were simply missed.
+
+    Scoping is on ``criteria__school`` rather than ``classroom__school``:
+    ``ProgressCriteria.school`` is non-nullable while ``ProgressRecord.classroom``
+    is nullable for legacy rows, so scoping on the classroom would silently drop
+    those instead of showing them at the school they belong to.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.hoi = _user('detail_hoi', Role.HEAD_OF_INSTITUTE)
+        cls.cwa = _school_with_module('CWA', 'cwa-detail', cls.hoi)
+        cls.mhm = _school_with_module('MHM', 'mhm-detail', cls.hoi)
+
+        subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None, defaults={'name': 'Mathematics'},
+        )
+        cls.cwa_class = ClassRoom.objects.create(
+            name='CWA Year 5', code='DETAIL01', school=cls.cwa, subject=subject,
+        )
+        cls.mhm_class = ClassRoom.objects.create(
+            name='MHM Year 5', code='DETAIL02', school=cls.mhm, subject=subject,
+        )
+
+        cls.child = _user('detail_child', Role.STUDENT)
+        ClassStudent.objects.create(
+            classroom=cls.cwa_class, student=cls.child, is_active=True,
+        )
+        ClassStudent.objects.create(
+            classroom=cls.mhm_class, student=cls.child, is_active=True,
+        )
+
+        # Two assessed at CWA, one at MHM — so neither school's total can be
+        # mistaken for the other's, and neither is zero by accident.
+        for index in range(2):
+            ProgressRecord.objects.create(
+                student=cls.child, classroom=cls.cwa_class, status='confident',
+                criteria=ProgressCriteria.objects.create(
+                    school=cls.cwa, name=f'CWA criterion {index}',
+                    status='approved',
+                ),
+            )
+        ProgressRecord.objects.create(
+            student=cls.child, classroom=cls.mhm_class, status='confident',
+            criteria=ProgressCriteria.objects.create(
+                school=cls.mhm, name='MHM criterion', status='approved',
+            ),
+        )
+
+    def setUp(self):
+        self.client.force_login(self.hoi)
+
+    def open_as(self, school):
+        session = self.client.session
+        session['current_school_id'] = school.id
+        session.save()
+        response = self.client.get(
+            reverse('student_progress', args=[self.child.id]),
+        )
+        self.assertEqual(response.status_code, 200)
+        return response
+
+    def test_the_summary_cards_count_one_school_only(self):
+        self.assertEqual(self.open_as(self.cwa).context['overall']['total'], 2)
+        self.assertEqual(self.open_as(self.mhm).context['overall']['total'], 1)
+
+    def test_the_class_sections_are_the_selected_schools_classes(self):
+        sections = self.open_as(self.cwa).context['progress_sections']
+        names = [s['classroom'].name for s in sections if s['classroom']]
+
+        self.assertEqual(names, ['CWA Year 5'])
+
+    def test_a_legacy_class_less_record_still_counts_at_its_own_school(self):
+        """The trap the roster fix avoided, pinned here too.
+
+        A record with no classroom must not vanish when the page is scoped —
+        it belongs to whichever school its criteria carry.
+        """
+        ProgressRecord.objects.create(
+            student=self.child, classroom=None, status='confident',
+            criteria=ProgressCriteria.objects.create(
+                school=self.cwa, name='CWA legacy criterion', status='approved',
+            ),
+        )
+
+        self.assertEqual(self.open_as(self.cwa).context['overall']['total'], 3)
+        self.assertEqual(self.open_as(self.mhm).context['overall']['total'], 1)

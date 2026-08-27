@@ -547,8 +547,13 @@ class StudentDashboardView(LoginRequiredMixin, View):
         )
         report_overall = None
         if progress_report and progress_report.include_rubric:
+            # Scoped to the report's own school: this card summarises one
+            # specific report, so counting every institute the student attends
+            # would caption it with figures it does not contain.
             from .views_progress import _build_student_progress
-            _, report_overall = _build_student_progress(request.user)
+            _, report_overall = _build_student_progress(
+                request.user, school=progress_report.school,
+            )
 
         return render(request, 'student/dashboard.html', {
             'progress_report': progress_report,
