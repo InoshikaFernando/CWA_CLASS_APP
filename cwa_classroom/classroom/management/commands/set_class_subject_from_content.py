@@ -8,9 +8,19 @@ tables (progress.reports.covered_subject_slugs returns None: do not scope,
 because dropping a class's work on the strength of a blank field would be
 worse).
 
-Levels are the wrong evidence for these classes. Homework is better: a class
-whose homework all carries ``subject_slug='coding'`` teaches coding, whatever
-its levels say.
+Levels are the wrong evidence for these classes. Two better sources, in order:
+
+1. **Homework.** A class whose homework all carries ``subject_slug='coding'``
+   teaches coding, whatever its levels say.
+2. **Its department**, when that department maps to exactly ONE subject. This
+   is what 0120 could not reach: it consults the department only for a class
+   with NO LEVELS AT ALL, and any level it cannot resolve skips the class
+   outright — so a coding class with coding levels never got as far as its
+   department, however unambiguously that department was mapped.
+
+A department mapping to two or more subjects decides nothing and is reported
+rather than guessed: ``Department.subjects`` is many-to-many precisely because
+a department can teach several.
 
 Refuses to guess in exactly the cases 0120 refused:
 
@@ -37,13 +47,40 @@ class Command(BaseCommand):
         parser.add_argument('--school', type=int, default=None,
                             help='Limit to one school id.')
 
+    def _from_department(self, classroom):
+        """The department's subject, when it maps to exactly one.
+
+        Returns ``(subject, reason)``. *subject* is None when the department
+        cannot decide, and *reason* is what a human reads to know why.
+        """
+        if classroom.department_id is None:
+            return None, 'no homework, and no department'
+
+        subjects = list(classroom.department.subjects.all())
+        if not subjects:
+            return None, (
+                f'no homework, and department {classroom.department.name!r} '
+                f'maps to no subject'
+            )
+        if len(subjects) > 1:
+            names = ', '.join(sorted(s.name for s in subjects))
+            return None, (
+                f'no homework, and department {classroom.department.name!r} '
+                f'maps to several subjects ({names})'
+            )
+        return subjects[0], f'department {classroom.department.name!r}'
+
     def handle(self, *args, **options):
         from homework.models import Homework
 
         qs = ClassRoom.objects.filter(subject__isnull=True, is_active=True)
         if options['school']:
             qs = qs.filter(school_id=options['school'])
-        classrooms = list(qs.order_by('school_id', 'name'))
+        classrooms = list(
+            qs.select_related('department')
+            .prefetch_related('department__subjects')
+            .order_by('school_id', 'name')
+        )
 
         if not classrooms:
             self.stdout.write(self.style.SUCCESS(
@@ -63,7 +100,11 @@ class Command(BaseCommand):
             slugs.pop('', None)
 
             if not slugs:
-                skipped.append((classroom, 'no homework to infer from'))
+                subject, why = self._from_department(classroom)
+                if subject is not None:
+                    resolved.append((classroom, subject, why))
+                else:
+                    skipped.append((classroom, why))
             elif len(slugs) > 1:
                 # Named, never guessed: only a human knows which one the class
                 # actually teaches.
@@ -75,12 +116,13 @@ class Command(BaseCommand):
                 if subject is None:
                     skipped.append((classroom, f'no global Subject with slug {slug!r}'))
                 else:
-                    resolved.append((classroom, subject, slugs[slug]))
+                    resolved.append(
+                        (classroom, subject, f'{slugs[slug]} homework'),
+                    )
 
-        for classroom, subject, count in resolved:
+        for classroom, subject, why in resolved:
             self.stdout.write(
-                f'  set   {classroom.name} -> {subject.name} '
-                f'({count} homework)'
+                f'  set   {classroom.name} -> {subject.name} ({why})'
             )
         for classroom, reason in skipped:
             self.stdout.write(self.style.WARNING(
@@ -88,7 +130,7 @@ class Command(BaseCommand):
             ))
 
         if options['apply']:
-            for classroom, subject, _count in resolved:
+            for classroom, subject, _why in resolved:
                 classroom.subject = subject
                 classroom.save(update_fields=['subject'])
 
