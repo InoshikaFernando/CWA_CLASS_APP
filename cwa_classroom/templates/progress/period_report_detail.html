@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load report_text %}
 {% load static %}
 {% block title %}{{ report.label }} — Progress Report{% endblock %}
 
@@ -66,7 +67,7 @@
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
        data-testid="report-teacher-comment">
     <h2 class="font-display text-xl text-gray-800">Teacher's comment</h2>
-    <p class="text-slate-700 mt-3 whitespace-pre-line">{{ teacher_comment.body }}</p>
+    <p class="text-slate-700 mt-3">{{ teacher_comment.body|teacher_markup }}</p>
     <p class="text-[11px] text-slate-400 mt-3">
       {% if teacher_comment.created_by %}{{ teacher_comment.created_by.get_full_name|default:teacher_comment.created_by.username }} &middot; {% endif %}
       {{ teacher_comment.updated_at|date:"j M Y" }}

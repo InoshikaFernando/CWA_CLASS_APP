@@ -200,3 +200,52 @@ class SidebarVisibilityTests(TestCase):
         )
         # Nothing is enabled now, but the student still has a report to read.
         self.assertTrue(self.flag_for(self.student))
+
+
+class ContentSettingsUiTests(TestCase):
+    """The content switches must be reachable, not just resolvable.
+
+    CPP-395 added CONTENT_FIELDS to the model and the cascade but never to the
+    settings page, so the setting existed and nobody could change it.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.models import SchoolTeacher
+        from progress.tests.factories import make_classroom, make_school, make_user
+
+        cls.school = make_school()
+        cls.hoi = make_user('cs_hoi', 'head_of_institute')
+        SchoolTeacher.objects.create(
+            school=cls.school, teacher=cls.hoi, role='head_of_institute',
+        )
+        cls.room = make_classroom(cls.school, code='CS000001')
+
+    def setUp(self):
+        self.client.force_login(self.hoi)
+
+    def test_every_content_switch_is_on_the_page(self):
+        from progress.models import ProgressReportSetting
+
+        response = self.client.get(f'/progress/reports/settings/?school={self.school.id}')
+
+        self.assertEqual(response.status_code, 200)
+        for field in ProgressReportSetting.CONTENT_FIELDS:
+            self.assertContains(response, field)
+
+    def test_the_switches_are_grouped(self):
+        response = self.client.get(f'/progress/reports/settings/?school={self.school.id}')
+
+        titles = [g['title'] for g in response.context['switch_groups']]
+        self.assertEqual(titles, ['Periods', 'Delivery', 'Contents'])
+
+    def test_saving_a_content_choice_persists_it(self):
+        from progress import report_settings
+
+        self.client.post('/progress/reports/settings/', {
+            'scope': 'school', 'school_id': self.school.id,
+            'weekly': 'on', 'include_rubric': 'off', 'mode': 'inherit',
+        }, follow=True)
+
+        self.assertFalse(report_settings.effective(self.room)['include_rubric'])
+        self.assertTrue(report_settings.effective(self.room)['include_homework'])
