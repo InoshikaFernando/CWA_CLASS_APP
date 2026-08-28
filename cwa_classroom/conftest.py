@@ -34,6 +34,49 @@ def _enable_sqlite_wal(sender, connection, **kwargs):
 _WAL_SIGNAL_CONNECTED = False
 
 
+# Django 4.2's default PBKDF2 hasher does 600,000 iterations — measured at
+# ~185ms per password on a CI runner. The suites create users constantly
+# (classroom/tests alone has 450+ create_user/set_password call sites, plus
+# every client.login()), so the bill was minutes of hashing per run: 25
+# classroom files took 119s with it and 30s without.
+#
+# MD5 goes FIRST, so make_password() defaults to it — but the real hashers
+# stay in the list behind it, which matters for two reasons:
+#   * import_services.execute_import asks for one BY NAME
+#     (make_password(..., hasher='pbkdf2_sha256')), and a hasher missing from
+#     this list raises rather than falling back — that is exactly the 18
+#     failures an MD5-only list produced in test_csv_student_import.py;
+#   * check_password() still has to verify hashes a test wrote deliberately.
+#
+# This is test-only and changes nothing about how a real password is stored:
+# production loads settings.py, which never sees this.
+_TEST_PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.MD5PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
+    "django.contrib.auth.hashers.ScryptPasswordHasher",
+]
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _fast_password_hashing(django_test_environment):
+    """Hash test passwords with MD5 instead of 600k rounds of PBKDF2.
+
+    Applied through override_settings rather than by assigning to
+    ``settings.PASSWORD_HASHERS``: Django caches the hasher list, and only the
+    setting_changed signal that override_settings sends clears it. A plain
+    assignment looks like it works and silently keeps hashing with PBKDF2.
+
+    Session-scoped and autouse, so it costs one setup for the whole run and no
+    suite can forget to ask for it.
+    """
+    from django.test import override_settings
+
+    with override_settings(PASSWORD_HASHERS=_TEST_PASSWORD_HASHERS):
+        yield
+
+
 @pytest.fixture(scope="session")
 def django_db_modify_db_settings():
     """Adjust DB settings for the test session.
