@@ -22,6 +22,7 @@ silently applied**, so run ``--dry-run`` first and read the diff.
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
+from progress import reports
 from progress.models import PeriodReport
 from progress.reports import build_report_data
 from progress.services import _student_classrooms_for_window
@@ -113,9 +114,12 @@ class Command(BaseCommand):
         classrooms = _student_classrooms_for_window(report.student, stored)
         by_subject = {}
         for classroom in classrooms:
-            if classroom.subject_id is None:
+            # The department's subject counts too, so a backfill files a class
+            # the same way a fresh run would — see reports.resolved_subject.
+            subject = reports.resolved_subject(classroom)
+            if subject is None:
                 continue
-            by_subject.setdefault(classroom.subject, []).append(classroom.id)
+            by_subject.setdefault(subject, []).append(classroom.id)
         return by_subject
 
     def _compare(self, report, data, subject):

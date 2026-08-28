@@ -26,6 +26,20 @@
     </div>
   {% endif %}
 
+  {# The school's own letterhead, when it has one. Same logo and address the invoices carry. #}
+  {% if letterhead %}
+  <div class="flex items-center gap-4 border-b border-slate-200 pb-4" data-testid="report-letterhead">
+    {% if letterhead.logo %}
+      <img src="{{ letterhead.logo.url }}" alt="{{ letterhead.name }}" class="h-14 w-auto rounded-lg">
+    {% endif %}
+    <div>
+      <p class="font-display text-lg text-gray-900">{{ letterhead.name }}</p>
+      {% if letterhead.department %}<p class="text-xs text-slate-500">{{ letterhead.department }}</p>{% endif %}
+      {% if letterhead.address %}<p class="text-xs text-slate-500">{{ letterhead.address }}</p>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Header -->
   <div class="flex flex-wrap items-start justify-between gap-4">
     <div>

@@ -127,15 +127,35 @@ class ReportSubjectScopeTests(TestCase):
         self.assertEqual(data['times_tables']['tables'], 0)
         self.assertEqual(data['quizzes']['attempted'], 0)
 
-    def test_a_maths_homework_inside_the_coding_class_is_still_excluded(self):
-        """Classroom scoping cannot catch this one; only the subject can."""
+    def test_default_slug_homework_counts_for_whatever_class_it_is_in(self):
+        """A REVERSAL of an earlier assertion here, on purpose.
+
+        This test used to require that a maths-slugged homework sitting in the
+        coding class be excluded. That is no longer right, because
+        Homework.subject_slug DEFAULTS to 'mathematics': the value means "not
+        stated" far more often than it means "this is maths", every pre-refactor
+        row having been back-filled with it.
+
+        Excluding those rows from a non-maths report would empty every Science
+        or Languages class the moment its subject was set — the report would
+        say the child did nothing, which reads as fact rather than as a missing
+        configuration. Counting them costs an occasional over-report of one
+        genuinely-maths item, and that disappears the moment the homework says
+        which subject it is.
+        """
         data = self._data([self.coding_class.id])
 
-        self.assertEqual(data['totals']['homework_attempted'], 1)
+        self.assertEqual(data['totals']['homework_attempted'], 2)
         self.assertEqual(
             {row['topic'] for row in data['topics']} - {'Unclassified'}, set(),
             'a coding report should carry no maths topic rows',
         )
+
+    def test_a_maths_report_takes_the_default_rows_as_its_own(self):
+        """For maths the default and the truth coincide, so nothing changes."""
+        data = self._data([self.maths_class.id])
+
+        self.assertEqual(data['totals']['homework_attempted'], 1)
 
     def test_a_maths_report_still_carries_its_maths_practice(self):
         """The regression this fix could most easily cause."""
@@ -444,3 +464,56 @@ class OverallExcludesCompletionOnlyTests(TestCase):
         self.assertEqual(data['totals']['activity_items'], 11)
         # The headline is the problem's mark, not the completion rate.
         self.assertEqual(data['totals']['overall_avg_pct'], 25)
+
+
+class DepartmentDecidesTheSubjectTests(TestCase):
+    """Mapping a department to a subject applies to reports immediately.
+
+    Requiring someone to also run a backfill afterwards is a way to have the
+    setting look applied while the reports quietly disagree with it.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.models import Department
+
+        cls.school = make_school(name='Dept School', slug='dept-school')
+        cls.coding = _subject('coding', 'Coding')
+        cls.maths = _subject('mathematics', 'Mathematics')
+        cls.dept = Department.objects.create(
+            name='Information Technology', slug='it', school=cls.school,
+        )
+
+    def _room(self, name, code, subject=None):
+        from progress.reports import covered_subject_slugs
+
+        room = make_classroom(self.school, name=name, code=code)
+        room.department = self.dept
+        room.subject = subject
+        room.save(update_fields=['department', 'subject'])
+        return room, covered_subject_slugs
+
+    def test_a_class_with_no_subject_takes_its_departments(self):
+        self.dept.subjects.set([self.coding])
+        room, covered = self._room('Scratch 05', 'DP000001')
+
+        self.assertEqual(covered([room]), {'coding'})
+
+    def test_the_classs_own_subject_still_wins(self):
+        self.dept.subjects.set([self.coding])
+        room, covered = self._room('Maths in IT', 'DP000002', subject=self.maths)
+
+        self.assertEqual(covered([room]), {'mathematics'})
+
+    def test_a_department_mapped_to_two_subjects_decides_nothing(self):
+        """Two is not an answer, and unscoped is the safe fallback."""
+        self.dept.subjects.set([self.coding, self.maths])
+        room, covered = self._room('Mixed', 'DP000003')
+
+        self.assertIsNone(covered([room]))
+
+    def test_a_department_mapped_to_nothing_decides_nothing(self):
+        self.dept.subjects.set([])
+        room, covered = self._room('Unmapped', 'DP000004')
+
+        self.assertIsNone(covered([room]))

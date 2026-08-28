@@ -51,6 +51,62 @@ def _resolve_subject(request):
     return user, True
 
 
+def letterhead_for(report):
+    """The school's letterhead for this report, or None.
+
+    Reuses School.get_effective_settings — the same resolver invoices render
+    from — rather than a second notion of "the school's letterhead". So a
+    school that has set one for its invoices already has one here, and a
+    department with its own logo and address gets its own, because that
+    cascade is already in the settings.
+
+    The department is taken from the classes the report covers, and only when
+    they agree: a report spanning two departments has no single letterhead to
+    print, and the school's is the honest fallback rather than picking one.
+
+    Every school gets a letterhead: the logo it has set and its name, with the
+    department and address added when they exist. The report is a document a
+    family keeps and forwards, so whose it is has to be on it — the plain
+    "Weekly Progress Report" heading never says. Only an individual learner
+    with no school at all returns None.
+    """
+    if not report.school_id:
+        return None
+
+    department = _sole_department(report)
+    settings = report.school.get_effective_settings(department)
+
+    logo = settings.get('logo')
+    address = ', '.join(
+        part for part in (
+            settings.get('street_address'), settings.get('city'),
+            settings.get('state_region'), settings.get('postal_code'),
+            settings.get('country'),
+        ) if part
+    )
+    return {
+        'logo': logo or None,
+        'name': report.school.name,
+        'address': address,
+        'department': department.name if department else '',
+    }
+
+
+def _sole_department(report):
+    """The one department this report's classes belong to, or None."""
+    from classroom.models import ClassRoom
+
+    ids = (report.data.get('scope') or {}).get('classroom_ids') or []
+    if not ids:
+        return None
+    departments = {
+        c.department for c in
+        ClassRoom.objects.filter(id__in=ids).select_related('department')
+        if c.department_id
+    }
+    return departments.pop() if len(departments) == 1 else None
+
+
 def _manual_sections(report):
     """The teacher-authored halves: rubric assessment and narrative comment.
 
@@ -138,11 +194,13 @@ def report_detail_context(report, viewer, *, preview=False,
     }
 
     rubric, comment = _manual_sections(report)
+    letterhead = letterhead_for(report)
 
     return {
         'report': report,
         'student': report.student,
         'subject': report.subject,
+        'letterhead': letterhead,
         # Present only when there is something to show. A section configured on
         # but empty is omitted rather than rendered blank: a "Teacher comment"
         # heading over blank space reads as a teacher who had nothing to say,
