@@ -13,6 +13,7 @@ for money the school has not yet asked for.
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, viewsets
 
+from api.filters import int_param
 from api.scoping import scope_by_student
 from billing.api_serializers import (
     InvoicePaymentSerializer, InvoiceSerializer, InvoiceSummarySerializer,
@@ -49,8 +50,9 @@ class InvoiceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
             self.request.user,
         )
         params = self.request.query_params
-        if params.get('student'):
-            queryset = queryset.filter(student_id=params['student'])
+        student_id = int_param(params, 'student')
+        if student_id is not None:
+            queryset = queryset.filter(student_id=student_id)
         if params.get('status'):
             queryset = queryset.filter(status=params['status'])
         if params.get('unpaid') in ('1', 'true', 'True'):
@@ -77,8 +79,10 @@ class InvoicePaymentViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             self.request.user,
         )
         params = self.request.query_params
-        if params.get('student'):
-            queryset = queryset.filter(student_id=params['student'])
-        if params.get('invoice'):
-            queryset = queryset.filter(invoice_id=params['invoice'])
+        student_id = int_param(params, 'student')
+        if student_id is not None:
+            queryset = queryset.filter(student_id=student_id)
+        invoice_id = int_param(params, 'invoice')
+        if invoice_id is not None:
+            queryset = queryset.filter(invoice_id=invoice_id)
         return queryset.order_by('-payment_date', 'id')

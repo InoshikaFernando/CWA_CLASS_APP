@@ -93,6 +93,13 @@ def api_exception_handler(exc, context):
     code = _code_for(exc)
     error = {'code': code, 'detail': _flatten_detail(response.data)}
 
+    # A standing wall knows which page clears it (see cwa_classroom.middleware
+    # .wall_response). Pass it through rather than reducing the wall to a code
+    # the app cannot act on.
+    resolve_path = getattr(exc, 'resolve_path', None)
+    if resolve_path:
+        error['resolve_path'] = resolve_path
+
     if isinstance(exc, exceptions.ValidationError):
         detail = exc.detail
         # A serializer error is a dict of field -> [messages]; a validate()

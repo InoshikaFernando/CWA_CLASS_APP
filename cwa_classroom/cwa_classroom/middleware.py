@@ -23,6 +23,7 @@ from django.contrib.auth import logout
 from django.db import connection
 from django.http import JsonResponse
 from django.shortcuts import redirect
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 _slow_query_log = logging.getLogger('slow_queries')
@@ -133,10 +134,25 @@ def is_api_request(request):
 
 
 def wall_response(request, code, detail, redirect_to):
-    """The redirect a browser expects, or the JSON an API client can act on."""
+    """The redirect a browser expects, or the JSON an API client can act on.
+
+    The JSON carries ``resolve_path``: the page that clears this particular
+    wall. Some of these walls cannot be cleared through the API at all —
+    finishing a student profile runs through the discount-code and Stripe flow
+    in ``accounts.views.CompleteProfileView``, and paying an expired
+    subscription is the billing pages — so the app opens that path in a
+    webview rather than the API growing a second, drifting copy of a payment
+    flow. Without it a walled client knows it is stuck but not what to do,
+    which is a dead end wearing an error code.
+    """
     if is_api_request(request):
+        try:
+            resolve_path = reverse(redirect_to)
+        except NoReverseMatch:
+            resolve_path = None
         return JsonResponse(
-            {'error': {'code': code, 'detail': detail}},
+            {'error': {'code': code, 'detail': detail,
+                       'resolve_path': resolve_path}},
             status=403,
         )
     return redirect(redirect_to)
@@ -163,6 +179,13 @@ class TrialExpiryMiddleware:
         '/billing/',
         '/stripe/',
         '/admin/',
+        # The API's equivalent of the /accounts/logout/ and /billing/ escapes
+        # above. Without it an expired account is 403'd on its own logout
+        # endpoint and can never revoke a refresh token that stays valid for
+        # thirty days — the wall would be keeping the token alive.
+        '/api/v1/auth/logout/',
+        '/api/v1/auth/me/',
+        '/api/v1/auth/refresh/',
     )
 
     def __init__(self, get_response):
@@ -375,6 +398,10 @@ class AccountBlockMiddleware:
         # A super admin viewing as a blocked user must still be able to leave.
         '/accounts/stop-viewing-as/',
         '/admin/',
+        # Logout only — the API mirror of /accounts/logout/ above. A blocked
+        # account must still be able to revoke its own refresh token; it gets
+        # a coded 403 everywhere else, including /auth/me/.
+        '/api/v1/auth/logout/',
     )
 
     def __init__(self, get_response):

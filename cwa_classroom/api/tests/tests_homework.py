@@ -93,29 +93,34 @@ def test_a_student_removed_from_the_school_loses_access(
     assert api.get('/api/v1/homework/').data['results'] == []
 
 
-def test_submitting_records_the_attempt_and_score(
-        api, auth, student, published_homework):
+def test_submitting_records_the_attempt(api, auth, student, published_homework):
+    """The attempt is recorded and marked server-side.
+
+    This fixture's questions point at content ids that do not exist, so every
+    item fails to grade and scores 0 — which is the correct, non-silent
+    outcome and is asserted as such. Real marking is covered in
+    tests_review_fixes.py against an actual maths question.
+    """
     questions = list(published_homework.homework_questions.order_by('order'))
     auth(student)
     response = api.post(
         f'/api/v1/homework/{published_homework.id}/submit/',
         {'answers': [
-            {'question_id': questions[0].id, 'answer': '1/2', 'is_correct': True},
-            {'question_id': questions[1].id, 'answer': '3', 'is_correct': False},
+            {'question_id': questions[0].id, 'answer': '1/2'},
+            {'question_id': questions[1].id, 'answer': '3'},
         ], 'time_taken_seconds': 90},
         format='json')
-    assert response.status_code == 201
-    assert response.data['score'] == 1
+    assert response.status_code == 201, response.data
     assert response.data['total_questions'] == 2
     assert response.data['attempt_number'] == 1
+    assert response.data['score'] == 0
 
 
 def test_attempt_limit_is_enforced(api, auth, student, published_homework):
     published_homework.max_attempts = 1
     published_homework.save(update_fields=['max_attempts'])
     questions = list(published_homework.homework_questions.order_by('order'))
-    payload = {'answers': [
-        {'question_id': questions[0].id, 'answer': 'x', 'is_correct': True}]}
+    payload = {'answers': [{'question_id': questions[0].id, 'answer': 'x'}]}
 
     auth(student)
     first = api.post(f'/api/v1/homework/{published_homework.id}/submit/',
@@ -142,8 +147,8 @@ def test_an_answer_for_another_homework_rejects_the_whole_attempt(
     response = api.post(
         f'/api/v1/homework/{published_homework.id}/submit/',
         {'answers': [
-            {'question_id': mine.id, 'answer': 'a', 'is_correct': True},
-            {'question_id': foreign.id, 'answer': 'b', 'is_correct': True},
+            {'question_id': mine.id, 'answer': 'a'},
+            {'question_id': foreign.id, 'answer': 'b'},
         ]}, format='json')
     assert response.status_code == 400
     assert HomeworkSubmission.objects.count() == 0
@@ -155,7 +160,7 @@ def test_a_student_cannot_submit_to_a_class_they_are_not_in(
     auth(other_student)
     response = api.post(
         f'/api/v1/homework/{published_homework.id}/submit/',
-        {'answers': [{'question_id': question.id, 'answer': 'a', 'is_correct': True}]},
+        {'answers': [{'question_id': question.id, 'answer': 'a'}]},
         format='json')
     # They cannot even see the homework, so it is a 404 rather than a 403.
     assert response.status_code == 404

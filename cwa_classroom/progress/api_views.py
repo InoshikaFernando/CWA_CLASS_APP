@@ -48,6 +48,7 @@ class UpdateTimeLogView(LoginRequiredMixin, View):
 from drf_spectacular.utils import OpenApiParameter, extend_schema  # noqa: E402
 from rest_framework import mixins, viewsets  # noqa: E402
 
+from api.filters import int_param
 from api.scoping import scope_by_student  # noqa: E402
 from progress.api_serializers import (  # noqa: E402
     PeriodReportDetailSerializer, PeriodReportSummarySerializer,
@@ -80,10 +81,12 @@ class PeriodReportViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
             self.request.user,
         )
         params = self.request.query_params
-        if params.get('student'):
-            queryset = queryset.filter(student_id=params['student'])
+        student_id = int_param(params, 'student')
+        if student_id is not None:
+            queryset = queryset.filter(student_id=student_id)
         if params.get('period_type'):
             queryset = queryset.filter(period_type=params['period_type'])
-        if params.get('subject'):
-            queryset = queryset.filter(subject_id=params['subject'])
+        subject_id = int_param(params, 'subject')
+        if subject_id is not None:
+            queryset = queryset.filter(subject_id=subject_id)
         return queryset.order_by('-period_start', 'period_type', 'id')

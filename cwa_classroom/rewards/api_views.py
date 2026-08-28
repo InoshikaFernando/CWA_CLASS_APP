@@ -13,6 +13,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.filters import int_param
 from api.permissions import CanViewStudentData
 from api.scoping import scope_by_student
 from rewards import services
@@ -39,8 +40,9 @@ class PointsAwardViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         queryset = scope_by_student(
             PointsAward.objects.select_related('student'), self.request.user)
         params = self.request.query_params
-        if params.get('student'):
-            queryset = queryset.filter(student_id=params['student'])
+        student_id = int_param(params, 'student')
+        if student_id is not None:
+            queryset = queryset.filter(student_id=student_id)
         if params.get('source'):
             queryset = queryset.filter(source=params['source'])
         return queryset.order_by('-points', 'source', 'id')

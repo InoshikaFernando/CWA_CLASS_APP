@@ -3,6 +3,7 @@
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, serializers, viewsets
 
+from api.filters import int_param
 from api.scoping import classrooms_for, scope_by_student
 from worksheets.models import (
     Worksheet, WorksheetAssignment, WorksheetSubmission,
@@ -60,8 +61,8 @@ class WorksheetAssignmentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixi
                     .filter(classroom__in=classrooms_for(self.request.user),
                             is_active=True)
                     .select_related('worksheet__level', 'classroom'))
-        classroom = self.request.query_params.get('classroom')
-        if classroom:
+        classroom = int_param(self.request.query_params, 'classroom')
+        if classroom is not None:
             queryset = queryset.filter(classroom_id=classroom)
         return queryset.order_by('-assigned_at', 'id')
 

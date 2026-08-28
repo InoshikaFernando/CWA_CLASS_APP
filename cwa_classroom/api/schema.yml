@@ -1179,7 +1179,23 @@ paths:
   /api/v1/homework/{id}/submit/:
     post:
       operationId: homework_submit_create
-      description: Hand in one complete attempt.
+      description: |-
+        Hand in one complete attempt.
+
+        Marking happens HERE, through the same subject plugins the web view
+        uses (``classroom.subject_registry``). The client sends only what the
+        student answered — an endpoint that accepted the client's own verdict
+        on correctness would let anyone POST a perfect score, and the score
+        would look exactly like an honest one in every report afterwards.
+
+        The rest of the submission pipeline is the web view's, not a
+        re-implementation: the attempt number comes from
+        ``get_next_attempt_number`` (``count() + 1`` collides with the
+        unique constraint once ``prune_old_attempts`` has deleted a row),
+        points from ``calculate_points``, and the leaderboard award, pruning
+        and audit entry from the helpers that already exist. Anything less
+        and an attempt made in the app is worth nothing on the leaderboard
+        while an identical one made in the browser counts.
       parameters:
       - in: path
         name: id
@@ -4889,21 +4905,25 @@ components:
       - slug
     SubmittedAnswerRequest:
       type: object
-      description: One answered item inside a submission payload.
+      description: |-
+        One answered item inside a submission payload.
+
+        The client sends what the student ANSWERED and nothing about whether it
+        was right. Marking is the server's job — see
+        ``homework.api_views.HomeworkViewSet.submit``. An earlier version of this
+        serializer accepted ``is_correct`` from the client, which let anyone with
+        the endpoint POST themselves a perfect score.
       properties:
         question_id:
           type: integer
           description: HomeworkQuestion id this answer is for.
         answer:
           type: string
-        is_correct:
-          type: boolean
-        time_taken_seconds:
-          type: integer
-          minimum: 0
+          description: 'The student''s answer, as the subject plugin expects it: the
+            chosen Answer id for multiple choice / true-false, the typed text for
+            short answer, the source for a coding task.'
       required:
       - answer
-      - is_correct
       - question_id
     TimeLog:
       type: object

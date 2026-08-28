@@ -40,9 +40,14 @@ class AccountStandingDenied(PermissionDenied):
     ``permission_denied`` it cannot act on.
     """
 
-    def __init__(self, code, detail):
+    def __init__(self, code, detail, resolve_path=None):
         super().__init__(detail=detail)
         self.standing_code = code
+        # The page that clears this wall. Carried through so a token-
+        # authenticated caller gets the same envelope a session one does —
+        # without it the JWT path silently drops the only field telling the
+        # app where to send the user.
+        self.resolve_path = resolve_path
 
 
 _PASSED_THROUGH = object()
@@ -70,11 +75,12 @@ def _read_envelope(response):
     """Pull code/detail back out of the middleware's JSON wall response."""
     try:
         error = json.loads(response.content.decode())['error']
-        return error['code'], error['detail']
+        return error['code'], error['detail'], error.get('resolve_path')
     except (ValueError, KeyError, UnicodeDecodeError):
         # A wall we cannot parse is still a wall: deny, but do not invent a
         # reason for it.
-        return 'access_denied', 'This account cannot use the API right now.'
+        return ('access_denied',
+                'This account cannot use the API right now.', None)
 
 
 class WalledJWTAuthentication(JWTAuthentication):

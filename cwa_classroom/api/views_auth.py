@@ -165,4 +165,30 @@ class ChangePasswordView(APIView):
         if request.session.session_key:
             update_session_auth_hash(request, user)
 
-        return Response({'detail': 'Password changed.'})
+        revoked = _revoke_refresh_tokens(user)
+
+        # Changing a password is how someone reacts to a device being lost or
+        # a password being shared. If the old refresh tokens kept working, the
+        # very thing the user did to lock an intruder out would leave them
+        # thirty days of access.
+        return Response({'detail': 'Password changed.',
+                         'sessions_revoked': revoked})
+
+
+def _revoke_refresh_tokens(user):
+    """Blacklist every outstanding refresh token for *user*. Returns the count.
+
+    Uses the token_blacklist app's own tables, which SimpleJWT already
+    maintains for rotation, so this shares the machinery rotation uses rather
+    than adding a parallel revocation list.
+    """
+    from rest_framework_simplejwt.token_blacklist.models import (
+        BlacklistedToken, OutstandingToken,
+    )
+
+    revoked = 0
+    for token in OutstandingToken.objects.filter(user=user):
+        _, created = BlacklistedToken.objects.get_or_create(token=token)
+        if created:
+            revoked += 1
+    return revoked

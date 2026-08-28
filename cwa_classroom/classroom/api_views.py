@@ -5,7 +5,7 @@ deliberate and worth keeping: a viewset that builds its own filter is a
 viewset that can forget one.
 """
 
-from django.db.models import Count, Q
+from django.db.models import Count, IntegerField, OuterRef, Q, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -13,6 +13,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from api.filters import int_param
 from api.pagination import LargePagination
 from api.permissions import IsTeacher
 from api.scoping import child_ids_of, classrooms_for, scope_by_student
@@ -70,8 +71,8 @@ class LevelViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
 
     def get_queryset(self):
         queryset = Level.objects.all()
-        subject_id = self.request.query_params.get('subject')
-        if subject_id:
+        subject_id = int_param(self.request.query_params, 'subject')
+        if subject_id is not None:
             queryset = queryset.filter(subject_id=subject_id)
         return queryset
 
@@ -97,11 +98,11 @@ class TopicViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
                     .filter(is_active=True)
                     .select_related('subject')
                     .prefetch_related('levels'))
-        subject_id = self.request.query_params.get('subject')
-        if subject_id:
+        subject_id = int_param(self.request.query_params, 'subject')
+        if subject_id is not None:
             queryset = queryset.filter(subject_id=subject_id)
-        level_id = self.request.query_params.get('level')
-        if level_id:
+        level_id = int_param(self.request.query_params, 'level')
+        if level_id is not None:
             queryset = queryset.filter(levels__id=level_id)
         return queryset.distinct()
 
@@ -119,10 +120,18 @@ class ClassRoomViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
             classrooms_for(self.request.user)
             .select_related('subject', 'school', 'location')
             .prefetch_related('class_teachers__teacher')
-            .annotate(active_student_count=Count(
-                'class_students',
-                filter=Q(class_students__is_active=True),
-                distinct=True,
+            # Subquery rather than annotate(): classrooms_for() already
+            # filters on `class_students` for a student or parent, and Django
+            # reuses that same join for a following annotate — so a member of
+            # a class of thirty would be told it has one student. A subquery
+            # counts the real roster whatever the outer filter did.
+            .annotate(active_student_count=Subquery(
+                ClassStudent.objects
+                .filter(classroom=OuterRef('pk'), is_active=True)
+                .values('classroom')
+                .annotate(total=Count('id'))
+                .values('total')[:1],
+                output_field=IntegerField(),
             ))
             # ClassRoom has no Meta.ordering. Paginating an unordered queryset
             # lets the database return rows in a different order per page, so
@@ -249,7 +258,19 @@ class ClassSessionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
         for row in serializer.validated_data:
             record, _ = StudentAttendance.objects.update_or_create(
                 session=session, student_id=row['student_id'],
-                defaults={'status': row['status'], 'marked_by': request.user},
+                defaults={
+                    'status': row['status'],
+                    'marked_by': request.user,
+                    # A teacher's mark is authoritative, so the self-report
+                    # state has to be cleared with it. Left set, the row still
+                    # reads as an unapproved student claim — and
+                    # classroom.views_student only lets a student overwrite a
+                    # row while self_reported is True, so the teacher's mark
+                    # would stay overwritable from the web.
+                    'self_reported': False,
+                    'approved_by': None,
+                    'approved_at': None,
+                },
             )
             records.append(record)
         return Response(StudentAttendanceSerializer(records, many=True).data,
@@ -275,10 +296,12 @@ class AttendanceViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             self.request.user,
         )
         params = self.request.query_params
-        if params.get('student'):
-            queryset = queryset.filter(student_id=params['student'])
-        if params.get('classroom'):
-            queryset = queryset.filter(session__classroom_id=params['classroom'])
+        student_id = int_param(params, 'student')
+        if student_id is not None:
+            queryset = queryset.filter(student_id=student_id)
+        classroom_id = int_param(params, 'classroom')
+        if classroom_id is not None:
+            queryset = queryset.filter(session__classroom_id=classroom_id)
         return queryset
 
 

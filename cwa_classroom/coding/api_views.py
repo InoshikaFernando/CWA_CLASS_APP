@@ -9,6 +9,7 @@ to defer it — a field excluded in one place cannot be forgotten in the next.
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, serializers, viewsets
 
+from api.filters import int_param
 from api.pagination import LargePagination
 from api.scoping import scope_by_student
 from coding.models import (
@@ -103,8 +104,8 @@ class CodingTopicViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
-        language = self.request.query_params.get('language')
-        return queryset.filter(language_id=language) if language else queryset
+        language = int_param(self.request.query_params, 'language')
+        return queryset.filter(language_id=language) if language is not None else queryset
 
 
 class CodingExerciseViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
@@ -122,8 +123,8 @@ class CodingExerciseViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
-        topic_level = self.request.query_params.get('topic_level')
-        return queryset.filter(topic_level_id=topic_level) if topic_level else queryset
+        topic_level = int_param(self.request.query_params, 'topic_level')
+        return queryset.filter(topic_level_id=topic_level) if topic_level is not None else queryset
 
 
 class CodingSubmissionViewSet(mixins.ListModelMixin, mixins.CreateModelMixin,
@@ -143,8 +144,8 @@ class CodingSubmissionViewSet(mixins.ListModelMixin, mixins.CreateModelMixin,
             StudentExerciseSubmission.objects.select_related('exercise'),
             self.request.user,
         )
-        exercise = self.request.query_params.get('exercise')
-        if exercise:
+        exercise = int_param(self.request.query_params, 'exercise')
+        if exercise is not None:
             queryset = queryset.filter(exercise_id=exercise)
         return queryset.order_by('-submitted_at', 'id')
 

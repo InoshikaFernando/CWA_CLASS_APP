@@ -8,6 +8,7 @@ which grade server-side.
 
 from rest_framework import mixins, serializers, viewsets
 
+from api.filters import int_param
 from api.pagination import LargePagination
 from api.scoping import scope_by_student
 from number_puzzles.models import (
@@ -62,8 +63,8 @@ class NumberPuzzleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
-        level = self.request.query_params.get('level')
-        return queryset.filter(level_id=level) if level else queryset
+        level = int_param(self.request.query_params, 'level')
+        return queryset.filter(level_id=level) if level is not None else queryset
 
 
 class PuzzleProgressViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):

@@ -15,6 +15,7 @@ from rest_framework import mixins, serializers, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from api.filters import int_param
 from api.scoping import scope_by_student
 from maths.models import BasicFactsResult, TimeLog
 
@@ -56,8 +57,9 @@ class BasicFactsResultViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         queryset = scope_by_student(
             BasicFactsResult.objects.select_related('level'), self.request.user)
         params = self.request.query_params
-        if params.get('student'):
-            queryset = queryset.filter(student_id=params['student'])
+        student_id = int_param(params, 'student')
+        if student_id is not None:
+            queryset = queryset.filter(student_id=student_id)
         if params.get('subtopic'):
             queryset = queryset.filter(subtopic=params['subtopic'])
         return queryset.order_by('-completed_at', 'id')

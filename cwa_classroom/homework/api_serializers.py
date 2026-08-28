@@ -118,13 +118,22 @@ class HomeworkSubmissionSerializer(serializers.ModelSerializer):
 
 
 class SubmittedAnswerSerializer(serializers.Serializer):
-    """One answered item inside a submission payload."""
+    """One answered item inside a submission payload.
+
+    The client sends what the student ANSWERED and nothing about whether it
+    was right. Marking is the server's job — see
+    ``homework.api_views.HomeworkViewSet.submit``. An earlier version of this
+    serializer accepted ``is_correct`` from the client, which let anyone with
+    the endpoint POST themselves a perfect score.
+    """
 
     question_id = serializers.IntegerField(
         help_text='HomeworkQuestion id this answer is for.')
-    answer = serializers.CharField(allow_blank=True, trim_whitespace=False)
-    is_correct = serializers.BooleanField()
-    time_taken_seconds = serializers.IntegerField(required=False, min_value=0)
+    answer = serializers.CharField(
+        allow_blank=True, trim_whitespace=False,
+        help_text='The student\'s answer, as the subject plugin expects it: '
+                  'the chosen Answer id for multiple choice / true-false, the '
+                  'typed text for short answer, the source for a coding task.')
 
 
 class HomeworkSubmitSerializer(serializers.Serializer):
@@ -138,3 +147,14 @@ class HomeworkSubmitSerializer(serializers.Serializer):
 
     answers = SubmittedAnswerSerializer(many=True, allow_empty=False)
     time_taken_seconds = serializers.IntegerField(required=False, min_value=0, default=0)
+
+    def validate_answers(self, value):
+        """One answer per question — a repeat would violate the answer table's
+        (submission, subject_slug, content_id) unique constraint and surface as
+        a 500 rather than a validation error."""
+        seen = [row['question_id'] for row in value]
+        duplicates = {qid for qid in seen if seen.count(qid) > 1}
+        if duplicates:
+            raise serializers.ValidationError(
+                f'More than one answer given for question(s): {sorted(duplicates)}')
+        return value
