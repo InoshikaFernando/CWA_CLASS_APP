@@ -264,3 +264,23 @@ def test_the_year_spread_excludes_basic_facts_levels(tree):
 
     assert 'Y1:1' in out
     assert 'Y100' not in out
+
+
+def test_duplicate_report_names_the_parent_by_id(tree):
+    """Two rows of one name can sit under two DIFFERENT parents of one name.
+
+    On the live bank 'Multiplication > Multiplication (8x)' appeared twice,
+    with two distinct rows named 'Multiplication' in the tree. Printing the
+    parent's name alone cannot tell a sibling pair from a cousin pair, and
+    merging cousins moves questions across strands.
+    """
+    second_number = Topic.objects.create(subject=tree['maths'], name='Number',
+                                         slug='number2-td')
+    twin = Topic.objects.create(subject=tree['maths'], name='Addition',
+                                slug='add3-td', parent=second_number)
+    tree['q'](twin)
+
+    out = run(only='DUPLICATE-NAME')
+
+    assert f"[{tree['number'].id}] Number > Addition" in out
+    assert f'[{second_number.id}] Number > Addition' in out

@@ -112,8 +112,15 @@ class Command(BaseCommand):
             raise CommandError(f'No topic with id {topic_id}.')
 
     def _path(self, summary):
-        return (f"{summary['parent']} > {summary['name']}" if summary['parent']
-                else summary['name'])
+        # The parent's ID, not just its name: a duplicate-name report is read to
+        # pick a survivor, and the parents themselves can be duplicated. Two
+        # rows both printed "Multiplication > Multiplication (8x)" may be
+        # siblings or cousins, and merging cousins moves questions across
+        # strands. The id is what tells them apart.
+        if not summary['parent']:
+            return summary['name']
+        return (f"[{summary['parent_id']}] {summary['parent']} > "
+                f"{summary['name']}")
 
     # ── report ────────────────────────────────────────────────────────────
     def _report(self, subject_ids, opts):
