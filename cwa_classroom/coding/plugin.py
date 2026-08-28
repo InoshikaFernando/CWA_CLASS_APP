@@ -107,6 +107,10 @@ class CodingExercisePlugin(SubjectPlugin):
                 # An exercise has no partial credit, so there is no gain to
                 # report: it was finished or it was not.
                 'first_pct': pct, 'best_pct': pct, 'gain_pct': 0,
+                # 100 here means "finished", not "got it right". Marked so it
+                # counts as effort without setting a figure that reads as
+                # achievement — see subject_practice_section.
+                'scored': False,
             })
 
         problems = {}
@@ -133,19 +137,22 @@ class CodingExercisePlugin(SubjectPlugin):
                 'name': entry['name'], 'attempts': entry['attempts'],
                 'first_pct': entry['first'], 'best_pct': entry['best'],
                 'gain_pct': entry['best'] - entry['first'],
+                # Graded by the tests it passed: a real accuracy figure.
+                'scored': True,
             })
 
         if not rows:
             return None
 
-        firsts = [r['first_pct'] for r in rows]
-        bests = [r['best_pct'] for r in rows]
-        avg_first = round(sum(firsts) / len(firsts))
-        avg_best = round(sum(bests) / len(bests))
+        scored = [r for r in rows if r.get('scored', True)]
+        basis = scored or rows
+        avg_first = round(sum(r['first_pct'] for r in basis) / len(basis))
+        avg_best = round(sum(r['best_pct'] for r in basis) / len(basis))
         rows.sort(key=lambda r: (-r['gain_pct'], -r['attempts'], r['name']))
         return {
             'label': 'Coding practice',
             'items': len(rows),
+            'scored_items': len(scored),
             'attempts': sum(r['attempts'] for r in rows),
             'avg_first_pct': avg_first,
             'avg_best_pct': avg_best,
