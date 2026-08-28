@@ -46,6 +46,34 @@
     </a>
   </div>
 
+  {# Outside the has_activity branch on purpose: a child with no submissions is exactly when the teacher's assessment and comment are the only things left to say. #}
+  {# Teacher's assessment. Rendered only when it exists — an absent section, never a blank one. #}
+  {% if rubric %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
+       data-testid="report-rubric">
+    <h2 class="font-display text-xl text-gray-800">Teacher's assessment</h2>
+    <p class="text-xs text-slate-500 mb-4">Assessed against this school's progress criteria.</p>
+    <div class="flex items-baseline gap-2">
+      {# 'achieved' already counts Confident + Advanced — see _build_student_progress. #}
+      <span class="text-3xl font-bold text-indigo-700">{{ rubric.achieved }}</span>
+      <span class="text-sm text-slate-500">of {{ rubric.total }} criteria at confident or above</span>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Same rule: no comment means no section, and never a blocked report. #}
+  {% if teacher_comment %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
+       data-testid="report-teacher-comment">
+    <h2 class="font-display text-xl text-gray-800">Teacher's comment</h2>
+    <p class="text-slate-700 mt-3 whitespace-pre-line">{{ teacher_comment.body }}</p>
+    <p class="text-[11px] text-slate-400 mt-3">
+      {% if teacher_comment.created_by %}{{ teacher_comment.created_by.get_full_name|default:teacher_comment.created_by.username }} &middot; {% endif %}
+      {{ teacher_comment.updated_at|date:"j M Y" }}
+    </p>
+  </div>
+  {% endif %}
+
   {% if not report.has_activity %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center space-y-2"
          data-testid="report-empty">
@@ -102,32 +130,6 @@
       <span class="text-slate-400 block text-xs">best single score</span>
     </div>
   </div>
-
-  {# Teacher's assessment. Rendered only when it exists — an absent section, never a blank one. #}
-  {% if rubric %}
-  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
-       data-testid="report-rubric">
-    <h2 class="font-display text-xl text-gray-800">Teacher's assessment</h2>
-    <p class="text-xs text-slate-500 mb-4">Assessed against this school's progress criteria.</p>
-    <div class="flex items-baseline gap-2">
-      <span class="text-3xl font-bold text-indigo-700">{{ rubric.confident|add:rubric.advanced }}</span>
-      <span class="text-sm text-slate-500">of {{ rubric.total }} criteria at confident or above</span>
-    </div>
-  </div>
-  {% endif %}
-
-  {# Same rule: no comment means no section, and never a blocked report. #}
-  {% if teacher_comment %}
-  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
-       data-testid="report-teacher-comment">
-    <h2 class="font-display text-xl text-gray-800">Teacher's comment</h2>
-    <p class="text-slate-700 mt-3 whitespace-pre-line">{{ teacher_comment.body }}</p>
-    <p class="text-[11px] text-slate-400 mt-3">
-      {% if teacher_comment.created_by %}{{ teacher_comment.created_by.get_full_name|default:teacher_comment.created_by.username }} &middot; {% endif %}
-      {{ teacher_comment.updated_at|date:"j M Y" }}
-    </p>
-  </div>
-  {% endif %}
 
   <!-- Recognition -->
   {% if awards %}

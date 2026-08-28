@@ -162,7 +162,7 @@
                       open the same empty page every time.
                     {% endcomment %}
                     {% if row.has_activity %}
-                      <a href="{% url 'progress:report_preview_detail' %}?school={{ school.id }}&amp;period={{ period_type }}{% if classroom %}&amp;classroom={{ classroom.id }}{% endif %}&amp;student={{ row.student.id }}"
+                      <a href="{% url 'progress:report_preview_detail' %}?school={{ school.id }}&amp;period={{ period_type }}{% if classroom %}&amp;classroom={{ classroom.id }}{% endif %}&amp;student={{ row.student.id }}{% if row.subject %}&amp;subject={{ row.subject.id }}{% endif %}"
                          data-testid="preview-view-report"
                          class="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline whitespace-nowrap">
                         View report
