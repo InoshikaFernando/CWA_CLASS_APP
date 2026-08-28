@@ -71,6 +71,109 @@ class CodingExercisePlugin(SubjectPlugin):
     display_name = 'Coding'
     order = 20
     supports_homework = True
+
+    def practice_section(self, student, begin, finish):
+        """Coding exercises and problems attempted outside homework.
+
+        Both sources are read because they are both "practice a student chose
+        to do": an exercise is pass/fail (it is completed or it is not), while
+        a problem is scored by the tests it passes and can be retried, so it
+        carries a real first-vs-best gain. Mixing them is deliberate — the
+        section answers "how much of what they attempted came out right",
+        which is the same question for both.
+        """
+        from coding.models import StudentExerciseSubmission, StudentProblemSubmission
+
+        rows = []
+
+        exercises = {}
+        for row in (
+            StudentExerciseSubmission.objects
+            .filter(student=student, submitted_at__gte=begin,
+                    submitted_at__lte=finish)
+            .values('exercise_id', 'exercise__title', 'is_completed')
+        ):
+            entry = exercises.setdefault(row['exercise_id'], {
+                'name': row['exercise__title'] or 'Exercise',
+                'attempts': 0, 'done': False,
+            })
+            entry['attempts'] += 1
+            entry['done'] = entry['done'] or row['is_completed']
+
+        for entry in exercises.values():
+            pct = 100 if entry['done'] else 0
+            rows.append({
+                'name': entry['name'], 'attempts': entry['attempts'],
+                # An exercise has no partial credit, so there is no gain to
+                # report: it was finished or it was not.
+                'first_pct': pct, 'best_pct': pct, 'gain_pct': 0,
+                # 100 here means "finished", not "got it right". Marked so it
+                # counts as effort without setting a figure that reads as
+                # achievement — see subject_practice_section.
+                'scored': False,
+            })
+
+        problems = {}
+        for row in (
+            StudentProblemSubmission.objects
+            .filter(student=student, submitted_at__gte=begin,
+                    submitted_at__lte=finish)
+            .order_by('attempt_number')
+            .values('problem_id', 'problem__title', 'visible_passed',
+                    'visible_total', 'hidden_passed', 'hidden_total')
+        ):
+            total = (row['visible_total'] or 0) + (row['hidden_total'] or 0)
+            passed = (row['visible_passed'] or 0) + (row['hidden_passed'] or 0)
+            pct = round(passed * 100 / total) if total else 0
+            entry = problems.setdefault(row['problem_id'], {
+                'name': row['problem__title'] or 'Problem',
+                'attempts': 0, 'first': pct, 'best': pct,
+            })
+            entry['attempts'] += 1
+            entry['best'] = max(entry['best'], pct)
+
+        for entry in problems.values():
+            rows.append({
+                'name': entry['name'], 'attempts': entry['attempts'],
+                'first_pct': entry['first'], 'best_pct': entry['best'],
+                'gain_pct': entry['best'] - entry['first'],
+                # Graded by the tests it passed: a real accuracy figure.
+                'scored': True,
+            })
+
+        if not rows:
+            return None
+
+        scored = [r for r in rows if r.get('scored', True)]
+        basis = scored or rows
+        avg_first = round(sum(r['first_pct'] for r in basis) / len(basis))
+        avg_best = round(sum(r['best_pct'] for r in basis) / len(basis))
+        rows.sort(key=lambda r: (-r['gain_pct'], -r['attempts'], r['name']))
+        return {
+            'label': 'Coding practice',
+            'items': len(rows),
+            'scored_items': len(scored),
+            'attempts': sum(r['attempts'] for r in rows),
+            'avg_first_pct': avg_first,
+            'avg_best_pct': avg_best,
+            'improvement_pct': avg_best - avg_first,
+            'rows': rows,
+        }
+
+    def content_topic_names(self, content_ids):
+        """CodingExercise -> its CodingTopic name.
+
+        The topic hangs off ``topic_level``, not the exercise, so this
+        traverses rather than reading a flat field.
+        """
+        from coding.models import CodingExercise
+
+        return {
+            row['id']: row['topic_level__topic__name']
+            for row in CodingExercise.objects
+            .filter(id__in=content_ids, topic_level__topic__isnull=False)
+            .values('id', 'topic_level__topic__name')
+        }
     brainbuzz_subject_key = 'coding'
 
     # Phase 3 — everything under ``/coding/`` is ours (exercise listings,

@@ -37,6 +37,14 @@ class StripeUnavailable(Exception):
     """Raised when Stripe cannot be reached / is not configured."""
 
 
+class VendorBillUnavailable(Exception):
+    """Raised when a vendor's billed figure could not be obtained.
+
+    Raised rather than returning zero: a period we could not read must be
+    reported as unknown, never as free.
+    """
+
+
 # Subscriptions are tagged with metadata.type at creation (see stripe_service).
 STUDENT_TYPES = {'individual', 'school_student'}
 INSTITUTE_TYPES = {'institute'}
@@ -471,7 +479,10 @@ def materialize_recurring_expenses(until=None, *, dry_run=False):
     Returns a list of (template, month_start) pairs that were (or, in dry-run,
     would be) created.
     """
-    from .models import Expense, RecurringExpense, EXPENSE_SOURCE_RECURRING
+    from .models import (
+        Expense, RecurringExpense, EXPENSE_SOURCE_RECURRING,
+        EXPENSE_SOURCE_MANUAL, AUTHORITATIVE_AUTO_SOURCES,
+    )
 
     if until is None:
         until = _first_of_month(timezone.localdate())
@@ -479,6 +490,48 @@ def materialize_recurring_expenses(until=None, *, dry_run=False):
     templates = list(RecurringExpense.objects.filter(is_active=True))
     if not templates:
         return []
+
+    # Months already covered by a figure that outranks the template's, and so
+    # must not also carry its estimate — keeping both counts the month twice.
+    # Two kinds outrank it:
+    #
+    #   * the vendor's own billed figure (a DigitalOcean invoice, billed AI
+    #     spend). sync_digitalocean_expenses deletes the estimate when it
+    #     writes the actual, but materialisation runs on EVERY dashboard load
+    #     and used to book it straight back — so DigitalOcean read as estimate
+    #     + actual (roughly double) from the next page view onwards.
+    #   * for an is_estimate template — a placeholder for a cost nobody can
+    #     fetch, like Claude Code — a charge someone entered by hand.
+    #
+    # Settled months are skipped, and an estimate already sitting beside one is
+    # cleared, so existing figures self-heal instead of needing a clean-up.
+    settled = {}
+
+    def _settle(rows):
+        for category, month in rows:
+            settled.setdefault(category, set()).add(_first_of_month(month))
+
+    _settle(
+        Expense.objects.filter(source__in=AUTHORITATIVE_AUTO_SOURCES)
+        .values_list('category', 'incurred_on'),
+    )
+    # Hand-entered charges fall on the day they were billed, not the 1st, so
+    # they are bucketed to their month above before being compared.
+    estimate_categories = {t.category for t in templates if t.is_estimate}
+    if estimate_categories:
+        _settle(
+            Expense.objects.filter(
+                source=EXPENSE_SOURCE_MANUAL,
+                category__in=estimate_categories,
+            ).values_list('category', 'incurred_on'),
+        )
+
+    if not dry_run:
+        for category, months in settled.items():
+            Expense.objects.filter(
+                source=EXPENSE_SOURCE_RECURRING,
+                category=category, incurred_on__in=months,
+            ).delete()
 
     # Pull the already-booked (template, month) pairs once and diff in Python —
     # same pull-once approach as get_income_expense_summary — so a dashboard
@@ -490,8 +543,9 @@ def materialize_recurring_expenses(until=None, *, dry_run=False):
 
     created = []
     for template in templates:
+        covered = settled.get(template.category, set())
         for month in _recurring_occurrences(template, until):
-            if (template.id, month) in existing:
+            if (template.id, month) in existing or month in covered:
                 continue
             if dry_run:
                 created.append((template, month))
@@ -530,9 +584,14 @@ def refresh_current_month_expenses():
     Recurring templates are materialised every call (cheap + idempotent) so a
     newly added template — or a month the cron hasn't reached yet — shows
     immediately instead of reading $0. The heavier vendor syncs (AI-usage
-    ledger scan + DigitalOcean invoice fetch) are throttled to once per
-    FINANCE_REFRESH_LOCK_TTL. Each step is isolated and best-effort: a failure
-    is logged (never silently swallowed) and can't blank the dashboard.
+    ledger scan, DigitalOcean invoices, GitHub billing, billed AI spend) are
+    throttled to once per FINANCE_REFRESH_LOCK_TTL. Each step is isolated and best-effort: a
+    failure is logged (never silently swallowed) and can't blank the dashboard.
+
+    Order matters for the AI vendors: the token estimate is synced first, then
+    the vendors' billed figures replace it for every month they cover. Running
+    them the other way round would re-create the estimate the billed sync had
+    just superseded, and the month would count twice.
     """
     try:
         materialize_recurring_expenses()
@@ -545,6 +604,8 @@ def refresh_current_month_expenses():
     for label, sync in (
         ('AI usage', sync_ai_usage_expenses),
         ('DigitalOcean', sync_digitalocean_expenses),
+        ('GitHub', sync_github_expenses),
+        ('Billed AI spend', sync_ai_vendor_expenses),
     ):
         try:
             sync()
@@ -570,14 +631,20 @@ def get_income_expense_summary(months=6):
         {'label': 'Jun 2026', 'start': date, 'income': Decimal,
          'expense': Decimal, 'net': Decimal}, ...   # oldest -> newest
       ],
-      'category_totals': [{'category': key, 'label': str, 'amount': Decimal}, ...],
+      'category_totals': [{'category': key, 'label': str, 'amount': Decimal,
+                           'last_on': date, 'last_actual_on': date|None,
+                           'is_estimated': bool, 'is_stale': bool,
+                           'estimate_hint': 'manual'|'vendor_api'|None}, ...],
       'totals': {'income': Decimal, 'expense': Decimal, 'net': Decimal},
       'income_available': bool,          # False if Stripe was unreachable
       'max_value': Decimal,              # for chart scaling
     }
     """
     from django.db.models import Sum
-    from .models import Expense, ExpenseCategory
+    from .models import (
+        Expense, ExpenseCategory, RecurringExpense,
+        EXPENSE_SOURCE_RECURRING, EXPENSE_SOURCE_AI_GRADING,
+    )
 
     months = max(1, min(int(months), 24))
     today = timezone.localdate()
@@ -602,17 +669,35 @@ def get_income_expense_summary(months=6):
         Expense.objects.filter(
             incurred_on__gte=range_start, incurred_on__lt=range_end,
         )
-        .values('incurred_on', 'category', 'amount')
+        .values('incurred_on', 'category', 'amount', 'source')
     )
     ZERO = Decimal('0.00')
     expense_by_month = {}
     category_totals = {}
+    category_last_seen = {}
+    # Tracked apart from category_last_seen: a template-generated row and a
+    # token-ledger price are both forecasts of the bill, not the bill. A
+    # category standing on those alone is still waiting for its real figure.
+    category_last_actual = {}
+    ledger_priced_categories = set()
     for row in expense_rows:
         key = _first_of_month(row['incurred_on'])
         expense_by_month[key] = expense_by_month.get(key, ZERO) + row['amount']
         category_totals[row['category']] = (
             category_totals.get(row['category'], ZERO) + row['amount']
         )
+        category_last_seen[row['category']] = max(
+            category_last_seen.get(row['category'], row['incurred_on']),
+            row['incurred_on'],
+        )
+        if row['source'] == EXPENSE_SOURCE_AI_GRADING:
+            ledger_priced_categories.add(row['category'])
+        if row['source'] not in (EXPENSE_SOURCE_RECURRING,
+                                 EXPENSE_SOURCE_AI_GRADING):
+            category_last_actual[row['category']] = max(
+                category_last_actual.get(row['category'], row['incurred_on']),
+                row['incurred_on'],
+            )
 
     income_available = True
     series = []
@@ -640,13 +725,62 @@ def get_income_expense_summary(months=6):
         total_expense += expense
         max_value = max(max_value, income, expense)
 
+    # A category with no charge of its own this month has stopped being
+    # recorded — either the vendor stopped billing, or (Claude Code bills per
+    # use with no API, so its charges are typed in by hand) nobody has entered
+    # this month's yet. Either way the period total misreports: the Claude Code
+    # column read as one month's charge inside a three-month window. Flag it on
+    # the row rather than letting the figure pass for a settled one.
+    #
+    # An estimate keeps the total honest in the meantime, but an estimate is
+    # not a charge — such a category is measured by its last ACTUAL, so the
+    # nudge to get the real figure survives the placeholder. Two kinds of
+    # estimate, and the fix differs, so `estimate_hint` says which:
+    #   'manual'     — an is_estimate template (Claude Code): type the charge in.
+    #   'vendor_api' — the AI token ledger priced at list rates: the billed
+    #                  figure lands once the vendor's admin key is configured
+    #                  (sync_ai_vendor_expenses), not by hand.
+    # Yearly costs are exempt either way: one charge a year is correct.
+    templates = RecurringExpense.objects.filter(is_active=True).values_list(
+        'category', 'frequency', 'is_estimate')
+    yearly_categories = {
+        c for c, freq, _ in templates
+        if freq == RecurringExpense.FREQUENCY_YEARLY
+    }
+    placeholder_categories = {c for c, _, is_est in templates if is_est}
+
     cat_labels = dict(ExpenseCategory.choices)
-    cat_list = [
-        {'category': k, 'label': cat_labels.get(k, k), 'amount': v}
-        for k, v in sorted(
-            category_totals.items(), key=lambda kv: kv[1], reverse=True,
+    cat_list = []
+    for k, v in sorted(
+        category_totals.items(), key=lambda kv: kv[1], reverse=True,
+    ):
+        last_on = category_last_seen.get(k)
+        estimate_hint = (
+            'manual' if k in placeholder_categories
+            else 'vendor_api' if k in ledger_priced_categories
+            else None
         )
-    ]
+        is_estimated = estimate_hint is not None
+        # For an estimated category the estimate itself never counts as proof
+        # the month is settled, so `last_actual_on` may be None even though
+        # `last_on` is this month.
+        last_actual_on = (
+            category_last_actual.get(k) if is_estimated else last_on
+        )
+        cat_list.append({
+            'category': k,
+            'label': cat_labels.get(k, k),
+            'amount': v,
+            'last_on': last_on,
+            'last_actual_on': last_actual_on,
+            'is_estimated': is_estimated,
+            'estimate_hint': estimate_hint,
+            'is_stale': (
+                k not in yearly_categories
+                and (last_actual_on is None
+                     or _first_of_month(last_actual_on) < current)
+            ),
+        })
 
     # Carry-forward (opening balance): net of EVERYTHING before this window, so
     # the running total / overall net reflect the full picture regardless of the
@@ -670,6 +804,11 @@ def get_income_expense_summary(months=6):
     return {
         'months': series,
         'category_totals': cat_list,
+        'stale_categories': [c for c in cat_list if c['is_stale']],
+        'period_label': (
+            f'{starts[0].strftime("%b %Y")} – {current.strftime("%b %Y")}'
+            if len(starts) > 1 else current.strftime('%b %Y')
+        ),
         'totals': {
             'income': total_income,
             'expense': total_expense,
@@ -869,6 +1008,168 @@ def sync_digitalocean_expenses():
     return touched
 
 
+GITHUB_API_ROOT = 'https://api.github.com'
+GITHUB_API_VERSION = '2022-11-28'
+
+
+def _github_billing_token():
+    """Token to read the bill with.
+
+    Falls back to the AI-usage dashboard's token, which this project already
+    configures, so the sync works off the credentials that are here rather
+    than a second copy of them. Reading billing is a different permission from
+    writing an issue, though, so that token may be refused — GITHUB_BILLING_TOKEN
+    overrides it when billing needs its own credential.
+    """
+    return (getattr(settings, 'GITHUB_BILLING_TOKEN', '')
+            or getattr(settings, 'AI_DASHBOARD_GITHUB_TOKEN', ''))
+
+
+def _github_billing_account():
+    """Account the bill belongs to, or '' when there is nothing to go on.
+
+    Defaults to the owner half of AI_DASHBOARD_GITHUB_REPO ("owner/repo") —
+    the account that owns the repository is the one being billed for its
+    Actions minutes. GITHUB_BILLING_ACCOUNT overrides it when the bill sits
+    elsewhere.
+    """
+    account = (getattr(settings, 'GITHUB_BILLING_ACCOUNT', '') or '').strip()
+    if account:
+        return account
+    repo = (getattr(settings, 'AI_DASHBOARD_GITHUB_REPO', '') or '').strip()
+    return repo.split('/')[0].strip() if '/' in repo else ''
+
+
+def _github_usage_path():
+    """API path for the configured account, or None when unconfigured.
+
+    User and organisation bills live at different paths, and the org one is
+    `/organizations/`, NOT the `/orgs/` prefix the rest of the GitHub API uses.
+    """
+    account = _github_billing_account()
+    if not account:
+        return None
+    kind = (getattr(settings, 'GITHUB_BILLING_ACCOUNT_TYPE', 'user') or 'user')
+    prefix = 'organizations' if kind.strip().lower() in ('org', 'organization') \
+        else 'users'
+    return f'{GITHUB_API_ROOT}/{prefix}/{account}/settings/billing/usage'
+
+
+def sync_github_expenses(months=3):
+    """Pull what GitHub actually billed into monthly Expense rows (NZD).
+
+    Reads the enhanced billing usage report, one calendar month per request
+    (the endpoint takes year + month). Every line item counts — Actions minutes
+    are the driver, but Packages, LFS and Copilot are on the same bill and would
+    otherwise be invisible — so no product filter is applied and the row's
+    description names what was on it.
+
+    `netAmount` is the field booked, not `grossAmount`: the included free
+    allowance arrives as `discountAmount`, and net is what is actually charged.
+    A month wholly inside the free tier therefore nets zero, and that row IS
+    written — "GitHub confirmed $0" and "we never looked" must not read alike.
+
+    Credentials come from the GitHub settings this project already has (the
+    AI-usage dashboard's token and repo), so nothing new has to be configured
+    for the sync to run; GITHUB_BILLING_TOKEN / GITHUB_BILLING_ACCOUNT override
+    them. No-op (returns 0) when neither is available. Idempotent. A month the
+    API refuses is logged with GitHub's own message and left without a row,
+    never zeroed.
+    """
+    from .models import Expense, ExpenseCategory, EXPENSE_SOURCE_GITHUB
+
+    token = _github_billing_token()
+    url = _github_usage_path()
+    if not token or not url:
+        return 0
+
+    rate, _ = get_usd_to_nzd_rate()
+    month_start = _first_of_month(timezone.localdate())
+    wanted = []
+    for _ in range(max(1, int(months))):
+        wanted.append(month_start)
+        month_start = _first_of_month(month_start - timedelta(days=1))
+
+    touched = 0
+    for start in sorted(wanted):
+        try:
+            items = _github_usage_items(url, token, start)
+        except VendorBillUnavailable as exc:
+            logger.warning('GitHub billing for %s unavailable: %s', start, exc)
+            continue
+
+        # Amounts carry no currency field. They are USD: the fixtures price
+        # "Actions Linux" at 0.008 per minute, GitHub's published USD rate.
+        usd = Decimal('0')
+        products = set()
+        for item in items:
+            try:
+                usd += Decimal(str(item.get('netAmount', 0) or 0))
+            except InvalidOperation:
+                logger.warning('Skipping unreadable GitHub line item %r', item)
+                continue
+            if item.get('product'):
+                products.add(str(item['product']))
+
+        nzd = (usd * rate).quantize(Decimal('0.01'))
+        detail = ', '.join(sorted(products)) or 'no billable usage'
+        Expense.objects.update_or_create(
+            source=EXPENSE_SOURCE_GITHUB,
+            incurred_on=start,
+            defaults={
+                'category': ExpenseCategory.GITHUB,
+                'vendor': 'GitHub',
+                'description': f'{detail} (auto)'[:255],
+                'amount': nzd,
+                'original_amount': usd.quantize(Decimal('0.01')),
+                'original_currency': 'USD',
+            },
+        )
+        touched += 1
+    return touched
+
+
+def _github_usage_items(url, token, month_start):
+    """One month's billing line items, or raise VendorBillUnavailable.
+
+    A failure is never returned as an empty list: "GitHub billed nothing" and
+    "we could not ask" would then be indistinguishable, and the month would
+    silently book as free.
+    """
+    try:
+        response = requests.get(
+            url,
+            headers={
+                'Authorization': f'Bearer {token}',
+                'Accept': 'application/vnd.github+json',
+                'X-GitHub-Api-Version': GITHUB_API_VERSION,
+            },
+            params={'year': month_start.year, 'month': month_start.month},
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        raise VendorBillUnavailable(f'Request failed: {exc}') from exc
+
+    if response.status_code != 200:
+        # 403 here means the token cannot read billing — a different permission
+        # from the repository access it already has. GitHub says which in the
+        # body, so relay that instead of guessing at the fix.
+        detail = response.text[:300]
+        raise VendorBillUnavailable(
+            f'HTTP {response.status_code}: {detail}')
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise VendorBillUnavailable(f'Response was not JSON: {exc}') from exc
+
+    items = payload.get('usageItems')
+    if items is None:
+        raise VendorBillUnavailable(
+            f'No "usageItems" in the response (keys: {sorted(payload)})')
+    return items
+
+
 # ---------------------------------------------------------------------------
 # Billed AI cost (CPP-383) — the vendor's own figure, not an estimate
 # ---------------------------------------------------------------------------
@@ -926,6 +1227,7 @@ def sync_ai_vendor_expenses(months=3):
     from .ai_vendor_costs import FETCHERS, VendorCostUnavailable
     from .models import (
         Expense, ExpenseCategory, EXPENSE_SOURCE_AI_VENDOR,
+        EXPENSE_SOURCE_AI_GRADING,
     )
 
     today = timezone.localdate()
@@ -959,12 +1261,13 @@ def sync_ai_vendor_expenses(months=3):
             key = _first_of_month(entry.on)
             buckets[key] = buckets.get(key, Decimal('0')) + entry.amount_usd
 
+        category = getattr(ExpenseCategory, category_name)
         for month_start, usd in sorted(buckets.items()):
             nzd = (usd * rate).quantize(Decimal('0.01'))
             Expense.objects.update_or_create(
                 source=EXPENSE_SOURCE_AI_VENDOR,
                 incurred_on=month_start,
-                category=getattr(ExpenseCategory, category_name),
+                category=category,
                 defaults={
                     'vendor': vendor,
                     'description': f'{vendor} billed usage (auto)',
@@ -973,6 +1276,23 @@ def sync_ai_vendor_expenses(months=3):
                     'original_currency': 'USD',
                 },
             )
+            # The billed figure supersedes the token estimate for that month —
+            # exactly as a DigitalOcean invoice supersedes the DO estimate.
+            # Both rows in the same month would double the vendor's spend.
+            Expense.objects.filter(
+                source=EXPENSE_SOURCE_AI_GRADING,
+                category=category, incurred_on=month_start,
+            ).delete()
             written += 1
+            if provider == 'openai' and usd > 0:
+                # AMOUNT_TO_USD['openai'] is an assumption: every bucket was
+                # empty when it was written, so nothing could confirm the unit.
+                # Say so the first time real money comes back, rather than
+                # letting a possible 100x error settle into the accounts.
+                logger.warning(
+                    'First non-zero OpenAI billed figure: US$%s for %s. Check '
+                    'this against the OpenAI billing page — AMOUNT_TO_USD'
+                    "['openai'] (dollars) has never been verified against "
+                    'real data.', usd, month_start)
 
     return {'written': written, 'skipped': skipped}

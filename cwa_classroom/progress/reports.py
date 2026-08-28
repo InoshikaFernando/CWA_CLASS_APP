@@ -16,11 +16,28 @@ Two rules run through the whole module:
 from collections import defaultdict
 from datetime import date, datetime, time
 
+from django.db.models import Q
 from django.utils import timezone
 
 from progress.periods import label_for
 
 UNCLASSIFIED = 'Unclassified'
+
+# The slug every maths-domain strand belongs to. Quizzes, times tables and
+# basic facts are maths and only maths, so they have no place in a report
+# covering a coding class.
+MATHS_SLUG = 'mathematics'
+
+# Homework.subject_slug DEFAULTS to 'mathematics'. It is what a row says when
+# nobody said anything, not a statement that the work is maths — the field was
+# added by the subject-plugin refactor and back-filled with that value for every
+# row that already existed.
+#
+# So 'mathematics' cannot be read as "this is maths" when deciding what to
+# exclude from another subject's report. A Science class whose homework carries
+# the default would otherwise have every piece of it filtered away, and the
+# report would say the child did nothing rather than saying it is unconfigured.
+UNSTATED_SLUG = MATHS_SLUG
 
 # An award only means something measured against classmates. Below this many
 # active students with activity in the window, the class-relative awards are
@@ -51,7 +68,8 @@ def _mean(values):
 # Raw material
 # ---------------------------------------------------------------------------
 
-def student_submissions(student, start, end, classroom_ids=None):
+def student_submissions(student, start, end, classroom_ids=None,
+                        subject_slugs=None):
     """Every homework attempt this student submitted inside the window.
 
     *classroom_ids* restricts the report to the classes that actually switched
@@ -76,13 +94,16 @@ def student_submissions(student, start, end, classroom_ids=None):
     )
     if classroom_ids is not None:
         qs = qs.filter(homework__classroom_id__in=classroom_ids)
+    if subject_slugs is not None:
+        qs = qs.filter(_subject_filter('homework__subject_slug', subject_slugs))
     return list(
         qs.select_related('homework', 'homework__classroom')
         .order_by('submitted_at')
     )
 
 
-def homework_due_in_window(student, start, end, classroom_ids=None):
+def homework_due_in_window(student, start, end, classroom_ids=None,
+                           subject_slugs=None):
     """Published homework whose due date falls in the window, for this student.
 
     Scoped to the classes the student is actively in — homework assigned to a
@@ -102,16 +123,15 @@ def homework_due_in_window(student, start, end, classroom_ids=None):
         class_ids = [cid for cid in class_ids if cid in set(classroom_ids)]
     if not class_ids:
         return []
-    return list(
-        Homework.objects
-        .filter(
-            classroom_id__in=class_ids,
-            published_at__isnull=False,
-            due_date__gte=begin,
-            due_date__lte=finish,
-        )
-        .order_by('due_date')
+    qs = Homework.objects.filter(
+        classroom_id__in=class_ids,
+        published_at__isnull=False,
+        due_date__gte=begin,
+        due_date__lte=finish,
     )
+    if subject_slugs is not None:
+        qs = qs.filter(_subject_filter('subject_slug', subject_slugs))
+    return list(qs.order_by('due_date'))
 
 
 def _group_by_homework(submissions):
@@ -169,6 +189,102 @@ def totals_section(submissions, due):
     }
 
 
+def subject_practice_section(student, start, end, subject_slugs=None):
+    """Practice done in a subject's own app rather than as homework.
+
+    Asked of each covered subject's plugin rather than read here, so a new
+    subject supplies its own source instead of `reports.py` growing an `if
+    slug == 'coding'`. Maths keeps its dedicated times-tables and basic-facts
+    strands: they predate the registry and are named on the report in their
+    own right, which a generic "practice" heading would lose.
+
+    Returns the standard empty shape when nothing was done, so the report keeps
+    identical keys whether or not any subject has a practice source.
+    """
+    from classroom import subject_registry
+
+    empty = {'items': 0, 'scored_items': 0, 'attempts': 0, 'avg_first_pct': 0,
+             'avg_best_pct': 0, 'scored_avg_best_pct': 0, 'improvement_pct': 0,
+             'sections': []}
+    if not subject_slugs:
+        # None (unscoped) is deliberately empty here rather than "every
+        # subject": this section is only meaningful once a report knows which
+        # subject it is about.
+        return empty
+
+    begin, finish = _bounds(start, end)
+    sections = []
+    for slug in sorted(subject_slugs):
+        plugin = subject_registry.get(slug)
+        if plugin is None:
+            continue
+        section = plugin.practice_section(student, begin, finish)
+        if section:
+            sections.append(section)
+
+    if not sections:
+        return empty
+
+    firsts = [s['avg_first_pct'] for s in sections]
+    bests = [s['avg_best_pct'] for s in sections]
+    avg_first, avg_best = _mean(firsts), _mean(bests)
+
+    # Split effort from achievement. A coding exercise scores 100 for being
+    # finished and 0 for not, which is a completion rate, not a mark. Ninety
+    # seven of those would otherwise decide overall_avg_pct on their own and
+    # make "96%" mean "she finished nearly everything she opened", in the same
+    # column as a maths average that really is accuracy.
+    #
+    # So the unscored rows stay visible as work done — items, has_activity, the
+    # section itself — and only the scored ones reach the headline. Rows are
+    # scored unless a plugin says otherwise, because a percentage normally is
+    # a mark.
+    scored_rows = [
+        row for section in sections for row in section['rows']
+        if row.get('scored', True)
+    ]
+    return {
+        'items': sum(s['items'] for s in sections),
+        'scored_items': len(scored_rows),
+        'attempts': sum(s['attempts'] for s in sections),
+        'avg_first_pct': avg_first,
+        'avg_best_pct': avg_best,
+        'scored_avg_best_pct': (
+            _mean([row['best_pct'] for row in scored_rows]) if scored_rows else 0
+        ),
+        'improvement_pct': avg_best - avg_first,
+        'sections': sections,
+    }
+
+
+def _topic_names_by_subject(answers):
+    """``{(subject_slug, content_id): topic name}`` for a window's answers.
+
+    One bulk call per subject rather than a lookup per answer: a term report
+    can carry thousands of answers, and the per-row alternative is what makes a
+    report slow enough to time out.
+
+    A subject whose plugin resolves nothing simply contributes no entries, and
+    those answers fall through to "Unclassified" — which is honest, and is what
+    every non-maths subject did before this existed.
+    """
+    from classroom import subject_registry
+
+    by_subject = defaultdict(set)
+    for answer in answers:
+        by_subject[answer['subject_slug']].add(answer['content_id'])
+
+    names = {}
+    for slug, content_ids in by_subject.items():
+        plugin = subject_registry.get(slug)
+        if plugin is None:
+            continue
+        for content_id, name in plugin.content_topic_names(content_ids).items():
+            if name:
+                names[(slug, content_id)] = name
+    return names
+
+
 def topics_section(submissions):
     """Accuracy per ``classroom.Topic`` over every answer in the window — §2.2.
 
@@ -181,18 +297,25 @@ def topics_section(submissions):
     if not submissions:
         return []
 
-    answers = (
+    answers = list(
         HomeworkStudentAnswer.objects
         .filter(submission_id__in=[s.id for s in submissions])
-        .select_related('question__topic')
+        .values('subject_slug', 'content_id', 'is_correct')
     )
+
+    # Resolved through the subject registry rather than answer.question.topic:
+    # that FK points at maths.Question and is null for every other subject, so
+    # reading it filed every coding answer under "Unclassified". The modern
+    # binding is (subject_slug, content_id), which every subject populates.
+    names = _topic_names_by_subject(answers)
 
     tally = defaultdict(lambda: {'answered': 0, 'correct': 0})
     for answer in answers:
-        topic = answer.question.topic if answer.question_id else None
-        name = topic.name if topic else UNCLASSIFIED
+        name = names.get(
+            (answer['subject_slug'], answer['content_id']), UNCLASSIFIED,
+        )
         tally[name]['answered'] += 1
-        tally[name]['correct'] += 1 if answer.is_correct else 0
+        tally[name]['correct'] += 1 if answer['is_correct'] else 0
 
     rows = [
         {
@@ -340,15 +463,23 @@ def _attempt_pct(row):
     return _pct(row.score, row.total_questions)
 
 
-def quizzes_section(student, start, end):
+def quizzes_section(student, start, end, subject_slugs=None):
     """Topic and mixed maths quizzes attempted in the window.
 
     Grouped by topic and reported first-attempt vs best, the same shape as
     homework — retrying a quiz is the same behaviour the homework section is
     there to encourage, and showing it differently would hide that.
     """
-    attempts = _final_answers(student, start, end, ('topic', 'mixed'))
-    if not attempts:
+    attempts = (
+        _final_answers(student, start, end, ('topic', 'mixed'))
+        if _covers_maths(subject_slugs) else []
+    )
+    # BrainBuzz is the cross-subject quiz: its sessions carry a Subject FK, so
+    # a coding report gets the coding quizzes rather than nothing. Maths quizzes
+    # live in their own app and only appear in a maths report.
+    buzz = _brainbuzz_items(student, start, end, subject_slugs)
+
+    if not attempts and not buzz:
         return {'attempted': 0, 'attempts': 0, 'avg_first_pct': 0,
                 'avg_best_pct': 0, 'improvement_pct': 0, 'items': []}
 
@@ -372,12 +503,19 @@ def quizzes_section(student, start, end):
             'best_pct': best,
             'gain_pct': best - first,
         })
+    # A BrainBuzz session is played once, so first and best are the same
+    # figure. Saying so is honest: pretending it improved would put a zero gain
+    # in the column that exists to show improvement.
+    for item in buzz:
+        firsts.append(item['first_pct'])
+        bests.append(item['best_pct'])
+    items.extend(buzz)
     items.sort(key=lambda i: (-i['gain_pct'], -i['attempts'], i['name']))
 
     avg_first, avg_best = _mean(firsts), _mean(bests)
     return {
-        'attempted': len(by_topic),
-        'attempts': len(attempts),
+        'attempted': len(by_topic) + len(buzz),
+        'attempts': len(attempts) + sum(i['attempts'] for i in buzz),
         'avg_first_pct': avg_first,
         'avg_best_pct': avg_best,
         'improvement_pct': avg_best - avg_first,
@@ -385,9 +523,60 @@ def quizzes_section(student, start, end):
     }
 
 
-def times_tables_section(student, start, end):
+def _brainbuzz_items(student, start, end, subject_slugs=None):
+    """BrainBuzz quizzes the student played in the window, one row per session.
+
+    BrainBuzz is the quiz that exists for every subject — its sessions carry a
+    ``classroom.Subject`` FK — so this is what lets a coding report carry a
+    coding quiz instead of nothing. Scoped to the report's subjects; unscoped
+    (``None``) means every subject, as everywhere else.
+
+    Accuracy is counted from the answers rather than read off
+    ``BrainBuzzParticipant.score``, which is points including speed bonuses and
+    would not be a percentage of anything.
+    """
+    from brainbuzz.models import BrainBuzzAnswer
+
+    begin, finish = _bounds(start, end)
+    qs = BrainBuzzAnswer.objects.filter(
+        participant__student=student,
+        submitted_at__gte=begin, submitted_at__lte=finish,
+    )
+    if subject_slugs is not None:
+        qs = qs.filter(participant__session__subject__slug__in=subject_slugs)
+
+    rows = qs.values(
+        'participant__session_id',
+        'participant__session__subject__name',
+        'is_correct',
+    )
+
+    tally = defaultdict(lambda: {'answered': 0, 'correct': 0, 'name': ''})
+    for row in rows:
+        entry = tally[row['participant__session_id']]
+        entry['answered'] += 1
+        entry['correct'] += 1 if row['is_correct'] else 0
+        entry['name'] = row['participant__session__subject__name'] or 'Quiz'
+
+    items = []
+    for entry in tally.values():
+        pct = _pct(entry['correct'], entry['answered'])
+        items.append({
+            'name': f"{entry['name']} quiz",
+            'attempts': 1,
+            'first_pct': pct,
+            'best_pct': pct,
+            'gain_pct': 0,
+        })
+    return items
+
+
+def times_tables_section(student, start, end, subject_slugs=None):
     """Times tables practised in the window, best per table and operation."""
-    attempts = _final_answers(student, start, end, ('times_table',))
+    attempts = (
+        _final_answers(student, start, end, ('times_table',))
+        if _covers_maths(subject_slugs) else []
+    )
     if not attempts:
         return {'tables': 0, 'attempts': 0, 'avg_best_pct': 0, 'items': []}
 
@@ -419,7 +608,7 @@ def times_tables_section(student, start, end):
     }
 
 
-def basic_facts_section(student, start, end):
+def basic_facts_section(student, start, end, subject_slugs=None):
     """Basic-facts attempts in the window, best per subtopic."""
     from maths.models import BasicFactsResult
 
@@ -429,7 +618,7 @@ def basic_facts_section(student, start, end):
             student=student,
             completed_at__gte=begin, completed_at__lte=finish,
         ).values('subtopic', 'level_number', 'score', 'total_points')
-    )
+    ) if _covers_maths(subject_slugs) else []
     if not rows:
         return {'subtopics': 0, 'attempts': 0, 'avg_best_pct': 0, 'items': []}
 
@@ -624,12 +813,110 @@ def awards_for(student, classroom, start, end, due_count, cohort_cache=None):
     return earned
 
 
+def covered_subject_slugs(classrooms):
+    """The subjects a report covers, or ``None`` when that cannot be known.
+
+    A report has no subject of its own yet, so it takes them from the classes
+    it covers. ``None`` means "do not scope", and is returned whenever any
+    covered class has no subject set — dropping a class's work on the strength
+    of a blank field would be a worse bug than the one this fixes.
+    """
+    if not classrooms:
+        return None
+    slugs = set()
+    for classroom in classrooms:
+        slug = _classroom_subject_slug(classroom)
+        if not slug:
+            return None
+        slugs.add(slug)
+    return slugs
+
+
+def resolved_subject(classroom):
+    """The subject this class teaches: its own, else its department's.
+
+    Read live rather than requiring a backfill. Mapping a department to a
+    subject is the administrative act that says what its classes teach, so the
+    reports should follow it immediately — needing someone to also run a
+    command afterwards is a way to have the setting look applied while the
+    reports disagree with it.
+
+    The department decides only when it maps to exactly ONE subject.
+    Department.subjects is many-to-many because a department can teach several,
+    and two is not an answer. A subject set on the class itself always wins.
+
+    Both halves of report-building go through here: this is what a report is
+    FILED under (services groups classes by it) and what its content is scoped
+    to (``covered_subject_slugs`` below). They must agree, or a report lands in
+    the coding pile carrying an unscoped body.
+    """
+    if classroom.subject_id:
+        return classroom.subject
+    if classroom.department_id is None:
+        return None
+    subjects = list(classroom.department.subjects.all())
+    return subjects[0] if len(subjects) == 1 else None
+
+
+def with_subject_sources(qs):
+    """Everything ``resolved_subject`` reads, in two queries instead of N."""
+    return qs.select_related('subject', 'department').prefetch_related(
+        'department__subjects',
+    )
+
+
+def _classroom_subject_slug(classroom):
+    subject = resolved_subject(classroom)
+    return subject.slug if subject else None
+
+
+def _resolved_content(content):
+    """Content flags with every key present.
+
+    ``None`` means "everything", which is what an unconfigured caller — the
+    preview, a management command, a test — should get. Callers that do
+    configure it may pass a partial dict; missing keys default to on rather
+    than to off, because a report is not improved by silently losing a section
+    somebody never mentioned.
+    """
+    from progress.models import ProgressReportSetting
+
+    resolved = dict(ProgressReportSetting.CONTENT_DEFAULTS)
+    if content:
+        resolved.update({k: v for k, v in content.items() if k in resolved})
+    return resolved
+
+
+def _subject_filter(field, subject_slugs):
+    """Rows belonging to *subject_slugs*, treating the default slug as unstated.
+
+    A maths report takes the default rows, because for maths the default and
+    the truth coincide. Any other subject's report takes its own rows AND the
+    unstated ones, because the alternative is dropping a class's whole term on
+    the strength of a field nobody filled in.
+
+    The cost is that a genuine maths homework set inside a science class counts
+    towards science. That is the lesser error: it over-reports one item rather
+    than under-reporting everything, and it disappears as soon as the homework
+    says which subject it is.
+    """
+    condition = Q(**{f'{field}__in': list(subject_slugs)})
+    if UNSTATED_SLUG not in subject_slugs:
+        condition |= Q(**{field: UNSTATED_SLUG})
+    return condition
+
+
+def _covers_maths(subject_slugs):
+    """Whether the maths-only strands belong in this report at all."""
+    return subject_slugs is None or MATHS_SLUG in subject_slugs
+
+
 def _student_classrooms(student, classroom_ids=None):
     from classroom.models import ClassRoom
 
-    qs = ClassRoom.objects.filter(
+    qs = with_subject_sources(ClassRoom.objects.filter(
         class_students__student=student, class_students__is_active=True,
-    )
+    ))
     if classroom_ids is not None:
         qs = qs.filter(id__in=classroom_ids)
     return list(qs.distinct().order_by('name'))
@@ -644,7 +931,8 @@ def _due_count_for(classroom, due):
 # ---------------------------------------------------------------------------
 
 def build_report_data(student, period_type, start, end, term=None,
-                      cohort_cache=None, classroom_ids=None):
+                      cohort_cache=None, classroom_ids=None, subject=None,
+                      content=None):
     """The whole snapshot for one student and one closed window.
 
     Returns a plain dict — this is exactly what gets stored in
@@ -657,21 +945,59 @@ def build_report_data(student, period_type, start, end, term=None,
     that one — which is what makes "only configured classes get it" true of the
     contents, not just of the trigger.
     """
-    submissions = student_submissions(student, start, end, classroom_ids)
-    due = homework_due_in_window(student, start, end, classroom_ids)
+    # The classes decide which subjects this report is about, so they are
+    # resolved before anything is queried rather than only for the awards.
+    classrooms = _student_classrooms(student, classroom_ids)
+    # An explicit subject wins: run_period already grouped the classes by it,
+    # and a report that says "Coding" must not widen itself by re-deriving.
+    subjects = (
+        {subject.slug} if subject is not None
+        else covered_subject_slugs(classrooms)
+    )
+    content = _resolved_content(content)
+
+    # A section switched off is not queried at all. Each section already
+    # returns a well-formed empty result for "no rows", so switching one off
+    # reuses that shape rather than a hand-written dict — the snapshot keeps
+    # exactly the same keys, and the page and the PDF cannot disagree.
+    if content['include_homework']:
+        submissions = student_submissions(
+            student, start, end, classroom_ids, subjects,
+        )
+        due = homework_due_in_window(
+            student, start, end, classroom_ids, subjects,
+        )
+    else:
+        submissions, due = [], []
 
     awards = []
-    classrooms = _student_classrooms(student, classroom_ids)
-    for classroom in classrooms:
-        awards.extend(awards_for(
-            student, classroom, start, end, _due_count_for(classroom, due),
-            cohort_cache=cohort_cache,
-        ))
+    if content['include_awards']:
+        for classroom in classrooms:
+            awards.extend(awards_for(
+                student, classroom, start, end, _due_count_for(classroom, due),
+                cohort_cache=cohort_cache,
+            ))
 
-    quizzes = quizzes_section(student, start, end)
-    times_tables = times_tables_section(student, start, end)
-    basic_facts = basic_facts_section(student, start, end)
-    worksheets = worksheets_section(student, start, end, classroom_ids)
+    quizzes = quizzes_section(
+        student, start, end,
+        subjects if content['include_quizzes'] else set(),
+    )
+    times_tables = times_tables_section(
+        student, start, end,
+        subjects if content['include_times_tables'] else set(),
+    )
+    basic_facts = basic_facts_section(
+        student, start, end,
+        subjects if content['include_basic_facts'] else set(),
+    )
+    subject_practice = subject_practice_section(
+        student, start, end,
+        subjects if content['include_subject_practice'] else set(),
+    )
+    worksheets = worksheets_section(
+        student, start, end,
+        classroom_ids if content['include_worksheets'] else [],
+    )
     totals = totals_section(submissions, due)
 
     # One figure across everything the child actually did, so a report is not
@@ -683,14 +1009,25 @@ def build_report_data(student, period_type, start, end, term=None,
         (quizzes['attempted'], quizzes['avg_best_pct']),
         (times_tables['tables'], times_tables['avg_best_pct']),
         (basic_facts['subtopics'], basic_facts['avg_best_pct']),
+        # scored_items, not items: completion is effort, not a mark. See
+        # subject_practice_section.
+        (subject_practice['scored_items'],
+         subject_practice['scored_avg_best_pct']),
         (worksheets['completed'], worksheets['average_pct']),
     ]
     counted = [(n, pct) for n, pct in strands if n]
-    activity_items = sum(n for n, _ in counted)
-    totals['activity_items'] = activity_items
+
+    # Two different totals, and conflating them is what made this wrong once
+    # already. `weighted` is the divisor for the average and counts only what
+    # carries a mark; `activity_items` is effort and counts everything the
+    # child did, including the completion-only practice left out of the
+    # average. has_activity reads the second, so a week of coding exercises
+    # must not come back as "no activity".
+    weighted = sum(n for n, _ in counted)
+    unscored = subject_practice['items'] - subject_practice['scored_items']
+    totals['activity_items'] = weighted + unscored
     totals['overall_avg_pct'] = (
-        round(sum(n * pct for n, pct in counted) / activity_items)
-        if activity_items else 0
+        round(sum(n * pct for n, pct in counted) / weighted) if weighted else 0
     )
 
     return {
@@ -712,12 +1049,22 @@ def build_report_data(student, period_type, start, end, term=None,
             'name': student.get_full_name() or student.username,
             'username': student.username,
         },
+        'subject': {
+            'id': subject.id if subject else None,
+            'slug': subject.slug if subject else None,
+            'name': subject.name if subject else None,
+        },
+        # What this report actually carried. A section switched off after the
+        # fact must not change a report a family has already read, so the page
+        # trusts this rather than today's settings.
+        'sections_included': dict(content),
         'totals': totals,
-        'topics': topics_section(submissions),
+        'topics': topics_section(submissions) if content['include_topics'] else [],
         'attempts': attempts_section(submissions),
         'trend': trend_section(submissions, period_type),
         'worksheets': worksheets,
         'quizzes': quizzes,
+        'subject_practice': subject_practice,
         'times_tables': times_tables,
         'basic_facts': basic_facts,
         'awards': awards,

@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+
+{% block title %}{{ msg.subject|default:"No subject" }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+
+  <!-- ── Back nav ── -->
+  <div class="mb-5">
+    <a href="{% url 'messaging_inbox' %}"
+       class="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-indigo-600 transition group">
+      <svg class="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+      </svg>
+      Back to Inbox
+    </a>
+  </div>
+
+  <!-- ── Message card ── -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-[0_2px_16px_rgba(0,0,0,0.05)] overflow-hidden">
+
+    <!-- Header -->
+    <div class="px-7 pt-6 pb-5 border-b border-slate-100">
+      <div class="flex items-start justify-between gap-4">
+        <!-- Subject -->
+        <h1 class="text-xl font-bold text-slate-900 leading-snug flex-1">
+          {% if msg.subject %}{{ msg.subject }}{% else %}<span class="text-slate-400 italic font-normal">No subject</span>{% endif %}
+        </h1>
+        <!-- Status badge -->
+        <div class="flex-shrink-0 pt-0.5">
+          {% if msg.status == 'draft' %}
+          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>Draft
+          </span>
+          {% elif msg.status == 'scheduled' %}
+          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700">
+            <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>Scheduled
+          </span>
+          {% elif msg.status == 'sent' %}
+          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-700">
+            <span class="w-1.5 h-1.5 rounded-full bg-green-400"></span>Sent
+          </span>
+          {% elif msg.status == 'failed' %}
+          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700">
+            <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>Failed
+          </span>
+          {% elif msg.status == 'cancelled' %}
+          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-500">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>Cancelled
+          </span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Meta row -->
+      <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+        {% if msg.created_by %}
+        <span class="flex items-center gap-1">
+          <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0"/>
+          </svg>
+          {{ msg.created_by.get_full_name|default:msg.created_by.username }}
+        </span>
+        {% endif %}
+
+        <span class="flex items-center gap-1">
+          <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 9v7.5"/>
+          </svg>
+          Created {{ msg.created_at|date:"d M Y, H:i" }}
+        </span>
+
+        {% if msg.last_run_at %}
+        <span class="flex items-center gap-1 text-green-600">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/>
+          </svg>
+          Sent {{ msg.last_run_at|date:"d M Y, H:i" }}
+        </span>
+        {% endif %}
+
+        <!-- Schedule info -->
+        {% if msg.frequency == 'now' %}
+        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700">Immediate</span>
+        {% elif msg.frequency == 'once' %}
+        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-700">One Time</span>
+        {% elif msg.frequency == 'weekly' %}
+        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-violet-50 text-violet-700">Weekly</span>
+        {% elif msg.frequency == 'monthly' %}
+        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700">Monthly</span>
+        {% endif %}
+
+        {% if msg.scheduled_at and msg.frequency == 'once' %}
+        <span class="text-sky-600">Scheduled for {{ msg.scheduled_at|date:"d M Y, H:i" }}</span>
+        {% endif %}
+
+        {% if msg.next_run_at %}
+        <span class="text-blue-600">Next send: {{ msg.next_run_at|date:"d M Y, H:i" }}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Recipients -->
+    <div class="px-7 py-4 border-b border-slate-100 space-y-2.5 bg-slate-50/40">
+
+      {% if msg.recipients_to %}
+      <div class="flex items-start gap-3">
+        <span class="text-[10px] font-bold text-slate-400 tracking-widest uppercase w-12 flex-shrink-0 pt-1">To</span>
+        <div class="flex flex-wrap gap-1.5">
+          {% for r in msg.recipients_to %}
+          <span class="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full bg-white border border-slate-200 text-xs text-slate-700 shadow-sm">
+            <span class="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-bold flex-shrink-0">{{ r.name|default:r.email|slice:":1"|upper }}</span>
+            {{ r.name|default:r.email }}
+            {% if r.email %}<span class="text-slate-400">&lt;{{ r.email }}&gt;</span>{% endif %}
+          </span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if msg.recipients_cc %}
+      <div class="flex items-start gap-3">
+        <span class="text-[10px] font-bold text-slate-400 tracking-widest uppercase w-12 flex-shrink-0 pt-1">CC</span>
+        <div class="flex flex-wrap gap-1.5">
+          {% for r in msg.recipients_cc %}
+          <span class="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full bg-white border border-slate-200 text-xs text-slate-700 shadow-sm">
+            <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">{{ r.name|default:r.email|slice:":1"|upper }}</span>
+            {{ r.name|default:r.email }}
+            {% if r.email %}<span class="text-slate-400">&lt;{{ r.email }}&gt;</span>{% endif %}
+          </span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if msg.recipients_bcc %}
+      <div class="flex items-start gap-3">
+        <span class="text-[10px] font-bold text-slate-400 tracking-widest uppercase w-12 flex-shrink-0 pt-1">BCC</span>
+        <div class="flex flex-wrap gap-1.5">
+          {% for r in msg.recipients_bcc %}
+          <span class="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full bg-white border border-slate-200 text-xs text-slate-700 shadow-sm">
+            <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">{{ r.name|default:r.email|slice:":1"|upper }}</span>
+            {{ r.name|default:r.email }}
+            {% if r.email %}<span class="text-slate-400">&lt;{{ r.email }}&gt;</span>{% endif %}
+          </span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if not msg.recipients_to and not msg.recipients_cc and not msg.recipients_bcc %}
+      <p class="text-xs text-slate-400 italic">No recipients</p>
+      {% endif %}
+    </div>
+
+    <!-- Body -->
+    <div class="px-7 py-6">
+      {% if msg.body_html %}
+      <div class="prose prose-sm max-w-none text-slate-700 leading-relaxed">
+        {{ msg.body_html|safe }}
+      </div>
+      {% else %}
+      <p class="text-sm text-slate-400 italic">No message body.</p>
+      {% endif %}
+    </div>
+
+    <!-- Attachments -->
+    {% with attachments=msg.attachments.all %}
+    {% if attachments %}
+    <div class="px-7 py-4 border-t border-slate-100">
+      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2.5">
+        {{ attachments|length }} attachment{{ attachments|length|pluralize }}
+      </p>
+      <div class="flex flex-wrap gap-2">
+        {% for att in attachments %}
+        <a href="{{ att.file.url }}" target="_blank" rel="noopener"
+           class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-300 text-xs text-slate-700 hover:text-indigo-700 transition group">
+          <svg class="w-4 h-4 text-slate-400 group-hover:text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32"/>
+          </svg>
+          <span class="max-w-[180px] truncate font-medium">{{ att.filename }}</span>
+          <span class="text-slate-400">{{ att.filesize|filesizeformat }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <!-- Action bar -->
+    <div class="px-7 py-4 border-t border-slate-100 bg-slate-50/40 flex items-center gap-2 flex-wrap">
+
+      {% if msg.status == 'draft' %}
+      <a href="{% url 'messaging_compose' %}?edit={{ msg.pk }}"
+         class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition shadow-sm">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125"/>
+        </svg>
+        Edit Draft
+      </a>
+      <form method="post" action="{% url 'messaging_delete' msg.pk %}"
+            onsubmit="return confirm('Permanently delete this draft?')">
+        {% csrf_token %}
+        <button type="submit"
+                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 text-sm font-medium transition">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+          </svg>
+          Delete
+        </button>
+      </form>
+
+      {% elif msg.status == 'scheduled' %}
+      <form method="post" action="{% url 'messaging_cancel' msg.pk %}"
+            onsubmit="return confirm('Cancel this scheduled message?')">
+        {% csrf_token %}
+        <button type="submit"
+                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 text-sm font-medium transition">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+          </svg>
+          Cancel Schedule
+        </button>
+      </form>
+
+      {% elif msg.status == 'failed' %}
+      <form method="post" action="{% url 'messaging_retry' msg.pk %}">
+        {% csrf_token %}
+        <button type="submit"
+                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-semibold transition shadow-sm">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
+          </svg>
+          Retry Send
+        </button>
+      </form>
+      {% endif %}
+
+    </div>
+  </div>
+
+</div>
+{% endblock %}

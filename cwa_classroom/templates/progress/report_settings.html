@@ -50,7 +50,7 @@
       {% csrf_token %}
       <input type="hidden" name="scope" value="school">
       <input type="hidden" name="school_id" value="{{ school.id }}">
-      {% include "progress/_setting_switches.html" with row=school_row switches=switches %}
+      {% include "progress/_setting_switches.html" with row=school_row switch_groups=switch_groups %}
       <button type="submit"
               class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
         Save school settings
@@ -79,7 +79,7 @@
             <input type="hidden" name="scope" value="department">
             <input type="hidden" name="school_id" value="{{ school.id }}">
             <input type="hidden" name="department_id" value="{{ department.id }}">
-            {% include "progress/_setting_switches.html" with row=department.setting switches=switches %}
+            {% include "progress/_setting_switches.html" with row=department.setting switch_groups=switch_groups %}
             <button type="submit"
                     class="rounded-lg border border-indigo-200 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50">
               Save {{ department.name }}
@@ -142,7 +142,7 @@
               <input type="hidden" name="scope" value="class">
               <input type="hidden" name="school_id" value="{{ school.id }}">
               <input type="hidden" name="classroom_id" value="{{ classroom.id }}">
-              {% include "progress/_setting_switches.html" with row=classroom.setting switches=switches %}
+              {% include "progress/_setting_switches.html" with row=classroom.setting switch_groups=switch_groups %}
               <button type="submit"
                       class="rounded-lg border border-indigo-200 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50">
                 Save {{ classroom.name }}

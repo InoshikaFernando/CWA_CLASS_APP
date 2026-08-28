@@ -51,7 +51,7 @@ bulk-fill script: [`Runbooks/jira-story-points.md`](Runbooks/jira-story-points.m
 - Branch discipline: develop on a feature branch; `test` deploys to the test
   site, `main` deploys to production. Open a PR; never push to `main` directly.
 - **Bump `APP_VERSION` on the feature branch, before the PR merges — never on
-  `test` afterwards.** A push to `test` runs the full CI matrix (~119 billed
+  `test` afterwards.** A push to `test` can run the full CI matrix (~65 billed
   Actions minutes), so a later bump buys a second one AND cancels the first
   mid-flight. `scripts/bump_version.py` refuses to run on `test`/`main`
   (`--allow-protected` for a hotfix). This exhausted the Actions spending limit

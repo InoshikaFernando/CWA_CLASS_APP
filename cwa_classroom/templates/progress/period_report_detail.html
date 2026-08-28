@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load report_text %}
 {% load static %}
 {% block title %}{{ report.label }} — Progress Report{% endblock %}
 
@@ -25,6 +26,20 @@
     </div>
   {% endif %}
 
+  {# The school's own letterhead, when it has one. Same logo and address the invoices carry. #}
+  {% if letterhead %}
+  <div class="flex items-center gap-4 border-b border-slate-200 pb-4" data-testid="report-letterhead">
+    {% if letterhead.logo %}
+      <img src="{{ letterhead.logo.url }}" alt="{{ letterhead.name }}" class="h-14 w-auto rounded-lg">
+    {% endif %}
+    <div>
+      <p class="font-display text-lg text-gray-900">{{ letterhead.name }}</p>
+      {% if letterhead.department %}<p class="text-xs text-slate-500">{{ letterhead.department }}</p>{% endif %}
+      {% if letterhead.address %}<p class="text-xs text-slate-500">{{ letterhead.address }}</p>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Header -->
   <div class="flex flex-wrap items-start justify-between gap-4">
     <div>
@@ -45,6 +60,34 @@
       Download PDF
     </a>
   </div>
+
+  {# Outside the has_activity branch on purpose: a child with no submissions is exactly when the teacher's assessment and comment are the only things left to say. #}
+  {# Teacher's assessment. Rendered only when it exists — an absent section, never a blank one. #}
+  {% if rubric %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
+       data-testid="report-rubric">
+    <h2 class="font-display text-xl text-gray-800">Teacher's assessment</h2>
+    <p class="text-xs text-slate-500 mb-4">Assessed against this school's progress criteria.</p>
+    <div class="flex items-baseline gap-2">
+      {# 'achieved' already counts Confident + Advanced — see _build_student_progress. #}
+      <span class="text-3xl font-bold text-indigo-700">{{ rubric.achieved }}</span>
+      <span class="text-sm text-slate-500">of {{ rubric.total }} criteria at confident or above</span>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Same rule: no comment means no section, and never a blocked report. #}
+  {% if teacher_comment %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
+       data-testid="report-teacher-comment">
+    <h2 class="font-display text-xl text-gray-800">Teacher's comment</h2>
+    <p class="text-slate-700 mt-3">{{ teacher_comment.body|teacher_markup }}</p>
+    <p class="text-[11px] text-slate-400 mt-3">
+      {% if teacher_comment.created_by %}{{ teacher_comment.created_by.get_full_name|default:teacher_comment.created_by.username }} &middot; {% endif %}
+      {{ teacher_comment.updated_at|date:"j M Y" }}
+    </p>
+  </div>
+  {% endif %}
 
   {% if not report.has_activity %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center space-y-2"
@@ -225,6 +268,40 @@
   {% endif %}
 
   <!-- Maths quizzes -->
+  {# Practice a student chose to do in the subject's own app, not as homework. #}
+  {% for section in subject_practice.sections %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
+       data-testid="report-subject-practice">
+    <h2 class="font-display text-xl text-gray-800">{{ section.label }}</h2>
+    <p class="text-xs text-slate-500 mb-4">
+      {{ section.items }} attempted over {{ section.attempts }} attempt{{ section.attempts|pluralize }},
+      averaging {{ section.avg_best_pct }}%.
+    </p>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200">
+            <th class="py-2 pr-4">Exercise</th>
+            <th class="py-2 px-2 text-center">Attempts</th>
+            <th class="py-2 px-2 text-center">First</th>
+            <th class="py-2 px-2 text-center">Best</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in section.rows %}
+            <tr class="border-b border-slate-100">
+              <td class="py-2 pr-4 text-slate-700">{{ row.name }}</td>
+              <td class="py-2 px-2 text-center text-slate-500">{{ row.attempts }}</td>
+              <td class="py-2 px-2 text-center text-slate-500">{{ row.first_pct }}%</td>
+              <td class="py-2 px-2 text-center font-semibold text-indigo-700">{{ row.best_pct }}%</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+
   {% if quizzes.items %}
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-quizzes">
     <h2 class="font-display text-xl text-gray-800">Maths quizzes</h2>

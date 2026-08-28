@@ -195,3 +195,167 @@ class PreviewDetailAccessTests(PreviewDetailBase):
         response = self.client.get(f'{DETAIL_URL}?{self.scope(period="decade")}')
 
         self.assertEqual(response.status_code, 404)
+
+
+class PreviewDetailSubjectTests(TestCase):
+    """"View report" must open the subject whose row was clicked.
+
+    The preview table fans out per subject; for a while the link back into it
+    did not carry the subject, so clicking through showed a combined report
+    that matched no row on the page and nothing the send would produce.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.models import Subject
+        from classroom.models import SchoolTeacher
+        from progress.tests.factories import (
+            enable_reports, enrol, make_classroom, make_homework,
+            make_school, make_user, submit,
+        )
+        from django.utils import timezone
+        from datetime import timedelta
+
+        cls.school = make_school()
+        cls.hoi = make_user('pd_hoi', 'head_of_institute')
+        SchoolTeacher.objects.create(
+            school=cls.school, teacher=cls.hoi, role='head_of_institute',
+        )
+        cls.student = make_user('pd_student', first_name='Avisha')
+
+        def subject(slug, name):
+            row, _ = Subject.objects.get_or_create(
+                slug=slug, school=None, defaults={'name': name},
+            )
+            return row
+
+        cls.maths = subject('mathematics', 'Mathematics')
+        cls.coding = subject('coding', 'Coding')
+
+        cls.maths_class = make_classroom(cls.school, name='Maths', code='PD000001')
+        cls.maths_class.subject = cls.maths
+        cls.maths_class.save(update_fields=['subject'])
+        cls.coding_class = make_classroom(cls.school, name='Web', code='PD000002')
+        cls.coding_class.subject = cls.coding
+        cls.coding_class.save(update_fields=['subject'])
+        enrol(cls.maths_class, cls.student)
+        enrol(cls.coding_class, cls.student)
+
+        cls.start, cls.end = periods.previous_week(periods.today())
+        when = timezone.make_aware(timezone.datetime.combine(
+            cls.start + timedelta(days=1),
+            timezone.datetime.min.time().replace(hour=10),
+        ))
+        maths_hw = make_homework(cls.maths_class, due=when, title='Fractions')
+        submit(maths_hw, cls.student, 1, 6, when=when)
+        coding_hw = make_homework(cls.coding_class, due=when, title='Loops')
+        coding_hw.subject_slug = 'coding'
+        coding_hw.save(update_fields=['subject_slug'])
+        submit(coding_hw, cls.student, 1, 9, when=when)
+
+        enable_reports(cls.school, kind='school', weekly=True)
+
+    def setUp(self):
+        self.client.force_login(self.hoi)
+
+    def _get(self, **extra):
+        params = {
+            'school': self.school.id, 'period': periods.WEEKLY,
+            'student': self.student.id,
+        }
+        params.update(extra)
+        return self.client.get('/progress/reports/preview/report/', params)
+
+    def test_it_opens_the_subject_that_was_asked_for(self):
+        response = self._get(subject=self.coding.id)
+
+        self.assertEqual(response.status_code, 200)
+        report = response.context['report']
+        self.assertEqual(report.subject, self.coding)
+        self.assertEqual(report.data['totals']['homework_attempted'], 1)
+
+    def test_the_other_subject_is_a_different_report(self):
+        response = self._get(subject=self.maths.id)
+
+        self.assertEqual(response.context['report'].subject, self.maths)
+
+    def test_no_subject_still_opens_the_combined_report(self):
+        """A link written before CPP-395 must not 404."""
+        response = self._get()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context['report'].subject)
+        self.assertEqual(
+            response.context['report'].data['totals']['homework_attempted'], 2,
+        )
+
+    def test_a_subject_this_student_does_not_take_falls_back(self):
+        other = self.maths.__class__.objects.create(
+            name='Science', slug='science-x', school=None,
+        )
+        response = self._get(subject=other.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context['report'].subject)
+
+
+class RubricSectionRenderTests(TestCase):
+    """The rubric block must RENDER, not merely be built.
+
+    It shipped reading rubric.confident|add:rubric.advanced. The dict has no
+    such keys — it is {total, achieved, in_progress, not_started}, where
+    'achieved' already counts Confident + Advanced — so the page raised
+    VariableDoesNotExist on the test site. Every test at the time built the
+    context and none rendered the block with a rubric present, which is how a
+    500 got past a green suite.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.models import (
+            ProgressCriteria, ProgressRecord, SchoolTeacher, Subject,
+        )
+        from progress.tests.factories import (
+            enable_reports, enrol, make_classroom, make_school, make_user,
+        )
+
+        cls.school = make_school()
+        cls.hoi = make_user('rb_hoi', 'head_of_institute')
+        SchoolTeacher.objects.create(
+            school=cls.school, teacher=cls.hoi, role='head_of_institute',
+        )
+        cls.student = make_user('rb_student', first_name='Avisha')
+        subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None, defaults={'name': 'Mathematics'},
+        )
+        cls.room = make_classroom(cls.school, name='Maths', code='RB000001')
+        cls.room.subject = subject
+        cls.room.save(update_fields=['subject'])
+        enrol(cls.room, cls.student)
+
+        for index in range(3):
+            ProgressRecord.objects.create(
+                student=cls.student, classroom=cls.room, status='confident',
+                criteria=ProgressCriteria.objects.create(
+                    school=cls.school, name=f'criterion {index}',
+                    status='approved',
+                ),
+            )
+
+        cls.start, cls.end = periods.previous_week(periods.today())
+        enable_reports(cls.school, kind='school', weekly=True)
+
+    def setUp(self):
+        self.client.force_login(self.hoi)
+
+    def test_the_rubric_section_renders(self):
+        response = self.client.get('/progress/reports/preview/report/', {
+            'school': self.school.id, 'period': periods.WEEKLY,
+            'student': self.student.id,
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'report-rubric')
+        self.assertContains(response, "Teacher's assessment")
+        # 3 criteria, all confident -> achieved == 3.
+        self.assertContains(response, 'of 3 criteria at confident or above')

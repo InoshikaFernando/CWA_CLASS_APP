@@ -46,6 +46,14 @@ class PeriodReport(models.Model):
         null=True, blank=True, related_name='period_reports',
         help_text='Set on term reports; null on weekly/monthly ones.',
     )
+    subject = models.ForeignKey(
+        'classroom.Subject', on_delete=models.PROTECT,
+        null=True, blank=True, related_name='period_reports',
+        help_text=(
+            'The subject this report covers. Null only on pre-CPP-395 rows that '
+            'have not been split yet — here null means "legacy", not "inherit".'
+        ),
+    )
     period_type = models.CharField(max_length=10, choices=PERIOD_CHOICES, db_index=True)
     period_start = models.DateField()
     period_end = models.DateField()
@@ -69,9 +77,15 @@ class PeriodReport(models.Model):
 
     class Meta:
         ordering = ['-period_start', 'period_type']
-        # One report per student per period. This IS the idempotency key the
-        # daily cron relies on — without it a re-run would re-notify.
-        unique_together = ('student', 'period_type', 'period_start')
+        # One report per student per period PER SUBJECT. This IS the
+        # idempotency key the daily cron relies on — without it a re-run would
+        # re-notify. Subject joined it in CPP-395 so a student taking maths and
+        # coding gets one report about each rather than one about both.
+        #
+        # MySQL treats NULLs as distinct in a unique index, so a legacy
+        # (subject=NULL) row can coexist with the per-subject rows split out of
+        # it. That is deliberate: the backfill keeps the original readable.
+        unique_together = ('student', 'period_type', 'period_start', 'subject')
         indexes = [
             models.Index(fields=['student', 'period_type', '-period_start']),
         ]
@@ -82,6 +96,27 @@ class PeriodReport(models.Model):
     # -- Convenience accessors used by the templates and the PDF renderer ----
     # They all tolerate a partially-built ``data`` dict, because a report row
     # is deliberately still created for a student with no activity.
+
+    @property
+    def subject_practice(self):
+        """Practice done in the subject's own app. Empty on pre-1.19.4 rows."""
+        return self.data.get('subject_practice') or {
+            'items': 0, 'attempts': 0, 'avg_first_pct': 0, 'avg_best_pct': 0,
+            'improvement_pct': 0, 'sections': [],
+        }
+
+    @property
+    def sections_included(self):
+        """What this report actually carried when it was built.
+
+        Read from the snapshot, never from today's settings: switching a
+        section off must not change a report a family has already read. Legacy
+        rows predate the key and report everything, which is what they had.
+        """
+        from progress.models import ProgressReportSetting
+
+        stored = self.data.get('sections_included')
+        return stored if stored else dict(ProgressReportSetting.CONTENT_DEFAULTS)
 
     @property
     def label(self):
@@ -199,6 +234,40 @@ class ProgressReportSetting(models.Model):
         help_text='Null = inherit. An unset chain resolves to manual.',
     )
 
+    # What a report actually contains. NULL = inherit; an unset chain resolves
+    # to the CONTENT_DEFAULTS below rather than to off, because a school that
+    # switched reporting on wants a report, not an empty page.
+    #
+    # The two manual sections (rubric, teacher comment) default on but are
+    # never REQUIRED: a section with nothing in it is omitted, and nothing here
+    # can stop a report generating or sending. See CPP-395 §6.
+    include_homework = models.BooleanField(null=True, blank=True)
+    include_quizzes = models.BooleanField(
+        null=True, blank=True,
+        help_text='Quizzes, resolved per subject: a maths report carries maths '
+                  'quizzes, a coding report carries coding quizzes.',
+    )
+    include_times_tables = models.BooleanField(
+        null=True, blank=True,
+        help_text='Times tables. Maths only by nature — a setting cannot make '
+                  'a times table part of a coding report.',
+    )
+    include_basic_facts = models.BooleanField(
+        null=True, blank=True,
+        help_text='Basic facts. Maths only by nature, as above.',
+    )
+    include_subject_practice = models.BooleanField(
+        null=True, blank=True,
+        help_text="Practice a student did in the subject's own app rather than "
+                  'as homework — coding exercises and problems. Each subject '
+                  'supplies its own; a subject with none shows no section.',
+    )
+    include_worksheets = models.BooleanField(null=True, blank=True)
+    include_topics = models.BooleanField(null=True, blank=True)
+    include_awards = models.BooleanField(null=True, blank=True)
+    include_rubric = models.BooleanField(null=True, blank=True)
+    include_teacher_comment = models.BooleanField(null=True, blank=True)
+
     # When an automatic run fires. Ignored in manual mode. NULL = inherit.
     send_weekly_on = models.PositiveSmallIntegerField(
         null=True, blank=True,
@@ -228,6 +297,15 @@ class ProgressReportSetting(models.Model):
     PERIOD_FIELDS = ('weekly', 'monthly', 'term')
     DELIVERY_FIELDS = ('notify_student', 'notify_parents', 'email_parents_at_term')
     SCHEDULE_FIELDS = ('send_weekly_on', 'send_monthly_on', 'send_term_after_days')
+    CONTENT_FIELDS = (
+        'include_homework', 'include_quizzes', 'include_times_tables',
+        'include_basic_facts', 'include_subject_practice',
+        'include_worksheets', 'include_topics',
+        'include_awards', 'include_rubric', 'include_teacher_comment',
+    )
+    # Content is opt-OUT once a period is on, unlike the period flags where off
+    # is off: a school that asked for reports has asked for their contents.
+    CONTENT_DEFAULTS = {field: True for field in CONTENT_FIELDS}
 
     # Where an automatic run lands when nobody has said otherwise. These match
     # what the periods module already treats as the close of each window:

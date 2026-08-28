@@ -293,3 +293,57 @@ class PreviewSchoolScopeTests(TestCase):
         self.assertEqual(report.school, self.cwa)
         self.assertEqual(report.data['scope']['classrooms'], [self.cwa_class.name])
         self.assertEqual(report.totals['avg_best_pct'], 90)
+
+
+class EmptyScopeReasonTests(PreviewBase):
+    """An empty preview must say which of three different things happened.
+
+    The page rendered one sentence — "No class in this scope has this report
+    switched on" — for every empty result, so a head of institute whose class
+    was already switched on was sent to Report Automation to turn on something
+    that was already on. Found on the test site: a coding class previewed empty
+    and the page named the one cause it had not checked.
+    """
+
+    def test_a_class_with_reports_off_says_to_switch_them_on(self):
+        response = self.client.get(URL, {'classroom': self.classroom.id})
+
+        self.assertEqual(response.context['rows'], [])
+        self.assertEqual(response.context['empty_reason'], 'not_enabled')
+        self.assertContains(response, 'has this report switched on')
+
+    def test_an_enabled_class_with_no_students_says_so_instead(self):
+        enable_reports(self.school, kind='school', weekly=True)
+        empty = make_classroom(self.school, name='Web Programming', code='RPT00009')
+
+        response = self.client.get(URL, {'classroom': empty.id})
+
+        self.assertEqual(response.context['rows'], [])
+        self.assertEqual(response.context['empty_reason'], 'no_students')
+        self.assertContains(response, 'no active students')
+        # The old message would have sent them to switch on what is already on.
+        self.assertNotContains(response, 'has this report switched on')
+
+    def test_a_term_that_has_not_finished_is_reported_as_the_window_it_is(self):
+        """The one empty case the page already got right — pinned, not changed.
+
+        A missing term window is shown by the ``period_label`` branch further
+        up the template, which short-circuits before the empty-rows block. So
+        this never wore the settings message, and must not start wearing it.
+        """
+        enable_reports(self.school, kind='school', term=True)
+
+        response = self.client.get(URL, {'period': periods.TERM})
+
+        self.assertIsNone(response.context['start'])
+        self.assertEqual(response.context['empty_reason'], 'no_period')
+        self.assertContains(response, 'No term has ended yet')
+        self.assertNotContains(response, 'has this report switched on')
+
+    def test_a_scope_with_rows_reports_no_reason_at_all(self):
+        enable_reports(self.school, kind='school', weekly=True)
+
+        response = self.client.get(URL)
+
+        self.assertTrue(response.context['rows'])
+        self.assertIsNone(response.context['empty_reason'])

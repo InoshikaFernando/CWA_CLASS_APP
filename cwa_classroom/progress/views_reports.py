@@ -3,6 +3,7 @@
 import json
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
@@ -50,6 +51,107 @@ def _resolve_subject(request):
     return user, True
 
 
+def letterhead_for(report):
+    """The school's letterhead for this report, or None.
+
+    Reuses School.get_effective_settings — the same resolver invoices render
+    from — rather than a second notion of "the school's letterhead". So a
+    school that has set one for its invoices already has one here, and a
+    department with its own logo and address gets its own, because that
+    cascade is already in the settings.
+
+    The department is taken from the classes the report covers, and only when
+    they agree: a report spanning two departments has no single letterhead to
+    print, and the school's is the honest fallback rather than picking one.
+
+    Every school gets a letterhead: the logo it has set and its name, with the
+    department and address added when they exist. The report is a document a
+    family keeps and forwards, so whose it is has to be on it — the plain
+    "Weekly Progress Report" heading never says. Only an individual learner
+    with no school at all returns None.
+    """
+    if not report.school_id:
+        return None
+
+    department = _sole_department(report)
+    settings = report.school.get_effective_settings(department)
+
+    logo = settings.get('logo')
+    address = ', '.join(
+        part for part in (
+            settings.get('street_address'), settings.get('city'),
+            settings.get('state_region'), settings.get('postal_code'),
+            settings.get('country'),
+        ) if part
+    )
+    return {
+        'logo': logo or None,
+        'name': report.school.name,
+        'address': address,
+        'department': department.name if department else '',
+    }
+
+
+def _sole_department(report):
+    """The one department this report's classes belong to, or None."""
+    from classroom.models import ClassRoom
+
+    ids = (report.data.get('scope') or {}).get('classroom_ids') or []
+    if not ids:
+        return None
+    departments = {
+        c.department for c in
+        ClassRoom.objects.filter(id__in=ids).select_related('department')
+        if c.department_id
+    }
+    return departments.pop() if len(departments) == 1 else None
+
+
+def _manual_sections(report):
+    """The teacher-authored halves: rubric assessment and narrative comment.
+
+    Both are read live rather than frozen into ``data``. They are the one part
+    of the page a teacher can still improve after a report has gone out, and
+    freezing them would mean a corrected comment never reaching the family who
+    already has the link.
+
+    Either may be ``None``. Nothing here can fail a report: a section with no
+    content is simply absent (CPP-395 §6).
+    """
+    from classroom.models import ProgressReportComment
+
+    included = report.sections_included
+    rubric = comment = None
+
+    if included.get('include_rubric') and report.school_id:
+        from classroom.views_progress import (
+            _ALL_CLASSES, _build_student_progress,
+        )
+
+        # School-scoped, as everywhere else since 1.18.2 — a rubric must not
+        # show another institute's assessment.
+        _, overall = _build_student_progress(
+            report.student, _ALL_CLASSES, report.school,
+        )
+        # An unassessed rubric counts nothing, and that is an absent section
+        # rather than a section reading zero.
+        rubric = overall if overall and overall.get('total') else None
+
+    if included.get('include_teacher_comment') and report.school_id:
+        qs = ProgressReportComment.objects.filter(
+            student=report.student, school=report.school,
+        ).select_related('subject', 'term', 'created_by')
+        if report.subject_id:
+            qs = qs.filter(
+                Q(subject_id=report.subject_id) | Q(subject__isnull=True),
+            )
+        if report.term_id:
+            qs = qs.filter(Q(term_id=report.term_id) | Q(term__isnull=True))
+        comment = qs.order_by('-updated_at').first()
+
+    return rubric, comment
+
+
 def report_detail_context(report, viewer, *, preview=False,
                           pdf_url=None, back_url=None, back_label='All reports'):
     """Everything the report page renders, for a saved report or a live preview.
@@ -91,9 +193,20 @@ def report_detail_context(report, viewer, *, preview=False,
         },
     }
 
+    rubric, comment = _manual_sections(report)
+    letterhead = letterhead_for(report)
+
     return {
         'report': report,
         'student': report.student,
+        'subject': report.subject,
+        'letterhead': letterhead,
+        # Present only when there is something to show. A section configured on
+        # but empty is omitted rather than rendered blank: a "Teacher comment"
+        # heading over blank space reads as a teacher who had nothing to say,
+        # and neither absence ever blocked this report being generated or sent.
+        'rubric': rubric,
+        'teacher_comment': comment,
         'is_self': report.student_id == viewer.id,
         'preview': preview,
         'pdf_url': pdf_url,
@@ -105,6 +218,7 @@ def report_detail_context(report, viewer, *, preview=False,
         'awards': report.awards,
         'worksheets': report.worksheets,
         'quizzes': report.quizzes,
+        'subject_practice': report.subject_practice,
         'times_tables': report.times_tables,
         'basic_facts': report.basic_facts,
         'charts_json': json.dumps(charts),

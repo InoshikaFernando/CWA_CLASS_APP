@@ -158,6 +158,39 @@ class SubjectPlugin:
     #: Key stored in ``BrainBuzzSession.subject``.  Empty string = opt out.
     brainbuzz_subject_key: str = ''
 
+    def content_topic_names(self, content_ids) -> dict:
+        """Map content id -> topic name, for the progress report breakdown.
+
+        Bulk rather than one call per id: the breakdown covers every answer in
+        a period, and a term report would otherwise issue a query per answer.
+
+        Ids this plugin does not recognise are simply absent from the result —
+        the caller decides what to call them. The default returns nothing, so a
+        plugin with no topics degrades to "Unclassified" exactly as before
+        rather than raising on a code path that renders a parent's report.
+        """
+        return {}
+
+    def practice_section(self, student, begin, finish):
+        """Practice this subject's students did OUTSIDE homework, in a window.
+
+        Maths has had this since CPP-388 as times tables and basic facts, read
+        directly by the report. Every other subject was invisible: a student
+        who spent a week on coding exercises got a report saying they had done
+        nothing, which is the exact complaint that added the maths strands.
+
+        Return ``None`` (the default) when a subject has no practice of its own
+        — the report then omits the section rather than showing an empty one.
+        Otherwise return::
+
+            {'label': str, 'items': int, 'attempts': int,
+             'avg_first_pct': int, 'avg_best_pct': int,
+             'improvement_pct': int, 'rows': [...]}
+
+        where each row is ``{name, attempts, first_pct, best_pct, gain_pct}``.
+        """
+        return None
+
     def brainbuzz_topic_choices(self) -> dict:
         """Context variables injected into the BrainBuzz create-form template.
 
