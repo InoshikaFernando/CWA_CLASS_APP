@@ -54,6 +54,9 @@ def _activity_summary(data):
         parts.append(f"{data['times_tables']['tables']} tables")
     if data['basic_facts']['subtopics']:
         parts.append(f"{data['basic_facts']['subtopics']} basic facts")
+    practice = data.get('subject_practice') or {}
+    if practice.get('items'):
+        parts.append(f"{practice['items']} practice")
     if data['worksheets']['completed']:
         parts.append(f"{data['worksheets']['completed']} worksheets")
     return ' · '.join(parts)

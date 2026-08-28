@@ -22,7 +22,9 @@ from progress.models import ProgressReportSetting
 CONFIG_ROLES = [Role.HEAD_OF_INSTITUTE, Role.INSTITUTE_OWNER, Role.ADMIN]
 
 ALL_FIELDS = (
-    ProgressReportSetting.PERIOD_FIELDS + ProgressReportSetting.DELIVERY_FIELDS
+    ProgressReportSetting.PERIOD_FIELDS
+    + ProgressReportSetting.DELIVERY_FIELDS
+    + ProgressReportSetting.CONTENT_FIELDS
 )
 SCHEDULE_FIELDS = ProgressReportSetting.SCHEDULE_FIELDS
 
@@ -38,7 +40,34 @@ FIELD_LABELS = {
     'notify_student': 'Notify student',
     'notify_parents': 'Notify parents',
     'email_parents_at_term': 'Email parents at term end',
+    'include_homework': 'Homework',
+    'include_quizzes': 'Quizzes',
+    'include_times_tables': 'Times tables',
+    'include_basic_facts': 'Basic facts',
+    'include_subject_practice': 'Practice in the subject app',
+    'include_worksheets': 'Worksheets',
+    'include_topics': 'Topic breakdown',
+    'include_awards': 'Recognition',
+    'include_rubric': "Teacher's assessment",
+    'include_teacher_comment': "Teacher's comment",
 }
+
+# Rendered as three labelled groups rather than one grid of thirteen switches:
+# "send a weekly report" and "put the rubric in it" are different questions, and
+# a flat list invites switching off the wrong one.
+FIELD_GROUPS = [
+    ('Periods', ProgressReportSetting.PERIOD_FIELDS,
+     'Which reports this scope generates at all. Off unless switched on.'),
+    ('Delivery', ProgressReportSetting.DELIVERY_FIELDS,
+     'Who receives them. All off means a silent trial: staff can read the '
+     'reports before any family sees one.'),
+    ('Contents', ProgressReportSetting.CONTENT_FIELDS,
+     "What each report includes. Quizzes follow the report's subject — a maths "
+     "report carries maths quizzes and a coding report carries coding ones. "
+     "Times tables and basic facts are maths only. A section with nothing in "
+     "it is left out rather than shown empty, and none of these can hold up a "
+     "send: a report goes out whether or not a teacher has written a comment."),
+]
 
 
 def _schools_for(user):
@@ -159,9 +188,16 @@ class ReportSettingsView(RoleRequiredMixin, View):
             'school_row': school_row,
             'departments': departments,
             'classrooms': classrooms,
-            'switches': [
-                {'field': field, 'label': FIELD_LABELS[field]}
-                for field in ALL_FIELDS
+            'switch_groups': [
+                {
+                    'title': title,
+                    'note': note,
+                    'switches': [
+                        {'field': field, 'label': FIELD_LABELS[field]}
+                        for field in fields
+                    ],
+                }
+                for title, fields, note in FIELD_GROUPS
             ],
             'enabled_count': sum(1 for c in classrooms if c.sends_anything),
             'auto_count': sum(

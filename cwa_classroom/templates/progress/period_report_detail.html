@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load report_text %}
 {% load static %}
 {% block title %}{{ report.label }} — Progress Report{% endblock %}
 
@@ -66,7 +67,7 @@
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
        data-testid="report-teacher-comment">
     <h2 class="font-display text-xl text-gray-800">Teacher's comment</h2>
-    <p class="text-slate-700 mt-3 whitespace-pre-line">{{ teacher_comment.body }}</p>
+    <p class="text-slate-700 mt-3">{{ teacher_comment.body|teacher_markup }}</p>
     <p class="text-[11px] text-slate-400 mt-3">
       {% if teacher_comment.created_by %}{{ teacher_comment.created_by.get_full_name|default:teacher_comment.created_by.username }} &middot; {% endif %}
       {{ teacher_comment.updated_at|date:"j M Y" }}
@@ -253,6 +254,40 @@
   {% endif %}
 
   <!-- Maths quizzes -->
+  {# Practice a student chose to do in the subject's own app, not as homework. #}
+  {% for section in subject_practice.sections %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
+       data-testid="report-subject-practice">
+    <h2 class="font-display text-xl text-gray-800">{{ section.label }}</h2>
+    <p class="text-xs text-slate-500 mb-4">
+      {{ section.items }} attempted over {{ section.attempts }} attempt{{ section.attempts|pluralize }},
+      averaging {{ section.avg_best_pct }}%.
+    </p>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200">
+            <th class="py-2 pr-4">Exercise</th>
+            <th class="py-2 px-2 text-center">Attempts</th>
+            <th class="py-2 px-2 text-center">First</th>
+            <th class="py-2 px-2 text-center">Best</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in section.rows %}
+            <tr class="border-b border-slate-100">
+              <td class="py-2 pr-4 text-slate-700">{{ row.name }}</td>
+              <td class="py-2 px-2 text-center text-slate-500">{{ row.attempts }}</td>
+              <td class="py-2 px-2 text-center text-slate-500">{{ row.first_pct }}%</td>
+              <td class="py-2 px-2 text-center font-semibold text-indigo-700">{{ row.best_pct }}%</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+
   {% if quizzes.items %}
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-quizzes">
     <h2 class="font-display text-xl text-gray-800">Maths quizzes</h2>

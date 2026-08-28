@@ -150,3 +150,193 @@ class ReportSubjectScopeTests(TestCase):
 
         self.assertEqual(data['basic_facts']['subtopics'], 1)
         self.assertEqual(data['totals']['homework_attempted'], 3)
+
+
+class QuizzesFollowTheSubjectTests(TestCase):
+    """A coding report carries coding quizzes, not nothing and not maths ones.
+
+    Quizzes were treated as maths-only, because the maths quiz app was the only
+    source read. BrainBuzz sessions carry a classroom.Subject FK, so the quiz
+    strand can and should follow the report's subject.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from brainbuzz.models import (
+            BrainBuzzAnswer, BrainBuzzParticipant, BrainBuzzSession,
+            BrainBuzzSessionQuestion,
+        )
+
+        cls.school = make_school()
+        cls.student = make_user('qz_student', first_name='Avisha')
+        cls.host = make_user('qz_host', 'teacher')
+        cls.maths = _subject('mathematics', 'Mathematics')
+        cls.coding = _subject('coding', 'Coding')
+
+        cls.start, cls.end = periods.previous_week(periods.today())
+        when = timezone.make_aware(timezone.datetime.combine(
+            cls.start + timedelta(days=1),
+            timezone.datetime.min.time().replace(hour=10),
+        ))
+
+        def play(subject, code, correct, total):
+            session = BrainBuzzSession.objects.create(
+                code=code, host=cls.host, subject=subject, status='finished',
+            )
+            participant = BrainBuzzParticipant.objects.create(
+                session=session, student=cls.student, nickname=f'n{code}',
+            )
+            for index in range(total):
+                question = BrainBuzzSessionQuestion.objects.create(
+                    session=session, order=index, question_text='q',
+                    question_type='multiple_choice', options_json={},
+                    source_model='MathsQuestion', source_id=1,
+                )
+                answer = BrainBuzzAnswer.objects.create(
+                    participant=participant, session_question=question,
+                    time_taken_ms=1000, is_correct=index < correct,
+                )
+                BrainBuzzAnswer.objects.filter(pk=answer.pk).update(
+                    submitted_at=when,
+                )
+
+        play(cls.coding, 'CODE01', correct=3, total=4)
+        play(cls.maths, 'MATH01', correct=1, total=4)
+
+    def _quizzes(self, slugs):
+        from progress.reports import quizzes_section
+
+        return quizzes_section(self.student, self.start, self.end, slugs)
+
+    def test_a_coding_report_carries_the_coding_quiz(self):
+        section = self._quizzes({'coding'})
+
+        self.assertEqual(section['attempted'], 1)
+        self.assertEqual(section['items'][0]['name'], 'Coding quiz')
+        self.assertEqual(section['items'][0]['best_pct'], 75)
+
+    def test_a_coding_report_does_not_carry_the_maths_quiz(self):
+        section = self._quizzes({'coding'})
+
+        self.assertEqual(
+            [item['name'] for item in section['items']], ['Coding quiz'],
+        )
+
+    def test_a_maths_report_carries_the_maths_quiz(self):
+        section = self._quizzes({'mathematics'})
+
+        self.assertEqual(
+            [item['name'] for item in section['items']], ['Mathematics quiz'],
+        )
+        self.assertEqual(section['items'][0]['best_pct'], 25)
+
+    def test_unscoped_carries_both(self):
+        section = self._quizzes(None)
+
+        self.assertEqual(section['attempted'], 2)
+
+    def test_a_session_played_once_reports_no_gain(self):
+        """First and best are the same figure; claiming improvement would lie."""
+        section = self._quizzes({'coding'})
+
+        item = section['items'][0]
+        self.assertEqual(item['first_pct'], item['best_pct'])
+        self.assertEqual(item['gain_pct'], 0)
+
+
+class SubjectPracticeTests(TestCase):
+    """Practice a student does in the subject's own app, not as homework.
+
+    progress/README.md has listed coding.StudentProblemSubmission as a source
+    since CPP-388, and nothing read it: a student who spent a week on coding
+    exercises got a report saying they had done nothing. That is the same
+    complaint that added the maths times-tables strand.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from coding.models import (
+            CodingExercise, CodingLanguage, CodingProblem, CodingTopic,
+            StudentExerciseSubmission, StudentProblemSubmission, TopicLevel,
+        )
+
+        cls.student = make_user('sp_student', first_name='Avisha')
+        cls.start, cls.end = periods.previous_week(periods.today())
+        when = timezone.make_aware(timezone.datetime.combine(
+            cls.start + timedelta(days=1),
+            timezone.datetime.min.time().replace(hour=10),
+        ))
+
+        language = CodingLanguage.objects.create(name='Python', slug='python')
+        topic = CodingTopic.objects.create(name='Loops', language=language)
+        level = TopicLevel.objects.create(
+            topic=topic, level_choice=TopicLevel.BEGINNER,
+        )
+        exercise = CodingExercise.objects.create(
+            title='For loops', topic_level=level, description='d',
+        )
+        row = StudentExerciseSubmission.objects.create(
+            student=cls.student, exercise=exercise, code_submitted='x',
+            is_completed=True,
+        )
+        StudentExerciseSubmission.objects.filter(pk=row.pk).update(
+            submitted_at=when,
+        )
+
+        problem = CodingProblem.objects.create(
+            title='FizzBuzz', language=language, description='d',
+        )
+        for attempt, (visible, hidden) in enumerate([(1, 0), (2, 2)], start=1):
+            StudentProblemSubmission.objects.create(
+                student=cls.student, problem=problem, attempt_number=attempt,
+                code_submitted='x', visible_passed=visible, visible_total=2,
+                hidden_passed=hidden, hidden_total=2, submitted_at=when,
+            )
+
+    def _section(self, slugs):
+        from progress.reports import subject_practice_section
+
+        return subject_practice_section(
+            self.student, self.start, self.end, slugs,
+        )
+
+    def test_a_coding_report_carries_the_practice(self):
+        section = self._section({'coding'})
+
+        self.assertEqual(section['items'], 2)
+        self.assertEqual(
+            section['sections'][0]['label'], 'Coding practice',
+        )
+
+    def test_a_retried_problem_reports_the_gain(self):
+        """1 of 4 tests, then 4 of 4 — the improvement the section exists for."""
+        section = self._section({'coding'})
+
+        rows = {r['name']: r for r in section['sections'][0]['rows']}
+        self.assertEqual(rows['FizzBuzz']['first_pct'], 25)
+        self.assertEqual(rows['FizzBuzz']['best_pct'], 100)
+        self.assertEqual(rows['FizzBuzz']['gain_pct'], 75)
+
+    def test_a_completed_exercise_is_full_marks_with_no_gain(self):
+        """An exercise has no partial credit: it was finished or it was not."""
+        section = self._section({'coding'})
+
+        rows = {r['name']: r for r in section['sections'][0]['rows']}
+        self.assertEqual(rows['For loops']['best_pct'], 100)
+        self.assertEqual(rows['For loops']['gain_pct'], 0)
+
+    def test_a_maths_report_carries_none_of_it(self):
+        self.assertEqual(self._section({'mathematics'})['items'], 0)
+
+    def test_an_unscoped_report_carries_none_of_it(self):
+        """Only meaningful once the report knows its subject."""
+        self.assertEqual(self._section(None)['items'], 0)
+
+    def test_it_counts_as_activity(self):
+        from progress.reports import build_report_data
+
+        data = build_report_data(
+            self.student, periods.WEEKLY, self.start, self.end,
+            classroom_ids=None,
+        )
+        self.assertIn('subject_practice', data)
