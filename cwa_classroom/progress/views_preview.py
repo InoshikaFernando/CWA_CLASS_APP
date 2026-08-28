@@ -21,7 +21,7 @@ from accounts.models import Role
 from audit.services import log_event
 from classroom.models import ClassRoom, Department
 from classroom.views import RoleRequiredMixin
-from progress import periods, report_settings
+from progress import periods, report_settings, reports
 from progress.models import PeriodReport
 from progress.pdf import render_report_pdf
 from progress.reports import build_report_data
@@ -157,7 +157,11 @@ def _preview_row(student, entry, subject, class_ids, period_type, start, end,
         content=entry['content'].get(subject.id if subject else None),
     )
     totals = data['totals']
-    has_activity = bool(totals['submissions'])
+    # The same rule the generator applies, not a stricter local one:
+    # testing submissions alone hid every child whose week was practice,
+    # worksheets or quizzes, and told staff nothing would be sent to them
+    # when in fact it would.
+    active = reports.has_activity(data)
     return {
         'student': student,
         'subject': subject,
@@ -173,11 +177,11 @@ def _preview_row(student, entry, subject, class_ids, period_type, start, end,
         'totals': totals,
         'awards': data['awards'],
         'classes': data['scope']['classrooms'],
-        'has_activity': has_activity,
+        'has_activity': active,
         'delivery': entry['delivery'],
         # Built here rather than in the template: composing it from three
         # {% if %} blocks rendered the newlines between them as "Student , Parents".
-        'audience': _audience(entry['delivery'], has_activity),
+        'audience': _audience(entry['delivery'], active),
         'already_sent': PeriodReport.objects.filter(
             student=student, period_type=period_type,
             period_start=start, subject=subject,

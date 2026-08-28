@@ -161,18 +161,17 @@ class PeriodReport(models.Model):
 
     @property
     def has_activity(self):
-        """True when the student actually submitted something in the window.
+        """True when the student actually did something in the window.
 
         The report row exists either way — an empty period should be visible,
         not hidden — but nothing is notified or celebrated for an empty one.
+
+        Delegates to progress.reports.has_activity so the preview and the
+        generator cannot answer this differently; they used to.
         """
-        # Any strand counts, not just homework: a child who spent the week on
-        # times tables did work, and a report that called that "no activity"
-        # would be telling them it did not count.
-        return bool(
-            self.totals.get('submissions')
-            or self.totals.get('activity_items')
-        )
+        from progress.reports import has_activity
+
+        return has_activity(self.data or {})
 
 
 class ProgressReportSetting(models.Model):
