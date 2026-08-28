@@ -6,7 +6,7 @@ nothing: a preview that created rows would stamp delivery state and leave the
 real send with nothing to do.
 """
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 from django.core import mail
 from django.test import TestCase
@@ -16,6 +16,7 @@ from django.utils import timezone
 from classroom.models import Notification, SchoolTeacher
 from progress import periods
 from progress.models import PeriodReport
+from progress.services import run_period
 from progress.tests.factories import (
     add_teacher, enable_reports, enrol, link_parent, make_classroom,
     make_homework, make_school, make_user, submit,
@@ -111,6 +112,65 @@ class PreviewContentTests(PreviewBase):
         )
         self.assertFalse(row['has_activity'])
         self.assertEqual(response.context['with_activity_count'], 1)
+
+    def test_a_week_of_times_tables_is_activity_on_the_preview_too(self):
+        """The preview must not answer this differently from the generator.
+
+        `quiet` submits no homework but practises times tables. The preview
+        used to test `totals['submissions']` — homework submissions and
+        nothing else — while PeriodReport.has_activity, which actually gates
+        notification and email, counts every strand. So this row read "No
+        activity this period — nothing will be sent" and hid its "View report"
+        link, and then the send went out anyway.
+
+        Wrong in the direction that matters: it understated a child's week to
+        their teacher, and misreported what the button was about to do. Worst
+        for coding classes, where most work is practice and worksheets rather
+        than homework.
+        """
+        from maths.models import StudentFinalAnswer
+
+        row = StudentFinalAnswer.objects.create(
+            student=self.quiet, quiz_type='times_table', table_number=7,
+            operation='multiplication', score=8, total_questions=10, points=8,
+        )
+        StudentFinalAnswer.objects.filter(pk=row.pk).update(
+            completed_at=at(self.window_start + timedelta(days=1)),
+        )
+        enable_reports(self.school, kind='school', weekly=True)
+
+        response = self.client.get(URL)
+        preview_row = next(
+            r for r in response.context['rows'] if r['student'] == self.quiet
+        )
+
+        self.assertTrue(preview_row['has_activity'])
+        self.assertNotEqual(preview_row['audience'], 'Nobody (silent)')
+
+    def test_the_preview_and_the_generator_agree_on_who_is_active(self):
+        """The property that keeps them from drifting apart again."""
+        from progress.reports import has_activity
+
+        enable_reports(self.school, kind='school', weekly=True)
+        response = self.client.get(URL)
+
+        start, end = periods.previous_week(periods.today())
+        run_period(periods.WEEKLY, start, end, notify=False)
+
+        for preview_row in response.context['rows']:
+            report = PeriodReport.objects.filter(
+                student=preview_row['student'], period_type=periods.WEEKLY,
+                period_start=start, subject=preview_row['subject'],
+            ).first()
+            if report is None:
+                continue
+            self.assertEqual(
+                preview_row['has_activity'], report.has_activity,
+                f"preview and report disagree for {preview_row['student']}",
+            )
+            self.assertEqual(
+                report.has_activity, has_activity(report.data),
+            )
 
     def test_it_says_who_each_report_would_reach(self):
         enable_reports(

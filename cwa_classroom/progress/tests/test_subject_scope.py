@@ -517,3 +517,127 @@ class DepartmentDecidesTheSubjectTests(TestCase):
         room, covered = self._room('Unmapped', 'DP000004')
 
         self.assertIsNone(covered([room]))
+
+
+class PracticeTopicsTests(TestCase):
+    """Coding practice is summarised by topic, not listed exercise by exercise.
+
+    Sixty-four rows reading "Count to 5 · 1 attempt · 100%" is a list, not a
+    report; the topic is the unit a family can act on.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from coding.models import (
+            CodingExercise, CodingLanguage, CodingProblem, CodingTopic,
+            StudentExerciseSubmission, StudentProblemSubmission, TopicLevel,
+        )
+
+        cls.student = make_user('pt_student', first_name='Aadya')
+        cls.start, cls.end = periods.previous_week(periods.today())
+        when = timezone.make_aware(timezone.datetime.combine(
+            cls.start + timedelta(days=1),
+            timezone.datetime.min.time().replace(hour=10),
+        ))
+
+        language = CodingLanguage.objects.create(name='Python', slug='py-pt')
+        loops = CodingTopic.objects.create(
+            name='Loops', slug='pt-loops', language=language,
+        )
+        lists = CodingTopic.objects.create(
+            name='Lists', slug='pt-lists', language=language,
+        )
+
+        # One TopicLevel per topic — it is unique per (topic, level), and many
+        # exercises hanging off one level is the real shape.
+        levels = {
+            topic.id: TopicLevel.objects.create(
+                topic=topic, level_choice=TopicLevel.BEGINNER,
+            )
+            for topic in (loops, lists)
+        }
+
+        def exercise(topic, title, completed, attempts=1):
+            level = levels[topic.id]
+            row = CodingExercise.objects.create(
+                title=title, topic_level=level, description='d',
+            )
+            for _ in range(attempts):
+                sub = StudentExerciseSubmission.objects.create(
+                    student=cls.student, exercise=row, code_submitted='x',
+                    is_completed=completed,
+                )
+                StudentExerciseSubmission.objects.filter(pk=sub.pk).update(
+                    submitted_at=when,
+                )
+
+        exercise(loops, 'Count to 5', True, attempts=3)
+        exercise(loops, 'Even or Odd', True)
+        exercise(loops, 'Count Vowels', False)
+        exercise(lists, 'Create and Print List', True)
+
+        problem = CodingProblem.objects.create(
+            title='FizzBuzz', description='d',
+            category=CodingProblem.ALGORITHM,
+        )
+        StudentProblemSubmission.objects.create(
+            student=cls.student, problem=problem, attempt_number=1,
+            code_submitted='x', visible_passed=1, visible_total=2,
+            hidden_passed=1, hidden_total=2, submitted_at=when,
+        )
+
+    def _topics(self):
+        from progress.reports import subject_practice_section
+
+        section = subject_practice_section(
+            self.student, self.start, self.end, {'coding'},
+        )['sections'][0]
+        return section, {t['name']: t for t in section['topics']}
+
+    def test_exercises_are_grouped_under_their_coding_topic(self):
+        _section, topics = self._topics()
+
+        self.assertEqual(topics['Loops']['items'], 3)
+        self.assertEqual(topics['Loops']['attempts'], 5)
+        self.assertEqual(topics['Lists']['items'], 1)
+
+    def test_a_topic_reports_how_many_exercises_were_finished(self):
+        _section, topics = self._topics()
+
+        self.assertEqual(topics['Loops']['exercises'], 3)
+        self.assertEqual(topics['Loops']['finished'], 2)
+
+    def test_an_exercise_only_topic_reports_no_mark_at_all(self):
+        """Not 0%, and not 100% either — there is no mark to report.
+
+        An exercise scores 100 for being completed. Averaging that into a
+        "Best" column would put a completion rate in the same place as a real
+        accuracy figure, which is the confusion that made Overall read 96%.
+        """
+        _section, topics = self._topics()
+
+        self.assertIsNone(topics['Loops']['best_pct'])
+        self.assertIsNone(topics['Loops']['first_pct'])
+        self.assertEqual(topics['Loops']['scored_items'], 0)
+
+    def test_a_problem_carries_a_real_mark_under_its_category(self):
+        _section, topics = self._topics()
+
+        self.assertEqual(topics['Algorithm']['best_pct'], 50)
+        self.assertEqual(topics['Algorithm']['scored_items'], 1)
+        self.assertEqual(topics['Algorithm']['exercises'], 0)
+
+    def test_the_totals_are_unchanged_by_grouping(self):
+        """Grouping is presentation. scored_items feeds activity_items and the
+        overall average, so it must still count ITEMS, not topics."""
+        section, topics = self._topics()
+
+        self.assertEqual(section['items'], 5)
+        self.assertEqual(section['scored_items'], 1)
+        self.assertEqual(len(section['rows']), 5)
+        self.assertEqual(len(topics), 3)
+
+    def test_the_most_practised_topic_comes_first(self):
+        section, _topics = self._topics()
+
+        self.assertEqual(section['topics'][0]['name'], 'Loops')
