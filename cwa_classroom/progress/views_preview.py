@@ -11,6 +11,7 @@ later found nothing to do.
 """
 
 from django.contrib import messages
+from django.db.models import Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -78,6 +79,91 @@ def _window(period_type, reference, term):
     return periods.window_for(period_type, reference)
 
 
+def _subject_order(entry, subjects):
+    """This student's subjects, in the order the table shows them."""
+    return sorted(
+        entry['by_subject'].items(),
+        key=lambda kv: (
+            kv[0] is None,
+            subjects[kv[0]].name if kv[0] in subjects else '',
+        ),
+    )
+
+
+def _subjects_by_id(plan):
+    from classroom.models import Subject
+
+    ids = {
+        subject_id
+        for entry in plan.values()
+        for subject_id in entry['by_subject']
+        if subject_id is not None
+    }
+    return {s.id: s for s in Subject.objects.filter(id__in=ids)} if ids else {}
+
+
+def _teacher_comment(student, school, term, subject):
+    """The teacher's narrative for this student, subject and term, if written.
+
+    Returned so the preview can say a comment is missing WITHOUT that stopping
+    anything: staff may choose to write one before sending, but a report is
+    never held up waiting for one (CPP-395 §6).
+    """
+    from classroom.models import ProgressReportComment
+
+    if school is None:
+        return None
+    qs = ProgressReportComment.objects.filter(student=student, school=school)
+    if subject is not None:
+        qs = qs.filter(Q(subject=subject) | Q(subject__isnull=True))
+    if term is not None:
+        qs = qs.filter(Q(term=term) | Q(term__isnull=True))
+    # Most recently edited wins: a teacher who updates a comment expects the
+    # update to be what goes out.
+    return qs.order_by('-updated_at').first()
+
+
+def _preview_row(student, entry, subject, class_ids, period_type, start, end,
+                 term, school):
+    """One student's report for one subject — computed, never stored.
+
+    A preview that wrote rows would stamp delivery state and leave the real
+    send with nothing to do.
+    """
+    data = build_report_data(
+        student, period_type, start, end, term=term,
+        classroom_ids=class_ids, subject=subject,
+        content=entry['content'].get(subject.id if subject else None),
+    )
+    totals = data['totals']
+    has_activity = bool(totals['submissions'])
+    return {
+        'student': student,
+        'subject': subject,
+        # Named here rather than in the template so the two empty cases read
+        # differently: a class with no subject set is not a subject.
+        'subject_label': subject.name if subject else 'No subject set',
+        'teacher_comment': _teacher_comment(student, school, term, subject),
+        'activity': _activity_summary(data),
+        'quizzes': data['quizzes'],
+        'times_tables': data['times_tables'],
+        'basic_facts': data['basic_facts'],
+        'worksheets': data['worksheets'],
+        'totals': totals,
+        'awards': data['awards'],
+        'classes': data['scope']['classrooms'],
+        'has_activity': has_activity,
+        'delivery': entry['delivery'],
+        # Built here rather than in the template: composing it from three
+        # {% if %} blocks rendered the newlines between them as "Student , Parents".
+        'audience': _audience(entry['delivery'], has_activity),
+        'already_sent': PeriodReport.objects.filter(
+            student=student, period_type=period_type,
+            period_start=start, subject=subject,
+        ).exclude(notified_at=None).exists(),
+    }
+
+
 class ReportPreviewView(RoleRequiredMixin, View):
     """What would be sent, for every student in scope, before it is sent."""
 
@@ -125,40 +211,20 @@ class ReportPreviewView(RoleRequiredMixin, View):
             plan = students_for_period(
                 period_type, school=school, classroom=classroom,
             )
-            for student, entry in sorted(
-                plan.items(), key=lambda kv: (
-                    kv[0].first_name or '', kv[0].last_name or '',
-                    kv[0].username,
-                ),
-            ):
-                # Computed, never stored. A preview that wrote rows would stamp
-                # delivery state and leave the real send with nothing to do.
-                data = build_report_data(
-                    student, period_type, start, end, term=term,
-                    classroom_ids=entry['classroom_ids'],
-                )
-                totals = data['totals']
-                rows.append({
-                    'activity': _activity_summary(data),
-                    'quizzes': data['quizzes'],
-                    'times_tables': data['times_tables'],
-                    'basic_facts': data['basic_facts'],
-                    'worksheets': data['worksheets'],
-                    'student': student,
-                    'totals': totals,
-                    'awards': data['awards'],
-                    'classes': data['scope']['classrooms'],
-                    'has_activity': bool(totals['submissions']),
-                    'delivery': entry['delivery'],
-                    # Built here rather than in the template: composing it from
-                    # three {% if %} blocks rendered the newlines between them
-                    # as "Student , Parents".
-                    'audience': _audience(entry['delivery'], bool(totals['submissions'])),
-                    'already_sent': PeriodReport.objects.filter(
-                        student=student, period_type=period_type,
-                        period_start=start,
-                    ).exclude(notified_at=None).exists(),
-                })
+            subjects = _subjects_by_id(plan)
+            ordered = sorted(plan.items(), key=lambda kv: (
+                kv[0].first_name or '', kv[0].last_name or '', kv[0].username,
+            ))
+            for student, entry in ordered:
+                # One row per subject, so "All classes" shows what would
+                # actually be sent: a student taking maths, coding and science
+                # appears three times. The repeated name is correct — the
+                # subject is what makes each row a different report.
+                for subject_id, class_ids in _subject_order(entry, subjects):
+                    rows.append(_preview_row(
+                        student, entry, subjects.get(subject_id), class_ids,
+                        period_type, start, end, term, school,
+                    ))
 
             if not rows:
                 # An empty plan has two causes that call for opposite actions:

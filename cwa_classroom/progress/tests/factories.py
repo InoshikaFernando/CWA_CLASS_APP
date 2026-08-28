@@ -142,6 +142,7 @@ def enable_reports(school, scope=None, kind='school', **flags):
         report_settings.PERIOD_FIELDS
         + report_settings.DELIVERY_FIELDS
         + report_settings.SCHEDULE_FIELDS
+        + report_settings.CONTENT_FIELDS
         + ('mode',)
     )
     values = {field: flags.get(field) for field in fields}

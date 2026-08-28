@@ -18,6 +18,17 @@ class MathsPlugin(SubjectPlugin):
     display_name = 'Mathematics'
     order = 10
     supports_homework = True
+
+    def content_topic_names(self, content_ids):
+        """maths.Question -> its Topic name."""
+        from maths.models import Question
+
+        return {
+            row['id']: row['topic__name']
+            for row in Question.objects
+            .filter(id__in=content_ids, topic__isnull=False)
+            .values('id', 'topic__name')
+        }
     brainbuzz_subject_key = 'maths'
 
     # Phase 3 — URL routing + sidebar wiring. Maths owns the plain
