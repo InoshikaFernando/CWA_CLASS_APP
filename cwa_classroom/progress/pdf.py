@@ -8,6 +8,7 @@ Everything is read off ``PeriodReport.data``, the same frozen snapshot the HTML
 template renders, so the two can never disagree.
 """
 
+import logging
 from io import BytesIO
 
 from reportlab.graphics.charts.barcharts import VerticalBarChart
@@ -21,9 +22,11 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
-    CondPageBreak, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table,
-    TableStyle,
+    CondPageBreak, Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer,
+    Table, TableStyle,
 )
+
+logger = logging.getLogger(__name__)
 
 INK = colors.HexColor('#1f2937')
 MUTED = colors.HexColor('#6b7280')
@@ -292,6 +295,69 @@ def _empty_note(styles):
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _readable(logo, report):
+    """Whether the logo file is actually there.
+
+    Checked before building the flowable rather than caught around it:
+    reportlab opens the image lazily during doc.build(), so a try/except around
+    Image() catches nothing and the failure surfaces as a 500 halfway through
+    generating a parent's download. A logo row pointing at a deleted file is
+    ordinary — media outlives the database it is named in.
+    """
+    try:
+        return logo.storage.exists(logo.name)
+    except Exception:
+        logger.warning(
+            'progress report letterhead unreadable for school %s',
+            report.school_id, exc_info=True,
+        )
+        return False
+
+
+def _letterhead_flow(report, styles):
+    """The school's letterhead, as PDF flowables. Empty when it has none.
+
+    The PDF is the copy a family keeps, so it carries the same letterhead the
+    page shows rather than a plainer version of it — resolved by the same
+    helper, so the two cannot disagree about which logo or address is current.
+
+    A logo that cannot be read is skipped rather than raised: a missing or
+    corrupt image file must not stop a parent downloading their child's report.
+    """
+    from progress.views_reports import letterhead_for
+
+    letterhead = letterhead_for(report)
+    if not letterhead:
+        return []
+
+    lines = [letterhead['name']]
+    if letterhead['department']:
+        lines.append(letterhead['department'])
+    if letterhead['address']:
+        lines.append(letterhead['address'])
+    text = Paragraph('<br/>'.join(lines), styles['subtitle'])
+
+    logo = letterhead['logo']
+    if logo and _readable(logo, report):
+        try:
+            image = Image(logo.path, width=22 * mm, height=22 * mm, kind='proportional')
+        except Exception:
+            logger.warning(
+                'progress report letterhead image unreadable for school %s',
+                report.school_id, exc_info=True,
+            )
+        else:
+            table = Table([[image, text]], colWidths=[26 * mm, None])
+            table.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ]))
+            return [table]
+
+    return [text, Spacer(1, 6)]
+
+
 def render_report_pdf(report):
     """Return the report as PDF bytes."""
     styles = _styles()
@@ -306,7 +372,7 @@ def render_report_pdf(report):
     )
 
     school_line = report.school.name if report.school_id else 'Individual learner'
-    flow = [
+    flow = _letterhead_flow(report, styles) + [
         Paragraph(f'{report.get_period_type_display()} Progress Report', styles['title']),
         Paragraph(
             f'{student_name} &middot; {report.label} &middot; {school_line}<br/>'
