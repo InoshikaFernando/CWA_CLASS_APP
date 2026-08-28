@@ -619,7 +619,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.classroom == 'true') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45   # ~20min
+    timeout-minutes: 45   # ~3min
     steps:
       - uses: actions/checkout@v4
 
@@ -649,7 +649,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.release != 'true' && needs.changes.outputs.unit_dirs != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40   # ~8min
+    timeout-minutes: 40   # ~2min
     steps:
       - uses: actions/checkout@v4
 
@@ -778,29 +778,43 @@ jobs:
         id: pack
         env:
           GROUPS: ${{ steps.pick.outputs.groups }}
-          # Seconds of pytest per group, measured on run #2518. These only
-          # decide how work is DIVIDED — a stale number costs a little balance,
-          # never coverage — but re-measure them when a group grows a lot.
-          # tests_workflows.py fails the build if a group has no entry.
+          # Seconds of pytest per group, in CI-runner terms. Re-measured after
+          # the test-password hasher fix (conftest._fast_password_hashing),
+          # which took the whole matrix from 3207s to 2750s — unevenly, because
+          # it only helps groups that log in a lot: billing 605->472 and parent
+          # 337->252, while live and brainbuzz did not move at all. Packing off
+          # the old numbers would have kept sending runners the wrong work.
+          #
+          # Measured locally at 2 cores / -n 4 and scaled by 1.68, the ratio
+          # between this repo's CI runner and that box on an identical run. The
+          # groups that barely log in land back on their known CI times (live
+          # 20, brainbuzz 60 vs 61, feedback 29 vs 32), which is what says the
+          # scaling is honest rather than fitted.
+          #
+          # These only decide how work is DIVIDED — a stale number costs a
+          # little balance, never coverage — but re-measure after anything that
+          # moves the suite this much. tests_workflows.py fails the build if a
+          # group has no entry.
           UI_WEIGHTS: |
-            billing:605
-            classroom:578
-            navigation:550
-            parent:337
-            messaging:240
-            homework:163
-            maths:134
-            quiz:132
-            uploads:98
-            worksheets:96
-            coding:83
-            progress:78
-            brainbuzz:61
-            feedback:32
+            billing:472
+            classroom:469
+            navigation:469
+            parent:252
+            messaging:222
+            homework:192
+            quiz:143
+            maths:113
+            uploads:91
+            worksheets:86
+            coding:72
+            progress:60
+            brainbuzz:60
+            feedback:29
             live:20
-          # Comfortably above billing (605s), the longest single group, which
+          # Comfortably above billing (472s), the longest single group, which
           # already sets the wall clock on its own. This is what decides how
           # many runners a selection gets: total test-seconds / budget.
+          # 2750s of tests over a 660s budget is 5 runners of ~9.5 min.
           SHARD_BUDGET_SECONDS: 660
           # Ceiling on runners, so a future group explosion cannot quietly go
           # wide again. The full 15 groups come to 5 by the budget alone, so
@@ -878,7 +892,7 @@ jobs:
     needs: ui-matrix
     if: ${{ needs.ui-matrix.outputs.groups != '[]' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 35   # ~12min
+    timeout-minutes: 35   # ~10min
     strategy:
       # One broken area must not cancel the others — a full run should report
       # every failing group, not just the first.
