@@ -177,6 +177,54 @@ def totals_section(submissions, due):
     }
 
 
+def subject_practice_section(student, start, end, subject_slugs=None):
+    """Practice done in a subject's own app rather than as homework.
+
+    Asked of each covered subject's plugin rather than read here, so a new
+    subject supplies its own source instead of `reports.py` growing an `if
+    slug == 'coding'`. Maths keeps its dedicated times-tables and basic-facts
+    strands: they predate the registry and are named on the report in their
+    own right, which a generic "practice" heading would lose.
+
+    Returns the standard empty shape when nothing was done, so the report keeps
+    identical keys whether or not any subject has a practice source.
+    """
+    from classroom import subject_registry
+
+    empty = {'items': 0, 'attempts': 0, 'avg_first_pct': 0, 'avg_best_pct': 0,
+             'improvement_pct': 0, 'sections': []}
+    if not subject_slugs:
+        # None (unscoped) is deliberately empty here rather than "every
+        # subject": this section is only meaningful once a report knows which
+        # subject it is about.
+        return empty
+
+    begin, finish = _bounds(start, end)
+    sections = []
+    for slug in sorted(subject_slugs):
+        plugin = subject_registry.get(slug)
+        if plugin is None:
+            continue
+        section = plugin.practice_section(student, begin, finish)
+        if section:
+            sections.append(section)
+
+    if not sections:
+        return empty
+
+    firsts = [s['avg_first_pct'] for s in sections]
+    bests = [s['avg_best_pct'] for s in sections]
+    avg_first, avg_best = _mean(firsts), _mean(bests)
+    return {
+        'items': sum(s['items'] for s in sections),
+        'attempts': sum(s['attempts'] for s in sections),
+        'avg_first_pct': avg_first,
+        'avg_best_pct': avg_best,
+        'improvement_pct': avg_best - avg_first,
+        'sections': sections,
+    }
+
+
 def _topic_names_by_subject(answers):
     """``{(subject_slug, content_id): topic name}`` for a window's answers.
 
@@ -853,6 +901,10 @@ def build_report_data(student, period_type, start, end, term=None,
         student, start, end,
         subjects if content['include_basic_facts'] else set(),
     )
+    subject_practice = subject_practice_section(
+        student, start, end,
+        subjects if content['include_subject_practice'] else set(),
+    )
     worksheets = worksheets_section(
         student, start, end,
         classroom_ids if content['include_worksheets'] else [],
@@ -868,6 +920,7 @@ def build_report_data(student, period_type, start, end, term=None,
         (quizzes['attempted'], quizzes['avg_best_pct']),
         (times_tables['tables'], times_tables['avg_best_pct']),
         (basic_facts['subtopics'], basic_facts['avg_best_pct']),
+        (subject_practice['items'], subject_practice['avg_best_pct']),
         (worksheets['completed'], worksheets['average_pct']),
     ]
     counted = [(n, pct) for n, pct in strands if n]
@@ -912,6 +965,7 @@ def build_report_data(student, period_type, start, end, term=None,
         'trend': trend_section(submissions, period_type),
         'worksheets': worksheets,
         'quizzes': quizzes,
+        'subject_practice': subject_practice,
         'times_tables': times_tables,
         'basic_facts': basic_facts,
         'awards': awards,

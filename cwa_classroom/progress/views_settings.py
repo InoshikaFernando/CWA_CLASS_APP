@@ -44,6 +44,7 @@ FIELD_LABELS = {
     'include_quizzes': 'Quizzes',
     'include_times_tables': 'Times tables',
     'include_basic_facts': 'Basic facts',
+    'include_subject_practice': 'Practice in the subject app',
     'include_worksheets': 'Worksheets',
     'include_topics': 'Topic breakdown',
     'include_awards': 'Recognition',

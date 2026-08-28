@@ -242,3 +242,101 @@ class QuizzesFollowTheSubjectTests(TestCase):
         item = section['items'][0]
         self.assertEqual(item['first_pct'], item['best_pct'])
         self.assertEqual(item['gain_pct'], 0)
+
+
+class SubjectPracticeTests(TestCase):
+    """Practice a student does in the subject's own app, not as homework.
+
+    progress/README.md has listed coding.StudentProblemSubmission as a source
+    since CPP-388, and nothing read it: a student who spent a week on coding
+    exercises got a report saying they had done nothing. That is the same
+    complaint that added the maths times-tables strand.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from coding.models import (
+            CodingExercise, CodingLanguage, CodingProblem, CodingTopic,
+            StudentExerciseSubmission, StudentProblemSubmission, TopicLevel,
+        )
+
+        cls.student = make_user('sp_student', first_name='Avisha')
+        cls.start, cls.end = periods.previous_week(periods.today())
+        when = timezone.make_aware(timezone.datetime.combine(
+            cls.start + timedelta(days=1),
+            timezone.datetime.min.time().replace(hour=10),
+        ))
+
+        language = CodingLanguage.objects.create(name='Python', slug='python')
+        topic = CodingTopic.objects.create(name='Loops', language=language)
+        level = TopicLevel.objects.create(
+            topic=topic, level_choice=TopicLevel.BEGINNER,
+        )
+        exercise = CodingExercise.objects.create(
+            title='For loops', topic_level=level, description='d',
+        )
+        row = StudentExerciseSubmission.objects.create(
+            student=cls.student, exercise=exercise, code_submitted='x',
+            is_completed=True,
+        )
+        StudentExerciseSubmission.objects.filter(pk=row.pk).update(
+            submitted_at=when,
+        )
+
+        problem = CodingProblem.objects.create(
+            title='FizzBuzz', language=language, description='d',
+        )
+        for attempt, (visible, hidden) in enumerate([(1, 0), (2, 2)], start=1):
+            StudentProblemSubmission.objects.create(
+                student=cls.student, problem=problem, attempt_number=attempt,
+                code_submitted='x', visible_passed=visible, visible_total=2,
+                hidden_passed=hidden, hidden_total=2, submitted_at=when,
+            )
+
+    def _section(self, slugs):
+        from progress.reports import subject_practice_section
+
+        return subject_practice_section(
+            self.student, self.start, self.end, slugs,
+        )
+
+    def test_a_coding_report_carries_the_practice(self):
+        section = self._section({'coding'})
+
+        self.assertEqual(section['items'], 2)
+        self.assertEqual(
+            section['sections'][0]['label'], 'Coding practice',
+        )
+
+    def test_a_retried_problem_reports_the_gain(self):
+        """1 of 4 tests, then 4 of 4 — the improvement the section exists for."""
+        section = self._section({'coding'})
+
+        rows = {r['name']: r for r in section['sections'][0]['rows']}
+        self.assertEqual(rows['FizzBuzz']['first_pct'], 25)
+        self.assertEqual(rows['FizzBuzz']['best_pct'], 100)
+        self.assertEqual(rows['FizzBuzz']['gain_pct'], 75)
+
+    def test_a_completed_exercise_is_full_marks_with_no_gain(self):
+        """An exercise has no partial credit: it was finished or it was not."""
+        section = self._section({'coding'})
+
+        rows = {r['name']: r for r in section['sections'][0]['rows']}
+        self.assertEqual(rows['For loops']['best_pct'], 100)
+        self.assertEqual(rows['For loops']['gain_pct'], 0)
+
+    def test_a_maths_report_carries_none_of_it(self):
+        self.assertEqual(self._section({'mathematics'})['items'], 0)
+
+    def test_an_unscoped_report_carries_none_of_it(self):
+        """Only meaningful once the report knows its subject."""
+        self.assertEqual(self._section(None)['items'], 0)
+
+    def test_it_counts_as_activity(self):
+        from progress.reports import build_report_data
+
+        data = build_report_data(
+            self.student, periods.WEEKLY, self.start, self.end,
+            classroom_ids=None,
+        )
+        self.assertIn('subject_practice', data)
