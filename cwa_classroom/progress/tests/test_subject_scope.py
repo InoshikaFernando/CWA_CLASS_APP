@@ -150,3 +150,95 @@ class ReportSubjectScopeTests(TestCase):
 
         self.assertEqual(data['basic_facts']['subtopics'], 1)
         self.assertEqual(data['totals']['homework_attempted'], 3)
+
+
+class QuizzesFollowTheSubjectTests(TestCase):
+    """A coding report carries coding quizzes, not nothing and not maths ones.
+
+    Quizzes were treated as maths-only, because the maths quiz app was the only
+    source read. BrainBuzz sessions carry a classroom.Subject FK, so the quiz
+    strand can and should follow the report's subject.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from brainbuzz.models import (
+            BrainBuzzAnswer, BrainBuzzParticipant, BrainBuzzSession,
+            BrainBuzzSessionQuestion,
+        )
+
+        cls.school = make_school()
+        cls.student = make_user('qz_student', first_name='Avisha')
+        cls.host = make_user('qz_host', 'teacher')
+        cls.maths = _subject('mathematics', 'Mathematics')
+        cls.coding = _subject('coding', 'Coding')
+
+        cls.start, cls.end = periods.previous_week(periods.today())
+        when = timezone.make_aware(timezone.datetime.combine(
+            cls.start + timedelta(days=1),
+            timezone.datetime.min.time().replace(hour=10),
+        ))
+
+        def play(subject, code, correct, total):
+            session = BrainBuzzSession.objects.create(
+                code=code, host=cls.host, subject=subject, status='finished',
+            )
+            participant = BrainBuzzParticipant.objects.create(
+                session=session, student=cls.student, nickname=f'n{code}',
+            )
+            for index in range(total):
+                question = BrainBuzzSessionQuestion.objects.create(
+                    session=session, order=index, question_text='q',
+                    question_type='multiple_choice', options_json={},
+                    source_model='MathsQuestion', source_id=1,
+                )
+                answer = BrainBuzzAnswer.objects.create(
+                    participant=participant, session_question=question,
+                    time_taken_ms=1000, is_correct=index < correct,
+                )
+                BrainBuzzAnswer.objects.filter(pk=answer.pk).update(
+                    submitted_at=when,
+                )
+
+        play(cls.coding, 'CODE01', correct=3, total=4)
+        play(cls.maths, 'MATH01', correct=1, total=4)
+
+    def _quizzes(self, slugs):
+        from progress.reports import quizzes_section
+
+        return quizzes_section(self.student, self.start, self.end, slugs)
+
+    def test_a_coding_report_carries_the_coding_quiz(self):
+        section = self._quizzes({'coding'})
+
+        self.assertEqual(section['attempted'], 1)
+        self.assertEqual(section['items'][0]['name'], 'Coding quiz')
+        self.assertEqual(section['items'][0]['best_pct'], 75)
+
+    def test_a_coding_report_does_not_carry_the_maths_quiz(self):
+        section = self._quizzes({'coding'})
+
+        self.assertEqual(
+            [item['name'] for item in section['items']], ['Coding quiz'],
+        )
+
+    def test_a_maths_report_carries_the_maths_quiz(self):
+        section = self._quizzes({'mathematics'})
+
+        self.assertEqual(
+            [item['name'] for item in section['items']], ['Mathematics quiz'],
+        )
+        self.assertEqual(section['items'][0]['best_pct'], 25)
+
+    def test_unscoped_carries_both(self):
+        section = self._quizzes(None)
+
+        self.assertEqual(section['attempted'], 2)
+
+    def test_a_session_played_once_reports_no_gain(self):
+        """First and best are the same figure; claiming improvement would lie."""
+        section = self._quizzes({'coding'})
+
+        item = section['items'][0]
+        self.assertEqual(item['first_pct'], item['best_pct'])
+        self.assertEqual(item['gain_pct'], 0)

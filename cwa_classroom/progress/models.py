@@ -234,10 +234,19 @@ class ProgressReportSetting(models.Model):
     # never REQUIRED: a section with nothing in it is omitted, and nothing here
     # can stop a report generating or sending. See CPP-395 §6.
     include_homework = models.BooleanField(null=True, blank=True)
-    include_practice = models.BooleanField(
+    include_quizzes = models.BooleanField(
         null=True, blank=True,
-        help_text='Quizzes, times tables and basic facts. Maths reports only — '
-                  'a setting cannot make a times table part of a coding report.',
+        help_text='Quizzes, resolved per subject: a maths report carries maths '
+                  'quizzes, a coding report carries coding quizzes.',
+    )
+    include_times_tables = models.BooleanField(
+        null=True, blank=True,
+        help_text='Times tables. Maths only by nature — a setting cannot make '
+                  'a times table part of a coding report.',
+    )
+    include_basic_facts = models.BooleanField(
+        null=True, blank=True,
+        help_text='Basic facts. Maths only by nature, as above.',
     )
     include_worksheets = models.BooleanField(null=True, blank=True)
     include_topics = models.BooleanField(null=True, blank=True)
@@ -275,9 +284,9 @@ class ProgressReportSetting(models.Model):
     DELIVERY_FIELDS = ('notify_student', 'notify_parents', 'email_parents_at_term')
     SCHEDULE_FIELDS = ('send_weekly_on', 'send_monthly_on', 'send_term_after_days')
     CONTENT_FIELDS = (
-        'include_homework', 'include_practice', 'include_worksheets',
-        'include_topics', 'include_awards', 'include_rubric',
-        'include_teacher_comment',
+        'include_homework', 'include_quizzes', 'include_times_tables',
+        'include_basic_facts', 'include_worksheets', 'include_topics',
+        'include_awards', 'include_rubric', 'include_teacher_comment',
     )
     # Content is opt-OUT once a period is on, unlike the period flags where off
     # is off: a school that asked for reports has asked for their contents.

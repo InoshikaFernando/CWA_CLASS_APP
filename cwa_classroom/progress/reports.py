@@ -394,7 +394,12 @@ def quizzes_section(student, start, end, subject_slugs=None):
         _final_answers(student, start, end, ('topic', 'mixed'))
         if _covers_maths(subject_slugs) else []
     )
-    if not attempts:
+    # BrainBuzz is the cross-subject quiz: its sessions carry a Subject FK, so
+    # a coding report gets the coding quizzes rather than nothing. Maths quizzes
+    # live in their own app and only appear in a maths report.
+    buzz = _brainbuzz_items(student, start, end, subject_slugs)
+
+    if not attempts and not buzz:
         return {'attempted': 0, 'attempts': 0, 'avg_first_pct': 0,
                 'avg_best_pct': 0, 'improvement_pct': 0, 'items': []}
 
@@ -418,17 +423,72 @@ def quizzes_section(student, start, end, subject_slugs=None):
             'best_pct': best,
             'gain_pct': best - first,
         })
+    # A BrainBuzz session is played once, so first and best are the same
+    # figure. Saying so is honest: pretending it improved would put a zero gain
+    # in the column that exists to show improvement.
+    for item in buzz:
+        firsts.append(item['first_pct'])
+        bests.append(item['best_pct'])
+    items.extend(buzz)
     items.sort(key=lambda i: (-i['gain_pct'], -i['attempts'], i['name']))
 
     avg_first, avg_best = _mean(firsts), _mean(bests)
     return {
-        'attempted': len(by_topic),
-        'attempts': len(attempts),
+        'attempted': len(by_topic) + len(buzz),
+        'attempts': len(attempts) + sum(i['attempts'] for i in buzz),
         'avg_first_pct': avg_first,
         'avg_best_pct': avg_best,
         'improvement_pct': avg_best - avg_first,
         'items': items,
     }
+
+
+def _brainbuzz_items(student, start, end, subject_slugs=None):
+    """BrainBuzz quizzes the student played in the window, one row per session.
+
+    BrainBuzz is the quiz that exists for every subject — its sessions carry a
+    ``classroom.Subject`` FK — so this is what lets a coding report carry a
+    coding quiz instead of nothing. Scoped to the report's subjects; unscoped
+    (``None``) means every subject, as everywhere else.
+
+    Accuracy is counted from the answers rather than read off
+    ``BrainBuzzParticipant.score``, which is points including speed bonuses and
+    would not be a percentage of anything.
+    """
+    from brainbuzz.models import BrainBuzzAnswer
+
+    begin, finish = _bounds(start, end)
+    qs = BrainBuzzAnswer.objects.filter(
+        participant__student=student,
+        submitted_at__gte=begin, submitted_at__lte=finish,
+    )
+    if subject_slugs is not None:
+        qs = qs.filter(participant__session__subject__slug__in=subject_slugs)
+
+    rows = qs.values(
+        'participant__session_id',
+        'participant__session__subject__name',
+        'is_correct',
+    )
+
+    tally = defaultdict(lambda: {'answered': 0, 'correct': 0, 'name': ''})
+    for row in rows:
+        entry = tally[row['participant__session_id']]
+        entry['answered'] += 1
+        entry['correct'] += 1 if row['is_correct'] else 0
+        entry['name'] = row['participant__session__subject__name'] or 'Quiz'
+
+    items = []
+    for entry in tally.values():
+        pct = _pct(entry['correct'], entry['answered'])
+        items.append({
+            'name': f"{entry['name']} quiz",
+            'attempts': 1,
+            'first_pct': pct,
+            'best_pct': pct,
+            'gain_pct': 0,
+        })
+    return items
 
 
 def times_tables_section(student, start, end, subject_slugs=None):
@@ -781,10 +841,18 @@ def build_report_data(student, period_type, start, end, term=None,
                 cohort_cache=cohort_cache,
             ))
 
-    practice = subjects if content['include_practice'] else set()
-    quizzes = quizzes_section(student, start, end, practice)
-    times_tables = times_tables_section(student, start, end, practice)
-    basic_facts = basic_facts_section(student, start, end, practice)
+    quizzes = quizzes_section(
+        student, start, end,
+        subjects if content['include_quizzes'] else set(),
+    )
+    times_tables = times_tables_section(
+        student, start, end,
+        subjects if content['include_times_tables'] else set(),
+    )
+    basic_facts = basic_facts_section(
+        student, start, end,
+        subjects if content['include_basic_facts'] else set(),
+    )
     worksheets = worksheets_section(
         student, start, end,
         classroom_ids if content['include_worksheets'] else [],

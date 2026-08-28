@@ -41,7 +41,9 @@ FIELD_LABELS = {
     'notify_parents': 'Notify parents',
     'email_parents_at_term': 'Email parents at term end',
     'include_homework': 'Homework',
-    'include_practice': 'Quizzes, times tables, basic facts',
+    'include_quizzes': 'Quizzes',
+    'include_times_tables': 'Times tables',
+    'include_basic_facts': 'Basic facts',
     'include_worksheets': 'Worksheets',
     'include_topics': 'Topic breakdown',
     'include_awards': 'Recognition',
@@ -59,9 +61,11 @@ FIELD_GROUPS = [
      'Who receives them. All off means a silent trial: staff can read the '
      'reports before any family sees one.'),
     ('Contents', ProgressReportSetting.CONTENT_FIELDS,
-     "What each report includes. A section with nothing in it is left out "
-     "rather than shown empty, and none of these can hold up a send — a "
-     "report goes out whether or not a teacher has written a comment."),
+     "What each report includes. Quizzes follow the report's subject — a maths "
+     "report carries maths quizzes and a coding report carries coding ones. "
+     "Times tables and basic facts are maths only. A section with nothing in "
+     "it is left out rather than shown empty, and none of these can hold up a "
+     "send: a report goes out whether or not a teacher has written a comment."),
 ]
 
 
