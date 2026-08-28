@@ -171,6 +171,26 @@ class SubjectPlugin:
         """
         return {}
 
+    def practice_section(self, student, begin, finish):
+        """Practice this subject's students did OUTSIDE homework, in a window.
+
+        Maths has had this since CPP-388 as times tables and basic facts, read
+        directly by the report. Every other subject was invisible: a student
+        who spent a week on coding exercises got a report saying they had done
+        nothing, which is the exact complaint that added the maths strands.
+
+        Return ``None`` (the default) when a subject has no practice of its own
+        — the report then omits the section rather than showing an empty one.
+        Otherwise return::
+
+            {'label': str, 'items': int, 'attempts': int,
+             'avg_first_pct': int, 'avg_best_pct': int,
+             'improvement_pct': int, 'rows': [...]}
+
+        where each row is ``{name, attempts, first_pct, best_pct, gain_pct}``.
+        """
+        return None
+
     def brainbuzz_topic_choices(self) -> dict:
         """Context variables injected into the BrainBuzz create-form template.
 

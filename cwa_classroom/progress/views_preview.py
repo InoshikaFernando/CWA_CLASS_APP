@@ -54,6 +54,9 @@ def _activity_summary(data):
         parts.append(f"{data['times_tables']['tables']} tables")
     if data['basic_facts']['subtopics']:
         parts.append(f"{data['basic_facts']['subtopics']} basic facts")
+    practice = data.get('subject_practice') or {}
+    if practice.get('items'):
+        parts.append(f"{practice['items']} practice")
     if data['worksheets']['completed']:
         parts.append(f"{data['worksheets']['completed']} worksheets")
     return ' · '.join(parts)
@@ -121,6 +124,24 @@ def _teacher_comment(student, school, term, subject):
     # Most recently edited wins: a teacher who updates a comment expects the
     # update to be what goes out.
     return qs.order_by('-updated_at').first()
+
+
+def _requested_subject(entry, raw):
+    """Resolve ``?subject=`` against the subjects this student actually has.
+
+    Returns ``(subject, classroom_ids)``. An unknown or absent id falls back to
+    every class — which is what a link written before CPP-395 means, and is
+    also the honest answer for a student whose classes carry no subject.
+    """
+    from classroom.models import Subject
+
+    if raw and raw.isdigit():
+        subject_id = int(raw)
+        if subject_id in entry['by_subject']:
+            subject = Subject.objects.filter(id=subject_id).first()
+            if subject is not None:
+                return subject, entry['by_subject'][subject_id]
+    return None, entry['classroom_ids']
 
 
 def _preview_row(student, entry, subject, class_ids, period_type, start, end,
@@ -418,16 +439,23 @@ def _resolve_one(request):
         raise Http404
     student, entry = match
 
+    # The subject the preview row was for. Without it this page rebuilt the
+    # student's whole timetable — the table fanned out per subject but the
+    # link back into it did not, so "View report" showed a combined report
+    # that no longer matches anything the send would produce.
+    subject, class_ids = _requested_subject(entry, request.GET.get('subject'))
+
     data = build_report_data(
         student, period_type, start, end, term=term,
-        classroom_ids=entry['classroom_ids'],
+        classroom_ids=class_ids, subject=subject,
+        content=entry['content'].get(subject.id if subject else None),
     )
     # Unsaved on purpose: this is the object the real send would create, built
     # the same way, and never written. Constructing it means the preview page
     # and the PDF read the snapshot through exactly the model properties the
     # sent report uses, instead of a parallel path that could disagree.
     report = PeriodReport(
-        student=student, school=school, term=term,
+        student=student, school=school, term=term, subject=subject,
         period_type=period_type, period_start=start, period_end=end,
         data=data,
     )
