@@ -16,6 +16,10 @@ from __future__ import annotations
 
 from classroom.subject_registry import SubjectPlugin
 
+# Matches progress.reports.UNCLASSIFIED: work whose topic cannot be named is
+# grouped and shown, never dropped from the count.
+UNCLASSIFIED = 'Unclassified'
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # Helpers — shared by the topic-tree and grading methods
@@ -82,8 +86,11 @@ class CodingExercisePlugin(SubjectPlugin):
         section answers "how much of what they attempted came out right",
         which is the same question for both.
         """
-        from coding.models import StudentExerciseSubmission, StudentProblemSubmission
+        from coding.models import (
+            CodingProblem, StudentExerciseSubmission, StudentProblemSubmission,
+        )
 
+        categories = dict(CodingProblem.CATEGORY_CHOICES)
         rows = []
 
         exercises = {}
@@ -91,10 +98,12 @@ class CodingExercisePlugin(SubjectPlugin):
             StudentExerciseSubmission.objects
             .filter(student=student, submitted_at__gte=begin,
                     submitted_at__lte=finish)
-            .values('exercise_id', 'exercise__title', 'is_completed')
+            .values('exercise_id', 'exercise__title', 'is_completed',
+                    'exercise__topic_level__topic__name')
         ):
             entry = exercises.setdefault(row['exercise_id'], {
                 'name': row['exercise__title'] or 'Exercise',
+                'topic': row['exercise__topic_level__topic__name'] or UNCLASSIFIED,
                 'attempts': 0, 'done': False,
             })
             entry['attempts'] += 1
@@ -103,7 +112,8 @@ class CodingExercisePlugin(SubjectPlugin):
         for entry in exercises.values():
             pct = 100 if entry['done'] else 0
             rows.append({
-                'name': entry['name'], 'attempts': entry['attempts'],
+                'name': entry['name'], 'topic': entry['topic'],
+                'attempts': entry['attempts'],
                 # An exercise has no partial credit, so there is no gain to
                 # report: it was finished or it was not.
                 'first_pct': pct, 'best_pct': pct, 'gain_pct': 0,
@@ -119,14 +129,18 @@ class CodingExercisePlugin(SubjectPlugin):
             .filter(student=student, submitted_at__gte=begin,
                     submitted_at__lte=finish)
             .order_by('attempt_number')
-            .values('problem_id', 'problem__title', 'visible_passed',
-                    'visible_total', 'hidden_passed', 'hidden_total')
+            .values('problem_id', 'problem__title', 'problem__category',
+                    'visible_passed', 'visible_total',
+                    'hidden_passed', 'hidden_total')
         ):
             total = (row['visible_total'] or 0) + (row['hidden_total'] or 0)
             passed = (row['visible_passed'] or 0) + (row['hidden_passed'] or 0)
             pct = round(passed * 100 / total) if total else 0
             entry = problems.setdefault(row['problem_id'], {
                 'name': row['problem__title'] or 'Problem',
+                # A problem has no CodingTopic; its category is the equivalent
+                # grouping, and its display label is the one students see.
+                'topic': categories.get(row['problem__category'], UNCLASSIFIED),
                 'attempts': 0, 'first': pct, 'best': pct,
             })
             entry['attempts'] += 1
@@ -134,7 +148,8 @@ class CodingExercisePlugin(SubjectPlugin):
 
         for entry in problems.values():
             rows.append({
-                'name': entry['name'], 'attempts': entry['attempts'],
+                'name': entry['name'], 'topic': entry['topic'],
+                'attempts': entry['attempts'],
                 'first_pct': entry['first'], 'best_pct': entry['best'],
                 'gain_pct': entry['best'] - entry['first'],
                 # Graded by the tests it passed: a real accuracy figure.
@@ -158,7 +173,63 @@ class CodingExercisePlugin(SubjectPlugin):
             'avg_best_pct': avg_best,
             'improvement_pct': avg_best - avg_first,
             'rows': rows,
+            'topics': self._practice_topics(rows),
         }
+
+    @staticmethod
+    def _practice_topics(rows):
+        """``rows`` collapsed to one entry per topic, for the report table.
+
+        Sixty-four exercise names is a list, not a summary — nobody reads it
+        and no parent learns anything from "Count to 5, 1 attempt, 100%". The
+        topic is the unit a family can act on.
+
+        Presentation only. ``rows`` stays the authoritative per-item list and
+        every total is still computed from it, because scored_items feeds
+        activity_items and the overall average; deriving those from topic
+        groups instead would silently change the headline figures.
+
+        Finished and scored are kept APART inside each topic, for the same
+        reason they are kept apart in the totals: an exercise scores 100 for
+        being completed, so averaging it with a problem's real mark produces a
+        number that looks like achievement and is not. A topic reports how many
+        exercises were finished AND, separately, the average on the problems
+        that carry a mark — with ``None`` where there is nothing of that kind
+        to report, so the template prints a dash rather than a misleading 0%.
+        """
+        grouped = {}
+        for row in rows:
+            topic = grouped.setdefault(row['topic'], {
+                'name': row['topic'], 'items': 0, 'attempts': 0,
+                'exercises': 0, 'finished': 0, 'scored': [],
+            })
+            topic['items'] += 1
+            topic['attempts'] += row['attempts']
+            if row.get('scored', True):
+                topic['scored'].append(row)
+            else:
+                topic['exercises'] += 1
+                # best_pct is 100 exactly when the exercise was completed.
+                topic['finished'] += 1 if row['best_pct'] else 0
+
+        summaries = []
+        for topic in grouped.values():
+            marked = topic.pop('scored')
+            topic['scored_items'] = len(marked)
+            topic['first_pct'] = (
+                round(sum(r['first_pct'] for r in marked) / len(marked))
+                if marked else None
+            )
+            topic['best_pct'] = (
+                round(sum(r['best_pct'] for r in marked) / len(marked))
+                if marked else None
+            )
+            summaries.append(topic)
+
+        # Most practised first; the topic a child spent the week on is the one
+        # a reader is looking for.
+        summaries.sort(key=lambda t: (-t['attempts'], -t['items'], t['name']))
+        return summaries
 
     def content_topic_names(self, content_ids):
         """CodingExercise -> its CodingTopic name.
