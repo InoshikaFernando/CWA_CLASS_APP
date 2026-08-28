@@ -15,7 +15,7 @@ Two properties carry the weight here:
   have shown this user.
 """
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 from django.test import TestCase
 from django.urls import reverse
@@ -359,3 +359,106 @@ class RubricSectionRenderTests(TestCase):
         self.assertContains(response, "Teacher's assessment")
         # 3 criteria, all confident -> achieved == 3.
         self.assertContains(response, 'of 3 criteria at confident or above')
+
+
+class PracticeSectionRenderTests(TestCase):
+    """The coding-practice block must RENDER, with its topic table.
+
+    Same lesson as RubricSectionRenderTests above: the section was fully
+    covered by unit tests that built the dict and never rendered it, which is
+    how a template reading a key that does not exist reaches the test site as
+    a 500. This one exercises `{% if topic.best_pct is not None %}`, which is
+    the branch a dict-only test cannot reach.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.models import SchoolTeacher, Subject
+        from coding.models import (
+            CodingExercise, CodingLanguage, CodingTopic,
+            StudentExerciseSubmission, TopicLevel,
+        )
+        from progress.tests.factories import (
+            enable_reports, enrol, make_classroom, make_school, make_user,
+        )
+
+        cls.school = make_school(name='Practice School', slug='practice-school')
+        cls.hoi = make_user('pr_hoi', 'head_of_institute')
+        SchoolTeacher.objects.create(
+            school=cls.school, teacher=cls.hoi, role='head_of_institute',
+        )
+        cls.student = make_user('pr_student', first_name='Aadya')
+        subject, _ = Subject.objects.get_or_create(
+            slug='coding', school=None, defaults={'name': 'Coding'},
+        )
+        cls.room = make_classroom(cls.school, name='Web Prog', code='PR000001')
+        cls.room.subject = subject
+        cls.room.save(update_fields=['subject'])
+        enrol(cls.room, cls.student)
+
+        cls.start, cls.end = periods.previous_week(periods.today())
+        when = timezone.make_aware(timezone.datetime.combine(
+            cls.start + timedelta(days=1),
+            timezone.datetime.min.time().replace(hour=10),
+        ))
+
+        language = CodingLanguage.objects.create(name='Python', slug='py-pr')
+        topic = CodingTopic.objects.create(
+            name='Loops', slug='pr-loops', language=language,
+        )
+        level = TopicLevel.objects.create(
+            topic=topic, level_choice=TopicLevel.BEGINNER,
+        )
+        for title in ('Count to 5', 'Even or Odd'):
+            exercise = CodingExercise.objects.create(
+                title=title, topic_level=level, description='d',
+            )
+            row = StudentExerciseSubmission.objects.create(
+                student=cls.student, exercise=exercise, code_submitted='x',
+                is_completed=True,
+            )
+            StudentExerciseSubmission.objects.filter(pk=row.pk).update(
+                submitted_at=when,
+            )
+
+        enable_reports(cls.school, kind='school', weekly=True)
+
+    def setUp(self):
+        self.client.force_login(self.hoi)
+
+    def _get(self):
+        return self.client.get('/progress/reports/preview/report/', {
+            'school': self.school.id, 'period': periods.WEEKLY,
+            'student': self.student.id,
+        })
+
+    def test_the_practice_section_renders_by_topic(self):
+        response = self._get()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'report-subject-practice')
+        self.assertContains(response, 'Loops')
+        self.assertContains(response, '2 of 2')
+
+    def test_the_exercise_names_are_kept_behind_the_summary(self):
+        """Grouping summarises; it must not throw the detail away."""
+        response = self._get()
+
+        self.assertContains(response, 'Show all 2 exercises')
+        self.assertContains(response, 'Count to 5')
+        self.assertContains(response, 'Even or Odd')
+
+    def test_an_unmarked_topic_shows_a_dash_not_a_percentage(self):
+        """Both exercises are completion-only, so there is no mark to show.
+
+        Asserted against the block itself rather than the whole page: a
+        page-wide "no 100% anywhere" check passes for the wrong reasons and
+        fails for them too.
+        """
+        response = self._get()
+        html = response.content.decode()
+        block = html.split('report-subject-practice', 1)[1].split('</table>', 1)[0]
+
+        self.assertIn('&mdash;', block)
+        self.assertNotIn('100%', block)
+        self.assertIn('all completion-based, so there is no average mark', html)
