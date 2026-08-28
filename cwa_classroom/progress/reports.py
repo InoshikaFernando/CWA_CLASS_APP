@@ -148,6 +148,27 @@ def _group_by_homework(submissions):
 # Sections
 # ---------------------------------------------------------------------------
 
+def has_activity(data):
+    """Whether this report says the child did anything in the window.
+
+    THE one definition. It lived in two places — PeriodReport.has_activity and
+    the preview row — and they disagreed: the preview tested
+    ``totals['submissions']`` alone, which counts homework submissions and
+    nothing else. So a child whose week was coding practice, worksheets,
+    quizzes or times tables read "No activity this period — nothing will be
+    sent" on the preview while the generator counted them active and sent the
+    report. The preview understated the work AND misreported what would
+    happen.
+
+    ``activity_items`` is the effort total (see build_report_data): every
+    strand, including the completion-only practice left out of the average.
+    ``submissions`` stays in the test because a homework submission scoring
+    zero is still activity.
+    """
+    totals = data.get('totals') or {}
+    return bool(totals.get('submissions') or totals.get('activity_items'))
+
+
 def totals_section(submissions, due):
     """Headline figures — §2.1 of the spec.
 
