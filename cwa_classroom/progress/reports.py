@@ -191,8 +191,9 @@ def subject_practice_section(student, start, end, subject_slugs=None):
     """
     from classroom import subject_registry
 
-    empty = {'items': 0, 'attempts': 0, 'avg_first_pct': 0, 'avg_best_pct': 0,
-             'improvement_pct': 0, 'sections': []}
+    empty = {'items': 0, 'scored_items': 0, 'attempts': 0, 'avg_first_pct': 0,
+             'avg_best_pct': 0, 'scored_avg_best_pct': 0, 'improvement_pct': 0,
+             'sections': []}
     if not subject_slugs:
         # None (unscoped) is deliberately empty here rather than "every
         # subject": this section is only meaningful once a report knows which
@@ -215,11 +216,30 @@ def subject_practice_section(student, start, end, subject_slugs=None):
     firsts = [s['avg_first_pct'] for s in sections]
     bests = [s['avg_best_pct'] for s in sections]
     avg_first, avg_best = _mean(firsts), _mean(bests)
+
+    # Split effort from achievement. A coding exercise scores 100 for being
+    # finished and 0 for not, which is a completion rate, not a mark. Ninety
+    # seven of those would otherwise decide overall_avg_pct on their own and
+    # make "96%" mean "she finished nearly everything she opened", in the same
+    # column as a maths average that really is accuracy.
+    #
+    # So the unscored rows stay visible as work done — items, has_activity, the
+    # section itself — and only the scored ones reach the headline. Rows are
+    # scored unless a plugin says otherwise, because a percentage normally is
+    # a mark.
+    scored_rows = [
+        row for section in sections for row in section['rows']
+        if row.get('scored', True)
+    ]
     return {
         'items': sum(s['items'] for s in sections),
+        'scored_items': len(scored_rows),
         'attempts': sum(s['attempts'] for s in sections),
         'avg_first_pct': avg_first,
         'avg_best_pct': avg_best,
+        'scored_avg_best_pct': (
+            _mean([row['best_pct'] for row in scored_rows]) if scored_rows else 0
+        ),
         'improvement_pct': avg_best - avg_first,
         'sections': sections,
     }
@@ -920,15 +940,25 @@ def build_report_data(student, period_type, start, end, term=None,
         (quizzes['attempted'], quizzes['avg_best_pct']),
         (times_tables['tables'], times_tables['avg_best_pct']),
         (basic_facts['subtopics'], basic_facts['avg_best_pct']),
-        (subject_practice['items'], subject_practice['avg_best_pct']),
+        # scored_items, not items: completion is effort, not a mark. See
+        # subject_practice_section.
+        (subject_practice['scored_items'],
+         subject_practice['scored_avg_best_pct']),
         (worksheets['completed'], worksheets['average_pct']),
     ]
     counted = [(n, pct) for n, pct in strands if n]
-    activity_items = sum(n for n, _ in counted)
-    totals['activity_items'] = activity_items
+
+    # Two different totals, and conflating them is what made this wrong once
+    # already. `weighted` is the divisor for the average and counts only what
+    # carries a mark; `activity_items` is effort and counts everything the
+    # child did, including the completion-only practice left out of the
+    # average. has_activity reads the second, so a week of coding exercises
+    # must not come back as "no activity".
+    weighted = sum(n for n, _ in counted)
+    unscored = subject_practice['items'] - subject_practice['scored_items']
+    totals['activity_items'] = weighted + unscored
     totals['overall_avg_pct'] = (
-        round(sum(n * pct for n, pct in counted) / activity_items)
-        if activity_items else 0
+        round(sum(n * pct for n, pct in counted) / weighted) if weighted else 0
     )
 
     return {

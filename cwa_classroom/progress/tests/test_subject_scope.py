@@ -340,3 +340,107 @@ class SubjectPracticeTests(TestCase):
             classroom_ids=None,
         )
         self.assertIn('subject_practice', data)
+
+
+class OverallExcludesCompletionOnlyTests(TestCase):
+    """Finishing something is effort; it must not set the achievement figure.
+
+    Found on the test site: a coding row read 90% homework and 96% Overall,
+    because 97 of 102 counted items were coding exercises and an exercise
+    scores 100 for being finished. The headline had become a completion rate
+    sitting in the same column as a maths average that really is accuracy.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from coding.models import (
+            CodingExercise, CodingLanguage, CodingProblem, CodingTopic,
+            StudentExerciseSubmission, StudentProblemSubmission, TopicLevel,
+        )
+
+        cls.student = make_user('ov_student', first_name='Aadya')
+        cls.start, cls.end = periods.previous_week(periods.today())
+        when = timezone.make_aware(timezone.datetime.combine(
+            cls.start + timedelta(days=1),
+            timezone.datetime.min.time().replace(hour=10),
+        ))
+
+        language = CodingLanguage.objects.create(name='Python', slug='py-ov')
+        topic = CodingTopic.objects.create(name='Loops', language=language)
+        level = TopicLevel.objects.create(
+            topic=topic, level_choice=TopicLevel.BEGINNER,
+        )
+
+        # Ten finished exercises: a lot of effort, all scoring 100 for "done".
+        for index in range(10):
+            exercise = CodingExercise.objects.create(
+                title=f'Exercise {index}', topic_level=level, description='d',
+            )
+            row = StudentExerciseSubmission.objects.create(
+                student=cls.student, exercise=exercise, code_submitted='x',
+                is_completed=True,
+            )
+            StudentExerciseSubmission.objects.filter(pk=row.pk).update(
+                submitted_at=when,
+            )
+
+        # One graded problem, done badly.
+        problem = CodingProblem.objects.create(
+            title='FizzBuzz', language=language, description='d',
+        )
+        StudentProblemSubmission.objects.create(
+            student=cls.student, problem=problem, attempt_number=1,
+            code_submitted='x', visible_passed=1, visible_total=2,
+            hidden_passed=0, hidden_total=2, submitted_at=when,
+        )
+
+    def _section(self):
+        from progress.reports import subject_practice_section
+
+        return subject_practice_section(
+            self.student, self.start, self.end, {'coding'},
+        )
+
+    def test_all_the_work_is_still_counted_as_effort(self):
+        section = self._section()
+
+        self.assertEqual(section['items'], 11)
+
+    def test_only_the_graded_work_reaches_the_headline(self):
+        section = self._section()
+
+        self.assertEqual(section['scored_items'], 1)
+        # The problem passed 1 of 4 tests.
+        self.assertEqual(section['scored_avg_best_pct'], 25)
+
+    def test_ten_finished_exercises_do_not_drown_out_one_bad_problem(self):
+        """The regression itself: without the split this averaged ~93%."""
+        section = self._section()
+
+        self.assertLess(section['scored_avg_best_pct'], 50)
+
+    def test_the_excluded_effort_still_counts_as_activity(self):
+        """Left out of the average, still counted as work done.
+
+        activity_items is what has_activity reads, so dropping the exercises
+        from it would tell a child a week of coding did not happen.
+        """
+        from progress.reports import build_report_data
+
+        school = make_school(name='Ov School', slug='ov-school')
+        room = make_classroom(school, name='Coding', code='OV000001')
+        room.subject = _subject('coding', 'Coding')
+        room.save(update_fields=['subject'])
+        enrol(room, self.student)
+
+        data = build_report_data(
+            self.student, periods.WEEKLY, self.start, self.end,
+            classroom_ids=[room.id],
+        )
+
+        self.assertEqual(data['subject_practice']['items'], 11)
+        self.assertEqual(data['subject_practice']['scored_items'], 1)
+        # 10 unscored exercises + the 1 scored problem.
+        self.assertEqual(data['totals']['activity_items'], 11)
+        # The headline is the problem's mark, not the completion rate.
+        self.assertEqual(data['totals']['overall_avg_pct'], 25)
