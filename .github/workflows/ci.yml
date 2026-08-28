@@ -122,6 +122,25 @@ jobs:
               - 'cwa_classroom/coding/**'
               # Same for CodingExercise's manager.
               - 'cwa_classroom/brainbuzz/managers.py'
+            api:
+              - 'cwa_classroom/api/**'
+              # The API suite drives every app it exposes, so a serializer,
+              # scoping or model change in any of them can break it without
+              # touching a file under api/. A filter that watched only api/
+              # would let those breakages through silently — the tests would
+              # simply not run rather than go red.
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/progress/**'
+              - 'cwa_classroom/rewards/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/number_puzzles/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/feedback/**'
+              - 'cwa_classroom/help/**'
+              - 'cwa_classroom/accounts/**'
             accounts:
               - 'cwa_classroom/accounts/**'
             audit:
@@ -390,6 +409,7 @@ jobs:
           UNIT_SUITES: |
             accounts:accounts/
             ai_import:ai_import/
+            api:api/
             audit:audit/
             billing:billing/
             brainbuzz:brainbuzz/

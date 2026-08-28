@@ -1,0 +1,5234 @@
+openapi: 3.0.3
+info:
+  title: CWA Classroom API
+  version: 1.20.0
+  description: |-
+    JSON API for the Wizards Learning Hub mobile app.
+
+    All endpoints are role-scoped: a student sees only their own data, a parent only their linked children, a teacher only the classes they teach, and institute staff only their own school.
+paths:
+  /api/v1/attendance/:
+    get:
+      operationId: attendance_list
+      description: Attendance records for students the caller may read.
+      parameters:
+      - in: query
+        name: classroom
+        schema:
+          type: integer
+        description: Filter to one class id.
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: student
+        schema:
+          type: integer
+        description: Filter to one student id.
+      tags:
+      - attendance
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStudentAttendanceList'
+          description: ''
+  /api/v1/auth/change-password/:
+    post:
+      operationId: auth_change_password_create
+      description: |-
+        Change the caller's own password.
+
+        Also clears ``must_change_password``, which is the flag that walls a
+        newly-created account behind the profile gate — so a student created by a
+        head of institute can complete that step from the app instead of being
+        told to go and find a browser.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: Password changed.
+  /api/v1/auth/login/:
+    post:
+      operationId: auth_login_create
+      description: |-
+        POST username/email + password → access and refresh tokens.
+
+        The username field accepts an email too: the project authenticates through
+        ``accounts.backends.EmailOrUsernameBackend``, and a student who signs in to
+        the website with their email would otherwise be told their password was
+        wrong on the phone.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/logout/:
+    post:
+      operationId: auth_logout_create
+      description: |-
+        Revoke a refresh token.
+
+        Without this, "log out" on a phone can only forget the tokens locally —
+        a copy taken off the device would keep working until it expired, which
+        with a 30-day refresh lifetime is a long time to be wrong about.
+
+        The access token is not revoked (it is stateless and short-lived by
+        design); the client discards it and it dies on its own.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '205':
+          description: Refresh token revoked.
+  /api/v1/auth/me/:
+    get:
+      operationId: auth_me_retrieve
+      description: |-
+        The signed-in user's own profile.
+
+        GET returns it; PATCH updates the handful of fields a person owns about
+        themselves. Roles, school membership and account standing are deliberately
+        not writable — those are granted by a school, not chosen by the holder.
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    patch:
+      operationId: auth_me_partial_update
+      description: |-
+        The signed-in user's own profile.
+
+        GET returns it; PATCH updates the handful of fields a person owns about
+        themselves. Roles, school membership and account standing are deliberately
+        not writable — those are granted by a school, not chosen by the holder.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/v1/auth/refresh/:
+    post:
+      operationId: auth_refresh_create
+      description: |-
+        Exchange a refresh token for a new access token.
+
+        Rotation is on, so the response also carries a NEW refresh token and the
+        one just used is blacklisted. The client must store the returned refresh
+        token — replaying the old one will be rejected.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/v1/auth/verify/:
+    post:
+      operationId: auth_verify_create
+      description: Cheap "is this token still good?" check for app start-up.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenVerifyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenVerifyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenVerifyRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/basic-facts-results/:
+    get:
+      operationId: basic_facts_results_list
+      description: Basic-facts attempts for students the caller may read.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: student
+        schema:
+          type: integer
+        description: Filter to one student id.
+      - in: query
+        name: subtopic
+        schema:
+          type: string
+        description: e.g. Addition.
+      tags:
+      - basic-facts-results
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedBasicFactsResultList'
+          description: ''
+  /api/v1/children/:
+    get:
+      operationId: children_list
+      description: A parent's linked children — the app's child switcher.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - children
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedChildList'
+          description: ''
+  /api/v1/classes/:
+    get:
+      operationId: classes_list
+      description: Classes the caller teaches, attends, administers, or has a child
+        in.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - classes
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedClassRoomList'
+          description: ''
+  /api/v1/classes/{id}/:
+    get:
+      operationId: classes_retrieve
+      description: Classes the caller teaches, attends, administers, or has a child
+        in.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this class room.
+        required: true
+      tags:
+      - classes
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassRoom'
+          description: ''
+  /api/v1/classes/{id}/sessions/:
+    get:
+      operationId: classes_sessions_list
+      description: Scheduled sessions for this class, soonest first.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this class room.
+        required: true
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - classes
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedClassSessionList'
+          description: ''
+  /api/v1/classes/{id}/students/:
+    get:
+      operationId: classes_students_list
+      description: |-
+        The class roster.
+
+        Staff-only: a parent can see that a class exists and who teaches it,
+        but the list of the other children in it is not theirs to read.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this class room.
+        required: true
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - classes
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedClassStudentList'
+          description: ''
+  /api/v1/coding/exercises/:
+    get:
+      operationId: coding_exercises_list
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: topic_level
+        schema:
+          type: integer
+        description: Filter to one topic level.
+      tags:
+      - coding
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCodingExerciseList'
+          description: ''
+  /api/v1/coding/exercises/{id}/:
+    get:
+      operationId: coding_exercises_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this coding exercise.
+        required: true
+      tags:
+      - coding
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodingExercise'
+          description: ''
+  /api/v1/coding/languages/:
+    get:
+      operationId: coding_languages_list
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - coding
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCodingLanguageList'
+          description: ''
+  /api/v1/coding/submissions/:
+    get:
+      operationId: coding_submissions_list
+      description: |-
+        A student's coding attempts.
+
+        Creating one records what the student ran; grading and points stay with
+        the existing coding views, which own that logic.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - coding
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStudentExerciseSubmissionList'
+          description: ''
+    post:
+      operationId: coding_submissions_create
+      description: |-
+        A student's coding attempts.
+
+        Creating one records what the student ran; grading and points stay with
+        the existing coding views, which own that logic.
+      tags:
+      - coding
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentExerciseSubmissionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StudentExerciseSubmissionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StudentExerciseSubmissionRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentExerciseSubmission'
+          description: ''
+  /api/v1/coding/submissions/{id}/:
+    get:
+      operationId: coding_submissions_retrieve
+      description: |-
+        A student's coding attempts.
+
+        Creating one records what the student ran; grading and points stay with
+        the existing coding views, which own that logic.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this student exercise submission.
+        required: true
+      tags:
+      - coding
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentExerciseSubmission'
+          description: ''
+  /api/v1/coding/topics/:
+    get:
+      operationId: coding_topics_list
+      parameters:
+      - in: query
+        name: language
+        schema:
+          type: integer
+        description: Filter to one language id.
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - coding
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCodingTopicList'
+          description: ''
+  /api/v1/coding/topics/{id}/:
+    get:
+      operationId: coding_topics_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this coding topic.
+        required: true
+      tags:
+      - coding
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodingTopic'
+          description: ''
+  /api/v1/feedback/:
+    get:
+      operationId: feedback_list
+      description: The caller's own feedback.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - feedback
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedFeedbackList'
+          description: ''
+    post:
+      operationId: feedback_create
+      description: The caller's own feedback.
+      tags:
+      - feedback
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feedback'
+          description: ''
+  /api/v1/feedback/{id}/:
+    get:
+      operationId: feedback_retrieve
+      description: The caller's own feedback.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this feedback.
+        required: true
+      tags:
+      - feedback
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feedback'
+          description: ''
+  /api/v1/help/articles/:
+    get:
+      operationId: help_articles_list
+      description: Published articles for the caller's role group.
+      parameters:
+      - in: query
+        name: category
+        schema:
+          type: string
+        description: Category slug.
+      - in: query
+        name: module
+        schema:
+          type: string
+        description: Filter to one module.
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - help
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedHelpArticleSummaryList'
+          description: ''
+  /api/v1/help/articles/{slug}/:
+    get:
+      operationId: help_articles_retrieve
+      description: Published articles for the caller's role group.
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+        required: true
+      tags:
+      - help
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpArticleDetail'
+          description: ''
+  /api/v1/help/categories/:
+    get:
+      operationId: help_categories_list
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - help
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedHelpCategoryList'
+          description: ''
+  /api/v1/help/faqs/:
+    get:
+      operationId: help_faqs_list
+      description: FAQs for the caller's role group.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - help
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedFAQList'
+          description: ''
+  /api/v1/homework/:
+    get:
+      operationId: homework_list
+      description: |-
+        Homework the caller can see.
+
+        A student sees published homework for their classes. Staff see everything
+        in the classes they teach or administer, including drafts and scheduled
+        items that have not gone live.
+      parameters:
+      - in: query
+        name: classroom
+        schema:
+          type: integer
+        description: Filter to one class id.
+      - in: query
+        name: due
+        schema:
+          type: string
+        description: upcoming | overdue
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: created | published | expired
+      tags:
+      - homework
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedHomeworkList'
+          description: ''
+  /api/v1/homework/{id}/:
+    get:
+      operationId: homework_retrieve
+      description: |-
+        Homework the caller can see.
+
+        A student sees published homework for their classes. Staff see everything
+        in the classes they teach or administer, including drafts and scheduled
+        items that have not gone live.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this homework.
+        required: true
+      tags:
+      - homework
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Homework'
+          description: ''
+  /api/v1/homework/{id}/questions/:
+    get:
+      operationId: homework_questions_list
+      description: |-
+        The items assigned, in order.
+
+        Only identifiers are returned — the app fetches each item's body from
+        the subject that owns it. Sending the maths answer key alongside the
+        question would put the correct answers on the device before the
+        student has answered.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this homework.
+        required: true
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - homework
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedHomeworkQuestionList'
+          description: ''
+  /api/v1/homework/{id}/submit/:
+    post:
+      operationId: homework_submit_create
+      description: Hand in one complete attempt.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this homework.
+        required: true
+      tags:
+      - homework
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HomeworkSubmitRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/HomeworkSubmitRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/HomeworkSubmitRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HomeworkSubmission'
+          description: ''
+  /api/v1/invoices/:
+    get:
+      operationId: invoices_list
+      description: Issued invoices for students the caller may read.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: issued | partially_paid | paid | cancelled
+      - in: query
+        name: student
+        schema:
+          type: integer
+        description: Filter to one student id.
+      - in: query
+        name: unpaid
+        schema:
+          type: boolean
+        description: Only what is still owed.
+      tags:
+      - invoices
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedInvoiceSummaryList'
+          description: ''
+  /api/v1/invoices/{id}/:
+    get:
+      operationId: invoices_retrieve
+      description: Issued invoices for students the caller may read.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this invoice.
+        required: true
+      tags:
+      - invoices
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+          description: ''
+  /api/v1/leaderboard/:
+    get:
+      operationId: leaderboard_retrieve
+      description: The board a student sits on, global or school-scoped.
+      parameters:
+      - in: query
+        name: scope
+        schema:
+          type: string
+        description: '''global'' (default) or ''school''.'
+      - in: query
+        name: student
+        schema:
+          type: integer
+        description: Defaults to the caller.
+      tags:
+      - leaderboard
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Standing'
+          description: ''
+  /api/v1/levels/:
+    get:
+      operationId: levels_list
+      description: Curriculum levels, optionally filtered to one subject.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: subject
+        schema:
+          type: integer
+        description: Filter to one subject id.
+      tags:
+      - levels
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedLevelList'
+          description: ''
+  /api/v1/levels/{id}/:
+    get:
+      operationId: levels_retrieve
+      description: Curriculum levels, optionally filtered to one subject.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this level.
+        required: true
+      tags:
+      - levels
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Level'
+          description: ''
+  /api/v1/maths/time-spent/:
+    get:
+      operationId: maths_time_spent_retrieve
+      description: |-
+        Practice time for the caller today and this week.
+
+        Reads through the model's own reset helpers so a stale daily total is
+        rolled over rather than reported as today's — the same thing the web view
+        does.
+      tags:
+      - maths
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeLog'
+          description: ''
+  /api/v1/notifications/:
+    get:
+      operationId: notifications_list
+      description: The caller's own in-app notifications. Never anyone else's.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: unread
+        schema:
+          type: boolean
+        description: Only unread notifications.
+      tags:
+      - notifications
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedNotificationList'
+          description: ''
+  /api/v1/notifications/{id}/:
+    get:
+      operationId: notifications_retrieve
+      description: The caller's own in-app notifications. Never anyone else's.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this notification.
+        required: true
+      tags:
+      - notifications
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+          description: ''
+  /api/v1/notifications/{id}/read/:
+    post:
+      operationId: notifications_read_create
+      description: The caller's own in-app notifications. Never anyone else's.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this notification.
+        required: true
+      tags:
+      - notifications
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/NotificationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/NotificationRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+          description: ''
+  /api/v1/notifications/read-all/:
+    post:
+      operationId: notifications_read_all_create
+      description: The caller's own in-app notifications. Never anyone else's.
+      tags:
+      - notifications
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/NotificationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/NotificationRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/notifications/unread-count/:
+    get:
+      operationId: notifications_unread_count_retrieve
+      description: Cheap poll for the app's badge — one indexed count, no serialising.
+      tags:
+      - notifications
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/payments/:
+    get:
+      operationId: payments_list
+      description: Payments recorded against students the caller may read.
+      parameters:
+      - in: query
+        name: invoice
+        schema:
+          type: integer
+        description: Filter to one invoice id.
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: student
+        schema:
+          type: integer
+        description: Filter to one student id.
+      tags:
+      - payments
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedInvoicePaymentList'
+          description: ''
+  /api/v1/points/:
+    get:
+      operationId: points_list
+      description: Individual point awards for students the caller may read.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: source
+        schema:
+          type: string
+        description: Filter to one points source.
+      - in: query
+        name: student
+        schema:
+          type: integer
+        description: Filter to one student id.
+      tags:
+      - points
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPointsAwardList'
+          description: ''
+  /api/v1/points/total/:
+    get:
+      operationId: points_total_retrieve
+      description: |-
+        A student's running total.
+
+        Defaults to the caller; a parent or teacher may ask for a student they are
+        allowed to see by passing ``?student=``.
+      parameters:
+      - in: query
+        name: student
+        schema:
+          type: integer
+        description: Defaults to the caller.
+      tags:
+      - points
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentPointsTotal'
+          description: ''
+  /api/v1/puzzles/:
+    get:
+      operationId: puzzles_list
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - puzzles
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedNumberPuzzleList'
+          description: ''
+  /api/v1/puzzles/{id}/:
+    get:
+      operationId: puzzles_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this number puzzle.
+        required: true
+      tags:
+      - puzzles
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NumberPuzzle'
+          description: ''
+  /api/v1/puzzles/levels/:
+    get:
+      operationId: puzzles_levels_list
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - puzzles
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedNumberPuzzleLevelList'
+          description: ''
+  /api/v1/puzzles/levels/{id}/:
+    get:
+      operationId: puzzles_levels_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this number puzzle level.
+        required: true
+      tags:
+      - puzzles
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NumberPuzzleLevel'
+          description: ''
+  /api/v1/puzzles/progress/:
+    get:
+      operationId: puzzles_progress_list
+      description: Puzzle progress for students the caller may read.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - puzzles
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStudentPuzzleProgressList'
+          description: ''
+  /api/v1/reports/:
+    get:
+      operationId: reports_list
+      description: Progress reports for students the caller may read.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: period_type
+        schema:
+          type: string
+        description: weekly | monthly | term
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: student
+        schema:
+          type: integer
+        description: Filter to one student id.
+      - in: query
+        name: subject
+        schema:
+          type: integer
+        description: Filter to one subject id.
+      tags:
+      - reports
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPeriodReportSummaryList'
+          description: ''
+  /api/v1/reports/{id}/:
+    get:
+      operationId: reports_retrieve
+      description: Progress reports for students the caller may read.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this period report.
+        required: true
+      tags:
+      - reports
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeriodReportDetail'
+          description: ''
+  /api/v1/sessions/:
+    get:
+      operationId: sessions_list
+      description: Sessions across every class the caller can see — the app's timetable.
+      parameters:
+      - in: query
+        name: from
+        schema:
+          type: string
+        description: ISO date — sessions on or after.
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: to
+        schema:
+          type: string
+        description: ISO date — sessions on or before.
+      - in: query
+        name: upcoming
+        schema:
+          type: boolean
+        description: Only today and later.
+      tags:
+      - sessions
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedClassSessionList'
+          description: ''
+  /api/v1/sessions/{id}/:
+    get:
+      operationId: sessions_retrieve
+      description: Sessions across every class the caller can see — the app's timetable.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this class session.
+        required: true
+      tags:
+      - sessions
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassSession'
+          description: ''
+  /api/v1/sessions/{id}/attendance/:
+    post:
+      operationId: sessions_attendance_create
+      description: |-
+        Mark attendance for a session. Teachers only.
+
+        Accepts a list so a teacher can submit a whole roster in one request —
+        marking thirty students one call at a time over a classroom's wifi is
+        thirty chances to half-succeed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this class session.
+        required: true
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - sessions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/AttendanceMarkRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/AttendanceMarkRequest'
+          multipart/form-data:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/AttendanceMarkRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStudentAttendanceList'
+          description: ''
+  /api/v1/subjects/:
+    get:
+      operationId: subjects_list
+      description: 'Subjects the caller can see: the global ones plus their own school''s.'
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - subjects
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSubjectList'
+          description: ''
+  /api/v1/subjects/{id}/:
+    get:
+      operationId: subjects_retrieve
+      description: 'Subjects the caller can see: the global ones plus their own school''s.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this subject.
+        required: true
+      tags:
+      - subjects
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subject'
+          description: ''
+  /api/v1/submissions/:
+    get:
+      operationId: submissions_list
+      description: Submissions for students the caller may read.
+      parameters:
+      - in: query
+        name: homework
+        schema:
+          type: integer
+        description: Filter to one homework id.
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: student
+        schema:
+          type: integer
+        description: Filter to one student id.
+      tags:
+      - submissions
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedHomeworkSubmissionList'
+          description: ''
+  /api/v1/submissions/{id}/:
+    get:
+      operationId: submissions_retrieve
+      description: Submissions for students the caller may read.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this homework submission.
+        required: true
+      tags:
+      - submissions
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HomeworkSubmission'
+          description: ''
+  /api/v1/submissions/{id}/answers/:
+    get:
+      operationId: submissions_answers_list
+      description: The per-question breakdown, with whatever feedback exists.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this homework submission.
+        required: true
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - submissions
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedHomeworkStudentAnswerList'
+          description: ''
+  /api/v1/topics/:
+    get:
+      operationId: topics_list
+      description: Topics, filterable by subject and level — what the practice picker
+        needs.
+      parameters:
+      - in: query
+        name: level
+        schema:
+          type: integer
+        description: Filter to one level id.
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: subject
+        schema:
+          type: integer
+        description: Filter to one subject id.
+      tags:
+      - topics
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTopicList'
+          description: ''
+  /api/v1/topics/{id}/:
+    get:
+      operationId: topics_retrieve
+      description: Topics, filterable by subject and level — what the practice picker
+        needs.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this topic.
+        required: true
+      tags:
+      - topics
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topic'
+          description: ''
+  /api/v1/worksheet-assignments/:
+    get:
+      operationId: worksheet_assignments_list
+      description: |-
+        Assignments in classes the caller can see.
+
+        The worksheet PDF itself is not linked here: it lives in private storage
+        behind the existing worksheet views, and handing out a URL to it would
+        bypass whatever those views check.
+      parameters:
+      - in: query
+        name: classroom
+        schema:
+          type: integer
+        description: Filter to one class id.
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - worksheet-assignments
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedWorksheetAssignmentList'
+          description: ''
+  /api/v1/worksheet-assignments/{id}/:
+    get:
+      operationId: worksheet_assignments_retrieve
+      description: |-
+        Assignments in classes the caller can see.
+
+        The worksheet PDF itself is not linked here: it lives in private storage
+        behind the existing worksheet views, and handing out a URL to it would
+        bypass whatever those views check.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this worksheet assignment.
+        required: true
+      tags:
+      - worksheet-assignments
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorksheetAssignment'
+          description: ''
+  /api/v1/worksheet-submissions/:
+    get:
+      operationId: worksheet_submissions_list
+      description: Worksheet results for students the caller may read.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - worksheet-submissions
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedWorksheetSubmissionList'
+          description: ''
+components:
+  schemas:
+    AttendanceMarkRequest:
+      type: object
+      description: Payload for a teacher marking one student present/absent/late.
+      properties:
+        student_id:
+          type: integer
+        status:
+          $ref: '#/components/schemas/AttendanceMarkStatusEnum'
+      required:
+      - status
+      - student_id
+    AttendanceMarkStatusEnum:
+      enum:
+      - present
+      - absent
+      - late
+      type: string
+      description: |-
+        * `present` - present
+        * `absent` - absent
+        * `late` - late
+    AttendanceStatusEnum:
+      enum:
+      - present
+      - absent
+      - late
+      type: string
+      description: |-
+        * `present` - Present
+        * `absent` - Absent
+        * `late` - Late
+    BasicFactsResult:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        student_id:
+          type: integer
+          readOnly: true
+        level_id:
+          type: integer
+          nullable: true
+          readOnly: true
+        level_name:
+          type: string
+          readOnly: true
+        subtopic:
+          type: string
+          description: e.g. Addition, Subtraction, Multiplication, Division, PlaceValue
+          maxLength: 20
+        level_number:
+          type: integer
+          nullable: true
+          description: Numeric level within the subtopic (1-10)
+        score:
+          type: integer
+          description: Number of correct answers
+        total_points:
+          type: integer
+          description: Total possible points
+        points:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Calculated points based on score, time, and percentage
+        time_taken_seconds:
+          type: integer
+          description: Time taken for this attempt in seconds
+        completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - completed_at
+      - id
+      - level_id
+      - level_name
+      - points
+      - score
+      - student_id
+      - time_taken_seconds
+      - total_points
+    BlankEnum:
+      enum:
+      - ''
+    ChangePasswordRequest:
+      type: object
+      properties:
+        current_password:
+          type: string
+          writeOnly: true
+          minLength: 1
+        new_password:
+          type: string
+          writeOnly: true
+          minLength: 8
+      required:
+      - current_password
+      - new_password
+    Child:
+      type: object
+      description: A parent's linked child, as the parent's app lists them.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        student:
+          allOf:
+          - $ref: '#/components/schemas/UserSummary'
+          readOnly: true
+        relationship:
+          oneOf:
+          - $ref: '#/components/schemas/RelationshipEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        is_primary_contact:
+          type: boolean
+      required:
+      - id
+      - student
+    ClassRoom:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 200
+        code:
+          type: string
+          readOnly: true
+        description:
+          type: string
+        day:
+          oneOf:
+          - $ref: '#/components/schemas/DayEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        start_time:
+          type: string
+          format: time
+          nullable: true
+        end_time:
+          type: string
+          format: time
+          nullable: true
+        is_online:
+          type: boolean
+          description: Mark this class as delivered online. Combine with a location
+            for hybrid (mixed) delivery.
+        location_name:
+          type: string
+          readOnly: true
+        school_name:
+          type: string
+          readOnly: true
+        subject:
+          allOf:
+          - $ref: '#/components/schemas/Subject'
+          readOnly: true
+        teachers:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserSummary'
+          readOnly: true
+        student_count:
+          type: integer
+          nullable: true
+          readOnly: true
+        is_active:
+          type: boolean
+      required:
+      - code
+      - id
+      - location_name
+      - name
+      - school_name
+      - student_count
+      - subject
+      - teachers
+    ClassSession:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        classroom_id:
+          type: integer
+          readOnly: true
+        classroom_name:
+          type: string
+          readOnly: true
+        date:
+          type: string
+          format: date
+        start_time:
+          type: string
+          format: time
+        end_time:
+          type: string
+          format: time
+        status:
+          $ref: '#/components/schemas/SessionStatusEnum'
+        cancellation_reason:
+          type: string
+      required:
+      - classroom_id
+      - classroom_name
+      - date
+      - end_time
+      - id
+      - start_time
+    ClassStudent:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        classroom_id:
+          type: integer
+          readOnly: true
+        student:
+          allOf:
+          - $ref: '#/components/schemas/UserSummary'
+          readOnly: true
+        joined_at:
+          type: string
+          format: date-time
+          readOnly: true
+        is_active:
+          type: boolean
+      required:
+      - classroom_id
+      - id
+      - joined_at
+      - student
+    CodingExercise:
+      type: object
+      description: |-
+        An exercise as the student opens it.
+
+        ``solution_code`` is present in ``Meta.fields`` only so staff can read it;
+        ``to_representation`` removes it for everyone else. Putting the reference
+        solution on a student's device would end the exercise.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          description: Instructions shown to the student
+        starter_code:
+          type: string
+          description: Pre-filled code shown in the editor when the student opens
+            the exercise
+        expected_output:
+          type: string
+          description: Expected stdout for simple output-matching exercises (leave
+            blank for free-form exercises)
+        hints:
+          type: string
+          description: Optional hint text shown on request
+        order:
+          type: integer
+        question_type:
+          allOf:
+          - $ref: '#/components/schemas/QuestionTypeEnum'
+          description: |-
+            write_code (default) keeps existing behaviour. Other types expose MCQ/TF/short-answer options via CodingAnswer and allow the exercise to be used in BrainBuzz sessions.
+
+            * `write_code` - Write Code
+            * `multiple_choice` - Multiple Choice
+            * `true_false` - True / False
+            * `short_answer` - Short Answer
+            * `fill_blank` - Fill in the Blank
+        uses_browser_sandbox:
+          type: boolean
+          description: Override execution environment for this exercise. When True,
+            the editor renders an iframe sandbox instead of sending code to Piston.
+            Use for DOM/HTML-in-JS exercises that belong to a non-browser language
+            topic (e.g. JavaScript DOM Basics).
+        topic_level_id:
+          type: integer
+          readOnly: true
+        solution_code:
+          type: string
+          description: Reference solution — shown only to teachers, never to students
+      required:
+      - description
+      - id
+      - title
+      - topic_level_id
+    CodingLanguage:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 50
+        slug:
+          allOf:
+          - $ref: '#/components/schemas/SlugEnum'
+          pattern: ^[-a-zA-Z0-9_]+$
+        description:
+          type: string
+        icon_name:
+          type: string
+          description: Icon identifier used in templates
+          maxLength: 50
+        color:
+          type: string
+          description: Tailwind color class, e.g. 'blue-500'
+          maxLength: 30
+        order:
+          type: integer
+        is_active:
+          type: boolean
+      required:
+      - id
+      - name
+      - slug
+    CodingTopic:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 100
+        slug:
+          type: string
+          maxLength: 100
+          pattern: ^[-a-zA-Z0-9_]+$
+        description:
+          type: string
+        order:
+          type: integer
+        language_id:
+          type: integer
+          readOnly: true
+        language_name:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - language_id
+      - language_name
+      - name
+      - slug
+    DayEnum:
+      enum:
+      - monday
+      - tuesday
+      - wednesday
+      - thursday
+      - friday
+      - saturday
+      - sunday
+      type: string
+      description: |-
+        * `monday` - Monday
+        * `tuesday` - Tuesday
+        * `wednesday` - Wednesday
+        * `thursday` - Thursday
+        * `friday` - Friday
+        * `saturday` - Saturday
+        * `sunday` - Sunday
+    FAQ:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        question:
+          type: string
+          maxLength: 300
+        answer_markdown:
+          type: string
+        order:
+          type: integer
+      required:
+      - answer_markdown
+      - id
+      - question
+    Feedback:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        category:
+          $ref: '#/components/schemas/FeedbackCategoryEnum'
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        page_url:
+          type: string
+          description: URL of the page the feedback was raised from.
+          maxLength: 500
+        status:
+          allOf:
+          - $ref: '#/components/schemas/FeedbackStatusEnum'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - category
+      - created_at
+      - description
+      - id
+      - status
+    FeedbackCategoryEnum:
+      enum:
+      - bug
+      - feature
+      - improvement
+      type: string
+      description: |-
+        * `bug` - Bug
+        * `feature` - Feature request
+        * `improvement` - Improvement
+    FeedbackRequest:
+      type: object
+      properties:
+        category:
+          $ref: '#/components/schemas/FeedbackCategoryEnum'
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          minLength: 1
+        page_url:
+          type: string
+          description: URL of the page the feedback was raised from.
+          maxLength: 500
+      required:
+      - category
+      - description
+    FeedbackStatusEnum:
+      enum:
+      - new
+      - triaged
+      - planned
+      - done
+      - rejected
+      - duplicate
+      type: string
+      description: |-
+        * `new` - New
+        * `triaged` - Triaged
+        * `planned` - Planned
+        * `done` - Done
+        * `rejected` - Rejected
+        * `duplicate` - Duplicate
+    HelpArticleDetail:
+      type: object
+      description: |-
+        Detail adds the body.
+
+        Markdown rather than the rendered HTML: the app styles it natively, and
+        shipping server-rendered HTML into a mobile view is how a help page ends
+        up looking like a web page bolted into an app.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          maxLength: 200
+        slug:
+          type: string
+          maxLength: 200
+          pattern: ^[-a-zA-Z0-9_]+$
+        excerpt:
+          type: string
+          maxLength: 300
+        category:
+          allOf:
+          - $ref: '#/components/schemas/HelpCategory'
+          readOnly: true
+        module:
+          oneOf:
+          - $ref: '#/components/schemas/ModuleEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        is_featured:
+          type: boolean
+          description: Pin to top of help centre
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        body_markdown:
+          type: string
+      required:
+      - body_markdown
+      - category
+      - id
+      - slug
+      - title
+      - updated_at
+    HelpArticleSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          maxLength: 200
+        slug:
+          type: string
+          maxLength: 200
+          pattern: ^[-a-zA-Z0-9_]+$
+        excerpt:
+          type: string
+          maxLength: 300
+        category:
+          allOf:
+          - $ref: '#/components/schemas/HelpCategory'
+          readOnly: true
+        module:
+          oneOf:
+          - $ref: '#/components/schemas/ModuleEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        is_featured:
+          type: boolean
+          description: Pin to top of help centre
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - category
+      - id
+      - slug
+      - title
+      - updated_at
+    HelpCategory:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 100
+        slug:
+          type: string
+          maxLength: 100
+          pattern: ^[-a-zA-Z0-9_]+$
+        description:
+          type: string
+        order:
+          type: integer
+      required:
+      - id
+      - name
+      - slug
+    Homework:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        homework_type:
+          $ref: '#/components/schemas/HomeworkTypeEnum'
+        subject_slug:
+          type: string
+          description: Which subject-plugin owns this homework — drives topic picker,
+            item rendering and grading via classroom.subject_registry.
+          maxLength: 50
+        classroom_id:
+          type: integer
+          readOnly: true
+        classroom_name:
+          type: string
+          readOnly: true
+        num_questions:
+          type: integer
+        due_date:
+          type: string
+          format: date-time
+        max_attempts:
+          type: integer
+          nullable: true
+          description: Leave blank for unlimited attempts.
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set when the homework actually went live. This is the single
+            gate for student visibility and the publish notification email.
+        status:
+          type: string
+          readOnly: true
+        is_past_due:
+          type: boolean
+          readOnly: true
+        topics:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        attempts_used:
+          type: integer
+          readOnly: true
+        best_score:
+          type: integer
+          nullable: true
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - attempts_used
+      - best_score
+      - classroom_id
+      - classroom_name
+      - created_at
+      - due_date
+      - id
+      - is_past_due
+      - status
+      - title
+      - topics
+    HomeworkQuestion:
+      type: object
+      description: |-
+        One assigned item.
+
+        ``content_id`` plus ``subject_slug`` is the real identity — a homework can
+        hold maths questions, coding exercises or anything else the subject
+        registry knows about, so the app resolves the body through the matching
+        subject endpoint rather than expecting a maths question here.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        order:
+          type: integer
+        subject_slug:
+          type: string
+          description: Binds to classroom.subject_registry plugin slug.
+          maxLength: 50
+        content_id:
+          type: integer
+          description: pk of the underlying content row (maths.Question.id, coding.CodingExercise.id,
+            ...).
+      required:
+      - id
+    HomeworkStudentAnswer:
+      type: object
+      description: |-
+        One graded answer, as the student sees it after submitting.
+
+        Fields are listed explicitly rather than with ``__all__``: the model also
+        carries the grading internals (which teacher graded it, the AI confidence
+        fraction, the raw answer_data blob), and ``__all__`` would ship every one
+        of those to the phone the moment someone adds a column.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        subject_slug:
+          type: string
+          readOnly: true
+          description: Binds to classroom.subject_registry plugin slug.
+        content_id:
+          type: integer
+          readOnly: true
+          description: pk of the underlying content row (maths.Question.id, coding.CodingExercise.id,
+            ...).
+        text_answer:
+          type: string
+          readOnly: true
+        is_correct:
+          type: boolean
+          readOnly: true
+        points_earned:
+          type: number
+          format: double
+          readOnly: true
+        review_status:
+          allOf:
+          - $ref: '#/components/schemas/ReviewStatusEnum'
+          readOnly: true
+        is_pending_review:
+          type: boolean
+          readOnly: true
+        feedback:
+          type: string
+          readOnly: true
+      required:
+      - content_id
+      - feedback
+      - id
+      - is_correct
+      - is_pending_review
+      - points_earned
+      - review_status
+      - subject_slug
+      - text_answer
+    HomeworkSubmission:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        homework_id:
+          type: integer
+          readOnly: true
+        homework_title:
+          type: string
+          readOnly: true
+        student:
+          allOf:
+          - $ref: '#/components/schemas/UserSummary'
+          readOnly: true
+        attempt_number:
+          type: integer
+        score:
+          type: integer
+        total_questions:
+          type: integer
+        percentage:
+          type: integer
+          readOnly: true
+        points:
+          type: number
+          format: double
+        time_taken_seconds:
+          type: integer
+        submission_status:
+          type: string
+          readOnly: true
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - homework_id
+      - homework_title
+      - id
+      - percentage
+      - student
+      - submission_status
+      - submitted_at
+    HomeworkSubmitRequest:
+      type: object
+      description: |-
+        A completed attempt, submitted in one request.
+
+        Deliberately one call rather than an answer-at-a-time stream: a phone on a
+        school's wifi drops connections mid-quiz, and a half-recorded attempt that
+        still counts against ``max_attempts`` is worse than a failed one the
+        student can retry.
+      properties:
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubmittedAnswerRequest'
+        time_taken_seconds:
+          type: integer
+          minimum: 0
+          default: 0
+      required:
+      - answers
+    HomeworkTypeEnum:
+      enum:
+      - topic
+      - mixed
+      - pdf_upload
+      - json_upload
+      type: string
+      description: |-
+        * `topic` - Topic Quiz
+        * `mixed` - Mixed Quiz
+        * `pdf_upload` - PDF Upload
+        * `json_upload` - JSON Upload
+    Invoice:
+      type: object
+      description: |-
+        An invoice as the payer sees it.
+
+        ``rate_source`` and ``calculated_amount`` are omitted deliberately: they
+        are the school's internal pricing cascade (which fee override produced
+        this rate), not something a parent is being billed for.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        invoice_number:
+          type: string
+          maxLength: 50
+        student:
+          allOf:
+          - $ref: '#/components/schemas/UserSummary'
+          readOnly: true
+        school_name:
+          type: string
+          readOnly: true
+        billing_period_start:
+          type: string
+          format: date
+        billing_period_end:
+          type: string
+          format: date
+        period_type:
+          $ref: '#/components/schemas/InvoicePeriodTypeEnum'
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Final amount (may be adjusted by HoI)
+        status:
+          $ref: '#/components/schemas/InvoiceStatusEnum'
+        issued_at:
+          type: string
+          format: date-time
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        notes:
+          type: string
+        stripe_payment_link:
+          type: string
+          format: uri
+          description: Stripe Payment Link override for this invoice. Overrides department
+            and institute defaults.
+          maxLength: 200
+        line_items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceLineItem'
+          readOnly: true
+      required:
+      - amount
+      - billing_period_end
+      - billing_period_start
+      - id
+      - invoice_number
+      - line_items
+      - school_name
+      - student
+    InvoiceLineItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        classroom_name:
+          type: string
+          readOnly: true
+        daily_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        sessions_held:
+          type: integer
+        sessions_attended:
+          type: integer
+        sessions_charged:
+          type: integer
+        line_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+      required:
+      - classroom_name
+      - daily_rate
+      - id
+      - line_amount
+      - sessions_attended
+      - sessions_charged
+      - sessions_held
+    InvoicePayment:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        invoice_number:
+          type: string
+          readOnly: true
+        student:
+          allOf:
+          - $ref: '#/components/schemas/UserSummary'
+          readOnly: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        payment_date:
+          type: string
+          format: date
+        payment_method:
+          $ref: '#/components/schemas/PaymentMethodEnum'
+        reference_name:
+          type: string
+          maxLength: 255
+        status:
+          $ref: '#/components/schemas/PaymentStatusEnum'
+      required:
+      - amount
+      - id
+      - invoice_number
+      - payment_date
+      - student
+    InvoicePeriodTypeEnum:
+      enum:
+      - custom
+      - month
+      - term
+      - year
+      type: string
+      description: |-
+        * `custom` - Custom
+        * `month` - Month
+        * `term` - Term
+        * `year` - Year
+    InvoiceStatusEnum:
+      enum:
+      - draft
+      - issued
+      - partially_paid
+      - paid
+      - cancelled
+      type: string
+      description: |-
+        * `draft` - Draft
+        * `issued` - Issued
+        * `partially_paid` - Partially Paid
+        * `paid` - Paid
+        * `cancelled` - Cancelled
+    InvoiceSummary:
+      type: object
+      description: List row — no line items, which are only needed on the detail screen.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        invoice_number:
+          type: string
+          maxLength: 50
+        student:
+          allOf:
+          - $ref: '#/components/schemas/UserSummary'
+          readOnly: true
+        school_name:
+          type: string
+          readOnly: true
+        billing_period_start:
+          type: string
+          format: date
+        billing_period_end:
+          type: string
+          format: date
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Final amount (may be adjusted by HoI)
+        status:
+          $ref: '#/components/schemas/InvoiceStatusEnum'
+        issued_at:
+          type: string
+          format: date-time
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+      required:
+      - amount
+      - billing_period_end
+      - billing_period_start
+      - id
+      - invoice_number
+      - school_name
+      - student
+    Level:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        level_number:
+          type: integer
+        display_name:
+          type: string
+          maxLength: 50
+        description:
+          type: string
+        subject_id:
+          type: integer
+          readOnly: true
+      required:
+      - display_name
+      - id
+      - level_number
+      - subject_id
+    LogoutRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+          description: The refresh token to revoke.
+      required:
+      - refresh
+    ModuleEnum:
+      enum:
+      - classroom
+      - billing
+      - attendance
+      - progress
+      - quiz
+      - maths
+      - coding
+      - music
+      - science
+      - number_puzzles
+      - ai_import
+      - audit
+      - accounts
+      - hierarchy
+      - invoicing
+      - salaries
+      type: string
+      description: |-
+        * `` - (No specific module)
+        * `classroom` - Classroom / Classes
+        * `billing` - Billing & Payments
+        * `attendance` - Attendance
+        * `progress` - Progress & Reports
+        * `quiz` - Quizzes & Questions
+        * `maths` - Maths
+        * `coding` - Coding
+        * `music` - Music
+        * `science` - Science
+        * `number_puzzles` - Number Puzzles
+        * `ai_import` - AI Import
+        * `audit` - Audit
+        * `accounts` - Account & Profile
+        * `hierarchy` - School Hierarchy
+        * `invoicing` - Invoicing
+        * `salaries` - Salaries
+    Notification:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        message:
+          type: string
+          readOnly: true
+        notification_type:
+          allOf:
+          - $ref: '#/components/schemas/NotificationTypeEnum'
+          readOnly: true
+        is_read:
+          type: boolean
+        link:
+          type: string
+          readOnly: true
+          description: URL to navigate to when clicked.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - link
+      - message
+      - notification_type
+    NotificationRequest:
+      type: object
+      properties:
+        is_read:
+          type: boolean
+    NotificationTypeEnum:
+      enum:
+      - criteria_approval
+      - criteria_approved
+      - criteria_rejected
+      - enrollment_request
+      - enrollment_approved
+      - enrollment_rejected
+      - attendance
+      - parent_link_request
+      - parent_link_approved
+      - parent_link_rejected
+      - homework_assigned
+      - progress_report
+      - general
+      type: string
+      description: |-
+        * `criteria_approval` - Criteria Approval Request
+        * `criteria_approved` - Criteria Approved
+        * `criteria_rejected` - Criteria Rejected
+        * `enrollment_request` - Enrollment Request
+        * `enrollment_approved` - Enrollment Approved
+        * `enrollment_rejected` - Enrollment Rejected
+        * `attendance` - Attendance
+        * `parent_link_request` - Parent Link Request
+        * `parent_link_approved` - Parent Link Approved
+        * `parent_link_rejected` - Parent Link Rejected
+        * `homework_assigned` - Homework Assigned
+        * `progress_report` - Progress Report
+        * `general` - General
+    NumberPuzzle:
+      type: object
+      description: |-
+        A puzzle to solve. ``solution`` is deliberately absent — see the module
+        docstring.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        level_id:
+          type: integer
+          readOnly: true
+        operands: {}
+        target:
+          type: integer
+        display_template:
+          type: string
+          maxLength: 200
+        has_multiple_solutions:
+          type: boolean
+      required:
+      - display_template
+      - id
+      - level_id
+      - operands
+      - target
+    NumberPuzzleLevel:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        number:
+          type: integer
+        name:
+          type: string
+          maxLength: 50
+        slug:
+          type: string
+          maxLength: 50
+          pattern: ^[-a-zA-Z0-9_]+$
+        description:
+          type: string
+        operators_allowed:
+          type: string
+          maxLength: 20
+        num_operands:
+          type: integer
+        brackets_shown:
+          type: boolean
+        puzzles_per_set:
+          type: integer
+        unlock_threshold:
+          type: integer
+        order:
+          type: integer
+      required:
+      - id
+      - name
+      - number
+      - operators_allowed
+      - slug
+    PaginatedBasicFactsResultList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BasicFactsResult'
+    PaginatedChildList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Child'
+    PaginatedClassRoomList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClassRoom'
+    PaginatedClassSessionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClassSession'
+    PaginatedClassStudentList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClassStudent'
+    PaginatedCodingExerciseList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CodingExercise'
+    PaginatedCodingLanguageList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CodingLanguage'
+    PaginatedCodingTopicList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CodingTopic'
+    PaginatedFAQList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/FAQ'
+    PaginatedFeedbackList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Feedback'
+    PaginatedHelpArticleSummaryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/HelpArticleSummary'
+    PaginatedHelpCategoryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/HelpCategory'
+    PaginatedHomeworkList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Homework'
+    PaginatedHomeworkQuestionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/HomeworkQuestion'
+    PaginatedHomeworkStudentAnswerList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/HomeworkStudentAnswer'
+    PaginatedHomeworkSubmissionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/HomeworkSubmission'
+    PaginatedInvoicePaymentList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoicePayment'
+    PaginatedInvoiceSummaryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceSummary'
+    PaginatedLevelList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Level'
+    PaginatedNotificationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+    PaginatedNumberPuzzleLevelList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/NumberPuzzleLevel'
+    PaginatedNumberPuzzleList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/NumberPuzzle'
+    PaginatedPeriodReportSummaryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PeriodReportSummary'
+    PaginatedPointsAwardList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PointsAward'
+    PaginatedStudentAttendanceList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentAttendance'
+    PaginatedStudentExerciseSubmissionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentExerciseSubmission'
+    PaginatedStudentPuzzleProgressList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentPuzzleProgress'
+    PaginatedSubjectList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Subject'
+    PaginatedTopicList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Topic'
+    PaginatedWorksheetAssignmentList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorksheetAssignment'
+    PaginatedWorksheetSubmissionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorksheetSubmission'
+    PatchedUserRequest:
+      type: object
+      description: |-
+        The caller's own profile — what ``/api/v1/auth/me/`` returns.
+
+        Deliberately narrow. This is the whole user row minus everything the app
+        has no business holding on a device: the password hash, the block reason
+        and blocking admin, the Stripe ids hanging off the subscription.
+      properties:
+        email:
+          type: string
+          format: email
+          nullable: true
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+        phone:
+          type: string
+          maxLength: 30
+        country:
+          type: string
+          maxLength: 100
+        region:
+          type: string
+          maxLength: 100
+        city:
+          type: string
+          maxLength: 100
+        street_address:
+          type: string
+          maxLength: 255
+        postal_code:
+          type: string
+          maxLength: 20
+    PaymentMethodEnum:
+      enum:
+      - bank_transfer
+      - cash
+      - cheque
+      - other
+      type: string
+      description: |-
+        * `bank_transfer` - Bank Transfer
+        * `cash` - Cash
+        * `cheque` - Cheque
+        * `other` - Other
+    PaymentStatusEnum:
+      enum:
+      - matched
+      - confirmed
+      - rejected
+      type: string
+      description: |-
+        * `matched` - Matched
+        * `confirmed` - Confirmed
+        * `rejected` - Rejected
+    PeriodReportDetail:
+      type: object
+      description: Detail — adds the frozen snapshot the report was generated from.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        student:
+          allOf:
+          - $ref: '#/components/schemas/UserSummary'
+          readOnly: true
+        subject_name:
+          type: string
+          readOnly: true
+        school_name:
+          type: string
+          readOnly: true
+        period_type:
+          $ref: '#/components/schemas/ReportPeriodTypeEnum'
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        generated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        data:
+          description: 'Frozen snapshot: totals, topics, attempts, trend, awards.'
+      required:
+      - generated_at
+      - id
+      - period_end
+      - period_start
+      - period_type
+      - school_name
+      - student
+      - subject_name
+    PeriodReportSummary:
+      type: object
+      description: |-
+        List row — everything but the frozen snapshot.
+
+        ``data`` is the whole report (topics, attempts, trend, awards) and can be
+        large; sending it in a list would make "show me my reports" download every
+        report the student has ever had.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        student:
+          allOf:
+          - $ref: '#/components/schemas/UserSummary'
+          readOnly: true
+        subject_name:
+          type: string
+          readOnly: true
+        school_name:
+          type: string
+          readOnly: true
+        period_type:
+          $ref: '#/components/schemas/ReportPeriodTypeEnum'
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        generated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - generated_at
+      - id
+      - period_end
+      - period_start
+      - period_type
+      - school_name
+      - student
+      - subject_name
+    PodiumEntry:
+      type: object
+      description: |-
+        One row of the leaderboard.
+
+        Carries ``name`` — the board display name — and never the username, email
+        or id of another child. A leaderboard is the one place in the app that
+        deliberately shows other students, so it shows the least it can.
+      properties:
+        rank:
+          type: integer
+        name:
+          type: string
+        points:
+          type: number
+          format: double
+        is_me:
+          type: boolean
+      required:
+      - is_me
+      - name
+      - points
+      - rank
+    PointsAward:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        source:
+          allOf:
+          - $ref: '#/components/schemas/SourceEnum'
+          description: |-
+            Which activity this unit of work belongs to.
+
+            * `maths_quiz` - Subject quiz
+            * `basic_facts` - Basic facts
+            * `times_tables` - Times tables
+            * `homework` - Homework
+            * `coding_problem` - Coding problem
+            * `coding_exercise` - Coding exercise
+            * `worksheet` - Worksheet
+            * `number_puzzle` - Number puzzle
+            * `brainbuzz` - BrainBuzz
+        unit_key:
+          type: string
+          description: Identifies the unit within its source, e.g. a homework id or
+            a 'topic:7:level:3' pair. Opaque outside rewards.services.
+          maxLength: 120
+        points:
+          type: number
+          format: double
+          description: Best score on this unit so far, normalised to 0–100.
+        label:
+          type: string
+          description: Human-readable name of the unit, for "where did my points come
+            from" views. Never used for identity.
+          maxLength: 160
+        first_earned_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - first_earned_at
+      - id
+      - source
+      - unit_key
+      - updated_at
+    QuestionTypeEnum:
+      enum:
+      - write_code
+      - multiple_choice
+      - true_false
+      - short_answer
+      - fill_blank
+      type: string
+      description: |-
+        * `write_code` - Write Code
+        * `multiple_choice` - Multiple Choice
+        * `true_false` - True / False
+        * `short_answer` - Short Answer
+        * `fill_blank` - Fill in the Blank
+    RelationshipEnum:
+      enum:
+      - mother
+      - father
+      - guardian
+      - other
+      type: string
+      description: |-
+        * `mother` - Mother
+        * `father` - Father
+        * `guardian` - Guardian
+        * `other` - Other
+    ReportPeriodTypeEnum:
+      enum:
+      - weekly
+      - monthly
+      - term
+      type: string
+      description: |-
+        * `weekly` - Weekly
+        * `monthly` - Monthly
+        * `term` - Term
+    ReviewStatusEnum:
+      enum:
+      - auto_graded
+      - pending_ai
+      - ai_graded
+      - pending_teacher
+      - teacher_graded
+      type: string
+      description: |-
+        * `auto_graded` - Auto Graded
+        * `pending_ai` - Pending AI Review
+        * `ai_graded` - AI Graded
+        * `pending_teacher` - Pending Teacher Review
+        * `teacher_graded` - Teacher Graded
+    SessionStatusEnum:
+      enum:
+      - scheduled
+      - completed
+      - cancelled
+      type: string
+      description: |-
+        * `scheduled` - Scheduled
+        * `completed` - Completed
+        * `cancelled` - Cancelled
+    SlugEnum:
+      enum:
+      - python
+      - javascript
+      - html
+      - css
+      - scratch
+      type: string
+      description: |-
+        * `python` - Python
+        * `javascript` - JavaScript
+        * `html` - HTML
+        * `css` - CSS
+        * `scratch` - Scratch
+    SourceEnum:
+      enum:
+      - maths_quiz
+      - basic_facts
+      - times_tables
+      - homework
+      - coding_problem
+      - coding_exercise
+      - worksheet
+      - number_puzzle
+      - brainbuzz
+      type: string
+      description: |-
+        * `maths_quiz` - Subject quiz
+        * `basic_facts` - Basic facts
+        * `times_tables` - Times tables
+        * `homework` - Homework
+        * `coding_problem` - Coding problem
+        * `coding_exercise` - Coding exercise
+        * `worksheet` - Worksheet
+        * `number_puzzle` - Number puzzle
+        * `brainbuzz` - BrainBuzz
+    Standing:
+      type: object
+      description: A rendered board — the shape ``rewards.services.Standing`` already
+        has.
+      properties:
+        podium:
+          type: array
+          items:
+            $ref: '#/components/schemas/PodiumEntry'
+        rank:
+          type: integer
+        total_points:
+          type: number
+          format: double
+        board_size:
+          type: integer
+        points_to_next:
+          type: number
+          format: double
+        next_rank:
+          type: integer
+        message:
+          type: string
+        scope:
+          type: string
+        scope_label:
+          type: string
+      required:
+      - board_size
+      - message
+      - next_rank
+      - podium
+      - points_to_next
+      - rank
+      - scope
+      - scope_label
+      - total_points
+    StudentAttendance:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        session:
+          allOf:
+          - $ref: '#/components/schemas/ClassSession'
+          readOnly: true
+        student:
+          allOf:
+          - $ref: '#/components/schemas/UserSummary'
+          readOnly: true
+        status:
+          $ref: '#/components/schemas/AttendanceStatusEnum'
+        marked_at:
+          type: string
+          format: date-time
+          readOnly: true
+        self_reported:
+          type: boolean
+        approved_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - id
+      - marked_at
+      - session
+      - student
+    StudentExerciseSubmission:
+      type: object
+      description: |-
+        A student's attempt at an exercise.
+
+        ``exercise`` is a real relation field, not a bare ``exercise_id``: DRF does
+        not treat ``<fk>_id`` as writable, so naming it that way meant the value
+        was dropped on create and the write failed with a 500 instead of a
+        validation error.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        exercise:
+          type: integer
+        code_submitted:
+          type: string
+        output_received:
+          type: string
+          description: stdout returned by the code executor
+        stderr_received:
+          type: string
+          description: stderr returned by the code executor
+        is_completed:
+          type: boolean
+          description: True once the student marks the exercise as done or output
+            matches expected
+        time_taken_seconds:
+          type: integer
+          description: Time spent on this submission in seconds
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - code_submitted
+      - exercise
+      - id
+      - submitted_at
+    StudentExerciseSubmissionRequest:
+      type: object
+      description: |-
+        A student's attempt at an exercise.
+
+        ``exercise`` is a real relation field, not a bare ``exercise_id``: DRF does
+        not treat ``<fk>_id`` as writable, so naming it that way meant the value
+        was dropped on create and the write failed with a 500 instead of a
+        validation error.
+      properties:
+        exercise:
+          type: integer
+        code_submitted:
+          type: string
+          minLength: 1
+        output_received:
+          type: string
+          description: stdout returned by the code executor
+        stderr_received:
+          type: string
+          description: stderr returned by the code executor
+        is_completed:
+          type: boolean
+          description: True once the student marks the exercise as done or output
+            matches expected
+        time_taken_seconds:
+          type: integer
+          description: Time spent on this submission in seconds
+      required:
+      - code_submitted
+      - exercise
+    StudentPointsTotal:
+      type: object
+      properties:
+        total_points:
+          type: number
+          format: double
+          description: Sum of every PointsAward for this student. Indexed — the rank
+            query counts rows above this value.
+        units_completed:
+          type: integer
+          description: How many units of work the student has scored on.
+        is_ranked:
+          type: boolean
+          description: False for non-students (a teacher trying a quiz), so they never
+            appear on or displace anyone from the board.
+        display_name:
+          type: string
+          readOnly: true
+        last_earned_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - display_name
+    StudentPuzzleProgress:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        level_id:
+          type: integer
+          readOnly: true
+        level_name:
+          type: string
+          readOnly: true
+        is_unlocked:
+          type: boolean
+        best_score:
+          type: integer
+        best_time_seconds:
+          type: integer
+          nullable: true
+        total_sessions:
+          type: integer
+        total_puzzles_attempted:
+          type: integer
+        total_puzzles_correct:
+          type: integer
+        last_played_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - id
+      - level_id
+      - level_name
+    Subject:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 100
+        slug:
+          type: string
+          maxLength: 100
+          pattern: ^[-a-zA-Z0-9_]+$
+        description:
+          type: string
+        order:
+          type: integer
+        is_active:
+          type: boolean
+      required:
+      - id
+      - name
+      - slug
+    SubmittedAnswerRequest:
+      type: object
+      description: One answered item inside a submission payload.
+      properties:
+        question_id:
+          type: integer
+          description: HomeworkQuestion id this answer is for.
+        answer:
+          type: string
+        is_correct:
+          type: boolean
+        time_taken_seconds:
+          type: integer
+          minimum: 0
+      required:
+      - answer
+      - is_correct
+      - question_id
+    TimeLog:
+      type: object
+      properties:
+        daily_total_seconds:
+          type: integer
+          description: Total seconds spent today
+        weekly_total_seconds:
+          type: integer
+          description: Total seconds spent this week
+        last_activity:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Last time activity was recorded
+      required:
+      - last_activity
+    TokenObtainPairRequest:
+      type: object
+      description: |-
+        Login. Adds role claims, and refuses a blocked account outright.
+
+        The account-standing middlewares cannot help here: at login the caller is
+        still anonymous, so they pass the request straight through. A blocked
+        account that received a working token and only discovered the block on its
+        next call would have been told it logged in successfully — so the block is
+        checked once, here, at the only point where it is invisible to the
+        middleware.
+
+        Subscription and profile states are deliberately NOT re-checked: login
+        succeeds and the very next call hits the middleware, which answers with
+        the precise coded 403 for that state. Duplicating that cascade is how the
+        two copies drift.
+      properties:
+        username:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - password
+      - username
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
+    TokenRefreshRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+      required:
+      - refresh
+    TokenVerifyRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - token
+    Topic:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 100
+        slug:
+          type: string
+          maxLength: 100
+          pattern: ^[-a-zA-Z0-9_]+$
+        description:
+          type: string
+        order:
+          type: integer
+        is_active:
+          type: boolean
+        subject_id:
+          type: integer
+          readOnly: true
+        parent_id:
+          type: integer
+          readOnly: true
+        level_ids:
+          type: array
+          items:
+            type: integer
+          readOnly: true
+      required:
+      - id
+      - level_ids
+      - name
+      - parent_id
+      - slug
+      - subject_id
+    User:
+      type: object
+      description: |-
+        The caller's own profile — what ``/api/v1/auth/me/`` returns.
+
+        Deliberately narrow. This is the whole user row minus everything the app
+        has no business holding on a device: the password hash, the block reason
+        and blocking admin, the Stripe ids hanging off the subscription.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        email:
+          type: string
+          format: email
+          nullable: true
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        full_name:
+          type: string
+          readOnly: true
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+        phone:
+          type: string
+          maxLength: 30
+        country:
+          type: string
+          maxLength: 100
+        region:
+          type: string
+          maxLength: 100
+        city:
+          type: string
+          maxLength: 100
+        street_address:
+          type: string
+          maxLength: 255
+        postal_code:
+          type: string
+          maxLength: 20
+        roles:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        primary_role:
+          type: string
+          readOnly: true
+        school:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+        profile_completed:
+          type: boolean
+          readOnly: true
+        must_change_password:
+          type: boolean
+          readOnly: true
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - date_joined
+      - full_name
+      - id
+      - must_change_password
+      - primary_role
+      - profile_completed
+      - roles
+      - school
+      - username
+    UserSummary:
+      type: object
+      description: |-
+        A person referenced from someone else's row (a teacher on a class, a
+        student on a submission). Never carries contact details — those belong to
+        the person, not to everyone who can see a row mentioning them.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        full_name:
+          type: string
+          readOnly: true
+      required:
+      - full_name
+      - id
+      - username
+    Worksheet:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        question_count:
+          type: integer
+        level_id:
+          type: integer
+          nullable: true
+          readOnly: true
+        level_name:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - level_id
+      - level_name
+      - name
+    WorksheetAssignment:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        worksheet:
+          allOf:
+          - $ref: '#/components/schemas/Worksheet'
+          readOnly: true
+        classroom_id:
+          type: integer
+          readOnly: true
+        classroom_name:
+          type: string
+          readOnly: true
+        question_start:
+          type: integer
+          description: First question order number (1-based)
+        question_end:
+          type: integer
+          nullable: true
+          description: Last question order number inclusive (null = all)
+        assigned_at:
+          type: string
+          format: date-time
+          readOnly: true
+        is_active:
+          type: boolean
+      required:
+      - assigned_at
+      - classroom_id
+      - classroom_name
+      - id
+      - worksheet
+    WorksheetSubmission:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        assignment_id:
+          type: integer
+          readOnly: true
+        student_id:
+          type: integer
+          readOnly: true
+        score:
+          type: integer
+        total_questions:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+          readOnly: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - assignment_id
+      - id
+      - started_at
+      - student_id
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Access token from POST /api/v1/auth/login/. Send as: Authorization:
+        Bearer <access token>.'

@@ -26,7 +26,7 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # ---------------------------------------------------------------------------
 # App Version  (SemVer — bump manually on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.19.11'        # MAJOR.MINOR.PATCH
+APP_VERSION       = '1.20.0'        # MAJOR.MINOR.PATCH
 APP_VERSION_DATE  = '2026-08-28'     # ISO date of this release
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
@@ -986,8 +986,22 @@ SPECTACULAR_SETTINGS = {
     'SCHEMA_PATH_PREFIX': '/api/v1',
     'COMPONENT_SPLIT_REQUEST': True,
     'SORT_OPERATIONS': True,
+    # Several models have a `status` / `period_type` field with different
+    # choices. Left alone the generator invents names like `Status223Enum`,
+    # where the number is derived from the schema and shifts whenever an
+    # unrelated model changes — churning the generated mobile client with
+    # renames that mean nothing. Naming them pins that down.
     'ENUM_NAME_OVERRIDES': {
         'AttendanceStatusEnum': 'classroom.models.StudentAttendance.STATUS_CHOICES',
+        'SessionStatusEnum': 'classroom.models.ClassSession.STATUS_CHOICES',
+        'InvoiceStatusEnum': 'classroom.models.Invoice.STATUS_CHOICES',
+        'InvoicePeriodTypeEnum': 'classroom.models.Invoice.PERIOD_TYPE_CHOICES',
+        'PaymentStatusEnum': 'classroom.models.InvoicePayment.STATUS_CHOICES',
+        'PaymentMethodEnum': 'classroom.models.InvoicePayment.PAYMENT_METHOD_CHOICES',
+        'FeedbackStatusEnum': 'feedback.models.Feedback.STATUS_CHOICES',
+        'FeedbackCategoryEnum': 'feedback.models.Feedback.CATEGORY_CHOICES',
+        'ReportPeriodTypeEnum': 'progress.models.PeriodReport.PERIOD_CHOICES',
+        'HomeworkTypeEnum': 'homework.models.Homework.HOMEWORK_TYPE_CHOICES',
     },
 }
 
