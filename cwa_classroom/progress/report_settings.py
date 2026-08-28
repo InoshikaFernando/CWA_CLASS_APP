@@ -183,7 +183,10 @@ def enabled_classrooms(period_type, school=None, mode=None, reference=None,
         qs = qs.filter(school=school)
 
     picked = []
-    for classroom in qs.select_related('school', 'department', 'subject'):
+    qs = qs.select_related('school', 'department', 'subject')
+    # department__subjects because a class with no subject of its own takes
+    # its department's — see progress.reports.resolved_subject.
+    for classroom in qs.prefetch_related('department__subjects'):
         values = effective(classroom)
         if not values.get(period_type):
             continue

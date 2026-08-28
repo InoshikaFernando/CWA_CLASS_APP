@@ -289,3 +289,60 @@ class ContentCascadeTests(TestCase):
 
         self.assertFalse(resolved['include_rubric'])
         self.assertTrue(resolved['include_homework'])
+
+
+class DepartmentMappedClassTests(TestCase):
+    """Mapping a department to a subject files its reports under it.
+
+    This is the end-to-end half of ``progress.reports.resolved_subject``: it is
+    not enough for the report BODY to be scoped to coding if the report is
+    still filed under "no subject", because the family sees the filing — an
+    unlabelled report that sits next to a labelled one reads as a bug.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.models import Department
+
+        cls.school = make_school(name='Dept Run School', slug='dept-run')
+        cls.coding = _subject('coding', 'Coding')
+        cls.student = make_user('dept_student', first_name='Aviann', last_name='P')
+        cls.dept = Department.objects.create(
+            name='Information Technology', slug='it-run', school=cls.school,
+        )
+        cls.dept.subjects.set([cls.coding])
+
+        cls.room = make_classroom(cls.school, name='Scratch 05', code='DR000001')
+        cls.room.department = cls.dept
+        cls.room.save(update_fields=['department'])
+        enrol(cls.room, cls.student)
+
+        cls.start, cls.end = periods.previous_week(periods.today())
+        when = timezone.make_aware(timezone.datetime.combine(
+            cls.start + timedelta(days=1),
+            timezone.datetime.min.time().replace(hour=10),
+        ))
+        submit(make_homework(cls.room, due=when, title='Sprites'),
+               cls.student, 1, 7, when=when)
+
+    def test_the_report_is_filed_under_the_departments_subject(self):
+        enable_reports(self.school, kind='school', weekly=True)
+
+        run_period(periods.WEEKLY, self.start, self.end, notify=False)
+
+        report = PeriodReport.objects.get(student=self.student)
+        self.assertEqual(report.subject, self.coding)
+        self.assertEqual(report.data['subject']['name'], 'Coding')
+
+    def test_its_work_is_still_counted(self):
+        """The homework carries the default slug, which is not a maths claim.
+
+        Scoping it away would leave a coding report saying the child did
+        nothing — a stronger and more wrong statement than counting it.
+        """
+        enable_reports(self.school, kind='school', weekly=True)
+
+        run_period(periods.WEEKLY, self.start, self.end, notify=False)
+
+        report = PeriodReport.objects.get(student=self.student)
+        self.assertEqual(report.data['totals']['homework_attempted'], 1)

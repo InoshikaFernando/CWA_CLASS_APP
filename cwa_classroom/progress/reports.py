@@ -16,6 +16,7 @@ Two rules run through the whole module:
 from collections import defaultdict
 from datetime import date, datetime, time
 
+from django.db.models import Q
 from django.utils import timezone
 
 from progress.periods import label_for
@@ -26,6 +27,17 @@ UNCLASSIFIED = 'Unclassified'
 # basic facts are maths and only maths, so they have no place in a report
 # covering a coding class.
 MATHS_SLUG = 'mathematics'
+
+# Homework.subject_slug DEFAULTS to 'mathematics'. It is what a row says when
+# nobody said anything, not a statement that the work is maths — the field was
+# added by the subject-plugin refactor and back-filled with that value for every
+# row that already existed.
+#
+# So 'mathematics' cannot be read as "this is maths" when deciding what to
+# exclude from another subject's report. A Science class whose homework carries
+# the default would otherwise have every piece of it filtered away, and the
+# report would say the child did nothing rather than saying it is unconfigured.
+UNSTATED_SLUG = MATHS_SLUG
 
 # An award only means something measured against classmates. Below this many
 # active students with activity in the window, the class-relative awards are
@@ -83,7 +95,7 @@ def student_submissions(student, start, end, classroom_ids=None,
     if classroom_ids is not None:
         qs = qs.filter(homework__classroom_id__in=classroom_ids)
     if subject_slugs is not None:
-        qs = qs.filter(homework__subject_slug__in=subject_slugs)
+        qs = qs.filter(_subject_filter('homework__subject_slug', subject_slugs))
     return list(
         qs.select_related('homework', 'homework__classroom')
         .order_by('submitted_at')
@@ -118,7 +130,7 @@ def homework_due_in_window(student, start, end, classroom_ids=None,
         due_date__lte=finish,
     )
     if subject_slugs is not None:
-        qs = qs.filter(subject_slug__in=subject_slugs)
+        qs = qs.filter(_subject_filter('subject_slug', subject_slugs))
     return list(qs.order_by('due_date'))
 
 
@@ -813,11 +825,49 @@ def covered_subject_slugs(classrooms):
         return None
     slugs = set()
     for classroom in classrooms:
-        slug = classroom.subject.slug if classroom.subject_id else None
+        slug = _classroom_subject_slug(classroom)
         if not slug:
             return None
         slugs.add(slug)
     return slugs
+
+
+def resolved_subject(classroom):
+    """The subject this class teaches: its own, else its department's.
+
+    Read live rather than requiring a backfill. Mapping a department to a
+    subject is the administrative act that says what its classes teach, so the
+    reports should follow it immediately — needing someone to also run a
+    command afterwards is a way to have the setting look applied while the
+    reports disagree with it.
+
+    The department decides only when it maps to exactly ONE subject.
+    Department.subjects is many-to-many because a department can teach several,
+    and two is not an answer. A subject set on the class itself always wins.
+
+    Both halves of report-building go through here: this is what a report is
+    FILED under (services groups classes by it) and what its content is scoped
+    to (``covered_subject_slugs`` below). They must agree, or a report lands in
+    the coding pile carrying an unscoped body.
+    """
+    if classroom.subject_id:
+        return classroom.subject
+    if classroom.department_id is None:
+        return None
+    subjects = list(classroom.department.subjects.all())
+    return subjects[0] if len(subjects) == 1 else None
+
+
+def with_subject_sources(qs):
+    """Everything ``resolved_subject`` reads, in two queries instead of N."""
+    return qs.select_related('subject', 'department').prefetch_related(
+        'department__subjects',
+    )
+
+
+def _classroom_subject_slug(classroom):
+    subject = resolved_subject(classroom)
+    return subject.slug if subject else None
 
 
 def _resolved_content(content):
@@ -837,6 +887,25 @@ def _resolved_content(content):
     return resolved
 
 
+def _subject_filter(field, subject_slugs):
+    """Rows belonging to *subject_slugs*, treating the default slug as unstated.
+
+    A maths report takes the default rows, because for maths the default and
+    the truth coincide. Any other subject's report takes its own rows AND the
+    unstated ones, because the alternative is dropping a class's whole term on
+    the strength of a field nobody filled in.
+
+    The cost is that a genuine maths homework set inside a science class counts
+    towards science. That is the lesser error: it over-reports one item rather
+    than under-reporting everything, and it disappears as soon as the homework
+    says which subject it is.
+    """
+    condition = Q(**{f'{field}__in': list(subject_slugs)})
+    if UNSTATED_SLUG not in subject_slugs:
+        condition |= Q(**{field: UNSTATED_SLUG})
+    return condition
+
+
 def _covers_maths(subject_slugs):
     """Whether the maths-only strands belong in this report at all."""
     return subject_slugs is None or MATHS_SLUG in subject_slugs
@@ -845,9 +914,9 @@ def _covers_maths(subject_slugs):
 def _student_classrooms(student, classroom_ids=None):
     from classroom.models import ClassRoom
 
-    qs = ClassRoom.objects.filter(
+    qs = with_subject_sources(ClassRoom.objects.filter(
         class_students__student=student, class_students__is_active=True,
-    ).select_related('subject')
+    ))
     if classroom_ids is not None:
         qs = qs.filter(id__in=classroom_ids)
     return list(qs.distinct().order_by('name'))

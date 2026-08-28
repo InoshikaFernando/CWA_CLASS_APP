@@ -17,6 +17,7 @@ import logging
 from django.urls import reverse
 from django.utils import timezone
 
+from progress import reports
 from progress.models import PeriodReport
 from progress.periods import TERM, label_for, student_school
 from progress.reports import build_report_data
@@ -89,7 +90,13 @@ def students_for_period(period_type, school=None, classroom=None,
         .select_related('student')
     )
 
-    subject_by_class = {c.id: c.subject_id for c in classrooms}
+    # A class with no subject of its own is filed under its department's, so
+    # mapping a department files its reports correctly from the next run — the
+    # same resolution the report body is scoped by, so the two cannot disagree.
+    subject_by_class = {}
+    for c in classrooms:
+        resolved_for_class = reports.resolved_subject(c)
+        subject_by_class[c.id] = resolved_for_class.id if resolved_for_class else None
 
     plan = {}
     for membership in memberships:
@@ -329,15 +336,13 @@ def _student_classrooms_for_window(student, classroom_ids=None):
     from classroom.models import ClassRoom
 
     if classroom_ids:
-        return list(
+        return list(reports.with_subject_sources(
             ClassRoom.objects.filter(id__in=classroom_ids)
-            .select_related('subject').order_by('name')
-        )
-    return list(
+        ).order_by('name'))
+    return list(reports.with_subject_sources(
         ClassRoom.objects
         .filter(class_students__student=student, class_students__is_active=True)
-        .select_related('subject').distinct().order_by('name')
-    )
+    ).distinct().order_by('name'))
 
 
 def _subjects_by_id(plan):
