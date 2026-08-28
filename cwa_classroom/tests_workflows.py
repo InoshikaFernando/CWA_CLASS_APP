@@ -264,6 +264,92 @@ def _ui_filter_groups():
     )
 
 
+def _ui_pack_step():
+    """The step in `ui-matrix` that packs the selected groups onto runners."""
+    for step in _ci()['jobs']['ui-matrix']['steps']:
+        if step.get('id') == 'pack':
+            return step
+    raise AssertionError(
+        "ci.yml: the `ui-matrix` job has no step id: pack, so it publishes no "
+        "`shards` output and the UI matrix would be empty — every UI suite "
+        "would stop running, quietly rather than red")
+
+
+def _ui_weights():
+    weights = {}
+    for line in _ui_pack_step()['env']['UI_WEIGHTS'].splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        group, _, seconds = line.partition(':')
+        assert seconds.isdigit(), (
+            f'ci.yml: UI_WEIGHTS entry {line!r} has no duration in seconds')
+        weights[group] = int(seconds)
+    return weights
+
+
+def test_the_ui_matrix_runs_on_shards_not_groups():
+    """The matrix is one entry per RUNNER, and each runs its whole list.
+
+    Groups are packed onto a few runners so the same tests stop paying one
+    checkout + pip install + browser install each (measured: 53 minutes of
+    tests billed as 87 across 15 runners). The packing lives in `ui-matrix`,
+    so `ui-tests` must consume the packed list and hand every group on its
+    runner to pytest — reading `shards` but running one group would silently
+    drop the rest.
+    """
+    matrix = _ci()['jobs']['ui-tests']['strategy']['matrix']
+    assert 'shards' in matrix.get('shard', ''), (
+        'ci.yml: the ui-tests matrix no longer comes from ui-matrix\'s '
+        '`shards` output')
+    assert 'shards' in (_ci()['jobs']['ui-matrix']['outputs'] or {}), (
+        'ci.yml: ui-matrix does not publish a `shards` output')
+
+    run = next(step['run'] for step in _ci()['jobs']['ui-tests']['steps']
+               if str(step.get('name', '')).startswith('Run UI tests'))
+    assert '$SHARD' in run and 'pytest $UI_TARGETS' in run, (
+        'ci.yml: the UI job no longer expands its whole shard into pytest '
+        'targets, so only part of each runner\'s groups would run')
+
+
+def test_every_ui_group_has_a_measured_weight():
+    """Packing divides the groups by these numbers.
+
+    A group with no entry is treated as the heaviest there is, so nothing goes
+    unrun — but the split degrades silently, which is how the matrix drifted
+    back to costing more than it needed to last time. Add a line when you add
+    a group; re-measure it when the group grows.
+    """
+    missing = sorted(set(_ui_group_dirs()) - set(_ui_weights()))
+    assert not missing, (
+        f'ci.yml: UI groups with no UI_WEIGHTS entry: {missing}. Add '
+        f'`<group>:<seconds of pytest>` so ui-matrix can balance the runners.')
+
+    orphans = sorted(set(_ui_weights()) - set(_ui_group_dirs()))
+    assert not orphans, (
+        f'ci.yml: UI_WEIGHTS names groups with no '
+        f'cwa_classroom/ui_tests/<group>/ package: {orphans}')
+
+
+def test_the_shard_budget_leaves_the_wall_clock_alone():
+    """Packing must not turn a cheaper matrix into a slower one.
+
+    The budget is what decides how many runners a selection gets. Set below
+    the longest single group it buys nothing — that group already sets the
+    wall clock — and set far above it, a full matrix collapses onto too few
+    runners and every merge waits longer than it used to.
+    """
+    env = _ui_pack_step()['env']
+    budget = int(env['SHARD_BUDGET_SECONDS'])
+    longest = max(_ui_weights().values())
+    assert longest <= budget <= 2 * longest, (
+        f'ci.yml: SHARD_BUDGET_SECONDS is {budget}s against a longest group '
+        f'of {longest}s. Below that, packing saves nothing; far above it, the '
+        f'UI suite gets slower end to end than the per-group matrix it '
+        f'replaced.')
+    assert int(env['MAX_SHARDS']) >= 1
+
+
 def test_ui_gate_job_is_stable_and_always_runs():
     """Branch protection hangs off one check name that must not move.
 
@@ -426,15 +512,16 @@ def _pytest_targets():
                         targets.update(t.rstrip('/')
                                        for t in _unit_suite_targets())
                         continue
+                    if token == '$UI_TARGETS':
+                        # `pytest $UI_TARGETS` — the UI job runs one RUNNER's
+                        # worth of groups, and ui-matrix decides which groups
+                        # share a runner. Every group lands on exactly one of
+                        # them, so between them the runners cover the lot.
+                        targets.update(f'ui_tests/{g}' for g in _ui_group_dirs())
+                        continue
                     if not (token.endswith('.py') or '/' in token):
                         continue
                     token = token.strip('"\'').rstrip('/')
-                    if '${{' in token:
-                        # `ui_tests/${{ matrix.group }}` — one target per group.
-                        prefix = token.split('${{')[0].rstrip('/')
-                        if prefix == 'ui_tests':
-                            targets.update(f'ui_tests/{g}' for g in _ui_group_dirs())
-                        continue
                     targets.add(token)
     return targets
 

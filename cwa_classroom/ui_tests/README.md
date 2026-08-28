@@ -73,18 +73,42 @@ filter misses one.
 | Event | What runs |
 |-------|-----------|
 | Pull request | the groups whose watched paths changed, in full |
-| PR touching `ui_core` or `shared` | every group (base templates, sidebars, static and shared fixtures can break any page) |
-| Push to `test` | every group — the pre-production gate is never path-filtered |
-| Push to `main` | nothing; that tree already passed the full suite on `test` |
+| Push to `test` | the same path filter, against the previous `test` tip |
+| Either, touching `ui_core` or `shared` | every group (base templates, sidebars, static and shared fixtures can break any page) |
+| Push to `test` landing a tree a PR already passed | nothing; the PR run covered it, and `ui-already-tested` says so |
+| Push to `main` | nothing; that tree already passed on `test` |
+
+### Groups are packed onto runners
+
+Selecting the groups is only half of it. A runner per group meant every group
+paid its own checkout, `pip install` and Playwright browser install — about 50
+seconds before its first test — and GitHub bills each job rounded **up** to a
+whole minute. On a full 15-group matrix that was 53 minutes of tests billed as
+87.
+
+So `ui-matrix` packs the selected groups onto a handful of runners, heaviest
+first onto whichever runner is lightest so far, up to a budget set just above
+the longest single group (`billing`, ~10 min). That group already decides how
+long the suite takes, so filling the others to the same depth costs nothing in
+wall clock: the same 15 groups now run on 5 runners for ~60 billed minutes, in
+about the same 12 minutes end to end. A partial selection packs by the same
+rule and only gets cheaper — three small groups that were three billed minutes
+become one.
+
+Each runner runs one `pytest` over all of its groups, which is how the suite
+ran before it was split, and why there is a single `ui_tests/conftest.py`
+rather than one per group.
 
 Adding a new group means: create the package, add the `ui_<group>:` filter and
-its `ui_<group>` output in `ci.yml`. The matrix is built from those filter
-names, so nothing else needs editing.
+its `ui_<group>` output in `ci.yml`, and add a `<group>:<seconds>` line to
+`UI_WEIGHTS` in the `ui-matrix` job so the packing can balance it.
+`tests_workflows.py` fails the build if any of the three is missing.
 
 ### The required check
 
-The matrix jobs are named per group (`UI Tests (billing)`, …), so that set of
-names changes whenever a group is added. Branch protection therefore hangs off
+The matrix jobs are named after the groups packed onto each runner (`UI Tests
+(billing feedback)`, …), so that set of names changes whenever a group is added
+or the packing shifts. Branch protection therefore hangs off
 `ui-tests-gate`, which always runs, is named **`UI Tests (Playwright)`**, and is
 red exactly when the UI suite is red. Point required checks at that name and
 leave it alone — `tests_workflows.py` fails the build if it is renamed or stops

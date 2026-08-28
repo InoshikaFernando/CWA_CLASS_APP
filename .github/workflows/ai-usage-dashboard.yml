@@ -19,12 +19,23 @@ name: AI Usage Dashboard
 #   AI_USAGE_WINDOW_DAYS           — default 30
 #
 # Each env's section is also refreshed live after every AI call (record_ai_usage);
-# this hourly run is the backstop that corrects drift / covers idle windows. An env
+# this 6-hourly run is the backstop that corrects drift / covers idle windows. An env
 # with AI_DASHBOARD_* unconfigured simply no-ops.
 
 on:
   schedule:
-    - cron: "23 * * * *"     # hourly, at :23 past (off the top-of-hour rush)
+    # Every 6 hours, at :23 past (off the top-of-hour rush).
+    #
+    # This ran hourly and it was the single most frequent job in the repo:
+    # ~20 runs a day, each ~22s of work billed as a whole minute, so ~600
+    # Actions minutes a month — about six full CI matrices — to refresh a
+    # dashboard. It is only a BACKSTOP: every env already rewrites its own
+    # section after each AI call (record_ai_usage), so all the schedule
+    # actually covers is drift and windows where nothing ran at all. Six
+    # hours is well inside the 30-day window the numbers are reported over.
+    #
+    # workflow_dispatch is still there for an immediate refresh.
+    - cron: "23 */6 * * *"
   workflow_dispatch:
 
 concurrency:

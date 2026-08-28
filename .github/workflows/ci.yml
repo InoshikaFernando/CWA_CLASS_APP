@@ -716,6 +716,7 @@ jobs:
     timeout-minutes: 10   # instant
     outputs:
       groups: ${{ steps.pick.outputs.groups }}
+      shards: ${{ steps.pack.outputs.shards }}
     steps:
       - name: Pick the UI groups to run
         id: pick
@@ -753,6 +754,106 @@ jobs:
           fi
           echo "groups=$groups" >> "$GITHUB_OUTPUT"
 
+      # ---- Pack those groups onto as few runners as possible ---------------
+      #
+      # A runner per group is most of what a full matrix costs. Every job pays
+      # the same ~50s of checkout + pip install + Playwright browser install
+      # before its first test, and GitHub bills each one rounded UP to a whole
+      # minute. Measured on run #2518 (a full 15-group matrix): 53 minutes of
+      # actual tests were billed as 87. The other 34 minutes were fifteen
+      # copies of the same setup, plus rounding.
+      #
+      # So the selected groups are packed onto a few runners instead, heaviest
+      # first onto whichever runner is currently lightest. The budget below is
+      # set just above the LONGEST SINGLE GROUP (billing, ~10 min), because
+      # that group alone already decides the wall clock — filling the other
+      # runners up to the same depth costs no extra time and deletes two
+      # thirds of the setup. Same 15 groups: 5 runners, ~60 billed minutes,
+      # still ~12 minutes end to end.
+      #
+      # A PARTIAL selection packs by the same rule and can only get cheaper:
+      # three small groups that used to be three billed minutes become one.
+      # A selection that is already one big group is left exactly as it was.
+      - name: Pack the groups onto runners
+        id: pack
+        env:
+          GROUPS: ${{ steps.pick.outputs.groups }}
+          # Seconds of pytest per group, measured on run #2518. These only
+          # decide how work is DIVIDED — a stale number costs a little balance,
+          # never coverage — but re-measure them when a group grows a lot.
+          # tests_workflows.py fails the build if a group has no entry.
+          UI_WEIGHTS: |
+            billing:605
+            classroom:578
+            navigation:550
+            parent:337
+            messaging:240
+            homework:163
+            maths:134
+            quiz:132
+            uploads:98
+            worksheets:96
+            coding:83
+            progress:78
+            brainbuzz:61
+            feedback:32
+            live:20
+          # Comfortably above billing (605s), the longest single group, which
+          # already sets the wall clock on its own. This is what decides how
+          # many runners a selection gets: total test-seconds / budget.
+          SHARD_BUDGET_SECONDS: 660
+          # Ceiling on runners, so a future group explosion cannot quietly go
+          # wide again. The full 15 groups come to 5 by the budget alone, so
+          # today this is slack rather than a constraint.
+          MAX_SHARDS: 5
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, math, os
+
+          weights = {}
+          for line in os.environ['UI_WEIGHTS'].splitlines():
+              line = line.strip()
+              if not line:
+                  continue
+              key, _, seconds = line.partition(':')
+              weights[key] = int(seconds)
+
+          groups = json.loads(os.environ['GROUPS'])
+          budget = int(os.environ['SHARD_BUDGET_SECONDS'])
+          cap = int(os.environ['MAX_SHARDS'])
+
+          # A group with no measured weight is treated as the heaviest there
+          # is, so a newly added one gets a runner to itself rather than being
+          # packed behind something big on a guess.
+          heaviest = max(weights.values())
+          def weigh(group):
+              return weights.get(group, heaviest)
+
+          total = sum(weigh(g) for g in groups)
+          runners = max(1, min(cap, len(groups), math.ceil(total / budget)))
+
+          # Longest-processing-time first: the classic greedy pack, and within
+          # a few percent of optimal for a list this shape.
+          packed = [[] for _ in range(runners)]
+          load = [0] * runners
+          for group in sorted(groups, key=weigh, reverse=True):
+              lightest = load.index(min(load))
+              packed[lightest].append(group)
+              load[lightest] += weigh(group)
+
+          shards = [' '.join(sorted(bucket)) for bucket in packed if bucket]
+
+          for shard in shards:
+              seconds = sum(weigh(g) for g in shard.split())
+              print(f'  runner: {shard}  (~{seconds // 60}m{seconds % 60:02d}s)')
+          print(f'{len(groups)} group(s), ~{total // 60} test-minutes, '
+                f'on {len(shards)} runner(s).')
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write('shards=' + json.dumps(shards) + '\n')
+          PY
+
   # Skipping is not the same as not checking: a push showing no UI check at all
   # is how a dead CI went unnoticed here for four days. When the matrix is
   # deduped this job says so, and names the PR run that covered the tree, so the
@@ -773,17 +874,21 @@ jobs:
           echo "The unit suites are NOT deduped and ran in full on this push."
 
   ui-tests:
-    name: UI Tests (${{ matrix.group }})
+    name: UI Tests (${{ matrix.shard }})
     needs: ui-matrix
     if: ${{ needs.ui-matrix.outputs.groups != '[]' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 35   # ~11min
+    timeout-minutes: 35   # ~12min
     strategy:
       # One broken area must not cancel the others — a full run should report
       # every failing group, not just the first.
       fail-fast: false
       matrix:
-        group: ${{ fromJSON(needs.ui-matrix.outputs.groups) }}
+        # One entry per RUNNER, not per group: `ui-matrix` packs the selected
+        # groups onto a few runners so the same tests stop paying fifteen
+        # copies of checkout + pip install + browser install. An entry is a
+        # space-separated list of group names, e.g. "billing live".
+        shard: ${{ fromJSON(needs.ui-matrix.outputs.shards) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -805,21 +910,32 @@ jobs:
       - name: Install Playwright browsers
         run: playwright install --with-deps chromium
 
-      - name: Run UI tests — ${{ matrix.group }}
+      - name: Run UI tests — ${{ matrix.shard }}
         working-directory: cwa_classroom
         env:
           # `-n auto` is one worker per CPU, and a PRIVATE repo's runner has
           # TWO — so each group still ran two browsers at a time. These tests
           # are I/O-bound (waiting on the browser, not computing), so more
-          # workers than cores is the right call and cuts each group's wall
+          # workers than cores is the right call and cuts each runner's wall
           # clock and billed minutes together. Raise further only with
           # evidence: the ceiling is the SQLite contention --reruns absorbs.
           UI_WORKERS: 4
+          # Read as data rather than interpolated into the command line. The
+          # values are group names fixed in ci.yml, not anything from a diff.
+          SHARD: ${{ matrix.shard }}
         # --reruns retries ONLY the known SQLite "database is locked" flake from
         # parallel Playwright workers (see cwa_classroom/conftest.py); scoped via
         # --only-rerun so genuine assertion failures still fail on the first run.
         run: |
-          pytest "ui_tests/${{ matrix.group }}" -n "$UI_WORKERS" -v --tb=short \
+          set -euo pipefail
+          # One pytest process over every group on this runner — which is how
+          # the suite ran before it was split, and why there is a single
+          # ui_tests/conftest.py rather than one per group. xdist balances
+          # across the lot, so a runner is not held up by its own long tail.
+          UI_TARGETS=$(for group in $SHARD; do printf 'ui_tests/%s ' "$group"; done)
+          echo "Running: $UI_TARGETS"
+          # Unquoted on purpose — a pytest argument LIST, built just above.
+          pytest $UI_TARGETS -n "$UI_WORKERS" -v --tb=short \
             --reruns 2 --only-rerun "database is locked"
 
   # Branch protection needs ONE check name that never moves. The matrix jobs are
