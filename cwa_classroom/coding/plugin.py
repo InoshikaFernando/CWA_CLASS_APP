@@ -71,6 +71,21 @@ class CodingExercisePlugin(SubjectPlugin):
     display_name = 'Coding'
     order = 20
     supports_homework = True
+
+    def content_topic_names(self, content_ids):
+        """CodingExercise -> its CodingTopic name.
+
+        The topic hangs off ``topic_level``, not the exercise, so this
+        traverses rather than reading a flat field.
+        """
+        from coding.models import CodingExercise
+
+        return {
+            row['id']: row['topic_level__topic__name']
+            for row in CodingExercise.objects
+            .filter(id__in=content_ids, topic_level__topic__isnull=False)
+            .values('id', 'topic_level__topic__name')
+        }
     brainbuzz_subject_key = 'coding'
 
     # Phase 3 — everything under ``/coding/`` is ours (exercise listings,

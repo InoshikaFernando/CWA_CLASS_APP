@@ -177,6 +177,34 @@ def totals_section(submissions, due):
     }
 
 
+def _topic_names_by_subject(answers):
+    """``{(subject_slug, content_id): topic name}`` for a window's answers.
+
+    One bulk call per subject rather than a lookup per answer: a term report
+    can carry thousands of answers, and the per-row alternative is what makes a
+    report slow enough to time out.
+
+    A subject whose plugin resolves nothing simply contributes no entries, and
+    those answers fall through to "Unclassified" — which is honest, and is what
+    every non-maths subject did before this existed.
+    """
+    from classroom import subject_registry
+
+    by_subject = defaultdict(set)
+    for answer in answers:
+        by_subject[answer['subject_slug']].add(answer['content_id'])
+
+    names = {}
+    for slug, content_ids in by_subject.items():
+        plugin = subject_registry.get(slug)
+        if plugin is None:
+            continue
+        for content_id, name in plugin.content_topic_names(content_ids).items():
+            if name:
+                names[(slug, content_id)] = name
+    return names
+
+
 def topics_section(submissions):
     """Accuracy per ``classroom.Topic`` over every answer in the window — §2.2.
 
@@ -189,18 +217,25 @@ def topics_section(submissions):
     if not submissions:
         return []
 
-    answers = (
+    answers = list(
         HomeworkStudentAnswer.objects
         .filter(submission_id__in=[s.id for s in submissions])
-        .select_related('question__topic')
+        .values('subject_slug', 'content_id', 'is_correct')
     )
+
+    # Resolved through the subject registry rather than answer.question.topic:
+    # that FK points at maths.Question and is null for every other subject, so
+    # reading it filed every coding answer under "Unclassified". The modern
+    # binding is (subject_slug, content_id), which every subject populates.
+    names = _topic_names_by_subject(answers)
 
     tally = defaultdict(lambda: {'answered': 0, 'correct': 0})
     for answer in answers:
-        topic = answer.question.topic if answer.question_id else None
-        name = topic.name if topic else UNCLASSIFIED
+        name = names.get(
+            (answer['subject_slug'], answer['content_id']), UNCLASSIFIED,
+        )
         tally[name]['answered'] += 1
-        tally[name]['correct'] += 1 if answer.is_correct else 0
+        tally[name]['correct'] += 1 if answer['is_correct'] else 0
 
     rows = [
         {
@@ -657,6 +692,23 @@ def covered_subject_slugs(classrooms):
     return slugs
 
 
+def _resolved_content(content):
+    """Content flags with every key present.
+
+    ``None`` means "everything", which is what an unconfigured caller — the
+    preview, a management command, a test — should get. Callers that do
+    configure it may pass a partial dict; missing keys default to on rather
+    than to off, because a report is not improved by silently losing a section
+    somebody never mentioned.
+    """
+    from progress.models import ProgressReportSetting
+
+    resolved = dict(ProgressReportSetting.CONTENT_DEFAULTS)
+    if content:
+        resolved.update({k: v for k, v in content.items() if k in resolved})
+    return resolved
+
+
 def _covers_maths(subject_slugs):
     """Whether the maths-only strands belong in this report at all."""
     return subject_slugs is None or MATHS_SLUG in subject_slugs
@@ -682,7 +734,8 @@ def _due_count_for(classroom, due):
 # ---------------------------------------------------------------------------
 
 def build_report_data(student, period_type, start, end, term=None,
-                      cohort_cache=None, classroom_ids=None):
+                      cohort_cache=None, classroom_ids=None, subject=None,
+                      content=None):
     """The whole snapshot for one student and one closed window.
 
     Returns a plain dict — this is exactly what gets stored in
@@ -698,24 +751,44 @@ def build_report_data(student, period_type, start, end, term=None,
     # The classes decide which subjects this report is about, so they are
     # resolved before anything is queried rather than only for the awards.
     classrooms = _student_classrooms(student, classroom_ids)
-    subjects = covered_subject_slugs(classrooms)
-
-    submissions = student_submissions(
-        student, start, end, classroom_ids, subjects,
+    # An explicit subject wins: run_period already grouped the classes by it,
+    # and a report that says "Coding" must not widen itself by re-deriving.
+    subjects = (
+        {subject.slug} if subject is not None
+        else covered_subject_slugs(classrooms)
     )
-    due = homework_due_in_window(student, start, end, classroom_ids, subjects)
+    content = _resolved_content(content)
+
+    # A section switched off is not queried at all. Each section already
+    # returns a well-formed empty result for "no rows", so switching one off
+    # reuses that shape rather than a hand-written dict — the snapshot keeps
+    # exactly the same keys, and the page and the PDF cannot disagree.
+    if content['include_homework']:
+        submissions = student_submissions(
+            student, start, end, classroom_ids, subjects,
+        )
+        due = homework_due_in_window(
+            student, start, end, classroom_ids, subjects,
+        )
+    else:
+        submissions, due = [], []
 
     awards = []
-    for classroom in classrooms:
-        awards.extend(awards_for(
-            student, classroom, start, end, _due_count_for(classroom, due),
-            cohort_cache=cohort_cache,
-        ))
+    if content['include_awards']:
+        for classroom in classrooms:
+            awards.extend(awards_for(
+                student, classroom, start, end, _due_count_for(classroom, due),
+                cohort_cache=cohort_cache,
+            ))
 
-    quizzes = quizzes_section(student, start, end, subjects)
-    times_tables = times_tables_section(student, start, end, subjects)
-    basic_facts = basic_facts_section(student, start, end, subjects)
-    worksheets = worksheets_section(student, start, end, classroom_ids)
+    practice = subjects if content['include_practice'] else set()
+    quizzes = quizzes_section(student, start, end, practice)
+    times_tables = times_tables_section(student, start, end, practice)
+    basic_facts = basic_facts_section(student, start, end, practice)
+    worksheets = worksheets_section(
+        student, start, end,
+        classroom_ids if content['include_worksheets'] else [],
+    )
     totals = totals_section(submissions, due)
 
     # One figure across everything the child actually did, so a report is not
@@ -756,8 +829,17 @@ def build_report_data(student, period_type, start, end, term=None,
             'name': student.get_full_name() or student.username,
             'username': student.username,
         },
+        'subject': {
+            'id': subject.id if subject else None,
+            'slug': subject.slug if subject else None,
+            'name': subject.name if subject else None,
+        },
+        # What this report actually carried. A section switched off after the
+        # fact must not change a report a family has already read, so the page
+        # trusts this rather than today's settings.
+        'sections_included': dict(content),
         'totals': totals,
-        'topics': topics_section(submissions),
+        'topics': topics_section(submissions) if content['include_topics'] else [],
         'attempts': attempts_section(submissions),
         'trend': trend_section(submissions, period_type),
         'worksheets': worksheets,

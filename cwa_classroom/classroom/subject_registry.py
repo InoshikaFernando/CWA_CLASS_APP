@@ -158,6 +158,19 @@ class SubjectPlugin:
     #: Key stored in ``BrainBuzzSession.subject``.  Empty string = opt out.
     brainbuzz_subject_key: str = ''
 
+    def content_topic_names(self, content_ids) -> dict:
+        """Map content id -> topic name, for the progress report breakdown.
+
+        Bulk rather than one call per id: the breakdown covers every answer in
+        a period, and a term report would otherwise issue a query per answer.
+
+        Ids this plugin does not recognise are simply absent from the result —
+        the caller decides what to call them. The default returns nothing, so a
+        plugin with no topics degrades to "Unclassified" exactly as before
+        rather than raising on a code path that renders a parent's report.
+        """
+        return {}
+
     def brainbuzz_topic_choices(self) -> dict:
         """Context variables injected into the BrainBuzz create-form template.
 

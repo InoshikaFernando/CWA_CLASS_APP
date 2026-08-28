@@ -20,6 +20,8 @@ PERIOD_FIELDS = ProgressReportSetting.PERIOD_FIELDS
 DELIVERY_FIELDS = ProgressReportSetting.DELIVERY_FIELDS
 DELIVERY_DEFAULTS = ProgressReportSetting.DELIVERY_DEFAULTS
 SCHEDULE_FIELDS = ProgressReportSetting.SCHEDULE_FIELDS
+CONTENT_FIELDS = ProgressReportSetting.CONTENT_FIELDS
+CONTENT_DEFAULTS = ProgressReportSetting.CONTENT_DEFAULTS
 SCHEDULE_DEFAULTS = ProgressReportSetting.SCHEDULE_DEFAULTS
 SCHEDULE_FOR_PERIOD = ProgressReportSetting.SCHEDULE_FOR_PERIOD
 MODE_MANUAL = ProgressReportSetting.MODE_MANUAL
@@ -96,6 +98,20 @@ def resolve(classroom, chain=None):
                 break
 
     generating = any(resolved[field][0] for field in PERIOD_FIELDS)
+
+    # Content, unlike the period flags, is opt-out: a school that switched
+    # reporting on has asked for the report's contents too. A class that
+    # generates nothing resolves them all off so the settings page does not
+    # offer choices about a report that will never exist.
+    for field in CONTENT_FIELDS:
+        default = CONTENT_DEFAULTS[field] if generating else False
+        resolved[field] = (default, 'default')
+        for source, row in rows:
+            value = getattr(row, field)
+            if value is not None:
+                resolved[field] = (value, source)
+                break
+
     for field in DELIVERY_FIELDS:
         # Delivery only means anything for a class that generates at all.
         default = DELIVERY_DEFAULTS[field] if generating else False
@@ -167,7 +183,7 @@ def enabled_classrooms(period_type, school=None, mode=None, reference=None,
         qs = qs.filter(school=school)
 
     picked = []
-    for classroom in qs.select_related('school', 'department'):
+    for classroom in qs.select_related('school', 'department', 'subject'):
         values = effective(classroom)
         if not values.get(period_type):
             continue

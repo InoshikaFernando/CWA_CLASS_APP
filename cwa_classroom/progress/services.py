@@ -89,21 +89,43 @@ def students_for_period(period_type, school=None, classroom=None,
         .select_related('student')
     )
 
+    subject_by_class = {c.id: c.subject_id for c in classrooms}
+
     plan = {}
     for membership in memberships:
         entry = plan.setdefault(membership.student, {
             'classroom_ids': [],
+            # Classes grouped by the subject they teach. A student in two
+            # coding classes gets ONE coding report covering both, not two —
+            # the subject is the unit a family reads, not the timetable slot.
+            'by_subject': {},
             'delivery': {field: False for field in report_settings.DELIVERY_FIELDS},
+            'content': {},
         })
         entry['classroom_ids'].append(membership.classroom_id)
+        subject_id = subject_by_class.get(membership.classroom_id)
+        entry['by_subject'].setdefault(subject_id, []).append(
+            membership.classroom_id,
+        )
+
         resolved = settings_by_class[membership.classroom_id]
         for field in report_settings.DELIVERY_FIELDS:
             entry['delivery'][field] = entry['delivery'][field] or resolved[field]
+        # Content is OR-ed per subject, for the same reason delivery is OR-ed:
+        # if any class of this subject asks for a section, the subject's report
+        # carries it rather than being cut down by a stricter sibling class.
+        content = entry['content'].setdefault(
+            subject_id,
+            {field: False for field in report_settings.CONTENT_FIELDS},
+        )
+        for field in report_settings.CONTENT_FIELDS:
+            content[field] = content[field] or resolved[field]
     return plan
 
 
 def generate_report(student, period_type, start, end, term=None, force=False,
-                    cohort_cache=None, classroom_ids=None, school=None):
+                    cohort_cache=None, classroom_ids=None, school=None,
+                    subject=None, content=None):
     """Create (or refresh) one student's report for one window.
 
     Returns ``(report, created)``. An existing report is left alone unless
@@ -125,18 +147,19 @@ def generate_report(student, period_type, start, end, term=None, force=False,
 
     report = PeriodReport.objects.filter(
         student=student, period_type=period_type, period_start=start,
+        subject=subject,
     ).first()
     if report is not None and not force:
         return report, False
 
     data = build_report_data(
         student, period_type, start, end, term=term, cohort_cache=cohort_cache,
-        classroom_ids=classroom_ids,
+        classroom_ids=classroom_ids, subject=subject, content=content,
     )
 
     if report is None:
         report = PeriodReport.objects.create(
-            student=student, school=school, term=term,
+            student=student, school=school, term=term, subject=subject,
             period_type=period_type, period_start=start, period_end=end,
             data=data,
         )
@@ -296,6 +319,40 @@ def _site_url():
     return getattr(settings, 'SITE_URL', '') or ''
 
 
+def _student_classrooms_for_window(student, classroom_ids=None):
+    """The classes a legacy report covered, for the CPP-395 backfill.
+
+    Prefers the ids the snapshot recorded over today's memberships: a student
+    who has since left a class was still in it when the report was written, and
+    rebuilding from today's roster would silently drop that class's work.
+    """
+    from classroom.models import ClassRoom
+
+    if classroom_ids:
+        return list(
+            ClassRoom.objects.filter(id__in=classroom_ids)
+            .select_related('subject').order_by('name')
+        )
+    return list(
+        ClassRoom.objects
+        .filter(class_students__student=student, class_students__is_active=True)
+        .select_related('subject').distinct().order_by('name')
+    )
+
+
+def _subjects_by_id(plan):
+    """Load every Subject the plan touches in one query rather than per row."""
+    from classroom.models import Subject
+
+    ids = {
+        subject_id
+        for entry in plan.values()
+        for subject_id in entry['by_subject']
+        if subject_id is not None
+    }
+    return {s.id: s for s in Subject.objects.filter(id__in=ids)} if ids else {}
+
+
 def run_period(period_type, start, end, term=None, *, force=False, dry_run=False,
                notify=True, school=None, classroom=None, mode=None,
                reference=None):
@@ -328,29 +385,37 @@ def run_period(period_type, start, end, term=None, *, force=False, dry_run=False
         'notified': 0, 'emailed': 0,
     }
 
+    subjects = _subjects_by_id(plan)
+
     for student, entry in plan.items():
         counts['students'] += 1
         if dry_run:
             continue
 
-        report, created = generate_report(
-            student, period_type, start, end, term=term, force=force,
-            cohort_cache=cohort_cache, classroom_ids=entry['classroom_ids'],
-            school=school,
-        )
-        counts['generated' if created else 'refreshed'] += 1
-
-        if not notify:
-            continue
-
-        delivery = entry['delivery']
-        if notify_report(
-            report,
-            to_student=delivery['notify_student'],
-            to_parents=delivery['notify_parents'],
+        # One report per subject. A student taking maths and coding gets a
+        # maths report and a coding report, each about its own subject.
+        for subject_id, class_ids in sorted(
+            entry['by_subject'].items(), key=lambda kv: (kv[0] is None, kv[0]),
         ):
-            counts['notified'] += 1
-        if period_type == TERM and delivery['email_parents_at_term']:
-            counts['emailed'] += email_parents_term_report(report)
+            report, created = generate_report(
+                student, period_type, start, end, term=term, force=force,
+                cohort_cache=cohort_cache, classroom_ids=class_ids,
+                school=school, subject=subjects.get(subject_id),
+                content=entry['content'].get(subject_id),
+            )
+            counts['generated' if created else 'refreshed'] += 1
+
+            if not notify:
+                continue
+
+            delivery = entry['delivery']
+            if notify_report(
+                report,
+                to_student=delivery['notify_student'],
+                to_parents=delivery['notify_parents'],
+            ):
+                counts['notified'] += 1
+            if period_type == TERM and delivery['email_parents_at_term']:
+                counts['emailed'] += email_parents_term_report(report)
 
     return counts
