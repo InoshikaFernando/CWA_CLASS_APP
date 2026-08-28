@@ -124,6 +124,10 @@ class ClassRoomViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
                 filter=Q(class_students__is_active=True),
                 distinct=True,
             ))
+            # ClassRoom has no Meta.ordering. Paginating an unordered queryset
+            # lets the database return rows in a different order per page, so
+            # a client scrolling a list sees duplicates and gaps.
+            .order_by('name', 'id')
         )
 
     @extend_schema(responses=ClassStudentSerializer(many=True))
@@ -150,7 +154,8 @@ class ClassRoomViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
             )
         roster = (ClassStudent.objects
                   .filter(classroom=classroom, is_active=True)
-                  .select_related('student'))
+                  .select_related('student')
+                  .order_by('student__first_name', 'student__username', 'id'))
         page = self.paginate_queryset(roster)
         serializer = ClassStudentSerializer(page or roster, many=True)
         if page is not None:
@@ -332,4 +337,5 @@ class ChildrenViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     def get_queryset(self):
         return (ParentStudent.objects
                 .filter(parent=self.request.user, is_active=True)
-                .select_related('student'))
+                .select_related('student')
+                .order_by('student__first_name', 'student__username', 'id'))

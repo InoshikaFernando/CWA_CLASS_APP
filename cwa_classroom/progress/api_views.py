@@ -35,3 +35,55 @@ class UpdateTimeLogView(LoginRequiredMixin, View):
             'daily_seconds': log.daily_total_seconds,
             'weekly_seconds': log.weekly_total_seconds,
         })
+
+
+# ---------------------------------------------------------------------------
+# Period progress reports (v1 API)
+# ---------------------------------------------------------------------------
+# Read-only on purpose. A report is a frozen snapshot generated once after a
+# period closes and never recomputed (see PeriodReport's docstring) — that is
+# what keeps the PDF a parent downloads months later saying the same thing the
+# notification said. An API that could edit one would break that guarantee.
+
+from drf_spectacular.utils import OpenApiParameter, extend_schema  # noqa: E402
+from rest_framework import mixins, viewsets  # noqa: E402
+
+from api.scoping import scope_by_student  # noqa: E402
+from progress.api_serializers import (  # noqa: E402
+    PeriodReportDetailSerializer, PeriodReportSummarySerializer,
+)
+from progress.models import PeriodReport  # noqa: E402
+
+
+class PeriodReportViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
+                          viewsets.GenericViewSet):
+    """Progress reports for students the caller may read."""
+
+    ordering_fields = ('period_start', 'generated_at')
+
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return PeriodReportDetailSerializer
+        return PeriodReportSummarySerializer
+
+    @extend_schema(parameters=[
+        OpenApiParameter('student', int, description='Filter to one student id.'),
+        OpenApiParameter('period_type', str, description='weekly | monthly | term'),
+        OpenApiParameter('subject', int, description='Filter to one subject id.'),
+    ])
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    def get_queryset(self):
+        queryset = scope_by_student(
+            PeriodReport.objects.select_related('student', 'subject', 'school'),
+            self.request.user,
+        )
+        params = self.request.query_params
+        if params.get('student'):
+            queryset = queryset.filter(student_id=params['student'])
+        if params.get('period_type'):
+            queryset = queryset.filter(period_type=params['period_type'])
+        if params.get('subject'):
+            queryset = queryset.filter(subject_id=params['subject'])
+        return queryset.order_by('-period_start', 'period_type', 'id')

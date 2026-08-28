@@ -14,6 +14,9 @@ from rest_framework.routers import DefaultRouter
 
 from api import views_auth
 from classroom import api_views as classroom_api
+from homework import api_views as homework_api
+from progress import api_views as progress_api
+from rewards import api_views as rewards_api
 
 router = DefaultRouter()
 
@@ -29,6 +32,13 @@ router.register('attendance', classroom_api.AttendanceViewSet, basename='attenda
 router.register('notifications', classroom_api.NotificationViewSet, basename='notification')
 router.register('children', classroom_api.ChildrenViewSet, basename='child')
 
+# --- Learning ---
+router.register('homework', homework_api.HomeworkViewSet, basename='homework')
+router.register('submissions', homework_api.HomeworkSubmissionViewSet,
+                basename='submission')
+router.register('reports', progress_api.PeriodReportViewSet, basename='report')
+router.register('points', rewards_api.PointsAwardViewSet, basename='points')
+
 app_name = 'api'
 
 urlpatterns = [
@@ -40,6 +50,10 @@ urlpatterns = [
     path('auth/me/', views_auth.MeView.as_view(), name='auth-me'),
     path('auth/change-password/', views_auth.ChangePasswordView.as_view(),
          name='auth-change-password'),
+
+    # --- Rewards (single-resource endpoints, not collections) ---
+    path('points/total/', rewards_api.PointsTotalView.as_view(), name='points-total'),
+    path('leaderboard/', rewards_api.LeaderboardView.as_view(), name='leaderboard'),
 
     path('', include(router.urls)),
 ]

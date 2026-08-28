@@ -69,3 +69,22 @@ def auth(api):
         api.credentials(HTTP_AUTHORIZATION=f'Bearer {response.data["access"]}')
         return response.data
     return _auth
+
+
+@pytest.fixture
+def school(db, make_user):
+    from classroom.models import School
+
+    owner = make_user('owner1', role=Role.HEAD_OF_INSTITUTE)
+    return School.objects.create(name='Test School', slug='test-school', admin=owner)
+
+
+@pytest.fixture
+def classroom(db, school, teacher, student):
+    """A class with one teacher and one enrolled student."""
+    from classroom.models import ClassRoom, ClassStudent, ClassTeacher
+
+    room = ClassRoom.objects.create(name='Year 5 Maths', school=school, day='monday')
+    ClassTeacher.objects.create(classroom=room, teacher=teacher)
+    ClassStudent.objects.create(classroom=room, student=student, is_active=True)
+    return room
