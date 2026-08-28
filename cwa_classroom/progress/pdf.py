@@ -314,6 +314,32 @@ def _readable(logo, report):
         return False
 
 
+def _logo_image(logo, report):
+    """The logo as a reportlab flowable, read through the storage backend.
+
+    NOT ``logo.path``: production media lives on DigitalOcean Spaces, and
+    ``FieldFile.path`` raises NotImplementedError on S3-backed storage. That
+    would have been swallowed by the surrounding except and logged, so every
+    production PDF would have quietly printed the text-only letterhead while
+    the page beside it showed the logo — the kind of difference nobody reports
+    because each half looks deliberate.
+
+    Reading the bytes up front also settles the laziness problem for good: the
+    image is in memory before doc.build() touches it, so there is no file left
+    to disappear mid-render.
+    """
+    try:
+        with logo.storage.open(logo.name) as fh:
+            data = BytesIO(fh.read())
+        return Image(data, width=22 * mm, height=22 * mm, kind='proportional')
+    except Exception:
+        logger.warning(
+            'progress report letterhead image unreadable for school %s',
+            report.school_id, exc_info=True,
+        )
+        return None
+
+
 def _letterhead_flow(report, styles):
     """The school's letterhead, as PDF flowables. Empty when it has none.
 
@@ -339,14 +365,8 @@ def _letterhead_flow(report, styles):
 
     logo = letterhead['logo']
     if logo and _readable(logo, report):
-        try:
-            image = Image(logo.path, width=22 * mm, height=22 * mm, kind='proportional')
-        except Exception:
-            logger.warning(
-                'progress report letterhead image unreadable for school %s',
-                report.school_id, exc_info=True,
-            )
-        else:
+        image = _logo_image(logo, report)
+        if image is not None:
             table = Table([[image, text]], colWidths=[26 * mm, None])
             table.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),

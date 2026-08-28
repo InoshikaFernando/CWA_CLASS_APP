@@ -23,6 +23,10 @@ GIF = (
 )
 
 
+#: Sentinel for "caller said nothing", so school=None can mean no school.
+_SCHOOL = object()
+
+
 class LetterheadTests(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -30,9 +34,14 @@ class LetterheadTests(TestCase):
         cls.student = make_user('lh_student', first_name='Avisha')
         cls.start, cls.end = periods.previous_week(periods.today())
 
-    def _report(self, school=None, classroom_ids=None):
+    def _report(self, school=_SCHOOL, classroom_ids=None):
+        # A sentinel, not None: passing school=None has to MEAN no school. With
+        # `school if school is not None else self.school` the individual-learner
+        # test silently kept the school and passed on the old no-logo-no-address
+        # rule instead — it asserted None for a reason it wasn't testing.
         return PeriodReport(
-            student=self.student, school=school if school is not None else self.school,
+            student=self.student,
+            school=self.school if school is _SCHOOL else school,
             period_type=periods.WEEKLY,
             period_start=self.start, period_end=self.end,
             data={'scope': {'classroom_ids': classroom_ids or []}},
@@ -41,9 +50,19 @@ class LetterheadTests(TestCase):
     def _logo(self, name='logo.gif'):
         return SimpleUploadedFile(name, GIF, content_type='image/gif')
 
-    def test_a_school_with_no_logo_and_no_address_has_no_letterhead(self):
-        """Better a plain heading than an empty bar pretending to be one."""
-        self.assertIsNone(letterhead_for(self._report()))
+    def test_a_school_with_nothing_set_still_gets_its_name(self):
+        """A REVERSAL: this used to assert None, and that was the wrong call.
+
+        The report is a document a family keeps and forwards, and the plain
+        "Weekly Progress Report" heading never says whose it is. A school with
+        no logo and no address still has a name, and printing it beats a page
+        that could have come from anywhere.
+        """
+        head = letterhead_for(self._report())
+
+        self.assertEqual(head['name'], 'Wizards')
+        self.assertIsNone(head['logo'])
+        self.assertEqual(head['address'], '')
 
     def test_an_address_alone_is_a_letterhead(self):
         self.school.street_address = '12 Wizard Lane'
@@ -63,6 +82,7 @@ class LetterheadTests(TestCase):
         head = letterhead_for(self._report())
 
         self.assertTrue(head['logo'])
+        self.assertEqual(head['name'], 'Wizards')
 
     def test_an_individual_learner_has_none(self):
         self.assertIsNone(letterhead_for(self._report(school=None)))
@@ -146,3 +166,38 @@ class LetterheadPdfTests(TestCase):
         pdf = render_report_pdf(self._report())
 
         self.assertTrue(pdf.startswith(b'%PDF'))
+
+    def test_the_logo_is_read_through_storage_not_by_local_path(self):
+        """The bug this guards is invisible in dev and total in production.
+
+        Production media lives on DigitalOcean Spaces, where FieldFile.path
+        raises NotImplementedError. Building the flowable from ``logo.path``
+        therefore failed on every real PDF, was swallowed by the surrounding
+        except, and printed the text-only letterhead — while the HTML page
+        beside it showed the logo. Nobody reports that, because each half
+        looks deliberate.
+
+        So: make ``.path`` raise the way Spaces does, and require the logo to
+        survive anyway.
+        """
+        from unittest.mock import PropertyMock, patch
+
+        from django.db.models.fields.files import ImageFieldFile
+        from reportlab.platypus import Table
+
+        from progress.pdf import _letterhead_flow, _styles
+
+        self.school.logo = SimpleUploadedFile('lh.gif', GIF, content_type='image/gif')
+        self.school.save(update_fields=['logo'])
+
+        with patch.object(
+            ImageFieldFile, 'path',
+            new_callable=PropertyMock,
+            side_effect=NotImplementedError('S3 storage has no local path'),
+        ):
+            flow = _letterhead_flow(self._report(), _styles())
+
+        # A Table means image + text side by side; a bare Paragraph would mean
+        # the logo was dropped, which is exactly the failure being guarded.
+        self.assertEqual(len(flow), 1)
+        self.assertIsInstance(flow[0], Table)

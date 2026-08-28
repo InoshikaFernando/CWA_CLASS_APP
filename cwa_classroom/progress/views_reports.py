@@ -64,9 +64,11 @@ def letterhead_for(report):
     they agree: a report spanning two departments has no single letterhead to
     print, and the school's is the honest fallback rather than picking one.
 
-    Returns None when there is nothing to show — an individual learner with no
-    school, or a school that has set no logo and no address. The page then
-    prints its plain heading instead of an empty bar.
+    Every school gets a letterhead: the logo it has set and its name, with the
+    department and address added when they exist. The report is a document a
+    family keeps and forwards, so whose it is has to be on it — the plain
+    "Weekly Progress Report" heading never says. Only an individual learner
+    with no school at all returns None.
     """
     if not report.school_id:
         return None
@@ -74,6 +76,7 @@ def letterhead_for(report):
     department = _sole_department(report)
     settings = report.school.get_effective_settings(department)
 
+    logo = settings.get('logo')
     address = ', '.join(
         part for part in (
             settings.get('street_address'), settings.get('city'),
@@ -81,9 +84,6 @@ def letterhead_for(report):
             settings.get('country'),
         ) if part
     )
-    logo = settings.get('logo')
-    if not logo and not address:
-        return None
     return {
         'logo': logo or None,
         'name': report.school.name,
