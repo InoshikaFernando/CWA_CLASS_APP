@@ -24,6 +24,7 @@ def tree(db):
     coding = Subject.objects.create(name='Coding', slug='coding', school=None)
     level = Level.objects.create(level_number=1, display_name='Year 1', school=None)
     level7 = Level.objects.create(level_number=7, display_name='Year 7', school=None)
+    facts = Level.objects.create(level_number=100, display_name='Addition L1', school=None)
     admin = CustomUser.objects.create_user('td_admin', 'td@example.com', 'pass1234')
     school = School.objects.create(name='S', slug='s-td', admin=admin)
 
@@ -46,7 +47,8 @@ def tree(db):
     return {'maths': maths, 'coding': coding, 'number': number,
             'addition': addition, 'addition_dupe': addition_dupe,
             'orphan': orphan, 'other': other_subject_topic,
-            'level': level, 'level7': level7, 'q': q, 'school': school}
+            'level': level, 'level7': level7, 'facts': facts, 'q': q,
+            'school': school}
 
 
 def run(**kwargs):
@@ -224,3 +226,41 @@ def test_merge_and_reparent_together_are_refused(tree):
 def test_an_unknown_topic_id_is_rejected(tree):
     with pytest.raises(CommandError):
         run(reparent=999999, under=0)
+
+
+# ── basic facts are meant to hang off a parentless row ────────────────────
+def test_basic_facts_alone_is_not_reported_as_stranded(tree):
+    """A parentless row holding only level>=100 questions is correct, not broken.
+
+    maths.views builds the basic-facts page from Level.topics for levels >= 100,
+    matching 'Addition', 'Subtraction', 'Multiplication', 'Division' and 'Place
+    Value Facts' by name — so those questions are reached by their own UI. On
+    the live bank, counting them made 1,160 correct rows look like a defect.
+    """
+    tree['q'](tree['orphan'], level_obj=tree['facts'], text='7 + 8')
+
+    out = run(only='TOP-LEVEL-HOLDS-QUESTIONS')
+
+    assert 'TOP-LEVEL-HOLDS-QUESTIONS' not in out
+
+
+def test_a_row_with_both_counts_only_the_curriculum_questions(tree):
+    tree['q'](tree['orphan'], text='stranded')
+    for i in range(3):
+        tree['q'](tree['orphan'], level_obj=tree['facts'], text=f'fact {i}')
+
+    out = run(only='TOP-LEVEL-HOLDS-QUESTIONS')
+
+    assert '1 curriculum question(s) directly' in out
+    assert '+3 basic facts' in out
+    assert '3 basic-facts question(s) on these rows are NOT' in out
+
+
+def test_the_year_spread_excludes_basic_facts_levels(tree):
+    tree['q'](tree['orphan'], text='stranded')
+    tree['q'](tree['orphan'], level_obj=tree['facts'], text='fact')
+
+    out = run(only='TOP-LEVEL-HOLDS-QUESTIONS')
+
+    assert 'Y1:1' in out
+    assert 'Y100' not in out

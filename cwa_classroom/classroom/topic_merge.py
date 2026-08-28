@@ -205,7 +205,7 @@ def subject_name_clashes():
 
 
 def top_level_topics_with_questions(subject_ids=None):
-    """Top-level rows holding questions directly — the picker never offers them.
+    """Top-level rows holding CURRICULUM questions directly.
 
     The student year page groups topics as ``strand > sub-topic`` and keeps
     only the strands that HAVE sub-topics, and the topic quiz then filters on
@@ -218,20 +218,41 @@ def top_level_topics_with_questions(subject_ids=None):
     ``Topic.objects.filter(subject=subject).first()`` rather than creating the
     topic, and that first row is a strand.
 
-    Reported, never fixed automatically — whether those questions belong under
-    an existing sub-topic, a new one, or a different strand entirely is a
-    judgement call about their content.
+    Basic facts are the deliberate exception and are NOT counted. That bank is
+    *designed* to hang off a parentless row — ``maths.views`` builds its page
+    from ``Level.topics`` for levels >= 100, matching 'Addition',
+    'Subtraction', 'Multiplication', 'Division' and 'Place Value Facts' by
+    name — so those questions are reached by their own UI, not the topic
+    picker. Counting them made a correct arrangement look like a defect and
+    buried the real one: on the live bank they were 1,160 of a reported 2,819.
+    They are carried as ``basic_facts`` for context instead.
+
+    Reported, never fixed automatically — whether a stranded question belongs
+    under an existing sub-topic, a new one, or a different strand entirely is a
+    judgement call about its content.
     """
+    from maths.models import Question
+
     topics = (Topic.objects
               .filter(parent__isnull=True)
               .select_related('subject')
-              .annotate(n_questions=Count('maths_questions', distinct=True),
-                        n_subtopics=Count('subtopics', distinct=True))
+              .annotate(n_subtopics=Count('subtopics', distinct=True))
               .order_by('subject__name', 'name'))
     if subject_ids:
         topics = topics.filter(subject_id__in=subject_ids)
-    return [topic_summary(t, questions=t.n_questions, subtopics=t.n_subtopics)
-            for t in topics if t.n_questions]
+
+    found = []
+    for topic in topics:
+        counts = Question.objects.filter(topic_id=topic.id)
+        curriculum = counts.filter(level__level_number__lt=100).count()
+        if not curriculum:
+            continue
+        summary = topic_summary(topic, questions=curriculum,
+                                subtopics=topic.n_subtopics)
+        summary['basic_facts'] = counts.filter(
+            level__level_number__gte=100).count()
+        found.append(summary)
+    return found
 
 
 def validate_reparent(topic, parent):

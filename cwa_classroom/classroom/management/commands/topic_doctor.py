@@ -139,19 +139,27 @@ class Command(BaseCommand):
         stranded = top_level_topics_with_questions(subject_ids)
         if stranded and (not only or only == TOP_LEVEL_CODE):
             n = sum(s['questions'] for s in stranded)
+            bf = sum(s.get('basic_facts', 0) for s in stranded)
             self.stdout.write(self.style.WARNING(
                 f'\n[{TOP_LEVEL_CODE}] {len(stranded)} strand(s) hold {n} '
-                f'question(s) directly'))
+                f'curriculum question(s) directly'))
             self.stdout.write(
                 '  The year page lists sub-topics only, so these are offered by '
                 'no topic quiz —\n  they surface only in level practice. '
                 'Move them under a sub-topic, or give the\n  strand one with '
                 '--reparent.')
+            if bf:
+                self.stdout.write(
+                    f'  ({bf} basic-facts question(s) on these rows are NOT '
+                    'counted: that bank is meant to\n  hang off a parentless '
+                    'row and is served by its own page, not the topic picker.)')
             for s in self._capped(stranded, limit):
+                extra = (f"  +{s['basic_facts']} basic facts"
+                         if s.get('basic_facts') else '')
                 self.stdout.write(
                     f"    [{s['id']:>6}] {s['name']:<40} "
                     f"{s['questions']:>5} questions, {s['subtopics']} sub-topic(s)"
-                    + self._year_spread(s['id']))
+                    + self._year_spread(s['id']) + extra)
 
         issues = structural_issues(subject_ids)
         by_code = defaultdict(list)
@@ -206,7 +214,8 @@ class Command(BaseCommand):
         """Which years this topic's questions sit at — where to move them to."""
         from maths.models import Question
         years = Counter(
-            n for n in Question.objects.filter(topic_id=topic_id)
+            n for n in Question.objects.filter(topic_id=topic_id,
+                                               level__level_number__lt=100)
             .values_list('level__level_number', flat=True) if n is not None)
         if not years:
             return ''

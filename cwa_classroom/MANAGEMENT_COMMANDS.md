@@ -355,6 +355,14 @@ practice.
 
 The report surfaces that (`TOP-LEVEL-HOLDS-QUESTIONS`, with the years those
 questions sit at) alongside the findings from `classroom.topic_merge`:
+
+**Basic facts are excluded.** That bank is *meant* to hang off a parentless row
+— `maths/views.py` builds its page from `Level.topics` for levels >= 100,
+matching `Addition`, `Subtraction`, `Multiplication`, `Division` and `Place
+Value Facts` by name — so those questions are reached by their own UI, not the
+topic picker. Counting them made a correct arrangement look like a defect: on
+the live bank they were 1,160 of a reported 2,819. They are shown as context
+(`+N basic facts`) rather than counted as findings.
 duplicate names, empty topics, inactive topics still holding questions, parents
 in another subject, and subjects sharing a name.
 
