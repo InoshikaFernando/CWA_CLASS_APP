@@ -121,7 +121,11 @@ urlpatterns = [
     # Health / version check (no auth required)
     path('api/health/', health_check, name='api_health'),
 
+    # OpenAPI schema + browsable docs (the mobile client is generated from this)
+    path('api/', include('api.urls_schema')),
+
     # v1 versioned endpoints (new canonical paths)
+    path('api/v1/', include('api.urls')),
     path('api/v1/', include('quiz.api_urls')),
     path('api/v1/', include('progress.api_urls')),
 

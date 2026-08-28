@@ -21,6 +21,7 @@ import time
 from django.conf import settings
 from django.contrib.auth import logout
 from django.db import connection
+from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
@@ -109,6 +110,38 @@ class MathsRoomRedirectMiddleware:
         return self.get_response(request)
 
 
+# ---------------------------------------------------------------------------
+# Access walls: one rule, two audiences
+# ---------------------------------------------------------------------------
+# The three middlewares below (trial expiry, account block, unfinished profile)
+# each end in a redirect to an HTML page. That is the right answer for a
+# browser and the wrong one for the JSON API: a mobile client cannot render
+# the page, and a 302 to a login-ish URL is not something it can branch on —
+# it would read as success and show an empty screen.
+#
+# Rather than re-implement these rules inside the API (two copies of a
+# permission rule eventually disagree, and the one that drifts is the one
+# nobody is looking at), every wall funnels through `wall_response`. Browsers
+# keep getting the redirect; /api/ gets a 403 carrying a machine-readable
+# `code` the app can switch on.
+
+API_PATH_PREFIX = '/api/'
+
+
+def is_api_request(request):
+    return request.path.startswith(API_PATH_PREFIX)
+
+
+def wall_response(request, code, detail, redirect_to):
+    """The redirect a browser expects, or the JSON an API client can act on."""
+    if is_api_request(request):
+        return JsonResponse(
+            {'error': {'code': code, 'detail': detail}},
+            status=403,
+        )
+    return redirect(redirect_to)
+
+
 class TrialExpiryMiddleware:
     """
     Handles trial/subscription expiry for both individual students and institutes.
@@ -150,7 +183,10 @@ class TrialExpiryMiddleware:
             if not sub:
                 if not self._is_allowed_path(request.path):
                     self._log_block(request, 'individual_no_subscription', 'none')
-                    return redirect('trial_expired')
+                    return wall_response(
+                        request, 'subscription_required',
+                        'This account has no active subscription.',
+                        'trial_expired')
                 return self.get_response(request)
 
             if self._is_trial_expired(sub):
@@ -164,7 +200,10 @@ class TrialExpiryMiddleware:
 
                 if not self._is_allowed_path(request.path):
                     self._log_block(request, 'individual_subscription_expired', sub.status)
-                    return redirect('trial_expired')
+                    return wall_response(
+                        request, 'trial_expired',
+                        'Your subscription has expired. Renew to continue.',
+                        'trial_expired')
 
             return self.get_response(request)
 
@@ -218,7 +257,10 @@ class TrialExpiryMiddleware:
 
             if not self._is_allowed_path(request.path):
                 self._log_block(request, 'school_subscription_expired', sub.status)
-                return redirect('institute_trial_expired')
+                return wall_response(
+                    request, 'school_subscription_expired',
+                    "Your school's subscription has expired.",
+                    'institute_trial_expired')
 
         return None
 
@@ -254,7 +296,10 @@ class TrialExpiryMiddleware:
             return None
         if not self._is_allowed_path(request.path):
             self._log_block(request, 'personal_subscription_delinquent', sub.status)
-            return redirect('trial_expired')
+            return wall_response(
+                request, 'payment_required',
+                'Your subscription payment is overdue.',
+                'trial_expired')
         return None
 
     @staticmethod
@@ -364,9 +409,16 @@ class AccountBlockMiddleware:
             # While a super admin is viewing as this user, logout() would flush
             # the ADMIN's session, not the target's — so show the block screen
             # instead and leave the "Stop" banner working.
-            if not getattr(request, 'is_impersonating', False):
+            # An API caller holds a bearer token, not a session, so there is
+            # no session to flush — and logout() would drop the session of a
+            # browser that happens to share the request. The token is rejected
+            # on every call for as long as the block stands.
+            if not is_api_request(request) and not getattr(request, 'is_impersonating', False):
                 logout(request)
-            return redirect('account_blocked')
+            return wall_response(
+                request, 'account_blocked',
+                'This account has been blocked. Contact your school administrator.',
+                'account_blocked')
 
         # Check school suspension
         from billing.entitlements import get_school_for_user
@@ -378,9 +430,12 @@ class AccountBlockMiddleware:
                 action='suspended_school_access_attempt', result='blocked',
                 request=request,
             )
-            if not getattr(request, 'is_impersonating', False):
+            if not is_api_request(request) and not getattr(request, 'is_impersonating', False):
                 logout(request)
-            return redirect('account_blocked')
+            return wall_response(
+                request, 'school_suspended',
+                'Your school account has been suspended.',
+                'account_blocked')
 
         return self.get_response(request)
 
@@ -400,6 +455,12 @@ class ProfileCompletionMiddleware:
         '/admin/',
         '/static/',
         '/stripe/',   # Stripe webhooks / redirects
+        # The API's equivalent of /accounts/complete-profile/. These are the
+        # endpoints the app uses to GET what is missing, PATCH it, and change
+        # the temporary password — wall them and a newly-created student is
+        # locked out of the only screens that could let them in.
+        # Deliberately only this wall: a BLOCKED account still gets nothing.
+        '/api/v1/auth/',
     )
 
     def __init__(self, get_response):
@@ -413,7 +474,10 @@ class ProfileCompletionMiddleware:
             return self.get_response(request)
 
         if request.user.must_change_password or not request.user.profile_completed:
-            return redirect('complete_profile')
+            return wall_response(
+                request, 'profile_incomplete',
+                'Finish setting up your profile before continuing.',
+                'complete_profile')
 
         return self.get_response(request)
 

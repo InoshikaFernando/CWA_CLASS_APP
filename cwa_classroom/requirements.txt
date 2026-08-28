@@ -33,3 +33,16 @@ phonenumbers>=8.13
 # graphics package draws the report's charts so the PDF is not a stripped-down
 # copy of the web view.
 reportlab>=4.2,<5
+
+# --- Mobile / third-party API (CPP-API-v1) ---
+# The web app is server-rendered htmx; the JSON API under /api/v1/ is the
+# contract the mobile app builds against. DRF carries the serializer,
+# permission and versioning machinery; SimpleJWT issues the bearer tokens a
+# phone can hold (session cookies cannot leave the browser); spectacular
+# generates the OpenAPI schema the mobile client is generated FROM, so a
+# breaking change shows up as a schema diff in review rather than as a crash
+# in a shipped build.
+djangorestframework==3.15.2
+djangorestframework-simplejwt==5.3.1
+django-cors-headers==4.4.0
+drf-spectacular==0.27.2
