@@ -590,11 +590,16 @@ RULE = 'rule'
 class PrintedPattern:
     """The sequence a "complete the pattern" question prints, solved."""
 
-    def __init__(self, values, missing, operation, size):
+    def __init__(self, values, missing, operation, size, span=(0, 0)):
         self.values = values        # the full sequence, gaps filled
         self.missing = missing      # the gap values, in the order they appear
         self.operation = operation  # ADD / SUBTRACT / MULTIPLY / DIVIDE
         self.size = size            # step or multiplier, unsigned
+        # Where the sequence sits in ``prepare(question_text)``. Callers that
+        # line the gaps up with something else in the question — the "___"
+        # runs of a fill-in-the-blank sentence — need to know which markers
+        # are the pattern's and which are not.
+        self.span = span
 
     def __repr__(self):
         return (f'PrintedPattern({_join(self.values)!r}, '
@@ -657,6 +662,7 @@ def read_printed_pattern(question_text):
             [value for value, gap in zip(values, gaps) if gap],
             operation,
             size,
+            match.span(),
         )
         # The longest sequence wins: a question that prints one is talking
         # about it, and a shorter run elsewhere in the wording is incidental.
@@ -741,3 +747,68 @@ def completes_printed_pattern(question_text, correct_answers, text_answer):
         for wanted in (completion_parts(stored, pattern)
                        for stored in (correct_answers or ()))
     )
+
+
+# --------------------------------------------------------------------------
+# What the rule of a printed pattern may be written as
+# --------------------------------------------------------------------------
+# Needed by the fill-in-the-blank conversion: once "What is the rule?" is a gap
+# in a sentence rather than a whole typed answer, it is graded by exact match
+# against the stored spellings (maths.blank_grading), and the tolerant reading
+# above no longer stands behind it. A question whose author stored only "+15"
+# would start failing the child who types "add 15" — the very defect the
+# conversion is meant to end — so the gap is stocked with the ordinary
+# spellings of the rule it actually has.
+#
+# Whitespace, case and the multiplication and division marks are already folded
+# by maths.algebra_grading.fold_answer, so "+ 15", "Add 15" and "x2" need no
+# entry of their own.
+_RULE_SPELLINGS = {
+    ADD: ('+{size}', 'add {size}', 'adding {size}', 'plus {size}',
+          'add {size} each time', 'goes up by {size}', 'up by {size}'),
+    SUBTRACT: ('-{size}', 'subtract {size}', 'subtracting {size}',
+               'minus {size}', 'take away {size}', 'goes down by {size}',
+               'down by {size}'),
+    MULTIPLY: ('x{size}', 'multiply by {size}', 'multiplying by {size}',
+               'times {size}', 'x {size} each time'),
+    DIVIDE: ('/{size}', 'divide by {size}', 'dividing by {size}',
+             'divided by {size}'),
+}
+
+# Only when the size makes them true, unlike the spellings above.
+_RULE_NICKNAMES = {
+    (MULTIPLY, 2): ('double', 'doubling'),
+    (DIVIDE, 2): ('halve', 'halving', 'half'),
+}
+
+
+def format_value(value):
+    """A number as a child would write it: 6, -2, 2.5, 1/3."""
+    return _fmt(value)
+
+
+def rule_spellings(pattern):
+    """Every ordinary way of writing *pattern*'s rule, "+15" and "add 15" alike.
+
+    For stocking a gap that asks for the rule. A bare "15" is deliberately not
+    among them: the gap asks which way the pattern moves, and a number on its
+    own does not say — it is refused for the same reason in a typed answer.
+    """
+    size = _fmt(pattern.size)
+    spellings = [form.format(size=size)
+                 for form in _RULE_SPELLINGS[pattern.operation]]
+    spellings.extend(
+        _RULE_NICKNAMES.get((pattern.operation, pattern.size), ()))
+    return spellings
+
+
+def states_the_rule(text, pattern):
+    """True when *text* states *pattern*'s rule and nothing else.
+
+    The evidence that a question's stored answer is its RULE — "+15" for a
+    sequence that steps by 15 — rather than the values of its gaps. What makes
+    it evidence and not a guess is that the rule is checked against the pattern
+    the question itself prints: a row that disagrees with the sequence, or that
+    carries the gap values as well, is not this.
+    """
+    return completion_parts(text, pattern) == {RULE}
