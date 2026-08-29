@@ -4068,9 +4068,20 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
         return render(request, 'admin_dashboard/partials/question_edit_form.html',
                       self._form_context(question))
 
-    def post(self, request, question_id):
-        from maths.models import Question, Answer
-        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+    @classmethod
+    def _apply_edits(cls, request, question):
+        """Write the modal's fields onto the question and its answer rows.
+
+        Returns ``(error, removed)`` — ``error`` is the refusal to show instead
+        of saving, ``removed`` the audit detail for the options this edit
+        deletes (logged by the caller, since a preview deletes nothing).
+
+        Shared with the student preview, which runs exactly this against the
+        real row inside a transaction it rolls back. That sharing is the point:
+        a preview built from its own reading of the form could show a question
+        that saving would not produce, and would be believed.
+        """
+        from maths.models import Answer
 
         question.question_text = request.POST.get('question_text', '').strip()
 
@@ -4079,7 +4090,7 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
         # POST value, and switching to a type whose required data is missing
         # would leave a question that cannot be rendered or graded.
         requested_type = (request.POST.get('question_type') or '').strip()
-        offered = {value for value, _label in self._type_choices(question)}
+        offered = {value for value, _label in cls._type_choices(question)}
         fields = ['question_text', 'updated_at']
         if requested_type and requested_type in offered:
             question.question_type = requested_type
@@ -4113,13 +4124,9 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
         surviving = (set(existing) - removing)
         if (question.question_type in CHOICE_QUESTION_TYPES
                 and not surviving and not added):
-            return render(
-                request, 'admin_dashboard/partials/question_edit_form.html',
-                self._form_context(
-                    question,
-                    error='Removing every option would leave a multiple-choice '
-                          'question with nothing to pick. Add a replacement '
-                          'option, or switch the type to Short Answer first.'))
+            return ('Removing every option would leave a multiple-choice '
+                    'question with nothing to pick. Add a replacement option, '
+                    'or switch the type to Short Answer first.'), []
 
         for aid, ans in existing.items():
             if aid in removing:
@@ -4128,21 +4135,13 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             ans.is_correct = request.POST.get(f'is_correct_{aid}') == 'on'
             ans.save(update_fields=['answer_text', 'is_correct'])
 
+        # What the text WAS: an option removed by mistake cannot be recovered
+        # from the row itself once it is gone, so the caller logs it.
+        removed = [{'id': aid,
+                    'text': existing[aid].answer_text,
+                    'was_correct': existing[aid].is_correct}
+                   for aid in sorted(removing)]
         if removing:
-            # Record what the text WAS: an option removed by mistake cannot be
-            # recovered from the row itself once it is gone.
-            log_event(
-                user=request.user, school=None,
-                category='data_change', action='global_question_answers_removed',
-                detail={
-                    'question_id': question.id,
-                    'removed': [{'id': aid,
-                                 'text': existing[aid].answer_text,
-                                 'was_correct': existing[aid].is_correct}
-                                for aid in sorted(removing)],
-                },
-                request=request,
-            )
             Answer.objects.filter(id__in=removing, question=question).delete()
 
         if added:
@@ -4152,6 +4151,26 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
                 next_order += 1
                 Answer.objects.create(question=question, answer_text=text,
                                       is_correct=is_correct, order=next_order)
+
+        return None, removed
+
+    def post(self, request, question_id):
+        from maths.models import Question
+        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+
+        error, removed = self._apply_edits(request, question)
+        if error:
+            return render(
+                request, 'admin_dashboard/partials/question_edit_form.html',
+                self._form_context(question, error=error))
+
+        if removed:
+            log_event(
+                user=request.user, school=None,
+                category='data_change', action='global_question_answers_removed',
+                detail={'question_id': question.id, 'removed': removed},
+                request=request,
+            )
 
         log_event(
             user=request.user, school=None,
@@ -4177,6 +4196,46 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             'multi_correct': (question.question_type in CHOICE_QUESTION_TYPES
                               and sum(1 for a in answers if a.is_correct) > 1),
         })
+
+
+class GlobalQuestionPreviewView(RoleRequiredMixin, View):
+    """The editor's "Preview as student" — one global question as a child meets it.
+
+    The modal POSTs its unsaved fields, so what comes back is the question
+    *Save Changes* would store: the same text, type and options, drawn by the
+    real student take partial and marked by the real grader. The edits are
+    applied to the stored row inside a transaction that is rolled back before
+    the response leaves, so previewing writes nothing.
+
+    Why this earns its place next to a form that already shows the answers: the
+    form shows what is *stored*, not what a child *meets*. A multiple-choice
+    question with one option, a "correct" tick on every option, an answer no
+    typed spelling can match — all of them look ordinary in the form and only
+    show up when you try to answer the question, which is exactly what this
+    does.
+    """
+    required_roles = [Role.ADMIN]
+
+    def post(self, request, question_id):
+        from maths.models import Question
+        from worksheets.question_preview import stored_preview_response
+
+        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+
+        def apply_edits(q):
+            # The save's own code, so the preview cannot show something saving
+            # would not produce; its refusal is shown in place of the preview.
+            error, _removed = GlobalQuestionEditView._apply_edits(request, q)
+            return error
+
+        # The listing's row button previews the stored question as it stands —
+        # it posts no form, and applying "the edits" of a POST that carries
+        # none would blank the very text it is meant to show. The editor's
+        # button posts the whole modal, and question_text is the field that
+        # tells the two apart.
+        editing = 'question_text' in request.POST
+        return stored_preview_response(
+            request, question, apply_edits=apply_edits if editing else None)
 
 
 class GlobalCodingExerciseEditView(RoleRequiredMixin, View):

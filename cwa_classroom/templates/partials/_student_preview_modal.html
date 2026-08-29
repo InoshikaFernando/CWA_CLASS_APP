@@ -12,6 +12,16 @@ The buttons that open it are ordinary elements carrying ``data-preview-open``
 (a question index) or ``data-preview-all``; the review template does not need
 any script of its own.
 
+A screen that previews a question which ALREADY exists — the admin question
+editor — has no ``preview_url`` to include with and no ``q_<idx>_`` card. Its
+button names both on itself instead:
+
+    <button type="button" data-preview-open="{{ question.id }}"
+            data-preview-url="{% url 'admin_global_question_preview' question.id %}"
+            data-preview-form="#question-edit-form">
+
+and the whole of that form is posted in place of the card's fields.
+
 The widget scripts below are the same ones the student take page loads. The
 mount registry (maths_mounts.js) picks up anything injected into the page, so
 the number line, table and fill-in-the-blank widgets mount themselves; the
@@ -66,7 +76,7 @@ runScripts(), because scripts inserted via innerHTML never run on their own.
 
   var URL_ = "{{ preview_url }}";
   var modal = document.getElementById("student-preview");
-  if (!modal || !URL_) return;
+  if (!modal) return;
 
   var body = modal.querySelector("[data-preview-body]");
   var counter = modal.querySelector("[data-preview-counter]");
@@ -76,6 +86,8 @@ runScripts(), because scripts inserted via innerHTML never run on their own.
   var walk = [];       // question indices being stepped through ("Preview all")
   var atIndex = 0;     // position within walk
   var current = null;  // question index on screen
+  var url = URL_;      // endpoint for the open preview; an opener may name its own
+  var formSel = null;  // a form to post whole, instead of one card's fields
 
   function csrf() {
     var el = document.querySelector('input[name="csrfmiddlewaretoken"]');
@@ -86,6 +98,19 @@ runScripts(), because scripts inserted via innerHTML never run on their own.
   // Keyed off the shared `q_<idx>_` naming rather than a container id, which is
   // what lets one modal serve three differently-built review pages.
   function cardFields(index, data) {
+    // A named form is posted entire — that screen's question is stored already,
+    // so the endpoint reads the editor's own field names rather than a card's.
+    if (formSel) {
+      var form = document.querySelector(formSel);
+      if (form) {
+        new FormData(form).forEach(function (value, name) {
+          if (value instanceof File) return;   // images are read server-side
+          data.append(name, value);
+        });
+      }
+      return data;
+    }
+
     var prefix = "q_" + index + "_";
     var controls = document.querySelectorAll("input[name], select[name], textarea[name]");
     Array.prototype.forEach.call(controls, function (el) {
@@ -122,7 +147,7 @@ runScripts(), because scripts inserted via innerHTML never run on their own.
     }
 
     body.innerHTML = '<p class="p-8 text-center text-sm text-gray-400">Loading…</p>';
-    fetch(URL_, { method: "POST", body: data, credentials: "same-origin" })
+    fetch(url, { method: "POST", body: data, credentials: "same-origin" })
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.text();
@@ -210,11 +235,18 @@ runScripts(), because scripts inserted via innerHTML never run on their own.
     var openOne = e.target.closest("[data-preview-open]");
     if (openOne) {
       e.preventDefault();
+      url = openOne.dataset.previewUrl || URL_;
+      formSel = openOne.dataset.previewForm || null;
+      if (!url) return;
       open([Number(openOne.dataset.previewOpen)]);
       return;
     }
-    if (e.target.closest("[data-preview-all]")) {
+    var openAll = e.target.closest("[data-preview-all]");
+    if (openAll) {
       e.preventDefault();
+      url = openAll.dataset.previewUrl || URL_;
+      formSel = openAll.dataset.previewForm || null;
+      if (!url) return;
       var all = includedIndices();
       if (!all.length) {
         window.alert("Tick at least one question to preview it as a student.");

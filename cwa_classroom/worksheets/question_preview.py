@@ -1,4 +1,11 @@
-"""The "Preview as student" endpoint, shared by all three PDF review screens.
+"""The "Preview as student" endpoint, shared by every screen that offers one.
+
+Two entry points. ``preview_response`` previews a DRAFT — the three PDF review
+screens (homework, worksheets, AI import), where the question does not exist
+yet. ``stored_preview_response`` previews a question that is already in the
+bank with the edits the admin question editor is holding unsaved. Both render
+the same body partial through the same grader, so "as a student sees it" means
+one thing across the app.
 
 Homework, Worksheets and AI Import each own their upload session model and their
 own access check, so each keeps a three-line view. Everything those views do —
@@ -38,6 +45,7 @@ from maths.draft_preview import (
     attach_preview_image,
     grading_notes,
     preview_question,
+    rolled_back,
 )
 from maths.models import Question
 
@@ -183,6 +191,74 @@ def _trial_answer(post, question):
     return {field: raw}, question.display_text_answer(raw)
 
 
+def _trial_result(request, question):
+    """The teacher's trial answer, marked by the student's own grader.
+
+    ``None`` when they have not tried one yet. Shared by the draft preview and
+    the stored-question preview so a teacher trialling an answer is told the
+    same thing on both screens.
+    """
+    post_data, shown = _trial_answer(request.POST, question)
+    if post_data is None:
+        return None
+
+    from maths.plugin import MathsPlugin
+    graded = MathsPlugin().grade_answer(question.pk, post_data)
+    return {
+        'is_correct': graded['is_correct'],
+        'given': shown,
+        'correct_answer': question.correct_answer_display(),
+        'points_earned': graded['points_earned'],
+        # Part-graded types only (fill_blank, table_of_values): the gap-by-gap
+        # breakdown, so a teacher trialling the question sees the same
+        # explanation — and the same fraction of a point — their student would.
+        'answer_data': graded.get('answer_data') or {},
+    }
+
+
+def stored_preview_response(request, question, *, apply_edits=None,
+                            template='partials/_student_preview_body.html'):
+    """Render a question that is ALREADY in the bank as the student meets it.
+
+    The global question editor previews a stored row rather than a draft, so
+    there is nothing to build: ``apply_edits(question)`` — the very code the
+    Save button runs — is applied to the real row inside a transaction that is
+    rolled back before this returns, which is what stops the preview and the
+    save from ever showing different questions. It may return a refusal string
+    (the save would refuse this state), and that is shown instead of a preview.
+
+    Nothing survives the request: not the edited text, not an added or removed
+    option, not anything the grader touched marking the trial answer.
+    """
+    context = {'preview_index': question.pk}
+    response = None
+
+    with rolled_back():
+        refusal = apply_edits(question) if apply_edits else None
+        if refusal:
+            context['not_importable'] = refusal
+        else:
+            question.refresh_from_db()
+            context.update({
+                'question': question,
+                'ctx': {
+                    'question': question,
+                    # NOT shuffled: the browser identifies a picked option by
+                    # its position. The shuffle a student gets is called out in
+                    # the notes instead.
+                    'shuffled_answers': list(question.answers.order_by('order', 'id')),
+                },
+                'notes': grading_notes(question, {}, promote_blanks=False),
+                'result': _trial_result(request, question),
+                'auto_marked': question.validation_type == Question.VALIDATION_AUTO,
+            })
+        # Rendered inside the block: the template reads rows that only exist
+        # with the edits applied.
+        response = render(request, template, context)
+
+    return response
+
+
 def preview_response(request, *, extracted_data, extracted_images, promote_blanks,
                      template='partials/_student_preview_body.html'):
     """Render one draft question as the student will meet it.
@@ -215,22 +291,7 @@ def preview_response(request, *, extracted_data, extracted_images, promote_blank
             attach_preview_image(
                 question, (extracted_images or {}).get(image_ref) if image_ref else None)
 
-            post_data, shown = _trial_answer(request.POST, question)
-            result = None
-            if post_data is not None:
-                from maths.plugin import MathsPlugin
-                graded = MathsPlugin().grade_answer(question.pk, post_data)
-                result = {
-                    'is_correct': graded['is_correct'],
-                    'given': shown,
-                    'correct_answer': question.correct_answer_display(),
-                    'points_earned': graded['points_earned'],
-                    # Part-graded types only (fill_blank, table_of_values): the
-                    # gap-by-gap breakdown, so a teacher trialling the question
-                    # sees the same explanation — and the same fraction of a
-                    # point — their student would get.
-                    'answer_data': graded.get('answer_data') or {},
-                }
+            result = _trial_result(request, question)
 
             context.update({
                 'question': question,
