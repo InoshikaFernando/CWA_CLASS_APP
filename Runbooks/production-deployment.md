@@ -292,6 +292,15 @@ Then merge the PR into `test`. That single push carries the version, costs one
 matrix, and is the run the release gate ("Release tree already tested on test")
 looks for when you open the `test` → `main` PR.
 
+**What the `test` → `main` PR runs.** CI looks for a passing push run on `test`
+for that exact commit. If it finds one the tree is already proven, so the
+suites are skipped and "Release tree already tested on test" names the run that
+covered it. If it does **not** — a release PR carrying a commit of its own, or
+one opened before CI on `test` finished — the full matrix runs on the release
+PR instead: every unit suite, the classroom suite and all 15 UI groups, path
+filters ignored. So a release is never promoted on a tree nothing has tested,
+and the ordinary release still costs nothing.
+
 `bump_version.py` refuses to run on `test` or `main` for this reason. A hotfix
 going straight out can override with `--allow-protected`, accepting the second
 matrix.

@@ -671,26 +671,111 @@ def test_a_push_to_main_does_not_re_run_the_matrix():
         'a push to main re-runs every suite over a tree that already passed')
 
 
-def test_a_release_pr_does_not_re_run_the_whole_matrix():
-    """A release PR's tree is identical to what `test` just validated."""
+def _release_step():
+    """The step in `changes` that decides whether a release PR is validated."""
+    for step in _ci_data()['jobs']['changes']['steps']:
+        if step.get('id') == 'release':
+            return step
+    raise AssertionError(
+        "ci.yml: the `changes` job has no step id: release, so "
+        "release_validated is always empty and every release PR runs the "
+        "full matrix")
+
+
+def test_a_validated_release_pr_does_not_re_run_the_whole_matrix():
+    """The usual release PR merges `test` unchanged, so its tree is proven.
+
+    Re-running every suite over byte-identical content proves nothing and cost
+    a second full matrix per release — the pattern that exhausted the Actions
+    spending limit on 2026-08-24 and stopped the production deploy.
+    """
     for name, job in _path_filtered_jobs(_ci_data()).items():
-        assert "needs.changes.outputs.release != 'true'" in job['if'], (
+        assert "needs.changes.outputs.release_validated != 'true'" in job['if'], (
             f'ci.yml job {name!r} would re-run on a release PR over a tree '
             f'that already passed on test')
+        assert "needs.changes.outputs.release != 'true'" in job['if'], (
+            f'ci.yml job {name!r} no longer recognises a release PR at all')
+
+
+def test_an_unvalidated_release_pr_runs_every_suite():
+    """The promotion gate must not go quiet on a tree nothing has tested.
+
+    A release PR carrying a commit of its own has a tree `test` never ran. The
+    old behaviour skipped every suite and went red with "do not merge" — no
+    test result at all, in exactly the case where the tests are the point. Now
+    it runs the whole matrix, path filters ignored.
+    """
+    for name, job in _path_filtered_jobs(_ci_data()).items():
+        condition = job['if']
+        assert "release_validated != 'true'" in condition, (
+            f'ci.yml job {name!r} skips every release PR, validated or not, so '
+            f'an unvalidated tree would be promoted with no suite having run')
+        # Getting past the release clause is not enough: a job that then gates
+        # on its OWN path filter would still sit out a release PR whose diff
+        # happens not to touch it. classroom-tests is the one that decides for
+        # itself; the other two take their work from `changes`.
+        if 'outputs.classroom' in condition:
+            assert "release_validated == 'false'" in condition, (
+                f'ci.yml job {name!r} clears the release clause but is then '
+                f'gated on its own path filter, so an unvalidated release PR '
+                f'whose diff misses that path would promote without it')
+
+    run_all = _unit_step()['env']['RUN_ALL']
+    assert "steps.release.outputs.validated == 'false'" in run_all, (
+        'ci.yml: an unvalidated release PR would run only the unit suites its '
+        'diff happens to touch, not the full gate')
+
+    assert "release_validated == 'false'" in _ui_matrix_run_all(), (
+        'ci.yml: an unvalidated release PR would run only the UI groups its '
+        'diff happens to touch, not the full gate')
+
+
+def test_the_release_claim_comes_from_an_actual_run_lookup():
+    """"Already tested" must be a fact about a run, never an assumption."""
+    step = _release_step()
+    script = str(step.get('with', {}).get('script', ''))
+    assert 'listWorkflowRuns' in script, (
+        'ci.yml: the release step no longer looks up a run on test, so '
+        'release_validated is asserted rather than checked')
+    assert "event: 'push'" in script and "branch: 'test'" in script, (
+        'ci.yml: the lookup must find a PUSH run on `test` — a pull_request '
+        'run tests refs/pull/N/merge, not the tree being promoted')
+    assert "conclusion === 'success'" in script, (
+        'ci.yml: a run that did not pass would count as validation')
+
+    # Every path out except the successful lookup must run the matrix, an API
+    # error included: doubt costs a matrix, never a skipped gate.
+    assert "setOutput('validated', 'true')" in script
+    assert script.count("setOutput('validated', 'true')") == 1, (
+        'ci.yml: more than one path claims the tree is validated')
+    assert 'catch' in script, (
+        'ci.yml: an API error would leave `validated` empty, which reads the '
+        'same as "not a release PR" — it must fall through to running the '
+        'matrix')
+
+    assert "github.base_ref == 'main'" in str(step.get('if', '')), (
+        'ci.yml: the release lookup runs on events that are not release PRs')
 
 
 def test_a_release_pr_still_gets_a_check():
     """Skipping is not the same as not checking.
 
     A PR showing no checks is how a dead CI went unnoticed here for four days.
-    The release PR must still assert the claim the skip relies on: that this
-    exact commit already passed CI on `test`.
+    When the suites are skipped, this job says so and names the run that
+    covered the tree — and it runs on exactly the condition that skips them,
+    so the two can never both be absent.
     """
     job = _ci_data()['jobs'][_RELEASE_GUARD_JOB]
-    assert "needs.changes.outputs.release == 'true'" in job['if']
-    script = '\n'.join(str(step) for step in job['steps'])
-    assert 'listWorkflowRuns' in script
-    assert 'setFailed' in script
+    condition = job['if']
+    assert "needs.changes.outputs.release == 'true'" in condition
+    assert "needs.changes.outputs.release_validated == 'true'" in condition, (
+        f'ci.yml: {_RELEASE_GUARD_JOB} would claim "already tested" on a '
+        f'release PR whose tree was never validated')
+
+    steps = str(job['steps'])
+    assert 'release_run' in steps, (
+        f'ci.yml: {_RELEASE_GUARD_JOB} no longer names the run that covered '
+        f'the tree, so the skip is a claim with no evidence attached')
 
 
 # ── The UI matrix is deduped against the PR run, and ONLY the UI matrix ──────
