@@ -589,6 +589,32 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
         self.assertFalse(sa.is_correct)
         self.assertEqual(sa.answer_data.get('review_status'), 'pending_ai')
 
+    @patch('worksheets.views.grade_extended_answer')
+    def test_extended_answer_with_an_unreadable_diagram_goes_to_the_teacher(self, mock_grade):
+        """A grader that never saw the diagram gives no verdict, so the answer
+        is held for the teacher rather than shown to the child as 0."""
+        mock_grade.return_value = {
+            'is_correct': False,
+            'is_partial': False,
+            'score_fraction': 0.0,
+            'feedback': ("This question's diagram could not be loaded, so the "
+                         'answer was not marked automatically.'),
+            'what_was_correct': '',
+            'what_to_add': '',
+            'cache_hit': False,
+            'error': 'diagram unavailable: could not read diagram "x.png"',
+        }
+        q = self._make_question('extended_answer')
+        assignment, _ = self._make_worksheet_with_question(q)
+        resp = self._submit_answer(assignment, q, text_answer='x is 40 degrees.')
+        self.assertEqual(resp.status_code, 200)
+        sa = WorksheetStudentAnswer.objects.get(content_id=q.pk, subject_slug='mathematics')
+        self.assertEqual(sa.answer_data.get('review_status'), 'pending_ai')
+        self.assertFalse(sa.is_correct)
+        self.assertAlmostEqual(sa.points_earned, 0.0, places=2)
+        # Not shown to the child as a wrong answer.
+        self.assertNotContains(resp, 'Not quite right')
+
     def test_grade_short_answer_exact_match(self):
         q = self._make_question('short_answer')
         MathsAnswer.objects.create(question=q, answer_text='Seven', is_correct=True, order=1)
