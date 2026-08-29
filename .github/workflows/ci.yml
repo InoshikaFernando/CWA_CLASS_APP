@@ -387,6 +387,13 @@ jobs:
               - 'cwa_classroom/quiz/**'
               - 'cwa_classroom/templates/quiz/**'
               - 'cwa_classroom/templates/base_quiz.html'
+              # The quiz question card renders the shared maths widgets — the
+              # fill-in-the-blank sentence, the number line, the protractor,
+              # the "create your own pattern" boxes — so a change to one of
+              # them can leave a question unanswerable without touching
+              # templates/quiz/. ui_maths and ui_worksheets already watch this
+              # directory for the same reason.
+              - 'cwa_classroom/templates/maths/**'
             # Question/content import: /upload-questions/ (classroom views),
             # the PDF import pipeline (ai_import), and the homework + worksheet
             # upload forms that share the page-range field.

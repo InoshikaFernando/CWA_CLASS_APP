@@ -131,7 +131,7 @@ def _log_hidden(user, level_number, topic, shown, total):
 
 
 def ai_grade(question, raw, user):
-    """AI-grade a written answer. Returns ``(is_correct, feedback, graded)``.
+    """AI-grade a written answer. Returns ``(is_correct, feedback, graded, credit)``.
 
     ``graded`` is False when the grader could not reach a verdict — the API
     failed, or the school's monthly quota ran out mid-quiz. Both come back from
@@ -139,12 +139,19 @@ def ai_grade(question, raw, user):
     value would mark a child wrong for a billing state or an outage. So the
     answer is recorded as ungraded instead and dropped from the score's
     denominator: not right, not wrong, not counted.
+
+    ``credit`` is what the answer is worth, 0.0–1.0. Full marks only at 1.0;
+    from the pass mark up it keeps the share it earned, and the quiz shows the
+    student that score beside an amber "partly correct" rather than a bare ❌,
+    exactly as it already does for a partly-filled fill-in-the-blank sentence;
+    below the pass mark the answer is wrong and earns nothing.
     """
-    from worksheets.grading_service import grade_extended_answer
+    from worksheets.grading_service import credit_for, grade_extended_answer
 
     school = _get_student_school(user)
     if not raw:
-        return False, 'Write your answer in the box so it can be marked.', True
+        return (False, 'Write your answer in the box so it can be marked.',
+                True, 0.0)
 
     result = grade_extended_answer(question, raw, school=school)
 
@@ -158,13 +165,14 @@ def ai_grade(question, raw, user):
         )
         return False, (
             'This one could not be marked automatically just now, so it has '
-            'not been counted. Your teacher will look at it.'), False
+            'not been counted. Your teacher will look at it.'), False, 0.0
 
     feedback = result.get('feedback') or ''
     extra = result.get('what_to_add')
     if extra and not result.get('is_correct'):
         feedback = f'{feedback} {extra}'.strip()
-    return bool(result.get('is_correct')), feedback, True
+    credit = credit_for(result.get('score_fraction'))
+    return bool(result.get('is_correct')), feedback, True, credit
 
 
 # ── Basic Facts ─────────────────────────────────────────────────────────────
@@ -863,6 +871,10 @@ class MixedQuizView(LoginRequiredMixin, View):
             typed_answer = ''
             # Set only by the part-graded types (fill_blank, table_of_values).
             partial = None
+            # Set only by an AI-graded answer: the grader's own score, so a
+            # partly-right written answer carries its share of the marks the
+            # same way a partly-filled sentence does.
+            ai_credit = None
             if q.question_type in ('multiple_choice', 'true_false'):
                 answer_id = request.POST.get(f'answer_{q.id}')
                 if answer_id:
@@ -870,6 +882,16 @@ class MixedQuizView(LoginRequiredMixin, View):
                     is_correct = bool(answer and answer.is_correct)
                     student_answer = answer.answer_text if answer else ''
                     selected_answer_obj = answer
+            elif q.answer_format == Question.ANSWER_FORMAT_PATTERN:
+                # "Create your own number pattern" — checked BEFORE the AI
+                # branch, because these are authored as written answers and
+                # would otherwise be sent to Claude even though the maths
+                # decides them outright. The grader reads the pattern the
+                # student built, so the verdict is the same every time.
+                from maths.pattern_grading import grade_pattern
+                raw = request.POST.get(f'text_{q.id}', '').strip()
+                student_answer = typed_answer = raw
+                is_correct = grade_pattern(q.question_text, raw).is_correct
             elif (q.question_type == Question.EXTENDED_ANSWER
                   or q.validation_type == Question.VALIDATION_AI):
                 # Written answer — same AI grader as the topic quiz. One it
@@ -877,7 +899,8 @@ class MixedQuizView(LoginRequiredMixin, View):
                 # than counted wrong.
                 raw = request.POST.get(f'text_{q.id}', '').strip()
                 student_answer = typed_answer = raw
-                is_correct, _feedback, graded = ai_grade(q, raw, request.user)
+                is_correct, _feedback, graded, ai_credit = ai_grade(
+                    q, raw, request.user)
                 if not graded:
                     ungraded += 1
             else:
@@ -901,8 +924,12 @@ class MixedQuizView(LoginRequiredMixin, View):
             if is_correct:
                 correct_count += 1
                 topic_results[topic_name]['correct'] += 1
-            credit_total += (partial.fraction if partial is not None
-                             else (1.0 if is_correct else 0.0))
+            if partial is not None:
+                credit_total += partial.fraction
+            elif ai_credit is not None:
+                credit_total += ai_credit
+            else:
+                credit_total += 1.0 if is_correct else 0.0
 
             review_entry = {
                 'id': q.id,
@@ -1036,6 +1063,10 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         # scored and explained as nine tenths right. None = one answer, marked
         # all or nothing.
         partial = None
+        # Set by the AI branch: the grader's own 0.0–1.0 score. Shown to the
+        # student and counted in the points, so a written answer that is most
+        # of the way there is not worth the same as a blank one.
+        ai_credit = None
         # The option the student actually clicked. Persisted on StudentAnswer
         # below: without it the row records only *that* an answer scored zero,
         # never *what* was chosen, which makes a "this was marked wrong
@@ -1131,21 +1162,17 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             raw = data.get('text_answer', '').strip()
             is_correct = q.grade_text_answer(raw)
             correct_answer_text = q.correct_answer_display()
-        elif (q.question_type == Question.EXTENDED_ANSWER
-              or q.validation_type == Question.VALIDATION_AI):
-            # A written answer, judged by Claude against the question's rubric.
-            # Only reachable when gradable_for() offered the question, so the
-            # student is one the quiz can AI-grade.
-            raw = data.get('text_answer', '').strip()
-            is_correct, feedback, graded = ai_grade(q, raw, request.user)
-            if not graded:
-                ungraded = True
-            correct_answer_text = ''
         elif q.answer_format == Question.ANSWER_FORMAT_PATTERN:
             # "Create your own number pattern" — no stored answer exists, so the
             # typed numbers are graded against what the question asks for. The
             # grader also explains itself, and that explanation is the only
             # useful feedback such a question can give.
+            #
+            # Checked BEFORE the AI branch, not after it. These questions are
+            # authored as written answers, so the branch below used to swallow
+            # every one of them and send it to Claude — which marked a pattern
+            # running the wrong way ✅ Correct above its own feedback saying so.
+            # The arithmetic decides them outright; nothing here needs a model.
             from maths.pattern_grading import grade_pattern
             raw = data.get('text_answer', '').strip()
             grade = grade_pattern(q.question_text, raw)
@@ -1154,6 +1181,17 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             # There is no "the" answer, so this is a worked example. The client
             # shows it only when the student got the question wrong.
             correct_answer_text = q.correct_answer_display()
+        elif (q.question_type == Question.EXTENDED_ANSWER
+              or q.validation_type == Question.VALIDATION_AI):
+            # A written answer, judged by Claude against the question's rubric.
+            # Only reachable when gradable_for() offered the question, so the
+            # student is one the quiz can AI-grade.
+            raw = data.get('text_answer', '').strip()
+            is_correct, feedback, graded, ai_credit = ai_grade(
+                q, raw, request.user)
+            if not graded:
+                ungraded = True
+            correct_answer_text = ''
         else:
             raw = data.get('text_answer', '').strip()
             correct_texts = _correct_answer_texts(q)
@@ -1227,8 +1265,12 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         # same 1 for a right answer and 0 for a wrong one, but the share of its
         # gaps for a partly-right fill-in-the-blank sentence. Kept apart so
         # partial credit reaches the points without inflating the count.
-        credit = (partial.fraction if partial is not None
-                  else (1.0 if is_correct else 0.0))
+        if partial is not None:
+            credit = partial.fraction
+        elif ai_credit is not None:
+            credit = ai_credit
+        else:
+            credit = 1.0 if is_correct else 0.0
         if 'credit' not in session_data:
             # A quiz already in flight when this shipped has no 'credit' key —
             # seed it from the count so far (before this answer) so its earlier
@@ -1355,10 +1397,13 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             'correct_answer_text': correct_answer_text,
             'feedback': feedback,
             'ungraded': ungraded,
-            # Part-graded answers only: what this answer was worth and which
-            # gaps were wrong, so the page can say "9 of the 10 blanks are
-            # right" and name the tenth instead of a flat "Incorrect".
-            'credit': payload.get('score_fraction'),
+            # What this answer was worth, 0.0–1.0, and (for a part-graded
+            # sentence) which gaps were wrong — so the page can say "9 of the
+            # 10 blanks are right" and name the tenth instead of a flat
+            # "Incorrect". An AI-graded answer sends its score here too: the
+            # student sees the mark the feedback beside it is describing.
+            'credit': (payload.get('score_fraction') if partial is not None
+                       else ai_credit),
             'parts_correct': payload.get('parts_correct'),
             'parts_total': payload.get('parts_total'),
             'parts_noun': payload.get('parts_noun'),

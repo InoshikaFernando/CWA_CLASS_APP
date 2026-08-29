@@ -1239,6 +1239,34 @@ class Question(models.Model):
         return {'count': len(answers), 'parts': parts}
 
     @property
+    def pattern_field_data(self):
+        """Render-ready boxes for a "create your own pattern" question, or None.
+
+            {'count': 6, 'indexes': [0, 1, 2, 3, 4, 5],
+             'needs_rule': True, 'fixed': True}
+
+        One box per number the question asks for, plus a box for the rule —
+        the shape of the answer, which a single text box left the student to
+        guess at. What they compose is the same sentence a student would have
+        typed, so nothing downstream of the widget has to know it exists.
+
+        None for every other question, so a template guards with one check and
+        falls back to the plain box. Mirrors ``blank_data`` / ``table_data``:
+        render data on the model, no per-view plumbing.
+        """
+        if self.answer_format != self.ANSWER_FORMAT_PATTERN:
+            return None
+        from maths.pattern_grading import pattern_fields
+
+        fields = pattern_fields(self.question_text)
+        return {
+            'count': fields.count,
+            'indexes': fields.indexes,
+            'needs_rule': fields.needs_rule,
+            'fixed': fields.fixed,
+        }
+
+    @property
     def prime_factorization_rows(self):
         """Rows for the ladder rendering. First row shows target_number, last row shows 1.
         Intermediate rows are blank inputs the student fills in.

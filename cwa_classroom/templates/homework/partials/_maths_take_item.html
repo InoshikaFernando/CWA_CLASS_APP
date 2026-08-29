@@ -659,6 +659,16 @@ the single box below, which is what it has always used.
 {% endcomment %}
 {% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_fill_blank_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
 
+{% elif q.pattern_field_data %}
+{% comment %}
+"Create your own number pattern": a box per number the question asks for and a
+box for the rule, composed into answer_<id> by static/js/pattern_fields.js as
+the one line maths.pattern_grading.grade_pattern reads — the same line a
+student would have typed into the single box below, which is what these
+questions used to get.
+{% endcomment %}
+{% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_pattern_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
+
 {% else %}
 <input type="text" name="answer_{{ q.id }}"
        class="cwa-exp-input w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"

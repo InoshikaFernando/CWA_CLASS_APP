@@ -25,6 +25,7 @@ from classroom.subject_registry import (
 )
 from classroom.views import RoleRequiredMixin
 from maths.models import Answer, Question, calculate_points
+from worksheets.grading_service import credit_for, verdict
 from rewards.models import PointsSource
 from rewards.services import award_points_safe, normalise
 from maths.views import select_questions_stratified
@@ -1706,7 +1707,10 @@ def grade_pending_answers(submission, school):
             answer.is_correct = result.get('is_correct', False)
             answer.ai_score_fraction = score_frac
             answer.ai_feedback = result.get('feedback', '')
-            answer.points_earned = round(answer.question.points * score_frac, 2)
+            # Below the pass mark the answer is wrong and earns nothing; from
+            # there up it keeps its share of the marks (credit_for).
+            answer.points_earned = round(
+                answer.question.points * credit_for(score_frac), 2)
             answer.review_status = HomeworkStudentAnswer.REVIEW_AI_DONE
             answer.graded_at = timezone.now()
             answer.save(update_fields=[
@@ -3322,7 +3326,8 @@ class HomeworkAIGradeView(RoleRequiredMixin, View):
             answer.is_correct = result.get('is_correct', False)
             answer.ai_score_fraction = result.get('score_fraction', 0.0)
             answer.ai_feedback = result.get('feedback', '')
-            answer.points_earned = round(answer.question.points * answer.ai_score_fraction, 2)
+            answer.points_earned = round(
+                answer.question.points * credit_for(answer.ai_score_fraction), 2)
             answer.review_status = HomeworkStudentAnswer.REVIEW_AI_DONE
             answer.graded_at = timezone.now()
             answer.save(update_fields=[
@@ -3385,7 +3390,7 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
         teacher_feedback = request.POST.get('teacher_feedback', '').strip()
 
         answer.ai_score_fraction = score_frac
-        answer.is_correct = score_frac >= 0.6
+        answer.is_correct = verdict(score_frac)[0]
         answer.points_earned = round(answer.question.points * score_frac, 2)
         answer.teacher_feedback = teacher_feedback
         answer.review_status = HomeworkStudentAnswer.REVIEW_TEACHER_DONE
@@ -3461,7 +3466,7 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
                     sib_norm = _normalise(sibling.text_answer)
                     if _levenshtein_ratio(normalised, sib_norm) >= 0.85:
                         sibling.ai_score_fraction = score_frac
-                        sibling.is_correct = score_frac >= 0.6
+                        sibling.is_correct = verdict(score_frac)[0]
                         sibling.points_earned = round(
                             (sibling.question.points if sibling.question else 1) * score_frac, 2
                         )

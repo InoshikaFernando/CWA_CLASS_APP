@@ -479,6 +479,99 @@ def example_answer(request):
 
 
 # --------------------------------------------------------------------------
+# One box per number, one for the rule
+# --------------------------------------------------------------------------
+# A question that asks for six numbers and a rule was answered into a single
+# text box, which left the child to guess the shape of what was wanted — how
+# many numbers, whether to write the rule at all, and how to separate one from
+# the other. Half of what the grader has to untangle (is that trailing 3 a
+# seventh number or the rule "subtract 3"?) exists only because the box did
+# not ask.
+#
+# So the question is laid out as boxes: one per number the question asks for,
+# and one labelled for the rule. What they compose is exactly the sentence a
+# student would have typed — ``20, 18, 16, 14, 12, 10 — rule: subtract 2`` —
+# so grade_pattern(), the stored answer, the review pages and every surface
+# that still shows a plain box keep reading one format.
+
+# When the question does not say how many numbers it wants. Enough to show a
+# rule several times over without facing a child with a wall of boxes; the
+# grader accepts any run of three or more, so trailing boxes may be left empty.
+DEFAULT_FIELD_COUNT = 5
+MIN_FIELD_COUNT = 3
+MAX_FIELD_COUNT = 12
+
+# How the composed answer reads. Matches example_answer() above, and leads with
+# a word _RULE_LEAD_IN_RE knows, so the rule's own digits are never counted as
+# another number of the pattern.
+RULE_JOINER = ' — rule: '
+
+_LEADING_RULE_RE = re.compile(r'^\s*(?:the\s+)?rule\s*(?:is)?\s*[:=-]?\s*',
+                              re.IGNORECASE)
+
+
+class PatternFields:
+    """The boxes to show for a "create your own pattern" question.
+
+    ``count`` is how many number boxes; ``fixed`` says the question named that
+    count (so every box must be filled) rather than it being the default.
+    ``needs_rule`` is whether the question asks for the rule in words — the box
+    is shown either way, because a student who wants to write their rule down
+    should not have to find somewhere to put it, but only a question that asks
+    for it says so on the label.
+    """
+
+    def __init__(self, count, needs_rule=False, fixed=False):
+        self.count = count
+        self.needs_rule = needs_rule
+        self.fixed = fixed
+
+    @property
+    def indexes(self):
+        return list(range(self.count))
+
+    def __repr__(self):
+        return (f'PatternFields(count={self.count!r}, '
+                f'needs_rule={self.needs_rule!r}, fixed={self.fixed!r})')
+
+    def __eq__(self, other):
+        return isinstance(other, PatternFields) and (
+            (self.count, self.needs_rule, self.fixed)
+            == (other.count, other.needs_rule, other.fixed))
+
+
+def pattern_fields(question_text):
+    """How many boxes *question_text* deserves, and whether it wants a rule."""
+    request = parse_pattern_request(question_text)
+    fixed = (request.length is not None
+             and MIN_FIELD_COUNT <= request.length <= MAX_FIELD_COUNT)
+    return PatternFields(
+        count=request.length if fixed else DEFAULT_FIELD_COUNT,
+        needs_rule=request.needs_rule,
+        fixed=fixed,
+    )
+
+
+def compose_answer(numbers, rule=''):
+    """The typed boxes as one answer line, the way a student would write it.
+
+    Empty boxes are dropped rather than left as gaps: on a question that does
+    not fix a count, the trailing boxes are spares, and "20, 18, , , " is not
+    something to hand a grader. A count the question DOES fix is checked by
+    grade_pattern, which says "the question asks for 6 numbers and you wrote
+    4" — a better message than anything this could invent.
+    """
+    values = [str(value).strip() for value in numbers]
+    line = ', '.join(value for value in values if value)
+    # "rule: subtract 3" typed into the rule box would otherwise compose as
+    # "— rule: rule: subtract 3".
+    rule = _LEADING_RULE_RE.sub('', str(rule or '').strip())
+    if not rule:
+        return line
+    return f'{line}{RULE_JOINER}{rule}' if line else f'rule: {rule}'
+
+
+# --------------------------------------------------------------------------
 # Grading
 # --------------------------------------------------------------------------
 
