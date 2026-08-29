@@ -23,10 +23,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env', override=True)
 
 # ---------------------------------------------------------------------------
-# App Version  (SemVer — bump manually on each release)
+# App Version  (SemVer — bump with scripts/bump_version.py on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.19.13'        # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-08-29'     # ISO date of this release
+# Re-exported from its own module, NOT declared here. Every feature branch has
+# to bump the version before its PR merges, and every file in this package is
+# watched by ci.yml's `shared` filter — the one that runs every suite in the
+# repo. Keeping the constant here meant every PR ran the full matrix and the
+# path filtering never narrowed anything. See cwa_classroom/version.py.
+from .version import APP_VERSION, APP_VERSION_DATE  # noqa: F401
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 

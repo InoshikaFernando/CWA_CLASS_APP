@@ -55,6 +55,7 @@ jobs:
       # proves nothing; release-already-tested checks that instead.
       release: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
       shared: ${{ steps.filter.outputs.shared }}
+      version: ${{ steps.filter.outputs.version }}
       classroom: ${{ steps.filter.outputs.classroom }}
       maths: ${{ steps.filter.outputs.maths }}
       quiz: ${{ steps.filter.outputs.quiz }}
@@ -101,11 +102,45 @@ jobs:
             shared:
               - 'cwa_classroom/requirements-test.txt'
               - 'cwa_classroom/requirements.txt'
-              - 'cwa_classroom/cwa_classroom/**'
               - 'cwa_classroom/conftest.py'
               - 'cwa_classroom/pytest.ini'
               - 'cwa_classroom/manage.py'
               - '.github/workflows/ci.yml'
+              # The project package, file by file rather than as `**`.
+              #
+              # The one file NOT here is version.py, and that is the whole
+              # point: the runbook makes every feature branch bump APP_VERSION
+              # before its PR merges, the constant lived in settings.py, and
+              # so EVERY PR tripped `shared` and ran all 20 unit suites, the
+              # classroom suite and all 15 UI groups — then did it again on
+              # the merge to `test`. The path filtering below never once
+              # narrowed anything.
+              #
+              # Listed rather than globbed because dorny/paths-filter's
+              # default quantifier is `some`: a '!…/version.py' line here
+              # would not exclude anything, it would match every file that
+              # is NOT version.py. Keeping the list honest is a test's job,
+              # not a reviewer's — tests_workflows.py fails the build if a
+              # file in this package is neither listed here nor named as the
+              # version file, so a new module cannot go unwatched.
+              - 'cwa_classroom/cwa_classroom/__init__.py'
+              - 'cwa_classroom/cwa_classroom/context_processors.py'
+              - 'cwa_classroom/cwa_classroom/email_backends.py'
+              - 'cwa_classroom/cwa_classroom/jira_client.py'
+              - 'cwa_classroom/cwa_classroom/middleware.py'
+              - 'cwa_classroom/cwa_classroom/settings.py'
+              - 'cwa_classroom/cwa_classroom/settings_test.py'
+              - 'cwa_classroom/cwa_classroom/sitemaps.py'
+              - 'cwa_classroom/cwa_classroom/tests.py'
+              - 'cwa_classroom/cwa_classroom/urls.py'
+              - 'cwa_classroom/cwa_classroom/views.py'
+              - 'cwa_classroom/cwa_classroom/wsgi.py'
+            # A version bump changes one string, which nothing but the project
+            # package's own tests can see (/api/health/ reports it, base.html
+            # prints it). It runs those and stops there, instead of standing in
+            # for a change to settings.
+            version:
+              - 'cwa_classroom/cwa_classroom/version.py'
             classroom:
               - 'cwa_classroom/classroom/**'
             maths:
@@ -408,9 +443,10 @@ jobs:
             usage:usage/
             whatsapp:whatsapp/
             worksheets:worksheets/
-          # The project package's own tests have no filter of their own — they
-          # ran on `shared` when this was the health-tests job, and `shared` is
-          # one of the two things inside RUN_ALL.
+          # The project package's own tests have no app filter of their own.
+          # They run on `shared` (one of the two things inside RUN_ALL) and on
+          # a bare version bump, which is the only other change that can reach
+          # them: /api/health/ reports APP_VERSION and base.html prints it.
           UNIT_SHARED_ONLY: cwa_classroom/tests.py
           CHANGED: ${{ toJSON(steps.filter.outputs) }}
           # The safety net the per-app jobs used to carry in their own `if:`.
@@ -418,6 +454,10 @@ jobs:
           # they are the cheap half and the half that catches one app breaking
           # another, which a PR narrowed to the changed app cannot see.
           RUN_ALL: ${{ github.event_name == 'push' || steps.filter.outputs.shared == 'true' }}
+          # A version bump on its own. NOT part of RUN_ALL — it adds the
+          # project package's tests and nothing else, which is the whole
+          # saving: this used to be a `shared` change and ran all 20 suites.
+          VERSION_ONLY: ${{ steps.filter.outputs.version }}
         run: |
           set -euo pipefail
           dirs=""
@@ -428,7 +468,7 @@ jobs:
               dirs="$dirs $target"
             fi
           done <<<"$UNIT_SUITES"
-          if [ "$RUN_ALL" = "true" ]; then
+          if [ "$RUN_ALL" = "true" ] || [ "$VERSION_ONLY" = "true" ]; then
             dirs="$dirs $UNIT_SHARED_ONLY"
           fi
           dirs=$(echo $dirs)

@@ -827,3 +827,126 @@ def test_bump_version_says_why_it_refused():
     for phrase in ('feature branch', 'matrix'):
         assert phrase in src, f'the refusal message should mention {phrase!r}'
 
+
+
+# ---------------------------------------------------------------------------
+# The version bump must not be a `shared` change
+# ---------------------------------------------------------------------------
+# `shared` is ci.yml's "run everything" escape hatch: a change to settings,
+# urls, middleware, conftest or requirements can break any app, so it bypasses
+# every path filter and runs all 20 unit suites, the classroom suite and all 15
+# UI groups — on the PR and again on the merge to `test`.
+#
+# APP_VERSION used to live in settings.py, and the runbook makes every feature
+# branch bump it before its PR merges. So every PR was a `shared` change and
+# the path filtering the rest of ci.yml is built around never narrowed
+# anything. PR #834 is the worked example: three files under maths/ plus the
+# version line, and CI ran the entire matrix on 5 UI runners.
+#
+# The constant now lives in cwa_classroom/version.py, which `shared` does not
+# watch. These tests hold that apart. They live in this file because it runs in
+# the ungated migration-check job, so the guard cannot itself be skipped by a
+# path filter.
+
+_PROJECT_PACKAGE = REPO_ROOT / 'cwa_classroom' / 'cwa_classroom'
+_VERSION_FILE = 'cwa_classroom/cwa_classroom/version.py'
+
+
+def test_the_version_file_is_not_a_shared_change():
+    """The bump every PR carries must not run every suite in the repo."""
+    shared = _ci_filters()['shared']
+    assert _VERSION_FILE not in shared, (
+        f'ci.yml: `shared` watches {_VERSION_FILE}, so every version bump — '
+        f'i.e. every PR — runs all 20 unit suites and all 15 UI groups again.')
+    assert 'cwa_classroom/cwa_classroom/**' not in shared, (
+        'ci.yml: `shared` globs the whole project package again, which puts '
+        f'{_VERSION_FILE} back inside it. paths-filter\'s default quantifier '
+        'is `some`, so a "!…/version.py" line does NOT exclude anything — it '
+        'matches every file that is not version.py. List the package instead.')
+
+
+def test_every_project_package_file_is_classified():
+    """A new module in the project package must not go unwatched.
+
+    `shared` lists the package file by file so version.py can be left out of
+    it, and a list is only as good as what keeps it current. A file that is
+    neither watched nor named as the version file would change CI's behaviour
+    without changing anything a reviewer looks at.
+    """
+    shared = set(_ci_filters()['shared'])
+    on_disk = {
+        f'cwa_classroom/cwa_classroom/{path.name}'
+        for path in _PROJECT_PACKAGE.iterdir()
+        if path.is_file() and path.suffix == '.py'
+    }
+    unwatched = sorted(on_disk - shared - {_VERSION_FILE})
+    assert not unwatched, (
+        'files in the project package that no ci.yml filter watches:\n  '
+        + '\n  '.join(unwatched)
+        + '\n\nA change to one of these would run only the suites whose own '
+          "paths happened to change. Add each to ci.yml's `shared` filter.")
+
+    stale = sorted(
+        path for path in shared
+        if path.startswith('cwa_classroom/cwa_classroom/')
+        and not (REPO_ROOT / path).exists()
+    )
+    assert not stale, (
+        f'ci.yml `shared` names project-package files that no longer exist: '
+        f'{stale}')
+
+
+def test_the_version_bump_still_runs_the_tests_that_can_see_it():
+    """Narrower is not the same as unchecked.
+
+    /api/health/ reports APP_VERSION and base.html prints it, and the project
+    package's own tests are what exercise both. A bump runs those — and only
+    those — rather than standing in for a change to settings.
+    """
+    env = _unit_step()['env']
+    assert env['UNIT_SHARED_ONLY'] == 'cwa_classroom/tests.py'
+    assert 'steps.filter.outputs.version' in env.get('VERSION_ONLY', ''), (
+        'ci.yml: the unit step no longer reads the `version` filter, so a '
+        'version-only PR would run no unit suite at all')
+    assert 'version' in _ci()['jobs']['changes']['outputs'], (
+        'ci.yml: the `changes` job does not expose the `version` filter')
+
+    run = _unit_step()['run']
+    assert '$VERSION_ONLY' in run, (
+        'ci.yml: VERSION_ONLY is declared but never read, so a version-only '
+        'PR runs nothing')
+
+
+def test_the_version_lives_in_exactly_one_place():
+    """settings.py must re-export the constant, never declare it.
+
+    A second declaration would put the value back inside `shared` — and worse,
+    the two could disagree about what is deployed.
+    """
+    settings = (_PROJECT_PACKAGE / 'settings.py').read_text(encoding='utf-8')
+    assert not re.search(r'^APP_VERSION\s*=', settings, re.MULTILINE), (
+        'cwa_classroom/settings.py declares APP_VERSION again. Every PR bumps '
+        'it, and every file in that package is watched by `shared`, so this '
+        'puts the full matrix back on every PR. Import it from version.py.')
+    assert 'from .version import' in settings, (
+        'cwa_classroom/settings.py no longer re-exports APP_VERSION, so '
+        'settings.APP_VERSION — which /api/health/ and base.html read — is '
+        'gone')
+
+    version_module = (_PROJECT_PACKAGE / 'version.py').read_text(encoding='utf-8')
+    assert re.search(r"^APP_VERSION\s*=\s*'\d+\.\d+\.\d+'", version_module,
+                     re.MULTILINE), (
+        'cwa_classroom/version.py has no APP_VERSION for bump_version.py to '
+        'find')
+
+
+def test_bump_version_writes_the_version_file_not_settings():
+    """bump_version.py must edit the file `shared` does not watch."""
+    src = _bump_script()
+    assert "'version.py'" in src, (
+        'scripts/bump_version.py no longer targets version.py. Bumping '
+        'settings.py instead makes every release PR a `shared` change again, '
+        'which runs the whole matrix twice per release.')
+    assert "'settings.py'" not in src, (
+        'scripts/bump_version.py writes settings.py, which puts the version '
+        'back inside the `shared` filter')
