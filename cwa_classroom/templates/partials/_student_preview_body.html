@@ -55,9 +55,11 @@ question_number, total_questions, preview_index, not_importable.
   {% endif %}
 
   {% if result %}
-  {# A part-graded question (fill-in-the-blank, table of values) can be marked
-     partly right, and then it is worth a fraction of a point — so "Marked
-     wrong" would misdescribe both the mark and the score beside it. #}
+  {% comment %}
+    A part-graded question (fill-in-the-blank, table of values) can be marked
+    partly right, and then it is worth a fraction of a point — so "Marked
+    wrong" would misdescribe both the mark and the score beside it.
+  {% endcomment %}
   {% with partly=result.answer_data.parts_correct %}
   <div data-preview-result="{% if result.is_correct %}correct{% else %}wrong{% endif %}"
        class="rounded-xl border p-4 {% if result.is_correct %}bg-green-50 border-green-200{% elif partly %}bg-amber-50 border-amber-200{% else %}bg-red-50 border-red-200{% endif %}">

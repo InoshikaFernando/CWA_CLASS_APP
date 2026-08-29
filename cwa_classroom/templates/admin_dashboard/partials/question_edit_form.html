@@ -150,12 +150,14 @@
     }
   </script>
 
-  {# The form shows what is STORED; the preview shows what a child MEETS. The
-     faults this editor exists to repair — one lonely option, every option
-     ticked correct, an answer no typed spelling matches — all look ordinary
-     above and only show themselves when you try to answer the question. The
-     button posts this form unsaved, so it previews the edit in front of you,
-     not the row on disk. #}
+  {% comment %}
+    The form shows what is STORED; the preview shows what a child MEETS. The
+    faults this editor exists to repair — one lonely option, every option
+    ticked correct, an answer no typed spelling matches — all look ordinary
+    above and only show themselves when you try to answer the question. The
+    button posts this form unsaved, so it previews the edit in front of you,
+    not the row on disk.
+  {% endcomment %}
   <div class="flex items-center justify-between gap-3 pt-4 border-t border-slate-200">
     <button type="button"
             data-testid="preview-as-student"
