@@ -276,3 +276,177 @@ class BareUnitAnswerRepairTests(TestCase):
         self.assertEqual(q.answers.count(), 1)
         self.assertEqual(q.blank_spec, {'blanks': [{'answers': ['integer']}]})
 
+
+
+class PatternRuleBlankRepairTests(TestCase):
+    """``--add-rule-blank``: the pattern questions whose answer is the RULE.
+
+    "Work out the number pattern rule and complete the pattern: 30, ___, 60,
+    75, ___, ___. What is the rule?" asks for two things and stores one — its
+    Answer rows are "+15", "add 15", "+ 15", and the values of its three gaps
+    (45, 90, 105) are nowhere in the database. The conversion refused it, and
+    was right to: mapping row 1 onto gap 1 would ask for "+15" where the answer
+    is 45.
+
+    Those gaps are not a guess, though — the sequence is printed in the
+    question and solves itself. What the flag adds is the gap the RULE needs,
+    because a fill-in-the-blank sentence is marked gap by gap and a rule asked
+    for in words alone would stop being marked at all.
+    """
+
+    PATTERN_Q = ('Work out the number pattern rule and complete the pattern: '
+                 '30, ___, 60, 75, ___, ___. What is the rule?')
+    RULE_ROWS = ('+15', 'add 15', '+ 15')
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=991, defaults={'display_name': 'pattern fixture'})
+
+    def _question(self, text=None, answers=RULE_ROWS):
+        q = Question.objects.create(
+            level=self.level, question_text=text or self.PATTERN_Q,
+            question_type=Question.SHORT_ANSWER, difficulty=1, points=1)
+        for order, answer_text in enumerate(answers, start=1):
+            Answer.objects.create(question=q, answer_text=answer_text,
+                                  is_correct=True, order=order)
+        return q
+
+    def _run(self, *args):
+        out = StringIO()
+        call_command('convert_fill_blanks', *args, stdout=out, stderr=out)
+        return out.getvalue()
+
+    # ── without the flag ─────────────────────────────────────────────────
+
+    def test_without_the_flag_the_question_is_refused_and_told_why(self):
+        q = self._question()
+        out = self._run('--apply')
+        self.assertIn('--add-rule-blank', out)
+        q.refresh_from_db()
+        self.assertIsNone(q.blank_spec)
+        self.assertEqual(q.question_text, self.PATTERN_Q)
+
+    def test_the_rule_is_never_dropped_silently(self):
+        # The refusal above is the point: converting the three gaps on their
+        # own would leave "What is the rule?" asked and marked on nothing.
+        self._question()
+        out = self._run('--apply')
+        self.assertIn('Would convert 0', out.replace('Converted 0', 'Would convert 0'))
+
+    # ── with it ──────────────────────────────────────────────────────────
+
+    def test_the_flag_adds_the_gap_and_converts(self):
+        q = self._question()
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        self.assertEqual(q.question_type, Question.FILL_BLANK)
+        self.assertTrue(q.question_text.endswith('What is the rule? ___'))
+        self.assertEqual(
+            [b['answers'][0] for b in q.blank_spec['blanks']],
+            ['45', '90', '105', '+15'])
+
+    def test_the_gap_values_come_out_of_the_printed_sequence(self):
+        # 45, 90 and 105 are stored nowhere — they are the question's own
+        # arithmetic, and the step spans the gap it jumps (30, _, 60 is +15).
+        q = self._question()
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        self.assertTrue(q.grade_text_answer(
+            '{"blanks": ["45", "90", "105", "+15"]}'))
+
+    def test_the_rule_gap_takes_the_spellings_a_child_writes(self):
+        # A gap is graded by exact match, so a question whose author stored
+        # only "+15" must not start failing "add 15" the moment it converts.
+        q = self._question(answers=('+15',))
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        for rule in ('+15', 'add 15', 'ADD 15', 'plus 15', 'goes up by 15'):
+            self.assertTrue(
+                q.grade_text_answer(
+                    '{"blanks": ["45", "90", "105", "%s"]}' % rule), rule)
+
+    def test_a_wrong_gap_is_still_wrong(self):
+        q = self._question()
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        self.assertFalse(q.grade_text_answer(
+            '{"blanks": ["45", "90", "100", "+15"]}'))
+        self.assertFalse(q.grade_text_answer(
+            '{"blanks": ["45", "90", "105", "-15"]}'))
+
+    def test_partial_credit_names_the_gap_that_was_wrong(self):
+        # The reason converting is worth doing at all: three right out of four
+        # is no longer worth nothing.
+        q = self._question()
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        grade = q.grade_text_answer_parts(
+            '{"blanks": ["45", "90", "100", "+15"]}')
+        self.assertFalse(grade.is_correct)
+        self.assertEqual((grade.correct, grade.total), (3, 4))
+        self.assertEqual([p.typed for p in grade.wrong_parts], ['100'])
+
+    def test_a_dry_run_writes_nothing_but_reports_the_real_outcome(self):
+        q = self._question()
+        out = self._run('--add-rule-blank')
+        q.refresh_from_db()
+        self.assertIsNone(q.blank_spec)
+        self.assertEqual(q.question_text, self.PATTERN_Q)
+        self.assertIn('45, 90, 105', out)
+        self.assertIn('Would convert 1', out)
+
+    def test_revert_takes_the_added_gap_back_off(self):
+        q = self._question()
+        self._run('--add-rule-blank', '--apply')
+        self._run('--revert', '--apply')
+        q.refresh_from_db()
+        self.assertIsNone(q.blank_spec)
+        self.assertEqual(q.question_text, self.PATTERN_Q)
+
+    def test_running_twice_changes_nothing_the_second_time(self):
+        q = self._question()
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        first = (q.question_text, q.blank_spec)
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        self.assertEqual((q.question_text, q.blank_spec), first)
+
+    def test_the_answer_rows_survive_the_conversion(self):
+        q = self._question()
+        self._run('--add-rule-blank', '--apply')
+        self.assertEqual(
+            sorted(q.answers.values_list('answer_text', flat=True)),
+            sorted(self.RULE_ROWS))
+
+    # ── what it must not touch ───────────────────────────────────────────
+
+    def test_a_pattern_whose_gaps_are_already_answered_is_left_to_the_rows(self):
+        q = self._question(
+            text='Fill in the missing numbers: 14, 17, 20, 23, ___, ___',
+            answers=('26, 29',))
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        self.assertEqual(q.question_text,
+                         'Fill in the missing numbers: 14, 17, 20, 23, ___, ___')
+        self.assertEqual(
+            q.blank_spec, {'blanks': [{'answers': ['26']}, {'answers': ['29']}]})
+
+    def test_a_rule_that_disagrees_with_the_pattern_is_refused(self):
+        # The answer key says +5 and the sequence steps by 15. That is a
+        # content defect for a human, not a gap to fill.
+        q = self._question(answers=('+5',))
+        out = self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        self.assertIsNone(q.blank_spec)
+        self.assertEqual(q.question_text, self.PATTERN_Q)
+        self.assertNotIn('Would convert 1', out)
+
+    def test_an_ordinary_sentence_is_untouched_by_the_flag(self):
+        q = self._question(text='An _______ is a whole number.',
+                           answers=('integer',))
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        self.assertEqual(q.question_text, 'An _______ is a whole number.')
+        self.assertEqual(q.blank_spec, {'blanks': [{'answers': ['integer']}]})
