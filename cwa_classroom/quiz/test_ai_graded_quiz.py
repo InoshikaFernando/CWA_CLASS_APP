@@ -189,6 +189,50 @@ class AIGradingThroughTheEndpointTests(TestCase):
                    return_value=_ai_result()):
             self.assertTrue(self._answer('below, solid')['is_correct'])
 
+    # ---- the three bands -------------------------------------------------
+    # Full marks is the only ✅. From 0.75 up, the answer is shown as partly
+    # correct WITH its score and keeps that share of the marks; below it the
+    # answer is wrong and earns nothing. The old line was 0.6, and a "still
+    # passes" score put a green tick above feedback listing what was missing.
+
+    def test_a_nearly_complete_answer_is_not_called_correct(self):
+        with patch('worksheets.grading_service.grade_extended_answer',
+                   return_value=_ai_result(
+                       is_correct=False, score_fraction=0.8,
+                       feedback='Right idea — say why the line is solid.')):
+            result = self._answer('Shade below the line.')
+        self.assertFalse(result['is_correct'])
+        # The score travels with the verdict, so the page can show 80% beside
+        # an amber "partly correct" instead of a bare ❌.
+        self.assertAlmostEqual(result['credit'], 0.8)
+
+    def test_an_answer_below_the_pass_mark_earns_nothing(self):
+        with patch('worksheets.grading_service.grade_extended_answer',
+                   return_value=_ai_result(
+                       is_correct=False, score_fraction=0.5,
+                       feedback='You shaded the wrong side.')):
+            result = self._answer('Shade above the line.')
+        self.assertFalse(result['is_correct'])
+        self.assertEqual(result['credit'], 0.0)
+
+    def test_full_marks_is_correct_and_worth_the_whole_question(self):
+        with patch('worksheets.grading_service.grade_extended_answer',
+                   return_value=_ai_result()):
+            result = self._answer('Shade below, and the line is solid.')
+        self.assertTrue(result['is_correct'])
+        self.assertEqual(result['credit'], 1.0)
+
+    def test_a_partly_correct_answer_carries_its_marks_into_the_score(self):
+        """0.8 of a one-question paper is 0.8 of the points, not zero."""
+        with patch('worksheets.grading_service.grade_extended_answer',
+                   return_value=_ai_result(
+                       is_correct=False, score_fraction=0.8,
+                       feedback='Right idea — say why the line is solid.')):
+            self._answer('Shade below the line.', last=True)
+        result = StudentFinalAnswer.objects.get(student=self.student)
+        self.assertEqual(result.score, 0)          # not counted as correct
+        self.assertGreater(result.points, 0)       # but not worth nothing
+
     # ---- the grader could not answer ------------------------------------
 
     def test_an_exhausted_quota_does_not_mark_the_student_wrong(self):
