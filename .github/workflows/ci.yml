@@ -314,6 +314,10 @@ jobs:
               # at all — a change there can break every test in this group
               # without touching templates/maths/.
               - 'cwa_classroom/templates/homework/**'
+              # "Preview as student" in the global question bank draws those
+              # same take partials from the admin listing row and the edit
+              # modal, so this group is what catches a change to either.
+              - 'cwa_classroom/templates/admin_dashboard/**'
             # The sidebars link into every subject app, so a change to any of
             # them can break a nav test. Broad on purpose.
             ui_messaging:

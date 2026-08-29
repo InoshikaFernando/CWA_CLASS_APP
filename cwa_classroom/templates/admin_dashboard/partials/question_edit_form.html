@@ -37,7 +37,8 @@
 </div>
 {% endif %}
 
-<form hx-post="{% url 'admin_global_question_edit' question.id %}"
+<form id="question-edit-form"
+      hx-post="{% url 'admin_global_question_edit' question.id %}"
       hx-target="#edit-modal-content"
       hx-swap="innerHTML">
   {% csrf_token %}
@@ -149,14 +150,32 @@
     }
   </script>
 
-  <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
-    <button type="button" onclick="closeEditModal()"
-            class="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition">
-      Cancel
+  {# The form shows what is STORED; the preview shows what a child MEETS. The
+     faults this editor exists to repair — one lonely option, every option
+     ticked correct, an answer no typed spelling matches — all look ordinary
+     above and only show themselves when you try to answer the question. The
+     button posts this form unsaved, so it previews the edit in front of you,
+     not the row on disk. #}
+  <div class="flex items-center justify-between gap-3 pt-4 border-t border-slate-200">
+    <button type="button"
+            data-testid="preview-as-student"
+            data-preview-open="{{ question.id }}"
+            data-preview-url="{% url 'admin_global_question_preview' question.id %}"
+            data-preview-form="#question-edit-form"
+            title="See this question, and try answering it, exactly as a student will"
+            class="px-3 py-2 rounded-lg border border-blue-200 text-sm font-semibold text-blue-600 hover:bg-blue-50 transition">
+      👁 Preview as student
     </button>
-    <button type="submit"
-            class="px-4 py-2 text-sm font-semibold text-white bg-accent rounded-lg hover:bg-accent-dark transition shadow-sm">
-      Save Changes
-    </button>
+
+    <div class="flex items-center gap-3">
+      <button type="button" onclick="closeEditModal()"
+              class="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition">
+        Cancel
+      </button>
+      <button type="submit"
+              class="px-4 py-2 text-sm font-semibold text-white bg-accent rounded-lg hover:bg-accent-dark transition shadow-sm">
+        Save Changes
+      </button>
+    </div>
   </div>
 </form>
