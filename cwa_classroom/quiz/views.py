@@ -140,13 +140,13 @@ def ai_grade(question, raw, user):
     answer is recorded as ungraded instead and dropped from the score's
     denominator: not right, not wrong, not counted.
 
-    ``credit`` is what the answer is worth, 0.0–1.0 — the grader's own score.
-    An answer below the pass mark is no longer worth nothing: two thirds of a
-    proof is two thirds of the marks, and the quiz shows the student that
-    score instead of a bare ❌, exactly as it already does for a partly-filled
-    fill-in-the-blank sentence.
+    ``credit`` is what the answer is worth, 0.0–1.0. Full marks only at 1.0;
+    from the pass mark up it keeps the share it earned, and the quiz shows the
+    student that score beside an amber "partly correct" rather than a bare ❌,
+    exactly as it already does for a partly-filled fill-in-the-blank sentence;
+    below the pass mark the answer is wrong and earns nothing.
     """
-    from worksheets.grading_service import grade_extended_answer
+    from worksheets.grading_service import credit_for, grade_extended_answer
 
     school = _get_student_school(user)
     if not raw:
@@ -171,7 +171,7 @@ def ai_grade(question, raw, user):
     extra = result.get('what_to_add')
     if extra and not result.get('is_correct'):
         feedback = f'{feedback} {extra}'.strip()
-    credit = max(0.0, min(1.0, float(result.get('score_fraction') or 0.0)))
+    credit = credit_for(result.get('score_fraction'))
     return bool(result.get('is_correct')), feedback, True, credit
 
 

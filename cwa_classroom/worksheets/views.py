@@ -22,7 +22,8 @@ from classroom.views import RoleRequiredMixin
 from rewards.models import PointsSource
 from rewards.services import award_points_safe, normalise
 
-from .grading_service import grade_extended_answer, verdict
+from .grading_service import (
+    credit_for, grade_extended_answer, verdict)
 from .page_selection import describe_page_selection
 from .services import (
     accepted_question_type,
@@ -1131,10 +1132,10 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                     }
                     if result.get('quota_exceeded'):
                         answer_data['review_status'] = 'pending_ai'
-                    if is_correct:
-                        points_earned = float(question.points)
-                    elif answer_data['is_partial']:
-                        points_earned = round(float(question.points) * score_frac, 2)
+                    # Full marks, the share it earned, or nothing at all —
+                    # credit_for() draws the same lines the student is shown.
+                    points_earned = round(
+                        float(question.points) * credit_for(score_frac), 2)
                 except Exception as exc:
                     logger.exception(f'Extended answer grading failed for Q{question.pk}: {exc}')
                     answer_data = {'review_status': 'pending_ai'}

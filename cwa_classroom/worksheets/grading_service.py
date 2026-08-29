@@ -40,25 +40,47 @@ AI_GRADING_MODULES = [
 ]
 
 
-# The score at which an AI-graded answer is CORRECT, and the score below which
-# it earns nothing at all.
+# Three bands, and one place that draws the lines between them:
 #
-# It was 0.6, which the prompt itself described as "one genuine gap (still
-# passes)" — so an answer Claude had just written a paragraph of corrections
-# about came back to the child under a green ✅ Correct. Three quarters is the
-# line now: above it the answer is right, and between the two it is shown as
-# "partly correct" WITH its score, so the mark and the words beside it say the
-# same thing. Everything that turns a score into a verdict reads this constant
-# — the grader, the cache, the quiz, the worksheet and the teacher's screen —
-# so the meaning of "correct" cannot drift apart between them.
+#   1.0          ✅ Correct — full marks.
+#   0.75 – 0.99  🟡 Partly correct — worth that share of the marks, and shown
+#                with the score, so a nearly-complete answer keeps what it
+#                earned without being called right.
+#   below 0.75   ❌ Wrong — no marks.
+#
+# The pass mark used to be 0.6, and the prompt itself called that score "one
+# genuine gap (still passes)" — so an answer Claude had just written a
+# paragraph of corrections about came back to the child under a green
+# ✅ Correct. "Correct" now means the answer had nothing wrong with it, which
+# is the only reading that can never contradict the feedback printed beside it.
+#
+# Everything that turns a score into a verdict reads these — the grader, the
+# cache, the quiz, the worksheet and the teacher's screen — so the meaning of
+# "correct" cannot drift apart between them.
+FULL_MARKS = 1.0
 PASS_MARK = 0.75
-PARTIAL_FLOOR = 0.1
+
+# Floating point: a score built as 3/3 or as 0.1 + 0.9 must still be full
+# marks, so the comparison allows for the last bit of a float.
+_EPSILON = 1e-6
 
 
 def verdict(score_fraction):
-    """(is_correct, is_partial) for a score — the one place the line is drawn."""
+    """(is_correct, is_partial) for a score — the one place the lines are drawn."""
     score = float(score_fraction or 0.0)
-    return score >= PASS_MARK, PARTIAL_FLOOR <= score < PASS_MARK
+    is_correct = score >= FULL_MARKS - _EPSILON
+    return is_correct, (not is_correct) and score >= PASS_MARK - _EPSILON
+
+
+def credit_for(score_fraction):
+    """What an AI-graded answer is WORTH, 0.0–1.0.
+
+    Below the pass mark the answer is wrong, and a wrong answer earns nothing:
+    marks are not handed out for the share of a wrong answer that happened to
+    look familiar. At or above it, the answer keeps the score it was given.
+    """
+    score = max(0.0, min(1.0, float(score_fraction or 0.0)))
+    return score if score >= PASS_MARK - _EPSILON else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +510,8 @@ def reconcile_score(score_fraction, feedback, what_to_add=''):
     overwritten.
 
     Lowering needs no such guard: feedback that says something is wrong, with
-    no praise anywhere in it, is not a passing answer however it was scored.
+    no praise anywhere in it, is not a passing answer however it was scored —
+    it drops below the pass mark, where an answer earns nothing.
     """
     words = (feedback or '').lower()
     positive = _says(words, _POSITIVE_SIGNALS)
@@ -496,8 +519,13 @@ def reconcile_score(score_fraction, feedback, what_to_add=''):
     complete = (what_to_add or '').strip().lower().rstrip('.') in _NOTHING_TO_ADD
 
     if positive and not negative and complete and score_fraction < PASS_MARK:
-        return 0.85, (f'feedback positive and nothing left to add, but '
-                      f'score={score_fraction:.2f} — raised to 0.85')
+        # Full marks, not a near-miss: "nothing to add" and praise with no
+        # correction in it describe an answer with nothing wrong with it, and
+        # anything short of 1.0 would show the student an amber "partly
+        # correct" the feedback does not support.
+        return FULL_MARKS, (f'feedback positive and nothing left to add, but '
+                            f'score={score_fraction:.2f} — raised to '
+                            f'{FULL_MARKS:.2f}')
 
     if negative and not positive and score_fraction >= PASS_MARK:
         return 0.35, (f'feedback negative but score={score_fraction:.2f} '
@@ -535,8 +563,8 @@ def _call_claude_grade(question, answer_text, normalised_text):
 
         'QUESTION TYPE GUIDANCE:\n'
         '• DEFINITIONS — Award credit for each key concept or keyword that is '
-        'correctly included. A definition with 3 of 4 required elements earns ~0.7 '
-        '— a missing required element is not full marks and does not pass. '
+        'correctly included. A definition with 3 of 4 required elements earns ~0.75 '
+        '— a missing required element is never full marks. '
         'Missing all key elements earns 0.0. Different but accurate wording is fine.\n'
         '• EXPLANATIONS / REASONING — Check whether the key ideas are present and '
         'the reasoning is logically sound. Partial explanations earn partial credit.\n'
@@ -559,20 +587,27 @@ def _call_claude_grade(question, answer_text, normalised_text):
         'THE DIAGRAM (if shown) defines labels/notation. Students need not re-state '
         'what is visible in the diagram.\n\n'
 
-        'SCORING (0.75 and above is a pass — anything less is shown to the '
-        'student as partly correct, so do not score an answer you are correcting '
-        'at or above it):\n'
-        '  1.0 — Fully correct and complete.\n'
-        '  0.8 — Mostly correct with very minor omission or imprecision.\n'
-        '  0.6 — Correct approach, one genuine gap (does NOT pass).\n'
-        '  0.3 — Partially correct — some right ideas but missing key elements.\n'
-        '  0.1 — Only a small fragment is correct.\n'
-        '  0.0 — Fundamentally wrong or no attempt.\n\n'
+        'SCORING — what the student is shown for the score you give:\n'
+        '  1.0        ✅ Correct, full marks. Give this ONLY when there is '
+        'nothing to add and nothing to correct.\n'
+        '  0.75-0.99  🟡 Partly correct — earns that share of the marks. This '
+        'is where an answer with a real but minor gap belongs.\n'
+        '  below 0.75 ❌ Wrong — earns no marks at all.\n'
+        'So an answer you are writing a correction about is never 1.0, and an '
+        'answer that is fundamentally wrong is never 0.75 or more. Within the '
+        'bands:\n'
+        '  1.0  — Fully correct and complete; nothing to add.\n'
+        '  0.9  — Right, with an imprecision worth naming.\n'
+        '  0.8  — Right approach carried through, one minor omission.\n'
+        '  0.5  — Some right ideas, but a key element is missing or wrong.\n'
+        '  0.1  — Only a small fragment is correct.\n'
+        '  0.0  — Fundamentally wrong, or no attempt.\n\n'
 
         'CONSISTENCY: Your score_fraction and feedback MUST agree. '
-        'If feedback says "correct/complete/well done", score >= 0.8. '
-        'If feedback names anything the student got wrong or left out, score '
-        '<= 0.5 — below the 0.75 pass mark. '
+        'If feedback says "correct/complete/well done" with no correction in '
+        'it, score 1.0. If feedback names anything the student got wrong or '
+        'left out, score below 1.0 — and below 0.75 when what is missing is '
+        'part of the answer rather than a detail. '
         'Never contradict yourself.\n\n'
 
         'Your response must be valid JSON.'
@@ -596,7 +631,7 @@ Evaluate this answer:
 Respond with JSON only:
 {{
   "score_fraction": <0.0 to 1.0>,
-  "is_correct": <true if score_fraction >= 0.75>,
+  "is_correct": <true only if score_fraction is 1.0>,
   "what_was_correct": "<specifically what the student got right — be concrete; 'None' if nothing>",
   "what_to_add": "<specifically what is missing or must be added for full marks — 'Nothing' if already full marks>",
   "feedback": "<1-2 sentence combined summary for the student>"

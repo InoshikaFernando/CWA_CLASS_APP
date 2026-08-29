@@ -13,6 +13,7 @@ assert is what the student experiences.
 import json
 import time
 import uuid
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
@@ -123,6 +124,33 @@ class CreateYourOwnPatternGradingTests(TestCase):
             student=self.student, question=self.question)
         self.assertTrue(row.is_correct)
         self.assertEqual(row.text_answer, '20, 18, 16, 14, 12, 10')
+
+    # -------------------------------------------------- never sent to the AI
+
+    def test_a_pattern_question_is_never_sent_to_the_ai_grader(self):
+        """These are authored as written answers, so the AI branch used to
+        claim them first — and Claude marked a pattern running the wrong way
+        ✅ Correct above its own feedback saying it was not. The arithmetic
+        decides them outright; no model is asked."""
+        ai_question = Question.objects.create(
+            question_text=(
+                'Create your own tricky subtraction number pattern of six '
+                'numbers and write down the rule you used.'
+            ),
+            question_type=Question.SHORT_ANSWER,
+            answer_format=Question.ANSWER_FORMAT_PATTERN,
+            validation_type=Question.VALIDATION_AI,
+            topic=self.topic, level=self.level,
+        )
+        with patch('worksheets.grading_service.grade_extended_answer') as grader:
+            wrong = self._answer('5, 8, 11, 14, 17, 20', question=ai_question)
+            right = self._answer('20, 18, 16, 14, 12, 10', question=ai_question)
+        grader.assert_not_called()
+        # An ADDITION pattern for a SUBTRACTION question is wrong, and the mark
+        # says why rather than praising it.
+        self.assertFalse(wrong['is_correct'])
+        self.assertIn('subtraction', wrong['feedback'].lower())
+        self.assertTrue(right['is_correct'])
 
     # ------------------------------------------------------------- the guard
 
