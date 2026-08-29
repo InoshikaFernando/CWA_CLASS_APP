@@ -25,6 +25,7 @@ from classroom.subject_registry import (
 )
 from classroom.views import RoleRequiredMixin
 from maths.models import Answer, Question, calculate_points
+from worksheets.grading_service import PASS_MARK
 from rewards.models import PointsSource
 from rewards.services import award_points_safe, normalise
 from maths.views import select_questions_stratified
@@ -3385,7 +3386,7 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
         teacher_feedback = request.POST.get('teacher_feedback', '').strip()
 
         answer.ai_score_fraction = score_frac
-        answer.is_correct = score_frac >= 0.6
+        answer.is_correct = score_frac >= PASS_MARK
         answer.points_earned = round(answer.question.points * score_frac, 2)
         answer.teacher_feedback = teacher_feedback
         answer.review_status = HomeworkStudentAnswer.REVIEW_TEACHER_DONE
@@ -3461,7 +3462,7 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
                     sib_norm = _normalise(sibling.text_answer)
                     if _levenshtein_ratio(normalised, sib_norm) >= 0.85:
                         sibling.ai_score_fraction = score_frac
-                        sibling.is_correct = score_frac >= 0.6
+                        sibling.is_correct = score_frac >= PASS_MARK
                         sibling.points_earned = round(
                             (sibling.question.points if sibling.question else 1) * score_frac, 2
                         )

@@ -167,7 +167,18 @@
     // and the one gap that cost the mark is named, with what was typed beside
     // what was wanted, because that is the part a child can learn from.
     const parts = Array.isArray(data.parts) ? data.parts : [];
-    const partly = parts.length > 0 && !data.is_correct;
+    // What the answer was worth, as a percentage the student can see. A mark
+    // with no number beside it is the reason "✅ Correct" could sit above
+    // feedback listing what was missing and nobody could tell which to believe.
+    const credit = (typeof data.credit === 'number') ? data.credit : null;
+    const pct = credit === null ? '' : Math.round(credit * 100) + '%';
+    const scoreTag = pct
+      ? `<span class="ml-auto text-sm font-bold tabular-nums">${pct}</span>` : '';
+    // Partly right: some gaps of a sentence, or an AI-graded answer that scored
+    // something without reaching the pass mark. Either way it is not a flat
+    // ❌ — those marks were earned and the score says how many.
+    const partly = !data.is_correct
+      && (parts.length > 0 || (credit !== null && credit > 0));
     const wrongList = parts.filter(p => !p.is_correct).map(p => `
       <li><strong>${_esc(p.label)}:</strong>
         ${p.typed ? `you wrote <code>${_esc(p.typed)}</code>` : 'you left it empty'}
@@ -188,15 +199,15 @@
     } else if (data.is_correct) {
       fb.innerHTML = `
         <div class="flex items-center gap-2 rounded-xl bg-green-50 border border-green-200 px-4 py-3 font-semibold text-green-800">
-          ✅ Correct!
+          ✅ Correct!${scoreTag}
         </div>
         ${note}`;
     } else if (partly) {
       // Amber, not red: these marks were earned, and the score says so.
-      const scored = data.parts_correct > 0;
+      const scored = parts.length ? data.parts_correct > 0 : credit > 0;
       fb.innerHTML = `
         <div class="rounded-xl ${scored ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-red-50 border-red-200 text-red-800'} border px-4 py-3">
-          <p class="font-semibold">${scored ? '🟡 Almost — partly correct' : '❌ Incorrect'}</p>
+          <p class="font-semibold flex items-center gap-2">${scored ? '🟡 Almost — partly correct' : '❌ Incorrect'}${scoreTag}</p>
           <p class="text-sm mt-1">${_esc(data.what_was_correct || '')}</p>
           ${breakdown}
         </div>

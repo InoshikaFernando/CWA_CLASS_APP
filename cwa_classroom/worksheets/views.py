@@ -22,7 +22,7 @@ from classroom.views import RoleRequiredMixin
 from rewards.models import PointsSource
 from rewards.services import award_points_safe, normalise
 
-from .grading_service import grade_extended_answer
+from .grading_service import grade_extended_answer, verdict
 from .page_selection import describe_page_selection
 from .services import (
     accepted_question_type,
@@ -1124,7 +1124,8 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                         'feedback': result.get('feedback', ''),
                         'score_fraction': score_frac,
                         'cache_hit': result.get('cache_hit', False),
-                        'is_partial': result.get('is_partial', 0.1 <= score_frac < 0.6),
+                        'is_partial': result.get(
+                            'is_partial', verdict(score_frac)[1]),
                         'what_was_correct': result.get('what_was_correct', ''),
                         'what_to_add': result.get('what_to_add', ''),
                     }

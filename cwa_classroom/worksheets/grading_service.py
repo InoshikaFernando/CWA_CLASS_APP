@@ -40,6 +40,27 @@ AI_GRADING_MODULES = [
 ]
 
 
+# The score at which an AI-graded answer is CORRECT, and the score below which
+# it earns nothing at all.
+#
+# It was 0.6, which the prompt itself described as "one genuine gap (still
+# passes)" — so an answer Claude had just written a paragraph of corrections
+# about came back to the child under a green ✅ Correct. Three quarters is the
+# line now: above it the answer is right, and between the two it is shown as
+# "partly correct" WITH its score, so the mark and the words beside it say the
+# same thing. Everything that turns a score into a verdict reads this constant
+# — the grader, the cache, the quiz, the worksheet and the teacher's screen —
+# so the meaning of "correct" cannot drift apart between them.
+PASS_MARK = 0.75
+PARTIAL_FLOOR = 0.1
+
+
+def verdict(score_fraction):
+    """(is_correct, is_partial) for a score — the one place the line is drawn."""
+    score = float(score_fraction or 0.0)
+    return score >= PASS_MARK, PARTIAL_FLOOR <= score < PASS_MARK
+
+
 # ---------------------------------------------------------------------------
 # Quota helpers
 # ---------------------------------------------------------------------------
@@ -208,7 +229,8 @@ def grade_extended_answer(question, answer_text: str, school=None):
     if cached:
         logger.info(f'AI grading cache hit for Q{question.pk}')
         result = {**cached, 'cache_hit': True, 'input_tokens': 0, 'output_tokens': 0}
-        result.setdefault('is_partial', 0.1 <= result.get('score_fraction', 0.0) < 0.6)
+        result['is_correct'], result['is_partial'] = verdict(
+            result.get('score_fraction', 0.0))
         return result
 
     # ── 2. Quota check ────────────────────────────────────────────────────
@@ -282,12 +304,17 @@ def _lookup_cache(question_pk, normalised_text, threshold=0.85):
             return None
 
         def _make_result(e):
+            # The verdict is recomputed from the stored score rather than read
+            # from the stored ``is_correct``: an entry cached under the old
+            # 0.6 pass mark would otherwise keep returning ✅ Correct for a
+            # 0.65 answer forever, since a cache hit never re-grades.
             parsed = _parse_cache_feedback(e.feedback)
             score = e.score_fraction
+            is_correct, is_partial = verdict(score)
             return {
-                'is_correct': e.is_correct,
+                'is_correct': is_correct,
                 'score_fraction': score,
-                'is_partial': 0.1 <= score < 0.6,
+                'is_partial': is_partial,
                 **parsed,
             }
 
@@ -468,11 +495,11 @@ def reconcile_score(score_fraction, feedback, what_to_add=''):
     negative = _says(words, _NEGATIVE_SIGNALS)
     complete = (what_to_add or '').strip().lower().rstrip('.') in _NOTHING_TO_ADD
 
-    if positive and not negative and complete and score_fraction < 0.65:
+    if positive and not negative and complete and score_fraction < PASS_MARK:
         return 0.85, (f'feedback positive and nothing left to add, but '
                       f'score={score_fraction:.2f} — raised to 0.85')
 
-    if negative and not positive and score_fraction >= 0.65:
+    if negative and not positive and score_fraction >= PASS_MARK:
         return 0.35, (f'feedback negative but score={score_fraction:.2f} '
                       f'— dropped to 0.35')
 
@@ -508,13 +535,23 @@ def _call_claude_grade(question, answer_text, normalised_text):
 
         'QUESTION TYPE GUIDANCE:\n'
         '• DEFINITIONS — Award credit for each key concept or keyword that is '
-        'correctly included. A definition with 3 of 4 required elements earns ~0.75. '
+        'correctly included. A definition with 3 of 4 required elements earns ~0.7 '
+        '— a missing required element is not full marks and does not pass. '
         'Missing all key elements earns 0.0. Different but accurate wording is fine.\n'
         '• EXPLANATIONS / REASONING — Check whether the key ideas are present and '
         'the reasoning is logically sound. Partial explanations earn partial credit.\n'
         '• MATHEMATICAL PROOFS — Verify the argument step by step. A different valid '
         'proof path earns the same marks as the reference. Implicit trivial steps are fine.\n'
-        '• SHORT ANSWERS — One or two correct key points earns near-full credit.\n\n'
+        '• SHORT ANSWERS — One or two correct key points earns near-full credit.\n'
+        '• SEQUENCES, NUMBER PATTERNS, ORDERED STEPS — THE ORDER IS PART OF THE '
+        'ANSWER. Check the values the student wrote against each other, in the '
+        'order they wrote them: every consecutive pair must follow the rule the '
+        'question asks for. A sequence that runs the wrong way (going up when the '
+        'question asks for a subtraction / decreasing pattern, or down when it '
+        'asks for an addition one), or the right values in the wrong order, is '
+        'WRONG — score it at most 0.3 — however neat or plausible the numbers '
+        'look on their own. If the question also asks for the rule, a rule that '
+        'contradicts the numbers beside it is wrong too.\n\n'
 
         'THE RUBRIC (if provided) shows one correct approach. Students may express '
         'the same ideas differently. A different path that is correct earns full marks.\n\n'
@@ -522,17 +559,20 @@ def _call_claude_grade(question, answer_text, normalised_text):
         'THE DIAGRAM (if shown) defines labels/notation. Students need not re-state '
         'what is visible in the diagram.\n\n'
 
-        'SCORING:\n'
+        'SCORING (0.75 and above is a pass — anything less is shown to the '
+        'student as partly correct, so do not score an answer you are correcting '
+        'at or above it):\n'
         '  1.0 — Fully correct and complete.\n'
         '  0.8 — Mostly correct with very minor omission or imprecision.\n'
-        '  0.6 — Correct approach, one genuine gap (still passes).\n'
+        '  0.6 — Correct approach, one genuine gap (does NOT pass).\n'
         '  0.3 — Partially correct — some right ideas but missing key elements.\n'
         '  0.1 — Only a small fragment is correct.\n'
         '  0.0 — Fundamentally wrong or no attempt.\n\n'
 
         'CONSISTENCY: Your score_fraction and feedback MUST agree. '
         'If feedback says "correct/complete/well done", score >= 0.8. '
-        'If feedback says "incorrect/missing/wrong", score <= 0.5. '
+        'If feedback names anything the student got wrong or left out, score '
+        '<= 0.5 — below the 0.75 pass mark. '
         'Never contradict yourself.\n\n'
 
         'Your response must be valid JSON.'
@@ -556,7 +596,7 @@ Evaluate this answer:
 Respond with JSON only:
 {{
   "score_fraction": <0.0 to 1.0>,
-  "is_correct": <true if score_fraction >= 0.6>,
+  "is_correct": <true if score_fraction >= 0.75>,
   "what_was_correct": "<specifically what the student got right — be concrete; 'None' if nothing>",
   "what_to_add": "<specifically what is missing or must be added for full marks — 'Nothing' if already full marks>",
   "feedback": "<1-2 sentence combined summary for the student>"
@@ -619,14 +659,15 @@ Respond with JSON only:
         # ── Consistency check ────────────────────────────────────────────
         score_fraction, adjustment = reconcile_score(
             score_fraction, feedback, what_to_add)
+        is_correct, is_partial = verdict(score_fraction)
         if adjustment:
             logger.warning(
                 'Grading inconsistency Q%s: %s', question.pk, adjustment)
         # ────────────────────────────────────────────────────────────────
 
         return {
-            'is_correct': score_fraction >= 0.6,
-            'is_partial': 0.1 <= score_fraction < 0.6,
+            'is_correct': is_correct,
+            'is_partial': is_partial,
             'score_fraction': score_fraction,
             'feedback': feedback,
             'what_was_correct': what_was_correct,
