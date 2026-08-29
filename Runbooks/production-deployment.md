@@ -267,8 +267,12 @@ those same steps for you.
 
 ### 2.1 Bump the version — on the FEATURE BRANCH, before the merge
 
-`APP_VERSION` in `settings.py` is what `/api/health/` reports — bump it so you
-can confirm the new build is live.
+`APP_VERSION` lives in `cwa_classroom/cwa_classroom/version.py` and is what
+`/api/health/` reports — bump it so you can confirm the new build is live.
+Use `scripts/bump_version.py`; do not edit the file by hand and do not move
+the constant back into `settings.py`. Every file in that package is watched
+by ci.yml's `shared` filter — the one that runs every suite in the repo — so
+a version line there made every PR a full-matrix run.
 
 **Bump before the PR merges, never on `test` afterwards.** A push to `test`
 runs the full CI matrix (~29 jobs, ~119 billed Actions minutes; path filters
