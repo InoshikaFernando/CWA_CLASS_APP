@@ -40,7 +40,11 @@ class ExponentsFilterTests(SimpleTestCase):
 
 
 class CreditStateFilterTests(SimpleTestCase):
-    """Display tiers for AI-graded answers: full=1.0, partial>=0.5, else wrong."""
+    """Display tiers for AI-graded answers: full=1.0, partial>=0.75, else wrong.
+
+    The floor is the grader's own pass mark, so a review page and the quiz
+    that produced the score cannot put the same answer in different bands.
+    """
 
     def _ans(self, frac=None, is_correct=False):
         return SimpleNamespace(ai_score_fraction=frac, is_correct=is_correct)
@@ -53,10 +57,14 @@ class CreditStateFilterTests(SimpleTestCase):
         self.assertEqual(credit_state(self._ans(frac=0.85, is_correct=True)), 'partial')
 
     def test_score_at_partial_floor_is_partial(self):
-        self.assertEqual(credit_state(self._ans(frac=0.5)), 'partial')
+        self.assertEqual(credit_state(self._ans(frac=0.75)), 'partial')
 
     def test_score_just_below_floor_is_wrong(self):
-        self.assertEqual(credit_state(self._ans(frac=0.49)), 'wrong')
+        self.assertEqual(credit_state(self._ans(frac=0.74)), 'wrong')
+
+    def test_a_mid_range_score_is_wrong_not_partial(self):
+        # Half an answer earns nothing now: below the pass mark it is wrong.
+        self.assertEqual(credit_state(self._ans(frac=0.5)), 'wrong')
 
     def test_zero_score_is_wrong(self):
         self.assertEqual(credit_state(self._ans(frac=0.0)), 'wrong')

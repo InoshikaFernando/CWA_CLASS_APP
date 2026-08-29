@@ -302,6 +302,24 @@
       Submit
     </button>
 
+  {% elif question.pattern_field_data %}
+    {% comment %}
+    "Create your own number pattern": a box per number the question asks for and
+    a box for the rule, composed by pattern_fields.js into the one line
+    grade_pattern reads. Checked before the plain-box fallback below and before
+    the AI branch in the view, because these questions are authored as written
+    answers — which is how they used to end up being marked by a model instead
+    of by the arithmetic. The Submit button's onclick survives the innerHTML
+    question swap; pattern_fields.js re-mounts via the shared maths_mounts.js
+    registry.
+    {% endcomment %}
+    {% include "maths/partials/_pattern_tool.html" with q=question field_name='text_answer' %}
+    <button type="button"
+            class="mt-4 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+            onclick="submitPattern('{{ session_id }}', {{ question.id }})">
+      Submit
+    </button>
+
   {% elif question.question_type == 'number_line' and question.number_line_data %}
     {% comment %}
     Number line: mark mode overlays tappable ticks on the drawn scale (marks

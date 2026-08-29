@@ -535,11 +535,11 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
 
     @patch('worksheets.views.grade_extended_answer')
     def test_grade_extended_answer_partial_credit_stored(self, mock_grade):
-        """A mid-range score (0.55) stores partial credit and displays as amber."""
+        """A score in the partly-correct band stores partial credit, shown amber."""
         mock_grade.return_value = {
             'is_correct': False,
             'is_partial': True,
-            'score_fraction': 0.55,
+            'score_fraction': 0.8,
             'feedback': 'You got some things right.',
             'what_was_correct': 'Mentioned gravity correctly.',
             'what_to_add': 'Add the inverse square law.',
@@ -554,14 +554,14 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
         self.assertTrue(sa.answer_data['is_partial'])
         self.assertEqual(sa.answer_data['what_was_correct'], 'Mentioned gravity correctly.')
         self.assertEqual(sa.answer_data['what_to_add'], 'Add the inverse square law.')
-        # Partial points awarded proportionally (0.55 * 1.0 = 0.55)
-        self.assertAlmostEqual(sa.points_earned, 0.55, places=2)
-        # Score >= 0.5 renders the amber partial state.
+        # Partial points awarded proportionally (0.8 * 1.0 = 0.8)
+        self.assertAlmostEqual(sa.points_earned, 0.8, places=2)
+        # A score in the band renders the amber partial state.
         self.assertContains(resp, 'Partially correct')
 
     @patch('worksheets.views.grade_extended_answer')
     def test_grade_extended_answer_low_score_displays_as_wrong(self, mock_grade):
-        """A low score (0.3, below the 0.5 partial floor) displays as wrong, not partial."""
+        """A low score (0.3, below the pass mark) displays as wrong, not partial."""
         mock_grade.return_value = {
             'is_correct': False,
             'is_partial': True,

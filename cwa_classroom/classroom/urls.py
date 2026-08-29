@@ -124,6 +124,7 @@ urlpatterns = [
     # Global questions management (superuser only)
     path('admin-dashboard/global-questions/', views_admin.GlobalQuestionsView.as_view(), name='admin_global_questions'),
     path('admin-dashboard/global-questions/<int:question_id>/edit/', views_admin.GlobalQuestionEditView.as_view(), name='admin_global_question_edit'),
+    path('admin-dashboard/global-questions/<int:question_id>/preview/', views_admin.GlobalQuestionPreviewView.as_view(), name='admin_global_question_preview'),
     path('admin-dashboard/global-questions/coding/<int:exercise_id>/edit/', views_admin.GlobalCodingExerciseEditView.as_view(), name='admin_global_coding_exercise_edit'),
     path('admin-dashboard/global-questions/<int:question_id>/delete/', views_admin.GlobalQuestionDeleteView.as_view(), name='admin_global_question_delete'),
     path('admin-dashboard/global-questions/coding/<int:exercise_id>/delete/', views_admin.GlobalCodingExerciseDeleteView.as_view(), name='admin_global_coding_exercise_delete'),
