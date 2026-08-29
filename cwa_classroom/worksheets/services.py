@@ -652,7 +652,9 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                 "plane. bounds = visible axis range; mode 'points' (plot/identify dots) or "
                                 "'segments' (a line/shape to join); target = the correct answer (points OR "
                                 "segments) in SIGNED integer coords; given_points = points already drawn "
-                                "(identify_coords reads these). The app draws the blank plane, so "
+                                "for the student to read — [x, y], or [x, y, \"A\"] to NAME the point when "
+                                "the question does. A DERIVED answer (a mid point, an intersection) belongs "
+                                "in target only, never in given_points. The app draws the blank plane, so "
                                 "set has_image=false for these types."
                             ),
                         },
@@ -903,10 +905,14 @@ Rules:
    axis range in plane_spec.bounds, mode "points", and the coordinates to plot in
    plane_spec.target.points (signed integers, e.g. [[3,-2]]). If it asks to plot AND JOIN points
    into a line/shape, use "plot_line" — mode "segments" and plane_spec.target.segments as the
-   joined line ([{"x1","y1","x2","y2"}]). If a point is ALREADY PLOTTED and the student must WRITE
-   its coordinates, use "identify_coords" — mode "points", put the plotted point in BOTH
-   plane_spec.given_points and plane_spec.target.points. Set has_image=false (the app draws the
-   plane) and leave answers=[].
+   joined line ([{"x1","y1","x2","y2"}]). If the student must WRITE coordinates rather than plot
+   them, use "identify_coords" — mode "points", plane_spec.target.points = the coordinates to write
+   (the ANSWER), plane_spec.given_points = what is DRAWN for them to read. These are the same only
+   when the answer is the plotted point itself ("write the co-ordinates of P"). When the answer is
+   DERIVED — "A is (2,2), B is (8,2), C is (5,8); D is the mid point of AB, write down D" — draw
+   A, B and C via given_points and put D in target.points ONLY; drawing a derived answer hands the
+   child the answer. Name the given points as [x, y, "A"] whenever the question names them.
+   Set has_image=false (the app draws the plane) and leave answers=[].
 12. READ A GRAPH: if a PRE-DRAWN line graph (e.g. distance-vs-time) is shown and the student must
    READ a value off it, use "read_graph". Set numeric_answer to the value to read,
    answer_tolerance to a sensible ± band, answer_unit to the axis unit. Keep the graph image

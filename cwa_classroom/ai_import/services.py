@@ -520,9 +520,16 @@ QUESTION TYPE RULES (important):
 - If it asks the student to PLOT points AND JOIN them into a line/shape, use "plot_line": mode
   "segments" and plane_spec.target.segments as a list of {"x1","y1","x2","y2"} for the joined line
   (consecutive points). Do NOT generate answers.
-- If a point (or points) is ALREADY PLOTTED on the plane and the student must WRITE the coordinates,
-  use "identify_coords": mode "points", put the plotted point(s) in BOTH plane_spec.given_points
-  (so they are drawn) and plane_spec.target.points (the answer). Do NOT generate answers.
+- If the student must WRITE coordinates rather than plot them, use "identify_coords": mode "points",
+  plane_spec.target.points = the coordinates the student must write (the ANSWER). plane_spec.given_points
+  is what is DRAWN on the plane for them to read, and the two are NOT always the same:
+  * "Write down the co-ordinates of the point P shown" — P is both drawn and the answer, so it goes in
+    given_points AND target.points.
+  * "A is (2,2), B is (8,2), C is (5,8). D is the mid point of AB. Write down the co-ordinates of D" —
+    the answer D is DERIVED. Put A, B and C in given_points and D in target.points ONLY.
+    Never put a derived answer in given_points: drawing it hands the child the answer.
+  NAME the given points whenever the question does, as [x, y, "A"] — a question about "the line AB"
+  cannot be read off a grid of unlabelled dots. Do NOT generate answers.
 - If the question shows a PRE-DRAWN line graph (e.g. distance-vs-time) and asks the student to READ a
   value off it, use "read_graph". Set numeric_answer to the value to read, answer_tolerance to a
   sensible ± band, and answer_unit to the axis unit. Keep the graph image (set image_page/image_box
@@ -637,7 +644,9 @@ CLASSIFICATION_TOOL = {
                                 "plane. bounds = the visible axis range; mode 'points' for plotting/identifying "
                                 "dots, 'segments' for a line/shape to join; target = the correct answer "
                                 "(points OR segments) in SIGNED integer coords; given_points = points already "
-                                "drawn on the plane (used by identify_coords so the student reads them)."
+                                "drawn on the plane for the student to read — [x, y], or [x, y, \"A\"] to "
+                                "NAME the point when the question does. A DERIVED answer (a mid point, an "
+                                "intersection) belongs in target only, never in given_points."
                             ),
                             "properties": {
                                 "bounds": {
@@ -648,7 +657,9 @@ CLASSIFICATION_TOOL = {
                                     },
                                 },
                                 "mode": {"type": "string", "enum": ["points", "segments"]},
-                                "given_points": {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}},
+                                # [x, y] or [x, y, "A"] — mixed item types, so the schema
+                                # cannot pin one. Constrained by validate_plane_spec instead.
+                                "given_points": {"type": "array", "items": {"type": "array"}},
                                 "target": {"type": "object"},
                             },
                         },
