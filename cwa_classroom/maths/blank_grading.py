@@ -643,6 +643,12 @@ def _values_from_rows(texts, n, positional_rows):
 # that box wants a rule rather than another number.
 RULE_BLANK_SUFFIX = '\nThe rule is: ___'
 
+# The question asking for its rule in words — "State the rule and the three
+# missing numbers", "What is the rule?", "Work out the number pattern rule".
+# Evidence enough on its own that a gap for it belongs, because the rule
+# itself is never guessed: it comes out of the sequence the question prints.
+_ASKS_FOR_RULE_RE = re.compile(r'\brules?\b', re.IGNORECASE)
+
 # What the first version appended. Nothing writes it; --revert still knows it,
 # so a question converted by that run comes back cleanly.
 _LEGACY_RULE_BLANK_SUFFIXES = (' ___',)
@@ -682,7 +688,7 @@ def _values_from_pattern(question_text, texts, n):
     the more actionable of the two on a question that is not this shape.
     """
     from maths.pattern_grading import (
-        format_value, rule_spellings, states_the_rule)
+        RULE, completion_parts, format_value, rule_spellings)
 
     values_by_blank, pattern = pattern_blank_values(question_text)
     if not values_by_blank:
@@ -693,32 +699,42 @@ def _values_from_pattern(question_text, texts, n):
         values[index] = [format_value(value)]
     spare = [i for i, entry in enumerate(values) if entry is None]
 
-    # Every stored row has to be accounted for. Rows that state the rule are
-    # this route's business; anything else means the question is not what it
-    # looks like, and the row rules' own refusal is the better report.
-    if not all(states_the_rule(text, pattern) for text in texts):
+    # Every stored row has to agree with the pattern. completion_parts reads a
+    # row as what it supplies — the missing numbers, the rule, or both — and
+    # returns None for one that contradicts the sequence, which is a question
+    # this route has misread or an answer key that is wrong. Either way the
+    # row rules' own refusal is the better report.
+    supplied = [completion_parts(text, pattern) for text in texts]
+    if any(parts is None for parts in supplied):
         return None, ''
 
-    if not spare:
-        return None, (
-            f'the pattern fills all {n} gap(s) by itself, but the stored '
-            f'answer is its RULE ({texts[0]!r}) and no gap asks for that — '
-            f'converting as-is would stop the rule being marked at all. Give '
-            f'the rule a gap (end the question with "___"), or run '
-            f'convert_fill_blanks --add-rule-blank, which appends one'
-        )
-    if len(spare) > 1:
-        return None, (
-            f'{len(spare)} gaps sit outside the pattern and only the rule is '
-            f'stored, so what goes in the others is anybody\'s guess'
-        )
+    # Is the rule asked for? A row that states it says so, and so does the
+    # question in words — "State the rule and the three missing numbers"
+    # stores its rule as a prefix ("+5; 70, 85, 90") that the row rules drop.
+    wants_rule = (any(RULE in parts for parts in supplied)
+                  or bool(_ASKS_FOR_RULE_RE.search(question_text or '')))
 
-    # One gap left, and every row is a spelling of the rule: that gap is where
-    # the rule goes. The stored rows come first — they are the author's own
-    # wording — followed by the ordinary spellings of the same rule, because a
-    # gap is graded by exact match and a child who writes "add 15" for a stored
-    # "+15" must not start being marked wrong by the conversion.
-    accepted = list(texts)
+    if not spare:
+        if not wants_rule:
+            return None, ''
+        return None, (
+            f'the pattern fills all {n} gap(s) by itself and the question also '
+            f'asks for its RULE, which no gap holds — converting as-is stops '
+            f'the rule being marked at all. Give it a gap (end the question '
+            f'with "___"), or run convert_fill_blanks --add-rule-blank, which '
+            f'appends one'
+        )
+    if len(spare) > 1 or not wants_rule:
+        return None, ''
+
+    # One gap left and a rule to put in it. Rows that are the rule and nothing
+    # else go in verbatim — the author's own wording — followed by the
+    # ordinary spellings of the same rule, because a gap is graded by exact
+    # match and a child who writes "add 15" for a stored "+15" must not start
+    # being marked wrong by the conversion. A row carrying the numbers as well
+    # ("+5; 70, 85, 90") is not an answer to this one gap, so only the rule it
+    # states reaches the gap, through those spellings.
+    accepted = [text for text, parts in zip(texts, supplied) if parts == {RULE}]
     for spelling in rule_spellings(pattern):
         if spelling not in accepted:
             accepted.append(spelling)
@@ -735,11 +751,20 @@ def add_rule_blank(question_text, correct_texts):
     makes the conversion honest — every part of the question the student is
     asked for is a part they are marked on.
 
-    Returns ``(text, '')`` on success. Refuses anything it has not proved:
-    a question with no solvable pattern, one whose gaps are not all the
-    pattern's, or one whose rows are not all spellings of that pattern's rule.
+    Returns ``(text, '')`` on success. Refuses anything it has not proved: a
+    question with no solvable pattern, one whose gaps are not all the
+    pattern's (it already has somewhere to put the rule), one that never asks
+    for a rule, or one whose stored answers contradict the sequence.
+
+    What makes the gap safe to add is that the rule is not a guess: the
+    sequence is printed in the question and solves itself, so
+    :func:`maths.pattern_grading.rule_spellings` can stock the gap whether or
+    not any row states the rule. Sixteen questions in the bank ask "State the
+    rule and the three missing numbers" and store it as a prefix the row rules
+    drop ("+5; 70, 85, 90"), so requiring a rule-only row would miss exactly
+    the questions this is for.
     """
-    from maths.pattern_grading import states_the_rule
+    from maths.pattern_grading import RULE, completion_parts
 
     texts = [t.strip() for t in correct_texts if t and t.strip()]
     if not texts:
@@ -750,11 +775,17 @@ def add_rule_blank(question_text, correct_texts):
         return None, 'the question prints no pattern that solves its gaps'
     if len(values_by_blank) != count_blanks(question_text):
         return None, 'the question already has a gap outside its pattern'
-    if not all(states_the_rule(text, pattern) for text in texts):
+
+    supplied = [completion_parts(text, pattern) for text in texts]
+    if any(parts is None for parts in supplied):
         return None, (
-            'the stored answer is not the rule of the pattern the question '
-            'prints, so there is nothing to put in the gap this would add'
+            'a stored answer contradicts the pattern the question prints, so '
+            'one of the two is wrong and neither is safe to build a gap on'
         )
+    if not (any(RULE in parts for parts in supplied)
+            or _ASKS_FOR_RULE_RE.search(question_text)):
+        return None, 'the question does not ask for a rule'
+
     return question_text.rstrip() + RULE_BLANK_SUFFIX, ''
 
 

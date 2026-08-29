@@ -450,3 +450,124 @@ class PatternRuleBlankRepairTests(TestCase):
         q.refresh_from_db()
         self.assertEqual(q.question_text, 'An _______ is a whole number.')
         self.assertEqual(q.blank_spec, {'blanks': [{'answers': ['integer']}]})
+
+
+class RuleGapForAnAlreadyConvertedQuestionTests(TestCase):
+    """Sixteen questions converted, with the rule left off.
+
+    "Work out the number pattern rule and complete the pattern: 65, __, 75,
+    80, __, __. State the rule and the three missing numbers." stores three
+    rows — "+5; 70, 85, 90", "add 5; 70, 85, 90", "70, 85, 90" — and an
+    earlier backfill converted it off the clean third one. Its three gaps are
+    right; the rule the question asks for in words went nowhere, and no gap
+    holds it, so half of what the child is asked to do is marked on nothing.
+
+    Found on the test site by a person reading the page, which is the only
+    place it shows.
+    """
+
+    PATTERN_Q = ('Work out the number pattern rule and complete the pattern: '
+                 '65, __, 75, 80, __, __. State the rule and the three '
+                 'missing numbers.')
+    ROWS = ('+5; 70, 85, 90', 'add 5; 70, 85, 90', '70, 85, 90')
+    SPEC = {'blanks': [{'answers': ['70']}, {'answers': ['85']},
+                       {'answers': ['90']}]}
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=990, defaults={'display_name': 'rule gap fixture'})
+
+    def _question(self, text=None, rows=ROWS, spec=SPEC):
+        q = Question.objects.create(
+            level=self.level, question_text=text or self.PATTERN_Q,
+            question_type=Question.FILL_BLANK, blank_spec=spec,
+            difficulty=1, points=1)
+        for order, answer_text in enumerate(rows, start=1):
+            Answer.objects.create(question=q, answer_text=answer_text,
+                                  is_correct=True, order=order)
+        return q
+
+    def _run(self, *args):
+        out = StringIO()
+        call_command('convert_fill_blanks', *args, stdout=out, stderr=out)
+        return out.getvalue()
+
+    def test_a_converted_question_gets_the_rule_gap_it_never_had(self):
+        q = self._question()
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        self.assertTrue(q.question_text.endswith('\nThe rule is: ___'))
+        self.assertEqual([b['answers'][0] for b in q.blank_spec['blanks']],
+                         ['70', '85', '90', '+5'])
+
+    def test_the_rule_is_now_marked(self):
+        q = self._question()
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        self.assertTrue(q.grade_text_answer(
+            '{"blanks": ["70", "85", "90", "add 5"]}'))
+        self.assertFalse(q.grade_text_answer(
+            '{"blanks": ["70", "85", "90", "add 4"]}'))
+
+    def test_the_numbers_it_already_had_are_unchanged(self):
+        q = self._question()
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        self.assertEqual([b['answers'] for b in q.blank_spec['blanks']][:3],
+                         [['70'], ['85'], ['90']])
+
+    def test_running_it_twice_does_not_add_a_second_gap(self):
+        q = self._question()
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        first = q.question_text
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        self.assertEqual(q.question_text, first)
+
+    def test_revert_takes_it_back_off(self):
+        q = self._question()
+        self._run('--add-rule-blank', '--apply')
+        self._run('--revert', '--apply', '--id', str(q.pk))
+        q.refresh_from_db()
+        self.assertEqual(q.question_text, self.PATTERN_Q)
+
+    def test_a_dry_run_writes_nothing(self):
+        q = self._question()
+        out = self._run('--add-rule-blank')
+        q.refresh_from_db()
+        self.assertEqual(q.question_text, self.PATTERN_Q)
+        self.assertEqual(q.blank_spec, self.SPEC)
+        self.assertIn('gap for the rule', out)
+
+    # ── what it still leaves alone ───────────────────────────────────────
+
+    def test_a_converted_question_that_asks_no_rule_is_untouched(self):
+        q = self._question(
+            text='Fill in the missing numbers: 14, 17, 20, 23, ___, ___',
+            rows=('26, 29',),
+            spec={'blanks': [{'answers': ['26']}, {'answers': ['29']}]})
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        self.assertEqual(q.question_text,
+                         'Fill in the missing numbers: 14, 17, 20, 23, ___, ___')
+        self.assertEqual(len(q.blank_spec['blanks']), 2)
+
+    def test_adding_the_gap_re_derives_the_whole_spec(self):
+        """Worth knowing, and true of every save path: the spec is derived,
+        never hand-held. An answer added to a gap out of band comes back as
+        the derivation reads it — here, the value the sequence gives."""
+        q = self._question(spec={'blanks': [{'answers': ['70', 'seventy']},
+                                            {'answers': ['85']},
+                                            {'answers': ['90']}]})
+        self._run('--add-rule-blank', '--apply')
+        q.refresh_from_db()
+        self.assertEqual(q.blank_spec['blanks'][0]['answers'], ['70'])
+
+    def test_without_the_flag_nothing_converted_is_touched_at_all(self):
+        q = self._question()
+        self._run('--apply')
+        q.refresh_from_db()
+        self.assertEqual(q.question_text, self.PATTERN_Q)
+        self.assertEqual(q.blank_spec, self.SPEC)
