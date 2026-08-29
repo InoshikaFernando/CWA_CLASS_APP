@@ -344,6 +344,21 @@
     });
   }
 
+  function submitPattern(sessionId, questionId) {
+    // The boxes post as the one line grade_pattern reads (kept in sync by
+    // pattern_fields.js). An untouched set of boxes is not submitted — the
+    // student has written nothing yet, and posting it would burn the question
+    // as wrong.
+    const stage = document.querySelector('[data-pat-stage]');
+    const hidden = stage ? stage.querySelector('[data-pat-hidden]') : null;
+    if (!hidden) return;
+    const answer = (hidden.value || '').trim();
+    if (!answer) return;
+    _submitAndAdvance(sessionId, {
+      session_id: sessionId, question_id: questionId, text_answer: answer,
+    });
+  }
+
   function submitNumberLine(sessionId, questionId) {
     // mark mode posts the hidden {"marks":[...]} JSON (kept in sync by
     // number_line.js); read mode posts the typed value. Both go as text_answer,
