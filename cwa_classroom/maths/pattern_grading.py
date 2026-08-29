@@ -1,12 +1,14 @@
-"""Grade a student-invented number pattern — "create your own ..." questions.
+"""Grade a number pattern — the one the student invents, and the one the
+question prints with gaps in it.
 
-These questions have no single right answer, so there is nothing to store in an
-``Answer`` row: "Create your own tricky subtraction number pattern of six
-numbers and write down the rule you used" is answered correctly by
-``20, 18, 16, 14, 12, 10`` and by infinitely many other sequences. Until this
-module existed they were authored with no correct answer at all, which the
-typed-answer grader reads as "nothing matches" — so *every* student who
-answered one was marked wrong, forever, no matter what they wrote.
+A question that asks the student to invent one has no single right answer, so
+there is nothing to store in an ``Answer`` row: "Create your own tricky
+subtraction number pattern of six numbers and write down the rule you used"
+is answered correctly by ``20, 18, 16, 14, 12, 10`` and by infinitely many
+other sequences. Until this module existed they were authored with no correct
+answer at all, which the typed-answer grader reads as "nothing matches" — so
+*every* student who answered one was marked wrong, forever, no matter what
+they wrote.
 
 The fix is to grade the answer against the *question's requirements* rather
 than against a stored string:
@@ -31,6 +33,11 @@ quiz rather than to a marking scheme:
     up by 2, but the question asks for a subtraction pattern"). A bare
     "Incorrect" on a question with no printable answer tells the student
     nothing at all.
+
+The second half of the module (from "Completing a pattern the QUESTION
+prints") grades the opposite shape — "complete the pattern: 30, ___, 60, 75,
+___, ___. What is the rule?", which DOES have a stored answer but stores only
+half of what it asks for, so a student who wrote both halves matched nothing.
 
 Pure functions, no Django imports — the routing lives in
 ``maths.models.Question.grade_text_answer`` and ``quiz.views``.
@@ -385,8 +392,9 @@ def _choose_sequence(numbers, length, text):
 # "subtract" and contradict any addition rule written beside it — which failed
 # a correct answer to every "create your own ADDITION pattern" question.
 _RULE_WORDS = [
-    (r'take\s*away|takeaway|subtract\w*|minus|less|down|back|smaller', SUBTRACT),
-    (r'add\w*|plus|up|more|bigger|larger', ADD),
+    (r'take\s*away|takeaway|subtract\w*|minus|less|down|back|smaller|'
+     r'decreas\w*', SUBTRACT),
+    (r'add\w*|plus|up|more|bigger|larger|increas\w*', ADD),
     (r'multipl\w*|times|double|doubl\w*', MULTIPLY),
     (r'divid\w*|halve|halv\w*|half', DIVIDE),
     (r'-\s*\d', SUBTRACT),
@@ -548,3 +556,188 @@ def grade_pattern(question_text, raw):
                    f'it down too: "rule: {"-" if operation == SUBTRACT else ""}'
                    f'{_fmt(size)}".')
     return PatternGrade(True, praise)
+
+
+# --------------------------------------------------------------------------
+# Completing a pattern the QUESTION prints
+# --------------------------------------------------------------------------
+# Everything above grades a pattern the student *invented*. This grades the
+# other shape: "Work out the number pattern rule and complete the pattern:
+# 30, ___, 60, 75, ___, ___. What is the rule?" — which asks for two things
+# and stores one. Its Answer rows are "+15", "add 15", "+ 15", so a student
+# who did exactly what the question asked, and typed the missing numbers
+# beside the rule ("add 15 — 45, 90, 105"), matched none of them and was told
+# ❌ Incorrect under a correct answer that already said add 15.
+#
+# The fix is not to loosen the string match — "contains the stored answer"
+# would accept "45, 90, 105 or maybe add 15?" and every other hedge. It is to
+# check the answer against the sequence the question itself prints: solve the
+# sequence, and both the missing values and the rule are known, so an answer
+# can be accepted only when everything in it is right AND it says at least as
+# much as the stored answer does (a question whose answer is the rule still
+# demands the rule).
+
+_BLANK_RE = re.compile(r'_{2,}|\?')
+_SEQ_ITEM = r'(?:-?\d+(?:\.\d+)?|_{2,}|\?)'
+# Three items or more: two numbers and a gap are the shortest thing that can
+# show a rule at all.
+_SEQUENCE_RE = re.compile(rf'{_SEQ_ITEM}(?:\s*,\s*{_SEQ_ITEM}){{2,}}')
+
+NUMBERS = 'numbers'
+RULE = 'rule'
+
+
+class PrintedPattern:
+    """The sequence a "complete the pattern" question prints, solved."""
+
+    def __init__(self, values, missing, operation, size):
+        self.values = values        # the full sequence, gaps filled
+        self.missing = missing      # the gap values, in the order they appear
+        self.operation = operation  # ADD / SUBTRACT / MULTIPLY / DIVIDE
+        self.size = size            # step or multiplier, unsigned
+
+    def __repr__(self):
+        return (f'PrintedPattern({_join(self.values)!r}, '
+                f'missing={_join(self.missing)!r}, '
+                f'operation={self.operation!r}, size={_fmt(self.size)!r})')
+
+
+def _solve(tokens):
+    """Fill the ``None`` gaps in *tokens*, or None if they hide no one rule.
+
+    Gaps may sit anywhere, so the step is taken from the first two KNOWN values
+    and their distance apart — 30, _, 60 steps by 15, not by 30 — and then
+    every other known value has to agree with it. Arithmetic is tried first, as
+    it is everywhere else here: 2, 4, 6, 8 is an addition pattern even though
+    2, 4, 8, 16 is a multiplication one.
+    """
+    known = [(i, v) for i, v in enumerate(tokens) if v is not None]
+    if len(tokens) < 3 or len(known) < 2:
+        return None
+
+    (first, a), (second, b) = known[0], known[1]
+    step = Fraction(b - a, second - first)
+    if step != 0 and all(v == a + step * (i - first) for i, v in known):
+        return [a + step * (n - first) for n in range(len(tokens))]
+
+    # A multiplier is only read off two ADJACENT known values: 3, _, 27 is
+    # ×3 and ×-3 alike, and guessing between them would mark a child wrong.
+    if second - first == 1 and a != 0:
+        ratio = b / a
+        if ratio not in (0, 1) and all(
+                v == a * ratio ** (i - first) for i, v in known):
+            return [a * ratio ** (n - first) for n in range(len(tokens))]
+    return None
+
+
+def read_printed_pattern(question_text):
+    """The pattern *question_text* prints with gaps in it, or ``None``.
+
+    ``None`` for anything that is not one of these questions — no sequence, no
+    gap in it, or a sequence whose visible numbers share no single rule. Every
+    caller treats that as "this is not mine to grade" and leaves the answer to
+    the ordinary matching, so a misread here can only ever decline to help.
+    """
+    text = prepare(question_text or '')
+    best = None
+    for match in _SEQUENCE_RE.finditer(text):
+        items = [item.strip() for item in match.group().split(',')]
+        gaps = [bool(_BLANK_RE.fullmatch(item)) for item in items]
+        if not any(gaps):
+            continue
+        values = _solve([None if gap else Fraction(item)
+                         for item, gap in zip(items, gaps)])
+        if values is None:
+            continue
+        operation, size = _describe(values)
+        if operation is None:
+            continue
+        found = PrintedPattern(
+            values,
+            [value for value, gap in zip(values, gaps) if gap],
+            operation,
+            size,
+        )
+        # The longest sequence wins: a question that prints one is talking
+        # about it, and a shorter run elsewhere in the wording is incidental.
+        if best is None or len(found.values) > len(best.values):
+            best = found
+    return best
+
+
+def _run_of(numbers, wanted):
+    """The consecutive numbers of *numbers* whose values are *wanted*, or None.
+
+    Consecutive, so a rule written among them ("45, add 15, 90, 105") is not
+    quietly read as the missing numbers.
+    """
+    if not wanted:
+        return None
+    for start in range(len(numbers) - len(wanted) + 1):
+        run = numbers[start:start + len(wanted)]
+        if [value for value, _, _ in run] == wanted:
+            return run
+    return None
+
+
+def completion_parts(text, pattern):
+    """Which of {NUMBERS, RULE} *text* supplies for *pattern* — or ``None``.
+
+    ``None`` means the answer is not merely incomplete but *wrong*: it states a
+    rule the pattern does not follow, or carries a number that is neither one
+    of the missing values nor the size of the rule. Nothing is read as a
+    partial answer, because this decides a mark: an answer is either all right
+    or it is not accepted here at all.
+    """
+    body = prepare(text or '')
+    numbers = extract_numbers(body)
+    parts = set()
+
+    run = _run_of(numbers, pattern.missing) or _run_of(numbers, pattern.values)
+    remainder = body
+    if run:
+        parts.add(NUMBERS)
+        remainder = body[:run[0][1]] + ' ' + body[run[-1][2]:]
+
+    operation, size = _stated_rule(remainder)
+    # Unsigned: "-15" states a subtraction rule of 15, and the sign is already
+    # carried by the operation.
+    left = [abs(value) for value, _, _ in extract_numbers(remainder)]
+    if operation is not None:
+        if operation != pattern.operation or size != pattern.size:
+            return None
+        parts.add(RULE)
+        if left != [pattern.size]:
+            return None
+    elif left:
+        # A number outside the pattern with no rule word to explain it.
+        return None
+    return parts or None
+
+
+def completes_printed_pattern(question_text, correct_answers, text_answer):
+    """True when *text_answer* completes the pattern *question_text* prints.
+
+    A rescue, run only after the ordinary answer matching has already said no,
+    for the "complete the pattern … what is the rule?" questions that ask for
+    two things and store one. Two conditions, both required:
+
+      * everything in the answer is right — any numbers in it are the missing
+        values (or the whole sequence), any rule it states is the pattern's;
+      * it says at least as much as one stored answer does, so a question
+        answered "+15" still marks the numbers alone wrong, and one answered
+        "45, 90, 105" still marks the rule alone wrong.
+
+    A stored answer this cannot read leaves the question exactly as it was.
+    """
+    pattern = read_printed_pattern(question_text)
+    if pattern is None:
+        return False
+    given = completion_parts(text_answer, pattern)
+    if not given:
+        return False
+    return any(
+        wanted and wanted <= given
+        for wanted in (completion_parts(stored, pattern)
+                       for stored in (correct_answers or ()))
+    )

@@ -506,6 +506,19 @@ class Question(models.Model):
         if any(is_reordered_expression_correct(text_answer, c) for c in correct):
             return True
 
+        # "Work out the number pattern rule and complete the pattern: 30, ___,
+        # 60, 75, ___, ___. What is the rule?" asks for two things and stores
+        # one — its answer rows are "+15", "add 15", "+ 15". A student who did
+        # exactly what the question asked, and typed the missing numbers beside
+        # the rule, matched none of them and was marked wrong under a correct
+        # answer that already said add 15. The answer is checked against the
+        # sequence printed in the QUESTION rather than against the stored
+        # string, so the extra numbers have to BE the missing ones — see
+        # maths.pattern_grading.completes_printed_pattern.
+        from maths.pattern_grading import completes_printed_pattern
+        if completes_printed_pattern(self.question_text, correct, text_answer):
+            return True
+
         # A "list every value" answer is a *set*: the student must give every
         # value, but the order they list them in must not decide the mark —
         # "63, 54" is the same answer as "54, 63" (CPP-376). The fold above

@@ -12,6 +12,13 @@ changed grading from that day forward and left every past attempt saying the
 child got it wrong — in their history, in their teacher's view, and in the
 progress statistics built on top.
 
+The same is owed on "complete the pattern: 30, ___, 60, 75, ___, ___. What is
+the rule?", whose Answer rows hold only the rule: a student who wrote the
+missing numbers beside it — everything the question asked for — matched none of
+them and was marked wrong until the grader learned to read such an answer
+against the pattern the question prints. Both defects are short_answer / text,
+so one run of this command gives those marks back.
+
 The evidence needed to put it right is already stored: StudentAnswer.text_answer
 holds what the child actually typed. This re-runs today's grader over it.
 
