@@ -1,4 +1,5 @@
-"""Fill the gaps of a question that prints its own arithmetic.
+"""Fill the gaps of a question from the arithmetic written around them —
+the question's own, or a worked answer's.
 
 The third and last way ``maths.blank_grading.derive_blank_spec`` learns what
 goes in a gap. The first reads it off the stored answer rows; the second solves
@@ -48,8 +49,25 @@ What it refuses, and why each one matters
   by nothing, several gaps whose printed terms differ — anything where the
   answer would be a guess rather than a deduction.
 
-Pure functions, no Django. The stored-answer check lives with the caller in
-``maths.blank_grading``, which already knows how answers are compared.
+The worked answer
+-----------------
+:func:`read_worked_answer` is the other half, for the questions whose stored
+answer is the question itself with its blanks filled in::
+
+    question:  __ + __ + __ + __ + __ + __ + __ = 63, so ___ x ___ = 63
+    answer:     9 +  9 +  9 +  9 +  9 +  9 +  9 = 63,     7 x  9  = 63
+
+Arithmetic alone cannot do these: seven equal addends of 63 is 9 each, but
+"___ x ___ = 63" is 7 x 9 or 9 x 7 or 63 x 1, and picking one would be a
+guess about what the author wanted. The row settles it — and it is only read
+when the two line up symbol for symbol, every printed number against the same
+number, so a row that is prose or a partial answer aligns with nothing and is
+dropped. That alignment is its own proof; there is nothing else to check it
+against.
+
+Pure functions, no Django. The stored-answer check for the arithmetic route
+lives with the caller in ``maths.blank_grading``, which already knows how
+answers are compared.
 """
 import re
 from fractions import Fraction
@@ -78,6 +96,18 @@ _STATEMENT_RE = re.compile(rf'{_SIDE}(?:\s*=\s*{_SIDE})+')
 # sentence ("= ___. What is the total?") is followed by an ordinary full stop,
 # and reading that as a decimal refused every question in the family.
 _GLUED_GAP_RE = re.compile(r'\d_{2,}|_{2,}\d|\d\._{2,}|_{2,}\.\d')
+
+# A digit touching a letter is an algebraic term, not a number: "18xyz" reads
+# as 18, and the "complete the factorisation" questions then line up perfectly
+# against their own worked answer and convert with gaps of 6 where the answer
+# is 6xyz — a correct child marked wrong, which is the one outcome none of
+# this may produce. Numbers here are numbers.
+#
+# Adjacency only, never across a space: "3 x 6", "7 equal addends" and "6 rows
+# of 3" are ordinary arithmetic and prose. A product written closed up ("3x6")
+# is refused with the algebra, which costs a question that keeps working and
+# buys the rule being obvious.
+_ALGEBRAIC_RE = re.compile(r'\d[A-Za-z]|[A-Za-z]\d')
 
 # "1,000" would read as 1 and 000 — and worse, a statement can start AFTER the
 # comma ("1,000 + 1,000 = ___" matching as "000 = ___", filling the gap with
@@ -181,6 +211,8 @@ def read_arithmetic_gaps(question_text):
     text = str(question_text or '')
     if not text or _GLUED_GAP_RE.search(text) or _GROUPED_NUMBER_RE.search(text):
         return {}
+    if _ALGEBRAIC_RE.search(text):
+        return {}
 
     runs = [match.start() for match in _BLANK_RE.finditer(text)]
     if not runs:
@@ -219,3 +251,88 @@ def read_arithmetic_gaps(question_text):
     if len(by_blank) != len(runs):
         return {}
     return by_blank
+
+
+# --------------------------------------------------------------------------
+# A worked answer, aligned against the question it completes
+# --------------------------------------------------------------------------
+# "x" is multiplication only when it stands alone — never the letter inside a
+# word, which would turn "six" into an operator and every sentence into
+# arithmetic.
+_TOKEN_RE = re.compile(r'_{2,}|\d+(?:\.\d+)?|\+|=|(?<![A-Za-z])[x×*](?![A-Za-z])')
+
+_GAP = 'gap'
+_NUMBER_TOKEN = 'number'
+_OPERATOR_TOKEN = 'operator'
+
+
+def _tokens(text):
+    """*text* as ``(kind, value, position)`` — gaps, numbers and operators.
+
+    Everything else is skipped, so the prose a question wraps its arithmetic
+    in ("so", "and find the product") never has to be matched.
+    """
+    found = []
+    for match in _TOKEN_RE.finditer(text):
+        token = match.group()
+        if token.startswith('_'):
+            found.append((_GAP, None, match.start()))
+        elif token[0].isdigit():
+            found.append((_NUMBER_TOKEN, Fraction(token), match.start()))
+        elif token == '=':
+            found.append((_OPERATOR_TOKEN, '=', match.start()))
+        else:
+            found.append((_OPERATOR_TOKEN, _normalise_operator(token),
+                          match.start()))
+    return found
+
+
+def read_worked_answer(question_text, answer_text):
+    """``{blank index: value}`` when *answer_text* is *question_text* completed.
+
+    Empty unless the two line up exactly from the question's first gap: the
+    same operators in the same order, every printed number matched by the same
+    number, and one number in the answer for each gap. At least one operator
+    must take part, so a bare "___" answered "5300" is never filled this way —
+    with nothing to line up, there is nothing being proved.
+    """
+    question = str(question_text or '')
+    answer = str(answer_text or '')
+    if not question or not answer:
+        return {}
+    if _GLUED_GAP_RE.search(question) or _GROUPED_NUMBER_RE.search(question):
+        return {}
+    if _GROUPED_NUMBER_RE.search(answer):
+        return {}
+    if _ALGEBRAIC_RE.search(question) or _ALGEBRAIC_RE.search(answer):
+        return {}
+
+    runs = [match.start() for match in _BLANK_RE.finditer(question)]
+    if not runs:
+        return {}
+
+    asked = _tokens(question)
+    # From the first gap: a question may count its own addends in words ("with
+    # 7 equal addends: __ + __ …"), and that 7 is not part of the arithmetic
+    # the answer writes out.
+    first = next((i for i, (kind, _, _) in enumerate(asked) if kind == _GAP), None)
+    if first is None:
+        return {}
+    asked = asked[first:]
+    written = _tokens(answer)
+
+    if len(asked) != len(written):
+        return {}
+    if not any(kind == _OPERATOR_TOKEN for kind, _, _ in asked):
+        return {}
+
+    filled = {}
+    for (kind, value, position), (other_kind, other_value, _) in zip(asked, written):
+        if kind == _GAP:
+            if other_kind != _NUMBER_TOKEN:
+                return {}
+            filled[runs.index(position)] = other_value
+        elif kind != other_kind or value != other_value:
+            return {}
+
+    return filled if len(filled) == len(runs) else {}

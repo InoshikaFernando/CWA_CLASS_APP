@@ -733,3 +733,51 @@ class GapsTheArithmeticFillsTests(SimpleTestCase):
             'Complete the pattern: 30, ___, 60, 75, ___, ___. '
             'What is the rule? ___', ['+15'])
         self.assertTrue(got.startswith('45, 90, 105, +15'))
+
+
+class GapsAWorkedAnswerFillsTests(SimpleTestCase):
+    """The stored answer is the question with its blanks filled in.
+
+    "__ + __ + __ + __ + __ + __ + __ = 63, so ___ x ___ = 63" stores
+    "9 + 9 + 9 + 9 + 9 + 9 + 9 = 63, 7 x 9 = 63" — unsplittable by the row
+    rules, since the separators they would split on are the question's own
+    plus signs, and unfinishable by arithmetic, which cannot choose between
+    7 x 9 and 9 x 7.
+    """
+
+    def _derive(self, text, rows):
+        spec, reason = derive_blank_spec(text, rows, positional_rows=False)
+        return (describe_blank_spec(spec) if spec else None), reason
+
+    def test_the_worked_row_fills_every_gap(self):
+        got, reason = self._derive(
+            'Write the addends to complete the addition fact and write the '
+            'matching multiplication fact: __ + __ + __ = 24, so ___ x ___ = 24',
+            ['8 + 8 + 8 = 24, 3 x 8 = 24', '8, 3 x 8', '8'])
+        self.assertEqual(got, '8, 8, 8, 3, 8')
+        self.assertEqual(reason, '')
+
+    def test_the_rows_that_do_not_align_are_dropped_not_merged(self):
+        spec, _ = derive_blank_spec(
+            'Write the addends to complete the addition fact and write the '
+            'matching multiplication fact: __ + __ + __ = 24, so ___ x ___ = 24',
+            ['8 + 8 + 8 = 24, 3 x 8 = 24', '8, 3 x 8', '8'],
+            positional_rows=False)
+        # "8, 3 x 8" must not become an accepted answer for any gap.
+        self.assertEqual([blank['answers'] for blank in spec['blanks']],
+                         [['8'], ['8'], ['8'], ['3'], ['8']])
+
+    def test_gaps_in_the_prose_are_filled_too(self):
+        got, _ = self._derive(
+            'Look at the array of dots. Write ___ rows of ___ and find the '
+            'product ___ x ___ = ___', ['6 rows of 3, 6 x 3 = 18', '18'])
+        self.assertEqual(got, '6, 3, 6, 3, 18')
+
+    def test_a_factorisation_keeps_its_refusal(self):
+        # The one this must never take: "18xyz" reads as 18, the sides line
+        # up, and the gaps would be filled with 6 where the answer is 6xyz.
+        got, reason = self._derive(
+            'Complete the factorisation: ____ − 18xyz = ____(x − 3z).',
+            ['6xyz - 18xyz = 6xyz(x - 3z)'])
+        self.assertIsNone(got)
+        self.assertIn('does not split into 2 values', reason)

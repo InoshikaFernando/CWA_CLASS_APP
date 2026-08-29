@@ -513,13 +513,21 @@ def derive_blank_spec(question_text, correct_texts, *, positional_rows=True):
 
     values, reason = _values_from_rows(texts, n, positional_rows)
     if values is None:
-        # The rows say nothing usable about the gaps — but a question that
-        # PRINTS its pattern, or its arithmetic, says plenty about them itself.
-        values, pattern_reason = _values_from_pattern(question_text, texts, n)
+        # The rows say nothing usable about the gaps — but the question often
+        # says plenty itself: a printed number pattern, printed arithmetic, or
+        # a stored answer that IS the question with its blanks filled in.
+        route_reason = ''
+        for route in (_values_from_pattern, _values_from_arithmetic,
+                      _values_from_worked_answer):
+            values, refusal = route(question_text, texts, n)
+            if values is not None:
+                break
+            # The first route to recognise the question and still refuse it is
+            # the one with something to say; the rows' own refusal stands when
+            # none of them did.
+            route_reason = route_reason or refusal
         if values is None:
-            values, sum_reason = _values_from_arithmetic(question_text, texts, n)
-        if values is None:
-            return None, pattern_reason or sum_reason or reason
+            return None, route_reason or reason
 
     if not all(values):
         return None, 'a blank ended up with no accepted answer'
@@ -795,3 +803,39 @@ def _values_from_arithmetic(question_text, texts, n):
         f'them — the question and its answer key disagree, so neither is safe '
         f'to convert on'
     )
+
+
+def _values_from_worked_answer(question_text, texts, n):
+    """The accepted answers per gap when a stored row IS the question, filled.
+
+    ``(values, reason)``. "__ + __ + __ + __ + __ + __ + __ = 63, so ___ x ___
+    = 63" stores its answer as the whole thing worked out — "9 + 9 + 9 + 9 + 9
+    + 9 + 9 = 63, 7 x 9 = 63" — which the row rules cannot split, because the
+    separators it would split on are the question's own plus signs.
+
+    Lined up against the question it completes, though, it says exactly what
+    goes in each gap, and says it better than arithmetic could: seven equal
+    addends of 63 are 9 each, but "___ x ___ = 63" is 7 x 9 or 9 x 7 and only
+    the row knows which the author wrote.
+
+    The alignment is the proof, so nothing else is checked against it — see
+    :func:`maths.arithmetic_gaps.read_worked_answer` for what it demands. Rows
+    that do not line up are the prose and partial spellings that live beside
+    the worked one ("9", "9, 7 x 9"), and they are dropped, exactly as the row
+    rules drop a prose row beside a separated one.
+    """
+    from maths.arithmetic_gaps import read_worked_answer
+    from maths.pattern_grading import format_value
+
+    aligned = [read_worked_answer(question_text, text) for text in texts]
+    aligned = [filled for filled in aligned if filled and len(filled) == n]
+    if not aligned:
+        return None, ''
+
+    worked = aligned[0]
+    if any(other != worked for other in aligned[1:]):
+        return None, (
+            'two stored answers complete this question differently, so which '
+            'of them fills the gaps is not a choice this can make'
+        )
+    return [[format_value(worked[index])] for index in range(n)], ''

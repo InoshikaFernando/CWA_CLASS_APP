@@ -19,7 +19,7 @@ from fractions import Fraction
 
 from django.test import SimpleTestCase
 
-from maths.arithmetic_gaps import read_arithmetic_gaps
+from maths.arithmetic_gaps import read_arithmetic_gaps, read_worked_answer
 
 
 def _solved(text):
@@ -173,3 +173,97 @@ class NonIntegerTests(SimpleTestCase):
 
     def test_nothing_is_ever_divided_by_zero(self):
         self.assertEqual(read_arithmetic_gaps('___ x 0 = 10'), {})
+
+
+class WorkedAnswerTests(SimpleTestCase):
+    """A stored answer that IS the question, filled in.
+
+    Nine "write the addends and the matching multiplication fact" questions
+    store their answer as the whole thing worked out. The row rules cannot
+    split it — the separators they would split on are the question's own plus
+    signs — and arithmetic cannot finish it either: seven equal addends of 63
+    are 9 each, but "___ x ___ = 63" is 7 x 9 or 9 x 7, and only the row knows
+    which one the author wrote.
+
+    Every question below is in the bank, with its answer rows verbatim.
+    """
+
+    def _aligned(self, question, answer):
+        found = read_worked_answer(question, answer)
+        return [str(found[index]) for index in sorted(found)]
+
+    def test_the_addends_and_the_factors_in_the_authors_order(self):
+        self.assertEqual(
+            self._aligned(
+                'Write the addends to complete the addition fact and write '
+                'the matching multiplication fact: __ + __ + __ + __ + __ + '
+                '__ + __ = 63, so ___ x ___ = 63',
+                '9 + 9 + 9 + 9 + 9 + 9 + 9 = 63, 7 x 9 = 63'),
+            ['9', '9', '9', '9', '9', '9', '9', '7', '9'])
+
+    def test_a_question_whose_totals_are_gaps_too(self):
+        self.assertEqual(
+            self._aligned(
+                'Complete the addition and multiplication fact shown by the '
+                'groups of bells: ___ + ___ + ___ = ______ and ___ x ___ = ______',
+                '6 + 6 + 6 = 18, 3 x 6 = 18'),
+            ['6', '6', '6', '18', '3', '6', '18'])
+
+    def test_gaps_that_sit_in_the_prose(self):
+        # "Write ___ rows of ___" is not arithmetic at all, and the row says
+        # what goes there just the same.
+        self.assertEqual(
+            self._aligned(
+                'Look at the array of dots. Write ___ rows of ___ and find '
+                'the product ___ x ___ = ___',
+                '6 rows of 3, 6 x 3 = 18'),
+            ['6', '3', '6', '3', '18'])
+
+    def test_a_number_the_question_says_in_words_is_not_part_of_the_sum(self):
+        # "with 7 equal addends" counts the gaps; the answer never writes it,
+        # so the alignment starts at the first gap.
+        self.assertEqual(
+            self._aligned(
+                'Write the addends to complete the addition fact with 7 equal '
+                'addends: __ + __ + __ + __ + __ + __ + __ = 28. Then write '
+                'the multiplication fact ___ x ___ = 28.',
+                '4 + 4 + 4 + 4 + 4 + 4 + 4 = 28, 7 x 4 = 28'),
+            ['4', '4', '4', '4', '4', '4', '4', '7', '4'])
+
+    # ── the rows beside it, and the questions beside those ───────────────
+
+    def test_a_partial_row_aligns_with_nothing(self):
+        question = ('Write the addends to complete the addition fact and '
+                    'write the matching multiplication fact: __ + __ + __ = '
+                    '24, so ___ x ___ = 24')
+        self.assertEqual(read_worked_answer(question, '8'), {})
+        self.assertEqual(read_worked_answer(question, '8, 3 x 8'), {})
+
+    def test_a_printed_number_that_disagrees_refuses_the_row(self):
+        self.assertEqual(read_worked_answer('__ + __ = 24, so ___ x ___ = 24',
+                                            '8 + 8 = 16, 2 x 8 = 16'), {})
+
+    def test_algebra_is_never_read_as_numbers(self):
+        # The whole reason this guard exists: "18xyz" reads as 18, the two
+        # sides then line up perfectly, and the question converts with gaps of
+        # 6 where the answer is 6xyz — a correct child marked wrong.
+        self.assertEqual(read_worked_answer(
+            'Complete the factorisation: ____ − 18xyz = ____(x − 3z).',
+            '6xyz - 18xyz = 6xyz(x - 3z)'), {})
+
+    def test_a_row_with_no_arithmetic_in_it_proves_nothing(self):
+        # One gap, one number, nothing to line up: "5300" could be anything.
+        self.assertEqual(read_worked_answer(
+            'Convert to millilitres: 5.3 L = _____ mL', '5300 mL'), {})
+
+    def test_a_list_with_no_operators_is_not_a_worked_answer(self):
+        self.assertEqual(read_worked_answer(
+            'A snake shows a counting sequence with some numbers missing: '
+            '50, __, 35, __, 25, __, __, 10, 5, __.', '50, 45, 40, 35'), {})
+
+    def test_a_row_of_the_wrong_length(self):
+        self.assertEqual(read_worked_answer('__ + __ = 24', '8 + 8 + 8 = 24'), {})
+
+    def test_nothing_at_all(self):
+        self.assertEqual(read_worked_answer('', '1 + 1 = 2'), {})
+        self.assertEqual(read_worked_answer('__ + __ = 2', ''), {})
