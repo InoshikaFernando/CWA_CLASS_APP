@@ -34,6 +34,13 @@ BrainBuzz still snapshots them, exports still carry them, and keeping them is
 what makes this reversible: clearing blank_spec returns a question to its
 single-box form with its answer intact.
 
+The one exception is --add-rule-blank, which appends a gap to question_text.
+"Complete the pattern: 30, ___, 60, 75, ___, ___. What is the rule?" stores its
+answer as the RULE ("+15"), so the gaps are filled from the sequence the
+question prints and the rule takes a gap of its own — without one it would be
+asked for in words and marked on nothing, which is worse than not converting at
+all. --revert takes that gap back off with the spec.
+
 Questions whose answers cannot be mapped onto their gaps unambiguously are
 REPORTED, never guessed at. A gap filled from the wrong value marks a correct
 student wrong and nobody would find out, so an unmappable question keeps working
@@ -52,6 +59,7 @@ Usage (run from the app dir, e.g. /home/cwa/CWA_CLASS_APP_TEST):
     python manage.py convert_fill_blanks --level 10
     python manage.py convert_fill_blanks --id 4021 --id 4022
     python manage.py convert_fill_blanks --add-bare-unit-answers  # "5300 mL" -> also "5300"
+    python manage.py convert_fill_blanks --add-rule-blank    # pattern questions answered "+15"
     python manage.py convert_fill_blanks --apply            # actually write
     python manage.py convert_fill_blanks --revert --apply   # undo: clear the specs
 """
@@ -61,7 +69,8 @@ from django.db.models import Max
 
 from classroom.models import Topic
 from maths.blank_grading import (
-    bare_unit_answers, count_blanks, describe_blank_spec,
+    RULE_BLANK_SUFFIX, add_rule_blank, bare_unit_answers, count_blanks,
+    describe_blank_spec, strip_rule_blank,
 )
 from maths.models import Answer, Question
 
@@ -124,6 +133,16 @@ class Command(BaseCommand):
                  'writes the unit is still marked correct. Single-gap questions '
                  'only — which row feeds which gap is exactly what this command '
                  'refuses to guess at elsewhere.',
+        )
+        parser.add_argument(
+            '--add-rule-blank', action='store_true',
+            help='Repair the pattern questions refused because their stored '
+                 'answer is the RULE ("+15") and the sentence has no gap for '
+                 'it, by appending one ("... What is the rule? ___") and '
+                 'converting them. The gaps of the pattern itself are filled '
+                 'from the sequence the question prints, not from the rows. '
+                 'This EDITS question_text — the only thing here that does — '
+                 'and --revert takes it back off again.',
         )
         parser.add_argument(
             '--force', action='store_true',
@@ -205,7 +224,15 @@ class Command(BaseCommand):
             ))
             return
 
-        converted, skipped, repaired = [], [], []
+        converted, skipped, repaired, rule_blanks = [], [], [], []
+        edited_text = set()
+
+        def fields_for(question):
+            fields = ['blank_spec', 'question_type']
+            if question.pk in edited_text:
+                fields.append('question_text')
+            return fields
+
         for q in candidates:
             was = q.question_type
             # The same entry point the AI importer, the spreadsheet upload and
@@ -226,14 +253,26 @@ class Command(BaseCommand):
                 if added:
                     repaired.append((q, added))
                     changed, reason = retried, retry_reason
+            if reason and opts['add_rule_blank']:
+                # The other refusal with a mechanical fix: the question prints
+                # the pattern that fills its gaps, and its answer is the rule,
+                # which has nowhere to be typed. Give the rule a gap and ask
+                # again. Nothing is guessed at — the values come out of the
+                # sequence, and the rows have to be that sequence's rule.
+                text, retried, retry_reason = self._add_rule_blank_and_retry(
+                    q, opts)
+                if text:
+                    rule_blanks.append((q, text))
+                    edited_text.add(q.pk)
+                    changed, reason = retried, retry_reason
             if reason or not changed:
                 skipped.append((q, reason or 'nothing to convert'))
                 continue
             if apply_changes:
-                q.save(update_fields=['blank_spec', 'question_type'])
+                q.save(update_fields=fields_for(q))
             converted.append((q, was))
 
-        self._report(converted, skipped, repaired, apply_changes)
+        self._report(converted, skipped, repaired, rule_blanks, apply_changes)
 
     # ------------------------------------------------------------------
     def _repair_and_retry(self, question, opts, apply_changes):
@@ -263,6 +302,34 @@ class Command(BaseCommand):
             pass
         return added, changed, reason
 
+    def _add_rule_blank_and_retry(self, question, opts):
+        """Append a gap for the rule, then ask ``apply_blank_format`` again.
+
+        Returns ``(text, changed, reason)`` — ``text`` is the new question text
+        when one was written onto the instance, ``''`` when this question was
+        not the shape the repair is for (and then the caller keeps the refusal
+        it already had).
+
+        The edit is made on the instance only; the caller saves it under
+        ``--apply``, so a dry run reports exactly what a real run would write.
+        Nothing is written to the database here at all — unlike the bare-unit
+        repair, the derivation reads this text off the instance, not the rows
+        off the database.
+        """
+        correct = [a.answer_text for a in question.answers.filter(is_correct=True)]
+        text, _ = add_rule_blank(question.question_text, correct)
+        if not text:
+            return '', False, ''
+        question.question_text = text
+        changed, reason = question.apply_blank_format(
+            positional_rows=opts['map_rows_to_gaps'])
+        if reason or not changed:
+            # It did not convert after all — put the sentence back rather than
+            # leaving a gap nothing grades on a question that stays a box.
+            question.question_text = text[:-len(RULE_BLANK_SUFFIX)]
+            return '', changed, reason
+        return text, changed, reason
+
     def _add_bare_units(self, question):
         """Store the bare value beside answers that repeat their gap's unit.
 
@@ -284,7 +351,7 @@ class Command(BaseCommand):
         return extra
 
     # ------------------------------------------------------------------
-    def _report(self, converted, skipped, repaired, apply_changes):
+    def _report(self, converted, skipped, repaired, rule_blanks, apply_changes):
         for q, was in converted:
             self.stdout.write(
                 f'  Q{q.pk} [{was}] {count_blanks(q.question_text)} gap(s): '
@@ -315,6 +382,16 @@ class Command(BaseCommand):
             for q, added in repaired:
                 self.stdout.write(f'  Q{q.pk}: + {", ".join(repr(t) for t in added)}')
 
+        if rule_blanks:
+            self.stdout.write('')
+            wrote = 'Gave' if apply_changes else 'Would give'
+            self.stdout.write(self.style.SUCCESS(
+                f'{wrote} {len(rule_blanks)} pattern question(s) a gap for the '
+                f'rule they ask for in words, so it is still marked (their '
+                f'other gaps are filled from the sequence they print):'))
+            for q, text in rule_blanks:
+                self.stdout.write(f'  Q{q.pk}: {text[:110]}')
+
         self.stdout.write('')
         verb = 'Converted' if apply_changes else 'Would convert'
         self.stdout.write(self.style.SUCCESS(
@@ -331,9 +408,19 @@ class Command(BaseCommand):
             return
         for q in rows:
             self.stdout.write(f'  Q{q.pk}: clearing {describe_blank_spec(q.blank_spec)}')
+            # A gap this command appended for a rule goes back off with the
+            # spec: left behind, it would be an input on a question that has
+            # returned to a single box, and nothing would grade it.
+            restored = strip_rule_blank(q.question_text)
+            fields = ['blank_spec']
+            if restored is not None:
+                self.stdout.write(f'        and the rule gap it added: {restored[:100]}')
+                fields.append('question_text')
             if apply_changes:
                 q.blank_spec = None
-                q.save(update_fields=['blank_spec'])
+                if restored is not None:
+                    q.question_text = restored
+                q.save(update_fields=fields)
         verb = 'Reverted' if apply_changes else 'Would revert'
         self.stdout.write('')
         self.stdout.write(self.style.SUCCESS(f'{verb} {len(rows)} question(s).'))
