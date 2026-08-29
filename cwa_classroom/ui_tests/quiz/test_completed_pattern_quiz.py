@@ -158,6 +158,15 @@ class TestConvertedPatternTopicQuiz:
         expect(stage).to_contain_text('complete the pattern')
         expect(stage).to_contain_text('What is the rule?')
 
+    def test_the_rule_gap_is_labelled_on_its_own_line(self):
+        # A bare box under the sequence gives a child no way to know it wants
+        # the rule rather than another number.
+        stage = self._open()
+        expect(stage).to_contain_text('The rule is:')
+        assert stage.locator('br').count() >= 1, (
+            'the rule sentence must render on its own line, not run on from '
+            'the sequence')
+
     def test_the_answers_never_reach_the_page(self):
         self._open()
         body = self.page.content()

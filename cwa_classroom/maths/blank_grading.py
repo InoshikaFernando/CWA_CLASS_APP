@@ -633,10 +633,19 @@ def _values_from_rows(texts, n, positional_rows):
 # for the rule exists — see ``add_rule_blank`` and
 # ``convert_fill_blanks --add-rule-blank``.
 
-# Appended to the question text to give the rule a gap of its own. A plain
-# trailing blank, so the question's own wording ("What is the rule?") is left
-# to say what goes in it, and stripping it again restores the question exactly.
-RULE_BLANK_SUFFIX = ' ___'
+# Appended to the question text to give the rule a gap of its own: its own
+# line, and labelled.
+#
+# The first version of this appended a bare " ___", on the reasoning that the
+# question's own wording already asked for the rule. On the page it landed
+# under the sequence with nothing beside it — a child reading
+# "132, [ ], 140, [ ], 148, [ ]" followed by a lone box has no way to know
+# that box wants a rule rather than another number.
+RULE_BLANK_SUFFIX = '\nThe rule is: ___'
+
+# What the first version appended. Nothing writes it; --revert still knows it,
+# so a question converted by that run comes back cleanly.
+_LEGACY_RULE_BLANK_SUFFIXES = (' ___',)
 
 
 def pattern_blank_values(question_text):
@@ -757,16 +766,25 @@ def strip_rule_blank(question_text):
     sentence. The proof is that the trailing blank is the ONE gap the printed
     pattern does not fill: "…30, ___, 60, 75, ___, ___", whose last blank is
     the pattern's own, is refused on exactly that test.
+
+    Both wordings are recognised, so a question converted by an earlier run
+    reverts as cleanly as one converted today.
     """
-    if not question_text or not question_text.endswith(RULE_BLANK_SUFFIX):
+    if not question_text:
         return None
+    for suffix in (RULE_BLANK_SUFFIX,) + _LEGACY_RULE_BLANK_SUFFIXES:
+        if question_text.endswith(suffix):
+            break
+    else:
+        return None
+
     values_by_blank, _ = pattern_blank_values(question_text)
     total = count_blanks(question_text)
     if not values_by_blank or total - len(values_by_blank) != 1:
         return None
     if total - 1 in values_by_blank:
         return None
-    return question_text[:-len(RULE_BLANK_SUFFIX)]
+    return question_text[:-len(suffix)]
 
 
 def _values_from_arithmetic(question_text, texts, n):

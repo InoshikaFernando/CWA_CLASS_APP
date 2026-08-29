@@ -646,7 +646,7 @@ class AddingAndRemovingTheRuleGapTests(SimpleTestCase):
     def test_the_gap_goes_on_the_end_and_comes_back_off(self):
         text, reason = add_rule_blank(self.PATTERN_Q, ['+15'])
         self.assertEqual(reason, '')
-        self.assertTrue(text.endswith('What is the rule? ___'))
+        self.assertTrue(text.endswith('\nThe rule is: ___'))
         self.assertEqual(strip_rule_blank(text), self.PATTERN_Q)
 
     def test_it_refuses_a_question_whose_answer_is_not_the_rule(self):
@@ -731,7 +731,7 @@ class GapsTheArithmeticFillsTests(SimpleTestCase):
     def test_a_printed_pattern_is_still_the_pattern_route(self):
         got, _ = self._derive(
             'Complete the pattern: 30, ___, 60, 75, ___, ___. '
-            'What is the rule? ___', ['+15'])
+            'What is the rule?\nThe rule is: ___', ['+15'])
         self.assertTrue(got.startswith('45, 90, 105, +15'))
 
 

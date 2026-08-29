@@ -341,7 +341,7 @@ class PatternRuleBlankRepairTests(TestCase):
         self._run('--add-rule-blank', '--apply')
         q.refresh_from_db()
         self.assertEqual(q.question_type, Question.FILL_BLANK)
-        self.assertTrue(q.question_text.endswith('What is the rule? ___'))
+        self.assertTrue(q.question_text.endswith('\nThe rule is: ___'))
         self.assertEqual(
             [b['answers'][0] for b in q.blank_spec['blanks']],
             ['45', '90', '105', '+15'])

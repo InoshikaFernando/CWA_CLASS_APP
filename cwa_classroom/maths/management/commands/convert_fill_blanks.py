@@ -138,7 +138,8 @@ class Command(BaseCommand):
             '--add-rule-blank', action='store_true',
             help='Repair the pattern questions refused because their stored '
                  'answer is the RULE ("+15") and the sentence has no gap for '
-                 'it, by appending one ("... What is the rule? ___") and '
+                 'it, by appending one on its own line ("The rule is: ___") '
+                 'and '
                  'converting them. The gaps of the pattern itself are filled '
                  'from the sequence the question prints, not from the rows. '
                  'This EDITS question_text — the only thing here that does — '
