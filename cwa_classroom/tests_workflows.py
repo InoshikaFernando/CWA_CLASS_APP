@@ -1035,3 +1035,40 @@ def test_bump_version_writes_the_version_file_not_settings():
     assert "'settings.py'" not in src, (
         'scripts/bump_version.py writes settings.py, which puts the version '
         'back inside the `shared` filter')
+
+
+def _template_files():
+    return sorted((REPO_ROOT / 'cwa_classroom' / 'templates').rglob('*.html')) + [
+        p for p in (REPO_ROOT / 'cwa_classroom').rglob('templates/**/*.html')
+    ]
+
+
+def test_no_multi_line_django_comment_leaks_into_a_page():
+    """`{# ... #}` is SINGLE-LINE ONLY — a wrapped one renders as visible text.
+
+    Django's lexer matches a comment inside one line. Spread the same comment
+    over two lines and the template engine never sees a comment at all: the
+    braces, the hashes and the developer's prose are emitted verbatim into the
+    HTML. Twelve of these had accumulated — a paragraph about "what the form
+    shows versus what a child MEETS" was printed inside the question editor,
+    and two more sat on the worksheet marking screen a child reads after
+    submitting. Nothing errors; the note simply appears on the page.
+
+    Multi-line commentary belongs in `{% comment %}`, which is a real tag.
+    """
+    offenders = []
+    seen = set()
+    for path in _template_files():
+        if path in seen:
+            continue
+        seen.add(path)
+        for number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+            for match in re.finditer(r'\{#', line):
+                if '#}' not in line[match.end():]:
+                    rel = path.relative_to(REPO_ROOT)
+                    offenders.append(f'{rel}:{number}: {line.strip()[:70]}')
+
+    assert not offenders, (
+        'These `{# ... #}` comments are not closed on their own line, so Django '
+        'prints them to the page instead of stripping them. Use '
+        '{% comment %}...{% endcomment %}:\n  ' + '\n  '.join(offenders))

@@ -377,6 +377,45 @@ def _plane_bounds(plane_spec):
     return xmin, xmax, ymin, ymax
 
 
+# A point label is a name off the question text ("A", "B", "P₁"), not prose —
+# a long one would overrun the grid it is drawn on.
+_MAX_POINT_LABEL = 4
+
+
+def given_point_parts(p):
+    """Return ``(x, y, label)`` for one ``given_points`` entry; raise ``ValueError``.
+
+    A given point is written either bare — ``[2, 2]`` — or named, as
+    ``[2, 2, "A"]`` or ``{"x": 2, "y": 2, "label": "A"}``. The name matters:
+    a question phrased "A is the point (2, 2), B is the point (8, 2) … write
+    down the co-ordinates of the mid point of AB" draws three interchangeable
+    dots without it, and no child can tell which one is A.
+
+    The label is always a string (``''`` when unnamed); coordinates are returned
+    untouched so the caller's own bounds/integer check reports on them.
+    """
+    label = ''
+    if isinstance(p, dict):
+        try:
+            x, y = p['x'], p['y']
+        except (KeyError, TypeError):
+            raise ValueError(f'Given point must have x and y; got {p!r}.')
+        raw = p.get('label')
+    elif isinstance(p, (list, tuple)) and len(p) in (2, 3):
+        x, y = p[0], p[1]
+        raw = p[2] if len(p) == 3 else None
+    else:
+        raise ValueError(
+            f'Given point must be [x, y], [x, y, label] or '
+            f'{{"x", "y", "label"}}; got {p!r}.'
+        )
+    if raw is not None:
+        if not isinstance(raw, str):
+            raise ValueError(f'Given point label must be a string; got {raw!r}.')
+        label = raw.strip()
+    return x, y, label
+
+
 def validate_plane_spec(plane_spec):
     """Validate a ``plane_spec``; raise ``ValueError`` if invalid.
 
@@ -431,12 +470,20 @@ def validate_plane_spec(plane_spec):
         if pts[0] == pts[1]:
             raise ValueError(f'Segment endpoints must differ; got {s!r}.')
 
-    # Given points (shown pre-plotted) must be in-bounds too.
+    # Given points (shown pre-plotted) must be in-bounds too. Each may carry a
+    # LABEL — see given_point_parts: a question that names its points ("A is the
+    # point (2, 2), B is (8, 2)") is unanswerable without them on the drawing.
     given = plane_spec.get('given_points') or []
     if not isinstance(given, list):
         raise ValueError('plane_spec.given_points must be a list.')
     for p in given:
-        _check_point(p)
+        x, y, label = given_point_parts(p)
+        _check_point([x, y])
+        if len(label) > _MAX_POINT_LABEL:
+            raise ValueError(
+                f'given_points label must be at most {_MAX_POINT_LABEL} '
+                f'characters; got {label!r}.'
+            )
 
     target = plane_spec.get('target')
     if not isinstance(target, dict):

@@ -107,8 +107,9 @@
       {% elif ai_feedback %}
       <p class="text-sm text-amber-600 mt-1">{{ ai_feedback }}</p>
       {% endif %}
-      {# A part-graded answer (fill-in-the-blank / table of values) says it in a
-         list instead: which gap, what was typed, what was wanted. #}
+      {% comment %} A part-graded answer (fill-in-the-blank / table of values) says it in a
+         list instead: which gap, what was typed, what was wanted.
+      {% endcomment %}
       {% include "maths/partials/_partial_credit.html" with data=student_answer.answer_data earned=student_answer.points_earned possible=question.points %}
     </div>
   </div>
@@ -143,8 +144,9 @@
         <p class="text-sm text-red-500 mt-1">Review this topic and try again on future questions.</p>
         {% endif %}
       {% endif %}
-      {# Nothing right in a multi-gap answer still earns an explanation of
-         which gaps went wrong — that is the part a student can act on. #}
+      {% comment %} Nothing right in a multi-gap answer still earns an explanation of
+         which gaps went wrong — that is the part a student can act on.
+      {% endcomment %}
       {% include "maths/partials/_partial_credit.html" with data=student_answer.answer_data earned=student_answer.points_earned possible=question.points %}
     </div>
   </div>

@@ -275,8 +275,13 @@ class Question(models.Model):
     # plot_line) or typed-string parsing (identify_coords). Schema validation
     # lives in Question.clean() (validate_plane_spec). Shape:
     #   {"bounds": {"xmin", "xmax", "ymin", "ymax"}, "mode": "points"|"segments",
-    #    "given_points": [[x,y], ...], "target": {"points"|"segments": [...]},
+    #    "given_points": [[x,y], [x,y,"A"], ...], "target": {"points"|"segments": [...]},
     #    "allow_extra": bool}
+    # given_points are drawn for the student to READ; a third element names the
+    # point ("A"), which a question phrased in terms of A and B needs to be
+    # answerable at all. For identify_coords they must not repeat target.points
+    # unless the question really is "write the coordinates of this plotted dot" —
+    # otherwise the drawing gives the answer away.
     plane_spec = models.JSONField(
         null=True, blank=True,
         help_text="plot_points / plot_line / identify_coords only. Signed coordinate plane (set-comparison graded).",
@@ -1057,11 +1062,24 @@ class Question(models.Model):
                 {'gx': x, 'gy': y, 'px': px(x), 'py': py(y)}
                 for y in range(ymin, ymax + 1) for x in range(xmin, xmax + 1)
             ]
+        # Given points may be named ([x, y, "A"]) — the label is drawn beside the
+        # dot so a question that talks about "the line AB" is readable. A
+        # malformed entry is skipped rather than raised on: clean() rejects one
+        # at the source, and a render helper must not 500 a whole homework page.
+        from maths.geometry_grading import given_point_parts
         given = []
         for p in (self.plane_spec.get('given_points') or []):
-            if (isinstance(p, (list, tuple)) and len(p) == 2
-                    and all(isinstance(c, int) and not isinstance(c, bool) for c in p)):
-                given.append({'gx': p[0], 'gy': p[1], 'px': px(p[0]), 'py': py(p[1])})
+            try:
+                gx, gy, label = given_point_parts(p)
+            except ValueError:
+                continue
+            if not all(isinstance(c, int) and not isinstance(c, bool)
+                       for c in (gx, gy)):
+                continue
+            given.append({'gx': gx, 'gy': gy, 'px': px(gx), 'py': py(gy),
+                          'label': label,
+                          # Nudge the label clear of the dot and of the axes.
+                          'lx': px(gx) + 8, 'ly': py(gy) - 8})
         return {
             'svg': cartesian_plane_svg(self.plane_spec, pad=pad, step=step),
             'width': width, 'height': height, 'pad': pad, 'step': step,
