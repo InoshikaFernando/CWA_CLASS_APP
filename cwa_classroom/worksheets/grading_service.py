@@ -408,6 +408,77 @@ def _fetch_image_block(question):
         return None
 
 
+# Words in the FEEDBACK that mean the mark and the words disagree. Claude
+# sometimes writes "Excellent work, mathematically complete" and returns
+# score_fraction=0.5; where the words are unambiguous they are trusted over
+# the number.
+_POSITIVE_SIGNALS = (
+    'excellent', 'perfect', 'correct', 'valid', 'complete',
+    'well done', 'great', 'mathematically sound',
+    'fully correct', 'demonstrates a clear understanding',
+)
+
+# "full marks" is deliberately NOT in that list. The prompt asks Claude to say
+# what is missing "for full marks", so the phrase turns up in exactly the
+# feedback that means the opposite — "…state a rule like 'subtract 3 each
+# time' for full marks" was read as praise, bumped from 0.3 to 0.85, and a
+# child who wrote an ADDITION pattern for a subtraction question was told
+# ✅ Correct beneath feedback explaining why it was not.
+_NEGATIVE_SIGNALS = (
+    'incorrect', 'wrong', 'incomplete', 'missing', 'not shown',
+    'no credit', 'does not', "doesn't", 'did not', "didn't",
+    'instead of', 'needs to', 'should have', 'failed', 'error',
+    'invalid',
+)
+
+# What Claude puts in ``what_to_add`` when nothing is missing.
+_NOTHING_TO_ADD = ('', 'nothing', 'none', 'n/a', 'na', '-', '.')
+
+
+def _says(words, signals):
+    """True when *words* contains any of *signals* as whole words.
+
+    Whole words, not substrings: "incorrect" contains "correct" and "invalid"
+    contains "valid", so a substring test read the two plainest ways of saying
+    an answer is wrong as praise — and the downward check, which needs "no
+    positive words present", could then never fire on either.
+    """
+    return any(re.search(rf'\b{re.escape(signal)}\b', words) for signal in signals)
+
+
+def reconcile_score(score_fraction, feedback, what_to_add=''):
+    """Settle a score that disagrees with the words beside it.
+
+    Returns ``(score, note)`` — *note* is empty when nothing was changed, and
+    otherwise says what was done, for the log.
+
+    A score is only raised when the answer is *not missing anything*.
+    ``what_to_add`` is Claude's own structured answer to "what must be added
+    for full marks", and the prompt tells it to say "Nothing" when the answer
+    is complete — a far better signal than reading praise out of prose, which
+    is what got this wrong: feedback naming a real gap was read as positive
+    because it ended "for full marks", and the failing score it came with was
+    overwritten.
+
+    Lowering needs no such guard: feedback that says something is wrong, with
+    no praise anywhere in it, is not a passing answer however it was scored.
+    """
+    words = (feedback or '').lower()
+    positive = _says(words, _POSITIVE_SIGNALS)
+    negative = _says(words, _NEGATIVE_SIGNALS)
+    complete = (what_to_add or '').strip().lower().rstrip('.') in _NOTHING_TO_ADD
+
+    if positive and not negative and complete and score_fraction < 0.65:
+        return 0.85, (f'feedback positive and nothing left to add, but '
+                      f'score={score_fraction:.2f} — raised to 0.85')
+
+    if negative and not positive and score_fraction >= 0.65:
+        return 0.35, (f'feedback negative but score={score_fraction:.2f} '
+                      f'— dropped to 0.35')
+
+    return score_fraction, ''
+
+
 def _call_claude_grade(question, answer_text, normalised_text):
     """Call the Anthropic API to grade the answer. Returns result dict."""
     import anthropic
@@ -546,37 +617,11 @@ Respond with JSON only:
         what_to_add = str(data.get('what_to_add', ''))
 
         # ── Consistency check ────────────────────────────────────────────
-        # Claude sometimes writes "Excellent work, mathematically complete"
-        # but returns score_fraction=0.5 — words and number contradict.
-        # Detect this and trust the words, not the number.
-        feedback_lower = feedback.lower()
-        POSITIVE_SIGNALS = [
-            'excellent', 'perfect', 'correct', 'valid', 'complete',
-            'well done', 'great', 'mathematically sound', 'full marks',
-            'fully correct', 'demonstrates a clear understanding',
-        ]
-        NEGATIVE_SIGNALS = [
-            'incorrect', 'wrong', 'incomplete', 'missing', 'not shown',
-            'no credit', 'does not', "doesn't", 'failed', 'error',
-        ]
-        positive_hit = any(s in feedback_lower for s in POSITIVE_SIGNALS)
-        negative_hit = any(s in feedback_lower for s in NEGATIVE_SIGNALS)
-
-        if positive_hit and not negative_hit and score_fraction < 0.65:
-            # Feedback is clearly positive but score is too low — trust words
+        score_fraction, adjustment = reconcile_score(
+            score_fraction, feedback, what_to_add)
+        if adjustment:
             logger.warning(
-                f'Grading inconsistency Q{question.pk}: feedback positive but '
-                f'score={score_fraction:.2f} — bumping to 0.85'
-            )
-            score_fraction = 0.85
-
-        if negative_hit and not positive_hit and score_fraction >= 0.65:
-            # Feedback is clearly negative but score is passing — trust words
-            logger.warning(
-                f'Grading inconsistency Q{question.pk}: feedback negative but '
-                f'score={score_fraction:.2f} — dropping to 0.35'
-            )
-            score_fraction = 0.35
+                'Grading inconsistency Q%s: %s', question.pk, adjustment)
         # ────────────────────────────────────────────────────────────────
 
         return {

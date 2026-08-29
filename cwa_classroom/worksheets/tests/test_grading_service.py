@@ -13,11 +13,14 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from worksheets.grading_service import (
     _parse_cache_feedback,
     _normalise,
     _call_claude_grade,
     grade_extended_answer,
+    reconcile_score,
 )
 
 
@@ -320,3 +323,100 @@ class TestGradeExtendedAnswer:
 
         assert result['quota_exceeded'] is True
         assert result['is_correct'] is False
+
+
+class ReconcileScoreTests(SimpleTestCase):
+    """When the mark and the words beside it disagree — worksheets.grading_service.
+
+    The defect these pin, reported from the test site. A Year 4 question asks
+    for a SUBTRACTION pattern; the student wrote 5, 8, 11, 14, 17, 20 — an
+    addition pattern, with no rule — and the quiz said ✅ **Correct!** above
+    feedback explaining why it was not:
+
+        "Your sequence is neat and consistent, but it increases by 3
+         (addition) instead of decreasing, and you did not write down the
+         rule. Reverse the order and state a rule like 'subtract 3 each time'
+         for full marks."
+
+    The check meant to catch a mark contradicting its feedback is what caused
+    it. "full marks" counted as praise — while the prompt asks Claude to name
+    what is missing *for full marks*, so the phrase belongs to exactly the
+    feedback that means the opposite — and no negative signal matched "did not"
+    or "instead of". So a failing score was raised to 0.85 and passed.
+    """
+
+    REPORTED = (
+        "Your sequence is neat and consistent, but it increases by 3 "
+        "(addition) instead of decreasing, and you did not write down the "
+        "rule. Reverse the order and state a rule like 'subtract 3 each time' "
+        "for full marks."
+    )
+
+    def test_the_reported_feedback_never_raises_a_failing_score(self):
+        for scored in (0.0, 0.3, 0.5):
+            score, _ = reconcile_score(scored, self.REPORTED,
+                                       'Reverse the order and state the rule.')
+            self.assertEqual(score, scored)
+            self.assertLess(score, 0.6, 'this answer must not read as correct')
+
+    def test_for_full_marks_is_not_praise(self):
+        # The phrase on its own, in feedback that is otherwise plainly about
+        # what is missing.
+        score, _ = reconcile_score(
+            0.3, 'Add the units for full marks.', 'The units')
+        self.assertEqual(score, 0.3)
+
+    def test_a_score_is_raised_only_when_nothing_is_left_to_add(self):
+        praise = 'Excellent work — mathematically complete.'
+        raised, note = reconcile_score(0.5, praise, 'Nothing')
+        self.assertEqual(raised, 0.85)
+        self.assertIn('raised', note)
+
+        # Same words, but Claude also named something missing: the answer is
+        # not complete, whatever the prose sounds like.
+        kept, note = reconcile_score(0.5, praise, 'Show the working')
+        self.assertEqual(kept, 0.5)
+        self.assertEqual(note, '')
+
+    def test_nothing_to_add_is_recognised_however_it_is_written(self):
+        for nothing in ('Nothing', 'nothing.', 'None', 'N/A', '', '  '):
+            score, _ = reconcile_score(
+                0.5, 'Perfect, fully correct.', nothing)
+            self.assertEqual(score, 0.85, nothing)
+
+    # ── the downward half, which two substrings had disabled ─────────────
+
+    def test_incorrect_is_negative_not_positive(self):
+        # "incorrect" contains "correct", so a substring test read it as
+        # praise — and the drop below could never fire on the plainest way of
+        # saying an answer is wrong.
+        score, note = reconcile_score(
+            0.8, 'This is incorrect — the method does not work.', 'Start again')
+        self.assertEqual(score, 0.35)
+        self.assertIn('dropped', note)
+
+    def test_invalid_is_negative_not_positive(self):
+        score, _ = reconcile_score(0.9, 'The reasoning is invalid.', 'A method')
+        self.assertEqual(score, 0.35)
+
+    # ── and what it must leave alone ─────────────────────────────────────
+
+    def test_an_honest_partial_score_is_untouched(self):
+        for scored, feedback, add in (
+            (0.8, 'Mostly right, with one small omission.', 'The units'),
+            (0.3, 'Some right ideas but key steps are missing.', 'The working'),
+            (1.0, 'Perfect, fully correct.', 'Nothing'),
+        ):
+            score, note = reconcile_score(scored, feedback, add)
+            self.assertEqual(score, scored, feedback)
+
+    def test_mixed_words_are_left_to_the_score(self):
+        # Praise and criticism together is the ordinary shape of feedback on a
+        # partly-right answer; neither half is evidence the number is wrong.
+        score, note = reconcile_score(
+            0.55, 'Correct method, but the final line is wrong.', 'The last step')
+        self.assertEqual(score, 0.55)
+        self.assertEqual(note, '')
+
+    def test_empty_feedback_changes_nothing(self):
+        self.assertEqual(reconcile_score(0.42, '', ''), (0.42, ''))
