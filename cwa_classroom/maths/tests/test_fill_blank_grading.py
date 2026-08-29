@@ -672,3 +672,64 @@ class AddingAndRemovingTheRuleGapTests(SimpleTestCase):
 
     def test_stripping_leaves_an_ordinary_trailing_gap_alone(self):
         self.assertIsNone(strip_rule_blank('The next number is ___'))
+
+
+class GapsTheArithmeticFillsTests(SimpleTestCase):
+    """A question that prints its own sums fills its own gaps.
+
+    "Write the sum and then write the product: 4 + 4 + 4 + 4 + 4 + 4 = ______
+    and 4 x 6 = ______" stores one answer, 24, for two gaps. The row rules
+    refuse it — one value cannot say what goes in two places — and the true
+    answer is that both of them are 24. The stored answer is kept for the one
+    thing it can prove: that the question was read the way its author meant.
+    """
+
+    def _derive(self, text, rows):
+        spec, reason = derive_blank_spec(text, rows, positional_rows=False)
+        return (describe_blank_spec(spec) if spec else None), reason
+
+    def test_the_sum_and_the_product_are_both_filled(self):
+        got, reason = self._derive(
+            'Write the sum and then write the product: '
+            '4 + 4 + 4 + 4 + 4 + 4 = ______ and 4 x 6 = ______', ['24'])
+        self.assertEqual(got, '24, 24')
+        self.assertEqual(reason, '')
+
+    def test_a_gap_that_is_a_factor_rather_than_the_answer(self):
+        got, _ = self._derive(
+            '8 + 8 + 8 = ____ x 8, and 8 + 8 + 8 = ____ . What is 3 x 8?',
+            ['24'])
+        self.assertEqual(got, '3, 24')
+
+    def test_equal_addends_fill_a_run_of_gaps(self):
+        got, _ = self._derive(
+            '7 x 4 = 4 + 4 + ___ + ___ + ___ + ___ + ___ = ___. '
+            'What is the total?', ['28'])
+        self.assertEqual(got, '4, 4, 4, 4, 4, 28')
+
+    # ── the stored answer is the proof, not a formality ──────────────────
+
+    def test_an_answer_key_that_disagrees_is_reported_not_converted(self):
+        got, reason = self._derive(
+            'Write the sum and then write the product: '
+            '4 + 4 = ______ and 2 x 4 = ______', ['9'])
+        self.assertIsNone(got)
+        self.assertIn('disagree', reason)
+
+    def test_the_rows_still_win_when_they_say_where_the_values_go(self):
+        # Nothing changes for a question whose answer already lists its gaps.
+        got, _ = self._derive('2 + 2 = ___ and 3 + 3 = ___', ['4; 6'])
+        self.assertEqual(got, '4, 6')
+
+    def test_a_question_it_cannot_read_keeps_the_rows_own_refusal(self):
+        got, reason = self._derive(
+            'Write 90% as a fraction over 100, as a fraction, and as a '
+            'decimal (fill in: __/100 = __ = 0.__).', ['90/100 = 9/10 = 0.9'])
+        self.assertIsNone(got)
+        self.assertIn('does not split into 3 values', reason)
+
+    def test_a_printed_pattern_is_still_the_pattern_route(self):
+        got, _ = self._derive(
+            'Complete the pattern: 30, ___, 60, 75, ___, ___. '
+            'What is the rule? ___', ['+15'])
+        self.assertTrue(got.startswith('45, 90, 105, +15'))

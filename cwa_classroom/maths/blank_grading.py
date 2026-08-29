@@ -514,10 +514,12 @@ def derive_blank_spec(question_text, correct_texts, *, positional_rows=True):
     values, reason = _values_from_rows(texts, n, positional_rows)
     if values is None:
         # The rows say nothing usable about the gaps — but a question that
-        # PRINTS its pattern says plenty about them itself.
+        # PRINTS its pattern, or its arithmetic, says plenty about them itself.
         values, pattern_reason = _values_from_pattern(question_text, texts, n)
         if values is None:
-            return None, pattern_reason or reason
+            values, sum_reason = _values_from_arithmetic(question_text, texts, n)
+        if values is None:
+            return None, pattern_reason or sum_reason or reason
 
     if not all(values):
         return None, 'a blank ended up with no accepted answer'
@@ -757,3 +759,39 @@ def strip_rule_blank(question_text):
     if total - 1 in values_by_blank:
         return None
     return question_text[:-len(RULE_BLANK_SUFFIX)]
+
+
+def _values_from_arithmetic(question_text, texts, n):
+    """The accepted answers per gap when the QUESTION prints its own sums.
+
+    ``(values, reason)``. "Write the sum and then write the product:
+    4 + 4 + 4 + 4 + 4 + 4 = ______ and 4 x 6 = ______" stores one answer, 24,
+    against two gaps — the row rules cannot say which gap it is, and both of
+    them are 24. The arithmetic is printed, so it is solved instead
+    (:mod:`maths.arithmetic_gaps`) and the stored answer is used for what it
+    can prove: that the question was read the way its author meant it.
+
+    That check is not a formality. A stored answer matching nothing the
+    arithmetic comes to means one of the two is wrong, and neither a
+    mis-parsed question nor a wrong answer key is something to convert on top
+    of — so it is reported for a person instead.
+    """
+    from maths.arithmetic_gaps import read_arithmetic_gaps
+    from maths.pattern_grading import format_value
+
+    by_blank = read_arithmetic_gaps(question_text)
+    if not by_blank or len(by_blank) != n:
+        return None, ''
+
+    values = [[format_value(by_blank[index])] for index in range(n)]
+    computed = {fold_answer(entry[0]) for entry in values}
+    if any(fold_answer(text) in computed for text in texts):
+        return values, ''
+
+    shown = ', '.join(entry[0] for entry in values)
+    return None, (
+        f'the arithmetic printed in this question fills its {n} gaps with '
+        f'{shown}, but the stored answer is {texts[0]!r}, which is none of '
+        f'them — the question and its answer key disagree, so neither is safe '
+        f'to convert on'
+    )
