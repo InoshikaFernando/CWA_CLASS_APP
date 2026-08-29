@@ -58,7 +58,10 @@ kept separate so the two routes above keep their un-namespaced names):
 - `/progress/reports/<id>/` — `progress:period_report_detail`
 - `/progress/reports/<id>/pdf/` — `progress:period_report_pdf`
 - `/progress/reports/settings/` — `progress:report_settings` (HoI / owner / admin)
-- `/progress/reports/preview/` — `progress:report_preview` (staff; preview + manual send)
+- `/progress/reports/preview/` — `progress:report_preview` (staff; preview + manual send).
+  `?subscribed=1` narrows the scope to students whose own subscription is active
+  or trialing (`billing.selectors`); the filter is applied to the report plan, so
+  "Generate and send" covers exactly the rows on screen.
 - `/progress/reports/preview/report/` — `progress:report_preview_detail` (staff; one student's report, computed and discarded)
 - `/progress/reports/preview/report/pdf/` — `progress:report_preview_pdf` (staff; the same, as the parent's PDF)
 
