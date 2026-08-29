@@ -342,6 +342,41 @@ python manage.py relevel_questions --year 1 --school 4 --map "JS=5"
 python manage.py relevel_questions --year 1 --topic "Indices" --exact-topic
 ```
 
+### `topic_doctor`
+Report what is wrong with the topic tree, and fix the two things safely fixable.
+
+Importers disagree about how they create topics. The AI import and the JSON
+upload `get_or_create` a strand and a topic under it; the homework PDF path
+matches on the bare name and, when nothing matches, files the question on
+`Topic.objects.filter(subject=subject).first()` instead of creating anything.
+That first row is a **strand**, and the student year page lists sub-topics only
+— so the question is offered by no topic quiz and surfaces only in level
+practice.
+
+The report surfaces that (`TOP-LEVEL-HOLDS-QUESTIONS`, with the years those
+questions sit at) alongside the findings from `classroom.topic_merge`:
+duplicate names, empty topics, inactive topics still holding questions, parents
+in another subject, and subjects sharing a name.
+
+It deliberately does **not** guess which topics mean the same thing — fuzzy
+matching ("Fraction" ≈ "Fractions") is wrong often enough to be dangerous and a
+merge is not reversible. It states facts; a human picks the survivor.
+
+`--keep`/`--absorb` re-points everything at the survivor (walking
+`_meta.related_objects`, so a topic FK added by a later app is carried too),
+re-parents the absorbed rows' sub-topics, then deletes them.
+`--reparent`/`--under` moves one row — the fix for a parentless topic that
+should sit under a strand; `--under 0` promotes a row to a strand. Both refuse
+anything that would move questions out of their subject or make the tree three
+levels deep, and both honour `--dry-run`.
+```bash
+python manage.py topic_doctor                          # full report (read-only)
+python manage.py topic_doctor --subject mathematics    # one subject
+python manage.py topic_doctor --only TOP-LEVEL-HOLDS-QUESTIONS
+python manage.py topic_doctor --keep 207 --absorb 154 --dry-run
+python manage.py topic_doctor --reparent 70 --under 4 --dry-run
+```
+
 ---
 
 ## Jira Sprint Burndown
