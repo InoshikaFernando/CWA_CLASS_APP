@@ -203,6 +203,62 @@ def subject_name_clashes():
     return [members for members in groups.values() if len(members) > 1]
 
 
+
+def top_level_topics_with_questions(subject_ids=None):
+    """Top-level rows holding questions directly — the picker never offers them.
+
+    The student year page groups topics as ``strand > sub-topic`` and keeps
+    only the strands that HAVE sub-topics, and the topic quiz then filters on
+    one exact topic row (``maths.views``). So a question filed straight onto a
+    strand is not offered by the topic picker at all; it surfaces only in level
+    practice, which filters on level alone.
+
+    Questions land there when an importer cannot match the topic name it was
+    given: the homework PDF path falls back to
+    ``Topic.objects.filter(subject=subject).first()`` rather than creating the
+    topic, and that first row is a strand.
+
+    Reported, never fixed automatically — whether those questions belong under
+    an existing sub-topic, a new one, or a different strand entirely is a
+    judgement call about their content.
+    """
+    topics = (Topic.objects
+              .filter(parent__isnull=True)
+              .select_related('subject')
+              .annotate(n_questions=Count('maths_questions', distinct=True),
+                        n_subtopics=Count('subtopics', distinct=True))
+              .order_by('subject__name', 'name'))
+    if subject_ids:
+        topics = topics.filter(subject_id__in=subject_ids)
+    return [topic_summary(t, questions=t.n_questions, subtopics=t.n_subtopics)
+            for t in topics if t.n_questions]
+
+
+def validate_reparent(topic, parent):
+    """Refuse a re-parent that would break the two-level strand > sub-topic tree.
+
+    ``parent=None`` (promoting a row to a strand) is always allowed; everything
+    else has to keep the tree two deep, because that shape is assumed
+    throughout — ``topic_path``, the export's title/sub-title grouping, and the
+    year page's strand grouping all read exactly two levels.
+    """
+    if parent is None:
+        return True, ''
+    if topic.id == parent.id:
+        return False, 'a topic cannot be its own parent'
+    if topic.subject_id != parent.subject_id:
+        return False, (f'different subjects ({topic.subject} vs '
+                       f'{parent.subject}) — a sub-topic must sit under a '
+                       f'strand of its own subject')
+    if parent.parent_id:
+        return False, (f'{parent.name!r} is itself a sub-topic of '
+                       f'{parent.parent.name!r} — nesting under it would make '
+                       f'a three-level tree')
+    if Topic.objects.filter(parent_id=topic.id).exists():
+        return False, (f'{topic.name!r} has sub-topics of its own — moving it '
+                       f'under a strand would make a three-level tree')
+    return True, ''
+
 def validate_merge(keep, absorbed):
     """Refuse merges that would move questions somewhere they don't belong."""
     if keep.id == absorbed.id:

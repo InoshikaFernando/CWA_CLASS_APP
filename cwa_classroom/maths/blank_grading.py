@@ -484,6 +484,14 @@ def derive_blank_spec(question_text, correct_texts, *, positional_rows=True):
       than spellings of one answer (see :func:`_looks_positional`).
     * **anything else** — refused, with the counts named.
 
+    Then, only for what those rules refuse: a question that PRINTS a number
+    pattern with gaps in it ("complete the pattern: 30, ___, 60, 75, ___, ___")
+    fills them from the sequence itself rather than from the rows, which store
+    its rule and never its gap values. The one gap the pattern does not fill
+    takes the rule — and if the sentence has no gap for the rule it is refused
+    rather than converted, because a rule asked for in prose alone would stop
+    being marked at all (see :func:`_values_from_pattern`).
+
     In every case "a|b" within a value lists alternatives for that one blank.
 
     ``positional_rows`` defaults to True, which is right where the rows were
@@ -503,6 +511,53 @@ def derive_blank_spec(question_text, correct_texts, *, positional_rows=True):
     if not texts:
         return None, 'no correct answer stored to fill the blank(s) with'
 
+    values, reason = _values_from_rows(texts, n, positional_rows)
+    if values is None:
+        # The rows say nothing usable about the gaps — but the question often
+        # says plenty itself: a printed number pattern, printed arithmetic, or
+        # a stored answer that IS the question with its blanks filled in.
+        route_reason = ''
+        for route in (_values_from_pattern, _values_from_arithmetic,
+                      _values_from_worked_answer):
+            values, refusal = route(question_text, texts, n)
+            if values is not None:
+                break
+            # The first route to recognise the question and still refuse it is
+            # the one with something to say; the rows' own refusal stands when
+            # none of them did.
+            route_reason = route_reason or refusal
+        if values is None:
+            return None, route_reason or reason
+
+    if not all(values):
+        return None, 'a blank ended up with no accepted answer'
+
+    spec = {'blanks': [{'answers': v} for v in values]}
+
+    # A gap whose every answer repeats the unit already printed after it reads
+    # as "= [5300 mL] mL" and rejects the obvious "5300". The stored answer was
+    # serviceable in a box below the question and is a defect inline, so the
+    # question keeps its single box and the content gets named.
+    repeats = unit_repeat_blanks(question_text, spec)
+    if repeats:
+        shown = ', '.join(str(i + 1) for i in repeats)
+        return None, (
+            f'blank {shown} would repeat the unit already printed after it '
+            f'(e.g. "= ___ mL" answered "5300 mL"), so "5300" would be marked '
+            f'wrong — drop the unit from the stored answer, or store the bare '
+            f'value as well'
+        )
+
+    return spec, ''
+
+
+def _values_from_rows(texts, n, positional_rows):
+    """The accepted answers for each of *n* gaps, read off the stored rows.
+
+    ``(values, reason)`` — exactly one is set, and ``reason`` is what
+    :func:`derive_blank_spec` reports when nothing else can fill the gaps
+    either. The mapping rules are the ones documented there.
+    """
     if n == 1:
         values = [sum((_alternatives(t) for t in texts), [])]
     elif len(texts) == 1:
@@ -554,23 +609,282 @@ def derive_blank_spec(question_text, correct_texts, *, positional_rows=True):
             f'{n} rows (one per blank) or one row listing all {n} values'
         )
 
-    if not all(values):
-        return None, 'a blank ended up with no accepted answer'
+    return values, ''
 
-    spec = {'blanks': [{'answers': v} for v in values]}
 
-    # A gap whose every answer repeats the unit already printed after it reads
-    # as "= [5300 mL] mL" and rejects the obvious "5300". The stored answer was
-    # serviceable in a box below the question and is a defect inline, so the
-    # question keeps its single box and the content gets named.
-    repeats = unit_repeat_blanks(question_text, spec)
-    if repeats:
-        shown = ', '.join(str(i + 1) for i in repeats)
+# --------------------------------------------------------------------------
+# The gaps a printed number pattern fills for itself
+# --------------------------------------------------------------------------
+# "Complete the pattern: 30, ___, 60, 75, ___, ___. What is the rule?" stores
+# its answer as the RULE ("+15", "add 15", "+ 15") and never as the values of
+# its gaps, so the row rules above have nothing to map onto its three blanks
+# and refuse it — rightly, since row 1 is "+15" and gap 1 is 45, and mapping
+# one onto the other marks a correct student wrong.
+#
+# But those gap values are not a guess: the sequence is printed in the question
+# and solves itself, 45, 90 and 105 with it (maths.pattern_grading). So they
+# are filled from the arithmetic, and the stored rows are kept for the one gap
+# they DO describe — the rule, when the sentence has a gap for it.
+#
+# The rule needs a gap of its own: a fill-in-the-blank sentence is graded gap by
+# gap, so a rule asked for only in prose would stop being marked at all. That is
+# the one thing this must never do quietly, so a question whose answer is the
+# rule and whose gaps are all the pattern's is REFUSED, and named, until a gap
+# for the rule exists — see ``add_rule_blank`` and
+# ``convert_fill_blanks --add-rule-blank``.
+
+# Appended to the question text to give the rule a gap of its own: its own
+# line, and labelled.
+#
+# The first version of this appended a bare " ___", on the reasoning that the
+# question's own wording already asked for the rule. On the page it landed
+# under the sequence with nothing beside it — a child reading
+# "132, [ ], 140, [ ], 148, [ ]" followed by a lone box has no way to know
+# that box wants a rule rather than another number.
+RULE_BLANK_SUFFIX = '\nThe rule is: ___'
+
+# The question asking for its rule in words — "State the rule and the three
+# missing numbers", "What is the rule?", "Work out the number pattern rule".
+# Evidence enough on its own that a gap for it belongs, because the rule
+# itself is never guessed: it comes out of the sequence the question prints.
+_ASKS_FOR_RULE_RE = re.compile(r'\brules?\b', re.IGNORECASE)
+
+# What the first version appended. Nothing writes it; --revert still knows it,
+# so a question converted by that run comes back cleanly.
+_LEGACY_RULE_BLANK_SUFFIXES = (' ___',)
+
+
+def pattern_blank_values(question_text):
+    """``(values_by_blank, pattern)`` for the gaps a printed sequence solves.
+
+    ``values_by_blank`` maps the index of a blank in *question_text* (counting
+    every "___" run, left to right) to the value that belongs in it.
+    ``({}, None)`` when the question prints no solvable sequence, or when the
+    sequence's gaps are not exactly the "___" runs inside it — a sequence
+    written "30, ?, 60" solves, but a "?" is not a blank anybody can type into.
+    """
+    from maths.pattern_grading import prepare, read_printed_pattern
+
+    pattern = read_printed_pattern(question_text)
+    if pattern is None:
+        return {}, None
+    # Blanks are counted in the SAME text the pattern's span indexes — prepare()
+    # drops digit-grouping commas, which shifts every offset after one. It never
+    # touches underscores, so a run's ordinal is the same in either text.
+    runs = list(BLANK_RE.finditer(prepare(question_text)))
+    start, end = pattern.span
+    inside = [i for i, run in enumerate(runs) if start <= run.start() < end]
+    if len(inside) != len(pattern.missing):
+        return {}, None
+    return dict(zip(inside, pattern.missing)), pattern
+
+
+def _values_from_pattern(question_text, texts, n):
+    """The accepted answers per gap when the QUESTION prints the pattern.
+
+    ``(values, reason)``. A reason is given only where this route recognised
+    the question and still refused it; otherwise it is empty, which leaves
+    :func:`derive_blank_spec` reporting what the rows themselves could not do —
+    the more actionable of the two on a question that is not this shape.
+    """
+    from maths.pattern_grading import (
+        RULE, completion_parts, format_value, rule_spellings)
+
+    values_by_blank, pattern = pattern_blank_values(question_text)
+    if not values_by_blank:
+        return None, ''
+
+    values = [None] * n
+    for index, value in values_by_blank.items():
+        values[index] = [format_value(value)]
+    spare = [i for i, entry in enumerate(values) if entry is None]
+
+    # Every stored row has to agree with the pattern. completion_parts reads a
+    # row as what it supplies — the missing numbers, the rule, or both — and
+    # returns None for one that contradicts the sequence, which is a question
+    # this route has misread or an answer key that is wrong. Either way the
+    # row rules' own refusal is the better report.
+    supplied = [completion_parts(text, pattern) for text in texts]
+    if any(parts is None for parts in supplied):
+        return None, ''
+
+    # Is the rule asked for? A row that states it says so, and so does the
+    # question in words — "State the rule and the three missing numbers"
+    # stores its rule as a prefix ("+5; 70, 85, 90") that the row rules drop.
+    wants_rule = (any(RULE in parts for parts in supplied)
+                  or bool(_ASKS_FOR_RULE_RE.search(question_text or '')))
+
+    if not spare:
+        if not wants_rule:
+            return None, ''
         return None, (
-            f'blank {shown} would repeat the unit already printed after it '
-            f'(e.g. "= ___ mL" answered "5300 mL"), so "5300" would be marked '
-            f'wrong — drop the unit from the stored answer, or store the bare '
-            f'value as well'
+            f'the pattern fills all {n} gap(s) by itself and the question also '
+            f'asks for its RULE, which no gap holds — converting as-is stops '
+            f'the rule being marked at all. Give it a gap (end the question '
+            f'with "___"), or run convert_fill_blanks --add-rule-blank, which '
+            f'appends one'
         )
+    if len(spare) > 1 or not wants_rule:
+        return None, ''
 
-    return spec, ''
+    # One gap left and a rule to put in it. Rows that are the rule and nothing
+    # else go in verbatim — the author's own wording — followed by the
+    # ordinary spellings of the same rule, because a gap is graded by exact
+    # match and a child who writes "add 15" for a stored "+15" must not start
+    # being marked wrong by the conversion. A row carrying the numbers as well
+    # ("+5; 70, 85, 90") is not an answer to this one gap, so only the rule it
+    # states reaches the gap, through those spellings.
+    accepted = [text for text, parts in zip(texts, supplied) if parts == {RULE}]
+    for spelling in rule_spellings(pattern):
+        if spelling not in accepted:
+            accepted.append(spelling)
+    values[spare[0]] = accepted
+    return values, ''
+
+
+def add_rule_blank(question_text, correct_texts):
+    """*question_text* with a gap appended for the rule — or ``(None, reason)``.
+
+    The repair for the questions ``_values_from_pattern`` refuses: the sentence
+    prints a pattern that fills every one of its gaps, and the stored answer is
+    the rule, which then has nowhere to be typed. Appending a blank is what
+    makes the conversion honest — every part of the question the student is
+    asked for is a part they are marked on.
+
+    Returns ``(text, '')`` on success. Refuses anything it has not proved: a
+    question with no solvable pattern, one whose gaps are not all the
+    pattern's (it already has somewhere to put the rule), one that never asks
+    for a rule, or one whose stored answers contradict the sequence.
+
+    What makes the gap safe to add is that the rule is not a guess: the
+    sequence is printed in the question and solves itself, so
+    :func:`maths.pattern_grading.rule_spellings` can stock the gap whether or
+    not any row states the rule. Sixteen questions in the bank ask "State the
+    rule and the three missing numbers" and store it as a prefix the row rules
+    drop ("+5; 70, 85, 90"), so requiring a rule-only row would miss exactly
+    the questions this is for.
+    """
+    from maths.pattern_grading import RULE, completion_parts
+
+    texts = [t.strip() for t in correct_texts if t and t.strip()]
+    if not texts:
+        return None, 'no correct answer stored'
+
+    values_by_blank, pattern = pattern_blank_values(question_text)
+    if not values_by_blank:
+        return None, 'the question prints no pattern that solves its gaps'
+    if len(values_by_blank) != count_blanks(question_text):
+        return None, 'the question already has a gap outside its pattern'
+
+    supplied = [completion_parts(text, pattern) for text in texts]
+    if any(parts is None for parts in supplied):
+        return None, (
+            'a stored answer contradicts the pattern the question prints, so '
+            'one of the two is wrong and neither is safe to build a gap on'
+        )
+    if not (any(RULE in parts for parts in supplied)
+            or _ASKS_FOR_RULE_RE.search(question_text)):
+        return None, 'the question does not ask for a rule'
+
+    return question_text.rstrip() + RULE_BLANK_SUFFIX, ''
+
+
+def strip_rule_blank(question_text):
+    """*question_text* without the gap :func:`add_rule_blank` appended.
+
+    ``None`` when the text does not end in one — proved rather than assumed,
+    because reverting must never eat a blank that was always part of the
+    sentence. The proof is that the trailing blank is the ONE gap the printed
+    pattern does not fill: "…30, ___, 60, 75, ___, ___", whose last blank is
+    the pattern's own, is refused on exactly that test.
+
+    Both wordings are recognised, so a question converted by an earlier run
+    reverts as cleanly as one converted today.
+    """
+    if not question_text:
+        return None
+    for suffix in (RULE_BLANK_SUFFIX,) + _LEGACY_RULE_BLANK_SUFFIXES:
+        if question_text.endswith(suffix):
+            break
+    else:
+        return None
+
+    values_by_blank, _ = pattern_blank_values(question_text)
+    total = count_blanks(question_text)
+    if not values_by_blank or total - len(values_by_blank) != 1:
+        return None
+    if total - 1 in values_by_blank:
+        return None
+    return question_text[:-len(suffix)]
+
+
+def _values_from_arithmetic(question_text, texts, n):
+    """The accepted answers per gap when the QUESTION prints its own sums.
+
+    ``(values, reason)``. "Write the sum and then write the product:
+    4 + 4 + 4 + 4 + 4 + 4 = ______ and 4 x 6 = ______" stores one answer, 24,
+    against two gaps — the row rules cannot say which gap it is, and both of
+    them are 24. The arithmetic is printed, so it is solved instead
+    (:mod:`maths.arithmetic_gaps`) and the stored answer is used for what it
+    can prove: that the question was read the way its author meant it.
+
+    That check is not a formality. A stored answer matching nothing the
+    arithmetic comes to means one of the two is wrong, and neither a
+    mis-parsed question nor a wrong answer key is something to convert on top
+    of — so it is reported for a person instead.
+    """
+    from maths.arithmetic_gaps import read_arithmetic_gaps
+    from maths.pattern_grading import format_value
+
+    by_blank = read_arithmetic_gaps(question_text)
+    if not by_blank or len(by_blank) != n:
+        return None, ''
+
+    values = [[format_value(by_blank[index])] for index in range(n)]
+    computed = {fold_answer(entry[0]) for entry in values}
+    if any(fold_answer(text) in computed for text in texts):
+        return values, ''
+
+    shown = ', '.join(entry[0] for entry in values)
+    return None, (
+        f'the arithmetic printed in this question fills its {n} gaps with '
+        f'{shown}, but the stored answer is {texts[0]!r}, which is none of '
+        f'them — the question and its answer key disagree, so neither is safe '
+        f'to convert on'
+    )
+
+
+def _values_from_worked_answer(question_text, texts, n):
+    """The accepted answers per gap when a stored row IS the question, filled.
+
+    ``(values, reason)``. "__ + __ + __ + __ + __ + __ + __ = 63, so ___ x ___
+    = 63" stores its answer as the whole thing worked out — "9 + 9 + 9 + 9 + 9
+    + 9 + 9 = 63, 7 x 9 = 63" — which the row rules cannot split, because the
+    separators it would split on are the question's own plus signs.
+
+    Lined up against the question it completes, though, it says exactly what
+    goes in each gap, and says it better than arithmetic could: seven equal
+    addends of 63 are 9 each, but "___ x ___ = 63" is 7 x 9 or 9 x 7 and only
+    the row knows which the author wrote.
+
+    The alignment is the proof, so nothing else is checked against it — see
+    :func:`maths.arithmetic_gaps.read_worked_answer` for what it demands. Rows
+    that do not line up are the prose and partial spellings that live beside
+    the worked one ("9", "9, 7 x 9"), and they are dropped, exactly as the row
+    rules drop a prose row beside a separated one.
+    """
+    from maths.arithmetic_gaps import read_worked_answer
+    from maths.pattern_grading import format_value
+
+    aligned = [read_worked_answer(question_text, text) for text in texts]
+    aligned = [filled for filled in aligned if filled and len(filled) == n]
+    if not aligned:
+        return None, ''
+
+    worked = aligned[0]
+    if any(other != worked for other in aligned[1:]):
+        return None, (
+            'two stored answers complete this question differently, so which '
+            'of them fills the gaps is not a choice this can make'
+        )
+    return [[format_value(worked[index])] for index in range(n)], ''

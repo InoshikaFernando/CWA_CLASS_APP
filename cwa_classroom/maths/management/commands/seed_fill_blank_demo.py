@@ -75,7 +75,7 @@ SAMPLES = [
     {
         'text': 'Complete the pattern: 30, ___, 60, 75, ___, ___. What is the rule?',
         'answers': ['+15', 'add 15', '+ 15'],
-        'note': 'REFUSED — 3 rows spelling the RULE, not one value per gap',
+        'note': 'REFUSED — 3 rows spelling the RULE, not one value per gap; converts under --add-rule-blank, which gives the rule a gap',
     },
     {
         'text': 'Write the sum: 3 + 3 + 3 = ______, then the product: 3 x 3 = ______',

@@ -9,9 +9,9 @@ Usage:
 
 What it does:
     1. Refuses to run on `test` or `main` (see below)
-    2. Reads the current APP_VERSION from settings.py
+    2. Reads the current APP_VERSION from cwa_classroom/cwa_classroom/version.py
     3. Increments the requested part (major/minor/patch)
-    4. Writes APP_VERSION and APP_VERSION_DATE back to settings.py
+    4. Writes APP_VERSION and APP_VERSION_DATE back to version.py
     5. Prints a confirmation summary
 
 Run from the project root directory.
@@ -47,7 +47,13 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-SETTINGS_FILE = Path(__file__).resolve().parent.parent / 'cwa_classroom' / 'cwa_classroom' / 'settings.py'
+# version.py, NOT settings.py. Every file in the project package is watched by
+# ci.yml's `shared` filter — the one that bypasses every path filter and runs
+# all 20 unit suites and all 15 UI groups. Since every feature branch has to
+# bump the version, writing settings.py made every PR a full-matrix run, on the
+# PR and again on the merge. version.py is deliberately outside that filter;
+# tests_workflows.py fails the build if either half of that drifts back.
+VERSION_FILE = Path(__file__).resolve().parent.parent / 'cwa_classroom' / 'cwa_classroom' / 'version.py'
 
 VERSION_RE = re.compile(r"^(APP_VERSION\s*=\s*['\"])(\d+\.\d+\.\d+)(['\"])", re.MULTILINE)
 DATE_RE    = re.compile(r"^(APP_VERSION_DATE\s*=\s*['\"])([\d\-]+)(['\"])",   re.MULTILINE)
@@ -112,18 +118,18 @@ def refuse_on_protected_branch(allow_protected):
     )
 
 
-def read_settings():
-    return SETTINGS_FILE.read_text(encoding='utf-8')
+def read_version_file():
+    return VERSION_FILE.read_text(encoding='utf-8')
 
 
-def write_settings(content):
-    SETTINGS_FILE.write_text(content, encoding='utf-8')
+def write_version_file(content):
+    VERSION_FILE.write_text(content, encoding='utf-8')
 
 
 def parse_version(text):
     match = VERSION_RE.search(text)
     if not match:
-        sys.exit(f"ERROR: Could not find APP_VERSION in {SETTINGS_FILE}")
+        sys.exit(f"ERROR: Could not find APP_VERSION in {VERSION_FILE}")
     return match.group(2)
 
 
@@ -159,7 +165,7 @@ def main():
 
     bump_type = args[0]
     refuse_on_protected_branch(allow_protected)
-    content   = read_settings()
+    content   = read_version_file()
 
     old_version = parse_version(content)
     new_version = bump(old_version, bump_type)
@@ -170,12 +176,12 @@ def main():
     if updated == content:
         sys.exit("ERROR: Nothing was changed — check regex patterns in bump_version.py")
 
-    write_settings(updated)
+    write_version_file(updated)
 
     print(f"[OK] Version bumped ({bump_type})")
     print(f"     {old_version}  ->  {new_version}")
     print(f"     Date: {new_date}")
-    print(f"     File: {SETTINGS_FILE.relative_to(Path.cwd())}")
+    print(f"     File: {VERSION_FILE.relative_to(Path.cwd())}")
 
 
 if __name__ == '__main__':

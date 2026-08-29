@@ -13,13 +13,16 @@ from django.test import SimpleTestCase
 
 from maths.blank_grading import (
     MAX_BLANKS,
+    add_rule_blank,
     bare_unit_answers,
     count_blanks,
     derive_blank_spec,
     describe_blank_answer,
     describe_blank_spec,
     grade_fill_blank,
+    pattern_blank_values,
     split_on_blanks,
+    strip_rule_blank,
     unit_repeat_blanks,
     validate_blank_spec,
 )
@@ -523,3 +526,258 @@ class DescribeTests(SimpleTestCase):
 
     def test_unusable_spec_describes_as_empty(self):
         self.assertEqual(describe_blank_spec(None), '')
+
+
+class GapsAPrintedPatternFillsTests(SimpleTestCase):
+    """A question that prints its pattern says what goes in its own gaps.
+
+    "Complete the pattern: 30, ___, 60, 75, ___, ___. What is the rule?" stores
+    "+15", "add 15", "+ 15" — three spellings of the RULE. The values of its
+    gaps (45, 90, 105) are stored nowhere, so the row rules refuse it, rightly:
+    mapping row 1 onto gap 1 would ask for "+15" where the answer is 45. The
+    sequence itself is the evidence they lack.
+    """
+
+    PATTERN_Q = ('Work out the number pattern rule and complete the pattern: '
+                 '30, ___, 60, 75, ___, ___. What is the rule?')
+    RULE_ROWS = ['+15', 'add 15', '+ 15']
+
+    def _derive(self, text, rows, **kwargs):
+        kwargs.setdefault('positional_rows', False)
+        spec, reason = derive_blank_spec(text, rows, **kwargs)
+        return (describe_blank_spec(spec) if spec else None), reason
+
+    # ── which gaps the pattern accounts for ──────────────────────────────
+
+    def test_the_gaps_of_the_printed_sequence_are_solved(self):
+        values, pattern = pattern_blank_values(self.PATTERN_Q)
+        self.assertEqual({i: str(v) for i, v in values.items()},
+                         {0: '45', 1: '90', 2: '105'})
+        self.assertEqual(str(pattern.size), '15')
+
+    def test_a_gap_outside_the_sequence_is_not_claimed(self):
+        values, _ = pattern_blank_values(self.PATTERN_Q + ' ___')
+        self.assertEqual(sorted(values), [0, 1, 2])
+
+    def test_a_question_that_prints_no_pattern_claims_nothing(self):
+        self.assertEqual(pattern_blank_values('A triangle has ___ sides.'),
+                         ({}, None))
+
+    def test_a_sequence_gapped_with_question_marks_is_not_claimed(self):
+        # It solves, but a "?" is not a blank anybody can type into, so the
+        # gaps and the markers would not line up.
+        self.assertEqual(pattern_blank_values('Complete: 5, ?, 15, ___')[0], {})
+
+    # ── the refusal that protects the rule ───────────────────────────────
+
+    def test_a_rule_with_nowhere_to_go_is_refused_not_dropped(self):
+        # Converting the three gaps on their own would leave "What is the
+        # rule?" asked in words and marked on nothing.
+        got, reason = self._derive(self.PATTERN_Q, self.RULE_ROWS)
+        self.assertIsNone(got)
+        self.assertIn('--add-rule-blank', reason)
+
+    # ── with a gap for the rule ──────────────────────────────────────────
+
+    def test_the_pattern_fills_its_gaps_and_the_rows_fill_the_rule(self):
+        text, _ = add_rule_blank(self.PATTERN_Q, self.RULE_ROWS)
+        spec, reason = derive_blank_spec(text, self.RULE_ROWS,
+                                         positional_rows=False)
+        self.assertEqual(reason, '')
+        self.assertEqual([b['answers'][0] for b in spec['blanks']],
+                         ['45', '90', '105', '+15'])
+
+    def test_the_rule_gap_keeps_the_stored_wording_first(self):
+        text, _ = add_rule_blank(self.PATTERN_Q, self.RULE_ROWS)
+        spec, _ = derive_blank_spec(text, self.RULE_ROWS, positional_rows=False)
+        accepted = spec['blanks'][3]['answers']
+        self.assertEqual(accepted[:3], self.RULE_ROWS)
+        # …and the spellings a child writes are added to it, because a gap is
+        # graded by exact match and "add 15" must not become wrong.
+        self.assertIn('adding 15', accepted)
+        self.assertIn('goes up by 15', accepted)
+        # A bare number never states a rule — it does not say which way.
+        self.assertNotIn('15', accepted)
+
+    def test_a_falling_pattern_is_read_the_same_way(self):
+        question = 'Complete the pattern: 40, 36, ___, ___. Write the rule. ___'
+        spec, reason = derive_blank_spec(question, ['-4'], positional_rows=False)
+        self.assertEqual(reason, '')
+        self.assertEqual([b['answers'][0] for b in spec['blanks']],
+                         ['32', '28', '-4'])
+        self.assertIn('take away 4', spec['blanks'][2]['answers'])
+
+    # ── and what it refuses ──────────────────────────────────────────────
+
+    def test_a_rule_that_disagrees_with_the_sequence_is_not_a_rule(self):
+        # The answer key says +5 where the pattern steps by 15: a content
+        # defect for a person, not a gap to fill.
+        got, reason = self._derive(self.PATTERN_Q + ' ___', ['+5'])
+        self.assertIsNone(got)
+        self.assertTrue(reason)
+
+    def test_two_gaps_outside_the_pattern_are_refused(self):
+        got, reason = self._derive(self.PATTERN_Q + ' ___ and ___',
+                                   self.RULE_ROWS)
+        self.assertIsNone(got)
+        self.assertTrue(reason)
+
+    def test_rows_that_list_the_values_are_still_the_rows_job(self):
+        # Nothing changes for a question whose answer already says what goes
+        # in each gap: the author's own values win.
+        got, _ = self._derive(
+            'Fill in the missing numbers of this sequence: 14, 17, 20, 23, ___, ___',
+            ['26, 29'])
+        self.assertEqual(got, '26, 29')
+
+    def test_an_ordinary_sentence_keeps_its_own_refusal(self):
+        got, reason = self._derive('The area is ___ and the perimeter is ___.',
+                                   ['12 and 14 and 16'])
+        self.assertIsNone(got)
+        self.assertIn('does not split into 2 values', reason)
+
+
+class AddingAndRemovingTheRuleGapTests(SimpleTestCase):
+    """The one edit to a question's text, and taking it back off again."""
+
+    PATTERN_Q = ('Complete the pattern: 30, ___, 60, 75, ___, ___. '
+                 'What is the rule?')
+
+    def test_the_gap_goes_on_the_end_and_comes_back_off(self):
+        text, reason = add_rule_blank(self.PATTERN_Q, ['+15'])
+        self.assertEqual(reason, '')
+        self.assertTrue(text.endswith('\nThe rule is: ___'))
+        self.assertEqual(strip_rule_blank(text), self.PATTERN_Q)
+
+    def test_it_refuses_a_question_whose_answer_is_not_the_rule(self):
+        text, reason = add_rule_blank(
+            'Fill in the missing numbers: 14, 17, 20, 23, ___, ___', ['26, 29'])
+        self.assertIsNone(text)
+        self.assertTrue(reason)
+
+    def test_it_refuses_a_question_that_prints_no_pattern(self):
+        text, reason = add_rule_blank('A triangle has ___ sides.', ['3'])
+        self.assertIsNone(text)
+        self.assertTrue(reason)
+
+    def test_it_refuses_a_question_with_no_stored_answer(self):
+        text, reason = add_rule_blank(self.PATTERN_Q, [])
+        self.assertIsNone(text)
+        self.assertTrue(reason)
+
+    def test_stripping_never_eats_a_gap_of_the_pattern_itself(self):
+        # This one ends in a blank too — and it is the pattern's own.
+        self.assertIsNone(
+            strip_rule_blank('Complete the pattern: 30, ___, 60, 75, ___, ___'))
+
+    def test_stripping_leaves_an_ordinary_trailing_gap_alone(self):
+        self.assertIsNone(strip_rule_blank('The next number is ___'))
+
+
+class GapsTheArithmeticFillsTests(SimpleTestCase):
+    """A question that prints its own sums fills its own gaps.
+
+    "Write the sum and then write the product: 4 + 4 + 4 + 4 + 4 + 4 = ______
+    and 4 x 6 = ______" stores one answer, 24, for two gaps. The row rules
+    refuse it — one value cannot say what goes in two places — and the true
+    answer is that both of them are 24. The stored answer is kept for the one
+    thing it can prove: that the question was read the way its author meant.
+    """
+
+    def _derive(self, text, rows):
+        spec, reason = derive_blank_spec(text, rows, positional_rows=False)
+        return (describe_blank_spec(spec) if spec else None), reason
+
+    def test_the_sum_and_the_product_are_both_filled(self):
+        got, reason = self._derive(
+            'Write the sum and then write the product: '
+            '4 + 4 + 4 + 4 + 4 + 4 = ______ and 4 x 6 = ______', ['24'])
+        self.assertEqual(got, '24, 24')
+        self.assertEqual(reason, '')
+
+    def test_a_gap_that_is_a_factor_rather_than_the_answer(self):
+        got, _ = self._derive(
+            '8 + 8 + 8 = ____ x 8, and 8 + 8 + 8 = ____ . What is 3 x 8?',
+            ['24'])
+        self.assertEqual(got, '3, 24')
+
+    def test_equal_addends_fill_a_run_of_gaps(self):
+        got, _ = self._derive(
+            '7 x 4 = 4 + 4 + ___ + ___ + ___ + ___ + ___ = ___. '
+            'What is the total?', ['28'])
+        self.assertEqual(got, '4, 4, 4, 4, 4, 28')
+
+    # ── the stored answer is the proof, not a formality ──────────────────
+
+    def test_an_answer_key_that_disagrees_is_reported_not_converted(self):
+        got, reason = self._derive(
+            'Write the sum and then write the product: '
+            '4 + 4 = ______ and 2 x 4 = ______', ['9'])
+        self.assertIsNone(got)
+        self.assertIn('disagree', reason)
+
+    def test_the_rows_still_win_when_they_say_where_the_values_go(self):
+        # Nothing changes for a question whose answer already lists its gaps.
+        got, _ = self._derive('2 + 2 = ___ and 3 + 3 = ___', ['4; 6'])
+        self.assertEqual(got, '4, 6')
+
+    def test_a_question_it_cannot_read_keeps_the_rows_own_refusal(self):
+        got, reason = self._derive(
+            'Write 90% as a fraction over 100, as a fraction, and as a '
+            'decimal (fill in: __/100 = __ = 0.__).', ['90/100 = 9/10 = 0.9'])
+        self.assertIsNone(got)
+        self.assertIn('does not split into 3 values', reason)
+
+    def test_a_printed_pattern_is_still_the_pattern_route(self):
+        got, _ = self._derive(
+            'Complete the pattern: 30, ___, 60, 75, ___, ___. '
+            'What is the rule?\nThe rule is: ___', ['+15'])
+        self.assertTrue(got.startswith('45, 90, 105, +15'))
+
+
+class GapsAWorkedAnswerFillsTests(SimpleTestCase):
+    """The stored answer is the question with its blanks filled in.
+
+    "__ + __ + __ + __ + __ + __ + __ = 63, so ___ x ___ = 63" stores
+    "9 + 9 + 9 + 9 + 9 + 9 + 9 = 63, 7 x 9 = 63" — unsplittable by the row
+    rules, since the separators they would split on are the question's own
+    plus signs, and unfinishable by arithmetic, which cannot choose between
+    7 x 9 and 9 x 7.
+    """
+
+    def _derive(self, text, rows):
+        spec, reason = derive_blank_spec(text, rows, positional_rows=False)
+        return (describe_blank_spec(spec) if spec else None), reason
+
+    def test_the_worked_row_fills_every_gap(self):
+        got, reason = self._derive(
+            'Write the addends to complete the addition fact and write the '
+            'matching multiplication fact: __ + __ + __ = 24, so ___ x ___ = 24',
+            ['8 + 8 + 8 = 24, 3 x 8 = 24', '8, 3 x 8', '8'])
+        self.assertEqual(got, '8, 8, 8, 3, 8')
+        self.assertEqual(reason, '')
+
+    def test_the_rows_that_do_not_align_are_dropped_not_merged(self):
+        spec, _ = derive_blank_spec(
+            'Write the addends to complete the addition fact and write the '
+            'matching multiplication fact: __ + __ + __ = 24, so ___ x ___ = 24',
+            ['8 + 8 + 8 = 24, 3 x 8 = 24', '8, 3 x 8', '8'],
+            positional_rows=False)
+        # "8, 3 x 8" must not become an accepted answer for any gap.
+        self.assertEqual([blank['answers'] for blank in spec['blanks']],
+                         [['8'], ['8'], ['8'], ['3'], ['8']])
+
+    def test_gaps_in_the_prose_are_filled_too(self):
+        got, _ = self._derive(
+            'Look at the array of dots. Write ___ rows of ___ and find the '
+            'product ___ x ___ = ___', ['6 rows of 3, 6 x 3 = 18', '18'])
+        self.assertEqual(got, '6, 3, 6, 3, 18')
+
+    def test_a_factorisation_keeps_its_refusal(self):
+        # The one this must never take: "18xyz" reads as 18, the sides line
+        # up, and the gaps would be filled with 6 where the answer is 6xyz.
+        got, reason = self._derive(
+            'Complete the factorisation: ____ − 18xyz = ____(x − 3z).',
+            ['6xyz - 18xyz = 6xyz(x - 3z)'])
+        self.assertIsNone(got)
+        self.assertIn('does not split into 2 values', reason)
