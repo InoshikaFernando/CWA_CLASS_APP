@@ -50,11 +50,18 @@ jobs:
       # showed on a push: on a `pull_request` the step is skipped, its output
       # is the empty string, and toJSON drops empty outputs.
       skip_ui_matrix: ${{ steps.tested.outputs.already_tested }}
-      # True on a release PR (test -> main). Its tree is byte-identical to
-      # what `test` already validated, so re-running the matrix over it
-      # proves nothing; release-already-tested checks that instead.
+      # True on a release PR (test -> main).
       release: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+      # ...and whether that release PR's tree is one `test` has actually taken
+      # through a full matrix. 'true' skips the suites in favour of
+      # release-already-tested; anything else runs EVERY suite. Empty on any
+      # other event, which is why the skips below test for != 'true' rather
+      # than == 'false'.
+      release_validated: ${{ steps.release.outputs.validated }}
+      # The run that covered it, so the skip names its evidence.
+      release_run: ${{ steps.release.outputs.run_url }}
       shared: ${{ steps.filter.outputs.shared }}
+      version: ${{ steps.filter.outputs.version }}
       classroom: ${{ steps.filter.outputs.classroom }}
       maths: ${{ steps.filter.outputs.maths }}
       quiz: ${{ steps.filter.outputs.quiz }}
@@ -101,11 +108,45 @@ jobs:
             shared:
               - 'cwa_classroom/requirements-test.txt'
               - 'cwa_classroom/requirements.txt'
-              - 'cwa_classroom/cwa_classroom/**'
               - 'cwa_classroom/conftest.py'
               - 'cwa_classroom/pytest.ini'
               - 'cwa_classroom/manage.py'
               - '.github/workflows/ci.yml'
+              # The project package, file by file rather than as `**`.
+              #
+              # The one file NOT here is version.py, and that is the whole
+              # point: the runbook makes every feature branch bump APP_VERSION
+              # before its PR merges, the constant lived in settings.py, and
+              # so EVERY PR tripped `shared` and ran all 20 unit suites, the
+              # classroom suite and all 15 UI groups — then did it again on
+              # the merge to `test`. The path filtering below never once
+              # narrowed anything.
+              #
+              # Listed rather than globbed because dorny/paths-filter's
+              # default quantifier is `some`: a '!…/version.py' line here
+              # would not exclude anything, it would match every file that
+              # is NOT version.py. Keeping the list honest is a test's job,
+              # not a reviewer's — tests_workflows.py fails the build if a
+              # file in this package is neither listed here nor named as the
+              # version file, so a new module cannot go unwatched.
+              - 'cwa_classroom/cwa_classroom/__init__.py'
+              - 'cwa_classroom/cwa_classroom/context_processors.py'
+              - 'cwa_classroom/cwa_classroom/email_backends.py'
+              - 'cwa_classroom/cwa_classroom/jira_client.py'
+              - 'cwa_classroom/cwa_classroom/middleware.py'
+              - 'cwa_classroom/cwa_classroom/settings.py'
+              - 'cwa_classroom/cwa_classroom/settings_test.py'
+              - 'cwa_classroom/cwa_classroom/sitemaps.py'
+              - 'cwa_classroom/cwa_classroom/tests.py'
+              - 'cwa_classroom/cwa_classroom/urls.py'
+              - 'cwa_classroom/cwa_classroom/views.py'
+              - 'cwa_classroom/cwa_classroom/wsgi.py'
+            # A version bump changes one string, which nothing but the project
+            # package's own tests can see (/api/health/ reports it, base.html
+            # prints it). It runs those and stops there, instead of standing in
+            # for a change to settings.
+            version:
+              - 'cwa_classroom/cwa_classroom/version.py'
             classroom:
               - 'cwa_classroom/classroom/**'
             maths:
@@ -381,6 +422,73 @@ jobs:
               # without touching templates/worksheets/.
               - 'cwa_classroom/templates/maths/**'
 
+      # ---- Has the release PR's tree actually passed on `test`? -------------
+      #
+      # A release PR merges `test` into `main` unchanged, so its tree is
+      # normally byte-identical to the one the full matrix just ran on `test`.
+      # Re-running every suite over it proves nothing and costs a second full
+      # matrix per release — which is how the Actions spending limit was
+      # reached mid-release on 2026-08-24.
+      #
+      # But "normally" is doing real work in that sentence. A release PR with a
+      # commit of its own on top carries a tree NOTHING has tested, and the old
+      # behaviour there was to skip every suite and go red with "do not merge"
+      # — a promotion gate that reports no test result at all in exactly the
+      # case where the tests are the thing you want.
+      #
+      # So the claim is made once, here, and it decides: a tree `test` has
+      # proven green skips the suites (release-already-tested names the run
+      # that covered it); anything else runs the FULL matrix, path filters
+      # ignored, the same as a push to `test`.
+      #
+      # Every path out of this step except the successful lookup is `false`,
+      # including an API error: doubt costs a matrix, never a skipped gate.
+      - name: Has this release PR's tree passed on test?
+        id: release
+        if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const sha = context.payload.pull_request.head.sha;
+            const runEverything = (why) => {
+              core.info(`Running the full matrix: ${why}`);
+              core.setOutput('validated', 'false');
+            };
+
+            let found;
+            try {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'ci.yml',
+                branch: 'test',
+                head_sha: sha,
+                event: 'push',
+              });
+              found = runs.data.workflow_runs;
+            } catch (error) {
+              return runEverything(
+                `could not read the runs on test for ${sha} (${error.message})`);
+            }
+
+            const passed = found.find((r) => r.conclusion === 'success');
+            if (!passed) {
+              const running = found.find((r) => r.status !== 'completed');
+              return runEverything(running
+                ? `CI on test is still running for ${sha} (run ` +
+                  `#${running.run_number}: ${running.html_url}), so this tree ` +
+                  `is not proven yet`
+                : `no successful CI run on test for ${sha} — this tree has ` +
+                  `not been validated`);
+            }
+
+            core.info(
+              `CI run #${passed.run_number} passed on test for ${sha} ` +
+              `(${passed.html_url}) — the suites are skipped in favour of ` +
+              `'Release tree already tested on test'.`);
+            core.setOutput('validated', 'true');
+            core.setOutput('run_url', passed.html_url);
+
       # ---- Which unit suites does this diff need? ---------------------------
       #
       # These used to be 20 separate jobs, one per app, each doing checkout +
@@ -428,16 +536,25 @@ jobs:
             usage:usage/
             whatsapp:whatsapp/
             worksheets:worksheets/
-          # The project package's own tests have no filter of their own — they
-          # ran on `shared` when this was the health-tests job, and `shared` is
-          # one of the two things inside RUN_ALL.
+          # The project package's own tests have no app filter of their own.
+          # They run on `shared` (one of the two things inside RUN_ALL) and on
+          # a bare version bump, which is the only other change that can reach
+          # them: /api/health/ reports APP_VERSION and base.html prints it.
           UNIT_SHARED_ONLY: cwa_classroom/tests.py
           CHANGED: ${{ toJSON(steps.filter.outputs) }}
           # The safety net the per-app jobs used to carry in their own `if:`.
           # A merge to `test` is the promotion gate and runs EVERY unit suite:
           # they are the cheap half and the half that catches one app breaking
           # another, which a PR narrowed to the changed app cannot see.
-          RUN_ALL: ${{ github.event_name == 'push' || steps.filter.outputs.shared == 'true' }}
+          #
+          # A release PR whose tree `test` has NOT proven green is the third
+          # case: the promotion gate has to be the whole suite, and no path
+          # filter narrows it. A validated one skips these jobs entirely.
+          RUN_ALL: ${{ github.event_name == 'push' || steps.filter.outputs.shared == 'true' || steps.release.outputs.validated == 'false' }}
+          # A version bump on its own. NOT part of RUN_ALL — it adds the
+          # project package's tests and nothing else, which is the whole
+          # saving: this used to be a `shared` change and ran all 20 suites.
+          VERSION_ONLY: ${{ steps.filter.outputs.version }}
         run: |
           set -euo pipefail
           dirs=""
@@ -448,7 +565,7 @@ jobs:
               dirs="$dirs $target"
             fi
           done <<<"$UNIT_SUITES"
-          if [ "$RUN_ALL" = "true" ]; then
+          if [ "$RUN_ALL" = "true" ] || [ "$VERSION_ONLY" = "true" ]; then
             dirs="$dirs $UNIT_SHARED_ONLY"
           fi
           dirs=$(echo $dirs)
@@ -579,65 +696,44 @@ jobs:
         run: pytest tests_workflows.py -v --tb=short
 
   # A release PR (test -> main) merges `test` into `main` unchanged, so its tree
-  # is byte-identical to the one the full matrix just ran on `test`. Re-running
-  # every suite over it proved nothing and cost a second full matrix per
-  # release — which is how the Actions spending limit was reached mid-release.
+  # is normally byte-identical to the one the full matrix just ran on `test`.
+  # Re-running every suite over it proved nothing and cost a second full matrix
+  # per release — which is how the Actions spending limit was reached
+  # mid-release.
   #
-  # It is NOT simply skipped: a PR showing no checks at all is how a dead CI
-  # went unnoticed here for four days. This asserts the claim the skip relies
-  # on — that this exact commit already passed CI on `test`.
+  # This job is the READABLE half of that skip. `changes` makes the claim (see
+  # "Has this release PR's tree passed on test?"); this states it, and names
+  # the run that covered the tree. It exists because a PR showing no checks at
+  # all is how a dead CI went unnoticed here for four days — a skip has to say
+  # so out loud.
+  #
+  # It no longer has to fail: a release PR whose tree is NOT validated does not
+  # reach this job at all. It runs the full matrix instead, which is a better
+  # answer than a red tick telling you the tests you wanted were not run.
   release-already-tested:
     name: Release tree already tested on test
     needs: changes
-    if: ${{ needs.changes.outputs.release == 'true' }}
+    if: ${{ needs.changes.outputs.release == 'true' && needs.changes.outputs.release_validated == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5   # instant
-    permissions:
-      actions: read
-      contents: read
     steps:
-      # v8+ runs on Node 24. v7 is a Node 20 action, and the runners now warn
-      # that Node 20 is deprecated — a warning on every release PR would teach
-      # people to ignore this job's output, which is the one thing it exists to
-      # be read for.
-      - uses: actions/github-script@v8
-        with:
-          script: |
-            const sha = context.payload.pull_request.head.sha;
-            const runs = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'ci.yml',
-              branch: 'test',
-              head_sha: sha,
-              event: 'push',
-            });
-            const found = runs.data.workflow_runs;
-            const passed = found.find(r => r.conclusion === 'success');
-            if (passed) {
-              core.info(`CI run #${passed.run_number} passed on test for ${sha}`);
-              core.info(passed.html_url);
-              return;
-            }
-            const running = found.find(r => r.status !== 'completed');
-            if (running) {
-              // Name the run rather than showing a bare red tick — nothing is
-              // wrong, it simply has not finished, and re-running THIS job is
-              // the fix.
-              core.setFailed(
-                `CI on test is still running for ${sha} ` +
-                `(run #${running.run_number}: ${running.html_url}). ` +
-                `Re-run this check once it finishes.`);
-              return;
-            }
-            core.setFailed(
-              `No successful CI run on test for ${sha}. ` +
-              `This tree has not been validated — do not merge to main.`);
+      - name: Report which run validated this tree
+        env:
+          RUN_URL: ${{ needs.changes.outputs.release_run }}
+        run: |
+          echo "This release PR's tree already passed the full CI matrix on"
+          echo "\`test\`, so the suites are skipped rather than re-run over"
+          echo "byte-identical content."
+          echo
+          echo "The run that covered it: ${RUN_URL:-(see 'Detect changed areas')}"
+          echo
+          echo "Had the tree NOT been validated — a release PR carrying a commit"
+          echo "of its own — this job would not run and the full matrix would."
 
   classroom-tests:
     name: Classroom Tests
     needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && (github.event_name == 'push' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.classroom == 'true') }}
+    if: ${{ (needs.changes.outputs.release != 'true' || needs.changes.outputs.release_validated != 'true') && (github.event_name == 'push' || needs.changes.outputs.release_validated == 'false' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.classroom == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45   # ~3min
     steps:
@@ -667,7 +763,7 @@ jobs:
   unit-tests:
     name: Unit Tests
     needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && needs.changes.outputs.unit_dirs != '' }}
+    if: ${{ (needs.changes.outputs.release != 'true' || needs.changes.outputs.release_validated != 'true') && needs.changes.outputs.unit_dirs != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40   # ~2min
     steps:
@@ -731,7 +827,7 @@ jobs:
   ui-matrix:
     name: Select UI suites
     needs: changes
-    if: ${{ needs.changes.outputs.release != 'true' && needs.changes.outputs.skip_ui_matrix != 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test')) }}
+    if: ${{ (needs.changes.outputs.release != 'true' || needs.changes.outputs.release_validated != 'true') && needs.changes.outputs.skip_ui_matrix != 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10   # instant
     outputs:
@@ -748,7 +844,10 @@ jobs:
           # No `push` arm: a merge to `test` runs the groups its own diff
           # touches, exactly as a PR does. `shared` / `ui_core` still force
           # every group on either event, because those can break any page.
-          RUN_ALL: ${{ needs.changes.outputs.shared == 'true' || needs.changes.outputs.ui_core == 'true' }}
+          # An unvalidated release PR is the third case: nothing has taken
+          # this tree through the matrix, so the promotion gate runs every
+          # group rather than the ones its diff happens to touch.
+          RUN_ALL: ${{ needs.changes.outputs.shared == 'true' || needs.changes.outputs.ui_core == 'true' || needs.changes.outputs.release_validated == 'false' }}
         run: |
           set -euo pipefail
           all=$(jq -c '[to_entries[]

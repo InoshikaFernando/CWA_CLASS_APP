@@ -12,6 +12,12 @@ Because the sentence IS the widget, every surface that includes this must
 suppress its own separate question-text paragraph (guard it with
 ``{% if not q.blank_data %}``) or the question would be printed twice.
 
+A newline in the question text renders as a line break (``linebreaksbr``)
+rather than collapsing into a space, so a sentence the author put on its own
+line stays on its own line — which is how the rule gap appended by
+``convert_fill_blanks --add-rule-blank`` reads as a labelled line under the
+sequence instead of a stray box at the end of it.
+
 Deliberately NOT "cwa-exp-input": that class makes maths_exponent.js move the
 field into a flex row and hang a 12-button symbol keypad off it, which is right
 for one answer box at the end of a question and unusable for a gap sitting
@@ -25,7 +31,7 @@ on homework, "text_answer" on quiz / worksheets).
 <div data-fb-stage>
   <input type="hidden" name="{{ field_name }}" data-fb-hidden value='{"blanks":[]}' />
   <p class="text-gray-900 font-medium leading-loose">
-    {% for part in d.parts %}{% if part.text %}{{ part.text|exponents }}{% else %}<input
+    {% for part in d.parts %}{% if part.text %}{{ part.text|exponents|linebreaksbr }}{% else %}<input
       type="text" data-fb-input data-index="{{ part.index }}" size="{{ part.size }}"
       autocomplete="off" aria-label="Blank {{ part.index|add:1 }} of {{ d.count }}"
       class="inline-block align-baseline mx-1 w-auto text-center bg-blue-50

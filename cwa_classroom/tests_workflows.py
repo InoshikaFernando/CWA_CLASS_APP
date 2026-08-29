@@ -671,26 +671,111 @@ def test_a_push_to_main_does_not_re_run_the_matrix():
         'a push to main re-runs every suite over a tree that already passed')
 
 
-def test_a_release_pr_does_not_re_run_the_whole_matrix():
-    """A release PR's tree is identical to what `test` just validated."""
+def _release_step():
+    """The step in `changes` that decides whether a release PR is validated."""
+    for step in _ci_data()['jobs']['changes']['steps']:
+        if step.get('id') == 'release':
+            return step
+    raise AssertionError(
+        "ci.yml: the `changes` job has no step id: release, so "
+        "release_validated is always empty and every release PR runs the "
+        "full matrix")
+
+
+def test_a_validated_release_pr_does_not_re_run_the_whole_matrix():
+    """The usual release PR merges `test` unchanged, so its tree is proven.
+
+    Re-running every suite over byte-identical content proves nothing and cost
+    a second full matrix per release — the pattern that exhausted the Actions
+    spending limit on 2026-08-24 and stopped the production deploy.
+    """
     for name, job in _path_filtered_jobs(_ci_data()).items():
-        assert "needs.changes.outputs.release != 'true'" in job['if'], (
+        assert "needs.changes.outputs.release_validated != 'true'" in job['if'], (
             f'ci.yml job {name!r} would re-run on a release PR over a tree '
             f'that already passed on test')
+        assert "needs.changes.outputs.release != 'true'" in job['if'], (
+            f'ci.yml job {name!r} no longer recognises a release PR at all')
+
+
+def test_an_unvalidated_release_pr_runs_every_suite():
+    """The promotion gate must not go quiet on a tree nothing has tested.
+
+    A release PR carrying a commit of its own has a tree `test` never ran. The
+    old behaviour skipped every suite and went red with "do not merge" — no
+    test result at all, in exactly the case where the tests are the point. Now
+    it runs the whole matrix, path filters ignored.
+    """
+    for name, job in _path_filtered_jobs(_ci_data()).items():
+        condition = job['if']
+        assert "release_validated != 'true'" in condition, (
+            f'ci.yml job {name!r} skips every release PR, validated or not, so '
+            f'an unvalidated tree would be promoted with no suite having run')
+        # Getting past the release clause is not enough: a job that then gates
+        # on its OWN path filter would still sit out a release PR whose diff
+        # happens not to touch it. classroom-tests is the one that decides for
+        # itself; the other two take their work from `changes`.
+        if 'outputs.classroom' in condition:
+            assert "release_validated == 'false'" in condition, (
+                f'ci.yml job {name!r} clears the release clause but is then '
+                f'gated on its own path filter, so an unvalidated release PR '
+                f'whose diff misses that path would promote without it')
+
+    run_all = _unit_step()['env']['RUN_ALL']
+    assert "steps.release.outputs.validated == 'false'" in run_all, (
+        'ci.yml: an unvalidated release PR would run only the unit suites its '
+        'diff happens to touch, not the full gate')
+
+    assert "release_validated == 'false'" in _ui_matrix_run_all(), (
+        'ci.yml: an unvalidated release PR would run only the UI groups its '
+        'diff happens to touch, not the full gate')
+
+
+def test_the_release_claim_comes_from_an_actual_run_lookup():
+    """"Already tested" must be a fact about a run, never an assumption."""
+    step = _release_step()
+    script = str(step.get('with', {}).get('script', ''))
+    assert 'listWorkflowRuns' in script, (
+        'ci.yml: the release step no longer looks up a run on test, so '
+        'release_validated is asserted rather than checked')
+    assert "event: 'push'" in script and "branch: 'test'" in script, (
+        'ci.yml: the lookup must find a PUSH run on `test` — a pull_request '
+        'run tests refs/pull/N/merge, not the tree being promoted')
+    assert "conclusion === 'success'" in script, (
+        'ci.yml: a run that did not pass would count as validation')
+
+    # Every path out except the successful lookup must run the matrix, an API
+    # error included: doubt costs a matrix, never a skipped gate.
+    assert "setOutput('validated', 'true')" in script
+    assert script.count("setOutput('validated', 'true')") == 1, (
+        'ci.yml: more than one path claims the tree is validated')
+    assert 'catch' in script, (
+        'ci.yml: an API error would leave `validated` empty, which reads the '
+        'same as "not a release PR" — it must fall through to running the '
+        'matrix')
+
+    assert "github.base_ref == 'main'" in str(step.get('if', '')), (
+        'ci.yml: the release lookup runs on events that are not release PRs')
 
 
 def test_a_release_pr_still_gets_a_check():
     """Skipping is not the same as not checking.
 
     A PR showing no checks is how a dead CI went unnoticed here for four days.
-    The release PR must still assert the claim the skip relies on: that this
-    exact commit already passed CI on `test`.
+    When the suites are skipped, this job says so and names the run that
+    covered the tree — and it runs on exactly the condition that skips them,
+    so the two can never both be absent.
     """
     job = _ci_data()['jobs'][_RELEASE_GUARD_JOB]
-    assert "needs.changes.outputs.release == 'true'" in job['if']
-    script = '\n'.join(str(step) for step in job['steps'])
-    assert 'listWorkflowRuns' in script
-    assert 'setFailed' in script
+    condition = job['if']
+    assert "needs.changes.outputs.release == 'true'" in condition
+    assert "needs.changes.outputs.release_validated == 'true'" in condition, (
+        f'ci.yml: {_RELEASE_GUARD_JOB} would claim "already tested" on a '
+        f'release PR whose tree was never validated')
+
+    steps = str(job['steps'])
+    assert 'release_run' in steps, (
+        f'ci.yml: {_RELEASE_GUARD_JOB} no longer names the run that covered '
+        f'the tree, so the skip is a claim with no evidence attached')
 
 
 # ── The UI matrix is deduped against the PR run, and ONLY the UI matrix ──────
@@ -827,3 +912,126 @@ def test_bump_version_says_why_it_refused():
     for phrase in ('feature branch', 'matrix'):
         assert phrase in src, f'the refusal message should mention {phrase!r}'
 
+
+
+# ---------------------------------------------------------------------------
+# The version bump must not be a `shared` change
+# ---------------------------------------------------------------------------
+# `shared` is ci.yml's "run everything" escape hatch: a change to settings,
+# urls, middleware, conftest or requirements can break any app, so it bypasses
+# every path filter and runs all 20 unit suites, the classroom suite and all 15
+# UI groups — on the PR and again on the merge to `test`.
+#
+# APP_VERSION used to live in settings.py, and the runbook makes every feature
+# branch bump it before its PR merges. So every PR was a `shared` change and
+# the path filtering the rest of ci.yml is built around never narrowed
+# anything. PR #834 is the worked example: three files under maths/ plus the
+# version line, and CI ran the entire matrix on 5 UI runners.
+#
+# The constant now lives in cwa_classroom/version.py, which `shared` does not
+# watch. These tests hold that apart. They live in this file because it runs in
+# the ungated migration-check job, so the guard cannot itself be skipped by a
+# path filter.
+
+_PROJECT_PACKAGE = REPO_ROOT / 'cwa_classroom' / 'cwa_classroom'
+_VERSION_FILE = 'cwa_classroom/cwa_classroom/version.py'
+
+
+def test_the_version_file_is_not_a_shared_change():
+    """The bump every PR carries must not run every suite in the repo."""
+    shared = _ci_filters()['shared']
+    assert _VERSION_FILE not in shared, (
+        f'ci.yml: `shared` watches {_VERSION_FILE}, so every version bump — '
+        f'i.e. every PR — runs all 20 unit suites and all 15 UI groups again.')
+    assert 'cwa_classroom/cwa_classroom/**' not in shared, (
+        'ci.yml: `shared` globs the whole project package again, which puts '
+        f'{_VERSION_FILE} back inside it. paths-filter\'s default quantifier '
+        'is `some`, so a "!…/version.py" line does NOT exclude anything — it '
+        'matches every file that is not version.py. List the package instead.')
+
+
+def test_every_project_package_file_is_classified():
+    """A new module in the project package must not go unwatched.
+
+    `shared` lists the package file by file so version.py can be left out of
+    it, and a list is only as good as what keeps it current. A file that is
+    neither watched nor named as the version file would change CI's behaviour
+    without changing anything a reviewer looks at.
+    """
+    shared = set(_ci_filters()['shared'])
+    on_disk = {
+        f'cwa_classroom/cwa_classroom/{path.name}'
+        for path in _PROJECT_PACKAGE.iterdir()
+        if path.is_file() and path.suffix == '.py'
+    }
+    unwatched = sorted(on_disk - shared - {_VERSION_FILE})
+    assert not unwatched, (
+        'files in the project package that no ci.yml filter watches:\n  '
+        + '\n  '.join(unwatched)
+        + '\n\nA change to one of these would run only the suites whose own '
+          "paths happened to change. Add each to ci.yml's `shared` filter.")
+
+    stale = sorted(
+        path for path in shared
+        if path.startswith('cwa_classroom/cwa_classroom/')
+        and not (REPO_ROOT / path).exists()
+    )
+    assert not stale, (
+        f'ci.yml `shared` names project-package files that no longer exist: '
+        f'{stale}')
+
+
+def test_the_version_bump_still_runs_the_tests_that_can_see_it():
+    """Narrower is not the same as unchecked.
+
+    /api/health/ reports APP_VERSION and base.html prints it, and the project
+    package's own tests are what exercise both. A bump runs those — and only
+    those — rather than standing in for a change to settings.
+    """
+    env = _unit_step()['env']
+    assert env['UNIT_SHARED_ONLY'] == 'cwa_classroom/tests.py'
+    assert 'steps.filter.outputs.version' in env.get('VERSION_ONLY', ''), (
+        'ci.yml: the unit step no longer reads the `version` filter, so a '
+        'version-only PR would run no unit suite at all')
+    assert 'version' in _ci()['jobs']['changes']['outputs'], (
+        'ci.yml: the `changes` job does not expose the `version` filter')
+
+    run = _unit_step()['run']
+    assert '$VERSION_ONLY' in run, (
+        'ci.yml: VERSION_ONLY is declared but never read, so a version-only '
+        'PR runs nothing')
+
+
+def test_the_version_lives_in_exactly_one_place():
+    """settings.py must re-export the constant, never declare it.
+
+    A second declaration would put the value back inside `shared` — and worse,
+    the two could disagree about what is deployed.
+    """
+    settings = (_PROJECT_PACKAGE / 'settings.py').read_text(encoding='utf-8')
+    assert not re.search(r'^APP_VERSION\s*=', settings, re.MULTILINE), (
+        'cwa_classroom/settings.py declares APP_VERSION again. Every PR bumps '
+        'it, and every file in that package is watched by `shared`, so this '
+        'puts the full matrix back on every PR. Import it from version.py.')
+    assert 'from .version import' in settings, (
+        'cwa_classroom/settings.py no longer re-exports APP_VERSION, so '
+        'settings.APP_VERSION — which /api/health/ and base.html read — is '
+        'gone')
+
+    version_module = (_PROJECT_PACKAGE / 'version.py').read_text(encoding='utf-8')
+    assert re.search(r"^APP_VERSION\s*=\s*'\d+\.\d+\.\d+'", version_module,
+                     re.MULTILINE), (
+        'cwa_classroom/version.py has no APP_VERSION for bump_version.py to '
+        'find')
+
+
+def test_bump_version_writes_the_version_file_not_settings():
+    """bump_version.py must edit the file `shared` does not watch."""
+    src = _bump_script()
+    assert "'version.py'" in src, (
+        'scripts/bump_version.py no longer targets version.py. Bumping '
+        'settings.py instead makes every release PR a `shared` change again, '
+        'which runs the whole matrix twice per release.')
+    assert "'settings.py'" not in src, (
+        'scripts/bump_version.py writes settings.py, which puts the version '
+        'back inside the `shared` filter')

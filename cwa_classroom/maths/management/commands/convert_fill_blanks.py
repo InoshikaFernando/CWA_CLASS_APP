@@ -138,7 +138,8 @@ class Command(BaseCommand):
             '--add-rule-blank', action='store_true',
             help='Repair the pattern questions refused because their stored '
                  'answer is the RULE ("+15") and the sentence has no gap for '
-                 'it, by appending one ("... What is the rule? ___") and '
+                 'it, by appending one on its own line ("The rule is: ___") '
+                 'and '
                  'converting them. The gaps of the pattern itself are filled '
                  'from the sequence the question prints, not from the rows. '
                  'This EDITS question_text — the only thing here that does — '
@@ -193,8 +194,13 @@ class Command(BaseCommand):
         # The database cannot count underscore runs, so narrow to text that has
         # any underscore at all and do the real count in Python.
         qs = qs.filter(question_text__contains='__')
-        if not opts['force']:
+        if not opts['force'] and not opts['add_rule_blank']:
             qs = qs.filter(blank_spec__isnull=True)
+        # --add-rule-blank also has business with questions that ALREADY
+        # converted: sixteen of them ask "State the rule and the three missing
+        # numbers", and the row rules filled their number gaps and dropped the
+        # rule, which no gap now holds. Those are reached only by including
+        # them here — and the loop gives them the rule gap and nothing else.
         return qs.select_related('topic', 'level').prefetch_related('answers').order_by('pk')
 
     # ------------------------------------------------------------------
@@ -235,6 +241,24 @@ class Command(BaseCommand):
 
         for q in candidates:
             was = q.question_type
+
+            if q.blank_spec is not None and not opts['force']:
+                # Already converted, so the only thing wanted here is the rule
+                # gap it never got. Adding one re-derives the whole spec from
+                # the question and its answer rows — the same thing every save
+                # through the teacher form and the importer does — so a gap
+                # edited out of band comes back as the derivation reads it.
+                # For these sixteen that is the values they already hold.
+                text, changed, reason = self._add_rule_blank_and_retry(q, opts)
+                if not text:
+                    continue
+                rule_blanks.append((q, text))
+                edited_text.add(q.pk)
+                if apply_changes:
+                    q.save(update_fields=fields_for(q))
+                converted.append((q, was))
+                continue
+
             # The same entry point the AI importer, the spreadsheet upload and
             # the teacher form use, so a question converted in bulk comes out
             # identical to one that arrived already marked up.
