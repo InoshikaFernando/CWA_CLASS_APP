@@ -8,7 +8,7 @@
   {% for col, label in sort_columns %}
     {% with is_asc=order_by|stringformat:"s" %}
     <button type="button"
-            hx-get="{% url 'admin_school_students' school.id %}?order_by={% if is_asc == col %}-{{ col }}{% else %}{{ col }}{% endif %}{% if show_inactive %}&amp;show_inactive=1{% endif %}"
+            hx-get="{% url 'admin_school_students' school.id %}?order_by={% if is_asc == col %}-{{ col }}{% else %}{{ col }}{% endif %}{% if show_inactive %}&amp;show_inactive=1{% endif %}{% if subscribed_only %}&amp;subscribed=1{% endif %}"
             hx-target="#students-panel" hx-swap="innerHTML"
             hx-include="input[name='q']"
             hx-push-url="true"
@@ -194,7 +194,19 @@
         </div>
       {% empty %}
         <div class="px-6 py-12 text-center text-gray-400">
-          {% if q %}No students matching "{{ q }}".{% else %}No students found.{% endif %}
+          {% comment %}
+            Name the filter that emptied the list. "No students found" under an
+            active Subscribed-only chip reads as "this school has no students".
+          {% endcomment %}
+          {% if q and subscribed_only %}
+            No subscribed students matching "{{ q }}".
+          {% elif q %}
+            No students matching "{{ q }}".
+          {% elif subscribed_only %}
+            No students with an active or trialing subscription.
+          {% else %}
+            No students found.
+          {% endif %}
         </div>
       {% endfor %}
     </div>
