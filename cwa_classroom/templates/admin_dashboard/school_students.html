@@ -362,8 +362,10 @@
                  class="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
         </div>
         {% if show_inactive %}<input type="hidden" name="show_inactive" value="1" id="show-inactive-flag">{% endif %}
-        {# Carries the subscribed filter into every HTMX search — the panel is
-           swapped, this form is not, so the flag survives each keystroke. #}
+        {% comment %}
+          Carries the subscribed filter into every HTMX search — the panel is
+          swapped, this form is not, so the flag survives each keystroke.
+        {% endcomment %}
         {% if subscribed_only %}<input type="hidden" name="subscribed" value="1" id="subscribed-flag">{% endif %}
       </div>
 
