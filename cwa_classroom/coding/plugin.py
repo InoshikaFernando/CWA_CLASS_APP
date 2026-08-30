@@ -390,6 +390,28 @@ class CodingExercisePlugin(SubjectPlugin):
             for tl in rows
         }
 
+    def topic_content_counts(self, classroom, topic_ids, question_type=None,
+                             exclude_content_ids=None):
+        from django.db.models import Count
+        from coding.models import CodingExercise
+
+        ids = [int(t) for t in topic_ids if str(t).isdigit()]
+        if not ids:
+            return {}
+        # Mirrors pick_homework_items' pool exactly, including is_active on the
+        # exercise, so the count cannot promise more than the generator draws.
+        qs = CodingExercise.objects.visible_to_classroom(classroom).filter(
+            topic_level_id__in=ids, is_active=True,
+        )
+        if question_type:
+            qs = qs.filter(question_type=question_type)
+        if exclude_content_ids:
+            qs = qs.exclude(pk__in=list(exclude_content_ids))
+        return {
+            row['topic_level_id']: row['n']
+            for row in qs.values('topic_level_id').annotate(n=Count('pk'))
+        }
+
     def pick_homework_items(self, classroom, selected_topic_ids, n, question_type=None,
                             exclude_content_ids=None):
         """Return up to ``n`` CodingExercise pks from the selected TopicLevels.

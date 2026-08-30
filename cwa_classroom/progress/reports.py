@@ -427,6 +427,36 @@ def trend_section(submissions, period_type):
     ]
 
 
+def _worksheets_assigned(student, begin, finish, classroom_ids):
+    """How many worksheets were SET in this window, completed or not.
+
+    Without it "3 worksheets" is a number with no denominator: a reader cannot
+    tell three of three from three of ten, and those say opposite things about
+    the same child.
+
+    WorksheetAssignment carries no due date — only ``assigned_at`` — so this
+    counts what was set during the window rather than what fell due in it, and
+    the report labels it that way. Inventing a deadline the model does not have
+    would be worse than naming the one date that exists.
+
+    Scoped to the student's own classes when the caller named none; otherwise
+    a report would count every worksheet set anywhere in the system.
+    """
+    from worksheets.models import WorksheetAssignment
+
+    qs = WorksheetAssignment.objects.filter(
+        is_active=True, assigned_at__gte=begin, assigned_at__lte=finish,
+    )
+    if classroom_ids is not None:
+        qs = qs.filter(classroom_id__in=classroom_ids)
+    else:
+        qs = qs.filter(
+            classroom__class_students__student=student,
+            classroom__class_students__is_active=True,
+        )
+    return qs.distinct().count()
+
+
 def worksheets_section(student, start, end, classroom_ids=None):
     """Worksheet completions in the window — the secondary source (§2)."""
     from worksheets.models import WorksheetSubmission
@@ -442,6 +472,7 @@ def worksheets_section(student, start, end, classroom_ids=None):
         qs = qs.filter(assignment__classroom_id__in=classroom_ids)
     completed = list(qs.select_related('assignment__worksheet'))
     return {
+        'assigned': _worksheets_assigned(student, begin, finish, classroom_ids),
         'completed': len(completed),
         'average_pct': _mean([s.percentage for s in completed]),
         'items': [

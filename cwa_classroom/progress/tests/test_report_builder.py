@@ -306,3 +306,67 @@ class SoftDeletedHomeworkTests(ReportBuilderBase):
                 self.student, periods.WEEKLY, START, END)['awards']
         }
         self.assertIn('top_scorer', codes)
+
+
+class WorksheetsAssignedTests(TestCase):
+    """A completion count with no denominator cannot be read.
+
+    "3 worksheets" is three of three or three of ten, and those say opposite
+    things about the same child. The section reported only completions.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = make_school(name='WS School', slug='ws-school')
+        cls.student = make_user('ws_student', first_name='Aadya')
+        cls.room = make_classroom(cls.school, name='Year 5', code='WS000001')
+        cls.other = make_classroom(cls.school, name='Other', code='WS000002')
+        enrol(cls.room, cls.student)
+
+    @staticmethod
+    def _assign(classroom, when, name='Fractions sheet', active=True):
+        from worksheets.models import Worksheet, WorksheetAssignment
+
+        sheet = Worksheet.objects.create(
+            school=classroom.school, name=name, original_filename=f'{name}.pdf',
+        )
+        row = WorksheetAssignment.objects.create(
+            worksheet=sheet, classroom=classroom, is_active=active,
+        )
+        # assigned_at is auto_now_add, so it has to be moved afterwards.
+        WorksheetAssignment.objects.filter(pk=row.pk).update(assigned_at=when)
+        return row
+
+    def _section(self, classroom_ids=None):
+        return reports.worksheets_section(
+            self.student, START, END, classroom_ids=classroom_ids,
+        )
+
+    def test_it_counts_the_worksheets_set_in_the_window(self):
+        self._assign(self.room, at(date(2026, 8, 18)), name='One')
+        self._assign(self.room, at(date(2026, 8, 20)), name='Two')
+
+        self.assertEqual(self._section([self.room.id])['assigned'], 2)
+
+    def test_one_set_before_the_window_does_not_count(self):
+        self._assign(self.room, at(date(2026, 8, 10)), name='Older')
+
+        self.assertEqual(self._section([self.room.id])['assigned'], 0)
+
+    def test_an_inactive_assignment_does_not_count(self):
+        self._assign(self.room, at(date(2026, 8, 18)), name='Withdrawn',
+                     active=False)
+
+        self.assertEqual(self._section([self.room.id])['assigned'], 0)
+
+    def test_another_class_does_not_count(self):
+        self._assign(self.other, at(date(2026, 8, 18)), name='Elsewhere')
+
+        self.assertEqual(self._section([self.room.id])['assigned'], 0)
+
+    def test_an_unscoped_report_still_counts_only_this_student_s_classes(self):
+        """The trap: no classroom_ids must not mean every class in the system."""
+        self._assign(self.room, at(date(2026, 8, 18)), name='Mine')
+        self._assign(self.other, at(date(2026, 8, 18)), name='Not mine')
+
+        self.assertEqual(self._section()['assigned'], 1)

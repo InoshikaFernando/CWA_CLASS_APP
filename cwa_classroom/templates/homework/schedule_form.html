@@ -38,6 +38,17 @@
           {% if is_create %}(change it from the schedules page){% else %}(fixed once created){% endif %}
         </p>
 
+        {% if is_create %}
+        <div class="mb-6 p-3 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-900">
+          <span class="font-medium">Topics come next.</span>
+          This page sets the dates and the weekly cadence. When you save, you
+          get one row per teaching week — a whole term is 10 or 11 rows — and
+          you pick that week's topics there. Each week is independent, so you
+          can run Algebra in week 1, Number in week 2 and Algebra again in
+          week 3.
+        </div>
+        {% endif %}
+
         <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mt-6 mb-3">Period</h2>
 
         <div class="mb-4">

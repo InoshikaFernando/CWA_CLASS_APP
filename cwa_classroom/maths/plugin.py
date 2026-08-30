@@ -124,6 +124,30 @@ class MathsPlugin(SubjectPlugin):
             .values('id', 'name', 'parent__name')
         }
 
+    def topic_content_counts(self, classroom, topic_ids, question_type=None,
+                             exclude_content_ids=None):
+        from django.db.models import Count
+        from maths.models import Question
+
+        ids = [int(t) for t in topic_ids if str(t).isdigit()]
+        if not ids:
+            return {}
+        # Same scoping as pick_homework_items — visible_to_classroom plus the
+        # class's levels — so the count a teacher reads is the pool the
+        # generator will actually draw from.
+        qs = Question.objects.visible_to_classroom(classroom).filter(topic_id__in=ids)
+        classroom_levels = classroom.levels.all()
+        if classroom_levels.exists():
+            qs = qs.filter(level__in=classroom_levels)
+        if question_type:
+            qs = qs.filter(question_type=question_type)
+        if exclude_content_ids:
+            qs = qs.exclude(pk__in=list(exclude_content_ids))
+        return {
+            row['topic_id']: row['n']
+            for row in qs.values('topic_id').annotate(n=Count('pk'))
+        }
+
     def pick_homework_items(self, classroom, selected_topic_ids, n, question_type=None,
                             exclude_content_ids=None):
         from classroom.models import Topic
