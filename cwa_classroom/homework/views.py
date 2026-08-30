@@ -1,4 +1,5 @@
 import json
+import logging
 import random
 import time as time_module
 from datetime import datetime, time as datetime_time, timedelta
@@ -25,6 +26,7 @@ from classroom.subject_registry import (
 )
 from classroom.views import RoleRequiredMixin
 from maths.models import Answer, Question, calculate_points
+from worksheets.grading_service import credit_for, verdict
 from rewards.models import PointsSource
 from rewards.services import award_points_safe, normalise
 from maths.views import select_questions_stratified
@@ -1702,11 +1704,27 @@ def grade_pending_answers(submission, school):
     for answer in pending:
         try:
             result = grade_extended_answer(answer.question, answer.text_answer, school=school)
+            if result.get('error') or result.get('quota_exceeded'):
+                # Not a verdict: the quota ran out, the API failed, or the
+                # question's diagram could not be loaded. Leave the answer
+                # pending so it shows on the teacher's review screen (and a
+                # later run can retry it) instead of recording a 0 the
+                # grader never actually reached.
+                answer.ai_feedback = result.get('feedback', '')
+                answer.save(update_fields=['ai_feedback'])
+                logging.getLogger(__name__).warning(
+                    'AI grading left HomeworkStudentAnswer %s pending: %s',
+                    answer.pk, result.get('error') or 'monthly quota reached',
+                )
+                continue
             score_frac = result.get('score_fraction', 0.0)
             answer.is_correct = result.get('is_correct', False)
             answer.ai_score_fraction = score_frac
             answer.ai_feedback = result.get('feedback', '')
-            answer.points_earned = round(answer.question.points * score_frac, 2)
+            # Below the pass mark the answer is wrong and earns nothing; from
+            # there up it keeps its share of the marks (credit_for).
+            answer.points_earned = round(
+                answer.question.points * credit_for(score_frac), 2)
             answer.review_status = HomeworkStudentAnswer.REVIEW_AI_DONE
             answer.graded_at = timezone.now()
             answer.save(update_fields=[
@@ -1714,7 +1732,6 @@ def grade_pending_answers(submission, school):
                 'points_earned', 'review_status', 'graded_at',
             ])
         except Exception:
-            import logging
             logging.getLogger(__name__).exception(
                 f'AI grading failed for HomeworkStudentAnswer {answer.pk}'
             )
@@ -3319,10 +3336,20 @@ class HomeworkAIGradeView(RoleRequiredMixin, View):
         school = get_school_for_user(request.user)
         try:
             result = grade_extended_answer(answer.question, answer.text_answer, school=school)
+            if result.get('error') or result.get('quota_exceeded'):
+                # No verdict — say so and leave the answer pending rather than
+                # writing a 0 to the student's record under "AI graded".
+                messages.error(
+                    request,
+                    'AI grading could not mark this answer: '
+                    f'{result.get("feedback") or result.get("error")}',
+                )
+                return redirect('homework:pending_review')
             answer.is_correct = result.get('is_correct', False)
             answer.ai_score_fraction = result.get('score_fraction', 0.0)
             answer.ai_feedback = result.get('feedback', '')
-            answer.points_earned = round(answer.question.points * answer.ai_score_fraction, 2)
+            answer.points_earned = round(
+                answer.question.points * credit_for(answer.ai_score_fraction), 2)
             answer.review_status = HomeworkStudentAnswer.REVIEW_AI_DONE
             answer.graded_at = timezone.now()
             answer.save(update_fields=[
@@ -3385,7 +3412,7 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
         teacher_feedback = request.POST.get('teacher_feedback', '').strip()
 
         answer.ai_score_fraction = score_frac
-        answer.is_correct = score_frac >= 0.6
+        answer.is_correct = verdict(score_frac)[0]
         answer.points_earned = round(answer.question.points * score_frac, 2)
         answer.teacher_feedback = teacher_feedback
         answer.review_status = HomeworkStudentAnswer.REVIEW_TEACHER_DONE
@@ -3461,7 +3488,7 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
                     sib_norm = _normalise(sibling.text_answer)
                     if _levenshtein_ratio(normalised, sib_norm) >= 0.85:
                         sibling.ai_score_fraction = score_frac
-                        sibling.is_correct = score_frac >= 0.6
+                        sibling.is_correct = verdict(score_frac)[0]
                         sibling.points_earned = round(
                             (sibling.question.points if sibling.question else 1) * score_frac, 2
                         )

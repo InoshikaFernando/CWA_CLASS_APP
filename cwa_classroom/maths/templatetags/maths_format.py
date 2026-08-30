@@ -48,7 +48,10 @@ def exponents(value):
 # still set by the grader and left as-is, so a 0.85 answer keeps its points in
 # the tally while displaying as "Partially correct".
 CREDIT_FULL_MARK = 1.0    # a full-marks score shows the green "Correct" tick
-CREDIT_PARTIAL_FLOOR = 0.5  # >= this (but below full) shows amber "Partially correct"
+# >= this (but below full) shows amber "Partially correct". It is the grader's
+# own pass mark, so a review page and the quiz that produced the score cannot
+# disagree about which band an answer fell in.
+from worksheets.grading_service import PASS_MARK as CREDIT_PARTIAL_FLOOR  # noqa: E402
 
 
 @register.filter
@@ -89,7 +92,7 @@ def credit_state(answer):
       page. There is no 0.5 floor here — the fraction isn't a grader's opinion,
       it is a count of gaps.
     * **AI-graded** — carries an ``ai_score_fraction`` (0.0–1.0): fully correct
-      only at full marks, partially correct from 0.5 up to that, wrong below,
+      only at full marks, partially correct from the pass mark up to that, wrong below,
       because a low-confidence AI score is not evidence of partial understanding
       the way a right gap is.
     * **Everything else** (MCQ, exact-match, not yet graded) falls back to the

@@ -5,8 +5,9 @@ Context: question, answers (queryset of Answer objects)
 {% endcomment %}
 <div class="space-y-2">
   {% for ans in answers %}
-  {# Speaker sits OUTSIDE the label so tapping it reads the option aloud
-     without ever selecting that radio option. #}
+  {% comment %} Speaker sits OUTSIDE the label so tapping it reads the option aloud
+     without ever selecting that radio option.
+  {% endcomment %}
   <div class="flex items-center gap-2">
     <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-200 cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition group flex-1">
       <input type="radio" name="answer_id" value="{{ ans.pk }}" required

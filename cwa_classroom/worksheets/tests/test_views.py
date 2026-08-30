@@ -535,11 +535,11 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
 
     @patch('worksheets.views.grade_extended_answer')
     def test_grade_extended_answer_partial_credit_stored(self, mock_grade):
-        """A mid-range score (0.55) stores partial credit and displays as amber."""
+        """A score in the partly-correct band stores partial credit, shown amber."""
         mock_grade.return_value = {
             'is_correct': False,
             'is_partial': True,
-            'score_fraction': 0.55,
+            'score_fraction': 0.8,
             'feedback': 'You got some things right.',
             'what_was_correct': 'Mentioned gravity correctly.',
             'what_to_add': 'Add the inverse square law.',
@@ -554,14 +554,14 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
         self.assertTrue(sa.answer_data['is_partial'])
         self.assertEqual(sa.answer_data['what_was_correct'], 'Mentioned gravity correctly.')
         self.assertEqual(sa.answer_data['what_to_add'], 'Add the inverse square law.')
-        # Partial points awarded proportionally (0.55 * 1.0 = 0.55)
-        self.assertAlmostEqual(sa.points_earned, 0.55, places=2)
-        # Score >= 0.5 renders the amber partial state.
+        # Partial points awarded proportionally (0.8 * 1.0 = 0.8)
+        self.assertAlmostEqual(sa.points_earned, 0.8, places=2)
+        # A score in the band renders the amber partial state.
         self.assertContains(resp, 'Partially correct')
 
     @patch('worksheets.views.grade_extended_answer')
     def test_grade_extended_answer_low_score_displays_as_wrong(self, mock_grade):
-        """A low score (0.3, below the 0.5 partial floor) displays as wrong, not partial."""
+        """A low score (0.3, below the pass mark) displays as wrong, not partial."""
         mock_grade.return_value = {
             'is_correct': False,
             'is_partial': True,
@@ -588,6 +588,32 @@ class TestAnswerViewGrading(SessionDispatchTestBase):
         sa = WorksheetStudentAnswer.objects.get(content_id=q.pk, subject_slug='mathematics')
         self.assertFalse(sa.is_correct)
         self.assertEqual(sa.answer_data.get('review_status'), 'pending_ai')
+
+    @patch('worksheets.views.grade_extended_answer')
+    def test_extended_answer_with_an_unreadable_diagram_goes_to_the_teacher(self, mock_grade):
+        """A grader that never saw the diagram gives no verdict, so the answer
+        is held for the teacher rather than shown to the child as 0."""
+        mock_grade.return_value = {
+            'is_correct': False,
+            'is_partial': False,
+            'score_fraction': 0.0,
+            'feedback': ("This question's diagram could not be loaded, so the "
+                         'answer was not marked automatically.'),
+            'what_was_correct': '',
+            'what_to_add': '',
+            'cache_hit': False,
+            'error': 'diagram unavailable: could not read diagram "x.png"',
+        }
+        q = self._make_question('extended_answer')
+        assignment, _ = self._make_worksheet_with_question(q)
+        resp = self._submit_answer(assignment, q, text_answer='x is 40 degrees.')
+        self.assertEqual(resp.status_code, 200)
+        sa = WorksheetStudentAnswer.objects.get(content_id=q.pk, subject_slug='mathematics')
+        self.assertEqual(sa.answer_data.get('review_status'), 'pending_ai')
+        self.assertFalse(sa.is_correct)
+        self.assertAlmostEqual(sa.points_earned, 0.0, places=2)
+        # Not shown to the child as a wrong answer.
+        self.assertNotContains(resp, 'Not quite right')
 
     def test_grade_short_answer_exact_match(self):
         q = self._make_question('short_answer')

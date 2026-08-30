@@ -458,6 +458,7 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
   {{ d.svg|safe }}
   {% for p in d.given %}
   <circle cx="{{ p.px }}" cy="{{ p.py }}" r="5" fill="#1f6feb"/>
+  {% if p.label %}<text x="{{ p.lx }}" y="{{ p.ly }}" fill="#1f6feb" font-size="13" font-weight="600">{{ p.label }}</text>{% endif %}
   {% endfor %}
   {% if d.curve %}<path data-pl-curve="{{ q.id }}" d="" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"></path>{% endif %}
   <polyline data-pl-line="{{ q.id }}" points="" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"></polyline>
@@ -603,16 +604,27 @@ string to a coordinate set (parse_coords) and comparing to target.points.
   {{ d.svg|safe }}
   {% for p in d.given %}
   <circle cx="{{ p.px }}" cy="{{ p.py }}" r="5" fill="#dc2626"/>
+  {% if p.label %}<text x="{{ p.lx }}" y="{{ p.ly }}" fill="#dc2626" font-size="13" font-weight="600">{{ p.label }}</text>{% endif %}
   {% endfor %}
 </svg>
+{% endwith %}
+{% elif q.image %}
+<div class="mb-3"><img src="{{ q.image.url }}" alt="Coordinate grid" class="max-w-full rounded-lg border border-gray-200"></div>
+{% endif %}
+{% comment %}
+The answer box is OUTSIDE the plane_data guard on purpose. An identify_coords
+question stored without a renderable plane_spec used to render nothing at all —
+no grid and no input — so the child met a blank space and the mark was lost
+silently. The grader reads the typed string, not the drawing, so the question is
+still answerable from its text; the missing figure is the author's bug to fix,
+not the child's mark to lose.
+{% endcomment %}
 <div class="mt-2">
   <input type="text" id="answer_{{ q.id }}" name="answer_{{ q.id }}"
          class="w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
          placeholder="e.g. (-2, 4)" aria-label="Coordinates">
   <p class="text-xs text-gray-500 mt-1">Enter as <span class="font-mono">(x, y)</span>. Separate several points with spaces.</p>
 </div>
-{% endwith %}
-{% endif %}
 
 {% elif q.question_type == 'read_graph' %}
 {% comment %}
@@ -658,6 +670,16 @@ emitted into the page. A fill_blank question with no blank_spec falls through to
 the single box below, which is what it has always used.
 {% endcomment %}
 {% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_fill_blank_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
+
+{% elif q.pattern_field_data %}
+{% comment %}
+"Create your own number pattern": a box per number the question asks for and a
+box for the rule, composed into answer_<id> by static/js/pattern_fields.js as
+the one line maths.pattern_grading.grade_pattern reads — the same line a
+student would have typed into the single box below, which is what these
+questions used to get.
+{% endcomment %}
+{% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_pattern_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
 
 {% else %}
 <input type="text" name="answer_{{ q.id }}"

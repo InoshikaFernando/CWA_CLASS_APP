@@ -174,7 +174,7 @@
               <th class="text-left px-4 py-3 font-semibold text-gray-600 w-24">Type</th>
               <th class="text-center px-4 py-3 font-semibold text-gray-600 w-16">Image</th>
               <th class="text-left px-4 py-3 font-semibold text-gray-600">Correct Answer</th>
-              <th class="text-left px-4 py-3 font-semibold text-gray-600 w-20"></th>
+              <th class="text-left px-4 py-3 font-semibold text-gray-600 w-44"></th>
             {% endif %}
           </tr>
         </thead>
@@ -273,6 +273,18 @@
     </div>
   </div>
 </div>
+
+{% comment %}
+The "Preview as student" modal the editor's button opens. Included with no
+preview_url: this page previews stored questions, so each button carries its own
+endpoint. Deliberately placed AFTER the edit modal — both are z-50, and the
+preview has to land on top of the editor it was opened from.
+{% endcomment %}
+{% comment %} The modal posts, and the listing's own buttons are not inside a form: this
+   is the token that script finds.
+{% endcomment %}
+<div class="hidden">{% csrf_token %}</div>
+{% include "partials/_student_preview_modal.html" %}
 
 <script>
 function openImageModal(url) {

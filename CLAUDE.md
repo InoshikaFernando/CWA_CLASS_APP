@@ -57,6 +57,14 @@ bulk-fill script: [`Runbooks/jira-story-points.md`](Runbooks/jira-story-points.m
   (`--allow-protected` for a hotfix). This exhausted the Actions spending limit
   once, which stopped the production deploy:
   [`Runbooks/production-deployment.md`](Runbooks/production-deployment.md) § 2.1.
+- **The version constant lives in `cwa_classroom/cwa_classroom/version.py`, on
+  its own, and must stay there.** Every other file in that package is watched by
+  ci.yml's `shared` filter — the escape hatch that runs all 20 unit suites, the
+  classroom suite and all 15 UI groups. Because every PR bumps the version, a
+  version line in `settings.py` meant every PR ran the full matrix and the path
+  filtering never narrowed anything. `shared` therefore lists the package file
+  by file; `tests_workflows.py` fails the build if a new module there goes
+  unwatched, or if the version drifts back into `settings.py`.
 - No silent failure — surface errors (blank data, swallowed 4xx, no-op commands)
   rather than hiding them.
 
