@@ -51,11 +51,20 @@
       <option value="{{ value }}" {% if value == question.question_type %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
+    {% if not structured %}
     {# A one-option "multiple choice" is really a short answer question. #}
     <p class="text-xs text-gray-400 mt-1">
       A multiple-choice question left with a single option grades correctly as
       Short Answer — the stored option becomes the accepted typed answer.
     </p>
+    {% else %}
+    {# This type is not switchable, so the select round-trips it unchanged. #}
+    <p class="text-xs text-gray-400 mt-1">
+      This question is graded from its own stored figure and answer, not from a
+      list of options — having no answer rows is how it is built, not a fault.
+      {% if not is_plane %}Editing that figure is not offered here yet.{% endif %}
+    </p>
+    {% endif %}
   </div>
 
   <div class="mb-5">
@@ -64,6 +73,7 @@
               class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent focus:border-accent resize-y">{{ question.question_text }}</textarea>
   </div>
 
+  {% if not structured %}
   <div class="mb-5">
     <div class="flex items-center justify-between mb-2">
       <label class="block text-sm font-semibold text-gray-700">Answers</label>
@@ -149,14 +159,53 @@
       row.querySelector('input[type=text]').focus();
     }
   </script>
+  {% endif %}
 
+  {% if is_plane %}
   {% comment %}
-    The form shows what is STORED; the preview shows what a child MEETS. The
-    faults this editor exists to repair — one lonely option, every option
-    ticked correct, an answer no typed spelling matches — all look ordinary
-    above and only show themselves when you try to answer the question. The
-    button posts this form unsaved, so it previews the edit in front of you,
-    not the row on disk.
+  The figure. A coordinate question is READ off this plane, so a wrong one is
+  not cosmetic — the question that prompted this editor named A, B and C and
+  asked for the mid point of AB, and drew a single unlabelled dot at the mid
+  point itself. Every fault it had lived in this field and the editor had no
+  input for it.
+
+  given_points = what the child SEES, target = what they must answer. Keep them
+  apart unless the question really is "write the co-ordinates of the dot shown":
+  a point that is worked out (a mid point, an intersection) must not be drawn.
+  Name a point as [x, y, "A"] whenever the question calls it A.
+  {% endcomment %}
+  <div class="mb-5">
+    <label for="plane-spec" class="block text-sm font-semibold text-gray-700 mb-1.5">
+      Coordinate plane
+    </label>
+    <textarea id="plane-spec" name="plane_spec" rows="12" spellcheck="false"
+              data-testid="plane-spec"
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-xs focus:ring-2 focus:ring-accent focus:border-accent resize-y"
+              placeholder='{"bounds": {"xmin": 0, "xmax": 10, "ymin": 0, "ymax": 10}, "mode": "points", "given_points": [[2, 2, "A"], [8, 2, "B"]], "target": {"points": [[5, 2]]}}'>{{ plane_spec_json }}</textarea>
+    <p class="text-xs text-gray-500 mt-1.5">
+      <strong>given_points</strong> are drawn on the grid for the student to
+      read — write one as <span class="font-mono">[2, 2]</span>, or
+      <span class="font-mono">[2, 2, "A"]</span> to label it.
+      <strong>target.points</strong> is the answer.
+      They are the same list only when the question is "write down the
+      co-ordinates of the point shown". When the answer has to be
+      <em>worked out</em> — a mid point, where two lines cross — it belongs in
+      <span class="font-mono">target</span> and nowhere else, or the grid hands
+      the child the answer.
+    </p>
+    <p class="text-xs text-gray-400 mt-1">
+      Use <strong>Preview as student</strong> to see the grid this draws before
+      you save — it renders the plane you have typed, not the one on disk.
+    </p>
+  </div>
+  {% endif %}
+
+  {% comment %} The form shows what is STORED; the preview shows what a child MEETS. The
+     faults this editor exists to repair — one lonely option, every option
+     ticked correct, an answer no typed spelling matches — all look ordinary
+     above and only show themselves when you try to answer the question. The
+     button posts this form unsaved, so it previews the edit in front of you,
+     not the row on disk.
   {% endcomment %}
   <div class="flex items-center justify-between gap-3 pt-4 border-t border-slate-200">
     <button type="button"

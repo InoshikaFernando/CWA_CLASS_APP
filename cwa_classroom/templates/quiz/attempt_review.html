@@ -48,10 +48,9 @@
     {% if review %}
     <div class="space-y-3">
       {% for item in review %}
-      {% comment %}
-        A part-graded question (a fill-in-the-blank sentence) can be partly
-        right — it carries a gap-by-gap breakdown, and any gap right earned
-        marks, so it reads amber rather than a flat red cross.
+      {% comment %} A part-graded question (a fill-in-the-blank sentence) can be partly
+         right — it carries a gap-by-gap breakdown, and any gap right earned
+         marks, so it reads amber rather than a flat red cross.
       {% endcomment %}
       {% with partly=item.parts_correct %}
       <div class="flex items-start gap-3 p-4 rounded-xl border shadow-sm

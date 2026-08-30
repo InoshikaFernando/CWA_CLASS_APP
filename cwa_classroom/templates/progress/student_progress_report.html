@@ -22,9 +22,8 @@
       {% if schools|length > 1 %}
       <div class="flex-1">
         <label class="block text-sm font-medium text-gray-700 mb-1">School</label>
-        {% comment %}
-          Changing school resets the narrower filters — a department or class
-          from the previous school would match nothing here.
+        {% comment %} Changing school resets the narrower filters — a department or class
+           from the previous school would match nothing here.
         {% endcomment %}
         <select name="school"
                 onchange="this.form.department.value='';this.form.subject.value='';this.form.classroom.value='';this.form.submit()"

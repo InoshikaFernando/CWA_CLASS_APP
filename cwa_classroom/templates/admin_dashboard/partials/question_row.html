@@ -47,11 +47,10 @@
 </td>
 <td class="px-4 py-3">
   <div class="flex items-center gap-1.5">
-    {% comment %}
-      Straight from the listing, without opening the editor: the row shows the
-      stored answer, which is not the same thing as being able to answer the
-      question. Carrying its own endpoint (rather than the page carrying one)
-      is what lets a single preview modal serve every row.
+    {% comment %} Straight from the listing, without opening the editor: the row shows the
+       stored answer, which is not the same thing as being able to answer the
+       question. Carrying its own endpoint (rather than the page carrying one)
+       is what lets a single preview modal serve every row.
     {% endcomment %}
     <button type="button"
             data-testid="preview-as-student"

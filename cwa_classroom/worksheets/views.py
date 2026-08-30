@@ -1130,7 +1130,11 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                         'what_was_correct': result.get('what_was_correct', ''),
                         'what_to_add': result.get('what_to_add', ''),
                     }
-                    if result.get('quota_exceeded'):
+                    # No verdict was reached — the quota ran out, the API
+                    # failed, or the question's diagram could not be loaded.
+                    # Hand it to the teacher rather than showing the child a
+                    # 0 for something that was never marked.
+                    if result.get('quota_exceeded') or result.get('error'):
                         answer_data['review_status'] = 'pending_ai'
                     # Full marks, the share it earned, or nothing at all —
                     # credit_for() draws the same lines the student is shown.

@@ -1,4 +1,5 @@
 import json
+import logging
 import random
 import time as time_module
 from datetime import datetime, time as datetime_time, timedelta
@@ -1703,6 +1704,19 @@ def grade_pending_answers(submission, school):
     for answer in pending:
         try:
             result = grade_extended_answer(answer.question, answer.text_answer, school=school)
+            if result.get('error') or result.get('quota_exceeded'):
+                # Not a verdict: the quota ran out, the API failed, or the
+                # question's diagram could not be loaded. Leave the answer
+                # pending so it shows on the teacher's review screen (and a
+                # later run can retry it) instead of recording a 0 the
+                # grader never actually reached.
+                answer.ai_feedback = result.get('feedback', '')
+                answer.save(update_fields=['ai_feedback'])
+                logging.getLogger(__name__).warning(
+                    'AI grading left HomeworkStudentAnswer %s pending: %s',
+                    answer.pk, result.get('error') or 'monthly quota reached',
+                )
+                continue
             score_frac = result.get('score_fraction', 0.0)
             answer.is_correct = result.get('is_correct', False)
             answer.ai_score_fraction = score_frac
@@ -1718,7 +1732,6 @@ def grade_pending_answers(submission, school):
                 'points_earned', 'review_status', 'graded_at',
             ])
         except Exception:
-            import logging
             logging.getLogger(__name__).exception(
                 f'AI grading failed for HomeworkStudentAnswer {answer.pk}'
             )
@@ -3323,6 +3336,15 @@ class HomeworkAIGradeView(RoleRequiredMixin, View):
         school = get_school_for_user(request.user)
         try:
             result = grade_extended_answer(answer.question, answer.text_answer, school=school)
+            if result.get('error') or result.get('quota_exceeded'):
+                # No verdict — say so and leave the answer pending rather than
+                # writing a 0 to the student's record under "AI graded".
+                messages.error(
+                    request,
+                    'AI grading could not mark this answer: '
+                    f'{result.get("feedback") or result.get("error")}',
+                )
+                return redirect('homework:pending_review')
             answer.is_correct = result.get('is_correct', False)
             answer.ai_score_fraction = result.get('score_fraction', 0.0)
             answer.ai_feedback = result.get('feedback', '')
