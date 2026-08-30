@@ -148,6 +148,38 @@ Intended to run as a cron job every ~5 minutes. On the DigitalOcean server (`cwa
 */5 * * * * cd /home/cwa/CWA_CLASS_APP && /home/cwa/CWA_CLASS_APP/venv/bin/python manage.py publish_scheduled_homework >> /var/log/cwa/publish_scheduled_homework.log 2>&1
 ```
 
+### `generate_scheduled_questions`
+Turn each due week of a teacher's question schedule (CPP-399) into a homework set.
+A week is "due" once its release time minus the plan's `lead_days` has passed. The
+homework is created with a **future** `publish_at`, so it stays invisible to
+students until `publish_scheduled_homework` publishes it — that gap is the
+teacher's preview window. Idempotent per week: a week that already produced a
+homework is skipped, so a re-run or an overlapping manual run can never give a
+class two sets for the same week.
+
+A week whose planned topics yield no questions creates **nothing** and notifies the
+class's teachers (in-app + email) instead of failing silently.
+
+```bash
+python manage.py generate_scheduled_questions
+python manage.py generate_scheduled_questions --dry-run
+python manage.py generate_scheduled_questions --schedule 12
+python manage.py generate_scheduled_questions --dry-run --as-of 2026-09-07
+```
+
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | Report what would be generated; write nothing |
+| `--schedule <id>` | Limit to one `QuestionSchedule` |
+| `--as-of YYYY-MM-DD` | Treat that date's end as "now" — rehearse a future run |
+
+Runs daily on the DigitalOcean server via the drop-in installed by
+`deploy/setup-app-prod.sh`; use the wrapper (it holds the flock) rather than
+calling `manage.py` directly:
+```cron
+15 2 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_generate_scheduled_questions.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/scheduled_questions.log 2>&1
+```
+
 ---
 
 ## Progress Reports

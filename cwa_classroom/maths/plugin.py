@@ -112,7 +112,20 @@ class MathsPlugin(SubjectPlugin):
         from maths.models import Question
         return Question.QUESTION_TYPES
 
-    def pick_homework_items(self, classroom, selected_topic_ids, n, question_type=None):
+    def topic_labels(self, topic_ids):
+        from classroom.models import Topic
+
+        return {
+            row['id']: (
+                f"{row['parent__name']} \u203a {row['name']}"
+                if row['parent__name'] else row['name']
+            )
+            for row in Topic.objects.filter(pk__in=list(topic_ids))
+            .values('id', 'name', 'parent__name')
+        }
+
+    def pick_homework_items(self, classroom, selected_topic_ids, n, question_type=None,
+                            exclude_content_ids=None):
         from classroom.models import Topic
         from maths.models import Question
         from maths.views import select_questions_stratified
@@ -130,6 +143,8 @@ class MathsPlugin(SubjectPlugin):
             qs = qs.filter(level__in=classroom_levels)
         if question_type:
             qs = qs.filter(question_type=question_type)
+        if exclude_content_ids:
+            qs = qs.exclude(pk__in=list(exclude_content_ids))
         all_questions = list(qs)
 
         if not all_questions:

@@ -170,6 +170,20 @@ cat > /etc/cron.d/cwa-progress-reports <<'REPORTCRON'
 REPORTCRON
 chmod 644 /etc/cron.d/cwa-progress-reports
 
+# ── Question schedule cron ───────────────────────────────────────────────────
+# Builds the homework a teacher's weekly teaching plan is due to produce
+# (CPP-399). Its absence is invisible in exactly the way the progress-report
+# job's is: the plan's weeks stay 'pending', the class gets no homework, and
+# nothing anywhere says why. Runs before the school day so the sets are ready
+# for a teacher to review in the morning.
+echo "==> Installing question-schedule cron..."
+cat > /etc/cron.d/cwa-scheduled-questions <<'SCHEDQCRON'
+# CWA question schedules — turn each planned teaching week into homework.
+# Managed by deploy/setup-app-prod.sh; edit there, not here.
+15 2 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_generate_scheduled_questions.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/scheduled_questions.log 2>&1
+SCHEDQCRON
+chmod 644 /etc/cron.d/cwa-scheduled-questions
+
 # ── Sudoers for deploy ───────────────────────────────────────────────────────
 echo "==> Granting cwa user restart permissions..."
 cat > /etc/sudoers.d/cwa <<'SUDOERS'
