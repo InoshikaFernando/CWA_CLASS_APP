@@ -19,6 +19,11 @@
         📄 Upload PDF
       </a>
       {% if selected_classroom %}
+      <a href="{% url 'homework:schedule_list' classroom_id=selected_classroom.id %}"
+         id="question-schedules-link"
+         class="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-50 transition">
+        🗓 Question Schedules
+      </a>
       <a href="{% url 'homework:teacher_create' classroom_id=selected_classroom.id %}"
          class="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
         + New Homework
