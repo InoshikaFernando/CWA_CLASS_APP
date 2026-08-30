@@ -282,6 +282,93 @@ GRADED_TYPES = ('extended_answer',)
 PATTERN_FORMAT = 'pattern'
 
 
+# Types whose correct answer lives on the QUESTION itself rather than in Answer
+# rows: a spec the grader compares against (number_line_spec, table_spec,
+# plane_spec, grid_spec, shape_spec, blank_spec), a numeric field graded within a
+# tolerance (numeric_answer), or the numbers the grader works the answer out from
+# (dividend/divisor, target_number, operands/operator). ``Question.clean()``
+# REFUSES answer options on most of them — "Number-line questions are graded by
+# the marked/typed values and must not have answer options" — so reporting "no
+# option flagged is_correct" called a working format a defect, and every fix the
+# check page then offered (fill in the answer, use the option I ticked) would have
+# been rejected by the model on save.
+#
+# The exemption is CONDITIONAL on the question actually carrying the thing it is
+# graded against, because the graders all fall back to matching Answer rows when
+# it is missing (maths.plugin.grade_answer). A number_line with no
+# number_line_spec and no rows marks every student wrong, so it is still
+# reported — with a detail that names what is missing rather than pointing at
+# options the type is not allowed to have.
+#
+# Each entry is (question_type -> the attribute(s) that must be set). Values are
+# spelled out as strings, not imported from maths.models, to keep this module
+# import-free of the models like the constants above.
+SELF_GRADED_ANSWER_FIELDS = {
+    'measure': ('numeric_answer',),
+    'read_graph': ('numeric_answer',),
+    'draw_on_grid': ('grid_spec',),
+    'shape_select': ('shape_spec',),
+    'plot_points': ('plane_spec',),
+    'plot_line': ('plane_spec',),
+    'identify_coords': ('plane_spec',),
+    'number_line': ('number_line_spec',),
+    'table_of_values': ('table_spec',),
+    'long_division': ('dividend', 'divisor'),
+    'prime_factorization': ('target_number',),
+    # ``column_result`` is the computed answer (None unless operands AND a
+    # readable operator are both set), which is exactly what the grader checks.
+    'column_operation': ('column_result',),
+    # A fill_blank is only self-graded once it HAS a blank_spec; without one it
+    # is the legacy single-box shape, still graded against its Answer rows.
+    'fill_blank': ('blank_spec',),
+}
+
+
+# Fields where zero is a real answer, so "is it set?" means "is it not None?":
+# a numeric_answer of 0 ("the arrow points at 0"), a column sum of 0 (5 - 5), a
+# dividend of 0. Everywhere else — a divisor, a number to factorise, any spec —
+# an empty or zero value is one the grader cannot use, and maths.plugin falls
+# back to the Answer rows exactly as it does when the field is absent, so the
+# question is checked as an ordinary one rather than exempted.
+_ZERO_IS_AN_ANSWER = {'numeric_answer', 'column_result', 'dividend'}
+
+
+def _self_graded_answer(question):
+    """What grades this question instead of its Answer rows, or ``None``.
+
+    Returns the name of the field carrying the answer when the question is a
+    self-graded type AND that field is set — the signal that there is nothing
+    here for the option checks to find fault with. Returns ``None`` both for the
+    ordinary types and for a self-graded question whose field is missing, which
+    is a real fault and must still be reported.
+    """
+    fields = SELF_GRADED_ANSWER_FIELDS.get(question.question_type)
+    if not fields:
+        return None
+    for field in fields:
+        value = getattr(question, field, None)
+        if value is None:
+            return None
+        if not value and field not in _ZERO_IS_AN_ANSWER:
+            return None
+    return fields[0]
+
+
+def _no_correct_detail(question):
+    """Why this question has no stored correct answer, in the reader's terms.
+
+    A self-graded type reaching this point is missing the spec or field it is
+    graded by, and saying "no option flagged is_correct" about a question that
+    is not ALLOWED to have options sends the reader to the wrong place.
+    """
+    fields = SELF_GRADED_ANSWER_FIELDS.get(question.question_type)
+    if fields:
+        return (f'{question.question_type} question with no '
+                f'{" / ".join(fields)} and no answer row — nothing to grade '
+                f'the answer against')
+    return 'no option flagged is_correct'
+
+
 def _is_graded_by_a_person(question):
     """Is this question's answer judged rather than matched?
 
@@ -317,6 +404,15 @@ def verify_question(question, min_options=2, max_options=MAX_OPTIONS):
     if getattr(question, 'answer_format', '') == PATTERN_FORMAT:
         return issues, False
 
+    # And for a question graded against its own spec or numeric field — a
+    # number line, a table of values, a plotted point, a measured angle. The
+    # answer is stored on the question, the model forbids answer options
+    # outright, and every check below is about options: running them reported
+    # the whole interactive-question family as "no correct option" when nothing
+    # was wrong with any of it.
+    if _self_graded_answer(question):
+        return issues, False
+
     options = list(question.answers.all())
     correct = [a for a in options if a.is_correct]
     is_choice = question.question_type in CHOICE_TYPES
@@ -338,7 +434,7 @@ def verify_question(question, min_options=2, max_options=MAX_OPTIONS):
             issues.append(Issue(BLANK_OPTION, f'A{option.id} is blank'))
 
     if not correct:
-        issues.append(Issue(NO_CORRECT, 'no option flagged is_correct'))
+        issues.append(Issue(NO_CORRECT, _no_correct_detail(question)))
         return issues, False
 
     # Single-select grading accepts ANY option flagged correct

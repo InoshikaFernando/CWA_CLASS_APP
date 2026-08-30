@@ -22,7 +22,8 @@ from classroom.views import RoleRequiredMixin
 from rewards.models import PointsSource
 from rewards.services import award_points_safe, normalise
 
-from .grading_service import grade_extended_answer
+from .grading_service import (
+    credit_for, grade_extended_answer, verdict)
 from .page_selection import describe_page_selection
 from .services import (
     accepted_question_type,
@@ -1124,16 +1125,21 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                         'feedback': result.get('feedback', ''),
                         'score_fraction': score_frac,
                         'cache_hit': result.get('cache_hit', False),
-                        'is_partial': result.get('is_partial', 0.1 <= score_frac < 0.6),
+                        'is_partial': result.get(
+                            'is_partial', verdict(score_frac)[1]),
                         'what_was_correct': result.get('what_was_correct', ''),
                         'what_to_add': result.get('what_to_add', ''),
                     }
-                    if result.get('quota_exceeded'):
+                    # No verdict was reached — the quota ran out, the API
+                    # failed, or the question's diagram could not be loaded.
+                    # Hand it to the teacher rather than showing the child a
+                    # 0 for something that was never marked.
+                    if result.get('quota_exceeded') or result.get('error'):
                         answer_data['review_status'] = 'pending_ai'
-                    if is_correct:
-                        points_earned = float(question.points)
-                    elif answer_data['is_partial']:
-                        points_earned = round(float(question.points) * score_frac, 2)
+                    # Full marks, the share it earned, or nothing at all —
+                    # credit_for() draws the same lines the student is shown.
+                    points_earned = round(
+                        float(question.points) * credit_for(score_frac), 2)
                 except Exception as exc:
                     logger.exception(f'Extended answer grading failed for Q{question.pk}: {exc}')
                     answer_data = {'review_status': 'pending_ai'}

@@ -163,6 +163,25 @@ jobs:
               - 'cwa_classroom/coding/**'
               # Same for CodingExercise's manager.
               - 'cwa_classroom/brainbuzz/managers.py'
+            api:
+              - 'cwa_classroom/api/**'
+              # The API suite drives every app it exposes, so a serializer,
+              # scoping or model change in any of them can break it without
+              # touching a file under api/. A filter that watched only api/
+              # would let those breakages through silently — the tests would
+              # simply not run rather than go red.
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/progress/**'
+              - 'cwa_classroom/rewards/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/number_puzzles/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/feedback/**'
+              - 'cwa_classroom/help/**'
+              - 'cwa_classroom/accounts/**'
             accounts:
               - 'cwa_classroom/accounts/**'
             audit:
@@ -314,6 +333,10 @@ jobs:
               # at all — a change there can break every test in this group
               # without touching templates/maths/.
               - 'cwa_classroom/templates/homework/**'
+              # "Preview as student" in the global question bank draws those
+              # same take partials from the admin listing row and the edit
+              # modal, so this group is what catches a change to either.
+              - 'cwa_classroom/templates/admin_dashboard/**'
             # The sidebars link into every subject app, so a change to any of
             # them can break a nav test. Broad on purpose.
             ui_messaging:
@@ -368,6 +391,13 @@ jobs:
               - 'cwa_classroom/quiz/**'
               - 'cwa_classroom/templates/quiz/**'
               - 'cwa_classroom/templates/base_quiz.html'
+              # The quiz question card renders the shared maths widgets — the
+              # fill-in-the-blank sentence, the number line, the protractor,
+              # the "create your own pattern" boxes — so a change to one of
+              # them can leave a question unanswerable without touching
+              # templates/quiz/. ui_maths and ui_worksheets already watch this
+              # directory for the same reason.
+              - 'cwa_classroom/templates/maths/**'
             # Question/content import: /upload-questions/ (classroom views),
             # the PDF import pipeline (ai_import), and the homework + worksheet
             # upload forms that share the page-range field.
@@ -498,6 +528,7 @@ jobs:
           UNIT_SUITES: |
             accounts:accounts/
             ai_import:ai_import/
+            api:api/
             audit:audit/
             billing:billing/
             brainbuzz:brainbuzz/
@@ -674,6 +705,14 @@ jobs:
       - name: Validate the GitHub Actions workflow files
         working-directory: cwa_classroom
         run: pytest tests_workflows.py -v --tb=short
+
+      # Also runs here for the same reason: a template belongs to no app's unit
+      # suite, and a comment Django prints instead of hiding does not go red —
+      # the page returns 200 with a developer note sitting in the middle of it,
+      # which is how one reached the student-facing worksheet feedback page.
+      - name: Check templates print no developer notes
+        working-directory: cwa_classroom
+        run: pytest tests_templates.py -q --tb=short
 
   # A release PR (test -> main) merges `test` into `main` unchanged, so its tree
   # is normally byte-identical to the one the full matrix just ran on `test`.

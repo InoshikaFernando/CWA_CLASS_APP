@@ -15,6 +15,7 @@ Required env vars for production / test deploys:
 
 import os
 import sys
+from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -70,6 +71,11 @@ INSTALLED_APPS = [
     'django_htmx',
     'django_rq',
     'storages',
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
+    'corsheaders',
+    'drf_spectacular',
 
     # Project apps
     'accounts',
@@ -80,6 +86,7 @@ INSTALLED_APPS = [
     'audit',
     'usage',
     'ops',
+    'api',
 
     # Subject apps
     'maths',
@@ -323,6 +330,10 @@ QUALITY_MAX_PENALTY = float(os.environ.get('QUALITY_MAX_PENALTY', '0.30'))
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Must sit above CommonMiddleware so the CORS preflight (OPTIONS) is
+    # answered before anything can redirect it. Only /api/ is opened up —
+    # see CORS_URLS_REGEX below; the htmx web app stays same-origin.
+    'corsheaders.middleware.CorsMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'cwa_classroom.middleware.MathsRoomRedirectMiddleware',    # mathsroom → /maths/ redirect
     'cwa_classroom.middleware.SubdomainURLRoutingMiddleware',  # subdomain → urlconf routing
@@ -884,3 +895,129 @@ LOGGING = {
         'slow_queries': {'handlers': _slow_handlers, 'level': 'WARNING', 'propagate': False},
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# JSON API  (/api/v1/ — the contract the mobile app is built against)
+# ---------------------------------------------------------------------------
+# The web app is server-rendered htmx and keeps using session cookies. The API
+# is additive: it authenticates a phone with a JWT bearer token and shares the
+# SAME service functions as the web views, so a rule fixed in one place is
+# fixed for both. See api/README.md.
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        # Bearer token first — this is how the mobile app authenticates.
+        # The subclass also applies the blocked / expired / incomplete-profile
+        # walls, which plain middleware cannot reach for a session-less
+        # request. See api/authentication.py for why it sits at this layer.
+        'api.authentication.WalledJWTAuthentication',
+        # Session auth is kept so the existing htmx front-end can call the
+        # same endpoints from a logged-in browser without a second login.
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    # Closed by default. An endpoint that should be public has to say so, which
+    # means a new view cannot leak data by forgetting a permission class.
+    # Account standing (blocked / expired / unfinished profile) is enforced
+    # ahead of DRF by cwa_classroom.middleware, which answers an /api/ caller
+    # with a coded 403 rather than a redirect.
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'api.pagination.StandardPagination',
+    'PAGE_SIZE': 25,
+    'DEFAULT_FILTER_BACKENDS': [
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+    # One error shape for every failure — see api.exceptions.exception_handler.
+    'EXCEPTION_HANDLER': 'api.exceptions.api_exception_handler',
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.URLPathVersioning',
+    'DEFAULT_VERSION': 'v1',
+    'ALLOWED_VERSIONS': ['v1'],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        # Login is the one unauthenticated write endpoint, so it is the one
+        # worth rate-limiting by default — credential stuffing against a
+        # school roster is the realistic attack.
+        'auth': os.environ.get('API_THROTTLE_AUTH', '10/min'),
+        'burst': os.environ.get('API_THROTTLE_BURST', '60/min'),
+        'sustained': os.environ.get('API_THROTTLE_SUSTAINED', '2000/day'),
+    },
+    # JSON only in production. The browsable API is a debugging convenience and
+    # renders arbitrary model data into HTML, so it stays off the deployed site.
+    'DEFAULT_RENDERER_CLASSES': (
+        ['rest_framework.renderers.JSONRenderer',
+         'rest_framework.renderers.BrowsableAPIRenderer']
+        if DEBUG else
+        ['rest_framework.renderers.JSONRenderer']
+    ),
+}
+
+SIMPLE_JWT = {
+    # Short access token, long refresh: a stolen access token expires on its
+    # own, and a logout can revoke the refresh token via the blacklist.
+    'ACCESS_TOKEN_LIFETIME': timedelta(
+        minutes=int(os.environ.get('API_ACCESS_TOKEN_MINUTES', '30'))),
+    'REFRESH_TOKEN_LIFETIME': timedelta(
+        days=int(os.environ.get('API_REFRESH_TOKEN_DAYS', '30'))),
+    # Rotation + blacklist means a refresh token is single-use: replaying an
+    # old one after it has been exchanged is rejected rather than accepted.
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': os.environ.get('API_JWT_SIGNING_KEY', SECRET_KEY),
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    'TOKEN_OBTAIN_SERIALIZER': 'api.serializers.TokenObtainPairSerializer',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'CWA Classroom API',
+    'DESCRIPTION': (
+        'JSON API for the Wizards Learning Hub mobile app.\n\n'
+        'All endpoints are role-scoped: a student sees only their own data, a '
+        'parent only their linked children, a teacher only the classes they '
+        'teach, and institute staff only their own school.'
+    ),
+    'VERSION': APP_VERSION,
+    'SERVE_INCLUDE_SCHEMA': False,
+    'SCHEMA_PATH_PREFIX': '/api/v1',
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SORT_OPERATIONS': True,
+    # Several models have a `status` / `period_type` field with different
+    # choices. Left alone the generator invents names like `Status223Enum`,
+    # where the number is derived from the schema and shifts whenever an
+    # unrelated model changes — churning the generated mobile client with
+    # renames that mean nothing. Naming them pins that down.
+    'ENUM_NAME_OVERRIDES': {
+        'AttendanceStatusEnum': 'classroom.models.StudentAttendance.STATUS_CHOICES',
+        'SessionStatusEnum': 'classroom.models.ClassSession.STATUS_CHOICES',
+        'InvoiceStatusEnum': 'classroom.models.Invoice.STATUS_CHOICES',
+        'InvoicePeriodTypeEnum': 'classroom.models.Invoice.PERIOD_TYPE_CHOICES',
+        'PaymentStatusEnum': 'classroom.models.InvoicePayment.STATUS_CHOICES',
+        'PaymentMethodEnum': 'classroom.models.InvoicePayment.PAYMENT_METHOD_CHOICES',
+        'FeedbackStatusEnum': 'feedback.models.Feedback.STATUS_CHOICES',
+        'FeedbackCategoryEnum': 'feedback.models.Feedback.CATEGORY_CHOICES',
+        'ReportPeriodTypeEnum': 'progress.models.PeriodReport.PERIOD_CHOICES',
+        'HomeworkTypeEnum': 'homework.models.Homework.HOMEWORK_TYPE_CHOICES',
+    },
+}
+
+# CORS — the mobile app itself is not a browser and sends no Origin, so this
+# exists for the web/PWA client and for local development against the API.
+# Deliberately NOT CORS_ALLOW_ALL_ORIGINS: an allow-all API with cookie auth
+# enabled is a cross-site read of every logged-in user's data.
+CORS_ALLOWED_ORIGINS = [
+    o.strip() for o in os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',')
+    if o.strip()
+]
+CORS_ALLOW_CREDENTIALS = True
+# Confine CORS to the API. Without this the header would be added to the
+# server-rendered pages too, which have no reason to be readable cross-origin.
+CORS_URLS_REGEX = r'^/api/.*$'

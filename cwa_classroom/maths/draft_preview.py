@@ -275,6 +275,24 @@ def build_preview_question(draft, *, promote_blanks):
 
 
 @contextlib.contextmanager
+def rolled_back():
+    """Undo everything written inside the block before it returns.
+
+    The rollback half of ``preview_question`` on its own, for the preview of a
+    question that ALREADY exists (the global question editor): there is no
+    draft to build, the stored row is edited in place and put back. The same
+    two rules apply — no image write inside (``ImageField.save`` reaches
+    storage, which no rollback undoes) and no upload session.
+    """
+    try:
+        with transaction.atomic():
+            yield
+            raise _Rollback
+    except _Rollback:
+        pass
+
+
+@contextlib.contextmanager
 def preview_question(draft, *, promote_blanks):
     """Yield the Question a draft would import as, then undo it.
 

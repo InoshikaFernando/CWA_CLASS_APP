@@ -4034,6 +4034,23 @@ SWITCHABLE_QUESTION_TYPES = (
 # unanswerable — so the "cannot remove every option" rule applies only here.
 CHOICE_QUESTION_TYPES = ('multiple_choice', 'true_false')
 
+# Types graded from a structured spec on the Question itself, never from Answer
+# rows — the plane/grid/graph/number-line family plus the arithmetic layouts.
+# Having NO answer rows is how these are built, so the editor's "this question
+# has no answers stored — nothing can be marked correct" is a false alarm on
+# them, and so is the same warning on the saved panel. Worse than noise: the
+# only fault the editor named for a coordinate question was one that wasn't
+# real, while the fault that was — the wrong points drawn on the plane — had no
+# field to fix it in.
+STRUCTURED_QUESTION_TYPES = (
+    'plot_points', 'plot_line', 'identify_coords', 'read_graph',
+    'draw_on_grid', 'shape_select', 'number_line', 'table_of_values',
+    'measure', 'long_division', 'prime_factorization', 'column_operation',
+)
+
+# The three that share plane_spec — the ones this editor can repair.
+PLANE_QUESTION_TYPES = ('plot_points', 'plot_line', 'identify_coords')
+
 
 class GlobalQuestionEditView(RoleRequiredMixin, View):
     """Edit a single global question (text, type and answers) via HTMX modal."""
@@ -4054,12 +4071,34 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             allowed.insert(0, question.question_type)
         return [(value, labels.get(value, value)) for value in allowed]
 
-    def _form_context(self, question, error=None):
+    @staticmethod
+    def _plane_spec_json(question, request=None):
+        """The plane_spec to show in the editor, as pretty JSON.
+
+        Prefers what the reader just typed (so a spec the validator refused
+        comes back for them to fix instead of being replaced by the stored one
+        and their edit thrown away), else the stored spec, else ''.
+        """
+        import json
+
+        if request is not None and 'plane_spec' in request.POST:
+            return request.POST.get('plane_spec') or ''
+        if not question.plane_spec:
+            return ''
+        return json.dumps(question.plane_spec, indent=2, ensure_ascii=False)
+
+    def _form_context(self, question, error=None, request=None):
         return {
             'question': question,
             'answers': question.answers.order_by('order', 'id'),
             'type_choices': self._type_choices(question),
             'error': error,
+            # A structured question is graded from its spec, not from Answer
+            # rows, so the options editor is hidden for it and the plane editor
+            # shown instead.
+            'structured': question.question_type in STRUCTURED_QUESTION_TYPES,
+            'is_plane': question.question_type in PLANE_QUESTION_TYPES,
+            'plane_spec_json': self._plane_spec_json(question, request),
         }
 
     def get(self, request, question_id):
@@ -4068,9 +4107,54 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
         return render(request, 'admin_dashboard/partials/question_edit_form.html',
                       self._form_context(question))
 
-    def post(self, request, question_id):
-        from maths.models import Question, Answer
-        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+    @staticmethod
+    def _read_plane_spec(request, question):
+        """Put the posted plane_spec on *question* (unsaved); return an error or None.
+
+        This is the field the coordinate questions actually go wrong in. The
+        one that prompted it read "A is the point (2, 2), B is the point (8, 2)
+        and C is the point (5, 8). D is the mid point of AB. Write down the
+        co-ordinates of the point D" — and the plane drawn beneath it showed a
+        single dot at (5, 2), which is D. The answer was plotted and A, B and C
+        were not, so the child was asked to read a figure that gave away the
+        answer and omitted everything the question talks about. Nothing in this
+        editor could touch it: the only field it offered was the multiple-choice
+        options list, which these questions do not use.
+        """
+        import json
+
+        from maths.geometry_grading import validate_plane_spec
+
+        raw = (request.POST.get('plane_spec') or '').strip()
+        if not raw:
+            return ('A coordinate question needs a plane to draw. Give it a '
+                    'plane_spec, or the student meets the question with no '
+                    'figure under it.')
+        try:
+            spec = json.loads(raw)
+        except ValueError as exc:
+            return f'The plane is not valid JSON: {exc}'
+        try:
+            validate_plane_spec(spec)
+        except ValueError as exc:
+            return f'The plane is not usable: {exc}'
+        question.plane_spec = spec
+        return None
+
+    @classmethod
+    def _apply_edits(cls, request, question):
+        """Write the modal's fields onto the question and its answer rows.
+
+        Returns ``(error, removed)`` — ``error`` is the refusal to show instead
+        of saving, ``removed`` the audit detail for the options this edit
+        deletes (logged by the caller, since a preview deletes nothing).
+
+        Shared with the student preview, which runs exactly this against the
+        real row inside a transaction it rolls back. That sharing is the point:
+        a preview built from its own reading of the form could show a question
+        that saving would not produce, and would be believed.
+        """
+        from maths.models import Answer
 
         question.question_text = request.POST.get('question_text', '').strip()
 
@@ -4079,11 +4163,25 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
         # POST value, and switching to a type whose required data is missing
         # would leave a question that cannot be rendered or graded.
         requested_type = (request.POST.get('question_type') or '').strip()
-        offered = {value for value, _label in self._type_choices(question)}
+        offered = {value for value, _label in cls._type_choices(question)}
         fields = ['question_text', 'updated_at']
         if requested_type and requested_type in offered:
             question.question_type = requested_type
             fields.append('question_type')
+
+        # ---- plane_spec: the figure a coordinate question is read off ------
+        # Offered only for the plane types, and only when the form actually
+        # carried the field, so every other save is untouched. Refused rather
+        # than stored on anything the validator rejects: a spec that cannot be
+        # drawn leaves a question with no figure, which the child meets as a
+        # blank space.
+        if ('plane_spec' in request.POST
+                and question.question_type in PLANE_QUESTION_TYPES):
+            error = cls._read_plane_spec(request, question)
+            if error:
+                return error, []
+            fields.append('plane_spec')
+
         question.save(update_fields=fields)
 
         # ---- answers: edit, remove, add ---------------------------------
@@ -4113,13 +4211,9 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
         surviving = (set(existing) - removing)
         if (question.question_type in CHOICE_QUESTION_TYPES
                 and not surviving and not added):
-            return render(
-                request, 'admin_dashboard/partials/question_edit_form.html',
-                self._form_context(
-                    question,
-                    error='Removing every option would leave a multiple-choice '
-                          'question with nothing to pick. Add a replacement '
-                          'option, or switch the type to Short Answer first.'))
+            return ('Removing every option would leave a multiple-choice '
+                    'question with nothing to pick. Add a replacement option, '
+                    'or switch the type to Short Answer first.'), []
 
         for aid, ans in existing.items():
             if aid in removing:
@@ -4128,21 +4222,13 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             ans.is_correct = request.POST.get(f'is_correct_{aid}') == 'on'
             ans.save(update_fields=['answer_text', 'is_correct'])
 
+        # What the text WAS: an option removed by mistake cannot be recovered
+        # from the row itself once it is gone, so the caller logs it.
+        removed = [{'id': aid,
+                    'text': existing[aid].answer_text,
+                    'was_correct': existing[aid].is_correct}
+                   for aid in sorted(removing)]
         if removing:
-            # Record what the text WAS: an option removed by mistake cannot be
-            # recovered from the row itself once it is gone.
-            log_event(
-                user=request.user, school=None,
-                category='data_change', action='global_question_answers_removed',
-                detail={
-                    'question_id': question.id,
-                    'removed': [{'id': aid,
-                                 'text': existing[aid].answer_text,
-                                 'was_correct': existing[aid].is_correct}
-                                for aid in sorted(removing)],
-                },
-                request=request,
-            )
             Answer.objects.filter(id__in=removing, question=question).delete()
 
         if added:
@@ -4152,6 +4238,29 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
                 next_order += 1
                 Answer.objects.create(question=question, answer_text=text,
                                       is_correct=is_correct, order=next_order)
+
+        return None, removed
+
+    def post(self, request, question_id):
+        from maths.models import Question
+        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+
+        error, removed = self._apply_edits(request, question)
+        if error:
+            # request is passed so a refused plane_spec comes back as the
+            # reader typed it — re-showing the stored one would silently throw
+            # their edit away and leave them re-typing it from the screenshot.
+            return render(
+                request, 'admin_dashboard/partials/question_edit_form.html',
+                self._form_context(question, error=error, request=request))
+
+        if removed:
+            log_event(
+                user=request.user, school=None,
+                category='data_change', action='global_question_answers_removed',
+                detail={'question_id': question.id, 'removed': removed},
+                request=request,
+            )
 
         log_event(
             user=request.user, school=None,
@@ -4166,17 +4275,61 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
         # the question-health pages — htmx then refused to send the request at
         # all and the save looked like it simply did nothing.
         answers = list(question.answers.order_by('order', 'id'))
+        # A structured question is graded from its spec and HAS no answer rows,
+        # so "no option is marked correct" is not true of it — crying wolf on
+        # every coordinate save is how a warning stops being read.
+        graded_by_answers = question.question_type not in STRUCTURED_QUESTION_TYPES
         return render(request, 'admin_dashboard/partials/question_edit_saved.html', {
             'question': question,
             'q': question,
             'answers': answers,
             # Saying "Saved" over a question nobody can now answer correctly
             # would be the same silent failure this page exists to remove.
-            'no_correct': not any(a.is_correct for a in answers),
+            'no_correct': graded_by_answers and not any(a.is_correct for a in answers),
             'correct_count': sum(1 for a in answers if a.is_correct),
             'multi_correct': (question.question_type in CHOICE_QUESTION_TYPES
                               and sum(1 for a in answers if a.is_correct) > 1),
         })
+
+
+class GlobalQuestionPreviewView(RoleRequiredMixin, View):
+    """The editor's "Preview as student" — one global question as a child meets it.
+
+    The modal POSTs its unsaved fields, so what comes back is the question
+    *Save Changes* would store: the same text, type and options, drawn by the
+    real student take partial and marked by the real grader. The edits are
+    applied to the stored row inside a transaction that is rolled back before
+    the response leaves, so previewing writes nothing.
+
+    Why this earns its place next to a form that already shows the answers: the
+    form shows what is *stored*, not what a child *meets*. A multiple-choice
+    question with one option, a "correct" tick on every option, an answer no
+    typed spelling can match — all of them look ordinary in the form and only
+    show up when you try to answer the question, which is exactly what this
+    does.
+    """
+    required_roles = [Role.ADMIN]
+
+    def post(self, request, question_id):
+        from maths.models import Question
+        from worksheets.question_preview import stored_preview_response
+
+        question = get_object_or_404(Question, id=question_id, school__isnull=True)
+
+        def apply_edits(q):
+            # The save's own code, so the preview cannot show something saving
+            # would not produce; its refusal is shown in place of the preview.
+            error, _removed = GlobalQuestionEditView._apply_edits(request, q)
+            return error
+
+        # The listing's row button previews the stored question as it stands —
+        # it posts no form, and applying "the edits" of a POST that carries
+        # none would blank the very text it is meant to show. The editor's
+        # button posts the whole modal, and question_text is the field that
+        # tells the two apart.
+        editing = 'question_text' in request.POST
+        return stored_preview_response(
+            request, question, apply_edits=apply_edits if editing else None)
 
 
 class GlobalCodingExerciseEditView(RoleRequiredMixin, View):

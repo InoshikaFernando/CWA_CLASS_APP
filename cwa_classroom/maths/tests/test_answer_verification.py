@@ -501,3 +501,150 @@ class GradedQuestionTests(TestCase):
                            options=(('1', False), ('2', False), ('3', False)),
                            text='What is 1 + 1?')
         self.assertIn(NO_CORRECT, self._codes(q))
+
+
+class SelfGradedQuestionTypeTests(TestCase):
+    """A question graded by its own spec has no options — and needs none.
+
+    Production #20694, Year 6 Number › Fractions: "Place the fraction -1/2 on
+    the number line given." was reported as "No correct option — no option
+    flagged is_correct". Its answer lives in ``number_line_spec.target``; the
+    student marks a tick and ``grade_number_line`` compares the marks. The model
+    goes further and REFUSES answer options on the type ("Number-line questions
+    are graded by the marked/typed values and must not have answer options"), so
+    the finding described a fault that cannot exist, and the fixes the check page
+    offered beside it — fill in the answer, use the option I ticked — would have
+    been rejected on save.
+
+    The same is true of every interactive type: plotted points, coloured shapes,
+    a measured angle, a filled table, a fill-in-the-blank sentence.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=982, defaults={'display_name': 'self-graded fixture'})
+
+    # One representative, correctly-authored question per self-graded type.
+    SPECS = {
+        Question.NUMBER_LINE: {
+            'number_line_spec': {'min': -2, 'max': 2, 'step': 0.5,
+                                 'mode': 'mark', 'target': [-0.5]},
+        },
+        Question.TABLE_OF_VALUES: {
+            'table_spec': {'headers': ['x', 'y'],
+                           'rows': [[{'given': '1'}, {'answer': '3'}]]},
+        },
+        Question.PLOT_POINTS: {
+            'plane_spec': {'bounds': {'xmin': -5, 'xmax': 5,
+                                      'ymin': -5, 'ymax': 5},
+                           'mode': 'points', 'target': {'points': [[2, 3]]}},
+        },
+        Question.PLOT_LINE: {
+            'plane_spec': {'bounds': {'xmin': -5, 'xmax': 5,
+                                      'ymin': -5, 'ymax': 5},
+                           'mode': 'segments',
+                           'target': {'segments': [[[0, 0], [2, 2]]]}},
+        },
+        Question.IDENTIFY_COORDS: {
+            'plane_spec': {'bounds': {'xmin': -5, 'xmax': 5,
+                                      'ymin': -5, 'ymax': 5},
+                           'mode': 'points', 'target': {'points': [[2, 3]]}},
+        },
+        Question.DRAW_ON_GRID: {
+            'grid_spec': {'grid': {'cols': 4, 'rows': 4}, 'mode': 'points',
+                          'target': {'points': [[1, 1]]}},
+        },
+        Question.SHAPE_SELECT: {
+            'shape_spec': {'target_type': 'triangle', 'viewbox': [100, 100],
+                           'shapes': [{'id': 's1', 'type': 'triangle',
+                                       'cx': 50, 'cy': 50, 'size': 20,
+                                       'rot': 0}]},
+        },
+        Question.MEASURE: {'numeric_answer': 135, 'answer_tolerance': 2},
+        Question.READ_GRAPH: {'numeric_answer': 20},
+        Question.LONG_DIVISION: {'dividend': 144, 'divisor': 12},
+        Question.PRIME_FACTORIZATION: {'target_number': 60},
+        Question.COLUMN_OPERATION: {'operands': [90, 82], 'operator': '+'},
+        Question.FILL_BLANK: {
+            'blank_spec': {'blanks': [{'answers': ['15']}]},
+        },
+    }
+
+    def _question(self, question_type, text='Place the fraction -1/2 on the '
+                                            'number line given.', **fields):
+        return Question.objects.create(
+            level=self.level, question_text=text,
+            question_type=question_type, difficulty=1, **fields)
+
+    def _codes(self, question):
+        issues, _ = verify_question(question)
+        return sorted(i.code for i in issues)
+
+    def test_the_reported_number_line_question_is_clean(self):
+        q = self._question(Question.NUMBER_LINE,
+                           **self.SPECS[Question.NUMBER_LINE])
+        self.assertEqual([], self._codes(q))
+
+    def test_every_self_graded_type_carrying_its_answer_is_clean(self):
+        for question_type, fields in self.SPECS.items():
+            with self.subTest(question_type):
+                q = self._question(question_type, **fields)
+                self.assertEqual([], self._codes(q))
+
+    def test_a_self_graded_question_is_not_claimed_as_arithmetically_verified(self):
+        # Nothing was evaluated, so the coverage figure must not count it —
+        # the honesty this module's docstring promises.
+        q = self._question(Question.NUMBER_LINE, text='5531 - 4414 = ?',
+                           **self.SPECS[Question.NUMBER_LINE])
+        _issues, verified = verify_question(q)
+        self.assertFalse(verified)
+
+    def test_a_number_line_with_no_spec_is_STILL_reported(self):
+        # The exemption is for questions that CARRY their answer. Without a
+        # spec the grader falls through to matching Answer rows
+        # (maths.plugin.grade_answer), and with no rows either every student is
+        # marked wrong — the loudest fault in the bank, not something to hide.
+        q = self._question(Question.NUMBER_LINE)
+        self.assertIn(NO_CORRECT, self._codes(q))
+
+    def test_the_missing_spec_is_named_instead_of_blaming_the_options(self):
+        q = self._question(Question.NUMBER_LINE)
+        issues, _ = verify_question(q)
+        detail = next(i.detail for i in issues if i.code == NO_CORRECT)
+        self.assertIn('number_line_spec', detail)
+        self.assertNotIn('option', detail)
+
+    def test_a_long_division_missing_its_divisor_is_STILL_reported(self):
+        # grade_answer needs BOTH numbers; with one it grades as typed text.
+        q = self._question(Question.LONG_DIVISION, dividend=144)
+        self.assertIn(NO_CORRECT, self._codes(q))
+
+    def test_a_column_operation_with_no_operator_is_STILL_reported(self):
+        q = self._question(Question.COLUMN_OPERATION, operands=[90, 82])
+        self.assertIn(NO_CORRECT, self._codes(q))
+
+    def test_zero_is_a_real_measured_answer(self):
+        # "What temperature does the thermometer show?" — 0 is the answer, not
+        # a missing one.
+        q = self._question(Question.MEASURE, numeric_answer=0)
+        self.assertEqual([], self._codes(q))
+
+    def test_a_legacy_fill_blank_with_no_spec_is_STILL_checked(self):
+        # One box for the whole answer, graded against its Answer rows: the
+        # ordinary rules apply, so a missing answer is still a missing answer.
+        q = self._question(Question.FILL_BLANK, text='The answer is ___.')
+        self.assertIn(NO_CORRECT, self._codes(q))
+
+    def test_a_legacy_fill_blank_with_an_answer_row_is_clean(self):
+        q = self._question(Question.FILL_BLANK, text='The answer is ___.')
+        Answer.objects.create(question=q, answer_text='15', is_correct=True,
+                              order=0)
+        self.assertEqual([], self._codes(q))
+
+    def test_a_multiple_choice_question_is_untouched_by_the_exemption(self):
+        q = self._question(Question.MULTIPLE_CHOICE, text='What is 1 + 1?')
+        for order, text in enumerate(('1', '3')):
+            Answer.objects.create(question=q, answer_text=text,
+                                  is_correct=False, order=order)
+        self.assertIn(NO_CORRECT, self._codes(q))

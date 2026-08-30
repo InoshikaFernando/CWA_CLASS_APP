@@ -1,0 +1,53 @@
+{% comment %}
+Shared "create your own number pattern" widget. One box per number the question
+asks for, then a box for the rule on its own line — the shape of the answer,
+which a single text box left the student to guess at ("how many numbers? do I
+write the rule in here too? how do I keep them apart?").
+
+The typed boxes compose into the hidden ``field_name`` input as the one line a
+student would have written — ``20, 18, 16, 14, 12, 10 — rule: subtract 2`` —
+via static/js/pattern_fields.js. No inline script, so it survives the innerHTML
+question swap on the quiz surface. Nothing downstream needs to know the widget
+exists: maths.pattern_grading.grade_pattern reads the composed line exactly as
+it reads a hand-typed one, and that same line is what the review pages show
+back.
+
+There is no answer to hide here — the student invents it — so unlike the
+fill-in-the-blanks tool this partial has nothing to keep out of the page.
+
+Context: q (the Question), field_name (the hidden input's name — "answer_<id>"
+on homework, "text_answer" on quiz / worksheets).
+{% endcomment %}
+{% if q.pattern_field_data %}{% with d=q.pattern_field_data %}
+<div data-pat-stage>
+  <input type="hidden" name="{{ field_name }}" data-pat-hidden value="" />
+  <div class="flex flex-wrap items-center gap-2">
+    {% for i in d.indexes %}
+    <input type="text" data-pat-number data-index="{{ i }}" inputmode="numeric"
+           autocomplete="off" size="4"
+           aria-label="Number {{ forloop.counter }} of {{ d.count }}"
+           class="w-16 text-center rounded-lg border-2 border-gray-200 bg-blue-50
+                  px-2 py-2 text-lg font-bold text-blue-700
+                  focus:outline-none focus:border-primary focus:bg-white transition" />
+    {% if not forloop.last %}<span class="text-gray-400 font-bold" aria-hidden="true">,</span>{% endif %}
+    {% endfor %}
+    {% if not d.fixed %}
+    <span class="text-xs text-gray-500">
+      Fill in as many boxes as your pattern needs.
+    </span>
+    {% endif %}
+  </div>
+  <div class="mt-3 flex items-center gap-2">
+    <label class="text-gray-900 font-medium" for="pattern-rule-input">The rule is:</label>
+    <input type="text" id="pattern-rule-input" data-pat-rule autocomplete="off"
+           placeholder="e.g. subtract 3"
+           aria-label="The rule you used"
+           class="flex-1 min-w-32 max-w-xs rounded-lg border-2 border-gray-200 bg-blue-50
+                  px-3 py-2 font-bold text-blue-700
+                  focus:outline-none focus:border-primary focus:bg-white transition" />
+  </div>
+  {% if not d.needs_rule %}
+  <p class="mt-1 text-xs text-gray-500">The rule is optional on this question.</p>
+  {% endif %}
+</div>
+{% endwith %}{% endif %}

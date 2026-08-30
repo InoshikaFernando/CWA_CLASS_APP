@@ -4,6 +4,8 @@ The health dashboard reports the nightly snapshot for the whole bank. This page
 answers "what is wrong in Year 7 Fractions, right now?" and puts Edit/Delete
 next to each finding, so a super-admin never needs a shell to act on it.
 """
+import re
+
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
 from django.urls import reverse
@@ -166,6 +168,41 @@ class DetectionTests(QuestionCheckTestBase):
         row = next(r for r in response.context['rows'] if r['q'].id == q.id)
         self.assertFalse(row['has_image'])
         self.assertEqual(row['specs'], [])
+
+    def test_an_interactive_question_is_not_reported_for_having_no_options(self):
+        """Production #20694: "Place the fraction -1/2 on the number line given."
+
+        Its answer is the target in ``number_line_spec``; the model forbids
+        answer options on the type outright. The page reported every question in
+        the interactive family as "No correct option" — a fault they cannot
+        have, beside fixes the model would reject on save.
+        """
+        q = Question.objects.create(
+            level=self.y7, topic=self.fractions,
+            question_text='Place the fraction -1/2 on the number line given.',
+            question_type=Question.NUMBER_LINE,
+            number_line_spec={'min': -2, 'max': 2, 'step': 0.5,
+                              'mode': 'mark', 'target': [-0.5]},
+        )
+
+        response = self._run()
+
+        self.assertNotIn(q.id, [row['q'].id for row in response.context['rows']])
+
+    def test_an_interactive_question_with_no_spec_at_all_is_still_reported(self):
+        # Nothing to grade against and no answer rows either: the grader falls
+        # through to matching text and marks every student wrong.
+        q = Question.objects.create(
+            level=self.y7, topic=self.fractions,
+            question_text='Place the fraction -1/2 on the number line given.',
+            question_type=Question.NUMBER_LINE,
+        )
+
+        response = self._run()
+
+        row = next(r for r in response.context['rows'] if r['q'].id == q.id)
+        issue = next(i for i in row['issues'] if i['code'] == 'NO-CORRECT')
+        self.assertIn('number_line_spec', issue['detail'])
 
 
 class CapTests(QuestionCheckTestBase):
@@ -1514,3 +1551,221 @@ class TypedAnswerEditorTests(QuestionCheckTestBase):
         self.assertEqual(
             sorted(a.answer_text for a in q.answers.filter(is_correct=True)),
             ['593', '593 cm^2'])
+
+
+class GlobalQuestionStudentPreviewTests(TestCase):
+    """"Preview as student" inside the global question editor.
+
+    The editor shows what is STORED. What decides whether a question is any
+    good is what a child MEETS — the options they can pick, whether the marker
+    accepts the answer — and that is exactly what the review screens' preview
+    shows for a question being imported. The same button belongs here, over the
+    questions that already reached children, with two rules: it previews the
+    edits held unsaved in the form, and it writes nothing at all.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from accounts.models import Role as R
+
+        cls.admin = User.objects.create_superuser(
+            username='previewadmin', email='preview@test.com', password='pass1234')
+        admin_role, _ = R.objects.get_or_create(
+            name=R.ADMIN, defaults={'display_name': 'Admin'})
+        cls.admin.roles.add(admin_role)
+        cls.teacher = User.objects.create_user(
+            username='previewteacher', email='pt@test.com', password='pass1234')
+
+        cls.subject = Subject.objects.create(name='Maths Prev', slug='maths-prev')
+        cls.level = Level.objects.create(level_number=5, display_name='Year 5')
+        cls.topic = Topic.objects.create(
+            name='Coordinates Prev', slug='coordinates-prev', subject=cls.subject)
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='previewadmin', password='pass1234')
+
+    def _question(self, options=(('15', True), ('14', False)),
+                  question_type='multiple_choice', text='7 + 8 = ?'):
+        q = Question.objects.create(
+            level=self.level, topic=self.topic, question_text=text,
+            question_type=question_type)
+        for order, (answer_text, correct) in enumerate(options):
+            Answer.objects.create(question=q, answer_text=answer_text,
+                                  is_correct=correct, order=order)
+        return q
+
+    def _url(self, q):
+        return reverse('admin_global_question_preview', args=[q.id])
+
+    @staticmethod
+    def _options(body):
+        """The option labels the preview drew, in order.
+
+        Read out of the rendered take partial rather than matched as bare
+        strings: "15" appears in the page for other reasons, and a preview that
+        drew no options at all would pass a substring check.
+        """
+        return [text.strip() for text in re.findall(
+            r'<label for="ans_\d+_\d+"[^>]*>(.*?)</label>', body, re.S)]
+
+    def _form(self, q, **overrides):
+        """The modal's fields, exactly as the browser posts them."""
+        data = {
+            'question_text': q.question_text,
+            'question_type': q.question_type,
+            'answer_id': [],
+        }
+        for answer in q.answers.order_by('order', 'id'):
+            data['answer_id'].append(str(answer.id))
+            data[f'answer_text_{answer.id}'] = answer.answer_text
+            if answer.is_correct:
+                data[f'is_correct_{answer.id}'] = 'on'
+        data.update(overrides)
+        return data
+
+    # ---- the button ------------------------------------------------------
+
+    def test_the_editor_offers_the_preview(self):
+        q = self._question()
+        body = self.client.get(
+            reverse('admin_global_question_edit', args=[q.id])).content.decode()
+        self.assertIn('preview-as-student', body)
+        # It posts the open form, to this question's own endpoint — without
+        # both, the button previews the row on disk instead of the edit.
+        self.assertIn(self._url(q), body)
+        self.assertIn('#question-edit-form', body)
+
+    def test_the_listing_offers_the_preview_on_every_row(self):
+        q = self._question()
+        body = self.client.get(reverse('admin_global_questions')).content.decode()
+        self.assertIn(self._url(q), body)
+        # The modal the row buttons open, and the token the fetch needs — the
+        # row is not inside a form, so without it every preview would 403.
+        self.assertIn('id="student-preview"', body)
+        self.assertIn('csrfmiddlewaretoken', body)
+
+    def test_the_row_previews_the_stored_question(self):
+        # The row posts no form. Treating that as "an edit with empty fields"
+        # would blank the very question it was asked to show.
+        q = self._question()
+        body = self.client.post(self._url(q), {}).content.decode()
+        self.assertIn('7 + 8 = ?', body)
+        self.assertEqual(self._options(body), ['15', '14'])
+        q.refresh_from_db()
+        self.assertEqual(q.question_text, '7 + 8 = ?')
+        self.assertEqual(q.answers.count(), 2)
+
+    # ---- what it shows ---------------------------------------------------
+
+    def test_it_renders_the_question_the_student_would_meet(self):
+        q = self._question()
+        body = self.client.post(self._url(q), self._form(q)).content.decode()
+        self.assertIn('7 + 8 = ?', body)
+        # The real take partial: one radio per option, named the way the
+        # student page names it.
+        self.assertIn(f'name="answer_{q.id}"', body)
+        self.assertEqual(self._options(body), ['15', '14'])
+
+    def test_it_previews_the_unsaved_edit_not_the_stored_row(self):
+        q = self._question()
+        body = self.client.post(self._url(q), self._form(
+            q, question_text='8 + 8 = ?')).content.decode()
+        self.assertIn('8 + 8 = ?', body)
+        self.assertNotIn('7 + 8 = ?', body)
+
+    def test_an_unsaved_new_option_appears(self):
+        q = self._question()
+        body = self.client.post(self._url(q), self._form(q, **{
+            'new_answer_index': ['1'],
+            'new_answer_text_1': '16',
+        })).content.decode()
+        self.assertEqual(self._options(body), ['15', '14', '16'])
+
+    def test_an_unsaved_removal_disappears(self):
+        q = self._question()
+        body = self.client.post(self._url(q), self._form(
+            q, delete_answer=[str(q.answers.get(answer_text='14').id)],
+        )).content.decode()
+        self.assertEqual(self._options(body), ['15'])
+
+    # ---- and changes nothing --------------------------------------------
+
+    def test_previewing_writes_nothing(self):
+        # The whole safety of the feature. Previewing an edit must not be a
+        # back door that saves it — the teacher has not pressed Save.
+        q = self._question()
+        removed = q.answers.get(answer_text='14')
+
+        self.client.post(self._url(q), self._form(q, **{
+            'question_text': '8 + 8 = ?',
+            'question_type': 'short_answer',
+            f'answer_text_{q.answers.get(answer_text="15").id}': 'fifteen',
+            'delete_answer': [str(removed.id)],
+            'new_answer_index': ['1'],
+            'new_answer_text_1': '16',
+        }))
+
+        q.refresh_from_db()
+        self.assertEqual(q.question_text, '7 + 8 = ?')
+        self.assertEqual(q.question_type, 'multiple_choice')
+        self.assertEqual(
+            sorted(a.answer_text for a in q.answers.all()), ['14', '15'])
+
+    # ---- trying an answer ------------------------------------------------
+
+    def test_a_picked_option_is_marked_by_the_real_grader(self):
+        q = self._question()
+        body = self.client.post(self._url(q), self._form(
+            q, preview_answer_index='0')).content.decode()
+        self.assertIn('Marked correct', body)
+
+    def test_a_wrong_pick_is_marked_wrong(self):
+        q = self._question()
+        body = self.client.post(self._url(q), self._form(
+            q, preview_answer_index='1')).content.decode()
+        self.assertIn('Marked wrong', body)
+
+    def test_a_typed_answer_is_marked_against_the_edited_answers(self):
+        # The repair this editor exists for: a one-option "multiple choice"
+        # switched to short answer. The preview proves the switch grades.
+        q = self._question(options=(('15', True),))
+        body = self.client.post(self._url(q), self._form(
+            q, question_type='short_answer', preview_answer='15',
+        )).content.decode()
+        self.assertIn('Marked correct', body)
+
+    def test_the_notes_name_the_trap(self):
+        q = self._question(options=(('15', True), ('14', True)))
+        body = self.client.post(self._url(q), self._form(q)).content.decode()
+        self.assertIn('ticked correct', body)
+
+    # ---- a state that cannot be saved -----------------------------------
+
+    def test_an_unsaveable_edit_says_so_instead_of_previewing(self):
+        # Removing every option is refused on save; the preview says the same
+        # thing rather than drawing a question with nothing to pick.
+        q = self._question()
+        body = self.client.post(self._url(q), self._form(
+            q, delete_answer=[str(a.id) for a in q.answers.all()],
+        )).content.decode()
+        self.assertIn('nothing to pick', body)
+        self.assertEqual(q.answers.count(), 2)
+
+    # ---- who may ---------------------------------------------------------
+
+    def test_a_non_admin_cannot_preview(self):
+        q = self._question()
+        self.client.logout()
+        self.client.login(username='previewteacher', password='pass1234')
+        response = self.client.post(self._url(q), self._form(q))
+        self.assertNotEqual(response.status_code, 200)
+
+    def test_a_school_owned_question_is_not_reachable_here(self):
+        # This editor is the GLOBAL bank; a school's own question is another
+        # screen's business, and 404 says so rather than editing it silently.
+        q = self._question()
+        response = self.client.post(
+            reverse('admin_global_question_preview', args=[q.id + 9999]),
+            self._form(q))
+        self.assertEqual(response.status_code, 404)
