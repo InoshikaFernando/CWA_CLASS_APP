@@ -127,10 +127,15 @@
     </div>
   </div>
 
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center text-sm">
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-center text-sm">
     <div class="bg-slate-50 rounded-xl border border-slate-200 p-3">
       <span class="font-bold text-slate-700">{{ totals.completed }}/{{ totals.assigned }}</span>
       <span class="text-slate-400 block text-xs">homework due, attempted</span>
+    </div>
+    <div class="bg-slate-50 rounded-xl border border-slate-200 p-3">
+      {# A count with no denominator says nothing: three of three and three of ten read the same. #}
+      <span class="font-bold text-slate-700">{{ worksheets.completed }}/{{ worksheets.assigned }}</span>
+      <span class="text-slate-400 block text-xs">worksheets set, completed</span>
     </div>
     <div class="bg-slate-50 rounded-xl border border-slate-200 p-3">
       <span class="font-bold text-slate-700">{{ totals.submissions }}</span>
