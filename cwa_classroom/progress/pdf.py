@@ -91,9 +91,13 @@ def _score_colour(pct):
 # Charts
 # ---------------------------------------------------------------------------
 
+#: Bars beyond this are unreadable at A4 width. The table lists them all.
+TOPIC_CHART_LIMIT = 10
+
+
 def _topic_chart(topics):
     """Accuracy per topic, weakest first — mirrors the bar chart on the page."""
-    rows = topics[:10]
+    rows = topics[:TOPIC_CHART_LIMIT]
     if not rows:
         return None
 
@@ -195,12 +199,14 @@ def _shorten(text, limit=22):
 # Blocks
 # ---------------------------------------------------------------------------
 
-def _kpi_table(totals):
+def _kpi_table(totals, worksheets):
     cells = [
         ('Overall average', f'{totals.get("overall_avg_pct", totals.get("avg_best_pct", 0))}%'),
         ('Homework average', f'{totals.get("avg_best_pct", 0)}%'),
         ('Gained by retrying', f'{totals.get("improvement_pct", 0):+d} pts'),
         ('Activities', str(totals.get('activity_items', 0))),
+        ('Homework due', f'{totals.get("completed", 0)} of {totals.get("assigned", 0)}'),
+        ('Worksheets set', f'{worksheets.get("completed", 0)} of {worksheets.get("assigned", 0)}'),
         ('Total attempts', str(totals.get('submissions', 0))),
         ('Time on task', f'{totals.get("time_minutes", 0)} min'),
         ('Completed on time', f'{totals.get("on_time_pct", 0)}%'),
@@ -378,6 +384,108 @@ def _letterhead_flow(report, styles):
     return [text, Spacer(1, 6)]
 
 
+def _manual_flow(report, styles):
+    """The teacher-authored halves — assessment and comment — as flowables.
+
+    Resolved by the same helper the page uses, so the PDF a family keeps
+    cannot say something different from the page they were linked to.
+
+    Either may be absent; an absent section is omitted, never rendered blank.
+    """
+    from progress.views_reports import _manual_sections
+
+    rubric, comment = _manual_sections(report)
+    flow = []
+
+    if rubric:
+        flow.append(Paragraph("Teacher's assessment", styles['heading']))
+        # 'achieved' already counts Confident + Advanced — reading it as one of
+        # several parts is what 500'd the page once. See _build_student_progress.
+        flow.append(Paragraph(
+            f'{rubric.get("achieved", 0)} of {rubric.get("total", 0)} criteria '
+            'at confident or above, against this school\'s progress criteria.',
+            styles['note'],
+        ))
+        flow.append(Spacer(1, 6))
+
+    if comment:
+        flow.append(Paragraph("Teacher's comment", styles['heading']))
+        flow.append(Paragraph(_comment_html(comment.body), styles['note']))
+        who = ''
+        if comment.created_by:
+            who = (comment.created_by.get_full_name()
+                   or comment.created_by.username)
+        stamp = comment.updated_at.strftime('%-d %b %Y') if comment.updated_at else ''
+        if who or stamp:
+            flow.append(Paragraph(
+                ' · '.join(part for part in (who, stamp) if part),
+                styles['caption'],
+            ))
+        flow.append(Spacer(1, 6))
+
+    return flow
+
+
+def _comment_html(body):
+    """A teacher's markup as the minimal HTML subset reportlab understands.
+
+    Escaped FIRST and converted after, the same order the page's
+    ``teacher_markup`` filter uses: a comment is free text a teacher typed, and
+    an unescaped ``<`` would either vanish or break the paragraph parser.
+    """
+    import re
+    from xml.sax.saxutils import escape
+
+    text = escape(body or '')
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<i>\1</i>', text)
+    return text.replace('\n', '<br/>')
+
+
+def _practice_flow(report, styles):
+    """Practice done in a subject's own app — coding exercises and problems.
+
+    The PDF carried no practice section at all. For a coding report that is
+    most of the content, so the download read as an almost-empty document
+    beside a full page: the truncation CPP-400 reports.
+
+    Grouped by topic, as the page has been since 1.19.11, and keeping finished
+    apart from marked for the same reason — an exercise scores 100 for being
+    completed, which is not a mark.
+    """
+    practice = report.data.get('subject_practice') or {}
+    flow = []
+
+    for section in practice.get('sections') or []:
+        topics = section.get('topics') or []
+        if not topics:
+            continue
+        flow.append(Paragraph(section.get('label') or 'Practice', styles['heading']))
+        flow.append(_data_table(
+            ['Topic', 'Practised', 'Attempts', 'Finished', 'Best'],
+            [[
+                topic['name'],
+                topic['items'],
+                topic['attempts'],
+                (f'{topic["finished"]} of {topic["exercises"]}'
+                 if topic.get('exercises') else '—'),
+                ('—' if topic.get('best_pct') is None else f'{topic["best_pct"]}%'),
+            ] for topic in topics],
+            widths=[CONTENT_WIDTH * 0.36, CONTENT_WIDTH * 0.15,
+                    CONTENT_WIDTH * 0.15, CONTENT_WIDTH * 0.19,
+                    CONTENT_WIDTH * 0.15],
+            aligns=['LEFT', 'CENTER', 'CENTER', 'CENTER', 'CENTER'],
+        ))
+        flow.append(Paragraph(
+            f'{section.get("items", 0)} attempted over '
+            f'{section.get("attempts", 0)} attempts.',
+            styles['caption'],
+        ))
+        flow.append(Spacer(1, 6))
+
+    return flow
+
+
 def render_report_pdf(report):
     """Return the report as PDF bytes."""
     styles = _styles()
@@ -401,15 +509,21 @@ def render_report_pdf(report):
         ),
     ]
 
+    # Before the empty-report return, deliberately. A child with no
+    # submissions is exactly when the teacher's assessment and comment are the
+    # only things left to say — the page moved them out of this branch in
+    # 1.19.1 and the PDF kept the old shape, so a parent's download lost them.
+    flow += _manual_flow(report, styles)
+
     if not report.has_activity:
         flow.append(_empty_note(styles))
-        doc.build(flow)
+        doc.build(flow, onLaterPages=_footer, onFirstPage=_footer)
         return buffer.getvalue()
 
     totals = report.totals
     flow += [
         Paragraph('At a glance', styles['heading']),
-        _kpi_table(totals),
+        _kpi_table(totals, report.worksheets),
         Paragraph(
             f'Retrying moved the average from {totals.get("avg_first_pct", 0)}% '
             f'on the first attempt to {totals.get("avg_best_pct", 0)}% at best — '
@@ -429,10 +543,17 @@ def render_report_pdf(report):
         chart = _topic_chart(topics)
         if chart is not None:
             flow.append(chart)
-            flow.append(Paragraph(
-                'Accuracy across every question answered, weakest topic first.',
-                styles['caption'],
-            ))
+            # The chart is capped because thirty bars are unreadable, but it
+            # said so nowhere — it just looked like the whole picture with
+            # topics missing. The table below carries every row.
+            shown = min(len(topics), TOPIC_CHART_LIMIT)
+            caption = 'Accuracy across every question answered, weakest topic first.'
+            if len(topics) > shown:
+                caption = (
+                    f'The {shown} weakest of {len(topics)} topics. '
+                    'Every topic is listed in the table below.'
+                )
+            flow.append(Paragraph(caption, styles['caption']))
         flow.append(Spacer(1, 6))
         flow.append(_data_table(
             ['Topic', 'Answered', 'Correct', 'Accuracy'],
@@ -442,6 +563,8 @@ def render_report_pdf(report):
                     CONTENT_WIDTH * 0.16, CONTENT_WIDTH * 0.16],
             aligns=['LEFT', 'CENTER', 'CENTER', 'CENTER'],
         ))
+
+    flow += _practice_flow(report, styles)
 
     attempts = report.attempts
     if attempts.get('items'):
