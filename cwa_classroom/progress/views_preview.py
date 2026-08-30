@@ -225,6 +225,11 @@ class ReportPreviewView(RoleRequiredMixin, View):
                 id=request.GET['classroom'], school=school,
             ).first()
 
+        # "Subscribed students only" — the same rule the Manage Students list
+        # uses (billing.selectors). Applied inside the plan, not over the rows,
+        # so the send below covers exactly what this page shows.
+        subscribed_only = request.GET.get('subscribed') == '1'
+
         rows = []
         plan = {}
         empty_reason = None
@@ -235,6 +240,7 @@ class ReportPreviewView(RoleRequiredMixin, View):
         else:
             plan = students_for_period(
                 period_type, school=school, classroom=classroom,
+                subscribed_only=subscribed_only,
             )
             subjects = _subjects_by_id(plan)
             ordered = sorted(plan.items(), key=lambda kv: (
@@ -252,17 +258,22 @@ class ReportPreviewView(RoleRequiredMixin, View):
                     ))
 
             if not rows:
-                # An empty plan has two causes that call for opposite actions:
-                # switch the report on, or put students in the class. Naming
-                # the wrong one sends a head of institute to change a setting
-                # that is already correct.
-                empty_reason = (
-                    'no_students'
-                    if classrooms_for_period(
-                        period_type, school=school, classroom=classroom,
+                # An empty plan has three causes that call for opposite
+                # actions: drop the filter, switch the report on, or put
+                # students in the class. Naming the wrong one sends a head of
+                # institute to change a setting that is already correct.
+                if subscribed_only and students_for_period(
+                    period_type, school=school, classroom=classroom,
+                ):
+                    empty_reason = 'no_subscribed'
+                else:
+                    empty_reason = (
+                        'no_students'
+                        if classrooms_for_period(
+                            period_type, school=school, classroom=classroom,
+                        )
+                        else 'not_enabled'
                     )
-                    else 'not_enabled'
-                )
 
         with_activity = [row for row in rows if row['has_activity']]
         return render(request, 'progress/report_preview.html', {
@@ -278,6 +289,7 @@ class ReportPreviewView(RoleRequiredMixin, View):
             'end': end,
             'term': term,
             'classroom': classroom,
+            'subscribed_only': subscribed_only,
             'classrooms': ClassRoom.objects.filter(
                 school=school, is_active=True,
             ).order_by('name'),
@@ -322,9 +334,14 @@ class ReportPreviewView(RoleRequiredMixin, View):
             )
 
         start, end = _window(period_type, reference, term)
+        # The scope the previewed page was showing, carried through the form:
+        # sending a wider set than the one on screen is the exact failure the
+        # preview exists to prevent.
+        subscribed_only = request.POST.get('subscribed') == '1'
         counts = run_period(
             period_type, start, end, term=term,
             school=school, classroom=classroom,
+            subscribed_only=subscribed_only,
         )
 
         log_event(
@@ -334,6 +351,7 @@ class ReportPreviewView(RoleRequiredMixin, View):
                 'period_type': period_type,
                 'period': counts['period'],
                 'classroom_id': classroom.id if classroom else None,
+                'subscribed_only': subscribed_only,
                 'generated': counts['generated'],
                 'notified': counts['notified'],
                 'emailed': counts['emailed'],
@@ -342,11 +360,24 @@ class ReportPreviewView(RoleRequiredMixin, View):
         )
 
         if not counts['classes']:
-            messages.warning(
-                request,
-                'No class in this scope has that report switched on, so '
-                'nothing was sent. Switch it on under Report Automation first.',
-            )
+            # With the filter on, an empty run has a second cause — the classes
+            # are switched on but hold nobody subscribed — and sending staff to
+            # Report Automation for that is sending them to a correct setting.
+            if subscribed_only:
+                messages.warning(
+                    request,
+                    'Nothing was sent: no subscribed student is in a class '
+                    'with that report switched on. Clear the "Subscribed '
+                    'students only" filter, or switch the report on under '
+                    'Report Automation first.',
+                )
+            else:
+                messages.warning(
+                    request,
+                    'No class in this scope has that report switched on, so '
+                    'nothing was sent. Switch it on under Report Automation '
+                    'first.',
+                )
         else:
             messages.success(
                 request,
@@ -359,16 +390,23 @@ class ReportPreviewView(RoleRequiredMixin, View):
         target = f'?school={school.id}&period={period_type}'
         if classroom:
             target += f'&classroom={classroom.id}'
+        if subscribed_only:
+            target += '&subscribed=1'
         return redirect(f'{request.path}{target}')
 
 
-def _preview_query(school, period_type, classroom=None, student=None):
+def _preview_query(school, period_type, classroom=None, student=None,
+                   subscribed_only=False):
     """The query string that pins a preview to one scope, and optionally one student."""
     query = f'?school={school.id}&period={period_type}'
     if classroom is not None:
         query += f'&classroom={classroom.id}'
     if student is not None:
         query += f'&student={student.id}'
+    # Carried so "Back to preview" returns to the filtered list the reader came
+    # from rather than silently widening it.
+    if subscribed_only:
+        query += '&subscribed=1'
     return query
 
 
@@ -476,9 +514,13 @@ class ReportPreviewDetailView(RoleRequiredMixin, View):
             return redirect('progress:report_preview')
 
         school, report, period_type, classroom = _resolve_one(request)
-        scope = _preview_query(school, period_type, classroom)
+        subscribed_only = request.GET.get('subscribed') == '1'
+        scope = _preview_query(
+            school, period_type, classroom, subscribed_only=subscribed_only,
+        )
         student_scope = _preview_query(
             school, period_type, classroom, student=report.student,
+            subscribed_only=subscribed_only,
         )
         return render(request, DETAIL_TEMPLATE, report_detail_context(
             report, request.user, preview=True,

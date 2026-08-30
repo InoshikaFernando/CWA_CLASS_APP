@@ -16,6 +16,7 @@ import logging
 import subprocess
 import shutil
 import os
+from urllib.parse import urlencode
 
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
@@ -1925,6 +1926,14 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                 | Q(student__subscription__discount_percent_snapshot=0)
             )
 
+        # Subscription filter ("subscribed students only"). A student counts
+        # as subscribed when their OWN subscription is live — see
+        # billing.selectors for why the school's plan is not consulted here.
+        subscribed_only = request.GET.get('subscribed') == '1'
+        if subscribed_only:
+            from billing.selectors import filter_subscribed
+            qs = filter_subscribed(qs, path='student__subscription')
+
         # Server-side search
         q = request.GET.get('q', '').strip()
         if q:
@@ -1999,6 +2008,30 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
                 }
                 for g in find_duplicate_groups(school)
             ]
+        # Filter-toggle links. Built here rather than concatenated in the
+        # template so switching one filter keeps the others — a "Subscribed
+        # only" chip that silently dropped the current search would show a
+        # different set of students than the one the toggle claims to narrow.
+        def _filters_url(**overrides):
+            params = {}
+            if q:
+                params['q'] = q
+            if order_by and order_by != 'name':
+                params['order_by'] = order_by
+            if discount_filter:
+                params['discount'] = discount_filter
+            if show_inactive:
+                params['show_inactive'] = '1'
+            if subscribed_only:
+                params['subscribed'] = '1'
+            for key, value in overrides.items():
+                if value:
+                    params[key] = value
+                else:
+                    params.pop(key, None)
+            encoded = urlencode(params)
+            return f'?{encoded}' if encoded else ''
+
         ctx = {
             'school': school,
             'school_students': page,
@@ -2007,6 +2040,11 @@ class SchoolStudentManageView(RoleRequiredMixin, View):
             'q': q,
             'order_by': order_by,
             'discount_filter': discount_filter,
+            'subscribed_only': subscribed_only,
+            'toggle_inactive_url': _filters_url(
+                show_inactive='' if show_inactive else '1'),
+            'toggle_subscribed_url': _filters_url(
+                subscribed='' if subscribed_only else '1'),
             'total_count': paginator.count,
             'sort_columns': [
                 ('name', 'Name'),

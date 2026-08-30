@@ -71,6 +71,22 @@ from billing.entitlements import has_module_access, check_plan_limit
 
 This is the integration surface for plan-aware features.
 
+## "Subscribed students only" filters
+
+Pages that offer a *subscribed students only* filter (Manage Students, the
+progress-report preview) narrow their queryset through one shared definition
+rather than restating the statuses:
+
+```python
+from billing.selectors import filter_subscribed
+
+qs = filter_subscribed(qs, path='student__subscription')  # active or trialing
+```
+
+A student's **own** `Subscription` decides it. A school's `SchoolSubscription`
+is deliberately not consulted: every student of a subscribed institute would
+then match, and a filter that matches everybody says nothing.
+
 ## Dependencies
 
 - **accounts** — `CustomUser` is the payer / subscriber.
