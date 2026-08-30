@@ -209,10 +209,22 @@ class ScheduleDetailView(RoleRequiredMixin, View):
         weeks = list(
             schedule.weeks.select_related('generated_homework').all()
         )
-        # One bulk label lookup for the whole grid rather than one per week —
-        # a year-long plan is 40+ rows and each would otherwise hit the DB.
-        all_ids = {tid for w in weeks for tid in (w.topic_ids or [])}
+        topic_groups = plugin.homework_topic_tree(schedule.classroom)
+
+        # Every selectable topic on the page, plus anything a week already has
+        # planned (a topic can drop out of the tree once its questions are
+        # withdrawn, and that week still needs a truthful count of zero).
+        selectable_ids = _selectable_topic_ids(topic_groups)
+        planned_ids = {tid for w in weeks for tid in (w.topic_ids or [])}
+        all_ids = selectable_ids | planned_ids
+
+        # Two plugin calls for the whole grid rather than one per week — a
+        # year-long plan is 40+ rows over the same topic tree.
         labels = plugin.topic_labels(all_ids) if all_ids else {}
+        total_by_topic, fresh_by_topic = svc.topic_counts_for_schedule(
+            schedule, all_ids,
+        )
+
         for week in weeks:
             stored = dict(zip(week.topic_ids or [], week.topic_labels or []))
             week.display_labels = [
@@ -222,17 +234,62 @@ class ScheduleDetailView(RoleRequiredMixin, View):
             week.release_on = svc.release_date_for(
                 week.week_start_date, schedule.release_weekday,
             )
+            week.coverage = svc.coverage_for(week, total_by_topic, fresh_by_topic)
+
+        # Counts are attached to the tree's leaves so the template can label
+        # each checkbox and the page's JS can re-total a week live as boxes are
+        # ticked, without another request.
+        _annotate_counts(topic_groups, total_by_topic, fresh_by_topic)
 
         return render(request, self.template_name, {
             'schedule': schedule,
             'classroom': schedule.classroom,
             'weeks': weeks,
-            'topic_groups': plugin.homework_topic_tree(schedule.classroom),
+            'topic_groups': topic_groups,
             'week_form': ScheduleWeekForm(),
+            'repeat_window': schedule.avoid_repeat_weeks,
             'copy_targets': (
                 _teacher_classrooms(request.user).exclude(pk=schedule.classroom_id)
             ),
         })
+
+
+def _selectable_topic_ids(topic_groups):
+    """Every pk a teacher can actually tick in the rendered topic tree.
+
+    The tree is ``[(strand, [(mid, [leaf, ...]), ...]), ...]`` and a checkbox is
+    rendered for a leaf, for a mid with no leaves, or for a strand with no mids
+    — so all three shapes are collected here, matching the template exactly.
+    """
+    ids = set()
+    for strand, mid_items in topic_groups:
+        if not mid_items:
+            ids.add(strand.pk)
+            continue
+        for mid, leaves in mid_items:
+            if leaves:
+                ids.update(leaf.pk for leaf in leaves)
+            else:
+                ids.add(mid.pk)
+    return ids
+
+
+def _annotate_counts(topic_groups, total_by_topic, fresh_by_topic):
+    """Hang ``total_count`` / ``fresh_count`` on each selectable tree node."""
+    def mark(node):
+        node.total_count = total_by_topic.get(node.pk, 0)
+        node.fresh_count = fresh_by_topic.get(node.pk, 0)
+
+    for strand, mid_items in topic_groups:
+        if not mid_items:
+            mark(strand)
+            continue
+        for mid, leaves in mid_items:
+            if leaves:
+                for leaf in leaves:
+                    mark(leaf)
+            else:
+                mark(mid)
 
 
 class ScheduleWeekSaveView(RoleRequiredMixin, View):

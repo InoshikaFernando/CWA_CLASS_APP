@@ -114,6 +114,18 @@
           <p class="text-xs text-gray-500 mb-3">{{ week.generation_message }}</p>
           {% endif %}
 
+          {% comment %}
+            Coverage: whether the planned topics can actually fill this week's
+            set. Rendered server-side from the saved topics, then kept live by
+            the page's JS as boxes are ticked — a teacher should learn a topic
+            is too thin while choosing it, not weeks later when the set arrives
+            padded with repeats.
+          {% endcomment %}
+          <p class="coverage-line text-xs mb-3 {% if week.coverage.status == 'unplanned' %}text-gray-400{% elif week.coverage.status == 'ok' %}text-gray-500{% elif week.coverage.status == 'repeats' %}text-amber-700{% else %}text-red-700{% endif %}"
+             data-week-coverage
+             data-wanted="{{ week.coverage.wanted }}"
+             data-repeat-window="{{ repeat_window }}">{{ week.coverage.message }}</p>
+
           {% if week.generated_homework %}
           <p class="text-sm text-gray-600 mb-3">
             Created
@@ -155,8 +167,12 @@
                       <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer py-0.5">
                         <input type="checkbox" name="topic_ids" value="{{ leaf.pk }}"
                                class="rounded text-blue-600 focus:ring-blue-500"
+                               data-total="{{ leaf.total_count }}" data-fresh="{{ leaf.fresh_count }}"
                                {% if leaf.pk in week.topic_ids %}checked{% endif %}>
                         <span>{{ leaf.name }}</span>
+                        <span class="text-xs {% if leaf.fresh_count %}text-gray-400{% else %}text-red-500{% endif %}">
+                          ({{ leaf.fresh_count }}{% if leaf.total_count != leaf.fresh_count %} of {{ leaf.total_count }}{% endif %})
+                        </span>
                       </label>
                       {% endfor %}
                     </div>
@@ -165,8 +181,12 @@
                   <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer py-0.5">
                     <input type="checkbox" name="topic_ids" value="{{ mid.pk }}"
                            class="rounded text-blue-600 focus:ring-blue-500"
+                           data-total="{{ mid.total_count }}" data-fresh="{{ mid.fresh_count }}"
                            {% if mid.pk in week.topic_ids %}checked{% endif %}>
                     <span>{{ mid.name }}</span>
+                    <span class="text-xs {% if mid.fresh_count %}text-gray-400{% else %}text-red-500{% endif %}">
+                      ({{ mid.fresh_count }}{% if mid.total_count != mid.fresh_count %} of {{ mid.total_count }}{% endif %})
+                    </span>
                   </label>
                   {% endif %}
                   {% endfor %}
@@ -176,13 +196,25 @@
               <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer px-3 py-2">
                 <input type="checkbox" name="topic_ids" value="{{ strand.pk }}"
                        class="rounded text-blue-600 focus:ring-blue-500"
+                       data-total="{{ strand.total_count }}" data-fresh="{{ strand.fresh_count }}"
                        {% if strand.pk in week.topic_ids %}checked{% endif %}>
                 <span>{{ strand.name }}</span>
+                <span class="text-xs {% if strand.fresh_count %}text-gray-400{% else %}text-red-500{% endif %}">
+                  ({{ strand.fresh_count }}{% if strand.total_count != strand.fresh_count %} of {{ strand.total_count }}{% endif %})
+                </span>
               </label>
               {% endif %}
               {% empty %}
-              <p class="px-3 py-4 text-sm text-gray-400">
-                No topics with questions are available to this class yet.
+              <p class="px-3 py-4 text-sm text-gray-500">
+                No topics have questions this class can draw on.
+                A topic appears here only when the question bank holds
+                {% if schedule.question_type %}<strong>{{ schedule.question_type }}</strong>{% endif %}
+                questions for <strong>{{ schedule.subject_slug }}</strong> at
+                <strong>{{ classroom.name }}</strong>'s year levels — so check the
+                class has the right levels set, and that the bank has questions
+                at them. The same list drives “+ New Homework” for this class,
+                so if that picker is empty too, the cause is the levels or the
+                bank rather than this plan.
               </p>
               {% endfor %}
             </div>
@@ -240,4 +272,62 @@
 
   </div>
 </div>
+
+<script>
+  // Re-total a week's coverage as topics are ticked, from the per-checkbox
+  // counts the server already rendered. Purely additive: the line is correct
+  // server-side on load and after every save, so a browser with JS off simply
+  // sees it update on save instead of live.
+  (function () {
+    function summarise(el) {
+      var wanted = parseInt(el.dataset.wanted, 10) || 0;
+      var window_ = parseInt(el.dataset.repeatWindow, 10) || 0;
+      var boxes = el.closest('form').querySelectorAll('input[name="topic_ids"]:checked');
+      var total = 0, fresh = 0;
+      boxes.forEach(function (b) {
+        total += parseInt(b.dataset.total, 10) || 0;
+        fresh += parseInt(b.dataset.fresh, 10) || 0;
+      });
+
+      var cls = 'coverage-line text-xs mb-3 ', msg;
+      if (!boxes.length) {
+        cls += 'text-gray-400';
+        msg = 'No topics selected yet.';
+      } else if (total <= 0) {
+        cls += 'text-red-700';
+        msg = 'No questions available for these topics.';
+      } else if (total < wanted) {
+        cls += 'text-red-700';
+        msg = 'Only ' + total + ' question' + (total === 1 ? '' : 's') +
+              ' available \u2014 ' + (wanted - total) + ' short of the ' + wanted + ' asked for.';
+      } else if (fresh < wanted) {
+        cls += 'text-amber-700';
+        var repeats = Math.min(wanted, total) - fresh;
+        msg = fresh + ' unused question' + (fresh === 1 ? '' : 's') + ' available \u2014 ' +
+              repeats + ' of the ' + wanted + ' would repeat one the class has had' +
+              (window_ ? ' in the last ' + window_ + ' weeks' : ' recently') + '.';
+      } else {
+        cls += 'text-gray-500';
+        msg = fresh + ' unused questions available for a set of ' + wanted + '.';
+      }
+      el.className = cls;
+      el.textContent = msg;
+    }
+
+    document.querySelectorAll('[data-week-coverage]').forEach(function (el) {
+      var form = el.closest('form');
+      if (!form) return;
+      form.addEventListener('change', function (e) {
+        if (e.target && e.target.name === 'topic_ids') summarise(el);
+      });
+      // A per-week question-count override changes what "enough" means.
+      form.addEventListener('input', function (e) {
+        if (e.target && e.target.name === 'num_questions') {
+          var v = parseInt(e.target.value, 10);
+          if (v > 0) { el.dataset.wanted = v; summarise(el); }
+        }
+      });
+    });
+  })();
+</script>
 {% endblock %}

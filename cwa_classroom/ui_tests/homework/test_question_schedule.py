@@ -131,3 +131,60 @@ def test_a_student_cannot_open_the_planner(
 
     assert '/schedules/' not in page.url
     expect(page.locator('h1')).not_to_contain_text('Question Schedules')
+
+
+@pytest.mark.django_db
+def test_coverage_warns_live_when_a_topic_cannot_fill_the_set(
+    page: Page, live_server, teacher_user, classroom, topic, questions, term,
+):
+    """Ticking a thin topic must warn before the teacher saves, not weeks later.
+
+    The `questions` fixture supplies 5; the plan asks for 10, so the moment the
+    topic is ticked the week should say it is 5 short — with no page reload.
+    """
+    from homework.models import QuestionSchedule
+
+    _open_planner(page, live_server, teacher_user, classroom)
+
+    page.locator('button[type="submit"]', has_text='New schedule').click()
+    page.wait_for_load_state('domcontentloaded')
+    page.locator('#id_name').fill('Coverage plan')
+    page.locator('#id_scope').select_option('term')
+    page.locator('#id_term').select_option(str(term.id))
+    page.locator('#id_num_questions').fill('10')
+    page.locator('button[type="submit"]', has_text='Create schedule').click()
+    page.wait_for_load_state('domcontentloaded')
+
+    schedule = QuestionSchedule.objects.get(name='Coverage plan')
+    week = page.locator('#week-1')
+    line = week.locator('[data-week-coverage]')
+
+    # Nothing planned yet.
+    expect(line).to_contain_text('No topics selected')
+
+    # The count sits beside the topic itself, before anything is ticked.
+    box = week.locator(f'input[name="topic_ids"][value="{topic.id}"]').first
+    expect(box).to_have_attribute('data-total', '5')
+
+    # Ticking it warns immediately — no save, no reload.
+    box.check()
+    expect(line).to_contain_text('5 short of the 10')
+
+    # And the warning survives the save, rendered server-side this time.
+    week.locator('button[type="submit"]', has_text='Save week').click()
+    page.wait_for_load_state('domcontentloaded')
+    expect(page.locator('#week-1').locator('[data-week-coverage]')).to_contain_text(
+        '5 short of the 10',
+    )
+    assert schedule.weeks.get(week_number=1).topic_ids == [topic.id]
+
+
+@pytest.mark.django_db
+def test_the_create_form_says_topics_come_next(
+    page: Page, live_server, teacher_user, classroom, questions,
+):
+    """The gap that made the feature look missing: nothing said where topics were."""
+    _open_planner(page, live_server, teacher_user, classroom)
+    page.locator('button[type="submit"]', has_text='New schedule').click()
+    page.wait_for_load_state('domcontentloaded')
+    expect(page.locator('body')).to_contain_text('Topics come next')

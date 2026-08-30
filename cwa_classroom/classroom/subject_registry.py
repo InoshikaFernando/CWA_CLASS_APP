@@ -186,6 +186,29 @@ class SubjectPlugin:
         """
         return {}
 
+    def topic_content_counts(self, classroom, topic_ids, question_type=None,
+                             exclude_content_ids=None) -> dict:
+        """Map plugin topic id -> how many items this class could draw from it.
+
+        The counterpart to ``pick_homework_items``: same pool, same class
+        scoping, same ``question_type`` and ``exclude_content_ids`` filters —
+        counted instead of sampled. It has to be the same filters or the number
+        shown to a teacher would be a number the generator does not honour,
+        which is worse than showing nothing.
+
+        Used by the question-automation schedule to tell a teacher, while they
+        are planning, whether a topic can actually cover the set size they
+        asked for — rather than letting them find out weeks later when a set
+        comes out padded with repeats.
+
+        An item belongs to exactly one topic in both maths (``Question.topic``)
+        and coding (``CodingExercise.topic_level``), so counts across topics do
+        not overlap and a caller may sum them for a multi-topic week.
+
+        Topics with no items are simply absent from the result.
+        """
+        return {}
+
     def topic_labels(self, topic_ids) -> dict:
         """Map plugin topic id -> human label, for ids from ``homework_topic_tree``.
 
