@@ -49,7 +49,8 @@ def classrooms_for_period(period_type, school=None, classroom=None,
 
 
 def students_for_period(period_type, school=None, classroom=None,
-                        mode=None, reference=None, term=None):
+                        mode=None, reference=None, term=None,
+                        subscribed_only=False):
     """Who to generate for, and which classes each of their reports covers.
 
     Reports are opt-in: this walks the classes that resolved to *on* for this
@@ -67,6 +68,12 @@ def students_for_period(period_type, school=None, classroom=None,
     student in two enabled classes gets one report covering both; delivery
     flags are OR-ed across those classes, because a parent who is opted in
     anywhere should not be silently dropped by a stricter sibling class.
+
+    *subscribed_only* narrows the plan to students whose own subscription is
+    live (``billing.selectors``). It sits here rather than in the caller so the
+    preview page and the send that follows it cannot disagree about who is in
+    scope — a preview filtered in the template would show one list and mail a
+    different one.
     """
     from classroom.models import ClassStudent
     from progress import report_settings
@@ -89,6 +96,9 @@ def students_for_period(period_type, school=None, classroom=None,
         )
         .select_related('student')
     )
+    if subscribed_only:
+        from billing.selectors import filter_subscribed
+        memberships = filter_subscribed(memberships, path='student__subscription')
 
     # A class with no subject of its own is filed under its department's, so
     # mapping a department files its reports correctly from the next run — the
@@ -360,7 +370,7 @@ def _subjects_by_id(plan):
 
 def run_period(period_type, start, end, term=None, *, force=False, dry_run=False,
                notify=True, school=None, classroom=None, mode=None,
-               reference=None):
+               reference=None, subscribed_only=False):
     """Generate and deliver one window for every class that opted in.
 
     Returns a counts dict so the management command can report what actually
@@ -374,6 +384,7 @@ def run_period(period_type, start, end, term=None, *, force=False, dry_run=False
     plan = students_for_period(
         period_type, school=school, classroom=classroom,
         mode=mode, reference=reference, term=term,
+        subscribed_only=subscribed_only,
     )
 
     # One cohort cache for the whole run: classmates share a class, so without

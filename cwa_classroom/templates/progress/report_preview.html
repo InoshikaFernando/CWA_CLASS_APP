@@ -45,6 +45,19 @@
       </select>
     </label>
 
+    {% comment %}
+      Subscribed = the student's own subscription is active or trialing. The
+      filter is applied to the report plan, so what the send does below matches
+      this list exactly.
+    {% endcomment %}
+    <label class="flex items-center gap-2 text-xs font-semibold text-slate-600 pb-2">
+      <input type="checkbox" name="subscribed" value="1"
+             data-testid="preview-subscribed"
+             {% if subscribed_only %}checked{% endif %}
+             class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+      Subscribed students only
+    </label>
+
     <button type="submit"
             class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
       Preview
@@ -63,7 +76,8 @@
           <p class="font-semibold text-slate-800" data-testid="preview-period">{{ period_label }}</p>
           <p class="text-xs text-slate-400">
             {{ start|date:"d M Y" }} – {{ end|date:"d M Y" }} &middot;
-            {{ rows|length }} student{{ rows|length|pluralize }} in scope &middot;
+            {{ rows|length }} student{{ rows|length|pluralize }} in scope
+            {% if subscribed_only %}<span data-testid="preview-subscribed-note">(subscribed only)</span>{% endif %} &middot;
             <span data-testid="preview-active">{{ with_activity_count }}</span> with activity
             {% if with_activity_count %}&middot; {{ average }}% average{% endif %}
           </p>
@@ -75,6 +89,8 @@
           <input type="hidden" name="school_id" value="{{ school.id }}">
           <input type="hidden" name="period" value="{{ period_type }}">
           {% if classroom %}<input type="hidden" name="classroom_id" value="{{ classroom.id }}">{% endif %}
+          {# The send must cover the previewed scope, filter included. #}
+          {% if subscribed_only %}<input type="hidden" name="subscribed" value="1">{% endif %}
           <button type="submit" data-testid="preview-send"
                   class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
             Generate and send
@@ -87,7 +103,16 @@
     {% if not rows %}
       <div class="rounded-2xl border border-slate-200 bg-white p-8 text-center space-y-2"
            data-testid="preview-empty">
-        {% if empty_reason == 'no_students' %}
+        {% if empty_reason == 'no_subscribed' %}
+          <p class="font-semibold text-slate-700">
+            No subscribed student is in scope
+          </p>
+          <p class="text-sm text-slate-500">
+            There are students here, but none of them has an active or trialing
+            subscription. Untick <strong>Subscribed students only</strong> to
+            see the full scope.
+          </p>
+        {% elif empty_reason == 'no_students' %}
           <p class="font-semibold text-slate-700">
             This report is switched on, but there are no active students in scope
           </p>
@@ -162,7 +187,7 @@
                       open the same empty page every time.
                     {% endcomment %}
                     {% if row.has_activity %}
-                      <a href="{% url 'progress:report_preview_detail' %}?school={{ school.id }}&amp;period={{ period_type }}{% if classroom %}&amp;classroom={{ classroom.id }}{% endif %}&amp;student={{ row.student.id }}{% if row.subject %}&amp;subject={{ row.subject.id }}{% endif %}"
+                      <a href="{% url 'progress:report_preview_detail' %}?school={{ school.id }}&amp;period={{ period_type }}{% if classroom %}&amp;classroom={{ classroom.id }}{% endif %}{% if subscribed_only %}&amp;subscribed=1{% endif %}&amp;student={{ row.student.id }}{% if row.subject %}&amp;subject={{ row.subject.id }}{% endif %}"
                          data-testid="preview-view-report"
                          class="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline whitespace-nowrap">
                         View report

@@ -376,6 +376,9 @@ jobs:
             ui_progress:
               - 'cwa_classroom/ui_tests/progress/**'
               - 'cwa_classroom/accounts/**'
+              # The preview's "subscribed students only" filter reads
+              # billing.Subscription through billing/selectors.py.
+              - 'cwa_classroom/billing/**'
               - 'cwa_classroom/classroom/**'
               - 'cwa_classroom/homework/**'
               # Quizzes, times tables and basic facts are read straight off
