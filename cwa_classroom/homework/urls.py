@@ -1,5 +1,6 @@
 from django.urls import path
-from . import views
+
+from . import views, views_schedule
 
 app_name = 'homework'
 
@@ -13,6 +14,26 @@ urlpatterns = [
     path('homework/<int:homework_id>/delete/', views.HomeworkDeleteView.as_view(), name='delete'),
     path('homework/<int:homework_id>/publish/', views.HomeworkPublishView.as_view(), name='publish'),
     path('homework/<int:homework_id>/assign/', views.HomeworkAssignToClassView.as_view(), name='assign_to_class'),
+
+    # Teacher: question automation schedule (CPP-399)
+    path('homework/class/<int:classroom_id>/schedules/',
+         views_schedule.ClassScheduleListView.as_view(), name='schedule_list'),
+    path('homework/class/<int:classroom_id>/schedules/create/',
+         views_schedule.ScheduleCreateView.as_view(), name='schedule_create'),
+    path('homework/schedule/<int:schedule_id>/',
+         views_schedule.ScheduleDetailView.as_view(), name='schedule_detail'),
+    path('homework/schedule/<int:schedule_id>/edit/',
+         views_schedule.ScheduleEditView.as_view(), name='schedule_edit'),
+    path('homework/schedule/<int:schedule_id>/toggle/',
+         views_schedule.ScheduleToggleView.as_view(), name='schedule_toggle'),
+    path('homework/schedule/<int:schedule_id>/delete/',
+         views_schedule.ScheduleDeleteView.as_view(), name='schedule_delete'),
+    path('homework/schedule/<int:schedule_id>/copy/',
+         views_schedule.ScheduleCopyView.as_view(), name='schedule_copy'),
+    path('homework/schedule/<int:schedule_id>/week/<int:week_id>/save/',
+         views_schedule.ScheduleWeekSaveView.as_view(), name='schedule_week_save'),
+    path('homework/schedule/<int:schedule_id>/week/<int:week_id>/generate/',
+         views_schedule.ScheduleWeekGenerateView.as_view(), name='schedule_week_generate'),
 
     # Teacher: PDF upload flow
     path('homework/pdf/upload/', views.HomeworkPDFUploadView.as_view(), name='pdf_upload'),

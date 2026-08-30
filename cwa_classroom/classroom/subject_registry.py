@@ -74,7 +74,8 @@ class SubjectPlugin:
         """
         return 'topics'
 
-    def pick_homework_items(self, classroom, selected_topic_ids, n: int, question_type=None) -> list[int]:
+    def pick_homework_items(self, classroom, selected_topic_ids, n: int,
+                            question_type=None, exclude_content_ids=None) -> list[int]:
         """Return up to n content ids drawn from the selected topics.
 
         The plugin owns the selection strategy (stratified random, weighted,
@@ -84,6 +85,20 @@ class SubjectPlugin:
 
         ``question_type`` optionally constrains selection to a single
         ``question_type`` value (e.g. 'write_code'); ``None`` means "any type".
+
+        ``exclude_content_ids`` is an optional iterable of ids to leave out —
+        used by the question-automation schedule (CPP-399) so a class does not
+        get the same questions two weeks running. Selection is the plugin's
+        job, so the exclusion belongs here rather than being applied to the
+        returned list: filtering afterwards would hand back fewer than ``n``
+        items even when the bank had plenty left. ``None`` (the default) is
+        exactly the pre-CPP-399 behaviour, so every existing caller is
+        unaffected.
+
+        Callers that must have ``n`` items are responsible for topping up:
+        excluding can legitimately empty a small bank, and the schedule
+        generator re-asks without the exclusion rather than shipping a short
+        set (see ``homework.schedule_services.pick_items_for_week``).
         """
         raise NotImplementedError
 
@@ -168,6 +183,22 @@ class SubjectPlugin:
         the caller decides what to call them. The default returns nothing, so a
         plugin with no topics degrades to "Unclassified" exactly as before
         rather than raising on a code path that renders a parent's report.
+        """
+        return {}
+
+    def topic_labels(self, topic_ids) -> dict:
+        """Map plugin topic id -> human label, for ids from ``homework_topic_tree``.
+
+        The inverse of the tree: the tree hands out selectable leaves, this
+        turns a stored selection back into names. The question-automation
+        schedule (CPP-399) stores raw plugin topic ids — the only shape that
+        round-trips both maths ``Topic`` pks and coding ``TopicLevel`` pks —
+        and needs their names to render a plan and to denormalise labels so a
+        plan still reads correctly after a topic is renamed or deleted.
+
+        Ids this plugin does not recognise are simply absent from the result,
+        so the caller can tell a stale selection from a live one rather than
+        being handed a plausible-looking blank.
         """
         return {}
 

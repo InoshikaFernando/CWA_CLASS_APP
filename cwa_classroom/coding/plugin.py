@@ -370,7 +370,28 @@ class CodingExercisePlugin(SubjectPlugin):
         from coding.models import CodingExercise
         return CodingExercise.QUESTION_TYPE_CHOICES
 
-    def pick_homework_items(self, classroom, selected_topic_ids, n, question_type=None):
+    def topic_labels(self, topic_ids):
+        """TopicLevel pk -> "Language \u203a Topic \u203a Level"."""
+        from coding.models import TopicLevel
+
+        rows = (
+            TopicLevel.objects
+            .filter(pk__in=[int(x) for x in topic_ids if str(x).isdigit()])
+            .select_related('topic', 'topic__language')
+        )
+        return {
+            tl.pk: ' \u203a '.join(
+                part for part in (
+                    getattr(getattr(tl.topic, 'language', None), 'name', ''),
+                    getattr(tl.topic, 'name', ''),
+                    tl.get_level_choice_display(),
+                ) if part
+            )
+            for tl in rows
+        }
+
+    def pick_homework_items(self, classroom, selected_topic_ids, n, question_type=None,
+                            exclude_content_ids=None):
         """Return up to ``n`` CodingExercise pks from the selected TopicLevels.
 
         Randomised but deterministic per session — callers that want strictly
@@ -378,6 +399,10 @@ class CodingExercisePlugin(SubjectPlugin):
 
         ``question_type`` optionally restricts to a single type (e.g.
         'write_code'); ``None`` selects across all types.
+
+        ``exclude_content_ids`` drops exercises the caller has already used
+        (see the base contract) — applied to the pool, not the result, so a
+        bank with plenty left still returns a full ``n``.
         """
         import random
         from coding.models import CodingExercise, TopicLevel
@@ -399,6 +424,8 @@ class CodingExercisePlugin(SubjectPlugin):
         )
         if question_type:
             exercise_qs = exercise_qs.filter(question_type=question_type)
+        if exclude_content_ids:
+            exercise_qs = exercise_qs.exclude(pk__in=list(exclude_content_ids))
         exercise_pks = list(exercise_qs.values_list('pk', flat=True))
         if not exercise_pks:
             return []
