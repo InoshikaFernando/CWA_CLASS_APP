@@ -169,6 +169,41 @@ class DetectionTests(QuestionCheckTestBase):
         self.assertFalse(row['has_image'])
         self.assertEqual(row['specs'], [])
 
+    def test_an_interactive_question_is_not_reported_for_having_no_options(self):
+        """Production #20694: "Place the fraction -1/2 on the number line given."
+
+        Its answer is the target in ``number_line_spec``; the model forbids
+        answer options on the type outright. The page reported every question in
+        the interactive family as "No correct option" — a fault they cannot
+        have, beside fixes the model would reject on save.
+        """
+        q = Question.objects.create(
+            level=self.y7, topic=self.fractions,
+            question_text='Place the fraction -1/2 on the number line given.',
+            question_type=Question.NUMBER_LINE,
+            number_line_spec={'min': -2, 'max': 2, 'step': 0.5,
+                              'mode': 'mark', 'target': [-0.5]},
+        )
+
+        response = self._run()
+
+        self.assertNotIn(q.id, [row['q'].id for row in response.context['rows']])
+
+    def test_an_interactive_question_with_no_spec_at_all_is_still_reported(self):
+        # Nothing to grade against and no answer rows either: the grader falls
+        # through to matching text and marks every student wrong.
+        q = Question.objects.create(
+            level=self.y7, topic=self.fractions,
+            question_text='Place the fraction -1/2 on the number line given.',
+            question_type=Question.NUMBER_LINE,
+        )
+
+        response = self._run()
+
+        row = next(r for r in response.context['rows'] if r['q'].id == q.id)
+        issue = next(i for i in row['issues'] if i['code'] == 'NO-CORRECT')
+        self.assertIn('number_line_spec', issue['detail'])
+
 
 class CapTests(QuestionCheckTestBase):
 
