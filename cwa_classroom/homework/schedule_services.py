@@ -749,3 +749,118 @@ def run_due(now=None, *, schedule_id=None, dry_run=False) -> list[GenerationResu
                 week, ScheduleWeek.STATUS_ERROR, f'{type(exc).__name__}: {exc}',
             ))
     return results
+
+
+# ---------------------------------------------------------------------------
+# Coverage — "will this week's topics actually fill the set?"
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Coverage:
+    """What a set of topics can supply against what a week asks for.
+
+    ``total`` is everything the class could draw from those topics; ``fresh``
+    is what is left after removing anything the class has had inside the
+    schedule's repeat window. ``wanted`` is the week's question count.
+
+    ``selected`` exists to keep "nothing chosen yet" apart from "chosen, and
+    there is nothing there". Both have a total of zero, but the first is a
+    week the teacher has not reached and the second is a fault they must act
+    on — colouring them the same trains people to ignore the warning.
+    """
+    wanted: int = 0
+    total: int = 0
+    fresh: int = 0
+    selected: int = 0
+
+    @property
+    def short_by(self) -> int:
+        """How many questions the set would be missing entirely."""
+        return max(0, self.wanted - self.total)
+
+    @property
+    def repeats(self) -> int:
+        """How many of the set would have to be questions used recently."""
+        if self.total <= 0:
+            return 0
+        return max(0, min(self.wanted, self.total) - self.fresh)
+
+    @property
+    def status(self) -> str:
+        """``unplanned`` / ``none`` / ``short`` / ``repeats`` / ``ok``.
+
+        Drives the colour: only ``short`` and ``none`` are faults.
+        """
+        if not self.selected:
+            return 'unplanned'
+        if self.total <= 0:
+            return 'none'
+        if self.short_by:
+            return 'short'
+        if self.repeats:
+            return 'repeats'
+        return 'ok'
+
+    @property
+    def message(self) -> str:
+        if not self.selected:
+            return 'No topics selected yet.'
+        if self.total <= 0:
+            return 'No questions available for these topics.'
+        if self.short_by:
+            return (
+                f'Only {self.total} question{"" if self.total == 1 else "s"} '
+                f'available — {self.short_by} short of the {self.wanted} asked for.'
+            )
+        if self.repeats:
+            return (
+                f'{self.fresh} unused question{"" if self.fresh == 1 else "s"} '
+                f'available — {self.repeats} of the {self.wanted} would repeat '
+                f'one the class has had recently.'
+            )
+        return f'{self.fresh} unused questions available for a set of {self.wanted}.'
+
+
+def topic_counts_for_schedule(schedule, topic_ids, *, now=None):
+    """``(total_by_topic, fresh_by_topic)`` for a schedule's whole topic tree.
+
+    Two plugin calls for the entire page rather than one per week: a year-long
+    plan is 40+ weeks over the same topic tree, and counting per week would
+    issue the same query dozens of times.
+    """
+    plugin = get_plugin(schedule.subject_slug)
+    if plugin is None or not topic_ids:
+        return {}, {}
+
+    question_type = schedule.question_type or None
+    total = plugin.topic_content_counts(
+        schedule.classroom, topic_ids, question_type=question_type,
+    )
+    recent = recent_content_ids(
+        schedule.classroom, schedule.subject_slug,
+        schedule.avoid_repeat_weeks, before=now,
+    )
+    if not recent:
+        return total, dict(total)
+    fresh = plugin.topic_content_counts(
+        schedule.classroom, topic_ids, question_type=question_type,
+        exclude_content_ids=recent,
+    )
+    # A topic whose every question is spent drops out of the grouped count, so
+    # it must read as 0 rather than inherit its total.
+    return total, {tid: fresh.get(tid, 0) for tid in total}
+
+
+def coverage_for(week, total_by_topic, fresh_by_topic) -> Coverage:
+    """Summarise one week's planned topics against its question count.
+
+    Summing per-topic counts is sound because an item belongs to exactly one
+    topic in both subjects (see ``SubjectPlugin.topic_content_counts``).
+    """
+    ids = week.topic_ids or []
+    return Coverage(
+        wanted=week.effective_num_questions,
+        total=sum(total_by_topic.get(tid, 0) for tid in ids),
+        fresh=sum(fresh_by_topic.get(tid, 0) for tid in ids),
+        selected=len(ids),
+    )

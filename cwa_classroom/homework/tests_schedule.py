@@ -895,3 +895,198 @@ class RegenerateAfterDeleteTest(ScheduleTestBase):
         self.assertEqual(
             Homework.objects.filter(classroom=self.classroom).count(), 1,
         )
+
+
+# ---------------------------------------------------------------------------
+# Coverage — telling the teacher, at planning time, whether a topic is enough
+# ---------------------------------------------------------------------------
+
+class TopicCountsTest(ScheduleTestBase):
+    """The counts shown beside a topic must match the pool the generator uses.
+
+    A number that over-promises is worse than no number: the teacher plans
+    around it and the set arrives short or padded weeks later.
+    """
+
+    def test_counts_are_scoped_to_the_class_levels(self):
+        from classroom.subject_registry import get as get_plugin
+
+        plugin = get_plugin('mathematics')
+        counts = plugin.topic_content_counts(
+            self.classroom, [self.topic.pk, self.empty_topic.pk],
+        )
+        self.assertEqual(counts.get(self.topic.pk), 12)
+        # A topic with no questions is absent rather than reported as zero.
+        self.assertNotIn(self.empty_topic.pk, counts)
+
+    def test_a_question_at_another_level_is_not_counted(self):
+        from classroom.subject_registry import get as get_plugin
+
+        other_level, _ = Level.objects.get_or_create(
+            level_number=602, defaults={'display_name': 'Other Level'},
+        )
+        Question.objects.create(
+            level=other_level, topic=self.topic, question_text='Off-level?',
+            question_type=Question.MULTIPLE_CHOICE, difficulty=1,
+        )
+        plugin = get_plugin('mathematics')
+        counts = plugin.topic_content_counts(self.classroom, [self.topic.pk])
+        self.assertEqual(counts[self.topic.pk], 12)
+
+    def test_the_question_type_filter_narrows_the_count(self):
+        from classroom.subject_registry import get as get_plugin
+
+        plugin = get_plugin('mathematics')
+        counts = plugin.topic_content_counts(
+            self.classroom, [self.topic.pk], question_type='short_answer',
+        )
+        self.assertEqual(counts, {})
+
+    def test_excluding_recent_ids_reduces_the_count(self):
+        from classroom.subject_registry import get as get_plugin
+
+        plugin = get_plugin('mathematics')
+        spent = [q.pk for q in self.questions[:5]]
+        counts = plugin.topic_content_counts(
+            self.classroom, [self.topic.pk], exclude_content_ids=spent,
+        )
+        self.assertEqual(counts[self.topic.pk], 7)
+
+    def test_the_count_matches_what_pick_actually_draws(self):
+        """The guarantee the whole feature rests on."""
+        from classroom.subject_registry import get as get_plugin
+
+        plugin = get_plugin('mathematics')
+        counts = plugin.topic_content_counts(self.classroom, [self.topic.pk])
+        picked = plugin.pick_homework_items(self.classroom, [self.topic.pk], 999)
+        self.assertEqual(counts[self.topic.pk], len(picked))
+
+
+class CoverageTest(ScheduleTestBase):
+    def _coverage(self, schedule, week):
+        total, fresh = svc.topic_counts_for_schedule(
+            schedule, [self.topic.pk, self.empty_topic.pk],
+        )
+        return svc.coverage_for(week, total, fresh)
+
+    def test_a_healthy_week_reports_ok(self):
+        schedule = self.make_schedule(num_questions=5)
+        week = self.plan_week(schedule, 1)
+        cov = self._coverage(schedule, week)
+        self.assertEqual(cov.status, 'ok')
+        self.assertEqual(cov.total, 12)
+        self.assertEqual(cov.fresh, 12)
+        self.assertEqual(cov.short_by, 0)
+        self.assertEqual(cov.repeats, 0)
+
+    def test_a_week_with_nothing_chosen_reads_as_unplanned_not_broken(self):
+        """An untouched week must not shout at the teacher like a fault."""
+        schedule = self.make_schedule()
+        week = schedule.weeks.get(week_number=1)
+        cov = self._coverage(schedule, week)
+        self.assertEqual(cov.status, 'unplanned')
+        self.assertEqual(cov.message, 'No topics selected yet.')
+
+    def test_a_topic_with_no_questions_reports_none(self):
+        schedule = self.make_schedule()
+        week = self.plan_week(schedule, 1, topics=[self.empty_topic])
+        cov = self._coverage(schedule, week)
+        self.assertEqual(cov.status, 'none')
+        self.assertIn('No questions available', cov.message)
+
+    def test_a_bank_smaller_than_the_set_reports_short(self):
+        schedule = self.make_schedule(num_questions=20)
+        week = self.plan_week(schedule, 1)
+        cov = self._coverage(schedule, week)
+        self.assertEqual(cov.status, 'short')
+        self.assertEqual(cov.short_by, 8)
+        self.assertIn('8 short of the 20', cov.message)
+
+    def test_recently_used_questions_are_reported_as_repeats(self):
+        """The exact case in the request: 10 questions, no repeats for 8 weeks."""
+        schedule = self.make_schedule(num_questions=10, avoid_repeat_weeks=8)
+        week1 = self.plan_week(schedule, 1)
+        svc.generate_week(week1, force=True)   # spends 10 of the 12
+
+        week2 = self.plan_week(schedule, 2)
+        cov = self._coverage(schedule, week2)
+
+        self.assertEqual(cov.status, 'repeats')
+        self.assertEqual(cov.total, 12)
+        self.assertEqual(cov.fresh, 2)
+        self.assertEqual(cov.repeats, 8)
+        self.assertIn('8 of the 10 would repeat', cov.message)
+
+    def test_a_zero_repeat_window_never_reports_repeats(self):
+        schedule = self.make_schedule(num_questions=10, avoid_repeat_weeks=0)
+        week1 = self.plan_week(schedule, 1)
+        svc.generate_week(week1, force=True)
+
+        week2 = self.plan_week(schedule, 2)
+        cov = self._coverage(schedule, week2)
+        self.assertEqual(cov.status, 'ok')
+        self.assertEqual(cov.fresh, 12)
+
+    def test_the_per_week_override_sets_what_enough_means(self):
+        schedule = self.make_schedule(num_questions=5)
+        week = self.plan_week(schedule, 1, num_questions=20)
+        cov = self._coverage(schedule, week)
+        self.assertEqual(cov.wanted, 20)
+        self.assertEqual(cov.status, 'short')
+
+    def test_multiple_topics_are_summed(self):
+        schedule = self.make_schedule(num_questions=15)
+        week = self.plan_week(schedule, 1, topics=[self.topic, self.empty_topic])
+        cov = self._coverage(schedule, week)
+        self.assertEqual(cov.total, 12)
+        self.assertEqual(cov.status, 'short')
+
+    def test_a_topic_whose_questions_are_all_spent_counts_zero_not_its_total(self):
+        """The bug a plain dict lookup would hide: absent must mean 0, not total."""
+        schedule = self.make_schedule(num_questions=12, avoid_repeat_weeks=8)
+        week1 = self.plan_week(schedule, 1)
+        svc.generate_week(week1, force=True)   # spends all 12
+
+        total, fresh = svc.topic_counts_for_schedule(schedule, [self.topic.pk])
+        self.assertEqual(total[self.topic.pk], 12)
+        self.assertEqual(fresh[self.topic.pk], 0)
+
+
+class CoverageInTheGridTest(ScheduleTestBase):
+    """The numbers have to reach the page, on every shape of the topic tree."""
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='sched_teacher', password='pass1234')
+        self.schedule = self.make_schedule(num_questions=10)
+        self.url = reverse(
+            'homework:schedule_detail', kwargs={'schedule_id': self.schedule.pk},
+        )
+
+    def test_each_week_carries_its_coverage(self):
+        self.plan_week(self.schedule, 1)
+        resp = self.client.get(self.url)
+        week1 = next(w for w in resp.context['weeks'] if w.week_number == 1)
+        self.assertEqual(week1.coverage.total, 12)
+        self.assertEqual(week1.coverage.status, 'ok')
+
+    def test_selectable_topics_are_annotated_with_counts(self):
+        resp = self.client.get(self.url)
+        found = {}
+        for strand, mid_items in resp.context['topic_groups']:
+            if not mid_items:
+                found[strand.pk] = strand.fresh_count
+                continue
+            for mid, leaves in mid_items:
+                for node in (leaves or [mid]):
+                    found[node.pk] = node.fresh_count
+        self.assertEqual(found.get(self.topic.pk), 12)
+
+    def test_the_repeat_window_reaches_the_template(self):
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.context['repeat_window'], 8)
+
+    def test_the_shortfall_is_rendered_for_the_teacher_to_read(self):
+        self.plan_week(self.schedule, 1, num_questions=30)
+        resp = self.client.get(self.url)
+        self.assertContains(resp, 'short of the 30')
