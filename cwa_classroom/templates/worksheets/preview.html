@@ -143,8 +143,9 @@
           <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Q{{ forloop.counter }}</span>
         </label>
         {% if q.needs_review %}
-        {# Second-opinion disagreement (CPP-384). The reason is the tooltip so the
-           teacher knows what to check, not just that something is off. #}
+        {% comment %} Second-opinion disagreement (CPP-384). The reason is the tooltip so the
+           teacher knows what to check, not just that something is off.
+        {% endcomment %}
         <span class="px-2 py-0.5 mt-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 whitespace-nowrap"
               data-testid="review-badge-{{ forloop.counter0 }}"
               title="{{ q.review_reason|default:'Please double-check this answer.' }}">⚠ Review</span>

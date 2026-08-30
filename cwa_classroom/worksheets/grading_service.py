@@ -280,7 +280,12 @@ def grade_extended_answer(question, answer_text: str, school=None):
         record_ai_grading_usage(school, result['input_tokens'], result['output_tokens'])
 
     # ── 5. Store in cache ─────────────────────────────────────────────────
-    _store_cache(question.pk, normalised, result)
+    # A failure is not a verdict, so it is never cached: an outage or an
+    # unreadable diagram would otherwise be handed back as a cached 0.0 to
+    # every later student who wrote the same answer, long after the cause
+    # was fixed and without another API call to notice.
+    if not result.get('error'):
+        _store_cache(question.pk, normalised, result)
 
     # ── 6. New correct path → update rubric ──────────────────────────────
     # If Claude found a correct answer that isn't already described in the
@@ -424,37 +429,83 @@ def _append_path_to_rubric(question, answer_text, feedback):
         logger.warning(f'Could not update rubric for Q{question.pk}: {exc}')
 
 
+class QuestionImageUnavailable(Exception):
+    """A question HAS a diagram, but it could not be handed to the grader."""
+
+
+# The formats the Anthropic API accepts, by file extension. Anything else is
+# an error rather than a guess: the old code labelled every unknown extension
+# ``image/jpeg``, so an SVG or BMP upload was rejected by the API and surfaced
+# as a generic "grading failed" with no hint of the real cause.
+_SUPPORTED_IMAGE_TYPES = {
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+}
+
+
 def _fetch_image_block(question):
     """
-    Return an Anthropic image content block for the question's diagram, or None.
+    Return an Anthropic image content block for the question's diagram.
     Fetches the image from Django storage (S3/Spaces) and base64-encodes it.
+
+    Returns None ONLY when the question has no diagram at all. A question that
+    has one which cannot be read raises ``QuestionImageUnavailable`` — grading
+    on the text alone would mark a child against a diagram the grader never
+    saw, and would do it silently.
     """
     if not question.image:
         return None
+
+    import base64
+    from django.core.files.storage import default_storage
+
+    # question.image.name is the storage key (e.g. 'questions/year7/...')
+    name = question.image.name
+    media_type = _SUPPORTED_IMAGE_TYPES.get(os.path.splitext(name.lower())[1])
+    if media_type is None:
+        raise QuestionImageUnavailable(
+            f'unsupported diagram format for "{name}" — the grader accepts '
+            f'{", ".join(sorted(_SUPPORTED_IMAGE_TYPES))}'
+        )
     try:
-        import base64
-        from django.core.files.storage import default_storage
-        # question.image.name is the storage key (e.g. 'questions/year7/...')
-        with default_storage.open(question.image.name, 'rb') as f:
+        with default_storage.open(name, 'rb') as f:
             raw = f.read()
-        encoded = base64.standard_b64encode(raw).decode('utf-8')
-        # Detect media type from extension
-        name = question.image.name.lower()
-        if name.endswith('.png'):
-            media_type = 'image/png'
-        elif name.endswith('.gif'):
-            media_type = 'image/gif'
-        elif name.endswith('.webp'):
-            media_type = 'image/webp'
-        else:
-            media_type = 'image/jpeg'
-        return {
-            'type': 'image',
-            'source': {'type': 'base64', 'media_type': media_type, 'data': encoded},
-        }
     except Exception as exc:
-        logger.warning(f'Could not load image for Q{question.pk}: {exc}')
-        return None
+        raise QuestionImageUnavailable(
+            f'could not read diagram "{name}" from storage: {exc}'
+        ) from exc
+    if not raw:
+        raise QuestionImageUnavailable(f'diagram "{name}" is empty')
+
+    encoded = base64.standard_b64encode(raw).decode('utf-8')
+    return {
+        'type': 'image',
+        'source': {'type': 'base64', 'media_type': media_type, 'data': encoded},
+    }
+
+
+def _grading_unavailable(error, feedback):
+    """The result dict for "no verdict was reached" — never a score of record.
+
+    Callers read ``error`` and leave the answer for the teacher instead of
+    counting it wrong, and ``grade_extended_answer`` keeps it out of the
+    cache, so a transient failure is not served back as 0.0 for ever.
+    """
+    return {
+        'is_correct': False,
+        'is_partial': False,
+        'score_fraction': 0.0,
+        'feedback': feedback,
+        'what_was_correct': '',
+        'what_to_add': '',
+        'cache_hit': False,
+        'input_tokens': 0,
+        'output_tokens': 0,
+        'error': str(error),
+    }
 
 
 # Words in the FEEDBACK that mean the mark and the words disagree. Claude
@@ -550,7 +601,23 @@ def _call_claude_grade(question, answer_text, normalised_text):
 
     # Fetch diagram image if available — lets Claude see exactly which angles
     # are at which intersection, eliminating ambiguity from text-only grading.
-    image_block = _fetch_image_block(question)
+    #
+    # A diagram that exists but cannot be loaded stops the grading here. The
+    # answer was written against a picture, so marking it on the text alone
+    # is marking it against something the grader cannot see — and the student
+    # would be told a score, not that half the question went missing.
+    try:
+        image_block = _fetch_image_block(question)
+    except QuestionImageUnavailable as exc:
+        logger.error(
+            'Q%s not graded: %s — the answer was left for the teacher rather '
+            'than graded without the diagram.', question.pk, exc,
+        )
+        return _grading_unavailable(
+            f'diagram unavailable: {exc}',
+            "This question's diagram could not be loaded, so the answer was "
+            'not marked automatically. Your teacher will review it.',
+        )
 
     system = (
         'You are an expert teacher grading student extended answers across subjects '
@@ -713,18 +780,10 @@ Respond with JSON only:
         }
     except Exception as exc:
         logger.exception(f'Claude grading call failed: {exc}')
-        return {
-            'is_correct': False,
-            'is_partial': False,
-            'score_fraction': 0.0,
-            'feedback': 'Automatic grading failed. Your teacher will review this answer.',
-            'what_was_correct': '',
-            'what_to_add': '',
-            'cache_hit': False,
-            'input_tokens': 0,
-            'output_tokens': 0,
-            'error': str(exc),
-        }
+        return _grading_unavailable(
+            exc,
+            'Automatic grading failed. Your teacher will review this answer.',
+        )
 
 
 def _build_examples_prompt(question_pk):
