@@ -96,27 +96,46 @@ TOPIC_CHART_LIMIT = 10
 
 
 def _topic_chart(topics):
-    """Accuracy per topic, weakest first — mirrors the bar chart on the page."""
+    """Accuracy per topic, weakest first — mirrors the bar chart on the page.
+
+    Every bar carries its own percentage, and that is not decoration. A topic
+    scoring 0% has a bar of zero height, which draws nothing at all: the
+    category label sits under empty space and the chart reads as broken rather
+    than as a nought. This chart shows the WEAKEST topics, so it selects
+    exactly the bars most likely to vanish — three of the ten were invisible on
+    the report that raised CPP-400.
+
+    A printed figure is the honest fix. It says nought where a missing bar said
+    nothing, and it stays readable when two bars are a percentage point apart.
+    """
     rows = topics[:TOPIC_CHART_LIMIT]
     if not rows:
         return None
 
-    height = 60 + 18 * len(rows)
+    height = 66 + 18 * len(rows)
     drawing = Drawing(CONTENT_WIDTH, height)
     chart = VerticalBarChart()
     chart.x = 30
     chart.y = 40
     chart.width = CONTENT_WIDTH - 50
-    chart.height = height - 60
+    chart.height = height - 66
     chart.data = [[row['accuracy_pct'] for row in rows]]
     chart.valueAxis.valueMin = 0
     chart.valueAxis.valueMax = 100
     chart.valueAxis.valueStep = 25
     chart.categoryAxis.categoryNames = [_shorten(row['topic']) for row in rows]
-    chart.categoryAxis.labels.angle = 25
+    chart.categoryAxis.labels.angle = 30
     chart.categoryAxis.labels.dy = -6
     chart.categoryAxis.labels.boxAnchor = 'ne'
-    chart.categoryAxis.labels.fontSize = 7
+    chart.categoryAxis.labels.fontSize = 6.5
+    # The figure above each bar — see the docstring. Nudged clear of the bar
+    # top so a 100% bar does not push its own label off the drawing.
+    chart.barLabelFormat = '%d%%'
+    chart.barLabels.fontSize = 6
+    chart.barLabels.fontName = 'Helvetica-Bold'
+    chart.barLabels.fillColor = MUTED
+    chart.barLabels.nudge = 6
+    chart.barLabels.boxAnchor = 's'
     # No explicit barWidth: with a single series ReportLab distributes the
     # width itself, and pinning it made the bars come out visibly uneven.
     chart.groupSpacing = 12
@@ -191,7 +210,7 @@ def _trend_chart(trend):
     return drawing
 
 
-def _shorten(text, limit=22):
+def _shorten(text, limit=26):
     return text if len(text) <= limit else text[:limit - 1] + '…'
 
 
