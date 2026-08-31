@@ -26,6 +26,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.conf import settings
 
+from maths.shape_detect import trace_shape_select_scenes
+
 logger = logging.getLogger(__name__)
 
 # Page numbers baked into generated image_ref filenames, most-specific first:
@@ -577,6 +579,7 @@ EXTRACTED_QUESTION_TYPE_CHOICES = [
     ('measure', 'Measure (angle/scale, tolerance-graded)'),
     ('number_line', 'Number Line (mark or read a value)'),
     ('table_of_values', 'Table of Values (fill in the table)'),
+    ('shape_select', 'Shape Select (find & colour shapes)'),
     ('sketch_graph', 'Sketch a Graph (vertex / intercepts / axis of symmetry)'),
 ]
 
@@ -738,6 +741,16 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                         "answer_unit": {
                             "type": "string",
                             "description": "For read_graph and measure: unit shown after the answer box, e.g. '°', 'cm', 'km'.",
+                        },
+                        "shape_target_type": {
+                            "type": "string",
+                            "enum": ["triangle", "circle", "square", "rectangle",
+                                     "ellipse", "rhombus"],
+                            "description": (
+                                "For shape_select only: WHICH kind of shape the question asks "
+                                "the student to find/colour. Give only this — never the shapes' "
+                                "positions or outlines; the app traces those from the picture."
+                            ),
                         },
                         "target_number": {
                             "type": "integer",
@@ -984,6 +997,17 @@ Rules:
    arrow/marker is already drawn and the student reads its value — put the marked position(s) in given
    (target defaults to given). Every target/given value must land exactly on a tick. The app draws the
    line, so set has_image=false. Leave answers=[]; validation_type="auto".
+14b. FIND / COLOUR THE SHAPES: if the question shows a SET of 2D shapes — a row, grid or
+   scatter of them — and asks the student to find, colour, tick or circle every shape of ONE
+   kind ("Colour all the triangles", "Tick each rectangle", "Circle the circles"), set
+   question_type="shape_select" and shape_target_type to that kind (triangle, circle, square,
+   rectangle, ellipse or rhombus). Set has_image=true with image_bbox around the WHOLE set of
+   shapes — every shape the question covers, not just one. Do NOT describe the shapes, their
+   positions or their outlines: the app TRACES them from the picture you box, and a traced
+   outline beats a described one. Leave answers=[] and validation_type="auto".
+   NOT this type: "name this shape" (one shape to identify — multiple_choice, rule 8),
+   "how many triangles are there?" (a count — short_answer), and "draw a triangle"
+   (rule 18).
 15. TABLES: if the question depends on reading a DATA TABLE (rows/columns of values — a
    timetable, price list, tally/frequency table, results table, conversion table, etc.), set
    has_image=true and give image_bbox tightly around the WHOLE table (all its rows, columns and
@@ -1024,7 +1048,7 @@ Rules:
    there is nothing to type, so it is rule 18.
 18. DRAWING / CONSTRUCTION — questions the app cannot take an answer for. A student
    answers in this app by typing, picking an option, or using one of the drawing surfaces
-   the app itself renders (rules 9-14, 17, and 9b). They CANNOT draw a picture. So if the task is to
+   the app itself renders (rules 9-14, 17, and 9b/14b). They CANNOT draw a picture. So if the task is to
    PRODUCE a visual — "Draw a tree diagram to illustrate this situation", "Draw a Venn
    diagram", "Construct a triangle with compasses", "Draw a
    bar chart", "Shade the region", "Colour the shape", "Join the
@@ -1046,7 +1070,8 @@ Rules:
    question type with validation_type="auto": marking or reading a horizontal NUMBER LINE
    (rule 14), plotting/joining points on a CARTESIAN PLANE (rule 11), LONG DIVISION
    (rule 9), PRIME FACTORISATION (rule 9b), COLUMN ARITHMETIC (rule 10), a TABLE TO
-   COMPLETE (rule 16), and SKETCHING A GRAPH AND SHOWING ITS KEY FEATURES (rule 17). "Plot (3, -2) on the grid", "complete the
+   COMPLETE (rule 16), FINDING/COLOURING SHAPES IN A SET (rule 14b), and SKETCHING A
+   GRAPH AND SHOWING ITS KEY FEATURES (rule 17). "Plot (3, -2) on the grid", "complete the
    table for y = 3x" and "sketch y = x² + x - 2 showing the vertex and the intercepts" are
    answerable; "Draw a tree diagram" is not.
 
@@ -2357,6 +2382,18 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
         result, extracted_images = render_question_images(
             doc, extracted_pages, result, progress=report,
         )
+
+        # Step 3b: turn each "colour all the triangles" crop into a traced
+        # shape_spec. Runs here because it needs the finished crops, and here
+        # rather than in each caller because worksheets AND homework both come
+        # through this function. A scene that will not trace is routed to the
+        # teacher by the tracer itself rather than imported unanswerable.
+        traced, untraceable = trace_shape_select_scenes(
+            result.get('questions'), extracted_images)
+        if traced or untraceable:
+            logger.info(
+                'shape_select: %s scene(s) traced, %s routed to the teacher.',
+                traced, untraceable)
 
         # Step 4: independent second opinion (CPP-384).
         #

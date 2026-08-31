@@ -69,6 +69,30 @@ it, and see it marked. `maths/draft_preview.py` is what makes that honest:
 The HTTP layer lives in `worksheets/question_preview.py`, shared by all three
 screens; each app keeps only its own session-ownership check.
 
+## Where a `shape_select` scene comes from
+
+"Colour all the triangles" is graded by set comparison against the shapes in
+`Question.shape_spec`, which is *traced geometry* — polygon vertex lists and
+ellipse radii, one entry per shape. There are three ways to author one, and the
+PDF path is deliberately not "ask the model for coordinates":
+
+| Route | Where |
+|---|---|
+| Procedural — scatter N shapes, M of them the target | `shape_select_gen.generate_shape_scene(seed=…)` |
+| From an image the teacher uploads | `manage.py import_shape_image --image … --target triangle` |
+| From a PDF import | the classifier gives only `shape_target_type`; `shape_detect.trace_shape_select_scenes` traces the crop |
+
+On the PDF route the classifier is asked for **one** thing — which kind of shape
+the question asks for — and never for the outlines. `shape_detect` reads those
+off the crop with OpenCV contour detection (Claude vision only as an opt-in
+fallback, `SHAPE_TRACE_ALLOW_AI=1`, since a worksheet's shapes are the clean
+printed line-art the detector was tuned for). A scene that will not trace is
+routed to the teacher with its picture kept, never imported as a question with
+no shapes to colour.
+
+The answer key is never stored: `geometry_grading.shape_target_ids` derives it
+from the figure, so the two cannot drift apart.
+
 ## Sketch-a-graph questions (`sketch_graph`)
 
 "Sketch the graph of y = x² + x − 2 showing the coordinates of the vertex,

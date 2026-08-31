@@ -540,6 +540,14 @@ QUESTION TYPE RULES (important):
   true value, answer_tolerance to a sensible ± band (e.g. 2 for an angle), and answer_unit to the unit
   ("°" for angles, "cm"/"mm" for lengths). For an ANGLE the app draws a true-to-scale figure, so do NOT
   attach an image; for a length/scale the pupil measures the picture, so keep it. Do NOT generate answers.
+- If the question shows a SET of 2D shapes — a row, grid or scatter — and asks the student to
+  find, colour, tick or circle every shape of ONE kind ("Colour all the triangles", "Tick each
+  rectangle"), use "shape_select" and set shape_target_type to that kind (triangle, circle,
+  square, rectangle, ellipse or rhombus). Attach the picture (image_page/image_box) around the
+  WHOLE set of shapes — every shape the question covers. Do NOT describe the shapes, their
+  positions or their outlines: the app TRACES them from the picture you box. Do NOT generate
+  answers. NOT this type: "name this shape" (one shape — multiple choice), "how many triangles
+  are there?" (a count — short answer), or "draw a triangle".
 - If the question asks the student to break a number into its PRIME FACTORS — "write 60 as a
   product of its prime factors", "find the prime factorisation of 84", a factor tree or ladder
   drawn around a starting number — use "prime_factorization" and set target_number to the number
@@ -656,7 +664,7 @@ CLASSIFICATION_TOOL = {
                         "question_text": {"type": "string"},
                         "question_type": {
                             "type": "string",
-                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division", "plot_points", "plot_line", "identify_coords", "read_graph", "measure", "number_line", "sketch_graph", "prime_factorization"],
+                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division", "plot_points", "plot_line", "identify_coords", "read_graph", "measure", "number_line", "sketch_graph", "prime_factorization", "shape_select"],
                         },
                         "plane_spec": {
                             "type": "object",
@@ -702,6 +710,16 @@ CLASSIFICATION_TOOL = {
                                 "draws marker arrow(s) at 'given' positions, student types the value(s)); "
                                 "target = correct value(s) to mark/read (each landing on a tick); given = "
                                 "value(s) already marked with an arrow (read mode). The app draws the line."
+                            ),
+                        },
+                        "shape_target_type": {
+                            "type": "string",
+                            "enum": ["triangle", "circle", "square", "rectangle",
+                                     "ellipse", "rhombus"],
+                            "description": (
+                                "For shape_select only: WHICH kind of shape the question asks "
+                                "the student to find/colour. Give only this — never the shapes' "
+                                "positions or outlines; the app traces those from the picture."
                             ),
                         },
                         "target_number": {
