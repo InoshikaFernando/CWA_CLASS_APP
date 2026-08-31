@@ -361,3 +361,160 @@ class TestViewEnqueuesOnPost(TestCase):
         mock_enqueue.assert_called_once()
         sm = mock_enqueue.call_args[0][0]
         self.assertEqual(sm.frequency, 'once')
+
+
+class TestWeeklyStartDateInTheFuture(TestCase):
+    """A weekly message starting later could not be scheduled at all.
+
+    compute_next_run_at took the next matching weekday from TODAY, found it sat
+    before starts_at, and returned None. _enqueue_or_schedule turns None into a
+    ValueError, which the teacher reads as "Message could not be queued —
+    please try again" — and retrying never fixes it, because tomorrow's answer
+    is the same.
+
+    Falling outside the range means "look further ahead", not "impossible".
+    Only ends_at can genuinely rule a message out, and it still does.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = _make_school()
+
+    def test_a_start_date_later_this_week_schedules_after_it(self):
+        # Monday 09:00 weekly, asked for on Monday, starting Tuesday: the run
+        # is the FOLLOWING Monday, not nothing at all.
+        msg = _make_msg(
+            self.school, frequency='weekly', send_day=1, send_time=time(9, 0),
+            starts_at=date(2026, 9, 1),
+        )
+        from_dt = _aware(datetime(2026, 8, 31, 10, 0))  # Monday
+
+        result = compute_next_run_at(msg, from_dt=from_dt)
+
+        self.assertIsNotNone(result, 'a future start date must not be unschedulable')
+        self.assertEqual(result.date(), date(2026, 9, 7))
+        self.assertEqual(result.time().hour, 9)
+
+    def test_a_start_date_months_out_still_schedules(self):
+        msg = _make_msg(
+            self.school, frequency='weekly', send_day=1, send_time=time(9, 0),
+            starts_at=date(2027, 3, 1),
+        )
+        from_dt = _aware(datetime(2026, 8, 31, 10, 0))
+
+        result = compute_next_run_at(msg, from_dt=from_dt)
+
+        self.assertIsNotNone(result)
+        # 1 Mar 2027 is itself a Monday, so it is the first valid run.
+        self.assertEqual(result.date(), date(2027, 3, 1))
+
+    def test_a_start_date_on_the_send_day_runs_that_day(self):
+        """The time of day cannot have "already passed" on a future date."""
+        msg = _make_msg(
+            self.school, frequency='weekly', send_day=1, send_time=time(9, 0),
+            starts_at=date(2026, 9, 7),
+        )
+        from_dt = _aware(datetime(2026, 8, 31, 23, 0))
+
+        result = compute_next_run_at(msg, from_dt=from_dt)
+
+        self.assertEqual(result.date(), date(2026, 9, 7))
+
+    def test_an_end_date_in_the_past_still_returns_none(self):
+        """The guard that must survive: past ends_at genuinely means never."""
+        msg = _make_msg(
+            self.school, frequency='weekly', send_day=1, send_time=time(9, 0),
+            ends_at=date(2026, 6, 21),
+        )
+        from_dt = _aware(datetime(2026, 6, 22, 10, 0))
+
+        self.assertIsNone(compute_next_run_at(msg, from_dt=from_dt))
+
+
+class TestWeeklyReadsTheClockInLocalTime(TestCase):
+    """The weekday and the hour must be read in the school's zone.
+
+    "Every Monday at 09:00" means 09:00 where the school is. The calculation
+    read them off ``now``, which is UTC whenever no from_dt is passed, and then
+    wrote the answer back through make_aware() as LOCAL time — so the two
+    halves disagreed by the UTC offset, and near midnight by a whole day.
+
+    Every existing test passes a local-aware from_dt, which is why none of them
+    saw it: only production took the tz.now() path.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = _make_school()
+
+    def test_the_answer_is_the_same_however_the_instant_is_expressed(self):
+        """UTC and local spellings of one moment must schedule identically."""
+        from datetime import timezone as dt_timezone
+
+        msg = _make_msg(
+            self.school, frequency='weekly', send_day=1, send_time=time(9, 0),
+        )
+        local = _aware(datetime(2026, 8, 31, 10, 0))          # Monday, local
+        same_instant_utc = local.astimezone(dt_timezone.utc)  # same moment
+
+        self.assertEqual(
+            compute_next_run_at(msg, from_dt=local),
+            compute_next_run_at(msg, from_dt=same_instant_utc),
+        )
+
+    def test_it_holds_across_the_utc_date_boundary(self):
+        """The case that moved the weekday by a day, not just the hour."""
+        from datetime import timezone as dt_timezone
+
+        msg = _make_msg(
+            self.school, frequency='weekly', send_day=1, send_time=time(9, 0),
+        )
+        # Local Monday morning is still Sunday in UTC.
+        local = _aware(datetime(2026, 8, 31, 8, 0))
+        same_instant_utc = local.astimezone(dt_timezone.utc)
+
+        self.assertEqual(
+            compute_next_run_at(msg, from_dt=local),
+            compute_next_run_at(msg, from_dt=same_instant_utc),
+        )
+        # 09:00 local has not passed at 08:00 local, so it runs today.
+        self.assertEqual(
+            compute_next_run_at(msg, from_dt=local).date(), date(2026, 8, 31),
+        )
+
+
+class TestTheReportedFailure(TestCase):
+    """The exact shape that reached a teacher, reproduced.
+
+    The two defects are entangled, and neither alone explains it. Reading the
+    clock in UTC is what made TODAY the candidate weekday — a local from_dt at
+    10:00 would have rolled to next week and quietly worked — and today then
+    fell before starts_at, so the range check returned None and the compose
+    page said "Message could not be queued — please try again".
+
+    That is why the existing suite was green while the feature was broken:
+    every test passed a local-aware from_dt, so none of them took the path
+    production takes.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = _make_school()
+
+    def test_a_weekly_message_starting_tomorrow_can_be_scheduled(self):
+        from datetime import timezone as dt_timezone
+
+        msg = _make_msg(
+            self.school, frequency='weekly', send_day=1, send_time=time(9, 0),
+            starts_at=date(2026, 9, 1),
+        )
+        # 05:56 UTC on Monday 31 Aug — the instant the CI run failed at, and
+        # the same moment as 17:56 local.
+        from_dt = datetime(2026, 8, 31, 5, 56, tzinfo=dt_timezone.utc)
+
+        result = compute_next_run_at(msg, from_dt=from_dt)
+
+        self.assertIsNotNone(
+            result, 'this returned None, and the teacher was told to try again',
+        )
+        self.assertEqual(result.date(), date(2026, 9, 7))

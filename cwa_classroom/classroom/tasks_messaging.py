@@ -46,17 +46,42 @@ def compute_next_run_at(msg, from_dt=None):
     if msg.frequency == 'weekly':
         if msg.send_day is None:
             return None
+
+        # Localised first. "Every Monday at 09:00" means 09:00 where the school
+        # is, so the weekday AND the hour have to be read in that zone. This
+        # used to read them off ``now``, which is UTC when no from_dt is passed
+        # — while make_aware() below writes the answer back as local time. The
+        # unit tests never caught it because they all pass a local-aware
+        # from_dt; only production hit the mismatch.
+        local_now = tz.localtime(now) if tz.is_aware(now) else now
+
         # send_day: 0=Sun…6=Sat; Python weekday: 0=Mon…6=Sun
         target_py = (msg.send_day + 6) % 7
-        days_ahead = (target_py - now.weekday()) % 7
-        if days_ahead == 0:
-            candidate = now.replace(
-                hour=msg.send_time.hour, minute=msg.send_time.minute,
-                second=0, microsecond=0,
-            )
-            if candidate <= now:
-                days_ahead = 7
-        target_date = (now + timedelta(days=days_ahead)).date()
+
+        # The earliest date this may run: today, or its start date when that is
+        # still ahead. Starting the search there is what fixes the real defect
+        # — the old code took the next matching weekday from TODAY, found it
+        # sat before starts_at, and returned None. _enqueue_or_schedule turns
+        # None into a ValueError the teacher reads as "Message could not be
+        # queued — please try again", which retrying never fixes: a weekly
+        # message starting any day in the future could not be scheduled at all.
+        earliest = local_now.date()
+        already_past_today = (
+            (msg.send_time.hour, msg.send_time.minute)
+            <= (local_now.hour, local_now.minute)
+        )
+        if msg.starts_at and msg.starts_at > earliest:
+            earliest = msg.starts_at
+            # A start date in the future is not "today", so the time of day
+            # cannot have gone by on it.
+            already_past_today = False
+
+        days_ahead = (target_py - earliest.weekday()) % 7
+        if days_ahead == 0 and already_past_today:
+            days_ahead = 7
+        target_date = earliest + timedelta(days=days_ahead)
+
+        # Only ends_at can rule it out now, and that genuinely means never.
         if not _in_range(target_date, msg):
             return None
         naive = datetime(
