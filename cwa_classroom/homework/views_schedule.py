@@ -255,41 +255,56 @@ class ScheduleDetailView(RoleRequiredMixin, View):
 
 
 def _selectable_topic_ids(topic_groups):
-    """Every pk a teacher can actually tick in the rendered topic tree.
+    """Every pk a teacher can tick in the rendered topic tree.
 
-    The tree is ``[(strand, [(mid, [leaf, ...]), ...]), ...]`` and a checkbox is
-    rendered for a leaf, for a mid with no leaves, or for a strand with no mids
-    — so all three shapes are collected here, matching the template exactly.
+    The tree is ``[(strand, [(mid, [leaf, ...]), ...]), ...]`` and EVERY node
+    carries a checkbox — a parent as well as its children. A parent used to be
+    a bare heading, which meant questions attached directly to it (rather than
+    to one of its subtopics) could not be reached from this picker at all.
     """
     ids = set()
     for strand, mid_items in topic_groups:
-        if not mid_items:
-            ids.add(strand.pk)
-            continue
+        ids.add(strand.pk)
         for mid, leaves in mid_items:
-            if leaves:
-                ids.update(leaf.pk for leaf in leaves)
-            else:
-                ids.add(mid.pk)
+            ids.add(mid.pk)
+            ids.update(leaf.pk for leaf in leaves)
     return ids
 
 
 def _annotate_counts(topic_groups, total_by_topic, fresh_by_topic):
-    """Hang ``total_count`` / ``fresh_count`` on each selectable tree node."""
+    """Hang question counts on every tree node.
+
+    Two different numbers, because a parent needs both:
+
+    ``total_count`` / ``fresh_count``
+        the node's OWN questions — what ticking just that box adds. These are
+        what the live coverage tally sums, and because a question belongs to
+        exactly one topic, summing own-counts over the ticked boxes can never
+        double-count a parent against its children.
+
+    ``group_total`` / ``group_fresh``
+        the node plus every descendant — what ticking it actually produces once
+        the cascade has run. This is the number shown beside a parent, so the
+        count a teacher reads matches what they get.
+
+    For a leaf the two are identical.
+    """
     def mark(node):
         node.total_count = total_by_topic.get(node.pk, 0)
         node.fresh_count = fresh_by_topic.get(node.pk, 0)
+        node.group_total = node.total_count
+        node.group_fresh = node.fresh_count
 
     for strand, mid_items in topic_groups:
-        if not mid_items:
-            mark(strand)
-            continue
+        mark(strand)
         for mid, leaves in mid_items:
-            if leaves:
-                for leaf in leaves:
-                    mark(leaf)
-            else:
-                mark(mid)
+            mark(mid)
+            for leaf in leaves:
+                mark(leaf)
+                mid.group_total += leaf.total_count
+                mid.group_fresh += leaf.fresh_count
+            strand.group_total += mid.group_total
+            strand.group_fresh += mid.group_fresh
 
 
 class ScheduleWeekSaveView(RoleRequiredMixin, View):
