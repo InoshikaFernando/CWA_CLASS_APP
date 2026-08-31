@@ -1072,3 +1072,127 @@ def test_no_multi_line_django_comment_leaks_into_a_page():
         'These `{# ... #}` comments are not closed on their own line, so Django '
         'prints them to the page instead of stripping them. Use '
         '{% comment %}...{% endcomment %}:\n  ' + '\n  '.join(offenders))
+
+
+# ── Cron drop-ins in deploy/setup-app-prod.sh ────────────────────────────────
+# A missing or mistyped cron is the quietest failure this repo has. Production
+# ran for months with no `publish_scheduled_homework` cron at all: every
+# homework a teacher scheduled was created, sat with published_at NULL — which
+# is exactly what the student queries filter on — and was never sent. Nothing
+# errored. The docs' own crontab line would not have helped, because it ran
+# `manage.py` from the repo root where manage.py has never lived, so following
+# the documentation got you a job that died on every tick into its own log.
+#
+# Neither mistake is detectable at runtime, so they are checked here instead.
+
+_SETUP_SCRIPT = REPO_ROOT / 'deploy' / 'setup-app-prod.sh'
+
+
+# A crontab line: five schedule fields, then the command.
+_CRONTAB_LINE = re.compile(r'^\s*(?:[\d*/,-]+\s+){4}[\d*/,-]+\s')
+_PYTHON_MANAGE = re.compile(r'python[\w./-]*\s+(\S*manage\.py)\b')
+
+
+def _cron_manage_py_invocations():
+    """Every `python <path>manage.py` that runs from the repo root.
+
+    Two shapes qualify, and only these two — a plain `python manage.py x` in
+    the docs is a developer running it from cwa_classroom/, which is correct
+    and must not be flagged:
+
+    * a crontab line, wherever it appears (the deploy script's drop-ins and the
+      snippets in MANAGEMENT_COMMANDS.md that people copy onto a droplet);
+    * any invocation in a scripts/cron_*.sh wrapper, all of which `cd` to the
+      repo root before running.
+    """
+    found = []
+
+    for path in [_SETUP_SCRIPT, REPO_ROOT / 'cwa_classroom' / 'MANAGEMENT_COMMANDS.md']:
+        for number, line in enumerate(
+                path.read_text(encoding='utf-8').splitlines(), 1):
+            if not _CRONTAB_LINE.match(line):
+                continue
+            for match in _PYTHON_MANAGE.finditer(line):
+                found.append((path.relative_to(REPO_ROOT), number, match.group(1)))
+
+    for path in sorted((REPO_ROOT / 'scripts').glob('cron_*.sh')):
+        for number, line in enumerate(
+                path.read_text(encoding='utf-8').splitlines(), 1):
+            for match in _PYTHON_MANAGE.finditer(line):
+                found.append((path.relative_to(REPO_ROOT), number, match.group(1)))
+
+    return found
+
+
+def test_cron_entries_point_at_the_real_manage_py():
+    """`manage.py` is at cwa_classroom/manage.py — a bare one silently dies.
+
+    Every one of these lines runs from the repo root (either `cd $APP_DIR` or a
+    crontab `cd`), so a bare `manage.py` resolves to a file that does not exist
+    and the job exits non-zero before Django is even imported.
+    """
+    invocations = _cron_manage_py_invocations()
+    assert invocations, (
+        'no manage.py cron invocations found at all — this test has stopped '
+        'checking anything, most likely because a path or filename moved')
+
+    offenders = [
+        f'{path}:{number}: {target}'
+        for path, number, target in invocations
+        if target != 'cwa_classroom/manage.py'
+    ]
+    assert not offenders, (
+        'These cron invocations do not point at cwa_classroom/manage.py, so '
+        'they will fail on every tick with "can\'t open file". manage.py has '
+        'never been at the repo root:\n  ' + '\n  '.join(offenders))
+
+
+def test_every_cron_wrapper_script_is_actually_installed():
+    """A cron wrapper nobody installs is dead code that reads as a live job.
+
+    scripts/cron_*.sh exists to be run by cron. If setup-app-prod.sh writes no
+    drop-in for one, the command never runs on either droplet — and the only
+    symptom is the feature quietly doing nothing, which is how the question
+    schedule shipped with its generator uninstalled.
+
+    Deliberately not installed? Say so in _CRON_SCRIPTS_NOT_INSTALLED below,
+    with the reason — so it is a decision on the record rather than an
+    oversight nobody can distinguish from one.
+    """
+    setup = _SETUP_SCRIPT.read_text(encoding='utf-8')
+    missing = [
+        f'scripts/{path.name}'
+        for path in sorted((REPO_ROOT / 'scripts').glob('cron_*.sh'))
+        if path.name not in _CRON_SCRIPTS_NOT_INSTALLED
+        and f'scripts/{path.name}' not in setup
+    ]
+    assert not missing, (
+        'These cron wrapper scripts have no /etc/cron.d drop-in in '
+        'deploy/setup-app-prod.sh, so nothing ever runs them:\n  '
+        + '\n  '.join(missing)
+        + '\nAdd a drop-in, or list the file in _CRON_SCRIPTS_NOT_INSTALLED '
+          'with the reason it is intentionally left out.')
+
+
+# Cron wrappers that exist in scripts/ but are deliberately NOT installed by
+# setup-app-prod.sh. Each needs a reason; an empty reason is not a decision.
+_CRON_SCRIPTS_NOT_INSTALLED = {
+    # Reviewed 2026-08-31 while fixing the missing publish cron: these four
+    # predate that review and their install status was never decided either
+    # way. Listed to make them visible rather than to bless them — each still
+    # needs a call on whether it should run on the droplets.
+    'cron_check_errors.sh': 'install status never decided — see CPP',
+    'cron_check_unpaid_access.sh': 'install status never decided — see CPP',
+    'cron_record_question_health.sh': 'install status never decided — see CPP',
+    'cron_sync_sprint_burndown.sh': 'install status never decided — see CPP',
+}
+
+
+def test_the_publish_cron_is_installed():
+    """The one whose absence made every scheduled homework invisible."""
+    setup = _SETUP_SCRIPT.read_text(encoding='utf-8')
+    assert 'publish_scheduled_homework' in setup, (
+        'deploy/setup-app-prod.sh installs no cron for '
+        'publish_scheduled_homework. Without it every homework with a future '
+        'publish_at — including every set the question-schedule cron builds — '
+        'stays hidden from students forever, with nothing erroring')
