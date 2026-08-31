@@ -228,6 +228,16 @@
               <p class="col-span-2 text-[11px] text-indigo-400">The answer is calculated automatically from the dividend and divisor.</p>
             </div>
 
+            <!-- Prime factorisation — shown only for prime_factorization -->
+            <div id="primefactor-section-{{ q_idx }}"
+                 class="bg-indigo-50 rounded-lg p-3 {% if not q.question_type == 'prime_factorization' %}hidden{% endif %}">
+              <label class="block text-xs font-medium text-indigo-500 mb-1">Number to factorise</label>
+              <input type="text" name="q_{{ q_idx }}_target_number" value="{{ q.target_number|default:'' }}"
+                     placeholder="e.g. 60"
+                     class="w-full border border-indigo-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <p class="text-[11px] text-indigo-400 mt-1">The app draws the factor ladder and works the answer out from this number, so there are no answer options.</p>
+            </div>
+
             <!-- Column arithmetic (stacked +/−/×) — shown only for column_operation -->
             <div id="column-section-{{ q_idx }}"
                  class="bg-indigo-50 rounded-lg p-3 grid grid-cols-3 gap-3 {% if not q.question_type == 'column_operation' %}hidden{% endif %}">
@@ -364,7 +374,7 @@
             BACK to short answer left no answers list in the page at all.
             {% endcomment %}
             <div id="answers-row-{{ q_idx }}"
-                 {% if q.question_type == 'extended_answer' or q.question_type == 'long_division' or q.question_type == 'column_operation' or q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' or q.question_type == 'read_graph' or q.question_type == 'measure' or q.question_type == 'number_line' or q.question_type == 'table_of_values' %}class="hidden"{% endif %}>
+                 {% if q.question_type == 'extended_answer' or q.question_type == 'long_division' or q.question_type == 'column_operation' or q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' or q.question_type == 'read_graph' or q.question_type == 'measure' or q.question_type == 'number_line' or q.question_type == 'table_of_values' or q.question_type == 'sketch_graph' or q.question_type == 'prime_factorization' %}class="hidden"{% endif %}>
               <label class="block text-xs font-medium text-gray-500 mb-2">Answers <span class="text-gray-400 font-normal">(tick the correct one — add alternatives that should also be accepted)</span></label>
               {% if q.answer_warning %}
               <p class="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">⚠ {{ q.answer_warning }}</p>
@@ -506,7 +516,9 @@
       'graph': newType === 'read_graph',
       'measure': newType === 'measure',
       'numberline': newType === 'number_line',
-      'table': newType === 'table_of_values'
+      'table': newType === 'table_of_values',
+      'sketch': newType === 'sketch_graph',
+      'primefactor': newType === 'prime_factorization'
     };
     var anyStructured = false;
     for (var name in panels) {

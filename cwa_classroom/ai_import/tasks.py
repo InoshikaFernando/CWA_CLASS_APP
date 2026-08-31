@@ -64,6 +64,19 @@ def process_pdf_import(session_id):
         # image pool and save like any other.
         extracted_images.update(crop_figure_boxes(extracted, result, pdf_bytes=pdf_bytes))
 
+        # Turn each "colour all the triangles" crop into a traced shape_spec.
+        # The classifier is asked only WHICH shape to colour; the outlines come
+        # from contour detection, which reads a printed figure far better than a
+        # vertex list written into a tool call. A scene that will not trace is
+        # routed to the teacher rather than imported unanswerable.
+        from maths.shape_detect import trace_shape_select_scenes
+        traced, untraceable = trace_shape_select_scenes(
+            result.get('questions'), extracted_images)
+        if traced or untraceable:
+            logger.info(
+                'shape_select: %s scene(s) traced, %s routed to the teacher.',
+                traced, untraceable)
+
         # Image checks, now that every question's image is finalised (embedded ref
         # or fresh crop). Three layers route a suspect attachment to the teacher via
         # needs_review, which the preview badge already renders:

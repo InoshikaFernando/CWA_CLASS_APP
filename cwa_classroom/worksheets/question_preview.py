@@ -108,6 +108,11 @@ def draft_from_post(post, idx, base=None, defaults=None):
             if raw:
                 draft[field] = _int_or(raw, draft.get(field))
 
+    if q_type == 'prime_factorization':
+        raw = posted('target_number').strip()
+        if raw:
+            draft['target_number'] = _int_or(raw, draft.get('target_number'))
+
     if q_type == 'column_operation':
         raw_operands = posted('operands').strip()
         if raw_operands:

@@ -540,6 +540,21 @@ QUESTION TYPE RULES (important):
   true value, answer_tolerance to a sensible ± band (e.g. 2 for an angle), and answer_unit to the unit
   ("°" for angles, "cm"/"mm" for lengths). For an ANGLE the app draws a true-to-scale figure, so do NOT
   attach an image; for a length/scale the pupil measures the picture, so keep it. Do NOT generate answers.
+- If the question shows a SET of 2D shapes — a row, grid or scatter — and asks the student to
+  find, colour, tick or circle every shape of ONE kind ("Colour all the triangles", "Tick each
+  rectangle"), use "shape_select" and set shape_target_type to that kind (triangle, circle,
+  square, rectangle, ellipse or rhombus). Attach the picture (image_page/image_box) around the
+  WHOLE set of shapes — every shape the question covers. Do NOT describe the shapes, their
+  positions or their outlines: the app TRACES them from the picture you box. Do NOT generate
+  answers. NOT this type: "name this shape" (one shape — multiple choice), "how many triangles
+  are there?" (a count — short answer), or "draw a triangle".
+- If the question asks the student to break a number into its PRIME FACTORS — "write 60 as a
+  product of its prime factors", "find the prime factorisation of 84", a factor tree or ladder
+  drawn around a starting number — use "prime_factorization" and set target_number to the number
+  being factorised. Set question_text to the instruction ("Write 60 as a product of its prime
+  factors"). The app draws the ladder, so do NOT attach an image, and the answer is computed from
+  target_number — do NOT generate answers. NOT this type: "list the factors of 24" (every factor,
+  not just the primes), "is 17 prime?", or "find the HCF of 24 and 60".
 - If the question gives an EQUATION and asks the student to SKETCH/DRAW its graph AND to show
   named features of it — "Sketch the graph of y = x² + x - 2 showing the coordinates of the vertex,
   x-axis and y-axis intercepts and equation of the axis of symmetry", "Sketch the parabola
@@ -649,7 +664,7 @@ CLASSIFICATION_TOOL = {
                         "question_text": {"type": "string"},
                         "question_type": {
                             "type": "string",
-                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division", "plot_points", "plot_line", "identify_coords", "read_graph", "measure", "number_line", "sketch_graph"],
+                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division", "plot_points", "plot_line", "identify_coords", "read_graph", "measure", "number_line", "sketch_graph", "prime_factorization", "shape_select"],
                         },
                         "plane_spec": {
                             "type": "object",
@@ -695,6 +710,24 @@ CLASSIFICATION_TOOL = {
                                 "draws marker arrow(s) at 'given' positions, student types the value(s)); "
                                 "target = correct value(s) to mark/read (each landing on a tick); given = "
                                 "value(s) already marked with an arrow (read mode). The app draws the line."
+                            ),
+                        },
+                        "shape_target_type": {
+                            "type": "string",
+                            "enum": ["triangle", "circle", "square", "rectangle",
+                                     "ellipse", "rhombus"],
+                            "description": (
+                                "For shape_select only: WHICH kind of shape the question asks "
+                                "the student to find/colour. Give only this — never the shapes' "
+                                "positions or outlines; the app traces those from the picture."
+                            ),
+                        },
+                        "target_number": {
+                            "type": "integer",
+                            "description": (
+                                "For prime_factorization only: the number to break into its "
+                                "prime factors, e.g. 60. The app draws the factor ladder and "
+                                "computes the answer itself."
                             ),
                         },
                         "sketch_spec": {
@@ -1764,6 +1797,17 @@ def _compute_long_division_answer(dividend, divisor):
     return str(quotient) if remainder == 0 else f"{quotient} r {remainder}"
 
 
+def _compute_prime_factorization_answer(target_number):
+    """Canonical answer for a prime-factorisation question, e.g. "2 x 2 x 3 x 5".
+
+    Stored as the question's one Answer row so a result page has something to
+    show — grading itself reads ``target_number``, never this row. Returns None
+    when there is nothing to factorise.
+    """
+    from maths.factorization import prime_factorization_answer
+    return prime_factorization_answer(target_number) or None
+
+
 def _resolve_image_ref(image_ref, extracted_images):
     """Match an AI-supplied image_ref to a real key in extracted_images.
 
@@ -2001,6 +2045,19 @@ def save_questions_from_session(session, user, overrides=None):
                     except (ValueError, TypeError):
                         graph_spec = None  # fall back to the image; don't fail the import
 
+        # Prime factorisation: the number the answer is computed from. Without
+        # it the grader marks every attempt wrong, so report and skip.
+        target_number = None
+        if q_type == 'prime_factorization':
+            try:
+                target_number = int(q.get('target_number'))
+            except (TypeError, ValueError):
+                target_number = None
+            if not target_number or target_number < 2:
+                errors.append(f'Q{idx}: prime_factorization needs a target_number of 2 or more')
+                failed += 1
+                continue
+
         # Draw-on-grid / shape-select / number-line / table-of-values /
         # sketch-a-graph: validate the structured spec; skip a malformed one
         # rather than import a question that can't be graded.
@@ -2088,6 +2145,7 @@ def save_questions_from_session(session, user, overrides=None):
                     existing.operator = operator
                     existing.dividend = dividend
                     existing.divisor = divisor
+                    existing.target_number = target_number
                     existing.plane_spec = plane_spec
                     existing.graph_spec = graph_spec
                     existing.grid_spec = grid_spec
@@ -2115,6 +2173,7 @@ def save_questions_from_session(session, user, overrides=None):
                         explanation=explanation,
                         operands=operands, operator=operator,
                         dividend=dividend, divisor=divisor,
+                        target_number=target_number,
                         plane_spec=plane_spec, graph_spec=graph_spec,
                         grid_spec=grid_spec, shape_spec=shape_spec,
                         number_line_spec=number_line_spec,
@@ -2154,6 +2213,15 @@ def save_questions_from_session(session, user, overrides=None):
                     MathsAnswer.objects.create(
                         question=question,
                         answer_text=ld_answer or '',
+                        is_correct=True,
+                        order=1,
+                    )
+                elif q_type == 'prime_factorization':
+                    # Answer is computed from target_number — ignore AI arithmetic.
+                    pf_answer = _compute_prime_factorization_answer(target_number)
+                    MathsAnswer.objects.create(
+                        question=question,
+                        answer_text=pf_answer or '',
                         is_correct=True,
                         order=1,
                     )

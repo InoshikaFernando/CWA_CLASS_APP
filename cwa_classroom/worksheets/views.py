@@ -967,17 +967,14 @@ def _grade_column_operation(question, text_answer: str) -> bool:
 
 
 def _prime_factors(n: int):
-    """Return sorted list of prime factors of n (with repetition), e.g. 12 → [2, 2, 3]."""
-    factors = []
-    d = 2
-    while d * d <= n:
-        while n % d == 0:
-            factors.append(d)
-            n //= d
-        d += 1
-    if n > 1:
-        factors.append(n)
-    return sorted(factors)
+    """The prime factors of ``n``, ascending, with repeats.
+
+    Delegates to ``maths.factorization``, which is the one definition shared by
+    the PDF importers and the answer-key rendering — three copies of this loop
+    had drifted apart before.
+    """
+    from maths.factorization import prime_factors
+    return prime_factors(n)
 
 
 def _grade_prime_factorization(question, text_answer: str) -> bool:

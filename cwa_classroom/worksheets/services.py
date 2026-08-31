@@ -26,6 +26,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.conf import settings
 
+from maths.shape_detect import trace_shape_select_scenes
+
 logger = logging.getLogger(__name__)
 
 # Page numbers baked into generated image_ref filenames, most-specific first:
@@ -179,8 +181,9 @@ def answer_review_warning(q):
 # Types that DO give the student something to draw on. The app renders the
 # interaction and grades it, so "draw"/"plot"/"mark"/"colour" is answerable
 # there. This is every structured type in ``maths.models.Question``, which is
-# WIDER than what the worksheet extractor can emit: draw_on_grid, shape_select
-# and table_of_values only reach the bank through the question builder, and the
+# WIDER than what the worksheet extractor can emit: draw_on_grid and shape_select
+# only reach the bank through the question builder (and, for shape_select, the
+# image tracer in maths.shape_detect), and the
 # bank sweep (``maths.management.commands.fix_drawing_questions``) has to leave
 # them alone — a shape_select question says "colour the triangles" and the app
 # renders exactly that.
@@ -567,6 +570,7 @@ EXTRACTED_QUESTION_TYPE_CHOICES = [
     ('calculation', 'Calculation'),
     ('extended_answer', 'Extended Answer (written)'),
     ('long_division', 'Long Division'),
+    ('prime_factorization', 'Prime Factorization'),
     ('column_operation', 'Column Arithmetic'),
     ('plot_points', 'Plot Points (Cartesian plane)'),
     ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
@@ -575,6 +579,7 @@ EXTRACTED_QUESTION_TYPE_CHOICES = [
     ('measure', 'Measure (angle/scale, tolerance-graded)'),
     ('number_line', 'Number Line (mark or read a value)'),
     ('table_of_values', 'Table of Values (fill in the table)'),
+    ('shape_select', 'Shape Select (find & colour shapes)'),
     ('sketch_graph', 'Sketch a Graph (vertex / intercepts / axis of symmetry)'),
 ]
 
@@ -736,6 +741,24 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                         "answer_unit": {
                             "type": "string",
                             "description": "For read_graph and measure: unit shown after the answer box, e.g. '°', 'cm', 'km'.",
+                        },
+                        "shape_target_type": {
+                            "type": "string",
+                            "enum": ["triangle", "circle", "square", "rectangle",
+                                     "ellipse", "rhombus"],
+                            "description": (
+                                "For shape_select only: WHICH kind of shape the question asks "
+                                "the student to find/colour. Give only this — never the shapes' "
+                                "positions or outlines; the app traces those from the picture."
+                            ),
+                        },
+                        "target_number": {
+                            "type": "integer",
+                            "description": (
+                                "For prime_factorization only: the number to break into its "
+                                "prime factors, e.g. 60. The app draws the factor ladder and "
+                                "computes the answer itself."
+                            ),
                         },
                         "dividend": {
                             "type": "integer",
@@ -922,6 +945,17 @@ Rules:
    "Solve using long division: {dividend} ÷ {divisor}". Do NOT concatenate the digits into
    one number (never "47611") and set has_image=false — the app draws the bracket itself.
    The answer is computed automatically; leave answers=[].
+9b. PRIME FACTORISATION: if the question asks the student to break a number into its
+   PRIME FACTORS — "write 60 as a product of its prime factors", "find the prime
+   factorisation of 84", a factor tree or factor ladder drawn around a starting number —
+   set question_type="prime_factorization" and "target_number" to the number being
+   factorised (60, 84). Set question_text to the instruction, e.g.
+   "Write 60 as a product of its prime factors". Set has_image=false — the app draws the
+   ladder itself, so a cropped factor tree would be a second, conflicting figure. The
+   answer is computed from target_number; leave answers=[] and validation_type="auto".
+   NOT this type: "list the factors of 24" (every factor, not just primes — that is a
+   short_answer with answer_format "set"), "is 17 prime?" (true_false), and
+   "find the HCF of 24 and 60" (short_answer).
 10. COLUMN ARITHMETIC: if numbers are stacked vertically for addition, subtraction or
    multiplication — written one under another, right-aligned, with a +, − or × sign and a
    rule line under which the answer goes (e.g. "23" above "+ 25" with a line below) — set
@@ -963,6 +997,17 @@ Rules:
    arrow/marker is already drawn and the student reads its value — put the marked position(s) in given
    (target defaults to given). Every target/given value must land exactly on a tick. The app draws the
    line, so set has_image=false. Leave answers=[]; validation_type="auto".
+14b. FIND / COLOUR THE SHAPES: if the question shows a SET of 2D shapes — a row, grid or
+   scatter of them — and asks the student to find, colour, tick or circle every shape of ONE
+   kind ("Colour all the triangles", "Tick each rectangle", "Circle the circles"), set
+   question_type="shape_select" and shape_target_type to that kind (triangle, circle, square,
+   rectangle, ellipse or rhombus). Set has_image=true with image_bbox around the WHOLE set of
+   shapes — every shape the question covers, not just one. Do NOT describe the shapes, their
+   positions or their outlines: the app TRACES them from the picture you box, and a traced
+   outline beats a described one. Leave answers=[] and validation_type="auto".
+   NOT this type: "name this shape" (one shape to identify — multiple_choice, rule 8),
+   "how many triangles are there?" (a count — short_answer), and "draw a triangle"
+   (rule 18).
 15. TABLES: if the question depends on reading a DATA TABLE (rows/columns of values — a
    timetable, price list, tally/frequency table, results table, conversion table, etc.), set
    has_image=true and give image_bbox tightly around the WHOLE table (all its rows, columns and
@@ -1003,7 +1048,7 @@ Rules:
    there is nothing to type, so it is rule 18.
 18. DRAWING / CONSTRUCTION — questions the app cannot take an answer for. A student
    answers in this app by typing, picking an option, or using one of the drawing surfaces
-   the app itself renders (rules 9-14, 17). They CANNOT draw a picture. So if the task is to
+   the app itself renders (rules 9-14, 17, and 9b/14b). They CANNOT draw a picture. So if the task is to
    PRODUCE a visual — "Draw a tree diagram to illustrate this situation", "Draw a Venn
    diagram", "Construct a triangle with compasses", "Draw a
    bar chart", "Shade the region", "Colour the shape", "Join the
@@ -1024,7 +1069,8 @@ Rules:
    EXCEPTIONS, because the app draws these answer surfaces itself — keep them as their own
    question type with validation_type="auto": marking or reading a horizontal NUMBER LINE
    (rule 14), plotting/joining points on a CARTESIAN PLANE (rule 11), LONG DIVISION
-   (rule 9), COLUMN ARITHMETIC (rule 10), a TABLE TO COMPLETE (rule 16), and SKETCHING A
+   (rule 9), PRIME FACTORISATION (rule 9b), COLUMN ARITHMETIC (rule 10), a TABLE TO
+   COMPLETE (rule 16), FINDING/COLOURING SHAPES IN A SET (rule 14b), and SKETCHING A
    GRAPH AND SHOWING ITS KEY FEATURES (rule 17). "Plot (3, -2) on the grid", "complete the
    table for y = 3x" and "sketch y = x² + x - 2 showing the vertex and the intercepts" are
    answerable; "Draw a tree diagram" is not.
@@ -1409,7 +1455,8 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
             "a bare 'sketch this curve', a compass construction, a shaded region — "
             "must be validation_type=\"human_graded\", never "
             "ai_graded: there is no answer surface for a drawing, so the student types "
-            "nothing. Number lines, Cartesian plots, long division, column sums, a "
+            "nothing. Number lines, Cartesian plots, long division, prime factorisation, "
+            "column sums, a "
             "TABLE TO COMPLETE (question_type table_of_values, with table_spec) and a "
             "SKETCH THAT NAMES THE FEATURES TO SHOW — \"sketch the graph of y = x^2 + x - 2 "
             "showing the vertex, the intercepts and the axis of symmetry\" "
@@ -2335,6 +2382,18 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
         result, extracted_images = render_question_images(
             doc, extracted_pages, result, progress=report,
         )
+
+        # Step 3b: turn each "colour all the triangles" crop into a traced
+        # shape_spec. Runs here because it needs the finished crops, and here
+        # rather than in each caller because worksheets AND homework both come
+        # through this function. A scene that will not trace is routed to the
+        # teacher by the tracer itself rather than imported unanswerable.
+        traced, untraceable = trace_shape_select_scenes(
+            result.get('questions'), extracted_images)
+        if traced or untraceable:
+            logger.info(
+                'shape_select: %s scene(s) traced, %s routed to the teacher.',
+                traced, untraceable)
 
         # Step 4: independent second opinion (CPP-384).
         #

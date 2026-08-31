@@ -53,12 +53,22 @@ class ExtractionSchemaTests(TestCase):
         for t in ('read_graph', 'plot_points', 'column_operation'):
             self.assertIn(t, enum)
 
-    def test_grid_and_shape_kept_out_of_ai_enum(self):
-        # Authoring grid_spec / shape_spec from a raw PDF image is error-prone, so
-        # those types are reachable via the picker + JSON import, not AI extraction.
-        enum = _props()["question_type"]["enum"]
-        self.assertNotIn('draw_on_grid', enum)
-        self.assertNotIn('shape_select', enum)
+    def test_grid_is_kept_out_of_the_ai_enum(self):
+        # Reading a printed figure onto exact integer LATTICE coordinates is the
+        # error-prone part, and draw_on_grid is graded by set equality against
+        # them: one vertex out by a square and every attempt marks wrong. So it
+        # stays reachable via the picker + JSON import, not AI extraction.
+        self.assertNotIn('draw_on_grid', _props()["question_type"]["enum"])
+
+    def test_shape_select_is_in_the_enum_but_only_its_target_type(self):
+        # shape_select used to be excluded for the same reason — until the
+        # geometry stopped coming from the model. The classifier now supplies
+        # only WHICH shape to colour and the outlines are traced from the crop
+        # by maths.shape_detect, so the error-prone half is gone.
+        props = _props()
+        self.assertIn('shape_select', props["question_type"]["enum"])
+        self.assertIn('shape_target_type', props)
+        self.assertNotIn('shape_spec', props)
 
 
 class SaveGeometryTypesTests(TestCase):
