@@ -61,6 +61,24 @@
     </a>
   </div>
 
+  {# The report's own reading of where the effort should go. Rules, not prose — see progress.reports.next_steps_section. #}
+  {% if next_steps.items %}
+  <div class="bg-indigo-50 rounded-2xl border border-indigo-100 p-6" data-testid="report-next-steps">
+    <h2 class="font-display text-xl text-gray-800">What's next</h2>
+    <p class="text-xs text-slate-500 mb-4">Based on the figures in this report.</p>
+    <ul class="space-y-2">
+      {% for item in next_steps.items %}
+        <li class="flex items-start gap-2 text-sm text-slate-700">
+          <span class="mt-0.5 shrink-0 text-xs font-semibold {% if item.kind == 'strength' %}text-emerald-600{% elif item.kind == 'focus' %}text-amber-600{% else %}text-indigo-500{% endif %}">
+            {% if item.kind == 'strength' %}Strength{% elif item.kind == 'focus' %}Focus{% elif item.kind == 'next' %}Next{% elif item.kind == 'habit' %}Habit{% else %}Note{% endif %}
+          </span>
+          <span>{{ item.text }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
   {# Outside the has_activity branch on purpose: a child with no submissions is exactly when the teacher's assessment and comment are the only things left to say. #}
   {# Teacher's assessment. Rendered only when it exists — an absent section, never a blank one. #}
   {% if rubric %}
