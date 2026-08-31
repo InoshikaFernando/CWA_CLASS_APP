@@ -190,6 +190,29 @@
               </table>
             </div>
             {% endwith %}
+            {% elif q.question_type == 'sketch_graph' and q.sketch_data %}
+            {% comment %}
+            Printable sketch answer key (teacher detail view): the curve with its
+            axis of symmetry and a labelled dot at every key feature, plus those
+            features written out, so the teacher can mark the paper from the page.
+            {% endcomment %}
+            {% with d=q.sketch_data %}
+            <div class="my-2 max-w-full overflow-x-auto">
+              {% if d.answer_svg %}
+              <svg viewBox="0 0 {{ d.width }} {{ d.height }}"
+                   class="border border-gray-200 rounded-lg bg-white"
+                   style="width:100%;max-width:{{ d.width }}px;height:auto"
+                   role="img" aria-label="The graph this question asks for">
+                {{ d.answer_svg|safe }}
+              </svg>
+              {% endif %}
+              <ul class="mt-1 text-xs text-emerald-700">
+                {% for f in d.answer_features %}
+                <li>{{ f.label }}: <span class="font-medium">{{ f.expected }}</span></li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endwith %}
             {% endif %}
             {% endwith %}
             {% endif %}

@@ -188,6 +188,13 @@ _DRAWABLE_QUESTION_TYPES = {
     'number_line', 'plot_points', 'plot_line', 'identify_coords',
     'long_division', 'column_operation', 'read_graph', 'measure',
     'draw_on_grid', 'shape_select', 'table_of_values', 'prime_factorization',
+    # "Sketch the graph of y = x² + x − 2 showing the coordinates of the
+    # vertex, the x-axis and y-axis intercepts and the equation of the axis of
+    # symmetry" reads as a construction ("sketch … graph") and used to be routed
+    # to the teacher by the patterns below. It is not one: the app draws the
+    # plane and takes the key features the stem names, which is what the marks
+    # were ever for. See rule 18 in the prompt.
+    'sketch_graph',
 }
 
 # fill_blank is deliberately NOT on that list. It renders the question as a
@@ -568,6 +575,7 @@ EXTRACTED_QUESTION_TYPE_CHOICES = [
     ('measure', 'Measure (angle/scale, tolerance-graded)'),
     ('number_line', 'Number Line (mark or read a value)'),
     ('table_of_values', 'Table of Values (fill in the table)'),
+    ('sketch_graph', 'Sketch a Graph (vertex / intercepts / axis of symmetry)'),
 ]
 
 EXTRACTED_QUESTION_TYPES = [value for value, _label in EXTRACTED_QUESTION_TYPE_CHOICES]
@@ -679,6 +687,28 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                 "on the scale, each landing on a tick); given = value(s) already "
                                 "marked with an arrow (read mode). The app draws the line, so set "
                                 "has_image=false for this type."
+                            ),
+                        },
+                        "sketch_spec": {
+                            "type": "object",
+                            "description": (
+                                "For sketch_graph only — a 'sketch the graph showing the "
+                                "vertex / intercepts / axis of symmetry' question. "
+                                "equation = the function as printed (\"y = x^2 + x - 2\"). "
+                                "bounds = the integer axis range of the grid printed on the "
+                                "sheet {xmin, xmax, ymin, ymax}, wide enough to contain every "
+                                "feature below. curve = the coefficients so the app can draw "
+                                "the answer: {\"type\": \"quadratic\", \"a\", \"b\", \"c\"} for "
+                                "y = ax^2+bx+c (expand a factored or vertex form first) or "
+                                "{\"type\": \"linear\", \"m\", \"c\"}. features = ONLY the "
+                                "features this question actually asks the student to show, in "
+                                "the order it lists them: {\"kind\": \"vertex\", \"points\": "
+                                "[[x, y]]}, {\"kind\": \"x_intercept\", \"points\": [[x, 0], "
+                                "...]}, {\"kind\": \"y_intercept\", \"points\": [[0, y]]}, "
+                                "{\"kind\": \"axis_of_symmetry\", \"value\": x}. Coordinates are "
+                                "DECIMALS, not grid squares — the vertex of y = x^2 + x - 2 is "
+                                "(-0.5, -2.25). Work every value out from the equation and "
+                                "check it. The app draws the plane, so set has_image=false."
                             ),
                         },
                         "table_spec": {
@@ -950,15 +980,36 @@ Rules:
    numerically, so they must be numbers, and at least one answer cell is required. The app
    draws the table, so set has_image=false, leave answers=[] and validation_type="auto".
    This is a REAL answerable question: prefer it over sending the table to the teacher
-   under rule 17. Only when you cannot express the table this way — the cells are not
-   numeric, or there is no rule to compute them from — fall back to rule 17.
-17. DRAWING / CONSTRUCTION — questions the app cannot take an answer for. A student
+   under rule 18. Only when you cannot express the table this way — the cells are not
+   numeric, or there is no rule to compute them from — fall back to rule 18.
+17. SKETCH A GRAPH SHOWING ITS KEY FEATURES: if the question gives an equation and asks the
+   student to SKETCH/DRAW its graph AND to show named features of it — "Sketch the graph of
+   y = x² + x - 2 showing the coordinates of the vertex, x-axis and y-axis intercepts and
+   equation of the axis of symmetry", "Sketch the parabola y = x² - 3x - 4 on the axes
+   provided showing clearly: the y-intercept, the x-intercepts, the vertex" — use
+   "sketch_graph" and fill sketch_spec. The curve itself is not what such a question is
+   marked on; the NAMED FEATURES are, and the student types those. So:
+   - equation = the function exactly as printed. bounds = the axis range of the grid on the
+     sheet (integers), widened if needed so every feature below sits inside it.
+   - curve = the coefficients of the EXPANDED form, so the app can draw the answer:
+     y = 2(x+1)² - 4 is {"type": "quadratic", "a": 2, "b": 4, "c": -2};
+     y = -(x-3)(x+1) is {"type": "quadratic", "a": -1, "b": 2, "c": 3}.
+   - features = ONLY what this question asks for, in its order. Work each one out from the
+     equation and CHECK it: vertex (-b/2a, y at that x), x_intercept (solve y = 0 — list
+     every root; omit the feature entirely if there are none), y_intercept (x = 0), and
+     axis_of_symmetry (the x of the vertex). Values are decimals: (-0.5, -2.25), not (0, -2).
+   Set has_image=false (the app draws the plane), leave answers=[] and validation_type="auto".
+   A question that only says "sketch the graph" with no features to show is NOT this type —
+   there is nothing to type, so it is rule 18.
+18. DRAWING / CONSTRUCTION — questions the app cannot take an answer for. A student
    answers in this app by typing, picking an option, or using one of the drawing surfaces
-   the app itself renders (rules 9-14). They CANNOT draw a picture. So if the task is to
+   the app itself renders (rules 9-14, 17). They CANNOT draw a picture. So if the task is to
    PRODUCE a visual — "Draw a tree diagram to illustrate this situation", "Draw a Venn
-   diagram", "Sketch the graph of y = 2x", "Construct a triangle with compasses", "Draw a
+   diagram", "Construct a triangle with compasses", "Draw a
    bar chart", "Shade the region", "Colour the shape", "Join the
-   points to form a quadrilateral" — set validation_type="human_graded". This covers every
+   points to form a quadrilateral" — set validation_type="human_graded". (A bare
+   "Sketch the graph of y = 2x" with no features named is one of these; the same
+   instruction WITH features to show is rule 17, and answerable.) This covers every
    way of asking for the same drawing, not just the ones starting with "draw": "Illustrate
    on a Venn diagram the sets A = {1, 3, 5} and B = {2, 4, 6}", "Represent this data in a
    pie chart", "Show the information on a bar graph", "Display the results using a
@@ -973,9 +1024,10 @@ Rules:
    EXCEPTIONS, because the app draws these answer surfaces itself — keep them as their own
    question type with validation_type="auto": marking or reading a horizontal NUMBER LINE
    (rule 14), plotting/joining points on a CARTESIAN PLANE (rule 11), LONG DIVISION
-   (rule 9), COLUMN ARITHMETIC (rule 10), a TABLE TO COMPLETE (rule 16). "Plot (3, -2) on
-   the grid" and "complete the table for y = 3x" are answerable; "Draw a tree diagram" is
-   not.
+   (rule 9), COLUMN ARITHMETIC (rule 10), a TABLE TO COMPLETE (rule 16), and SKETCHING A
+   GRAPH AND SHOWING ITS KEY FEATURES (rule 17). "Plot (3, -2) on the grid", "complete the
+   table for y = 3x" and "sketch y = x² + x - 2 showing the vertex and the intercepts" are
+   answerable; "Draw a tree diagram" is not.
 
 IMAGE NECESSITY (set has_image=true ONLY when a visual carries information):
 - has_image=true ONLY when the question genuinely depends on a visual that cannot be written
@@ -1010,10 +1062,10 @@ Choosing validation_type per question:
                  where the student writes free text and partial credit is meaningful.
                  Write a detailed grading_rubric describing what a full-mark answer must
                  include, common errors to penalise, and partial-credit criteria.
-                 NEVER ai_graded when the answer is a DRAWING (rule 17) — the student
+                 NEVER ai_graded when the answer is a DRAWING (rule 18) — the student
                  types nothing, so there is no written answer to grade.
 - human_graded → Two cases:
-                 (a) the answer is a drawing/construction the app can't accept (rule 17) —
+                 (a) the answer is a drawing/construction the app can't accept (rule 18) —
                      "draw a tree diagram", "illustrate on a Venn diagram", "represent this
                      data in a bar graph", "shade the region";
                  (b) highly open-ended/subjective questions where even AI cannot reliably
@@ -1354,12 +1406,15 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
             "another question's figure, the question text, or the answer options. "
             "Any question whose ANSWER IS A PICTURE — draw a tree or Venn diagram, "
             "illustrate sets on a Venn diagram, represent data in a pie chart or bar graph, "
-            "sketch a curve, a compass construction, a shaded region — "
+            "a bare 'sketch this curve', a compass construction, a shaded region — "
             "must be validation_type=\"human_graded\", never "
             "ai_graded: there is no answer surface for a drawing, so the student types "
-            "nothing. Number lines, Cartesian plots, long division, column sums and a "
-            "TABLE TO COMPLETE (question_type table_of_values, with table_spec) are the "
-            "exception — the app draws those, so keep them auto. "
+            "nothing. Number lines, Cartesian plots, long division, column sums, a "
+            "TABLE TO COMPLETE (question_type table_of_values, with table_spec) and a "
+            "SKETCH THAT NAMES THE FEATURES TO SHOW — \"sketch the graph of y = x^2 + x - 2 "
+            "showing the vertex, the intercepts and the axis of symmetry\" "
+            "(question_type sketch_graph, with sketch_spec) — are the "
+            "exception: the app draws those, so keep them auto. "
             "Use the classify_worksheet_questions tool now."
         )
     content_blocks.append({
@@ -2260,7 +2315,7 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
 
         # Questions whose answer is a DRAWING the app can't take — "draw a tree
         # diagram", "shade the region". The model is told to mark these
-        # human_graded (rule 17), but a missed one would reach students as
+        # human_graded (rule 18), but a missed one would reach students as
         # ai_graded and be marked on prose they were never asked to write, so
         # re-route deterministically. Runs before the include default below so a
         # re-routed question also arrives unticked.

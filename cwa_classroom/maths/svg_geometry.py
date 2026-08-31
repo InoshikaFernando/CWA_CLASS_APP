@@ -474,3 +474,138 @@ def _axis_label(axis):
     if label and unit:
         return f'{label} ({unit})'
     return label or unit
+
+
+# ── sketch_graph — the curve the student's sketch should have been ────────────
+
+# How finely the curve is sampled across the plane. 240 points is smooth at any
+# render size (the path is drawn in SVG user units, then scaled by the viewBox)
+# and small enough to keep the markup short.
+_SKETCH_SAMPLES = 240
+
+
+def sketch_curve_y(curve, x):
+    """The curve's y at ``x`` as a float, or ``None`` if it cannot be evaluated.
+
+    Understands the families ``validate_sketch_spec`` accepts — a quadratic
+    ``y = ax² + bx + c`` and a line ``y = mx + c``. Pure arithmetic, so the
+    sampling loop and the tests share one definition of the curve.
+    """
+    if not isinstance(curve, dict):
+        return None
+    try:
+        if curve.get('type') == 'quadratic':
+            a, b, c = (float(curve['a']), float(curve['b']), float(curve['c']))
+            return a * x * x + b * x + c
+        if curve.get('type') == 'linear':
+            m, c = float(curve['m']), float(curve['c'])
+            return m * x + c
+    except (KeyError, TypeError, ValueError):
+        return None
+    return None
+
+
+def sketch_curve_polylines(sketch_spec):
+    """The curve as a list of polylines in PLANE coordinates, or ``[]``.
+
+    One polyline per stretch of the curve that is inside the plane: a parabola
+    whose arms leave the top of the grid comes back as two separate strokes, so
+    the drawing never joins them with a false line across the figure.
+    """
+    from maths.geometry_grading import _plane_bounds
+    if not isinstance(sketch_spec, dict):
+        return []
+    curve = sketch_spec.get('curve')
+    bounds = _plane_bounds(sketch_spec)
+    if not curve or bounds is None:
+        return []
+    xmin, xmax, ymin, ymax = bounds
+
+    lines, current = [], []
+    span = xmax - xmin
+    for i in range(_SKETCH_SAMPLES + 1):
+        x = xmin + span * i / _SKETCH_SAMPLES
+        y = sketch_curve_y(curve, x)
+        if y is None:
+            return []
+        if ymin <= y <= ymax:
+            current.append((x, y))
+        elif current:
+            lines.append(current)
+            current = []
+    if current:
+        lines.append(current)
+    # A single sampled point is a dot, not a stroke.
+    return [line for line in lines if len(line) > 1]
+
+
+def sketch_answer_svg(sketch_spec, *, pad=28, step=32):
+    """Inner SVG for the sketch a correct answer would have drawn.
+
+    The blank plane (``cartesian_plane_svg``) plus the curve, a dashed axis of
+    symmetry, and a labelled dot at each key feature. This is the FEEDBACK
+    figure — it carries the answers, so it is only ever rendered after marking,
+    never on the take page.
+
+    Returns '' when there is nothing to draw (no bounds, no features), so the
+    model render helper can guard with a single check.
+    """
+    from maths.geometry_grading import (
+        _fmt_sketch_number, _plane_bounds, sketch_feature_expected,
+        _to_decimal_strict,
+    )
+    bounds = _plane_bounds(sketch_spec)
+    if bounds is None:
+        return ''
+    backdrop = cartesian_plane_svg(sketch_spec, pad=pad, step=step)
+    if not backdrop:
+        return ''
+    xmin, xmax, ymin, ymax = bounds
+
+    def px(x):
+        return pad + (float(x) - xmin) * step
+
+    def py(y):
+        return pad + (ymax - float(y)) * step  # y up on the plane, down in SVG
+
+    curve_colour = 'var(--svg-answer, #dc2626)'
+    parts = [backdrop]
+
+    for line in sketch_curve_polylines(sketch_spec):
+        d = 'M ' + ' L '.join(f'{_f(px(x))} {_f(py(y))}' for x, y in line)
+        parts.append(
+            f'<path d="{d}" fill="none" stroke="{curve_colour}" stroke-width="2.5" '
+            f'stroke-linejoin="round" stroke-linecap="round"/>'
+        )
+
+    for feature in (sketch_spec.get('features') or []):
+        if not isinstance(feature, dict):
+            continue
+        kind = feature.get('kind')
+        if kind == 'axis_of_symmetry':
+            value = _to_decimal_strict(feature.get('value'))
+            if value is None:
+                continue
+            x = px(value)
+            parts.append(
+                f'<line x1="{_f(x)}" y1="{_f(py(ymax))}" x2="{_f(x)}" '
+                f'y2="{_f(py(ymin))}" stroke="{curve_colour}" stroke-width="1.5" '
+                f'stroke-dasharray="5 4" opacity="0.8"/>'
+                f'<text x="{_f(x + 5)}" y="{_f(py(ymax) + 12)}" fill="{curve_colour}" '
+                f'font-size="{_f(step * 0.34)}">{_txt(sketch_feature_expected(feature))}</text>'
+            )
+            continue
+        for point in (feature.get('points') or []):
+            if not (isinstance(point, (list, tuple)) and len(point) == 2):
+                continue
+            x, y = _to_decimal_strict(point[0]), _to_decimal_strict(point[1])
+            if x is None or y is None:
+                continue
+            cx, cy = px(x), py(y)
+            parts.append(
+                f'<circle cx="{_f(cx)}" cy="{_f(cy)}" r="4.5" fill="{curve_colour}"/>'
+                f'<text x="{_f(cx + 7)}" y="{_f(cy - 7)}" fill="{curve_colour}" '
+                f'font-size="{_f(step * 0.32)}" font-weight="600">'
+                f'({_fmt_sketch_number(x)}, {_fmt_sketch_number(y)})</text>'
+            )
+    return ''.join(parts)

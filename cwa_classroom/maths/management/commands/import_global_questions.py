@@ -37,6 +37,7 @@ SCALAR_FIELDS = (
     # dedup then SKIPS the half-built global copy on a re-run instead of
     # repairing it. Add the column here whenever a question type gains one.
     'plane_spec', 'graph_spec', 'number_line_spec', 'table_spec', 'blank_spec',
+    'sketch_spec',
 )
 
 

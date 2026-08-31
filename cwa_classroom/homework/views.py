@@ -2155,6 +2155,8 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                 q['number_line_spec_json'] = json.dumps(q['number_line_spec'], indent=2)
             if q.get('table_spec'):
                 q['table_spec_json'] = json.dumps(q['table_spec'], indent=2)
+            if q.get('sketch_spec'):
+                q['sketch_spec_json'] = json.dumps(q['sketch_spec'], indent=2)
 
         # Pages the extractor deliberately skipped (answer sheet / answer key).
         # Told to the teacher rather than silently dropped, so "50 questions but
@@ -2324,6 +2326,17 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                 if raw:
                     try:
                         q['table_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
+            # Sketch-a-graph spec — same contract again: raw JSON, and a parse
+            # failure keeps the prior spec so the import-time validator is the
+            # one that reports it.
+            if q['question_type'] == 'sketch_graph':
+                raw = request.POST.get(f'{prefix}sketch_spec', '').strip()
+                if raw:
+                    try:
+                        q['sketch_spec'] = json.loads(raw)
                     except (ValueError, TypeError):
                         pass
 
@@ -3097,6 +3110,18 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             except (ValueError, TypeError):
                 continue
 
+        # Sketch a graph: validate the plane + the key features it is marked on;
+        # skip a malformed one. Same contract as the AI import saver so a sketch
+        # imports identically here.
+        sketch_spec = None
+        if mapped_type == MQ.SKETCH_GRAPH:
+            from maths.geometry_grading import validate_sketch_spec
+            sketch_spec = q.get('sketch_spec')
+            try:
+                validate_sketch_spec(sketch_spec)
+            except (ValueError, TypeError):
+                continue
+
         # Image-based questions are visually distinct even when they share a
         # generic stem (e.g. 79 "What is the name of this shape?" questions, one
         # per shape image). Keying dedup on text alone collapsed them all into a
@@ -3114,7 +3139,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 MQ.LONG_DIVISION, MQ.COLUMN_OPERATION,
                 MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS,
                 MQ.DRAW_ON_GRID, MQ.SHAPE_SELECT, MQ.NUMBER_LINE,
-                MQ.TABLE_OF_VALUES,
+                MQ.TABLE_OF_VALUES, MQ.SKETCH_GRAPH,
             )
         )
         # read_graph carries a graph image but its IDENTITY is the numeric answer,
@@ -3150,6 +3175,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             'shape_spec': shape_spec,
             'number_line_spec': number_line_spec,
             'table_spec': table_spec,
+            'sketch_spec': sketch_spec,
             'numeric_answer': numeric_answer,
             'answer_tolerance': answer_tolerance,
             'answer_unit': answer_unit,

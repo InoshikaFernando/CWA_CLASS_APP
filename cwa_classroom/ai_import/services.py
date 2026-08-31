@@ -540,6 +540,20 @@ QUESTION TYPE RULES (important):
   true value, answer_tolerance to a sensible ± band (e.g. 2 for an angle), and answer_unit to the unit
   ("°" for angles, "cm"/"mm" for lengths). For an ANGLE the app draws a true-to-scale figure, so do NOT
   attach an image; for a length/scale the pupil measures the picture, so keep it. Do NOT generate answers.
+- If the question gives an EQUATION and asks the student to SKETCH/DRAW its graph AND to show
+  named features of it — "Sketch the graph of y = x² + x - 2 showing the coordinates of the vertex,
+  x-axis and y-axis intercepts and equation of the axis of symmetry", "Sketch the parabola
+  y = x² - 3x - 4 on the axes provided showing clearly: the y-intercept, the x-intercepts, the
+  vertex" — use "sketch_graph" and fill sketch_spec. The curve is not what such a question is marked
+  on; the NAMED FEATURES are, and the student types those. equation = the function as printed;
+  bounds = the axis range of the grid on the sheet, widened if needed so every feature fits;
+  curve = the EXPANDED coefficients (y = 2(x+1)² - 4 is a=2, b=4, c=-2; y = -(x-3)(x+1) is
+  a=-1, b=2, c=3); features = ONLY what the question asks for, in its order, each worked out from
+  the equation and CHECKED — vertex (-b/2a and the y there), x_intercept (every root of y = 0;
+  omit the feature if there are none), y_intercept (x = 0), axis_of_symmetry (the vertex's x).
+  Values are decimals, not grid squares. The app draws the plane, so do NOT attach an image.
+  Do NOT generate answers. A bare "sketch the graph" with no features named is NOT this type —
+  there is nothing to type, so leave it as a teacher-graded drawing.
 - If the question shows (or asks the student to draw/use) a horizontal NUMBER LINE and the task is to
   MARK a value on it or READ the value an arrow points to, use "number_line" and fill number_line_spec.
   Set min/max to the scale's end values and step to the tick interval (usually 1). Use mode "mark" when
@@ -635,7 +649,7 @@ CLASSIFICATION_TOOL = {
                         "question_text": {"type": "string"},
                         "question_type": {
                             "type": "string",
-                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division", "plot_points", "plot_line", "identify_coords", "read_graph", "measure", "number_line"],
+                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division", "plot_points", "plot_line", "identify_coords", "read_graph", "measure", "number_line", "sketch_graph"],
                         },
                         "plane_spec": {
                             "type": "object",
@@ -681,6 +695,24 @@ CLASSIFICATION_TOOL = {
                                 "draws marker arrow(s) at 'given' positions, student types the value(s)); "
                                 "target = correct value(s) to mark/read (each landing on a tick); given = "
                                 "value(s) already marked with an arrow (read mode). The app draws the line."
+                            ),
+                        },
+                        "sketch_spec": {
+                            "type": "object",
+                            "description": (
+                                "For sketch_graph only — a 'sketch the graph showing the vertex / "
+                                "intercepts / axis of symmetry' question. equation = the function as "
+                                "printed (\"y = x^2 + x - 2\"); bounds = the integer axis range of the "
+                                "grid printed on the sheet {xmin, xmax, ymin, ymax}, wide enough to "
+                                "contain every feature; curve = the EXPANDED coefficients so the app can "
+                                "draw the answer, {\"type\": \"quadratic\", \"a\", \"b\", \"c\"} or "
+                                "{\"type\": \"linear\", \"m\", \"c\"}; features = ONLY the features this "
+                                "question asks the student to show, in its order — "
+                                "{\"kind\": \"vertex\", \"points\": [[x, y]]}, "
+                                "{\"kind\": \"x_intercept\", \"points\": [[x, 0], ...]}, "
+                                "{\"kind\": \"y_intercept\", \"points\": [[0, y]]}, "
+                                "{\"kind\": \"axis_of_symmetry\", \"value\": x}. Coordinates are DECIMALS: "
+                                "the vertex of y = x^2 + x - 2 is (-0.5, -2.25). The app draws the plane."
                             ),
                         },
                         "angle_relationship_spec": {
@@ -1969,13 +2001,14 @@ def save_questions_from_session(session, user, overrides=None):
                     except (ValueError, TypeError):
                         graph_spec = None  # fall back to the image; don't fail the import
 
-        # Draw-on-grid / shape-select / number-line / table-of-values: validate the
-        # structured spec; skip a malformed one rather than import a question
-        # that can't be graded.
+        # Draw-on-grid / shape-select / number-line / table-of-values /
+        # sketch-a-graph: validate the structured spec; skip a malformed one
+        # rather than import a question that can't be graded.
         grid_spec = None
         shape_spec = None
         number_line_spec = None
         table_spec = None
+        sketch_spec = None
         if q_type == 'draw_on_grid':
             from maths.geometry_grading import validate_grid_spec
             grid_spec = q.get('grid_spec')
@@ -2010,6 +2043,15 @@ def save_questions_from_session(session, user, overrides=None):
                 validate_table_spec(table_spec)
             except (ValueError, TypeError) as exc:
                 errors.append(f'Q{idx}: Invalid table_spec ({exc})')
+                failed += 1
+                continue
+        elif q_type == 'sketch_graph':
+            from maths.geometry_grading import validate_sketch_spec
+            sketch_spec = q.get('sketch_spec')
+            try:
+                validate_sketch_spec(sketch_spec)
+            except (ValueError, TypeError) as exc:
+                errors.append(f'Q{idx}: Invalid sketch_spec ({exc})')
                 failed += 1
                 continue
 
@@ -2052,6 +2094,7 @@ def save_questions_from_session(session, user, overrides=None):
                     existing.shape_spec = shape_spec
                     existing.number_line_spec = number_line_spec
                     existing.table_spec = table_spec
+                    existing.sketch_spec = sketch_spec
                     existing.numeric_answer = numeric_answer
                     existing.answer_tolerance = answer_tolerance
                     existing.answer_unit = answer_unit
@@ -2075,7 +2118,7 @@ def save_questions_from_session(session, user, overrides=None):
                         plane_spec=plane_spec, graph_spec=graph_spec,
                         grid_spec=grid_spec, shape_spec=shape_spec,
                         number_line_spec=number_line_spec,
-                        table_spec=table_spec,
+                        table_spec=table_spec, sketch_spec=sketch_spec,
                         numeric_answer=numeric_answer,
                         answer_tolerance=answer_tolerance, answer_unit=answer_unit,
                     )
@@ -2116,7 +2159,7 @@ def save_questions_from_session(session, user, overrides=None):
                     )
                 elif q_type in ('plot_points', 'plot_line', 'identify_coords', 'read_graph',
                                 'measure', 'draw_on_grid', 'shape_select', 'number_line',
-                                'table_of_values'):
+                                'table_of_values', 'sketch_graph'):
                     # Graded by the structured spec (plane / grid / shapes / number
                     # line / table) or numeric tolerance (measure / read_graph) —
                     # never Answer rows. The model's clean() also forbids answer

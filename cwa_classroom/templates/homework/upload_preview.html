@@ -338,6 +338,16 @@
               <p class="text-[11px] text-sky-500 mt-1">One cell per header per row: {"given": …} is printed for the student, {"answer": …} is a blank they fill (numeric). The app draws the table and grades it, so there are no answer options.</p>
             </div>
 
+            <!-- Sketch a graph — shown only for sketch_graph -->
+            <div id="sketch-section-{{ q_idx }}"
+                 class="bg-sky-50 rounded-lg p-3 {% if not q.question_type == 'sketch_graph' %}hidden{% endif %}">
+              <label class="block text-xs font-medium text-sky-600 mb-1">Sketch spec (JSON)</label>
+              <textarea name="q_{{ q_idx }}_sketch_spec" rows="5"
+                        placeholder='{"equation":"y = x^2 + x - 2","bounds":{"xmin":-6,"xmax":6,"ymin":-4,"ymax":8},"curve":{"type":"quadratic","a":1,"b":1,"c":-2},"features":[{"kind":"vertex","points":[[-0.5,-2.25]]},{"kind":"axis_of_symmetry","value":-0.5}]}'
+                        class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 resize-y">{% if q.sketch_spec %}{{ q.sketch_spec_json }}{% endif %}</textarea>
+              <p class="text-[11px] text-sky-500 mt-1">The app draws the blank plane and takes one box per feature the question names — vertex, x/y intercepts, axis of symmetry — each marked within the tolerance. Coordinates are decimals. There are no answer options.</p>
+            </div>
+
             <!-- Grading rubric (shown only for ai_graded / human_graded) -->
             <div id="rubric-row-{{ q_idx }}" {% if q.validation_type == 'auto' %}class="hidden"{% endif %}>
               <label class="block text-xs font-medium text-gray-500 mb-1">
