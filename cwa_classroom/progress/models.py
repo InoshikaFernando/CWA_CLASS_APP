@@ -266,6 +266,7 @@ class ProgressReportSetting(models.Model):
     include_awards = models.BooleanField(null=True, blank=True)
     include_rubric = models.BooleanField(null=True, blank=True)
     include_teacher_comment = models.BooleanField(null=True, blank=True)
+    include_next_steps = models.BooleanField(null=True, blank=True)
 
     # When an automatic run fires. Ignored in manual mode. NULL = inherit.
     send_weekly_on = models.PositiveSmallIntegerField(
@@ -301,6 +302,7 @@ class ProgressReportSetting(models.Model):
         'include_basic_facts', 'include_subject_practice',
         'include_worksheets', 'include_topics',
         'include_awards', 'include_rubric', 'include_teacher_comment',
+        'include_next_steps',
     )
     # Content is opt-OUT once a period is on, unlike the period flags where off
     # is off: a school that asked for reports has asked for their contents.

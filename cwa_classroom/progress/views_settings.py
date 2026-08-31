@@ -50,6 +50,7 @@ FIELD_LABELS = {
     'include_awards': 'Recognition',
     'include_rubric': "Teacher's assessment",
     'include_teacher_comment': "Teacher's comment",
+    'include_next_steps': "What's next",
 }
 
 # Rendered as three labelled groups rather than one grid of thirteen switches:

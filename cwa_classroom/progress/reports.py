@@ -13,6 +13,7 @@ Two rules run through the whole module:
   quietly shrinks is how a report ends up flattering.
 """
 
+import logging
 from collections import defaultdict
 from datetime import date, datetime, time
 
@@ -20,6 +21,8 @@ from django.db.models import Q
 from django.utils import timezone
 
 from progress.periods import label_for
+
+logger = logging.getLogger(__name__)
 
 UNCLASSIFIED = 'Unclassified'
 
@@ -922,6 +925,233 @@ def _classroom_subject_slug(classroom):
     return subject.slug if subject else None
 
 
+
+# ---------------------------------------------------------------------------
+# What's next: the report's own reading of where to put the effort.
+#
+# Deterministic rules, not generated prose. This text is read by a child about
+# themselves and by a parent about their child, it is frozen into the snapshot
+# a family keeps, and it has to be defensible to a teacher who disagrees with
+# it. A rule can be pointed at; a sentence a model wrote last Tuesday cannot.
+#
+# Two things it must never do:
+#
+#   * Call a topic weak on thin evidence. One wrong answer is not a gap, and
+#     telling a child they are bad at something on the strength of it is worse
+#     than saying nothing. MIN_TOPIC_ANSWERS is the floor.
+#   * Give content advice to someone who has not started. If the work set was
+#     not attempted, "focus on fractions" is beside the point.
+# ---------------------------------------------------------------------------
+
+#: Below this many answers a topic is not evidence either way.
+MIN_TOPIC_ANSWERS = 4
+#: At or above this, a topic counts as secure.
+STRONG_PCT = 80
+#: Below this, a topic counts as a gap worth naming.
+WEAK_PCT = 50
+#: Most reports carry three lines. More reads as a lecture and gets skimmed.
+MAX_SUGGESTIONS = 3
+
+
+def next_steps_section(data, classrooms=None):
+    """Up to three suggestions: what is secure, what to work on, what next.
+
+    Neutral voice on purpose — no "you", no child's name. The same sentence is
+    read by the student and by their parent, and second person to one is third
+    person to the other.
+
+    Every line names the figure it rests on, so a reader can disagree with the
+    conclusion by checking the number rather than by taking it on trust.
+
+    Returns ``{'items': [...]}`` — empty when there is nothing honest to say,
+    which is a section the page omits rather than a section reading "no advice".
+    """
+    totals = data.get('totals') or {}
+    items = []
+
+    if not (totals.get('submissions') or totals.get('activity_items')):
+        # The report already says the period was empty. Repeating it as advice
+        # adds nothing.
+        return {'items': []}
+
+    items += _engagement_items(totals)
+    if not items:
+        items += _topic_items(data, classrooms)
+    items += _habit_items(totals, data.get('attempts') or {})
+
+    return {'items': items[:MAX_SUGGESTIONS]}
+
+
+def _engagement_items(totals):
+    """Nothing about topics matters while the work set is going untouched."""
+    assigned = totals.get('assigned') or 0
+    completed = totals.get('completed') or 0
+    if not assigned or completed >= assigned:
+        return []
+
+    if not completed:
+        return [{
+            'kind': 'focus',
+            'text': (
+                f'None of the {assigned} homework due this period was '
+                f'attempted. Starting them is the first step.'
+            ),
+        }]
+    return [{
+        'kind': 'focus',
+        'text': (
+            f'{completed} of {assigned} homework due was attempted. '
+            f'Finishing what is set comes before new topics.'
+        ),
+    }]
+
+
+def _topic_items(data, classrooms):
+    """Strength, gap, and where to go next — on evidence, or not at all."""
+    rows = [
+        row for row in (data.get('topics') or [])
+        if row.get('answered', 0) >= MIN_TOPIC_ANSWERS
+        and row.get('topic') != UNCLASSIFIED
+    ]
+    if not rows:
+        return [{
+            'kind': 'note',
+            'text': (
+                'Not enough questions were answered in any one topic this '
+                'period to say where the strengths and gaps are.'
+            ),
+        }]
+
+    # topics_section sorts weakest first; keep that and read from both ends.
+    weakest, strongest = rows[0], rows[-1]
+    gaps = [row for row in rows if row['accuracy_pct'] < WEAK_PCT]
+    secure = [row for row in rows if row['accuracy_pct'] >= STRONG_PCT]
+    items = []
+
+    if secure:
+        if len(secure) == len(rows):
+            items.append({
+                'kind': 'strength',
+                'text': (
+                    f'Every topic answered came out at {STRONG_PCT}% or '
+                    f'better — the lowest was {weakest["topic"]} at '
+                    f'{weakest["accuracy_pct"]}%.'
+                ),
+            })
+        else:
+            items.append({
+                'kind': 'strength',
+                'text': (
+                    f'{strongest["topic"]} is secure at '
+                    f'{strongest["accuracy_pct"]}%.'
+                ),
+            })
+
+    if gaps:
+        # One topic, not a list. "Work on all five of these" is not a plan.
+        items.append({
+            'kind': 'focus',
+            'text': (
+                f'{weakest["topic"]} is the one to put the time into, at '
+                f'{weakest["accuracy_pct"]}% across '
+                f'{weakest["answered"]} questions.'
+            ),
+        })
+    elif not secure:
+        items.append({
+            'kind': 'focus',
+            'text': (
+                f'{weakest["topic"]} has the most room to improve, at '
+                f'{weakest["accuracy_pct"]}%.'
+            ),
+        })
+    else:
+        suggestion = _untouched_topic(data, classrooms)
+        if suggestion:
+            items.append({
+                'kind': 'next',
+                'text': (
+                    f'Nothing here needs shoring up, so {suggestion} is a '
+                    f'sensible next topic — this class has material for it '
+                    f'and none was attempted this period.'
+                ),
+            })
+
+    return items
+
+
+def _untouched_topic(data, classrooms):
+    """A topic this class has content for and the student did not touch.
+
+    Asked of the subject plugin rather than read from a table here, so it is
+    the same pool a teacher picks homework from — suggesting a topic the class
+    has nothing to set would be worse than suggesting nothing.
+
+    Matched on NAME, because that is all the report's topic rows carry. A
+    school with two identically named topics under different strands would see
+    one treated as the other; the cost is a suggestion already attempted, not
+    a wrong figure anywhere.
+    """
+    if not classrooms:
+        return None
+
+    from classroom import subject_registry
+
+    done = {row.get('topic') for row in (data.get('topics') or [])}
+    for classroom in classrooms:
+        subject = resolved_subject(classroom)
+        plugin = subject_registry.get(subject.slug) if subject else None
+        if plugin is None or not plugin.supports_homework:
+            continue
+        try:
+            tree = plugin.homework_topic_tree(classroom)
+        except Exception:
+            # A plugin that cannot build its tree must not fail a report.
+            logger.warning(
+                'topic tree unavailable for classroom %s', classroom.id,
+                exc_info=True,
+            )
+            continue
+        for _strand, mids in tree:
+            for _mid, leaves in mids:
+                for leaf in leaves:
+                    if leaf.name not in done:
+                        return leaf.name
+    return None
+
+
+def _habit_items(totals, attempts):
+    """One line about how the work was done, not what it was about."""
+    gain = totals.get('improvement_pct') or 0
+    if gain >= 10:
+        return [{
+            'kind': 'habit',
+            'text': (
+                f'Retrying is working: first attempts averaged '
+                f'{totals.get("avg_first_pct", 0)}%, best attempts '
+                f'{totals.get("avg_best_pct", 0)}% — a gain of {gain} points.'
+            ),
+        }]
+
+    repeat_rate = attempts.get('repeat_rate_pct') or 0
+    if repeat_rate < 25 and (totals.get('avg_best_pct') or 0) < STRONG_PCT:
+        return [{
+            'kind': 'habit',
+            'text': (
+                'Most homework was attempted once. A second attempt is '
+                'usually where the biggest gain comes from.'
+            ),
+        }]
+
+    on_time = totals.get('on_time_pct')
+    if totals.get('assigned') and on_time is not None and on_time < 60:
+        return [{
+            'kind': 'habit',
+            'text': f'{on_time}% of homework was handed in on time.',
+        }]
+
+    return []
+
 def _resolved_content(content):
     """Content flags with every key present.
 
@@ -1082,7 +1312,7 @@ def build_report_data(student, period_type, start, end, term=None,
         round(sum(n * pct for n, pct in counted) / weighted) if weighted else 0
     )
 
-    return {
+    snapshot = {
         'period': {
             'type': period_type,
             'label': label_for(period_type, start, end, term),
@@ -1121,3 +1351,12 @@ def build_report_data(student, period_type, start, end, term=None,
         'basic_facts': basic_facts,
         'awards': awards,
     }
+
+    # Last, and from the finished snapshot rather than from the raw rows: the
+    # advice has to rest on the same figures the reader can see above it, or a
+    # parent checking it against the tables finds them disagreeing.
+    snapshot['next_steps'] = (
+        next_steps_section(snapshot, classrooms)
+        if content['include_next_steps'] else {'items': []}
+    )
+    return snapshot
