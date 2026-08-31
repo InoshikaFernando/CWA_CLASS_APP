@@ -69,6 +69,41 @@ it, and see it marked. `maths/draft_preview.py` is what makes that honest:
 The HTTP layer lives in `worksheets/question_preview.py`, shared by all three
 screens; each app keeps only its own session-ownership check.
 
+## Sketch-a-graph questions (`sketch_graph`)
+
+"Sketch the graph of y = x² + x − 2 showing the coordinates of the vertex,
+x-axis and y-axis intercepts and equation of the axis of symmetry" — a whole
+family of Year 10–11 quadratics questions, and one the app used to hand to the
+teacher as an un-gradeable drawing, because "sketch … graph" reads as a
+construction (`worksheets.services._CONSTRUCTION_PATTERNS`).
+
+It is not one. A student cannot draw a curve here, but the curve is not what
+these questions are marked on — the **features the stem names** are, and those
+can be typed. So the app draws the blank plane the worksheet printed, takes one
+box per feature, and marks each within a tolerance.
+
+The pieces:
+
+| Concern | Where |
+|---|---|
+| The spec (plane + features + optional coefficients) | `Question.sketch_spec`, validated by `geometry_grading.validate_sketch_spec` |
+| Grading, feature by feature (partial credit) | `geometry_grading.grade_sketch_parts` → `Question.grade_text_answer_parts` |
+| Render data (blank plane for the student, answer figure for feedback) | `Question.sketch_data` |
+| The drawn answer (curve, axis of symmetry, labelled key points) | `svg_geometry.sketch_answer_svg` |
+| The widget | `templates/maths/partials/_sketch_graph_tool.html` + `static/js/sketch_graph.js` |
+| Extraction from a PDF | rule 17 of `worksheets.services.WORKSHEET_SYSTEM_PROMPT` and the matching rule in `ai_import.services`; both fill `sketch_spec` |
+
+Feature kinds are `vertex`, `x_intercept`, `y_intercept` and `axis_of_symmetry`
+— a spec lists only the ones its question actually asks for. Coordinates are
+**decimals, not grid indices**: the vertex of y = x² + x − 2 is (−0.5, −2.25),
+and the grader reads the fraction forms a pupil writes those in (`-1/2`,
+`-2 1/4`) as the same value.
+
+The correct values live in the spec, never in `Answer` rows, so
+`correct_answer_display()` and `display_text_answer()` read them from there —
+without that a student who got it wrong is shown a blank where the answer
+belongs.
+
 ## Dependencies
 
 - **accounts** — `CustomUser` is the student.

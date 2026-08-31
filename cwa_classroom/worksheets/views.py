@@ -59,6 +59,7 @@ ANSWER_PARTIAL_MAP = {
     'measure':            _PARTIAL + '_answer_measure.html',
     'number_line':        _PARTIAL + '_answer_number_line.html',
     'table_of_values':    _PARTIAL + '_answer_table_of_values.html',
+    'sketch_graph':       _PARTIAL + '_answer_sketch_graph.html',
 }
 _ANSWER_PARTIAL_DEFAULT = _PARTIAL + '_answer_text.html'
 
@@ -1081,10 +1082,12 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                     points_earned = float(question.points)
 
             elif ((question.question_type == 'table_of_values' and question.table_spec)
-                  or (question.question_type == 'fill_blank' and question.blank_spec)):
-                # A chart of cells / a sentence of gaps is several answers, not
-                # one: the filled cells post as JSON {"cells":{"r,c":"value"}}
-                # and the gaps as {"blanks":[...]}, both in text_answer. Marked
+                  or (question.question_type == 'fill_blank' and question.blank_spec)
+                  or (question.question_type == 'sketch_graph' and question.sketch_spec)):
+                # A chart of cells / a sentence of gaps / the key features of a
+                # sketch is several answers, not one: the filled cells post as
+                # JSON {"cells":{"r,c":"value"}}, the gaps as {"blanks":[...]}
+                # and the features as {"features":{...}}, all in text_answer. Marked
                 # part by part — nine of ten cells right is worth 0.9 of the
                 # question's points and the tenth gets named in answer_data, so
                 # the feedback can say what went wrong instead of a flat "Not

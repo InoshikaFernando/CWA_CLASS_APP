@@ -220,6 +220,11 @@ def build_preview_question(draft, *, promote_blanks):
         from maths.geometry_grading import validate_table_spec
         fields['table_spec'] = _validated_spec(draft, 'table_spec', validate_table_spec)
 
+    if q_type == Question.SKETCH_GRAPH:
+        from maths.geometry_grading import validate_sketch_spec
+        fields['sketch_spec'] = _validated_spec(
+            draft, 'sketch_spec', validate_sketch_spec)
+
     if q_type in (Question.READ_GRAPH, Question.MEASURE):
         numeric = _decimal_or_none(draft.get('numeric_answer'))
         if numeric is None:

@@ -58,6 +58,7 @@ _JSON_SPEC_FIELDS = (
     ('graph_spec', ('read_graph',)),
     ('number_line_spec', ('number_line',)),
     ('table_spec', ('table_of_values',)),
+    ('sketch_spec', ('sketch_graph',)),
 )
 
 
