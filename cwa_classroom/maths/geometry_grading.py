@@ -1002,3 +1002,506 @@ def _table_row_label(row):
         if kind and kind[0] == 'given':
             return str(kind[1]).strip()
     return ''
+
+
+# ── sketch_spec (sketch a graph and state its key features) ───────────────────
+# "Sketch the graph of y = x² + x − 2 showing the coordinates of the vertex, the
+# x-axis and y-axis intercepts and the equation of the axis of symmetry."
+#
+# The student cannot draw a curve in this app, and a hand-drawn parabola is not
+# what such a question is actually marked on: the marks are for the KEY FEATURES
+# named in the stem. So the app draws the blank plane the worksheet printed and
+# takes one typed value per feature — the vertex, the intercepts, the axis of
+# symmetry — and grades each one. That makes the whole family of "sketch the
+# graph showing…" questions answerable and auto-marked instead of being routed
+# to the teacher as an un-gradeable drawing (worksheets.services rule 17).
+#
+# Feature values are NOT integers: the vertex of y = x² + x − 2 is (−½, −2¼), so
+# everything here parses and compares decimals (and the fractions a pupil writes
+# them as) within a tolerance, the way ``measure`` does.
+SKETCH_FEATURE_KINDS = ('vertex', 'x_intercept', 'y_intercept', 'axis_of_symmetry')
+
+# What each feature is called on the student's screen and in feedback. The
+# labels are the worksheet's own words so a pupil can match box to question.
+SKETCH_FEATURE_LABELS = {
+    'vertex': 'Vertex (turning point)',
+    'x_intercept': 'x-axis intercept(s)',
+    'y_intercept': 'y-axis intercept',
+    'axis_of_symmetry': 'Equation of the axis of symmetry',
+}
+
+# Features whose answer is a coordinate (or several); the odd one out is
+# axis_of_symmetry, which is a vertical line "x = a" and carries a single value.
+SKETCH_POINT_KINDS = ('vertex', 'x_intercept', 'y_intercept')
+
+# A parabola crosses the x-axis at most twice; a spec listing more coordinates
+# than this for one feature is a mis-read, not a question.
+_MAX_SKETCH_POINTS = 4
+
+# Default ± band for a typed feature value. Small on purpose: the answers are
+# exact numbers the student works out (−0.5, −2.25), not measurements. It exists
+# so a value written to a sensible number of places still marks correct.
+DEFAULT_SKETCH_TOLERANCE = Decimal('0.01')
+
+# One number as a pupil writes it: "3", "-0.5", "-1/2", "-2 1/4", "+4".
+_SKETCH_NUM = r'[-+]?\d+(?:\s+\d+\s*/\s*\d+|\s*/\s*\d+|\.\d+)?'
+_SKETCH_PAIR_RE = re.compile(
+    r'\(?\s*(' + _SKETCH_NUM + r')\s*,\s*(' + _SKETCH_NUM + r')\s*\)?'
+)
+_SKETCH_NUM_RE = re.compile(_SKETCH_NUM)
+
+
+def sketch_number(raw):
+    """Parse one typed number into a ``Decimal``, or ``None``.
+
+    Accepts the forms a pupil actually writes a non-integer answer in: a decimal
+    (``-2.25``), a vulgar fraction (``-9/4``, ``- 1/2``) and a mixed number
+    (``-2 1/4``). ``_to_decimal`` cannot: it strips ``/`` along with the units,
+    turning ``-9/4`` into ``-94``. Vertices of the quadratics these questions use
+    are quarters and halves far more often than whole numbers, so a grader that
+    only reads decimals marks a correct fraction wrong.
+
+    Returns ``None`` for anything unparseable (including division by zero) —
+    never raises, so a malformed answer is wrong, not a 500.
+    """
+    if raw is None:
+        return None
+    text = str(raw).strip().replace('−', '-')  # unicode minus → ASCII
+    m = re.fullmatch(r'\s*(' + _SKETCH_NUM + r')\s*', text)
+    if not m:
+        return None
+    return _sketch_number_from_token(m.group(1))
+
+
+def _sketch_number_from_token(token):
+    """``Decimal`` for one token already matched by ``_SKETCH_NUM``, or None.
+
+    The three written forms are kept apart deliberately: "2 1/4" is two and a
+    quarter, not twenty-one quarters, and collapsing the space would silently
+    turn one into the other.
+    """
+    token = str(token).strip()
+    sign = -1 if token.startswith('-') else 1
+    token = token.lstrip('+-').strip()
+    try:
+        mixed = re.fullmatch(r'(\d+)\s+(\d+)\s*/\s*(\d+)', token)
+        if mixed:
+            whole, num, denom = (Decimal(mixed.group(i)) for i in (1, 2, 3))
+            if denom == 0:
+                return None
+            return sign * (whole + num / denom)
+        fraction = re.fullmatch(r'(\d+)\s*/\s*(\d+)', token)
+        if fraction:
+            num, denom = Decimal(fraction.group(1)), Decimal(fraction.group(2))
+            if denom == 0:
+                return None
+            return sign * (num / denom)
+        return sign * Decimal(token)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def parse_sketch_points(text):
+    """Parse typed coordinates into a list of ``(Decimal, Decimal)`` pairs.
+
+    The decimal sibling of :func:`parse_coords`: tolerant of ``(-2, 0) (1, 0)``,
+    ``(-2,0), (1,0)``, ``-2,0; 1,0`` and of fractional coordinates
+    (``(-1/2, -9/4)``). Returns ``[]`` for anything unparseable — never raises.
+    """
+    if not isinstance(text, str):
+        return []
+    out = []
+    for m in _SKETCH_PAIR_RE.finditer(text.replace('−', '-')):
+        x = _sketch_number_from_token(m.group(1))
+        y = _sketch_number_from_token(m.group(2))
+        if x is None or y is None:
+            continue
+        out.append((x, y))
+    return out
+
+
+def parse_axis_of_symmetry(text):
+    """The ``a`` of a typed axis of symmetry ``x = a``, as a ``Decimal`` or None.
+
+    Accepts ``x = -0.5``, ``x=-1/2`` and the bare value ``-0.5`` — the equation
+    is what the question asks for, but a pupil who writes only the number has
+    given the same answer and should not lose the mark for the ``x =``.
+    """
+    if not isinstance(text, str):
+        return None
+    body = text.replace('−', '-').strip()
+    # Drop a leading "x =" / "X:" and anything before an equals sign.
+    if '=' in body:
+        body = body.split('=')[-1]
+    body = body.strip().lstrip('xX').strip().lstrip(':').strip()
+    return sketch_number(body)
+
+
+def _fmt_sketch_number(value):
+    """Format a spec number compactly: ``-2.25``, ``-2``, ``0.5``."""
+    try:
+        d = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return str(value)
+    text = format(d.normalize(), 'f')
+    return text if text != '-0' else '0'
+
+
+def _fmt_sketch_point(point):
+    return f'({_fmt_sketch_number(point[0])}, {_fmt_sketch_number(point[1])})'
+
+
+def sketch_feature_expected(feature):
+    """What a feature's correct answer looks like written out, e.g. ``(-2, 0), (1, 0)``.
+
+    Shared by the grader's feedback and the answer figure so the value a student
+    is told they should have written is the same one the drawing labels.
+    """
+    kind = (feature or {}).get('kind')
+    if kind == 'axis_of_symmetry':
+        return f"x = {_fmt_sketch_number(feature.get('value'))}"
+    points = feature.get('points') or []
+    return ', '.join(_fmt_sketch_point(p) for p in points)
+
+
+def _sketch_points(feature):
+    """A point feature's coordinates as ``[(Decimal, Decimal), ...]``, or None."""
+    raw = feature.get('points')
+    if not isinstance(raw, list) or not raw:
+        return None
+    out = []
+    for p in raw:
+        if not (isinstance(p, (list, tuple)) and len(p) == 2):
+            return None
+        x, y = _to_decimal_strict(p[0]), _to_decimal_strict(p[1])
+        if x is None or y is None:
+            return None
+        out.append((x, y))
+    return out
+
+
+def _to_decimal_strict(value):
+    """``Decimal`` for a spec number (int/float/numeric string), else ``None``.
+
+    Stricter than ``_to_decimal``, which strips stray characters out of a
+    student's typing: a spec value is authored data, so ``"3cm"`` is a defect to
+    reject, not a 3 to guess at.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float, Decimal)):
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            return None
+    if isinstance(value, str):
+        return sketch_number(value)
+    return None
+
+
+def validate_sketch_spec(sketch_spec):
+    """Validate a ``sketch_graph`` ``sketch_spec``; raise ``ValueError`` if bad.
+
+    Pure and framework-agnostic (no Django import) so the model's ``clean()``
+    and every importer share one definition of a usable spec — a malformed one
+    cannot slip in through any path. Mirrors ``validate_table_spec``.
+
+    Shape::
+
+        {"equation": "y = x^2 + x - 2",
+         "bounds": {"xmin": -6, "xmax": 6, "ymin": -4, "ymax": 8},
+         "curve": {"type": "quadratic", "a": 1, "b": 1, "c": -2},
+         "features": [{"kind": "vertex", "points": [[-0.5, -2.25]]},
+                      {"kind": "x_intercept", "points": [[-2, 0], [1, 0]]},
+                      {"kind": "y_intercept", "points": [[0, -2]]},
+                      {"kind": "axis_of_symmetry", "value": -0.5}],
+         "tolerance": 0.01}
+
+    ``features`` is what the question asks the student to show, in the order the
+    boxes appear; every one must be answerable, so each carries the value it is
+    marked against. ``curve`` is optional and render-only — it lets the result
+    page draw the curve the sketch should have been.
+    """
+    if not isinstance(sketch_spec, dict):
+        raise ValueError('sketch_spec must be a JSON object.')
+
+    equation = sketch_spec.get('equation')
+    if equation is not None and not isinstance(equation, str):
+        raise ValueError('sketch_spec.equation must be a string.')
+
+    bounds = _plane_bounds(sketch_spec)
+    if bounds is None:
+        raise ValueError(
+            'sketch_spec.bounds must have integer xmin<xmax and ymin<ymax.'
+        )
+    xmin, xmax, ymin, ymax = bounds
+    # Same cap as a plane question: cartesian_plane_svg draws this backdrop and
+    # bails out above it, so a spec that cannot be drawn must not be stored.
+    if (xmax - xmin) > _MAX_PLANE_SPAN or (ymax - ymin) > _MAX_PLANE_SPAN:
+        raise ValueError(
+            f'sketch_spec bounds span must not exceed {_MAX_PLANE_SPAN} units per axis.'
+        )
+
+    features = sketch_spec.get('features')
+    if not isinstance(features, list) or not features:
+        raise ValueError('sketch_spec.features must be a non-empty list.')
+
+    seen = set()
+    for feature in features:
+        if not isinstance(feature, dict):
+            raise ValueError('sketch_spec.features entries must be objects.')
+        kind = feature.get('kind')
+        if kind not in SKETCH_FEATURE_KINDS:
+            raise ValueError(
+                f'sketch_spec feature kind must be one of {SKETCH_FEATURE_KINDS}; '
+                f'got {kind!r}.'
+            )
+        if kind in seen:
+            raise ValueError(f'sketch_spec lists the {kind} feature twice.')
+        seen.add(kind)
+
+        if kind == 'axis_of_symmetry':
+            value = _to_decimal_strict(feature.get('value'))
+            if value is None:
+                raise ValueError(
+                    'sketch_spec axis_of_symmetry needs a numeric "value" '
+                    '(the a of x = a).'
+                )
+            if not (xmin <= value <= xmax):
+                raise ValueError(
+                    f'sketch_spec axis of symmetry x = {value} is outside the '
+                    f'plane bounds.'
+                )
+            continue
+
+        points = _sketch_points(feature)
+        if points is None:
+            raise ValueError(
+                f'sketch_spec {kind} needs a non-empty "points" list of numeric '
+                f'[x, y] pairs.'
+            )
+        if len(points) > _MAX_SKETCH_POINTS:
+            raise ValueError(
+                f'sketch_spec {kind} must not list more than '
+                f'{_MAX_SKETCH_POINTS} points.'
+            )
+        for x, y in points:
+            if not (xmin <= x <= xmax and ymin <= y <= ymax):
+                raise ValueError(
+                    f'sketch_spec {kind} point ({x}, {y}) is outside the plane bounds.'
+                )
+        # A y-axis intercept sits ON the y-axis and an x-axis intercept ON the
+        # x-axis. Getting that wrong means the extractor read the wrong number,
+        # and the student would be marked against it.
+        if kind == 'y_intercept':
+            if len(points) != 1:
+                raise ValueError('sketch_spec y_intercept must list exactly one point.')
+            if points[0][0] != 0:
+                raise ValueError('sketch_spec y_intercept must have x = 0.')
+        if kind == 'x_intercept' and any(y != 0 for _x, y in points):
+            raise ValueError('sketch_spec x_intercept points must have y = 0.')
+        if kind == 'vertex' and len(points) != 1:
+            raise ValueError('sketch_spec vertex must list exactly one point.')
+
+    curve = sketch_spec.get('curve')
+    if curve is not None:
+        _validate_sketch_curve(curve)
+
+    tol = sketch_spec.get('tolerance')
+    if tol is not None and (not _is_number(tol) or tol < 0):
+        raise ValueError('sketch_spec.tolerance must be a non-negative number.')
+
+
+# Curve families the answer figure can redraw from coefficients. Kept small on
+# purpose: an equation the app cannot draw is still a perfectly gradeable
+# question (the features carry the marks), so ``curve`` stays optional.
+_SKETCH_CURVE_COEFFS = {
+    'quadratic': ('a', 'b', 'c'),   # y = ax² + bx + c
+    'linear': ('m', 'c'),           # y = mx + c
+}
+
+
+def _validate_sketch_curve(curve):
+    if not isinstance(curve, dict):
+        raise ValueError('sketch_spec.curve must be a JSON object.')
+    ctype = curve.get('type')
+    if ctype not in _SKETCH_CURVE_COEFFS:
+        raise ValueError(
+            f'sketch_spec.curve.type must be one of '
+            f'{tuple(_SKETCH_CURVE_COEFFS)}; got {ctype!r}.'
+        )
+    for name in _SKETCH_CURVE_COEFFS[ctype]:
+        if _to_decimal_strict(curve.get(name)) is None:
+            raise ValueError(f'sketch_spec.curve.{name} must be a number.')
+    if ctype == 'quadratic' and _to_decimal_strict(curve.get('a')) == 0:
+        raise ValueError('sketch_spec.curve.a must not be zero for a quadratic.')
+
+
+def sketch_tolerance(sketch_spec):
+    """The ± band a sketch's typed values are marked within, as a ``Decimal``."""
+    tol = (sketch_spec or {}).get('tolerance')
+    if tol is None:
+        return DEFAULT_SKETCH_TOLERANCE
+    try:
+        value = Decimal(str(tol))
+    except (InvalidOperation, ValueError, TypeError):
+        return DEFAULT_SKETCH_TOLERANCE
+    return value if value >= 0 else DEFAULT_SKETCH_TOLERANCE
+
+
+def _points_match(want, got, tol):
+    """True when two coordinate lists are the same set within ``tol``.
+
+    Order-insensitive (the two x-intercepts may be written either way round) and
+    one-to-one: a student who writes the same root twice has not given both.
+    """
+    if len(want) != len(got):
+        return False
+    remaining = list(got)
+    for wx, wy in want:
+        for i, (gx, gy) in enumerate(remaining):
+            if abs(gx - wx) <= tol and abs(gy - wy) <= tol:
+                del remaining[i]
+                break
+        else:
+            return False
+    return True
+
+
+def grade_sketch_parts(sketch_spec, payload):
+    """Grade a ``sketch_graph`` answer feature by feature, for partial credit.
+
+    Returns a :class:`~maths.partial_credit.PartialGrade` — one
+    :class:`~maths.partial_credit.Part` per feature the question asks for, in
+    the order the boxes appear, labelled the way they are labelled on screen
+    ("Vertex (turning point)") so a wrong one can be pointed at. Returns
+    ``None`` when there is nothing to grade against: a malformed spec, a
+    malformed payload, or a spec with no usable features.
+
+    A student who finds the intercepts but misses the vertex has shown three
+    quarters of the question, so each feature is one part and is worth its
+    share — the same rule as a table of values. Never raises.
+
+    ``payload`` is the JSON the client serialises,
+    ``{"features": {"vertex": "(-0.5, -2.25)", ...}}`` keyed by feature kind.
+    """
+    from maths.partial_credit import Part, PartialGrade
+
+    if not isinstance(sketch_spec, dict):
+        return None
+    features = sketch_spec.get('features')
+    if not isinstance(features, list) or not features:
+        return None
+
+    try:
+        data = json.loads(payload) if isinstance(payload, str) else payload
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    typed_map = data.get('features')
+    if not isinstance(typed_map, dict):
+        return None
+
+    tol = sketch_tolerance(sketch_spec)
+
+    parts = []
+    for feature in features:
+        if not isinstance(feature, dict):
+            return None
+        kind = feature.get('kind')
+        if kind not in SKETCH_FEATURE_KINDS:
+            return None
+        typed = typed_map.get(kind)
+        typed_text = '' if typed is None else str(typed)
+
+        if kind == 'axis_of_symmetry':
+            want = _to_decimal_strict(feature.get('value'))
+            if want is None:
+                # An unanswerable feature is a content defect: there is no
+                # honest fraction to award, so no part-grade at all.
+                return None
+            got = parse_axis_of_symmetry(typed_text)
+            is_correct = got is not None and abs(got - want) <= tol
+        else:
+            want_points = _sketch_points(feature)
+            if want_points is None:
+                return None
+            got_points = parse_sketch_points(typed_text)
+            is_correct = bool(got_points) and _points_match(want_points, got_points, tol)
+
+        parts.append(Part(
+            label=SKETCH_FEATURE_LABELS.get(kind, kind.replace('_', ' ').title()),
+            typed=typed_text,
+            expected=sketch_feature_expected(feature),
+            is_correct=is_correct,
+        ))
+
+    if not parts:
+        return None
+    return PartialGrade(parts, noun='feature')
+
+
+def grade_sketch(sketch_spec, payload):
+    """Grade a ``sketch_graph`` answer. Returns ``True``/``False``, never raises.
+
+    Correct only when EVERY feature the question asks for is right — the
+    boolean view of :func:`grade_sketch_parts`, which marks the same features
+    one at a time so three of four earns three quarters rather than nothing.
+    """
+    grade = grade_sketch_parts(sketch_spec, payload)
+    return grade is not None and grade.is_correct
+
+
+def describe_sketch_answer(payload, sketch_spec=None):
+    """A student's ``sketch_graph`` payload as readable text for review surfaces.
+
+    ``{"features": {"vertex": "(-0.5, -2.25)"}}`` →
+    ``"Vertex (turning point): (-0.5, -2.25)"``. Follows the spec's feature
+    order when one is given, so the review list reads in the same order as the
+    boxes the student filled in; a feature left empty shows as "—" rather than
+    vanishing, so a partly-answered question reads as partly answered. Returns
+    the raw payload unchanged when it isn't a features payload at all, so a
+    review page that calls this on every typed answer still shows something
+    truthful rather than nothing.
+    """
+    try:
+        data = json.loads(payload) if isinstance(payload, str) else payload
+    except (ValueError, TypeError):
+        return payload if isinstance(payload, str) else ''
+    if not isinstance(data, dict) or not isinstance(data.get('features'), dict):
+        return payload if isinstance(payload, str) else ''
+    typed = data['features']
+
+    kinds = [f.get('kind') for f in (sketch_spec or {}).get('features') or []
+             if isinstance(f, dict)]
+    kinds = [k for k in kinds if k in SKETCH_FEATURE_KINDS]
+    if not kinds:
+        kinds = [k for k in SKETCH_FEATURE_KINDS if k in typed]
+
+    return '; '.join(
+        f'{SKETCH_FEATURE_LABELS.get(k, k)}: '
+        f'{(str(typed.get(k) or "").strip() or "—")}'
+        for k in kinds
+    )
+
+
+def describe_sketch_spec(sketch_spec):
+    """The correct features as readable text, e.g. ``"Vertex …: (-0.5, -2.25); …"``.
+
+    The counterpart of :func:`describe_sketch_answer` for the answer side, so a
+    result page can print what the sketch should have shown. These questions
+    store no Answer rows — the values live in the spec — so without this the
+    student is shown a blank where the correct answer belongs.
+    """
+    if not isinstance(sketch_spec, dict):
+        return ''
+    out = []
+    for feature in (sketch_spec.get('features') or []):
+        if not isinstance(feature, dict):
+            continue
+        kind = feature.get('kind')
+        if kind not in SKETCH_FEATURE_KINDS:
+            continue
+        out.append(f'{SKETCH_FEATURE_LABELS[kind]}: {sketch_feature_expected(feature)}')
+    return '; '.join(out)

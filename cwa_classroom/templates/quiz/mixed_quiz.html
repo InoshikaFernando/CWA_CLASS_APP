@@ -60,6 +60,16 @@
         marking every student wrong.
         {% endcomment %}
         {% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_fill_blank_tool.html" with q=q field_name='text_'|add:sid %}{% endwith %}
+      {% elif q.sketch_data %}
+        {% comment %}
+        Sketch a graph: the blank plane plus a box per key feature the stem
+        names. The typed values serialise to JSON in text_<id> via
+        static/js/sketch_graph.js, graded feature by feature by
+        grade_sketch_parts server-side. Without this branch the question would
+        take one whole-answer box that no features payload could match, marking
+        every student wrong.
+        {% endcomment %}
+        {% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_sketch_graph_tool.html" with q=q field_name='text_'|add:sid %}{% endwith %}
       {% elif q.pattern_field_data %}
         {% comment %}
         "Create your own number pattern": a box per number and a box for the

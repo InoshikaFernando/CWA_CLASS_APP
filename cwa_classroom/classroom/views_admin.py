@@ -4084,6 +4084,7 @@ STRUCTURED_QUESTION_TYPES = (
     'plot_points', 'plot_line', 'identify_coords', 'read_graph',
     'draw_on_grid', 'shape_select', 'number_line', 'table_of_values',
     'measure', 'long_division', 'prime_factorization', 'column_operation',
+    'sketch_graph',
 )
 
 # The three that share plane_spec — the ones this editor can repair.

@@ -59,6 +59,7 @@ ANSWER_PARTIAL_MAP = {
     'measure':            _PARTIAL + '_answer_measure.html',
     'number_line':        _PARTIAL + '_answer_number_line.html',
     'table_of_values':    _PARTIAL + '_answer_table_of_values.html',
+    'sketch_graph':       _PARTIAL + '_answer_sketch_graph.html',
 }
 _ANSWER_PARTIAL_DEFAULT = _PARTIAL + '_answer_text.html'
 
@@ -966,17 +967,14 @@ def _grade_column_operation(question, text_answer: str) -> bool:
 
 
 def _prime_factors(n: int):
-    """Return sorted list of prime factors of n (with repetition), e.g. 12 → [2, 2, 3]."""
-    factors = []
-    d = 2
-    while d * d <= n:
-        while n % d == 0:
-            factors.append(d)
-            n //= d
-        d += 1
-    if n > 1:
-        factors.append(n)
-    return sorted(factors)
+    """The prime factors of ``n``, ascending, with repeats.
+
+    Delegates to ``maths.factorization``, which is the one definition shared by
+    the PDF importers and the answer-key rendering — three copies of this loop
+    had drifted apart before.
+    """
+    from maths.factorization import prime_factors
+    return prime_factors(n)
 
 
 def _grade_prime_factorization(question, text_answer: str) -> bool:
@@ -1081,10 +1079,12 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                     points_earned = float(question.points)
 
             elif ((question.question_type == 'table_of_values' and question.table_spec)
-                  or (question.question_type == 'fill_blank' and question.blank_spec)):
-                # A chart of cells / a sentence of gaps is several answers, not
-                # one: the filled cells post as JSON {"cells":{"r,c":"value"}}
-                # and the gaps as {"blanks":[...]}, both in text_answer. Marked
+                  or (question.question_type == 'fill_blank' and question.blank_spec)
+                  or (question.question_type == 'sketch_graph' and question.sketch_spec)):
+                # A chart of cells / a sentence of gaps / the key features of a
+                # sketch is several answers, not one: the filled cells post as
+                # JSON {"cells":{"r,c":"value"}}, the gaps as {"blanks":[...]}
+                # and the features as {"features":{...}}, all in text_answer. Marked
                 # part by part — nine of ten cells right is worth 0.9 of the
                 # question's points and the tenth gets named in answer_data, so
                 # the feedback can say what went wrong instead of a flat "Not

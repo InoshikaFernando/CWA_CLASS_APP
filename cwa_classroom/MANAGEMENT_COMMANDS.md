@@ -143,10 +143,15 @@ safe to re-run.
 ```bash
 python manage.py publish_scheduled_homework
 ```
-Intended to run as a cron job every ~5 minutes. On the DigitalOcean server (`cwa` user):
+Runs every 5 minutes on both droplets, installed by `deploy/setup-app-prod.sh`
+as `/etc/cron.d/cwa-publish-homework` — you should not need to add it by hand:
 ```cron
-*/5 * * * * cd /home/cwa/CWA_CLASS_APP && /home/cwa/CWA_CLASS_APP/venv/bin/python manage.py publish_scheduled_homework >> /var/log/cwa/publish_scheduled_homework.log 2>&1
+*/5 * * * * cwa cd /home/cwa/CWA_CLASS_APP && venv/bin/python cwa_classroom/manage.py publish_scheduled_homework >> /var/log/cwa/publish_scheduled_homework.log 2>&1
 ```
+Note the path: `manage.py` lives at `cwa_classroom/manage.py`, never at the repo
+root. This entry previously ran `manage.py` from the root, so it failed on every
+tick into its own log — and it had never been installed on production at all,
+which meant no scheduled homework was ever published there.
 
 ### `generate_scheduled_questions`
 Turn each due week of a teacher's question schedule (CPP-399) into a homework set.

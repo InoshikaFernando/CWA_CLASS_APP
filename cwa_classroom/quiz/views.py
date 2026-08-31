@@ -1156,6 +1156,22 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             else:
                 is_correct = partial.is_correct
             correct_answer_text = q.correct_answer_display()
+        elif q.question_type == Question.SKETCH_GRAPH and q.sketch_spec:
+            # "Sketch the graph … showing the vertex, the intercepts and the
+            # axis of symmetry" posts one value per feature as JSON in
+            # text_answer, graded feature by feature against sketch_spec. Its
+            # own branch for the same reason fill_blank has one: the answers
+            # live in the spec, not in Answer rows, so the typed fallback below
+            # would find nothing to match and mark every student wrong.
+            raw = data.get('text_answer', '')
+            partial = q.grade_text_answer_parts(raw)
+            if partial is None:
+                # Spec and payload don't line up — no honest per-feature
+                # verdict, so fall back to the all-or-nothing grader.
+                is_correct = q.grade_text_answer(raw)
+            else:
+                is_correct = partial.is_correct
+            correct_answer_text = q.correct_answer_display()
         elif q.answer_format in ('algebra', 'equation'):
             # Algebra (expand & simplify) and equation (algebraic-equivalence)
             # answers are both graded on the model, which routes by answer_format.

@@ -265,6 +265,17 @@
               <p class="md:col-span-2 text-[10px] text-indigo-400">The answer is calculated automatically from the dividend and divisor — no need to enter it below.</p>
             </div>
 
+            <!-- Prime factorisation -->
+            <div id="primefactor-section-{{ forloop.counter0 }}"
+                 class="bg-indigo-50 rounded-lg p-3 {% if q.question_type != 'prime_factorization' %}hidden{% endif %}">
+              <label class="block text-[10px] font-semibold text-indigo-500 mb-1">Number to factorise</label>
+              <input type="text" name="q_{{ forloop.counter0 }}_target_number"
+                     value="{% if q.target_number %}{{ q.target_number }}{% endif %}"
+                     placeholder="e.g. 60"
+                     class="w-full rounded border border-indigo-200 px-2 py-1.5 text-sm font-mono" />
+              <p class="text-[10px] text-indigo-400 mt-1">The app draws the factor ladder and works the answer out from this number — no need to enter answers below.</p>
+            </div>
+
             <!-- Cartesian plane (plot_points / plot_line / identify_coords) -->
             <div id="plane-section-{{ forloop.counter0 }}"
                  class="bg-sky-50 rounded-lg p-3 {% if q.question_type != 'plot_points' and q.question_type != 'plot_line' and q.question_type != 'identify_coords' %}hidden{% endif %}">
@@ -339,8 +350,18 @@
               <p class="text-[10px] text-sky-500 mt-1">mode "mark" (student taps ticks to mark target) or "read" (arrow drawn at given, student types it). Every target/given value must land on a tick. Graded from this — no answers below.</p>
             </div>
 
+            <!-- Sketch a graph (sketch_graph) -->
+            <div id="sketch-section-{{ forloop.counter0 }}"
+                 class="bg-sky-50 rounded-lg p-3 {% if q.question_type != 'sketch_graph' %}hidden{% endif %}">
+              <label class="block text-[10px] font-semibold text-sky-600 mb-1">Sketch spec (JSON)</label>
+              <textarea name="q_{{ forloop.counter0 }}_sketch_spec" rows="5"
+                        placeholder='{"equation":"y = x^2 + x - 2","bounds":{"xmin":-6,"xmax":6,"ymin":-4,"ymax":8},"curve":{"type":"quadratic","a":1,"b":1,"c":-2},"features":[{"kind":"vertex","points":[[-0.5,-2.25]]},{"kind":"axis_of_symmetry","value":-0.5}]}'
+                        class="w-full rounded border border-sky-200 px-2 py-1.5 text-xs font-mono">{% if q.sketch_spec %}{{ q.sketch_spec_json }}{% endif %}</textarea>
+              <p class="text-[10px] text-sky-500 mt-1">The app draws the blank plane and takes one box per feature the question names — vertex, x/y intercepts, axis of symmetry. Graded from this — no answers below.</p>
+            </div>
+
             <!-- Answers -->
-            <div id="answers-section-{{ forloop.counter0 }}" {% if q.question_type == 'column_operation' or q.question_type == 'long_division' or q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' or q.question_type == 'read_graph' or q.question_type == 'measure' or q.question_type == 'number_line' %}class="hidden"{% endif %}>
+            <div id="answers-section-{{ forloop.counter0 }}" {% if q.question_type == 'column_operation' or q.question_type == 'long_division' or q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' or q.question_type == 'read_graph' or q.question_type == 'measure' or q.question_type == 'number_line' or q.question_type == 'sketch_graph' or q.question_type == 'prime_factorization' %}class="hidden"{% endif %}>
               <label class="block text-xs font-semibold text-gray-500 mb-1">Answers</label>
               {% if q.answer_warning %}
               <p class="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">⚠ {{ q.answer_warning }}</p>
@@ -526,8 +547,10 @@ function handleTypeChange(qIdx, newType) {
   var graphSection = document.getElementById('graph-section-' + qIdx);
   var measureSection = document.getElementById('measure-section-' + qIdx);
   var numberLineSection = document.getElementById('number-line-section-' + qIdx);
+  var sketchSection = document.getElementById('sketch-section-' + qIdx);
+  var primeFactorSection = document.getElementById('primefactor-section-' + qIdx);
   var planeTypes = ['plot_points', 'plot_line', 'identify_coords'];
-  var noAnswerTypes = ['column_operation', 'long_division', 'plot_points', 'plot_line', 'identify_coords', 'read_graph', 'measure', 'number_line'];
+  var noAnswerTypes = ['column_operation', 'long_division', 'plot_points', 'plot_line', 'identify_coords', 'read_graph', 'measure', 'number_line', 'sketch_graph', 'prime_factorization'];
 
   // These types compute/derive their own answers — show the structured-field
   // editor for the active one, hide the answers list.
@@ -537,6 +560,8 @@ function handleTypeChange(qIdx, newType) {
   if (graphSection) graphSection.classList.toggle('hidden', newType !== 'read_graph');
   if (measureSection) measureSection.classList.toggle('hidden', newType !== 'measure');
   if (numberLineSection) numberLineSection.classList.toggle('hidden', newType !== 'number_line');
+  if (sketchSection) sketchSection.classList.toggle('hidden', newType !== 'sketch_graph');
+  if (primeFactorSection) primeFactorSection.classList.toggle('hidden', newType !== 'prime_factorization');
   if (noAnswerTypes.indexOf(newType) !== -1) {
     section.classList.add('hidden');
     return;

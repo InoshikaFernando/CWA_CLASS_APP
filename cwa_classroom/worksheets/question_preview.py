@@ -58,6 +58,7 @@ _JSON_SPEC_FIELDS = (
     ('graph_spec', ('read_graph',)),
     ('number_line_spec', ('number_line',)),
     ('table_spec', ('table_of_values',)),
+    ('sketch_spec', ('sketch_graph',)),
 )
 
 
@@ -106,6 +107,11 @@ def draft_from_post(post, idx, base=None, defaults=None):
             raw = posted(field).strip()
             if raw:
                 draft[field] = _int_or(raw, draft.get(field))
+
+    if q_type == 'prime_factorization':
+        raw = posted('target_number').strip()
+        if raw:
+            draft['target_number'] = _int_or(raw, draft.get('target_number'))
 
     if q_type == 'column_operation':
         raw_operands = posted('operands').strip()

@@ -313,6 +313,7 @@ SELF_GRADED_ANSWER_FIELDS = {
     'identify_coords': ('plane_spec',),
     'number_line': ('number_line_spec',),
     'table_of_values': ('table_spec',),
+    'sketch_graph': ('sketch_spec',),
     'long_division': ('dividend', 'divisor'),
     'prime_factorization': ('target_number',),
     # ``column_result`` is the computed answer (None unless operands AND a

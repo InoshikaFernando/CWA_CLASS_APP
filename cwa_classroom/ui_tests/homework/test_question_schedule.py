@@ -188,3 +188,146 @@ def test_the_create_form_says_topics_come_next(
     page.locator('button[type="submit"]', has_text='New schedule').click()
     page.wait_for_load_state('domcontentloaded')
     expect(page.locator('body')).to_contain_text('Topics come next')
+
+
+@pytest.fixture
+def topic_tree(db, subject, level, topic):
+    """A three-level tree: strand > topic > two subtopics, all with questions.
+
+    The shared `topic` fixture is only two deep, so it renders as a plain
+    checkbox and exercises none of the parent/child behaviour. Questions sit on
+    the parent topic as well as on each subtopic, because reaching the parent's
+    own questions is half the point of making it selectable.
+    """
+    from classroom.models import Topic
+    from maths.models import Answer, Question
+
+    suffix = f'{level.pk}'
+    strand = Topic.objects.create(
+        subject=subject, name=f'Number Tree {suffix}',
+        slug=f'number-tree-{suffix}', order=90,
+    )
+    parent = Topic.objects.create(
+        subject=subject, parent=strand, name=f'Multiplication {suffix}',
+        slug=f'multiplication-tree-{suffix}', order=1,
+    )
+    subs = [
+        Topic.objects.create(
+            subject=subject, parent=parent, name=f'Multiplication ({n}x)',
+            slug=f'mult-{n}x-tree-{suffix}', order=n,
+        )
+        for n in (2, 3)
+    ]
+    for node, count in ((parent, 3), (subs[0], 4), (subs[1], 5)):
+        node.levels.add(level)
+        for i in range(count):
+            q = Question.objects.create(
+                level=level, topic=node, question_text=f'{node.slug} q{i}?',
+                question_type='multiple_choice', difficulty=1, points=1,
+            )
+            Answer.objects.create(question=q, answer_text='right',
+                                  is_correct=True, order=0)
+            Answer.objects.create(question=q, answer_text='wrong',
+                                  is_correct=False, order=1)
+    return {'strand': strand, 'parent': parent, 'subs': subs}
+
+
+def _make_plan(page: Page, live_server, term, name, num_questions):
+    page.locator('button[type="submit"]', has_text='New schedule').click()
+    page.wait_for_load_state('domcontentloaded')
+    page.locator('#id_name').fill(name)
+    page.locator('#id_scope').select_option('term')
+    page.locator('#id_term').select_option(str(term.id))
+    page.locator('#id_num_questions').fill(str(num_questions))
+    page.locator('button[type="submit"]', has_text='Create schedule').click()
+    page.wait_for_load_state('domcontentloaded')
+
+
+@pytest.mark.django_db
+def test_ticking_a_topic_selects_all_its_subtopics(
+    page: Page, live_server, teacher_user, classroom, topic, questions,
+    topic_tree, term,
+):
+    """The ask: select a Topic and its subtopics come with it."""
+    from homework.models import QuestionSchedule
+
+    _open_planner(page, live_server, teacher_user, classroom)
+    _make_plan(page, live_server, term, 'Cascade plan', 6)
+    schedule = QuestionSchedule.objects.get(name='Cascade plan')
+
+    week = page.locator('#week-1')
+    parent_box = week.locator(
+        f'input[name="topic_ids"][value="{topic_tree["parent"].id}"]').first
+    sub_boxes = [
+        week.locator(f'input[name="topic_ids"][value="{sub.id}"]').first
+        for sub in topic_tree['subs']
+    ]
+
+    expect(parent_box).to_have_attribute('data-group-toggle', '')
+    for box in sub_boxes:
+        expect(box).not_to_be_checked()
+
+    parent_box.check()
+    for box in sub_boxes:
+        expect(box).to_be_checked()
+
+    # And the whole subtree survives the save, parent included — that is what
+    # puts the parent's OWN questions in the pool.
+    week.locator('button[type="submit"]', has_text='Save week').click()
+    page.wait_for_load_state('domcontentloaded')
+
+    saved = schedule.weeks.get(week_number=1).topic_ids
+    for node in [topic_tree['parent']] + topic_tree['subs']:
+        assert node.id in saved, f'{node.name} was not saved'
+
+
+@pytest.mark.django_db
+def test_unticking_one_subtopic_leaves_the_topic_half_selected(
+    page: Page, live_server, teacher_user, classroom, topic, questions,
+    topic_tree, term,
+):
+    """A parent must not read as fully on while a subtopic is off.
+
+    The count rendered beside a parent is its whole subtree, so a parent that
+    stayed ticked with a subtopic off would promise questions the set would
+    not contain.
+    """
+    _open_planner(page, live_server, teacher_user, classroom)
+    _make_plan(page, live_server, term, 'Half plan', 6)
+
+    week = page.locator('#week-1')
+    parent_box = week.locator(
+        f'input[name="topic_ids"][value="{topic_tree["parent"].id}"]').first
+
+    parent_box.check()
+    expect(parent_box).to_be_checked()
+
+    week.locator(
+        f'input[name="topic_ids"][value="{topic_tree["subs"][0].id}"]',
+    ).first.uncheck()
+
+    expect(parent_box).not_to_be_checked()
+    assert parent_box.evaluate('el => el.indeterminate') is True
+
+
+@pytest.mark.django_db
+def test_a_topic_shows_the_count_for_its_whole_subtree(
+    page: Page, live_server, teacher_user, classroom, topic, questions,
+    topic_tree, term,
+):
+    """3 of its own + 4 + 5 in its subtopics = the 12 a teacher would get."""
+    _open_planner(page, live_server, teacher_user, classroom)
+    _make_plan(page, live_server, term, 'Count plan', 6)
+
+    week = page.locator('#week-1')
+    parent_label = week.locator(
+        f'input[name="topic_ids"][value="{topic_tree["parent"].id}"]',
+    ).first.locator('xpath=..')
+    expect(parent_label).to_contain_text('(12)')
+
+    # Its own data- attribute stays at 3: the live tally sums every ticked box,
+    # so a subtree total here would count the subtopics twice.
+    expect(
+        week.locator(
+            f'input[name="topic_ids"][value="{topic_tree["parent"].id}"]').first,
+    ).to_have_attribute('data-total', '3')

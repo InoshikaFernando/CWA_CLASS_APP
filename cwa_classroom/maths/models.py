@@ -109,6 +109,7 @@ class Question(models.Model):
     READ_GRAPH = 'read_graph'
     NUMBER_LINE = 'number_line'
     TABLE_OF_VALUES = 'table_of_values'
+    SKETCH_GRAPH = 'sketch_graph'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -129,6 +130,7 @@ class Question(models.Model):
         ('read_graph', 'Read a Graph (read off a value)'),
         ('number_line', 'Number Line (mark or read a value)'),
         ('table_of_values', 'Table of Values (fill in the x/y table)'),
+        ('sketch_graph', 'Sketch a Graph (state vertex / intercepts / axis of symmetry)'),
     ]
 
     # Validation mode — how student answers are graded
@@ -327,6 +329,31 @@ class Question(models.Model):
         help_text="table_of_values only. Headers + rows of given/answer cells (numeric-tolerance graded).",
     )
 
+    # Sketch-a-graph question data: the blank plane the worksheet printed, the
+    # key features the stem asks the student to show (vertex, intercepts, axis
+    # of symmetry) with the value each is marked against, and — optionally — the
+    # curve's coefficients so the result page can draw the sketch that was
+    # wanted. Feature values are decimals, not grid indices: the vertex of
+    # y = x² + x − 2 is (−0.5, −2.25). Graded feature by feature within a
+    # tolerance (partial credit). Schema validation lives in Question.clean()
+    # (validate_sketch_spec). Shape:
+    #   {"equation": "y = x^2 + x - 2",
+    #    "bounds": {"xmin": -6, "xmax": 6, "ymin": -4, "ymax": 8},
+    #    "curve": {"type": "quadratic", "a": 1, "b": 1, "c": -2},
+    #    "features": [{"kind": "vertex", "points": [[-0.5, -2.25]]},
+    #                 {"kind": "x_intercept", "points": [[-2, 0], [1, 0]]},
+    #                 {"kind": "y_intercept", "points": [[0, -2]]},
+    #                 {"kind": "axis_of_symmetry", "value": -0.5}],
+    #    "tolerance": 0.01}
+    sketch_spec = models.JSONField(
+        null=True, blank=True,
+        help_text=(
+            "sketch_graph only. The plane to draw plus the key features "
+            "(vertex / intercepts / axis of symmetry) the answer is marked "
+            "against, feature by feature."
+        ),
+    )
+
     # Fill-in-the-blank question data: the accepted answers for each blank, in
     # the order the blanks appear in question_text. The blanks themselves are
     # marked IN the text as runs of underscores ("... to the age of ___."), so
@@ -387,6 +414,10 @@ class Question(models.Model):
         if self.question_type == self.TABLE_OF_VALUES and self.table_spec:
             from maths.geometry_grading import grade_table_parts
             return grade_table_parts(self.table_spec, text_answer)
+
+        if self.question_type == self.SKETCH_GRAPH and self.sketch_spec:
+            from maths.geometry_grading import grade_sketch_parts
+            return grade_sketch_parts(self.sketch_spec, text_answer)
 
         return None
 
@@ -654,9 +685,11 @@ class Question(models.Model):
     def display_text_answer(self, text_answer):
         """A stored typed answer as it should be *shown* back to a student.
 
-        Only fill-in-the-blank answers differ from what was stored: they post one
-        value per gap as JSON, which is unreadable in a review list, so
-        ``{"blanks":["15","live"]}`` is shown as ``"15, live"``. Every other
+        The multi-box answers differ from what was stored: they post one value
+        per gap/feature as JSON, which is unreadable in a review list, so
+        ``{"blanks":["15","live"]}`` is shown as ``"15, live"`` and
+        ``{"features":{"vertex":"(-0.5, -2.25)"}}`` as
+        ``"Vertex (turning point): (-0.5, -2.25)"``. Every other
         answer is returned unchanged, so a review payload can be built by
         calling this on whatever the student typed without first asking what
         type the question was.
@@ -664,6 +697,9 @@ class Question(models.Model):
         if self.question_type == self.FILL_BLANK and self.blank_spec:
             from maths.blank_grading import describe_blank_answer
             return describe_blank_answer(text_answer)
+        if self.question_type == self.SKETCH_GRAPH and self.sketch_spec:
+            from maths.geometry_grading import describe_sketch_answer
+            return describe_sketch_answer(text_answer, self.sketch_spec)
         return text_answer
 
     def correct_answer_display(self):
@@ -684,6 +720,14 @@ class Question(models.Model):
         if self.question_type == self.FILL_BLANK and self.blank_spec:
             from maths.blank_grading import describe_blank_spec
             shown = describe_blank_spec(self.blank_spec)
+            if shown:
+                return shown
+
+        # A sketch's answers live in sketch_spec, one per feature, for the same
+        # reason — reading the Answer rows would show the student nothing at all.
+        if self.question_type == self.SKETCH_GRAPH and self.sketch_spec:
+            from maths.geometry_grading import describe_sketch_spec
+            shown = describe_sketch_spec(self.sketch_spec)
             if shown:
                 return shown
 
@@ -865,6 +909,28 @@ class Question(models.Model):
                     'question_type': (
                         'Table-of-values questions are graded by the filled cells '
                         'and must not have answer options.'
+                    )
+                })
+
+        # Sketch-a-graph questions are graded on the FEATURES the stem names —
+        # the vertex, the intercepts, the axis of symmetry — each typed into its
+        # own box and marked within a tolerance. The values live in the spec, so
+        # never answer options.
+        if self.question_type == self.SKETCH_GRAPH:
+            if not self.sketch_spec:
+                raise ValidationError({
+                    'sketch_spec': 'Sketch-a-graph questions require a sketch_spec.'
+                })
+            from maths.geometry_grading import validate_sketch_spec
+            try:
+                validate_sketch_spec(self.sketch_spec)
+            except ValueError as exc:
+                raise ValidationError({'sketch_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Sketch-a-graph questions are graded by the typed key '
+                        'features and must not have answer options.'
                     )
                 })
 
@@ -1198,6 +1264,72 @@ class Question(models.Model):
                     out_cells.append({'given': False, 'rc': f'{r},{c}', 'answer': value})
             out_rows.append(out_cells)
         return {'headers': headers, 'rows': out_rows}
+
+    @property
+    def sketch_data(self):
+        """Render-ready data for a sketch_graph question, or None.
+
+        Two halves, and only one of them is ever shown to a student mid-attempt:
+
+        * ``svg`` / ``width`` / ``height`` — the BLANK plane the worksheet
+          printed, so the pupil has the same axes to work the sketch out on.
+        * ``features`` — one box per feature the stem asks for, each with the
+          label it is called by and a placeholder showing the form to type. The
+          correct value is deliberately NOT here; it lives in the spec and never
+          reaches the take page.
+        * ``answer_svg`` / ``answer_features`` — the curve, the axis of symmetry
+          and the labelled key points: the sketch that was wanted. Feedback
+          only. The take template must not render them, exactly as ``table_data``
+          keeps its answers off the student's screen.
+
+        Returns None when there's nothing renderable, so templates guard with a
+        single check. Mirrors ``plane_data`` / ``table_data`` — render data on
+        the model, no per-view plumbing.
+        """
+        if self.question_type != self.SKETCH_GRAPH or not self.sketch_spec:
+            return None
+        from maths.geometry_grading import (
+            SKETCH_FEATURE_LABELS, _plane_bounds, sketch_feature_expected,
+        )
+        from maths.svg_geometry import cartesian_plane_svg, sketch_answer_svg
+
+        bounds = _plane_bounds(self.sketch_spec)
+        if bounds is None:
+            return None
+        xmin, xmax, ymin, ymax = bounds
+        pad, step = 28, 32
+        width = pad * 2 + (xmax - xmin) * step
+        height = pad * 2 + (ymax - ymin) * step
+
+        features, answer_features = [], []
+        for feature in (self.sketch_spec.get('features') or []):
+            if not isinstance(feature, dict):
+                continue
+            kind = feature.get('kind')
+            if kind not in SKETCH_FEATURE_LABELS:
+                continue
+            label = SKETCH_FEATURE_LABELS[kind]
+            if kind == 'axis_of_symmetry':
+                placeholder, hint = 'x = 2', 'Write the equation, e.g. x = 2.'
+            elif kind == 'x_intercept':
+                placeholder = '(-2, 0), (1, 0)'
+                hint = 'Give every intercept, separated by a comma.'
+            else:
+                placeholder, hint = '(0, -2)', 'Write the coordinates as (x, y).'
+            features.append({'kind': kind, 'label': label,
+                             'placeholder': placeholder, 'hint': hint})
+            answer_features.append({'kind': kind, 'label': label,
+                                    'expected': sketch_feature_expected(feature)})
+
+        if not features:
+            return None
+        return {
+            'equation': (self.sketch_spec.get('equation') or '').strip(),
+            'svg': cartesian_plane_svg(self.sketch_spec, pad=pad, step=step),
+            'answer_svg': sketch_answer_svg(self.sketch_spec, pad=pad, step=step),
+            'width': width, 'height': height,
+            'features': features, 'answer_features': answer_features,
+        }
 
     @property
     def blank_data(self):

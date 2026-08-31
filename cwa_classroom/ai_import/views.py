@@ -359,6 +359,8 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 q['graph_spec_json'] = json.dumps(q['graph_spec'], indent=2)
             if q.get('number_line_spec'):
                 q['number_line_spec_json'] = json.dumps(q['number_line_spec'], indent=2)
+            if q.get('sketch_spec'):
+                q['sketch_spec_json'] = json.dumps(q['sketch_spec'], indent=2)
             # For the "Adjust image" crop modal: open the page this question maps
             # to (falls back through crop provenance, the ref filename, source_page).
             q['image_page'] = question_source_page(q)
@@ -495,6 +497,28 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 if raw:
                     try:
                         q['number_line_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
+            # Prime factorisation: the one number the answer is computed from.
+            # A non-numeric edit keeps the prior value, so the import-time check
+            # reports it rather than this silently storing nothing.
+            if q['question_type'] == 'prime_factorization':
+                raw = request.POST.get(f'{prefix}target_number', '').strip()
+                if raw:
+                    try:
+                        q['target_number'] = int(raw)
+                    except (TypeError, ValueError):
+                        pass
+
+            # Sketch-a-graph spec — same contract as the number line: raw JSON,
+            # and a parse failure keeps the prior spec so the import-time
+            # validator is the one that reports it.
+            if q['question_type'] == 'sketch_graph':
+                raw = request.POST.get(f'{prefix}sketch_spec', '').strip()
+                if raw:
+                    try:
+                        q['sketch_spec'] = json.loads(raw)
                     except (ValueError, TypeError):
                         pass
 

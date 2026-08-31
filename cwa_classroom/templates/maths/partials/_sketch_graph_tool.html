@@ -1,0 +1,44 @@
+{% load maths_format %}
+{% comment %}
+Shared sketch-a-graph widget. "Sketch the graph of y = x² + x − 2 showing the
+coordinates of the vertex, the x-axis and y-axis intercepts and the equation of
+the axis of symmetry." The app draws the BLANK plane the worksheet printed, and
+the student types the key features the stem asks for — one box each. The boxes
+serialise to JSON in the hidden ``field_name`` input as
+{"features":{"vertex":"(-0.5, -2.25)"}} via static/js/sketch_graph.js — no
+inline script, so it survives the innerHTML question swap on the quiz /
+worksheet surfaces. The correct values live in the spec and are never emitted
+into the page (``d.answer_svg`` / ``d.answer_features`` are feedback-only and
+deliberately not rendered here).
+Context: q (the Question), field_name (the hidden input's name — "answer_<id>"
+on homework, "text_answer" on quiz / worksheets).
+{% endcomment %}
+{% if q.sketch_data %}{% with d=q.sketch_data %}
+<div data-sk-stage>
+  <input type="hidden" name="{{ field_name }}" data-sk-hidden value='{"features":{}}' />
+  {% if d.svg %}
+  <svg viewBox="0 0 {{ d.width }} {{ d.height }}"
+       class="border border-gray-200 rounded-lg bg-white select-none max-w-full mb-3"
+       style="width:100%;max-width:{{ d.width }}px;height:auto"
+       role="img" aria-label="Blank coordinate plane to sketch the graph on">
+    {{ d.svg|safe }}
+  </svg>
+  {% endif %}
+  <p class="text-xs text-gray-500 mb-2">
+    Work the sketch out on the axes{% if d.equation %} for
+    <span class="font-mono">{{ d.equation|exponents }}</span>{% endif %}, then write
+    down each feature below. Sketch on paper if it helps — the boxes are what is marked.
+  </p>
+  <div class="space-y-2">
+    {% for f in d.features %}
+    <div class="flex flex-wrap items-center gap-2">
+      <label for="sk_{{ q.id }}_{{ f.kind }}" class="w-56 text-sm font-medium text-gray-700">{{ f.label }}</label>
+      <input type="text" id="sk_{{ q.id }}_{{ f.kind }}" data-sk-feature data-kind="{{ f.kind }}"
+             placeholder="{{ f.placeholder }}" title="{{ f.hint }}" aria-label="{{ f.label }}"
+             class="w-48 border-2 border-blue-200 bg-blue-50 rounded px-2 py-1 text-sm font-bold text-blue-700 focus:border-primary focus:bg-white focus:outline-none" />
+      <span class="text-xs text-gray-500">{{ f.hint }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endwith %}{% endif %}

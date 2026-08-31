@@ -344,6 +344,25 @@
     });
   }
 
+  function submitSketchGraph(sessionId, questionId) {
+    // The key features post as one hidden {"features":{...}} JSON (kept in sync
+    // by sketch_graph.js), graded feature by feature by grade_sketch_parts
+    // server-side. An untouched set of boxes is not submitted — the student has
+    // answered nothing yet, and posting it would burn the question as wrong.
+    const stage = document.querySelector('[data-sk-stage]');
+    const hidden = stage ? stage.querySelector('[data-sk-hidden]') : null;
+    if (!hidden) return;
+    let filled = false;
+    try {
+      const features = (JSON.parse(hidden.value || '{}').features) || {};
+      filled = Object.keys(features).some(k => (features[k] || '').trim() !== '');
+    } catch (e) { /* malformed — treat as empty */ }
+    if (!filled) return;
+    _submitAndAdvance(sessionId, {
+      session_id: sessionId, question_id: questionId, text_answer: hidden.value,
+    });
+  }
+
   function submitPattern(sessionId, questionId) {
     // The boxes post as the one line grade_pattern reads (kept in sync by
     // pattern_fields.js). An untouched set of boxes is not submitted — the

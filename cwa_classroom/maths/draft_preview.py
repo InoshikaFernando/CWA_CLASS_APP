@@ -45,7 +45,7 @@ SELF_DRAWING_TYPES = (
     Question.LONG_DIVISION, Question.COLUMN_OPERATION,
     Question.PLOT_POINTS, Question.PLOT_LINE, Question.IDENTIFY_COORDS,
     Question.DRAW_ON_GRID, Question.SHAPE_SELECT, Question.NUMBER_LINE,
-    Question.TABLE_OF_VALUES,
+    Question.TABLE_OF_VALUES, Question.PRIME_FACTORIZATION,
 )
 
 SPEC_GRADED_TYPES = SELF_DRAWING_TYPES + (Question.READ_GRAPH, Question.MEASURE)
@@ -186,6 +186,17 @@ def build_preview_question(draft, *, promote_blanks):
                 'This long division has no usable dividend and divisor, so it '
                 'would be skipped at import.')
 
+    if q_type == Question.PRIME_FACTORIZATION:
+        try:
+            target_number = int(draft.get('target_number'))
+        except (TypeError, ValueError):
+            target_number = None
+        if not target_number or target_number < 2:
+            raise DraftNotImportable(
+                'This prime factorisation has no number to factorise, so it '
+                'would be skipped at import.')
+        fields['target_number'] = target_number
+
     if q_type == Question.COLUMN_OPERATION:
         try:
             operands = [int(o) for o in (draft.get('operands') or [])]
@@ -220,6 +231,11 @@ def build_preview_question(draft, *, promote_blanks):
         from maths.geometry_grading import validate_table_spec
         fields['table_spec'] = _validated_spec(draft, 'table_spec', validate_table_spec)
 
+    if q_type == Question.SKETCH_GRAPH:
+        from maths.geometry_grading import validate_sketch_spec
+        fields['sketch_spec'] = _validated_spec(
+            draft, 'sketch_spec', validate_sketch_spec)
+
     if q_type in (Question.READ_GRAPH, Question.MEASURE):
         numeric = _decimal_or_none(draft.get('numeric_answer'))
         if numeric is None:
@@ -251,6 +267,12 @@ def build_preview_question(draft, *, promote_blanks):
             Answer.objects.create(
                 question=question, answer_text=str(question.column_result),
                 is_correct=True, order=1)
+    elif q_type == Question.PRIME_FACTORIZATION:
+        from maths.factorization import prime_factorization_answer
+        Answer.objects.create(
+            question=question,
+            answer_text=prime_factorization_answer(question.target_number),
+            is_correct=True, order=1)
     elif q_type in SPEC_GRADED_TYPES or q_type == Question.EXTENDED_ANSWER:
         # Graded by the spec, by tolerance, or by a person — never Answer rows.
         pass

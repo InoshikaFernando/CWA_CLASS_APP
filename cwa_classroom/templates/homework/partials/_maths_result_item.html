@@ -61,7 +61,10 @@ answers fall back to ``is_correct``):
       {% comment %}correct_answer_display reads a fill-in-the-blank question's answers
       from its blank_spec (the Answer rows hold the pre-conversion answer, or nothing),
       and every other question's from its ticked rows.{% endcomment %}
-      {% if q.blank_data %}
+      {% if q.blank_data or q.sketch_data %}
+      {% comment %}A fill-in-the-blank sentence and a sketch both keep their answers in
+      their spec rather than in Answer rows, so the loop below would print nothing at
+      all — the student would be told they were wrong and never shown right.{% endcomment %}
       <p class="text-xs text-green-700 mt-1">Correct answer: <span class="font-medium">{{ q.correct_answer_display|exponents }}</span></p>
       {% else %}
       {% with correct=q.answers.all %}
@@ -79,6 +82,18 @@ answers fall back to ``is_correct``):
          gap was wrong is the part a student can act on.
       {% endcomment %}
       {% include "maths/partials/_partial_credit.html" with data=ans.answer_data earned=ans.points_earned possible=q.points %}
+      {% comment %} The sketch that was wanted: the curve, its axis of symmetry and a
+         labelled dot at every key feature. Only ever rendered here, after marking —
+         the take page draws the same plane blank.
+      {% endcomment %}
+      {% if q.sketch_data.answer_svg %}
+      <svg viewBox="0 0 {{ q.sketch_data.width }} {{ q.sketch_data.height }}"
+           class="mt-2 border border-gray-200 rounded-lg bg-white max-w-full"
+           style="width:100%;max-width:{{ q.sketch_data.width }}px;height:auto"
+           role="img" aria-label="The graph this question asked for">
+        {{ q.sketch_data.answer_svg|safe }}
+      </svg>
+      {% endif %}
     {% endif %}
 
   </div>

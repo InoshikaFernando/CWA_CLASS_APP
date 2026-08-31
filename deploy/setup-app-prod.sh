@@ -170,6 +170,26 @@ cat > /etc/cron.d/cwa-progress-reports <<'REPORTCRON'
 REPORTCRON
 chmod 644 /etc/cron.d/cwa-progress-reports
 
+# ── Scheduled homework publish cron ──────────────────────────────────────────
+# The ONLY thing that sets published_at on a scheduled homework. Students gate
+# on published_at (homework/api_views.py), so without this command a set a
+# teacher scheduled — by hand, or by the question-schedule cron below — is
+# created, sits invisible, and is never sent. Nothing errors; the class simply
+# never receives it.
+#
+# It was documented in MANAGEMENT_COMMANDS.md as a crontab line to add by hand
+# and never installed on production at all. Worse, that documented line ran
+# `manage.py` from the repo root, where manage.py has never lived, so anyone who
+# did follow the docs got a job that died instantly every five minutes into a
+# log nobody reads. Installing it here is what stops both.
+echo "==> Installing scheduled-homework publish cron..."
+cat > /etc/cron.d/cwa-publish-homework <<'PUBCRON'
+# CWA scheduled homework — publish sets whose publish_at has arrived.
+# Managed by deploy/setup-app-prod.sh; edit there, not here.
+*/5 * * * * cwa cd /home/cwa/CWA_CLASS_APP && venv/bin/python cwa_classroom/manage.py publish_scheduled_homework >> /var/log/cwa/publish_scheduled_homework.log 2>&1
+PUBCRON
+chmod 644 /etc/cron.d/cwa-publish-homework
+
 # ── Question schedule cron ───────────────────────────────────────────────────
 # Builds the homework a teacher's weekly teaching plan is due to produce
 # (CPP-399). Its absence is invisible in exactly the way the progress-report

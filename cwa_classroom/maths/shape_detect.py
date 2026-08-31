@@ -286,3 +286,117 @@ def _image_dimensions(image_bytes):
 
     with Image.open(io.BytesIO(image_bytes)) as im:
         return im.size
+
+
+# ── Tracing the scenes a PDF import found ────────────────────────────────────
+#
+# The extractor is asked for one thing on a "colour all the triangles" question:
+# WHICH shape to colour (``shape_target_type``). It is never asked for the
+# geometry. Vertex lists read off a picture and written into a JSON tool call
+# are exactly what contour detection above does better, and a shape whose
+# outline is a few pixels wrong is a shape the student cannot colour correctly.
+#
+# So the classifier crops the scene like any other figure, and this runs over
+# the finished crops and replaces each one with a traced ``shape_spec``.
+
+# The AI fallback costs a vision call per scene, and a worksheet's shapes are
+# the clean printed line-art OpenCV was tuned for — so bulk PDF tracing is
+# OpenCV-only unless this is switched on.
+SHAPE_TRACE_ALLOW_AI_ENV = 'SHAPE_TRACE_ALLOW_AI'
+
+# What a teacher is told when a scene could not be traced. The question is kept
+# (never dropped): "colour all the triangles" is still a real question, it is
+# just one the app cannot take an answer for, so it goes to the teacher exactly
+# as any other paper-only drawing does.
+UNTRACEABLE_RUBRIC = (
+    'The shapes in this question could not be traced from the page, so the app '
+    'cannot offer them to colour. The student answers this one on paper — mark '
+    'their sheet by hand.'
+)
+
+
+def _trace_ai_allowed():
+    import os
+    return os.environ.get(SHAPE_TRACE_ALLOW_AI_ENV, '').strip().lower() in (
+        '1', 'true', 'yes', 'on')
+
+
+def trace_shape_select_scenes(questions, images_by_ref, *, allow_ai=None):
+    """Build a ``shape_spec`` for every extracted ``shape_select`` question.
+
+    ``questions`` are the extractor's question dicts (mutated in place) and
+    ``images_by_ref`` maps ``image_ref`` to the base64 PNG of that crop — the
+    shape both PDF pipelines already hold once cropping has finished.
+
+    Returns ``(traced, failed)``.
+
+    A scene that cannot be traced does NOT stay a ``shape_select`` with no spec:
+    that imports as nothing (both savers skip it) or, worse, as a question with
+    no shapes to colour. It is converted to a teacher-graded question that keeps
+    its picture and is flagged for review — the same destination every other
+    drawing the app can't take already has.
+
+    Never raises: a detection failure is one question routed to a teacher, not a
+    lost upload.
+    """
+    import base64
+    import logging
+
+    logger = logging.getLogger(__name__)
+    if allow_ai is None:
+        allow_ai = _trace_ai_allowed()
+
+    traced = failed = 0
+    for idx, q in enumerate(questions or [], 1):
+        if not isinstance(q, dict) or q.get('question_type') != 'shape_select':
+            continue
+
+        target = (q.get('shape_target_type') or '').strip().lower()
+        raw = images_by_ref.get(q.get('image_ref')) if images_by_ref else None
+        reason = None
+        if target not in SHAPE_TYPES:
+            reason = f'no usable shape_target_type (got {target!r})'
+        elif not raw:
+            reason = 'the scene has no cropped image to trace'
+
+        spec = None
+        if reason is None:
+            try:
+                image_bytes = base64.b64decode(raw)
+                spec, backend = build_shape_spec_from_image(
+                    image_bytes, target, allow_ai=allow_ai)
+            except (ValueError, TypeError, OSError) as exc:
+                reason = str(exc)
+            except Exception as exc:  # pragma: no cover - detector/runtime faults
+                reason = f'{type(exc).__name__}: {exc}'
+
+        if spec is None:
+            failed += 1
+            logger.info('Q%s: shape scene not traced (%s) — routed to the teacher.',
+                        idx, reason)
+            q['question_type'] = 'extended_answer'
+            q['validation_type'] = 'human_graded'
+            q['grading_rubric'] = (q.get('grading_rubric') or '').strip() or UNTRACEABLE_RUBRIC
+            q['answers'] = []
+            q['needs_review'] = True
+            q['review_reason'] = (
+                'The shapes could not be traced from the page, so this cannot be '
+                'a colour-the-shapes question. Check it before importing.')
+            # A question nobody can answer in the app is not one to import by
+            # default — the teacher opts in, as with every other drawing.
+            q['include'] = False
+            continue
+
+        traced += 1
+        q['shape_spec'] = spec
+        # The app redraws the traced scene, so the raster is not the figure any
+        # more. image_ref is kept deliberately: the review page shows it beside
+        # the question so a teacher can see what was traced, and both savers
+        # already refuse to attach an image to a shape_select.
+        q['has_image'] = False
+        q['answers'] = []
+        q['validation_type'] = 'auto'
+        logger.info('Q%s: traced %s shape(s) via %s (target=%s).',
+                    idx, len(spec.get('shapes') or []), backend, target)
+
+    return traced, failed

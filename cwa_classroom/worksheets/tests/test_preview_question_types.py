@@ -58,11 +58,17 @@ class SharedListTests(SimpleTestCase):
 class DropdownCoversTheSessionTests(SimpleTestCase):
 
     def test_an_unknown_type_is_appended_rather_than_dropped(self):
+        # draw_on_grid is the example because it is the type the extractor still
+        # cannot emit (shape_select could not either, until its scenes started
+        # being traced from the crop). A session holding one — from the question
+        # builder, an older extractor, a hand-authored import — must still get an
+        # <option>, or the browser shows the first one instead and the POST
+        # silently rewrites the question to it.
         choices = preview_question_type_choices([
-            {'question_type': 'shape_select'},
+            {'question_type': 'draw_on_grid'},
             {'question_type': 'multiple_choice'},
         ])
-        self.assertIn(('shape_select', 'Shape Select'), choices)
+        self.assertIn(('draw_on_grid', 'Draw On Grid'), choices)
         # Known types are not duplicated by the widening.
         self.assertEqual([v for v, _ in choices].count('multiple_choice'), 1)
 

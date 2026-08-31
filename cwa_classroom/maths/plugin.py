@@ -321,11 +321,13 @@ class MathsPlugin(SubjectPlugin):
             text_answer = post_data.get(f'answer_{q.id}', '')
             is_correct = grade_number_line(q.number_line_spec, text_answer)
         elif ((q.question_type == Question.TABLE_OF_VALUES and q.table_spec)
-              or (q.question_type == Question.FILL_BLANK and q.blank_spec)):
+              or (q.question_type == Question.FILL_BLANK and q.blank_spec)
+              or (q.question_type == Question.SKETCH_GRAPH and q.sketch_spec)):
             # Several answers in one question: a fill-in table of values
-            # (cells serialised as {"cells":{"r,c":"value"}}) or a
-            # fill-in-the-blank sentence ({"blanks":[...]}), both posted in
-            # answer_{id}. Marked part by part, so nine of ten right earns nine
+            # (cells serialised as {"cells":{"r,c":"value"}}), a
+            # fill-in-the-blank sentence ({"blanks":[...]}) or the key features
+            # of a sketch ({"features":{"vertex": "(-0.5, -2.25)"}}), all posted
+            # in answer_{id}. Marked part by part, so nine of ten right earns nine
             # tenths of the points and answer_data names the tenth — see
             # maths.partial_credit.
             text_answer = post_data.get(f'answer_{q.id}', '')

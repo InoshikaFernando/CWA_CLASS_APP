@@ -147,22 +147,54 @@
 
             <div class="mt-2 border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-64 overflow-y-auto">
               {% for strand, mid_items in topic_groups %}
-              {% if mid_items %}
               {% comment %}
-                Open by default, matching the create-homework picker: the whole
-                job on this page is ticking topics, and a teacher should not
-                have to expand every strand on every week to do it.
+                Every node is tickable, parents included. Ticking a parent
+                cascades to its subtopics (see the script at the foot of the
+                page) AND selects the parent itself, which is what reaches
+                questions attached directly to it rather than to a subtopic —
+                those were unreachable while a parent was only a heading.
+
+                The number BESIDE a parent is its whole subtree (group_fresh /
+                group_total): what ticking it actually yields. The number IN
+                its data- attributes is the parent's own, because the live
+                tally sums every ticked box and a question belongs to exactly
+                one topic — summing subtree counts there would count a
+                parent's children twice over.
               {% endcomment %}
-              <details class="group" open>
+              {% if mid_items %}
+              <details class="group" open data-topic-group>
                 <summary class="flex items-center justify-between px-3 py-2 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 transition">
-                  <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">{{ strand.name }}</span>
+                  {% comment %} The label stops a click on the box toggling the <details> open/shut. {% endcomment %}
+                  <label class="flex items-center gap-2 cursor-pointer" onclick="event.stopPropagation()">
+                    <input type="checkbox"
+                           {% if strand.total_count %}name="topic_ids" value="{{ strand.pk }}"{% endif %}
+                           class="rounded text-blue-600 focus:ring-blue-500"
+                           data-group-toggle
+                           data-total="{{ strand.total_count }}" data-fresh="{{ strand.fresh_count }}"
+                           {% if strand.pk in week.topic_ids %}checked{% endif %}>
+                    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">{{ strand.name }}</span>
+                    <span class="text-xs font-normal {% if strand.group_fresh %}text-gray-400{% else %}text-red-500{% endif %}">
+                      ({{ strand.group_fresh }}{% if strand.group_total != strand.group_fresh %} of {{ strand.group_total }}{% endif %})
+                    </span>
+                  </label>
                 </summary>
                 <div class="px-3 py-2 space-y-1">
                   {% for mid, leaves in mid_items %}
                   {% if leaves %}
-                  <div class="mt-2">
-                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">{{ mid.name }}</p>
-                    <div class="pl-3 space-y-1">
+                  <div class="mt-2" data-topic-group>
+                    <label class="flex items-center gap-2 cursor-pointer mb-1">
+                      <input type="checkbox"
+                             {% if mid.total_count %}name="topic_ids" value="{{ mid.pk }}"{% endif %}
+                             class="rounded text-blue-600 focus:ring-blue-500"
+                             data-group-toggle
+                             data-total="{{ mid.total_count }}" data-fresh="{{ mid.fresh_count }}"
+                             {% if mid.pk in week.topic_ids %}checked{% endif %}>
+                      <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">{{ mid.name }}</span>
+                      <span class="text-xs font-normal {% if mid.group_fresh %}text-gray-400{% else %}text-red-500{% endif %}">
+                        ({{ mid.group_fresh }}{% if mid.group_total != mid.group_fresh %} of {{ mid.group_total }}{% endif %})
+                      </span>
+                    </label>
+                    <div class="pl-6 space-y-1">
                       {% for leaf in leaves %}
                       <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer py-0.5">
                         <input type="checkbox" name="topic_ids" value="{{ leaf.pk }}"
@@ -314,11 +346,72 @@
       el.textContent = msg;
     }
 
+    // --- parent/child topic cascade -------------------------------------
+    // Ticking a topic ticks its subtopics; untick one and the parent drops to
+    // the half-filled (indeterminate) state rather than lying about being on.
+    // The parent's box submits its own pk like any other, so selecting a whole
+    // topic also reaches questions attached to the topic itself rather than to
+    // one of its subtopics — those could not be picked here at all while a
+    // parent was just a heading.
+    function isTopicBox(el) {
+      return !!el && (el.name === 'topic_ids' || el.hasAttribute('data-group-toggle'));
+    }
+
+    function children(group) {
+      return Array.prototype.filter.call(
+        group.querySelectorAll('input[name="topic_ids"]'),
+        function (b) { return !b.hasAttribute('data-group-toggle'); });
+    }
+
+    function refreshToggles(form) {
+      // Innermost first, so an outer group reads settled inner state.
+      var groups = Array.prototype.slice.call(
+        form.querySelectorAll('[data-topic-group]')).reverse();
+      groups.forEach(function (group) {
+        var toggle = group.querySelector('input[data-group-toggle]');
+        if (!toggle) return;
+        var kids = children(group);
+        if (!kids.length) return;
+        // Checked means the WHOLE subtree is selected — which is what the
+        // subtree count rendered beside the box promises. Anything less is
+        // the half-filled state, so the box and the number it carries can
+        // never disagree with the coverage tally below.
+        var on = kids.filter(function (b) { return b.checked; }).length;
+        toggle.checked = on === kids.length;
+        toggle.indeterminate = on > 0 && on < kids.length;
+      });
+    }
+
+    function cascade(toggle) {
+      var group = toggle.closest('[data-topic-group]');
+      if (!group) return;
+      children(group).forEach(function (b) { b.checked = toggle.checked; });
+      // A nested toggle we just drove is no longer half-anything.
+      group.querySelectorAll('input[data-group-toggle]').forEach(function (t) {
+        if (t !== toggle) { t.checked = toggle.checked; t.indeterminate = false; }
+      });
+    }
+
+    document.querySelectorAll('form [data-topic-group]').forEach(function (g) {
+      var form = g.closest('form');
+      if (form && !form._topicCascadeBound) {
+        form._topicCascadeBound = true;
+        form.addEventListener('change', function (e) {
+          if (!isTopicBox(e.target)) return;
+          if (e.target.hasAttribute('data-group-toggle')) cascade(e.target);
+          refreshToggles(form);
+        });
+        refreshToggles(form);
+      }
+    });
+
     document.querySelectorAll('[data-week-coverage]').forEach(function (el) {
       var form = el.closest('form');
       if (!form) return;
       form.addEventListener('change', function (e) {
-        if (e.target && e.target.name === 'topic_ids') summarise(el);
+        // Includes a parent toggle, which submits nothing of its own when the
+        // topic has no questions but still drives its subtopics' boxes.
+        if (isTopicBox(e.target)) summarise(el);
       });
       // A per-week question-count override changes what "enough" means.
       form.addEventListener('input', function (e) {

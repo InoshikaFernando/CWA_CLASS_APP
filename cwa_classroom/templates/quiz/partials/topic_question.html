@@ -302,6 +302,24 @@
       Submit
     </button>
 
+  {% elif question.question_type == 'sketch_graph' and question.sketch_data %}
+    {% comment %}
+    Sketch a graph: the app draws the blank plane and the student types the key
+    features the stem names (vertex, intercepts, axis of symmetry).
+    sketch_graph.js keeps the hidden text_answer field in sync as JSON
+    {"features":{...}}, graded feature by feature by grade_sketch_parts
+    server-side. Without this branch the question would take one whole-answer
+    box that no features payload could match, marking every student wrong. The
+    Submit button's onclick survives the innerHTML question swap;
+    sketch_graph.js re-mounts via the shared maths_mounts.js registry.
+    {% endcomment %}
+    {% include "maths/partials/_sketch_graph_tool.html" with q=question field_name='text_answer' %}
+    <button type="button"
+            class="mt-4 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+            onclick="submitSketchGraph('{{ session_id }}', {{ question.id }})">
+      Submit
+    </button>
+
   {% elif question.pattern_field_data %}
     {% comment %}
     "Create your own number pattern": a box per number the question asks for and
