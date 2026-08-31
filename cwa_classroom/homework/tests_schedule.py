@@ -1090,3 +1090,163 @@ class CoverageInTheGridTest(ScheduleTestBase):
         self.plan_week(self.schedule, 1, num_questions=30)
         resp = self.client.get(self.url)
         self.assertContains(resp, 'short of the 30')
+
+
+# ---------------------------------------------------------------------------
+# Selecting a whole topic (CPP — parent/child topic picker)
+# ---------------------------------------------------------------------------
+
+class ParentTopicSelectionTest(ScheduleTestBase):
+    """A parent topic is a real selection, not just a heading.
+
+    Two things were wrong while a parent rendered as a bare heading: a teacher
+    could not say "all of Multiplication" in one click, and any question hung
+    on the parent topic itself rather than on one of its subtopics could not be
+    reached from this picker at all.
+    """
+
+    def setUp(self):
+        subject = self.topic.subject
+        # strand > parent topic > two subtopics, with questions at BOTH the
+        # parent level and the subtopic level.
+        self.strand = Topic.objects.create(
+            subject=subject, name='Number', slug='number-sched-parent',
+        )
+        self.parent = Topic.objects.create(
+            subject=subject, parent=self.strand,
+            name='Multiplication', slug='multiplication-sched-parent',
+        )
+        self.sub_a = Topic.objects.create(
+            subject=subject, parent=self.parent,
+            name='Multiplication (2x)', slug='mult-2x-sched-parent',
+        )
+        self.sub_b = Topic.objects.create(
+            subject=subject, parent=self.parent,
+            name='Multiplication (3x)', slug='mult-3x-sched-parent',
+        )
+        for topic, count in ((self.parent, 3), (self.sub_a, 4), (self.sub_b, 5)):
+            for i in range(count):
+                q = Question.objects.create(
+                    level=self.level, topic=topic,
+                    question_text=f'{topic.slug} Q{i + 1}?',
+                    question_type=Question.MULTIPLE_CHOICE, difficulty=1,
+                )
+                Answer.objects.create(question=q, answer_text='Right',
+                                      is_correct=True, order=0)
+                Answer.objects.create(question=q, answer_text='Wrong',
+                                      is_correct=False, order=1)
+
+        self.client = Client()
+        self.client.login(username='sched_teacher', password='pass1234')
+        self.schedule = self.make_schedule(num_questions=5)
+        self.url = reverse(
+            'homework:schedule_detail', kwargs={'schedule_id': self.schedule.pk},
+        )
+
+    def _nodes(self, resp):
+        """Flatten the rendered tree to {pk: node}."""
+        found = {}
+        for strand, mid_items in resp.context['topic_groups']:
+            found[strand.pk] = strand
+            for mid, leaves in mid_items:
+                found[mid.pk] = mid
+                for leaf in leaves:
+                    found[leaf.pk] = leaf
+        return found
+
+    def test_a_parent_topic_is_selectable(self):
+        from .views_schedule import _selectable_topic_ids
+
+        resp = self.client.get(self.url)
+        selectable = _selectable_topic_ids(resp.context['topic_groups'])
+        self.assertIn(self.parent.pk, selectable)
+        self.assertIn(self.strand.pk, selectable)
+        self.assertIn(self.sub_a.pk, selectable)
+
+    def test_a_parents_own_count_excludes_its_subtopics(self):
+        """What ticking just that box adds — the number the tally sums."""
+        node = self._nodes(self.client.get(self.url))[self.parent.pk]
+        self.assertEqual(node.total_count, 3)
+
+    def test_a_parents_group_count_is_the_whole_subtree(self):
+        """What ticking it actually yields once the cascade has run."""
+        nodes = self._nodes(self.client.get(self.url))
+        self.assertEqual(nodes[self.parent.pk].group_total, 3 + 4 + 5)
+        self.assertEqual(nodes[self.strand.pk].group_total, 3 + 4 + 5)
+
+    def test_a_leaf_has_the_same_count_both_ways(self):
+        node = self._nodes(self.client.get(self.url))[self.sub_a.pk]
+        self.assertEqual((node.total_count, node.group_total), (4, 4))
+
+    def test_the_teacher_can_save_a_whole_topic(self):
+        week = self.schedule.weeks.get(week_number=1)
+        resp = self.client.post(
+            reverse('homework:schedule_week_save',
+                    kwargs={'schedule_id': self.schedule.pk, 'week_id': week.pk}),
+            {'topic_ids': [str(self.parent.pk), str(self.sub_a.pk),
+                           str(self.sub_b.pk)],
+             'is_active': 'on'},
+        )
+        self.assertEqual(resp.status_code, 302)
+        week.refresh_from_db()
+        self.assertEqual(
+            sorted(week.topic_ids),
+            sorted([self.parent.pk, self.sub_a.pk, self.sub_b.pk]),
+        )
+
+    def test_selecting_the_whole_topic_draws_the_parents_own_questions(self):
+        """The gap that made a heading-only parent lossy.
+
+        With all twelve in the subtree selected and twelve asked for, the set
+        can only be filled if the parent's own three are in the pool.
+        """
+        week = self.plan_week(
+            self.schedule, 1,
+            topics=[self.parent, self.sub_a, self.sub_b], num_questions=12,
+        )
+        result = svc.generate_week(week, force=True)
+        self.assertEqual(result.status, 'generated', result.message)
+
+        homework = Homework.objects.get(pk=week.generated_homework_id)
+        picked = set(
+            HomeworkQuestion.objects.filter(homework=homework)
+            .values_list('content_id', flat=True)
+        )
+        parent_own = set(
+            Question.objects.filter(topic=self.parent).values_list('pk', flat=True)
+        )
+        self.assertEqual(len(picked), 12)
+        self.assertTrue(parent_own <= picked)
+
+    def test_the_subtree_count_never_double_counts_the_parent(self):
+        """Sum of own-counts == the group count. The tally relies on it.
+
+        The live tally adds the data- attributes of every ticked box. If a
+        parent carried its subtree total there instead of its own, ticking a
+        topic and its subtopics would promise roughly twice the questions that
+        exist.
+        """
+        nodes = self._nodes(self.client.get(self.url))
+        own = sum(nodes[t.pk].total_count
+                  for t in (self.parent, self.sub_a, self.sub_b))
+        self.assertEqual(own, nodes[self.parent.pk].group_total)
+
+    def test_the_parent_checkbox_reaches_the_page(self):
+        resp = self.client.get(self.url)
+        self.assertContains(resp, 'data-group-toggle')
+        self.assertContains(
+            resp, f'name="topic_ids" value="{self.parent.pk}"')
+
+    def test_a_topic_with_no_questions_of_its_own_submits_nothing(self):
+        """A pure grouping level is a control, not a selection.
+
+        The strand here holds no questions directly. Letting it into
+        ``topic_ids`` would store an id that contributes nothing to the set —
+        and would silently start contributing if someone later filed a question
+        against the strand itself.
+        """
+        resp = self.client.get(self.url)
+        nodes = self._nodes(resp)
+        self.assertEqual(nodes[self.strand.pk].total_count, 0)
+        self.assertNotContains(
+            resp, f'name="topic_ids" value="{self.strand.pk}"')
