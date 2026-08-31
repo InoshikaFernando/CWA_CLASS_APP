@@ -10,6 +10,7 @@ template renders, so the two can never disagree.
 
 import logging
 from io import BytesIO
+from xml.sax.saxutils import escape
 
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.graphics.charts.legends import Legend
@@ -403,6 +404,30 @@ def _letterhead_flow(report, styles):
     return [text, Spacer(1, 6)]
 
 
+def _next_steps_flow(report, styles):
+    """The "What's next" suggestions, as flowables.
+
+    Read from the frozen snapshot, so the download says what the page said
+    even after the figures behind it have moved on. Absent when the rules had
+    nothing they could honestly say.
+    """
+    items = ((report.data.get('next_steps') or {}).get('items')) or []
+    if not items:
+        return []
+
+    labels = {'strength': 'Strength', 'focus': 'Focus', 'next': 'Next',
+              'habit': 'Habit'}
+    flow = [Paragraph("What's next", styles['heading'])]
+    for item in items:
+        label = labels.get(item.get('kind'), 'Note')
+        flow.append(Paragraph(
+            f'<b>{label}</b> &nbsp; {escape(item.get("text") or "")}',
+            styles['note'],
+        ))
+    flow.append(Spacer(1, 6))
+    return flow
+
+
 def _manual_flow(report, styles):
     """The teacher-authored halves — assessment and comment — as flowables.
 
@@ -453,7 +478,6 @@ def _comment_html(body):
     an unescaped ``<`` would either vanish or break the paragraph parser.
     """
     import re
-    from xml.sax.saxutils import escape
 
     text = escape(body or '')
     text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
@@ -527,6 +551,8 @@ def render_report_pdf(report):
             styles['subtitle'],
         ),
     ]
+
+    flow += _next_steps_flow(report, styles)
 
     # Before the empty-report return, deliberately. A child with no
     # submissions is exactly when the teacher's assessment and comment are the

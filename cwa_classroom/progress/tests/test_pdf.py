@@ -361,3 +361,20 @@ class PdfCarriesEverySectionTests(TestCase):
             'Forming and Solving Equat\u2026',
         )
         self.assertEqual(_shorten('Money'), 'Money')
+
+    def test_the_pdf_carries_the_next_steps_suggestions(self):
+        """Built is not rendered — the lesson CPP-400 cost a release to learn."""
+        pdf = self._render(self._data(next_steps={'items': [
+            {'kind': 'strength', 'text': 'Fractions is secure at 92%.'},
+            {'kind': 'focus', 'text': 'Money is the one to put the time into.'},
+        ]}))
+
+        self.assertIn("What's next", pdf)
+        self.assertIn('Fractions is secure at 92%', pdf)
+        self.assertIn('Money is the one to put the time into', pdf)
+
+    def test_no_suggestions_means_no_heading(self):
+        """An absent section, never a heading over nothing."""
+        pdf = self._render(self._data(next_steps={'items': []}))
+
+        self.assertNotIn("What's next", pdf)

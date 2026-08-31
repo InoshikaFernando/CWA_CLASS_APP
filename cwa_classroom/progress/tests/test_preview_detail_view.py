@@ -462,3 +462,50 @@ class PracticeSectionRenderTests(TestCase):
         self.assertIn('&mdash;', block)
         self.assertNotIn('100%', block)
         self.assertIn('all completion-based, so there is no average mark', html)
+
+
+class NextStepsRenderTests(TestCase):
+    """The suggestions must reach the page, not merely be computed."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from classroom.models import SchoolTeacher
+        from progress.tests.factories import (
+            enable_reports, enrol, make_classroom, make_homework,
+            make_school, make_user, submit,
+        )
+
+        cls.school = make_school(name='Next Steps', slug='next-steps')
+        cls.hoi = make_user('ns_hoi', 'head_of_institute')
+        SchoolTeacher.objects.create(
+            school=cls.school, teacher=cls.hoi, role='head_of_institute',
+        )
+        cls.student = make_user('ns_student', first_name='Aadya')
+        cls.room = make_classroom(cls.school, name='Year 5', code='NS000001')
+        enrol(cls.room, cls.student)
+
+        cls.start, cls.end = periods.previous_week(periods.today())
+        when = timezone.make_aware(timezone.datetime.combine(
+            cls.start + timedelta(days=1),
+            timezone.datetime.min.time().replace(hour=10),
+        ))
+        homework = make_homework(cls.room, due=when, title='Fractions')
+        submit(homework, cls.student, 1, 4, when=when)
+        submit(homework, cls.student, 2, 9, when=when)
+
+        enable_reports(cls.school, kind='school', weekly=True)
+
+    def setUp(self):
+        self.client.force_login(self.hoi)
+
+    def test_the_section_renders_on_the_report_page(self):
+        response = self.client.get('/progress/reports/preview/report/', {
+            'school': self.school.id, 'period': periods.WEEKLY,
+            'student': self.student.id,
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'report-next-steps')
+        # Literal in the template, so it is not autoescaped.
+        self.assertContains(response, "What's next")
+        self.assertContains(response, 'Retrying is working')
