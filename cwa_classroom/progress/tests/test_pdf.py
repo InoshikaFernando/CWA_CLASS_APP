@@ -313,3 +313,51 @@ class PdfCarriesEverySectionTests(TestCase):
 
         self.assertNotIn('weakest of', pdf)
         self.assertIn('weakest topic first', pdf)
+
+    def test_a_zero_scoring_topic_is_still_visible_on_the_chart(self):
+        """CPP-400's original title: "Report has incomplete chart".
+
+        A 0% bar has zero height and draws nothing, so its category label sat
+        under empty space and the chart read as broken. The chart shows the
+        WEAKEST topics, so it selects exactly the bars most likely to vanish —
+        three of ten were invisible on the report that raised this.
+
+        Rendered ALONE, deliberately. Asserting "0%" against the whole report
+        proves nothing: the at-a-glance block and the topic table below the
+        chart both print it, so that version of this test passed against the
+        unfixed code. Only the chart is drawn here, so the figure can have
+        come from nowhere else.
+        """
+        from io import BytesIO
+
+        import reportlab.rl_config as rl_config
+        from reportlab.platypus import SimpleDocTemplate
+
+        from progress.pdf import _topic_chart
+
+        chart = _topic_chart([
+            {'topic': 'Forming and Solving Equations', 'answered': 4,
+             'correct': 0, 'accuracy_pct': 0},
+            {'topic': 'Money', 'answered': 7, 'correct': 1, 'accuracy_pct': 14},
+        ])
+        buffer = BytesIO()
+        previous = rl_config.pageCompression
+        rl_config.pageCompression = 0
+        try:
+            SimpleDocTemplate(buffer).build([chart])
+        finally:
+            rl_config.pageCompression = previous
+        drawn = buffer.getvalue().decode('latin-1')
+
+        self.assertIn('0%', drawn)
+        self.assertIn('14%', drawn)
+
+    def test_a_long_topic_name_is_not_clipped_to_nothing(self):
+        """The axis labels are shortened; they must still name the topic."""
+        from progress.pdf import _shorten
+
+        self.assertEqual(
+            _shorten('Forming and Solving Equations'),
+            'Forming and Solving Equat\u2026',
+        )
+        self.assertEqual(_shorten('Money'), 'Money')
