@@ -179,8 +179,9 @@ def answer_review_warning(q):
 # Types that DO give the student something to draw on. The app renders the
 # interaction and grades it, so "draw"/"plot"/"mark"/"colour" is answerable
 # there. This is every structured type in ``maths.models.Question``, which is
-# WIDER than what the worksheet extractor can emit: draw_on_grid, shape_select
-# and table_of_values only reach the bank through the question builder, and the
+# WIDER than what the worksheet extractor can emit: draw_on_grid and shape_select
+# only reach the bank through the question builder (and, for shape_select, the
+# image tracer in maths.shape_detect), and the
 # bank sweep (``maths.management.commands.fix_drawing_questions``) has to leave
 # them alone — a shape_select question says "colour the triangles" and the app
 # renders exactly that.
@@ -567,6 +568,7 @@ EXTRACTED_QUESTION_TYPE_CHOICES = [
     ('calculation', 'Calculation'),
     ('extended_answer', 'Extended Answer (written)'),
     ('long_division', 'Long Division'),
+    ('prime_factorization', 'Prime Factorization'),
     ('column_operation', 'Column Arithmetic'),
     ('plot_points', 'Plot Points (Cartesian plane)'),
     ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
@@ -736,6 +738,14 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                         "answer_unit": {
                             "type": "string",
                             "description": "For read_graph and measure: unit shown after the answer box, e.g. '°', 'cm', 'km'.",
+                        },
+                        "target_number": {
+                            "type": "integer",
+                            "description": (
+                                "For prime_factorization only: the number to break into its "
+                                "prime factors, e.g. 60. The app draws the factor ladder and "
+                                "computes the answer itself."
+                            ),
                         },
                         "dividend": {
                             "type": "integer",
@@ -922,6 +932,17 @@ Rules:
    "Solve using long division: {dividend} ÷ {divisor}". Do NOT concatenate the digits into
    one number (never "47611") and set has_image=false — the app draws the bracket itself.
    The answer is computed automatically; leave answers=[].
+9b. PRIME FACTORISATION: if the question asks the student to break a number into its
+   PRIME FACTORS — "write 60 as a product of its prime factors", "find the prime
+   factorisation of 84", a factor tree or factor ladder drawn around a starting number —
+   set question_type="prime_factorization" and "target_number" to the number being
+   factorised (60, 84). Set question_text to the instruction, e.g.
+   "Write 60 as a product of its prime factors". Set has_image=false — the app draws the
+   ladder itself, so a cropped factor tree would be a second, conflicting figure. The
+   answer is computed from target_number; leave answers=[] and validation_type="auto".
+   NOT this type: "list the factors of 24" (every factor, not just primes — that is a
+   short_answer with answer_format "set"), "is 17 prime?" (true_false), and
+   "find the HCF of 24 and 60" (short_answer).
 10. COLUMN ARITHMETIC: if numbers are stacked vertically for addition, subtraction or
    multiplication — written one under another, right-aligned, with a +, − or × sign and a
    rule line under which the answer goes (e.g. "23" above "+ 25" with a line below) — set
@@ -1003,7 +1024,7 @@ Rules:
    there is nothing to type, so it is rule 18.
 18. DRAWING / CONSTRUCTION — questions the app cannot take an answer for. A student
    answers in this app by typing, picking an option, or using one of the drawing surfaces
-   the app itself renders (rules 9-14, 17). They CANNOT draw a picture. So if the task is to
+   the app itself renders (rules 9-14, 17, and 9b). They CANNOT draw a picture. So if the task is to
    PRODUCE a visual — "Draw a tree diagram to illustrate this situation", "Draw a Venn
    diagram", "Construct a triangle with compasses", "Draw a
    bar chart", "Shade the region", "Colour the shape", "Join the
@@ -1024,8 +1045,8 @@ Rules:
    EXCEPTIONS, because the app draws these answer surfaces itself — keep them as their own
    question type with validation_type="auto": marking or reading a horizontal NUMBER LINE
    (rule 14), plotting/joining points on a CARTESIAN PLANE (rule 11), LONG DIVISION
-   (rule 9), COLUMN ARITHMETIC (rule 10), a TABLE TO COMPLETE (rule 16), and SKETCHING A
-   GRAPH AND SHOWING ITS KEY FEATURES (rule 17). "Plot (3, -2) on the grid", "complete the
+   (rule 9), PRIME FACTORISATION (rule 9b), COLUMN ARITHMETIC (rule 10), a TABLE TO
+   COMPLETE (rule 16), and SKETCHING A GRAPH AND SHOWING ITS KEY FEATURES (rule 17). "Plot (3, -2) on the grid", "complete the
    table for y = 3x" and "sketch y = x² + x - 2 showing the vertex and the intercepts" are
    answerable; "Draw a tree diagram" is not.
 
@@ -1409,7 +1430,8 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
             "a bare 'sketch this curve', a compass construction, a shaded region — "
             "must be validation_type=\"human_graded\", never "
             "ai_graded: there is no answer surface for a drawing, so the student types "
-            "nothing. Number lines, Cartesian plots, long division, column sums, a "
+            "nothing. Number lines, Cartesian plots, long division, prime factorisation, "
+            "column sums, a "
             "TABLE TO COMPLETE (question_type table_of_values, with table_spec) and a "
             "SKETCH THAT NAMES THE FEATURES TO SHOW — \"sketch the graph of y = x^2 + x - 2 "
             "showing the vertex, the intercepts and the axis of symmetry\" "

@@ -500,6 +500,17 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                     except (ValueError, TypeError):
                         pass
 
+            # Prime factorisation: the one number the answer is computed from.
+            # A non-numeric edit keeps the prior value, so the import-time check
+            # reports it rather than this silently storing nothing.
+            if q['question_type'] == 'prime_factorization':
+                raw = request.POST.get(f'{prefix}target_number', '').strip()
+                if raw:
+                    try:
+                        q['target_number'] = int(raw)
+                    except (TypeError, ValueError):
+                        pass
+
             # Sketch-a-graph spec — same contract as the number line: raw JSON,
             # and a parse failure keeps the prior spec so the import-time
             # validator is the one that reports it.
