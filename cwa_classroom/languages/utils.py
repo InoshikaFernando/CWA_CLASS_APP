@@ -39,6 +39,24 @@ def get_font_info(script_type: str) -> tuple[str, str]:
     return FONT_MAP.get(script_type, ('', 'sans-serif'))
 
 
+# Letter-writing only: the on-screen guide glyph must be rendered in the same
+# font the server-side scorer (languages/scoring.py) rasterises its target
+# glyph from, or the "correct" shape the student traces won't match the shape
+# they're scored against. FONT_MAP's 'latin' entry is generic system
+# sans-serif (fine for body text elsewhere), so override it here rather than
+# changing FONT_MAP itself, which every other exercise type also reads.
+LETTER_WRITING_FONT_MAP = {
+    'latin': ('Noto+Sans:ital,wght@0,400;0,700', 'Noto Sans'),
+}
+
+
+def get_letter_writing_font_info(script_type: str) -> tuple[str, str]:
+    """Return (google_fonts_query, css_font_family) matching scoring.py's vendored font."""
+    if script_type in LETTER_WRITING_FONT_MAP:
+        return LETTER_WRITING_FONT_MAP[script_type]
+    return get_font_info(script_type)
+
+
 def get_tts_lang_code(language_code: str) -> str:
     """Return BCP-47 TTS language tag for Web Speech API, defaulting to en-NZ."""
     return TTS_LANG_MAP.get(language_code, 'en-NZ')

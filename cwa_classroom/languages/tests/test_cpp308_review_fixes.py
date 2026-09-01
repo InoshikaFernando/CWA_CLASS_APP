@@ -12,6 +12,7 @@ Covers:
 """
 
 import json
+from unittest.mock import patch
 
 import pytest
 from django.test import Client
@@ -359,7 +360,11 @@ class TestStrokeDataSizeGuard:
 
         valid_payload = json.dumps({'version': '5.3.1', 'objects': [{'type': 'path', 'path': 'M 0 0'}]})
         url = reverse('languages:exercise_detail', kwargs={'exercise_id': ex.id})
-        client.post(url, {'stroke_data': valid_payload, 'score': '90'})
+        # CPP-392: score is server-computed from ink_image, not the client's
+        # 'score' field — mock the scorer since this test is only about
+        # stroke_data persistence, not the scoring algorithm itself.
+        with patch('languages.views.scoring.compute_score', return_value=(90.0, 'excellent_match')):
+            client.post(url, {'stroke_data': valid_payload, 'ink_image': 'dummy'})
 
         ans = LanguageStudentAnswer.objects.get(student=student, exercise=ex)
         assert ans.stroke_data != {}, 'Valid stroke_data should be stored'

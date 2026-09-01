@@ -162,153 +162,39 @@
   });
 
   // ---------------------------------------------------------------------------
-  // Scoring — IoU on full canvas width
+  // Scoring — the server is authoritative (languages/scoring.py). It
+  // recomputes the score from the ink snapshot below rather than trusting a
+  // client-submitted number, and uses a skeleton-corridor metric instead of
+  // raw pixel IoU so pen-stroke width vs. font-glyph fill width no longer
+  // caps a correctly-formed character's score (CPP-392). This file only
+  // captures the ink and renders whatever the server returns.
   // ---------------------------------------------------------------------------
 
-  function _threshold(imageData, count) {
-    var d = imageData.data, px = new Uint8Array(count);
-    for (var i = 0; i < count; i++) {
-      var lum = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
-      px[i] = lum < 128 ? 1 : 0;
-    }
-    return px;
-  }
-
-  function _dilate(px, w, h, r) {
-    var out = new Uint8Array(px.length);
-    for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        if (!px[y * w + x]) continue;
-        for (var dy = -r; dy <= r; dy++) {
-          for (var dx = -r; dx <= r; dx++) {
-            var ny = y + dy, nx = x + dx;
-            if (ny >= 0 && ny < h && nx >= 0 && nx < w) out[ny * w + nx] = 1;
-          }
-        }
-      }
-    }
-    return out;
-  }
-
-  function _autoCenter(px, w, h) {
-    var sx = 0, sy = 0, n = 0;
-    for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        if (px[y * w + x]) { sx += x; sy += y; n++; }
-      }
-    }
-    if (!n) return px;
-    var dx = Math.round(w / 2 - sx / n);
-    var dy = Math.round(h / 2 - sy / n);
-    if (!dx && !dy) return px;
-    var out = new Uint8Array(px.length);
-    for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        if (!px[y * w + x]) continue;
-        var nx = x + dx, ny = y + dy;
-        if (nx >= 0 && nx < w && ny >= 0 && ny < h) out[ny * w + nx] = 1;
-      }
-    }
-    return out;
-  }
-
-  function _normalizeScale(px, w, h) {
-    var minX = w, maxX = -1, minY = h, maxY = -1;
-    for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        if (!px[y * w + x]) continue;
-        if (x < minX) minX = x; if (x > maxX) maxX = x;
-        if (y < minY) minY = y; if (y > maxY) maxY = y;
-      }
-    }
-    if (maxX < 0) return px;
-    var bboxW = maxX - minX + 1, bboxH = maxY - minY + 1;
-    var PAD = 4, tgtW = w - PAD * 2, tgtH = h - PAD * 2;
-    var out = new Uint8Array(px.length);
-    for (var sy = 0; sy < bboxH; sy++) {
-      for (var sx = 0; sx < bboxW; sx++) {
-        if (!px[(minY + sy) * w + (minX + sx)]) continue;
-        var nx = Math.round(sx / (bboxW - 1 || 1) * tgtW) + PAD;
-        var ny = Math.round(sy / (bboxH - 1 || 1) * tgtH) + PAD;
-        if (nx >= 0 && nx < w && ny >= 0 && ny < h) out[ny * w + nx] = 1;
-      }
-    }
-    return out;
-  }
-
-  function _iou(a, b) {
-    var inter = 0, union = 0;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] || b[i]) union++;
-      if (a[i] && b[i]) inter++;
-    }
-    return union === 0 ? 0 : Math.round(inter / union * 100);
-  }
-
-  function computeScore() {
-    try {
-      // Student pixels — full canvas
-      var scratch = document.createElement('canvas');
-      scratch.width = W; scratch.height = H;
-      scratch.getContext('2d').drawImage(fc.lowerCanvasEl, 0, 0);
-      var studentData = scratch.getContext('2d').getImageData(0, 0, W, H);
-      var studentPx   = _threshold(studentData, W * H);
-
-      // Template — render guide char on same-size offscreen canvas
-      var tmpl = document.createElement('canvas');
-      tmpl.width = W; tmpl.height = H;
-      var tCtx = tmpl.getContext('2d');
-      tCtx.fillStyle = '#fafaf8';
-      tCtx.fillRect(0, 0, W, H);
-      tCtx.fillStyle    = '#1a1a1a';
-      tCtx.font         = 'bold ' + FONT_SIZE + 'px ' + fontFamily + ', sans-serif';
-      tCtx.textAlign    = 'center';
-      tCtx.textBaseline = 'alphabetic';
-      tCtx.fillText(guideChar, W / 2, BASE_Y);
-      var templateData = tCtx.getImageData(0, 0, W, H);
-      var templatePx   = _threshold(templateData, W * H);
-
-      // If template failed to render (complex script font issue), give generous
-      // credit — student gets 72 for drawing anything meaningful
-      var tmplCount = 0;
-      for (var k = 0; k < templatePx.length; k++) if (templatePx[k]) tmplCount++;
-      if (tmplCount < 80) {
-        var stuCount = 0;
-        for (var k = 0; k < studentPx.length; k++) if (studentPx[k]) stuCount++;
-        return stuCount > 80 ? 72 : 0;
-      }
-
-      // normalize scale → center → dilate (r=12) → IoU
-      // Larger dilation gives fair credit for rough/complex-script strokes
-      studentPx  = _dilate(_autoCenter(_normalizeScale(studentPx,  W, H), W, H), W, H, 12);
-      templatePx = _dilate(_autoCenter(_normalizeScale(templatePx, W, H), W, H), W, H, 12);
-
-      return _iou(studentPx, templatePx);
-    } catch (e) {
-      return history.length > 0 ? 60 : 0;
-    }
-  }
-
-  function starsFromScore(s) {
-    if (s >= 85) return 3;
-    if (s >= 70) return 2;
-    if (s >= 50) return 1;
-    return 0;
+  function captureInkPng() {
+    var scratch = document.createElement('canvas');
+    scratch.width = W; scratch.height = H;
+    scratch.getContext('2d').drawImage(fc.lowerCanvasEl, 0, 0);
+    return scratch.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
   }
 
   // ---------------------------------------------------------------------------
   // Score panel
   // ---------------------------------------------------------------------------
   var STAR_MSGS   = ['Keep practising!', 'Good effort!', 'Well done!', 'Excellent!'];
-  var STAR_TIPS   = [
-    'Look at the guide card above and try to match every stroke.',
-    'Nearly there — try to fill the canvas height like the guide shows.',
-    'Great shape! Push for full marks by matching all the curves.',
-    'Perfect match — you nailed it!',
-  ];
   var STAR_COLORS = ['#d97706', '#2563eb', '#059669', '#047857'];
+  var REASON_TIPS = {
+    excellent_match:       'Perfect match — you nailed it!',
+    close_match:           'Great shape! Push for full marks by matching all the curves.',
+    shape_incomplete:      'Parts of the letter are missing — make sure every stroke is drawn.',
+    strokes_outside_shape: "Some strokes go outside the letter's shape — try to stay closer to the outline.",
+    shape_mismatch:        "That doesn't look like the target letter — check the guide and try again.",
+    needs_practice:        'Keep practising — compare your shape closely with the guide.',
+    no_ink:                'Draw the character before submitting.',
+    too_little_ink:        'That looks like a single mark rather than the letter — try drawing the full shape.',
+    unscored_fallback:     'Saved your attempt — this character can’t be auto-scored yet.',
+  };
 
-  function showScorePanel(score, stars, bestScore) {
+  function showScorePanel(score, stars, reason, bestScore) {
     var starEls = scorePanel.querySelectorAll('.wb-star');
     var pctEl   = document.getElementById('score-pct');
     var msgEl   = document.getElementById('score-msg');
@@ -325,9 +211,21 @@
     pctEl.textContent  = score + '%';
     msgEl.textContent  = STAR_MSGS[stars];
     msgEl.style.color  = STAR_COLORS[stars];
-    if (tipEl)  tipEl.textContent  = STAR_TIPS[stars];
+    if (tipEl)  tipEl.textContent  = REASON_TIPS[reason] || REASON_TIPS.needs_practice;
     if (bestEl) bestEl.textContent = 'Your best: ' + Math.max(score, bestScore) + '%';
 
+    scorePanel.removeAttribute('hidden');
+  }
+
+  function showScoringError(message) {
+    var msgEl = document.getElementById('score-msg');
+    var tipEl = document.getElementById('score-tip');
+    var pctEl = document.getElementById('score-pct');
+    scorePanel.querySelectorAll('.wb-star').forEach(function (s) { s.style.color = '#d1d5db'; });
+    if (pctEl) pctEl.textContent = '';
+    msgEl.textContent = 'Could not score this attempt';
+    msgEl.style.color = '#dc2626';
+    if (tipEl) tipEl.textContent = message;
     scorePanel.removeAttribute('hidden');
   }
 
@@ -335,26 +233,23 @@
   // Submit
   // ---------------------------------------------------------------------------
   btnSubmit.addEventListener('click', function () {
-    var score      = computeScore();
-    var stars      = starsFromScore(score);
     var strokeData = JSON.stringify(fc.toJSON());
+    var inkImage   = captureInkPng();
 
     btnSubmit.disabled    = true;
-    btnSubmit.textContent = 'Saving…';
+    btnSubmit.textContent = 'Scoring…';
     fc.isDrawingMode      = false;
-    showScorePanel(score, stars, score);
 
     var fd = new FormData();
     fd.append('stroke_data', strokeData);
-    fd.append('score', score);
+    fd.append('ink_image', inkImage);
     fd.append('csrfmiddlewaretoken', csrfToken);
 
     fetch(submitUrl, { method: 'POST', body: fd })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data.success) {
-          var bestEl = document.getElementById('best-badge');
-          if (bestEl) bestEl.textContent = 'Your best: ' + data.best_score + '%';
+          showScorePanel(data.score, data.stars, data.reason, data.best_score);
           btnSubmit.textContent = 'Submit';
           if (data.stage_unlocked) setTimeout(function () {
             var t = document.createElement('div');
@@ -364,13 +259,18 @@
             setTimeout(function () { t.style.opacity = '0'; }, 3500);
             setTimeout(function () { t.remove(); }, 4000);
           }, 800);
+        } else {
+          showScoringError(data.error || 'Please try again.');
+          btnSubmit.disabled    = false;
+          btnSubmit.textContent = 'Submit';
+          fc.isDrawingMode      = true;
         }
       })
       .catch(function () {
+        showScoringError('Network error — check your connection and try again.');
         btnSubmit.disabled    = false;
         btnSubmit.textContent = 'Submit';
         fc.isDrawingMode      = true;
-        scorePanel.setAttribute('hidden', '');
       });
   });
 

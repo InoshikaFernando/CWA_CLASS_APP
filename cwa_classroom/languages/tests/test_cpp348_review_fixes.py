@@ -3,7 +3,9 @@ Unit tests for CPP-348 senior tech-lead review fixes (round 2).
 
 Covers every bug/security finding fixed in this review:
   Fix 1  — grammar_fill_blank NULL puzzle_data crash (GET + POST)
-  Fix 2  — letter_writing client-score bypass (no strokes → score 0)
+  Fix 2  — letter_writing client-score bypass (no strokes → score 0; full
+           server-side scoring authority — client 'score' fully ignored —
+           landed in CPP-392, see test_cpp392_scoring_metric.py)
   Fix 3  — crossword float hints bypass hint penalty
   Fix 5  — MCQ re-submit wrong answer no longer downgrades stored correct score
   Fix 6  — _build_crossword_grid KeyError on malformed word entries
@@ -14,6 +16,7 @@ Covers every bug/security finding fixed in this review:
   Auth   — unauthenticated GET /languages/ redirects to login
 """
 import json
+from unittest.mock import patch
 
 import pytest
 from django.test import Client
@@ -203,8 +206,13 @@ class TestLetterWritingScoreBypass:
         ans = LanguageStudentAnswer.objects.get(student=student, exercise=ex)
         assert ans.points_earned == 0
 
-    def test_valid_strokes_accept_client_score(self):
-        """POST with actual stroke objects must accept (and clamp) the client score."""
+    def test_valid_strokes_are_scored_server_side(self):
+        """CPP-392: with real strokes, the server computes the score from
+        the ink image (languages.scoring) — it no longer accepts a client-
+        submitted 'score' at all, closing the bypass this fix's title
+        refers to. Mocking the scorer isolates the view's plumbing
+        (does the returned score reach the response) from the scoring
+        algorithm itself, which test_cpp392_scoring_metric.py covers."""
         ex = _make_letter_exercise('fix2c')
         student = _make_student('cr_stu_fix2c')
         client = Client()
@@ -212,11 +220,12 @@ class TestLetterWritingScoreBypass:
         url = reverse('languages:exercise_detail', kwargs={'exercise_id': ex.pk})
 
         stroke_data = json.dumps({'version': '5.3', 'objects': [{'type': 'path', 'path': 'M 0 0 L 10 10'}]})
-        resp = client.post(url, {'stroke_data': stroke_data, 'score': '87'})
+        with patch('languages.views.scoring.compute_score', return_value=(87.0, 'close_match')):
+            resp = client.post(url, {'stroke_data': stroke_data, 'ink_image': 'dummy', 'score': '5'})
         data = resp.json()
-        assert data['score'] == 87.0, 'Valid strokes → client score should be accepted'
+        assert data['score'] == 87.0, "server-computed score should be used, not the client's 'score': '5'"
 
-    def test_client_score_clamped_to_100(self):
+    def test_client_score_field_cannot_push_score_past_server_value(self):
         ex = _make_letter_exercise('fix2d')
         student = _make_student('cr_stu_fix2d')
         client = Client()
@@ -224,9 +233,10 @@ class TestLetterWritingScoreBypass:
         url = reverse('languages:exercise_detail', kwargs={'exercise_id': ex.pk})
 
         stroke_data = json.dumps({'objects': [{'type': 'path'}]})
-        resp = client.post(url, {'stroke_data': stroke_data, 'score': '150'})
+        with patch('languages.views.scoring.compute_score', return_value=(63.5, 'close_match')):
+            resp = client.post(url, {'stroke_data': stroke_data, 'ink_image': 'dummy', 'score': '150'})
         data = resp.json()
-        assert data['score'] == 100.0
+        assert data['score'] == 63.5
 
 
 # ---------------------------------------------------------------------------

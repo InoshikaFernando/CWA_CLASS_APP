@@ -1,4 +1,5 @@
 import json
+import logging
 import unicodedata
 from decimal import Decimal
 
@@ -11,11 +12,14 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from accounts.decorators import student_required
+from . import scoring
 from .models import (
     Language, LanguageAnswer, LanguageExercise,
     LanguageProgress, LanguageStudentAnswer, LanguageTopicLevel,
 )
-from .utils import get_canvas_config, get_font_info, get_tts_lang_code
+from .utils import get_canvas_config, get_font_info, get_letter_writing_font_info, get_tts_lang_code
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +302,7 @@ def exercise_detail(request, exercise_id):
 
 def _letter_writing(request, exercise, language):
     config = get_canvas_config(language.script_type)
-    font_query, font_family = get_font_info(language.script_type)
+    font_query, font_family = get_letter_writing_font_info(language.script_type)
 
     if request.method == 'POST':
         raw = request.POST.get('stroke_data', '{}')
@@ -310,14 +314,25 @@ def _letter_writing(request, exercise, language):
             stroke_data = {}
 
         has_strokes = bool(stroke_data.get('objects'))
-        raw_score = request.POST.get('score')
-        if raw_score is not None and has_strokes:
-            try:
-                score = max(0.0, min(100.0, float(raw_score)))
-            except (ValueError, TypeError):
-                score = 0.0
+
+        if not has_strokes:
+            score, reason = 0.0, 'no_ink'
         else:
-            score = 100.0 if has_strokes else 0.0
+            target_char = exercise.prompt[0] if exercise.prompt else '?'
+            ink_image = request.POST.get('ink_image', '')
+            try:
+                score, reason = scoring.compute_score(
+                    ink_image, target_char, language.script_type, config,
+                )
+            except scoring.ScoringError as exc:
+                logger.error(
+                    'Letter-writing scoring failed for exercise %s (student %s): %s',
+                    exercise.pk, request.user.pk, exc,
+                )
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Could not score your drawing — please try again.',
+                }, status=422)
 
         is_correct = score >= 50.0
         stars = _stars_from_score(score)
@@ -345,6 +360,7 @@ def _letter_writing(request, exercise, language):
             'success': True,
             'score': round(score, 1),
             'stars': stars,
+            'reason': reason,
             'best_score': round(obj.score, 1),
             'points_earned': str(obj.points_earned),
             'is_correct': obj.is_correct,

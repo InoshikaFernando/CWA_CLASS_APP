@@ -6,6 +6,7 @@ Tests:
   test_stroke_data_saved_to_student_answer — POST saves stroke_data, sets is_correct + points
 """
 import json
+from unittest.mock import patch
 
 import pytest
 from django.test import Client
@@ -127,7 +128,10 @@ class TestStrokeDataSavedToStudentAnswer:
         client.login(username=student.username, password=pwd)
         url = reverse('languages:exercise_detail', kwargs={'exercise_id': exercise.pk})
         # Use default multipart encoding — matches how FormData sends from whiteboard.js
-        resp = client.post(url, data={'stroke_data': json.dumps(stroke_payload)})
+        # CPP-392: score is server-computed from ink_image — mock the scorer,
+        # this test is about stroke_data persistence, not the scoring algorithm.
+        with patch('languages.views.scoring.compute_score', return_value=(90.0, 'excellent_match')):
+            resp = client.post(url, data={'stroke_data': json.dumps(stroke_payload), 'ink_image': 'dummy'})
 
         assert resp.status_code == 200
         data = resp.json()
@@ -188,7 +192,8 @@ class TestStrokeDataSavedToStudentAnswer:
 
         # Second submit — with strokes
         payload2 = {'version': '5.3.1', 'objects': [{'type': 'path'}]}
-        client.post(url, data={'stroke_data': json.dumps(payload2)})
+        with patch('languages.views.scoring.compute_score', return_value=(90.0, 'excellent_match')):
+            client.post(url, data={'stroke_data': json.dumps(payload2), 'ink_image': 'dummy'})
 
         assert LanguageStudentAnswer.objects.filter(student=student, exercise=exercise).count() == 1
         ans = LanguageStudentAnswer.objects.get(student=student, exercise=exercise)
