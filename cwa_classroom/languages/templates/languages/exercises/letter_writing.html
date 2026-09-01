@@ -114,6 +114,7 @@
          data-lines="{{ canvas_config.lines }}"
          data-guide-char="{{ guide_char }}"
          data-font-family="{{ font_family }}"
+         data-script-type="{{ language.script_type }}"
          data-submit-url="{% url 'languages:exercise_detail' exercise_id=exercise.id %}"
          data-csrf="{{ csrf_token }}">
       <canvas id="drawing-layer"
@@ -167,5 +168,7 @@
 
 {% block extra_js %}
 {{ block.super }}
+<script src="{% static 'languages/js/stroke_order_data.js' %}"></script>
+<script src="{% static 'languages/js/stroke_order.js' %}"></script>
 <script src="{% static 'languages/js/whiteboard.js' %}"></script>
 {% endblock %}

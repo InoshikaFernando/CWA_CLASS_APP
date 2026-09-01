@@ -275,7 +275,15 @@
   });
 
   // ---------------------------------------------------------------------------
-  // Guide character writing animation  (skeleton trace + smooth bezier)
+  // Guide character writing animation — authored stroke order (CPP-393)
+  //
+  // Stroke order and direction come from window.STROKE_ORDER_DATA
+  // (stroke_order_data.js), resolved onto the actual glyph's skeleton by
+  // window.StrokeOrder (stroke_order.js). This file only plays the result
+  // back: one stroke at a time, pen dot + direction arrow, a pause between
+  // strokes, and a visible stroke-count badge. A character with no
+  // authored entry shows the static glyph with no direction arrow — never
+  // a guessed path (see stroke_order.js's module doc for why).
   // ---------------------------------------------------------------------------
   (function () {
     var animCanvas = document.getElementById('guide-anim');
@@ -290,13 +298,13 @@
     // Ruled line positions inside the animation canvas
     var A_TOP_PAD = 18;
     var A_LH      = AH - A_TOP_PAD * 2 - 20; // leave room for descender area
-    var A_DESC    = 20;
     var A_TOP_Y   = A_TOP_PAD;
     var A_MID_Y   = A_TOP_PAD + A_LH * 0.4;
     var A_BASE_Y  = A_TOP_PAD + A_LH;
 
     var fSize    = Math.floor(A_LH * 0.88);
     var fontSpec = 'bold ' + fSize + 'px ' + fontFamily + ', sans-serif';
+    var scriptType = wrapper.dataset.scriptType || 'latin';
 
     // Draw lined paper background
     function drawBg() {
@@ -314,71 +322,6 @@
       ctx.strokeStyle = '#5b9bd5'; ctx.lineWidth = 2; ctx.stroke();
     }
 
-    // Zhang-Suen iterative thinning
-    function thin(src, w, h) {
-      var px = new Uint8Array(src);
-      var changed = true;
-      while (changed) {
-        changed = false;
-        for (var pass = 0; pass < 2; pass++) {
-          var rem = [];
-          for (var y = 1; y < h - 1; y++) {
-            for (var x = 1; x < w - 1; x++) {
-              if (!px[y * w + x]) continue;
-              var p2 = px[(y-1)*w+x],   p3 = px[(y-1)*w+x+1];
-              var p4 = px[ y   *w+x+1], p5 = px[(y+1)*w+x+1];
-              var p6 = px[(y+1)*w+x],   p7 = px[(y+1)*w+x-1];
-              var p8 = px[ y   *w+x-1], p9 = px[(y-1)*w+x-1];
-              var B  = p2+p3+p4+p5+p6+p7+p8+p9;
-              if (B < 2 || B > 6) continue;
-              var A = (!p2&&p3?1:0)+(!p3&&p4?1:0)+(!p4&&p5?1:0)+(!p5&&p6?1:0)+
-                      (!p6&&p7?1:0)+(!p7&&p8?1:0)+(!p8&&p9?1:0)+(!p9&&p2?1:0);
-              if (A !== 1) continue;
-              if (pass === 0 && (p2*p4*p6 || p4*p6*p8)) continue;
-              if (pass === 1 && (p2*p4*p8 || p2*p6*p8)) continue;
-              rem.push(y * w + x);
-            }
-          }
-          rem.forEach(function (i) { px[i] = 0; changed = true; });
-        }
-      }
-      return px;
-    }
-
-    // DFS skeleton trace from topmost endpoint
-    function traceSkeleton(skel, w, h) {
-      var ptMap = {}, pts = [];
-      for (var y = 0; y < h; y++)
-        for (var x = 0; x < w; x++)
-          if (skel[y*w+x]) { ptMap[y+'_'+x] = 1; pts.push({x:x, y:y}); }
-      if (!pts.length) return [];
-
-      function nbrs(p) {
-        var n = [];
-        for (var dy = -1; dy <= 1; dy++)
-          for (var dx = -1; dx <= 1; dx++)
-            if ((dx||dy) && ptMap[(p.y+dy)+'_'+(p.x+dx)]) n.push({x:p.x+dx, y:p.y+dy});
-        return n;
-      }
-
-      var endpoints = pts.filter(function(p){ return nbrs(p).length === 1; });
-      var start = (endpoints.length ? endpoints : pts).reduce(function(a,b){
-        return a.y < b.y || (a.y===b.y && a.x < b.x) ? a : b;
-      });
-
-      var visited = {}, path = [];
-      function dfs(p) {
-        var k = p.y+'_'+p.x;
-        if (visited[k]) return;
-        visited[k] = 1; path.push(p);
-        var ns = nbrs(p).filter(function(n){ return !visited[n.y+'_'+n.x]; });
-        if (ns.length) dfs(ns[0]);
-      }
-      dfs(start);
-      pts.forEach(function(p){ if (!visited[p.y+'_'+p.x]) dfs(p); });
-      return path;
-    }
-
     // Box-blur smoothing on path coordinates
     function smoothPath(pts, iters) {
       var p = pts.slice();
@@ -391,9 +334,12 @@
       return p;
     }
 
-    function startAnim() {
-      // Offscreen: render char at animation canvas size (white bg required —
-      // transparent pixels have lum=0 and would corrupt the mask)
+    // Renders the full glyph to an offscreen canvas for the faint ghost
+    // backdrop (and the no-data fallback). Independent of stroke_order.js's
+    // own internal render — this one just needs to look good, not be
+    // thresholded for skeleton extraction. Falls back to an SVG render if
+    // canvas fillText produced nothing (complex-script font not ready).
+    function renderGhost(callback) {
       var off = document.createElement('canvas');
       off.width = AW; off.height = AH;
       var oCtx = off.getContext('2d');
@@ -406,89 +352,130 @@
       oCtx.fillText(guideChar, AW / 2, A_BASE_Y);
 
       var imgData = oCtx.getImageData(0, 0, AW, AH);
-      var mask = new Uint8Array(AW * AH);
       var charPx = 0;
       for (var i = 0; i < AW * AH; i++) {
         var lum = 0.299*imgData.data[i*4] + 0.587*imgData.data[i*4+1] + 0.114*imgData.data[i*4+2];
-        if (lum < 128) { mask[i] = 1; charPx++; }
+        if (lum < 128) charPx++;
       }
 
-      // If canvas fillText rendered nothing (complex script font not ready),
-      // retry via SVG — SVG text uses browser shaping engine same as HTML
-      if (charPx < 50) {
-        var esc = guideChar.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        var svgSrc = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
-          '<svg xmlns="http://www.w3.org/2000/svg" width="'+AW+'" height="'+AH+'">' +
-          '<rect width="100%" height="100%" fill="white"/>' +
-          '<text x="'+Math.round(AW/2)+'" y="'+A_BASE_Y+'" ' +
-          'font-family="'+fontFamily+', sans-serif" font-size="'+fSize+'" font-weight="bold" ' +
-          'fill="#1e3a8a" text-anchor="middle">'+esc+'</text></svg>');
-        var svgImg = new Image();
-        svgImg.onload = function() {
-          oCtx.clearRect(0, 0, AW, AH);
-          oCtx.fillStyle = '#ffffff'; oCtx.fillRect(0, 0, AW, AH);
-          oCtx.drawImage(svgImg, 0, 0);
-          var d2 = oCtx.getImageData(0, 0, AW, AH);
-          var m2 = new Uint8Array(AW * AH); var cp2 = 0;
-          for (var ii = 0; ii < AW * AH; ii++) {
-            var l2 = 0.299*d2.data[ii*4]+0.587*d2.data[ii*4+1]+0.114*d2.data[ii*4+2];
-            if (l2 < 128) { m2[ii] = 1; cp2++; }
-          }
-          buildAndAnimate(off, m2, cp2);
-        };
-        svgImg.onerror = function() { buildAndAnimate(off, mask, charPx); };
-        svgImg.src = svgSrc;
-        return;
-      }
+      if (charPx >= 50) { callback(off); return; }
 
-      buildAndAnimate(off, mask, charPx);
+      var esc = guideChar.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      var svgSrc = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="'+AW+'" height="'+AH+'">' +
+        '<rect width="100%" height="100%" fill="white"/>' +
+        '<text x="'+Math.round(AW/2)+'" y="'+A_BASE_Y+'" ' +
+        'font-family="'+fontFamily+', sans-serif" font-size="'+fSize+'" font-weight="bold" ' +
+        'fill="#1e3a8a" text-anchor="middle">'+esc+'</text></svg>');
+      var svgImg = new Image();
+      svgImg.onload = function() {
+        oCtx.clearRect(0, 0, AW, AH);
+        oCtx.fillStyle = '#ffffff'; oCtx.fillRect(0, 0, AW, AH);
+        oCtx.drawImage(svgImg, 0, 0);
+        callback(off);
+      };
+      svgImg.onerror = function() { callback(off); };
+      svgImg.src = svgSrc;
     }
 
-    function buildAndAnimate(off, mask, charPx) {
-      var skel = thin(mask, AW, AH);
-      var skelPx = 0;
-      for (var j = 0; j < skel.length; j++) if (skel[j]) skelPx++;
-      var strokeW = skelPx > 0 ? Math.max(4, Math.round(charPx / skelPx)) : 10;
+    // No authored stroke data (or the glyph failed to render at all) —
+    // fade the static ghost in/out. No pen, no direction arrow: a guessed
+    // path is exactly the CPP-393 defect, so this is the honest fallback.
+    function animateStaticFallback(off) {
+      var opacity = 0, rising = true;
+      (function fadeFallback() {
+        drawBg();
+        ctx.globalAlpha = opacity; ctx.drawImage(off, 0, 0); ctx.globalAlpha = 1;
+        opacity += rising ? 0.012 : -0.012;
+        if (opacity >= 0.85) rising = false;
+        if (opacity <= 0) { rising = true; opacity = 0; }
+        requestAnimationFrame(fadeFallback);
+      })();
+    }
 
-      var rawPath = traceSkeleton(skel, AW, AH);
-      if (!rawPath.length) {
-        // Fallback: fade the ghost in/out when skeleton fails
-        var opacity = 0, rising = true;
-        (function fadeFallback() {
-          drawBg();
-          ctx.globalAlpha = opacity; ctx.drawImage(off, 0, 0); ctx.globalAlpha = 1;
-          opacity += rising ? 0.012 : -0.012;
-          if (opacity >= 0.85) rising = false;
-          if (opacity <= 0) { rising = true; opacity = 0; }
-          requestAnimationFrame(fadeFallback);
-        })();
-        return;
+    function drawPen(p, angle) {
+      // Pencil tip glow
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 13, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(239,68,68,0.15)';
+      ctx.fill();
+      // Core dot
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = '#ef4444';
+      ctx.fill();
+      // Direction arrow
+      if (angle !== null) {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(angle);
+        ctx.beginPath();
+        ctx.moveTo(18, 0); ctx.lineTo(9, -6); ctx.lineTo(9, 6);
+        ctx.closePath();
+        ctx.fillStyle = '#ef4444';
+        ctx.fill();
+        ctx.restore();
       }
+    }
 
-      // Smooth the path for natural-looking strokes
-      var path = smoothPath(rawPath, 5);
+    // Visible "Stroke n / total" badge, top-left — makes the stroke count
+    // teachable per CPP-393's acceptance criteria.
+    function drawStrokeBadge(n, total) {
+      var label = 'Stroke ' + n + ' / ' + total;
+      ctx.font = 'bold 11px sans-serif';
+      var tw = ctx.measureText(label).width;
+      var padX = 8, boxH = 20, boxW = tw + padX * 2;
+      ctx.fillStyle = 'rgba(30,58,138,0.85)';
+      if (ctx.roundRect) {
+        ctx.beginPath(); ctx.roundRect(6, 6, boxW, boxH, 10); ctx.fill();
+      } else {
+        ctx.fillRect(6, 6, boxW, boxH);
+      }
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, 6 + padX, 6 + boxH / 2 + 1);
+    }
 
-      var pathIdx = 0;
-      var pausing = 0;
-      var intro   = 100; // ~1.6s pulsing "START" intro
-      var PAUSE   = 130; // hold complete char before restart
+    function animateStrokes(resolved, off) {
+      var strokes = resolved.strokes
+        .map(function (pts) { return pts.length > 1 ? smoothPath(pts, 3) : pts; })
+        .filter(function (pts) { return pts.length > 0; });
+      if (!strokes.length) { animateStaticFallback(off); return; }
 
-      function drawSmoothTrail(upTo) {
+      var inkPx = 0, skelPx = 0;
+      for (var i = 0; i < resolved.mask.length; i++) if (resolved.mask[i]) inkPx++;
+      for (var j = 0; j < resolved.skeleton.length; j++) if (resolved.skeleton[j]) skelPx++;
+      var strokeW = skelPx > 0 ? Math.max(4, Math.round(inkPx / skelPx)) : 10;
+
+      var strokeIdx = 0, pointIdx = 0, pausing = 0;
+      var INTRO_FRAMES = 70;   // ~1.1s pulsing "START" before the very first stroke
+      var PAUSE_BETWEEN = 45;  // pen-lift pause between strokes
+      var PAUSE_END = 130;     // hold the finished character before restart
+      var intro = INTRO_FRAMES;
+
+      function drawStrokeTrail(pathArr, upTo) {
+        if (pathArr.length === 1) {
+          // Single-anchor stroke = a dot (e.g. the tittle on "i"/"j").
+          ctx.beginPath();
+          ctx.arc(pathArr[0].x, pathArr[0].y, Math.max(3, strokeW / 2), 0, Math.PI * 2);
+          ctx.fillStyle = '#1e3a8a';
+          ctx.fill();
+          return;
+        }
         if (upTo < 1) return;
         ctx.beginPath();
-        ctx.moveTo(path[0].x, path[0].y);
-        var inStroke = true;
-        for (var i = 1; i <= Math.min(upTo, path.length - 1); i++) {
-          var jump = Math.abs(path[i].x-path[i-1].x) > 8 || Math.abs(path[i].y-path[i-1].y) > 8;
+        ctx.moveTo(pathArr[0].x, pathArr[0].y);
+        for (var i = 1; i <= Math.min(upTo, pathArr.length - 1); i++) {
+          var jump = Math.abs(pathArr[i].x-pathArr[i-1].x) > 8 || Math.abs(pathArr[i].y-pathArr[i-1].y) > 8;
           if (jump) {
-            ctx.stroke(); ctx.beginPath(); ctx.moveTo(path[i].x, path[i].y);
-          } else if (i < path.length - 1) {
-            // Quadratic bezier through midpoints → smooth curve
-            var mx = (path[i].x + path[i+1].x) / 2;
-            var my = (path[i].y + path[i+1].y) / 2;
-            ctx.quadraticCurveTo(path[i].x, path[i].y, mx, my);
+            ctx.stroke(); ctx.beginPath(); ctx.moveTo(pathArr[i].x, pathArr[i].y);
+          } else if (i < pathArr.length - 1) {
+            var mx = (pathArr[i].x + pathArr[i+1].x) / 2;
+            var my = (pathArr[i].y + pathArr[i+1].y) / 2;
+            ctx.quadraticCurveTo(pathArr[i].x, pathArr[i].y, mx, my);
           } else {
-            ctx.lineTo(path[i].x, path[i].y);
+            ctx.lineTo(pathArr[i].x, pathArr[i].y);
           }
         }
         ctx.strokeStyle = '#1e3a8a';
@@ -496,31 +483,6 @@
         ctx.lineCap     = 'round';
         ctx.lineJoin    = 'round';
         ctx.stroke();
-      }
-
-      function drawPen(p, angle) {
-        // Pencil tip glow
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 13, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(239,68,68,0.15)';
-        ctx.fill();
-        // Core dot
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
-        ctx.fillStyle = '#ef4444';
-        ctx.fill();
-        // Direction arrow
-        if (angle !== null) {
-          ctx.save();
-          ctx.translate(p.x, p.y);
-          ctx.rotate(angle);
-          ctx.beginPath();
-          ctx.moveTo(18, 0); ctx.lineTo(9, -6); ctx.lineTo(9, 6);
-          ctx.closePath();
-          ctx.fillStyle = '#ef4444';
-          ctx.fill();
-          ctx.restore();
-        }
       }
 
       function frame() {
@@ -531,9 +493,15 @@
         ctx.drawImage(off, 0, 0);
         ctx.globalAlpha = 1;
 
-        if (intro > 0) {
-          // Pulse "START HERE" at the first stroke position
-          var pulse = (Math.sin((100 - intro) * 0.12) + 1) / 2;
+        // Strokes already completed this pass stay fully visible.
+        for (var si = 0; si < strokeIdx; si++) {
+          drawStrokeTrail(strokes[si], strokes[si].length - 1);
+        }
+
+        var path = strokes[strokeIdx];
+
+        if (intro > 0 && strokeIdx === 0 && pointIdx === 0) {
+          var pulse = (Math.sin((INTRO_FRAMES - intro) * 0.12) + 1) / 2;
           var sp = path[0];
           ctx.beginPath();
           ctx.arc(sp.x, sp.y, 14 + pulse * 6, 0, Math.PI * 2);
@@ -546,35 +514,71 @@
           ctx.fillStyle = '#ef4444';
           ctx.textAlign = 'center';
           ctx.fillText('START HERE', sp.x, sp.y - 18);
+          drawStrokeBadge(strokeIdx + 1, strokes.length);
           intro--;
 
-        } else if (!pausing && pathIdx < path.length) {
-          drawSmoothTrail(pathIdx);
+        } else if (!pausing && pointIdx < path.length) {
+          drawStrokeTrail(path, pointIdx);
 
-          var cp    = path[pathIdx];
-          var prev  = path[Math.max(0, pathIdx - 5)];
-          var angle = pathIdx > 5 ? Math.atan2(cp.y - prev.y, cp.x - prev.x) : null;
+          var cp    = path[pointIdx];
+          var prev  = path[Math.max(0, pointIdx - 5)];
+          var angle = pointIdx > 5 ? Math.atan2(cp.y - prev.y, cp.x - prev.x) : null;
           drawPen(cp, angle);
+          drawStrokeBadge(strokeIdx + 1, strokes.length);
 
-          // Persistent small start dot
-          ctx.beginPath();
-          ctx.arc(path[0].x, path[0].y, 5, 0, Math.PI * 2);
-          ctx.fillStyle = 'rgba(239,68,68,0.6)'; ctx.fill();
-
-          pathIdx++;
+          pointIdx++;
 
         } else if (!pausing) {
-          drawSmoothTrail(path.length - 1);
-          pausing = PAUSE;
+          drawStrokeTrail(path, path.length - 1);
+          drawStrokeBadge(strokeIdx + 1, strokes.length);
+          pausing = (strokeIdx === strokes.length - 1) ? PAUSE_END : PAUSE_BETWEEN;
+
         } else {
-          drawSmoothTrail(path.length - 1);
+          drawStrokeTrail(path, path.length - 1);
+          drawStrokeBadge(strokeIdx + 1, strokes.length);
           pausing--;
-          if (!pausing) { pathIdx = 0; intro = 70; }
+          if (!pausing) {
+            if (strokeIdx < strokes.length - 1) {
+              strokeIdx++; pointIdx = 0;
+            } else {
+              strokeIdx = 0; pointIdx = 0; intro = INTRO_FRAMES;
+            }
+          }
         }
 
         requestAnimationFrame(frame);
       }
       frame();
+    }
+
+    function startAnim() {
+      renderGhost(function (off) {
+        var strokeData = window.STROKE_ORDER_DATA &&
+                          window.STROKE_ORDER_DATA[scriptType] &&
+                          window.STROKE_ORDER_DATA[scriptType][guideChar];
+
+        // Reuse the ghost's own render (canvas, with its SVG retry already
+        // applied if the complex-script font needed it) instead of having
+        // StrokeOrder.resolve() re-render `guideChar` from scratch — avoids
+        // a second full fillText + getImageData pass, and means the
+        // skeleton engine gets the same fallback robustness the ghost has
+        // rather than silently failing where the ghost would have recovered.
+        var resolved = (strokeData && window.StrokeOrder) ? window.StrokeOrder.resolve({
+          strokes: strokeData,
+          canvas:  off,
+          w: AW, h: AH,
+        }) : null;
+
+        if (!resolved) {
+          if (strokeData && window.console && console.warn) {
+            console.warn('[stroke-order] authored data exists for ' + JSON.stringify(guideChar) +
+              ' (' + scriptType + ') but failed to resolve onto the rendered glyph — showing the static fallback.');
+          }
+          animateStaticFallback(off);
+          return;
+        }
+        animateStrokes(resolved, off);
+      });
     }
 
     if (document.fonts) {

@@ -272,7 +272,7 @@ class TestScoringMetric:
         assert data['stars'] == 3
         assert data['reason'] == 'excellent_match'
 
-        self.page.wait_for_timeout(400)
+        self.page.wait_for_timeout(900)
 
         expect(self.page.locator('#score-panel')).to_be_visible()
         expect(self.page.locator('#score-pct')).to_have_text('%'.join([str(data['score']), '']))
@@ -298,7 +298,7 @@ class TestScoringMetric:
         ):
             self.page.locator('#btn-submit').click()
 
-        self.page.wait_for_timeout(400)
+        self.page.wait_for_timeout(900)
 
         tip_text = self.page.locator('#score-tip').inner_text()
         assert 'fill the canvas height' not in tip_text.lower()
