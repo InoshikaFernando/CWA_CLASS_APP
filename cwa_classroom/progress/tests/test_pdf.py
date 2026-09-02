@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from progress import periods
 from progress.models import PeriodReport
-from progress.pdf import render_report_pdf
+from progress.pdf import TOPIC_CHART_LIMIT, render_report_pdf
 from progress.reports import build_report_data
 from progress.tests.factories import (
     answer, enrol, make_classroom, make_homework, make_question, make_school,
@@ -296,18 +296,21 @@ class PdfCarriesEverySectionTests(TestCase):
         """
         topics = [
             {'topic': f'Topic {index}', 'answered': 4, 'correct': 2,
-             'accuracy_pct': 50 + index}
-            for index in range(14)
+             'accuracy_pct': index % 101}
+            for index in range(TOPIC_CHART_LIMIT + 4)
         ]
         pdf = self._render(self._data(topics=topics))
 
-        self.assertIn('The 10 weakest of 14 topics', pdf)
+        self.assertIn(f'The {TOPIC_CHART_LIMIT} weakest of '
+                      f'{TOPIC_CHART_LIMIT + 4} topics', pdf)
 
     def test_an_uncapped_topic_chart_makes_no_such_claim(self):
+        # A real class's topic count. The cap used to bite at ten, so this
+        # said "the 10 weakest of 32" on a chart that could have shown them all.
         topics = [
             {'topic': f'Topic {index}', 'answered': 4, 'correct': 2,
-             'accuracy_pct': 50 + index}
-            for index in range(3)
+             'accuracy_pct': index % 101}
+            for index in range(32)
         ]
         pdf = self._render(self._data(topics=topics))
 
@@ -378,3 +381,62 @@ class PdfCarriesEverySectionTests(TestCase):
         pdf = self._render(self._data(next_steps={'items': []}))
 
         self.assertNotIn("What's next", pdf)
+
+    def test_no_topic_name_can_overrun_its_gutter(self):
+        """The defect that survived two fixes: labels cut off at the edge.
+
+        Rotated under a vertical axis, a long name ran off the drawing and was
+        silently clipped — "Negative Numbers" arrived as "…ive Numbers", and no
+        amount of shortening saves "Linear Relationships & Coordinate
+        Geometry". Horizontal rows give each name its own line, and the gutter
+        is measured rather than guessed, so this asserts the measurement.
+        """
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+
+        from progress.pdf import (
+            _TOPIC_LABEL_FONT, _TOPIC_LABEL_SIZE, CONTENT_WIDTH, _topic_chart,
+        )
+
+        chart = _topic_chart([
+            {'topic': 'Linear Relationships & Coordinate Geometry',
+             'answered': 4, 'correct': 0, 'accuracy_pct': 0},
+            {'topic': 'Negative Numbers',
+             'answered': 4, 'correct': 4, 'accuracy_pct': 100},
+        ]).contents[0]
+
+        for name in chart.categoryAxis.categoryNames:
+            self.assertLessEqual(
+                stringWidth(name, _TOPIC_LABEL_FONT, _TOPIC_LABEL_SIZE),
+                chart.x,
+                f'{name!r} is wider than the gutter reserved for it',
+            )
+        # And the bars plus their end labels stay inside the drawing.
+        self.assertLessEqual(chart.x + chart.width, CONTENT_WIDTH)
+
+    def test_a_full_class_worth_of_topics_fits_one_page(self):
+        """32 topics is an ordinary class. It used to show ten."""
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+
+        from progress.pdf import _topic_chart
+
+        drawing = _topic_chart([
+            {'topic': f'Topic {index}', 'answered': 4, 'correct': 2,
+             'accuracy_pct': index % 101}
+            for index in range(32)
+        ])
+
+        self.assertLess(drawing.height, A4[1] - 32 * mm)
+        self.assertEqual(len(drawing.contents[0].categoryAxis.categoryNames), 32)
+
+    def test_the_weakest_topic_is_at_the_top(self):
+        """Weakest first reads top-down; category 0 of a horizontal chart is
+        at the BOTTOM, so the order is reversed on the way in."""
+        from progress.pdf import _topic_chart
+
+        chart = _topic_chart([
+            {'topic': 'Worst', 'answered': 4, 'correct': 0, 'accuracy_pct': 0},
+            {'topic': 'Best', 'answered': 4, 'correct': 4, 'accuracy_pct': 100},
+        ]).contents[0]
+
+        self.assertEqual(chart.categoryAxis.categoryNames[-1], 'Worst')
