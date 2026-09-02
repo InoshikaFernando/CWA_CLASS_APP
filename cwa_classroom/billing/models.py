@@ -1,7 +1,7 @@
 import math
 
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.conf import settings
 from django.utils import timezone
 
@@ -35,7 +35,9 @@ class Package(models.Model):
     is_active = models.BooleanField(default=True)
     is_default = models.BooleanField(
         default=False,
-        help_text='Mark as the default student subscription package. Only one should be default.',
+        help_text='The default student subscription package — the one school '
+                  'students are put on. Marking a package default clears the '
+                  'flag on every other package.',
     )
     order = models.PositiveIntegerField(default=0)
 
@@ -44,6 +46,23 @@ class Package(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        """Keep ``is_default`` to at most one package.
+
+        ``_get_student_package()`` resolves the default with
+        ``filter(is_default=True).first()`` under ``ordering = ['order',
+        'price']``, so two defaults do not raise — they quietly put every new
+        school student on whichever package happens to sort first. Marking a
+        package default therefore demotes the others in the same transaction,
+        rather than leaving the choice to a tie-break nobody can see.
+        """
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if self.is_default:
+                type(self).objects.filter(is_default=True).exclude(
+                    pk=self.pk,
+                ).update(is_default=False)
 
     def clean(self):
         super().clean()

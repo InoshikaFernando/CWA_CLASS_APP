@@ -9,8 +9,15 @@ from .models import (
 
 @admin.register(Package)
 class PackageAdmin(admin.ModelAdmin):
-    list_display = ('name', 'class_limit', 'price', 'trial_days', 'is_active', 'order')
-    list_editable = ('is_active', 'order')
+    # is_default and stripe_price_id decide which package a school student is
+    # put on and what currency their card is charged, so both are visible here
+    # rather than only on the change form. Ticking is_default on one row clears
+    # it on the others (Package.save).
+    list_display = (
+        'name', 'class_limit', 'price', 'stripe_price_id', 'trial_days',
+        'is_active', 'is_default', 'order',
+    )
+    list_editable = ('is_active', 'is_default', 'order')
     ordering = ('order',)
 
 
