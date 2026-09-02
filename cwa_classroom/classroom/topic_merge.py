@@ -25,6 +25,7 @@ models, so a topic FK added to a new app later is carried too instead of being
 quietly left behind on a row that is about to disappear.
 """
 import logging
+import re
 from collections import defaultdict
 
 from django.db import IntegrityError, transaction
@@ -126,6 +127,94 @@ def exact_name_clashes(subject_ids=None):
     ]
     clashes.sort(key=lambda c: (-c['total_questions'], c['subject'], c['name']))
     return clashes
+
+
+# Words that carry no meaning in a topic name, so their presence or absence
+# does not make two names different: "Addition of Fractions" and "Addition
+# Fractions" are one topic that somebody typed twice.
+_FILLER_WORDS = frozenset({
+    'a', 'an', 'and', 'for', 'in', 'of', 'on', 'the', 'to', 'using', 'with',
+})
+
+
+def _singular(word):
+    """Crude, deliberate stemming — plurals only, no dictionary.
+
+    A topic bank writes "Fraction" and "Fractions", "Place Value" and "Place
+    Values". Nothing here tries to be a linguist: the rules are the four that
+    cover school topic names, and a word too short to be safely trimmed is
+    left alone.
+    """
+    if len(word) <= 3 or word.endswith('ss'):
+        return word
+    if word.endswith('ies'):
+        return word[:-3] + 'y'
+    if word.endswith(('ches', 'shes', 'ses', 'xes', 'zes')):
+        return word[:-2]
+    if word.endswith('s'):
+        return word[:-1]
+    return word
+
+
+def normalised_name(name):
+    """The comparison key behind :func:`near_duplicate_names`.
+
+    Every step is a rewrite anyone can replay by hand, which is the point:
+    two names group together because they reduce to the same string, not
+    because an algorithm scored them similar. Case, punctuation, ``&`` versus
+    ``and``, filler words, plurals and word ORDER are all discarded, so
+    "Fractions & Decimals" and "Decimals and Fraction" share a key.
+
+    Discarding word order is the one rule that can surprise, and it is here
+    because reordered names are a real duplicate shape in this bank, not a
+    hypothetical one.
+    """
+    text = (name or '').lower().replace('&', ' and ')
+    text = re.sub(r'[^a-z0-9]+', ' ', text)
+    words = [_singular(w) for w in text.split() if w not in _FILLER_WORDS]
+    return ' '.join(sorted(words))
+
+
+def near_duplicate_names(subject_ids=None):
+    """Topics in one subject whose names reduce to the same key.
+
+    The module rule is that nothing here guesses what a topic MEANS, and this
+    keeps it: normalisation is not fuzzy matching. There is no similarity
+    threshold to tune and no ranking — two names either reduce to the same
+    string or they do not, and the answer is the same on every run.
+
+    That still does not make a group a decision. "Mass" and "Masses" reduce
+    alike and probably are one topic; "Time" and "Times" reduce alike and may
+    well not be. So this reports the cluster with what each row holds and
+    leaves the survivor to a human, exactly as the exact matcher does.
+
+    Groups that are only exact clashes are left out — ``exact_name_clashes``
+    already reports those, and repeating them would bury the findings that
+    are new here.
+    """
+    groups = defaultdict(list)
+    for subject in topic_inventory(subject_ids):
+        for summary in subject['topics']:
+            key = (summary['subject_id'], normalised_name(summary['name']))
+            groups[key].append(summary)
+
+    clusters = []
+    for (_subject_id, key), members in groups.items():
+        if not key:
+            continue
+        distinct = {(m['name'] or '').strip().lower() for m in members}
+        if len(distinct) < 2:
+            continue        # one spelling: an exact clash, or nothing at all
+        clusters.append({
+            'subject': members[0]['subject'],
+            'subject_id': members[0]['subject_id'],
+            'key': key,
+            'names': sorted(distinct),
+            'members': sorted(members, key=lambda m: -m['questions']),
+            'total_questions': sum(m['questions'] for m in members),
+        })
+    clusters.sort(key=lambda c: (-c['total_questions'], c['subject'], c['key']))
+    return clusters
 
 
 def structural_issues(subject_ids=None):

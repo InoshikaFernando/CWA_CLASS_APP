@@ -15,6 +15,8 @@ from classroom.models import Level, School, Subject, Topic
 from classroom.topic_merge import (
     exact_name_clashes,
     merge_topics,
+    near_duplicate_names,
+    normalised_name,
     structural_issues,
     subject_name_clashes,
     topic_inventory,
@@ -304,3 +306,146 @@ class MergeTests(TopicMergeTestBase):
 
         self.assertEqual([], exact_name_clashes())
         self.assertNotIn('DUPLICATE-NAME', self._codes())
+
+
+class NormalisedNameTests(TestCase):
+    """The comparison key — every rule replayable by hand, no scoring."""
+
+    def test_case_and_surrounding_space_are_discarded(self):
+        self.assertEqual(normalised_name('  Fractions '),
+                         normalised_name('fractions'))
+
+    def test_an_ampersand_reads_as_and(self):
+        self.assertEqual(normalised_name('Ratio & Proportion'),
+                         normalised_name('Ratio and Proportion'))
+
+    def test_punctuation_is_not_a_difference(self):
+        self.assertEqual(normalised_name('Time: 24-hour clock'),
+                         normalised_name('Time 24 hour clock'))
+
+    def test_filler_words_are_discarded(self):
+        self.assertEqual(normalised_name('Addition of Fractions'),
+                         normalised_name('Addition Fractions'))
+
+    def test_a_plural_reads_as_its_singular(self):
+        self.assertEqual(normalised_name('Place Values'),
+                         normalised_name('Place Value'))
+
+    def test_a_y_plural_reads_as_its_singular(self):
+        self.assertEqual(normalised_name('Probabilities'),
+                         normalised_name('Probability'))
+
+    def test_a_double_s_word_is_left_whole(self):
+        # "Mass" must not be trimmed to "Mas"; it may still meet "Masses".
+        self.assertEqual(normalised_name('Mass'), 'mass')
+        self.assertEqual(normalised_name('Masses'), 'mass')
+
+    def test_a_short_word_is_left_whole(self):
+        # Trimming "is" to "i" would collide with anything else two letters long.
+        self.assertEqual(normalised_name('Is'), 'is')
+
+    def test_word_order_is_discarded(self):
+        self.assertEqual(normalised_name('Fractions & Decimals'),
+                         normalised_name('Decimals and Fraction'))
+
+    def test_different_topics_keep_different_keys(self):
+        self.assertNotEqual(normalised_name('Addition'),
+                            normalised_name('Subtraction'))
+
+    def test_a_name_of_nothing_but_filler_reduces_to_empty(self):
+        self.assertEqual(normalised_name('the and of'), '')
+
+
+class NearDuplicateTests(TopicMergeTestBase):
+    """Names that differ only in spelling — a question for a human, not a merge."""
+
+    def test_a_plural_twin_is_reported(self):
+        self._topic('Place Value', 'pv-nd')
+        self._topic('Place Values', 'pvs-nd')
+
+        clusters = near_duplicate_names()
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(clusters[0]['names'], ['place value', 'place values'])
+
+    def test_an_ampersand_twin_is_reported(self):
+        self._topic('Ratio & Proportion', 'rp1-nd')
+        self._topic('Ratio and Proportion', 'rp2-nd')
+
+        self.assertEqual(len(near_duplicate_names()), 1)
+
+    def test_the_cluster_reports_what_each_row_holds(self):
+        keep = self._topic('Fractions', 'fr1-nd')
+        self._topic('Fraction', 'fr2-nd')
+        self._question(keep)
+
+        cluster = near_duplicate_names()[0]
+        self.assertEqual(cluster['total_questions'], 1)
+        # Busiest row first — the obvious survivor is the one to read first.
+        self.assertEqual(cluster['members'][0]['id'], keep.id)
+
+    def test_twins_under_different_strands_are_still_one_cluster(self):
+        number = self._topic('Number', 'num-nd')
+        algebra = self._topic('Algebra', 'alg-nd')
+        self._topic('Indices', 'ind1-nd', parent=number)
+        self._topic('Index', 'ind2-nd', parent=algebra)
+        self._topic('Indice', 'ind3-nd', parent=algebra)
+
+        clusters = near_duplicate_names()
+        names = [c['names'] for c in clusters]
+        self.assertIn(['indice', 'indices'], names)
+
+    def test_the_same_name_in_two_subjects_is_not_a_cluster(self):
+        self._topic('Fractions', 'fr-m-nd', subject=self.maths)
+        self._topic('Fraction', 'fr-s-nd', subject=self.science)
+
+        self.assertEqual(near_duplicate_names(), [])
+
+    def test_an_exact_clash_alone_is_left_to_the_exact_matcher(self):
+        # Two rows literally named "Addition" are DUPLICATE-NAME, already
+        # reported; repeating them here would bury the new findings.
+        self._topic('Addition', 'a1-nd')
+        self._topic('Addition', 'a2-nd')
+
+        self.assertEqual(near_duplicate_names(), [])
+        self.assertEqual(len(exact_name_clashes()), 1)
+
+    def test_an_exact_clash_inside_a_near_cluster_is_still_reported(self):
+        self._topic('Addition', 'a3-nd')
+        self._topic('Addition', 'a4-nd')
+        self._topic('Additions', 'a5-nd')
+
+        cluster = near_duplicate_names()[0]
+        self.assertEqual(cluster['names'], ['addition', 'additions'])
+        self.assertEqual(len(cluster['members']), 3)
+
+    def test_names_that_reduce_to_nothing_are_not_grouped(self):
+        # Two junk names both reduce to '' — that is not evidence they match.
+        self._topic('the', 'the-nd')
+        self._topic('of', 'of-nd')
+
+        self.assertEqual(near_duplicate_names(), [])
+
+    def test_a_tidy_tree_reports_nothing(self):
+        self._topic('Addition', 'add-nd')
+        self._topic('Subtraction', 'sub-nd')
+
+        self.assertEqual(near_duplicate_names(), [])
+
+    def test_the_search_can_be_narrowed_to_one_subject(self):
+        self._topic('Fractions', 'fr1-sc-nd', subject=self.maths)
+        self._topic('Fraction', 'fr2-sc-nd', subject=self.maths)
+        self._topic('Forces', 'fo1-sc-nd', subject=self.science)
+        self._topic('Force', 'fo2-sc-nd', subject=self.science)
+
+        clusters = near_duplicate_names([self.science.id])
+        self.assertEqual([c['subject'] for c in clusters], ['Science'])
+
+    def test_a_reported_cluster_can_be_merged_away(self):
+        keep = self._topic('Place Value', 'pv1-mg')
+        gone = self._topic('Place Values', 'pv2-mg')
+        self._question(gone)
+
+        merge_topics(keep, [gone])
+
+        self.assertEqual(near_duplicate_names(), [])
+        self.assertEqual(Question.objects.filter(topic=keep).count(), 1)
