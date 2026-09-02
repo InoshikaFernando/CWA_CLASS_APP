@@ -449,3 +449,128 @@ class NearDuplicateTests(TopicMergeTestBase):
 
         self.assertEqual(near_duplicate_names(), [])
         self.assertEqual(Question.objects.filter(topic=keep).count(), 1)
+
+
+class LevelsSurviveAMergeTests(TopicMergeTestBase):
+    """The quietest damage a merge can do — questions move, year links do not.
+
+    ``Topic.levels`` is declared ON Topic, so it is a FORWARD m2m and never
+    appears in ``absorbed._meta.related_objects``. Before this was carried
+    explicitly, merging dropped the absorbed row's years: its questions landed
+    on the survivor and disappeared from a year page, with nothing raised.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.y9 = Level.objects.create(level_number=9, display_name='Y9')
+        cls.y10 = Level.objects.create(level_number=10, display_name='Y10')
+
+    def _years(self, topic):
+        return sorted(topic.levels.values_list('level_number', flat=True))
+
+    def test_a_year_only_the_absorbed_topic_had_reaches_the_survivor(self):
+        keep = self._topic("Pythagoras' Theorem", 'pyth-k-lv')
+        keep.levels.add(self.y9)
+        gone = self._topic('Pythagoras Theorem', 'pyth-g-lv')
+        gone.levels.add(self.y10)
+
+        merge_topics(keep, [gone])
+
+        self.assertEqual(self._years(keep), [9, 10])
+
+    def test_the_survivor_keeps_its_own_years(self):
+        keep = self._topic('Fractions', 'fr-k-lv')
+        keep.levels.add(self.y9)
+        gone = self._topic('Fraction', 'fr-g-lv')
+
+        merge_topics(keep, [gone])
+
+        self.assertEqual(self._years(keep), [9])
+
+    def test_a_year_both_topics_had_is_not_doubled(self):
+        keep = self._topic('Indices', 'ind-k-lv')
+        keep.levels.add(self.y9)
+        gone = self._topic('Indice', 'ind-g-lv')
+        gone.levels.add(self.y9)
+
+        merge_topics(keep, [gone])
+
+        self.assertEqual(self._years(keep), [9])
+
+    def test_years_from_several_absorbed_topics_all_arrive(self):
+        keep = self._topic('Measurement', 'me-k-lv')
+        first = self._topic('Measurements', 'me-1-lv')
+        first.levels.add(self.y9)
+        second = self._topic('measurement', 'me-2-lv')
+        second.levels.add(self.y10)
+
+        merge_topics(keep, [first, second])
+
+        self.assertEqual(self._years(keep), [9, 10])
+
+    def test_the_summary_reports_the_links_it_carried(self):
+        keep = self._topic('Time', 'ti-k-lv')
+        gone = self._topic('Times', 'ti-g-lv')
+        gone.levels.add(self.y9)
+
+        summary = merge_topics(keep, [gone])
+
+        self.assertEqual(sum(summary['carried'].values()), 1)
+
+    def test_a_merge_that_carries_nothing_reports_nothing(self):
+        keep = self._topic('Surds', 'su-k-lv')
+        gone = self._topic('Surd', 'su-g-lv')
+
+        summary = merge_topics(keep, [gone])
+
+        self.assertEqual(summary['carried'], {})
+
+    def test_the_questions_still_move(self):
+        # The fix must not come at the cost of what the merge already did.
+        keep = self._topic('Ratios', 'ra-k-lv')
+        gone = self._topic('Ratio', 'ra-g-lv')
+        gone.levels.add(self.y10)
+        self._question(gone)
+
+        merge_topics(keep, [gone])
+
+        self.assertEqual(Question.objects.filter(topic=keep).count(), 1)
+        self.assertEqual(self._years(keep), [10])
+
+
+class ThreeLevelTests(TopicMergeTestBase):
+    """A sub-topic under a sub-topic — a shape validate_reparent refuses to make.
+
+    Migration 0006 re-parented Multiplication and Division under Number. Their
+    times-table children came along, one level too deep, so the live tree holds
+    rows the tool itself would not create.
+    """
+
+    def test_a_grandchild_is_reported(self):
+        number = self._topic('Number', 'num-3l')
+        division = self._topic('Division', 'div-3l', parent=number)
+        self._topic('Division (10x)', 'div10-3l', parent=division)
+
+        self.assertIn('THREE-LEVEL-TOPIC', self._codes())
+
+    def test_a_two_level_tree_is_not_reported(self):
+        number = self._topic('Number', 'num-ok-3l')
+        self._topic('Division', 'div-ok-3l', parent=number)
+
+        self.assertNotIn('THREE-LEVEL-TOPIC', self._codes())
+
+    def test_a_strand_is_not_reported(self):
+        self._topic('Number', 'num-strand-3l')
+
+        self.assertNotIn('THREE-LEVEL-TOPIC', self._codes())
+
+    def test_the_finding_names_both_ancestors(self):
+        number = self._topic('Number', 'num-nm-3l')
+        division = self._topic('Division', 'div-nm-3l', parent=number)
+        self._topic('Division (10x)', 'div10-nm-3l', parent=division)
+
+        detail = next(i['detail'] for i in structural_issues()
+                      if i['code'] == 'THREE-LEVEL-TOPIC')
+        self.assertIn('Division', detail)
+        self.assertIn('Number', detail)

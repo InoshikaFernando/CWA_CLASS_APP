@@ -165,8 +165,8 @@ def test_list_prints_subtopics_under_their_strand(tree):
     addition_at = out.index('Addition')
     assert number_at < addition_at
     assert '    [' in out          # sub-topics are indented under the strand
-    # Under its own strand, not swept into the parent-is-elsewhere bucket.
-    assert 'is elsewhere' not in out
+    # Under its own strand, not swept into the no-strand bucket.
+    assert 'under no strand of this subject' not in out
 
 
 def test_list_names_every_subject(tree):
@@ -187,7 +187,7 @@ def test_list_shows_a_row_whose_parent_sits_in_another_subject(tree):
 
     out = run(list_tree=True, subject='coding')
     assert 'Recursion' in out
-    assert 'is elsewhere' in out
+    assert 'under no strand of this subject' in out
     assert str(stray.id) in out
 
 
@@ -203,6 +203,41 @@ def test_list_skips_the_findings(tree):
     # --list is for reading the tree; the report is a separate run.
     out = run(list_tree=True)
     assert 'DUPLICATE-NAME' not in out
+
+
+def test_list_says_a_row_is_three_levels_deep_rather_than_elsewhere(tree):
+    # Number > Division > Division (10x): the parent is in THIS subject, one
+    # level too deep. Calling it "elsewhere" sends a reader to another subject.
+    division = Topic.objects.create(subject=tree['maths'], name='Division',
+                                    slug='div-3l-td', parent=tree['number'])
+    Topic.objects.create(subject=tree['maths'], name='Division (10x)',
+                         slug='div10-3l-td', parent=division)
+
+    out = run(list_tree=True, subject='mathematics')
+    assert 'three levels deep' in out
+    assert 'under no strand of this subject' in out
+
+
+def test_list_says_which_subject_a_foreign_parent_belongs_to(tree):
+    Topic.objects.create(subject=tree['coding'], name='Recursion',
+                         slug='rec-fp-td', parent=tree['number'])
+
+    out = run(list_tree=True, subject='coding')
+    assert 'Mathematics' in out
+    assert 'three levels deep' not in out
+
+
+def test_reports_a_three_level_topic(tree):
+    division = Topic.objects.create(subject=tree['maths'], name='Division',
+                                    slug='div-rep-td', parent=tree['number'])
+    Topic.objects.create(subject=tree['maths'], name='Division (10x)',
+                         slug='div10-rep-td', parent=division)
+
+    assert 'THREE-LEVEL-TOPIC' in run()
+
+
+def test_a_two_level_tree_reports_no_three_level_topic(tree):
+    assert 'THREE-LEVEL-TOPIC' not in run()
 
 
 # ── merge ─────────────────────────────────────────────────────────────────
@@ -312,3 +347,30 @@ def test_merge_and_reparent_together_are_refused(tree):
 def test_an_unknown_topic_id_is_rejected(tree):
     with pytest.raises(CommandError):
         run(reparent=999999, under=0)
+
+
+def test_a_merge_reports_the_year_links_it_carried(tree):
+    keep = Topic.objects.create(subject=tree['maths'], name='Pythagoras',
+                                slug='py-k-td', parent=tree['number'])
+    gone = Topic.objects.create(subject=tree['maths'], name='Pythagoras Theorem',
+                                slug='py-g-td', parent=tree['number'])
+    gone.levels.add(tree['level7'])
+
+    out = run(keep=keep.id, absorb=str(gone.id))
+    assert 'link carried to the survivor' in out
+    keep.refresh_from_db()
+    assert list(keep.levels.values_list('level_number', flat=True)) == [7]
+
+
+def test_a_dry_run_merge_leaves_the_year_links_alone(tree):
+    keep = Topic.objects.create(subject=tree['maths'], name='Indices',
+                                slug='ix-k-td', parent=tree['number'])
+    gone = Topic.objects.create(subject=tree['maths'], name='Indice',
+                                slug='ix-g-td', parent=tree['number'])
+    gone.levels.add(tree['level7'])
+
+    run(keep=keep.id, absorb=str(gone.id), dry_run=True)
+
+    keep.refresh_from_db()
+    assert keep.levels.count() == 0
+    assert Topic.objects.filter(pk=gone.id).exists()

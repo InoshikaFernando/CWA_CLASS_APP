@@ -268,16 +268,41 @@ class Command(BaseCommand):
                                     key=lambda t: (t['name'] or '').lower()):
                     self.stdout.write(self._list_row(child, indent='    '))
 
-            # A sub-topic whose parent sits in another subject is reported by
-            # the findings; printing it nowhere would hide it from the list.
+            # Rows left over because their parent is not a strand of this
+            # subject. Printing them nowhere would hide them from the list, and
+            # printing them straight after the last strand would read as its
+            # children, so they get a heading of their own.
             orphans = [t for rows in children.values() for t in rows]
+            if orphans:
+                self.stdout.write(self.style.WARNING(
+                    '  -- under no strand of this subject --'))
             for orphan in sorted(orphans, key=lambda t: (t['name'] or '').lower()):
                 self.stdout.write(self._list_row(orphan, indent='    ')
-                                  + f"  (parent {orphan['parent']!r} is elsewhere)")
+                                  + f'  ({self._why_orphaned(orphan)})')
 
         self.stdout.write(
             '\nSpotted two rows that mean the same thing?\n'
             '  python manage.py topic_doctor --keep <id> --absorb <id>[,<id>] --dry-run')
+
+    def _why_orphaned(self, summary):
+        """Say which of the two reasons this is — they need different fixes.
+
+        A parent in another subject is a mis-filed row. A parent that is itself
+        a sub-topic is a THREE-LEVEL-TOPIC: the parent is right here, one level
+        too deep. Printing one guess for both sends a reader looking in the
+        wrong subject.
+        """
+        from classroom.models import Topic
+
+        parent = Topic.objects.select_related('subject', 'parent').filter(
+            pk=summary['parent_id']).first()
+        if parent is None:
+            return 'parent row is gone'
+        if parent.subject_id != summary['subject_id']:
+            return (f'parent {parent.name!r} belongs to '
+                    f'{parent.subject.name if parent.subject_id else "no subject"}')
+        return (f'parent {parent.name!r} [{parent.id}] is itself a sub-topic '
+                f'of {parent.parent.name!r} — three levels deep')
 
     def _list_row(self, summary, indent):
         return (f"{indent}[{summary['id']:>6}] {summary['name']:<44} "
@@ -342,6 +367,8 @@ class Command(BaseCommand):
         for label, n in sorted(summary['skipped_collisions'].items()):
             self.stdout.write(self.style.WARNING(
                 f'    {label:<40} {n:>5}  (survivor already had an equivalent row)'))
+        for label, n in sorted(summary.get('carried', {}).items()):
+            self.stdout.write(f'    {label:<40} {n:>5}  (link carried to the survivor)')
         if summary['reparented']:
             self.stdout.write(f"    sub-topics re-parented{'':<18} "
                               f"{summary['reparented']:>5}")

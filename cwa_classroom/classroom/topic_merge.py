@@ -23,6 +23,12 @@ picker would defeat the point.
 Re-pointing walks ``_meta.related_objects`` rather than a hand-written list of
 models, so a topic FK added to a new app later is carried too instead of being
 quietly left behind on a row that is about to disappear.
+
+That walk covers only relations pointing AT a topic, so the survivor also
+unions the absorbed row's forward m2m fields — ``Topic.levels`` above all.
+Missing that link is the quietest damage a merge can do: the questions move,
+the year link does not, and the topic drops off a year page with nothing
+raised.
 """
 import logging
 import re
@@ -257,6 +263,19 @@ def structural_issues(subject_ids=None):
                     'topics': [summary],
                 })
 
+            if topic.parent_id and topic.parent.parent_id:
+                issues.append({
+                    'code': 'THREE-LEVEL-TOPIC',
+                    'subject': summary['subject'],
+                    'detail': (f'sits under {topic.parent.name!r}, which is '
+                               f'itself a sub-topic of '
+                               f'{topic.parent.parent.name!r} — the tree is '
+                               f'two levels everywhere else, and '
+                               f'validate_reparent refuses to CREATE this '
+                               f'shape'),
+                    'topics': [summary],
+                })
+
             if (topic.parent_id
                     and topic.parent.subject_id != topic.subject_id):
                 issues.append({
@@ -382,6 +401,7 @@ def merge_topics(keep, absorbed_list, actor=None, request=None):
         'absorbed': [],
         'repointed': defaultdict(int),
         'skipped_collisions': defaultdict(int),
+        'carried': defaultdict(int),
         'reparented': 0,
     }
 
@@ -419,6 +439,25 @@ def merge_topics(keep, absorbed_list, actor=None, request=None):
                         # absorbed row is about to be deleted with it.
                         summary['skipped_collisions'][label] += 1
 
+            # ``related_objects`` covers only relations pointing AT a topic.
+            # ``Topic.levels`` points the other way — it is declared on Topic —
+            # so the loop above never sees it, and the survivor would keep only
+            # its own years. That is the quietest way to lose data here: the
+            # questions move, the year link does not, and the topic vanishes
+            # from a year page with nothing raised. Union every forward m2m,
+            # not just ``levels``, so a field added later is carried too.
+            for m2m in absorbed._meta.many_to_many:
+                absorbed_rows = list(getattr(absorbed, m2m.name).all())
+                if not absorbed_rows:
+                    continue
+                existing = set(getattr(keep, m2m.name).values_list('pk', flat=True))
+                added = [r for r in absorbed_rows if r.pk not in existing]
+                if added:
+                    getattr(keep, m2m.name).add(*added)
+                    summary['carried'][f'{keep._meta.app_label}.'
+                                       f'{keep.__class__.__name__}.'
+                                       f'{m2m.name}'] += len(added)
+
             # Children of the absorbed topic become children of the survivor,
             # rather than being orphaned by the delete (parent is SET_NULL).
             moved = Topic.objects.filter(parent_id=absorbed.id).update(
@@ -432,6 +471,7 @@ def merge_topics(keep, absorbed_list, actor=None, request=None):
 
     summary['repointed'] = dict(summary['repointed'])
     summary['skipped_collisions'] = dict(summary['skipped_collisions'])
+    summary['carried'] = dict(summary['carried'])
 
     try:
         from audit.services import log_event
