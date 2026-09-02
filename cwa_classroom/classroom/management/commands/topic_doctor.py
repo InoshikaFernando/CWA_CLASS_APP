@@ -40,6 +40,11 @@ is re-pointed at the survivor (walking ``_meta.related_objects``, so a topic FK
 added by a later app is carried too), their sub-topics are re-parented, then
 they are deleted.
 
+``--rename``/``--to`` changes what a topic is CALLED and nothing else --
+merging cannot rename, so a survivor keeps whatever the biggest row happened to
+be called. The slug is left alone unless ``--slug`` says otherwise, because
+question image paths are written from it.
+
 ``--reparent``/``--under`` moves one row in the tree — the fix for a parentless
 topic like "Subtraction" that should sit under "Number". ``--under 0`` promotes
 a row to a strand.
@@ -55,6 +60,7 @@ Usage
     python manage.py topic_doctor --only NEAR-DUPLICATE-NAME
     python manage.py topic_doctor --only TOP-LEVEL-HOLDS-QUESTIONS
     python manage.py topic_doctor --keep 207 --absorb 154 --dry-run
+    python manage.py topic_doctor --rename 67 --to "Measurement" --dry-run
     python manage.py topic_doctor --reparent 70 --under 4 --dry-run
 """
 from collections import Counter, defaultdict
@@ -89,6 +95,15 @@ class Command(BaseCommand):
         parser.add_argument('--under', type=int,
                             help='New parent topic id for --reparent; 0 '
                                  'promotes the row to a top-level strand.')
+        parser.add_argument('--rename', type=int,
+                            help='Topic id to rename. Merging cannot rename, '
+                                 'so a survivor keeps whatever the biggest row '
+                                 'was called.')
+        parser.add_argument('--to', type=str, dest='new_name',
+                            help='The new name for --rename.')
+        parser.add_argument('--slug', type=str, dest='new_slug',
+                            help='Also change the slug. Left alone by default: '
+                                 'question image paths are written from it.')
         parser.add_argument('--list', action='store_true', dest='list_tree',
                             help='Print the topic tree, strand by strand, and '
                                  'stop. Reading the sub-topics side by side is '
@@ -99,6 +114,11 @@ class Command(BaseCommand):
     def handle(self, *args, **opts):
         subject_ids = self._resolve_subject(opts['subject'])
 
+        if opts['rename'] is not None or opts['new_name']:
+            if opts['keep'] or opts['absorb'] or opts['reparent'] is not None:
+                raise CommandError('Do one thing at a time: --rename, '
+                                   '--keep/--absorb or --reparent.')
+            return self._rename(opts)
         if opts['keep'] or opts['absorb']:
             if opts['reparent'] is not None:
                 raise CommandError('Do one thing at a time: --keep/--absorb or '
@@ -326,6 +346,48 @@ class Command(BaseCommand):
         if not years:
             return ''
         return '  years: ' + ','.join(f'Y{y}:{n}' for y, n in sorted(years.items()))
+
+    # ── rename ────────────────────────────────────────────────────────────
+    def _rename(self, opts):
+        """Change what a topic is called. Honours --dry-run like the others."""
+        from classroom.topic_merge import rename_topic, topic_summary
+
+        if opts['rename'] is None:
+            raise CommandError('--to needs --rename <id>.')
+        if not opts['new_name']:
+            raise CommandError('A rename needs --to "<new name>".')
+
+        topic = self._get_topic(opts['rename'])
+        summary = topic_summary(topic)
+        self.stdout.write(self.style.MIGRATE_HEADING(
+            f"=== Rename [{topic.id}] {self._path(summary)}"
+            f"{'  [DRY RUN]' if opts['dry_run'] else ''} ==="))
+        self.stdout.write(f"  {summary['questions']} question(s), "
+                          f"{summary['subtopics']} sub-topic(s)")
+
+        try:
+            with transaction.atomic():
+                result = rename_topic(topic, opts['new_name'],
+                                      new_slug=opts['new_slug'])
+                if opts['dry_run']:
+                    transaction.set_rollback(True)
+        except ValueError as err:
+            raise CommandError(f'Refusing: {err}')
+
+        verb = 'Would rename' if opts['dry_run'] else 'Renamed'
+        self.stdout.write(self.style.SUCCESS(
+            f"\n{verb}:  {result['before']['name']!r}  ->  "
+            f"{result['after']['name']!r}"))
+        if result['slug_changed']:
+            self.stdout.write(self.style.WARNING(
+                f"  slug   {result['before']['slug']!r}  ->  "
+                f"{result['after']['slug']!r}\n"
+                f"  Question image paths already written under the old slug "
+                f"are not moved."))
+        else:
+            self.stdout.write(f"  slug   {result['after']['slug']!r} (unchanged)")
+        self.stdout.write(
+            '\nNothing else moved: a rename touches one row and no questions.')
 
     # ── merge ─────────────────────────────────────────────────────────────
     def _merge(self, opts):

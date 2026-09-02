@@ -17,6 +17,7 @@ from classroom.topic_merge import (
     merge_topics,
     near_duplicate_names,
     normalised_name,
+    rename_topic,
     structural_issues,
     subject_name_clashes,
     topic_inventory,
@@ -721,3 +722,128 @@ class StatisticsAfterAMergeTests(TopicMergeTestBase):
         summary = merge_topics(keep, [gone])
 
         self.assertEqual(summary['statistics_refreshed'], 1)
+
+
+class RenameTests(TopicMergeTestBase):
+    """A rename changes one row's label and nothing else.
+
+    Merging cannot rename, so a survivor keeps whatever the biggest row was
+    called. The slug is deliberately NOT touched: question image paths are
+    written under ``questions/year{N}/{slug}/``, and (subject, slug) is unique.
+    """
+
+    def test_the_name_changes(self):
+        topic = self._topic('Measurements', 'me-rn')
+
+        rename_topic(topic, 'Measurement')
+
+        topic.refresh_from_db()
+        self.assertEqual(topic.name, 'Measurement')
+
+    def test_the_slug_is_left_alone(self):
+        topic = self._topic('Measurements', 'me-slug-rn')
+
+        rename_topic(topic, 'Measurement')
+
+        topic.refresh_from_db()
+        self.assertEqual(topic.slug, 'me-slug-rn')
+
+    def test_the_slug_changes_when_asked(self):
+        topic = self._topic('Measurements', 'me-old-rn')
+
+        rename_topic(topic, 'Measurement', new_slug='me-new-rn')
+
+        topic.refresh_from_db()
+        self.assertEqual(topic.slug, 'me-new-rn')
+
+    def test_a_slug_already_used_in_this_subject_is_refused(self):
+        self._topic('Taken', 'taken-rn')
+        topic = self._topic('Measurements', 'me-clash-rn')
+
+        with self.assertRaises(ValueError):
+            rename_topic(topic, 'Measurement', new_slug='taken-rn')
+
+        topic.refresh_from_db()
+        self.assertEqual(topic.slug, 'me-clash-rn')
+
+    def test_the_same_slug_in_another_subject_is_not_a_clash(self):
+        self._topic('Forces', 'shared-rn', subject=self.science)
+        topic = self._topic('Measurements', 'me-ok-rn', subject=self.maths)
+
+        rename_topic(topic, 'Measurement', new_slug='shared-rn')
+
+        topic.refresh_from_db()
+        self.assertEqual(topic.slug, 'shared-rn')
+
+    def test_keeping_its_own_slug_is_not_a_clash(self):
+        topic = self._topic('Measurements', 'me-self-rn')
+
+        rename_topic(topic, 'Measurement', new_slug='me-self-rn')
+
+        topic.refresh_from_db()
+        self.assertEqual(topic.name, 'Measurement')
+
+    def test_an_empty_name_is_refused(self):
+        topic = self._topic('Measurements', 'me-empty-rn')
+
+        with self.assertRaises(ValueError):
+            rename_topic(topic, '   ')
+
+        topic.refresh_from_db()
+        self.assertEqual(topic.name, 'Measurements')
+
+    def test_a_name_too_long_for_the_column_is_refused(self):
+        topic = self._topic('Measurements', 'me-long-rn')
+        limit = Topic._meta.get_field('name').max_length
+
+        with self.assertRaises(ValueError):
+            rename_topic(topic, 'x' * (limit + 1))
+
+        topic.refresh_from_db()
+        self.assertEqual(topic.name, 'Measurements')
+
+    def test_surrounding_space_is_trimmed(self):
+        topic = self._topic('Measurements', 'me-trim-rn')
+
+        rename_topic(topic, '  Measurement  ')
+
+        topic.refresh_from_db()
+        self.assertEqual(topic.name, 'Measurement')
+
+    def test_no_question_moves(self):
+        topic = self._topic('Measurements', 'me-q-rn')
+        self._question(topic)
+
+        rename_topic(topic, 'Measurement')
+
+        self.assertEqual(Question.objects.filter(topic=topic).count(), 1)
+
+    def test_the_parent_and_children_are_untouched(self):
+        parent = self._topic('Number', 'num-rn')
+        topic = self._topic('Place Values', 'pv-rn', parent=parent)
+        child_count = Topic.objects.filter(parent=parent).count()
+
+        rename_topic(topic, 'Place Value')
+
+        topic.refresh_from_db()
+        self.assertEqual(topic.parent_id, parent.id)
+        self.assertEqual(Topic.objects.filter(parent=parent).count(), child_count)
+
+    def test_renaming_to_a_name_a_sibling_already_has_is_allowed(self):
+        # It creates a DUPLICATE-NAME the report will flag, but two rows may
+        # legitimately share a name while a human decides which survives.
+        self._topic('Measurement', 'me-a-rn')
+        topic = self._topic('Measurements', 'me-b-rn')
+
+        rename_topic(topic, 'Measurement')
+
+        self.assertEqual(len(exact_name_clashes()), 1)
+
+    def test_the_summary_reports_both_sides(self):
+        topic = self._topic('Measurements', 'me-sum-rn')
+
+        summary = rename_topic(topic, 'Measurement')
+
+        self.assertEqual(summary['before']['name'], 'Measurements')
+        self.assertEqual(summary['after']['name'], 'Measurement')
+        self.assertFalse(summary['slug_changed'])
