@@ -117,6 +117,94 @@ def test_an_unknown_subject_is_rejected(tree):
         run(subject='astrophysics')
 
 
+def test_reports_near_duplicate_names(tree):
+    Topic.objects.create(subject=tree['maths'], name='Place Value',
+                         slug='pv-td', parent=tree['number'])
+    Topic.objects.create(subject=tree['maths'], name='Place Values',
+                         slug='pvs-td', parent=tree['number'])
+
+    out = run()
+    assert 'NEAR-DUPLICATE-NAME' in out
+    assert 'place value | place values' in out
+
+
+def test_a_near_duplicate_group_names_what_each_row_holds(tree):
+    ratio = Topic.objects.create(subject=tree['maths'], name='Ratio & Proportion',
+                                 slug='rp1-td', parent=tree['number'])
+    Topic.objects.create(subject=tree['maths'], name='Ratio and Proportion',
+                         slug='rp2-td', parent=tree['number'])
+    tree['q'](ratio)
+
+    out = run(only='NEAR-DUPLICATE-NAME')
+    assert f'[{ratio.id:>6}]' in out
+    assert '1 questions' in out
+
+
+def test_a_tidy_tree_reports_no_near_duplicates(tree):
+    out = run()
+    # "Addition"/"Addition" is an exact clash, already DUPLICATE-NAME.
+    assert 'NEAR-DUPLICATE-NAME' not in out
+
+
+def test_near_duplicates_are_reported_without_changing_anything(tree):
+    Topic.objects.create(subject=tree['maths'], name='Fraction', slug='f1-td',
+                         parent=tree['number'])
+    Topic.objects.create(subject=tree['maths'], name='Fractions', slug='f2-td',
+                         parent=tree['number'])
+    before = Topic.objects.count()
+
+    run()
+
+    assert Topic.objects.count() == before
+
+
+# ── --list ────────────────────────────────────────────────────────────────
+def test_list_prints_subtopics_under_their_strand(tree):
+    out = run(list_tree=True)
+    number_at = out.index('Number')
+    addition_at = out.index('Addition')
+    assert number_at < addition_at
+    assert '    [' in out          # sub-topics are indented under the strand
+    # Under its own strand, not swept into the parent-is-elsewhere bucket.
+    assert 'is elsewhere' not in out
+
+
+def test_list_names_every_subject(tree):
+    out = run(list_tree=True)
+    assert 'Mathematics' in out
+    assert 'Coding' in out
+
+
+def test_list_can_be_scoped_to_one_subject(tree):
+    out = run(list_tree=True, subject='coding')
+    assert 'Loops' in out
+    assert 'Addition' not in out
+
+
+def test_list_shows_a_row_whose_parent_sits_in_another_subject(tree):
+    stray = Topic.objects.create(subject=tree['coding'], name='Recursion',
+                                 slug='rec-td', parent=tree['number'])
+
+    out = run(list_tree=True, subject='coding')
+    assert 'Recursion' in out
+    assert 'is elsewhere' in out
+    assert str(stray.id) in out
+
+
+def test_list_writes_nothing(tree):
+    before = list(Topic.objects.order_by('id').values_list('id', 'parent_id'))
+
+    run(list_tree=True)
+
+    assert list(Topic.objects.order_by('id').values_list('id', 'parent_id')) == before
+
+
+def test_list_skips_the_findings(tree):
+    # --list is for reading the tree; the report is a separate run.
+    out = run(list_tree=True)
+    assert 'DUPLICATE-NAME' not in out
+
+
 # ── merge ─────────────────────────────────────────────────────────────────
 def test_merge_repoints_questions_and_deletes_the_absorbed_row(tree):
     keeper = tree['q'](tree['addition'], text='keep side')

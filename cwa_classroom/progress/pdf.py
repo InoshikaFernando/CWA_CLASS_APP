@@ -12,7 +12,9 @@ import logging
 from io import BytesIO
 from xml.sax.saxutils import escape
 
-from reportlab.graphics.charts.barcharts import VerticalBarChart
+from reportlab.graphics.charts.barcharts import (
+    HorizontalBarChart, VerticalBarChart,
+)
 from reportlab.graphics.charts.legends import Legend
 from reportlab.graphics.charts.linecharts import HorizontalLineChart
 from reportlab.graphics.charts.piecharts import Pie
@@ -22,6 +24,7 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import (
     CondPageBreak, Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer,
     Table, TableStyle,
@@ -93,53 +96,80 @@ def _score_colour(pct):
 # ---------------------------------------------------------------------------
 
 #: Bars beyond this are unreadable at A4 width. The table lists them all.
-TOPIC_CHART_LIMIT = 10
+#: Rows beyond this would run past the bottom of an A4 frame. At 10pt a row,
+#: forty topics is 430pt of drawing against roughly 750pt of usable frame — so
+#: in practice every topic a class has fits and the cap never bites. The table
+#: under the chart still lists them all, and the caption says when it does.
+TOPIC_CHART_LIMIT = 40
+
+#: One row per topic, and the gutter is measured rather than guessed.
+_TOPIC_LABEL_FONT = 'Helvetica'
+_TOPIC_LABEL_SIZE = 6
+_TOPIC_ROW_HEIGHT = 10
 
 
 def _topic_chart(topics):
     """Accuracy per topic, weakest first — mirrors the bar chart on the page.
 
-    Every bar carries its own percentage, and that is not decoration. A topic
-    scoring 0% has a bar of zero height, which draws nothing at all: the
-    category label sits under empty space and the chart reads as broken rather
-    than as a nought. This chart shows the WEAKEST topics, so it selects
-    exactly the bars most likely to vanish — three of the ten were invisible on
-    the report that raised CPP-400.
+    HORIZONTAL, and that is the point. Drawn as vertical bars, the topic names
+    had to be rotated under the axis, and a rotated label runs left and down
+    from its tick until it leaves the drawing and is silently cut: "Negative
+    Numbers" arrived as "…ive Numbers". Shortening the text only moves the
+    cliff — "Linear Relationships & Coordinate Geometry" is a real topic name
+    and no rotation makes it fit. Turning the chart on its side gives every
+    name a full line to itself, and the gutter is MEASURED with stringWidth
+    rather than guessed, so nothing can overrun it.
 
-    A printed figure is the honest fix. It says nought where a missing bar said
-    nothing, and it stays readable when two bars are a percentage point apart.
+    Every bar carries its own percentage. A topic scoring 0% has a bar of zero
+    length, which draws nothing at all, and this chart shows the WEAKEST topics
+    — so it selects exactly the bars most likely to vanish. On the report that
+    raised CPP-400, ten of ten were empty. The printed figure says nought where
+    a missing bar said nothing.
     """
     rows = topics[:TOPIC_CHART_LIMIT]
     if not rows:
         return None
 
-    height = 66 + 18 * len(rows)
+    # Weakest first reads top-down, but a horizontal chart stacks category 0 at
+    # the BOTTOM, so the order is reversed on the way in.
+    rows = list(reversed(rows))
+    names = [_shorten(row['topic'], 34) for row in rows]
+
+    gutter = max(
+        stringWidth(name, _TOPIC_LABEL_FONT, _TOPIC_LABEL_SIZE)
+        for name in names
+    ) + 6
+    # A pathological name must not squeeze the bars out of existence.
+    gutter = min(gutter, CONTENT_WIDTH * 0.42)
+
+    height = 30 + _TOPIC_ROW_HEIGHT * len(rows)
     drawing = Drawing(CONTENT_WIDTH, height)
-    chart = VerticalBarChart()
-    chart.x = 30
-    chart.y = 40
-    chart.width = CONTENT_WIDTH - 50
-    chart.height = height - 66
+    chart = HorizontalBarChart()
+    chart.x = gutter
+    chart.y = 20
+    # Room at the right for the "100%" label sitting past the end of its bar.
+    chart.width = CONTENT_WIDTH - gutter - 26
+    chart.height = height - 30
     chart.data = [[row['accuracy_pct'] for row in rows]]
     chart.valueAxis.valueMin = 0
     chart.valueAxis.valueMax = 100
     chart.valueAxis.valueStep = 25
-    chart.categoryAxis.categoryNames = [_shorten(row['topic']) for row in rows]
-    chart.categoryAxis.labels.angle = 30
-    chart.categoryAxis.labels.dy = -6
-    chart.categoryAxis.labels.boxAnchor = 'ne'
-    chart.categoryAxis.labels.fontSize = 6.5
-    # The figure above each bar — see the docstring. Nudged clear of the bar
-    # top so a 100% bar does not push its own label off the drawing.
+    chart.valueAxis.labels.fontSize = 6
+    chart.categoryAxis.categoryNames = names
+    chart.categoryAxis.labels.fontName = _TOPIC_LABEL_FONT
+    chart.categoryAxis.labels.fontSize = _TOPIC_LABEL_SIZE
+    # Right-aligned against the axis, so the names form a clean column.
+    chart.categoryAxis.labels.boxAnchor = 'e'
+    chart.categoryAxis.labels.dx = -3
     chart.barLabelFormat = '%d%%'
     chart.barLabels.fontSize = 6
     chart.barLabels.fontName = 'Helvetica-Bold'
     chart.barLabels.fillColor = MUTED
-    chart.barLabels.nudge = 6
-    chart.barLabels.boxAnchor = 's'
-    # No explicit barWidth: with a single series ReportLab distributes the
-    # width itself, and pinning it made the bars come out visibly uneven.
-    chart.groupSpacing = 12
+    chart.barLabels.nudge = 7
+    chart.barLabels.boxAnchor = 'w'
+    # 3 of the 10pt row, so the bar itself is 7pt — slim enough that thirty
+    # topics fit a page, thick enough to read.
+    chart.groupSpacing = 3
     for index, row in enumerate(rows):
         chart.bars[(0, index)].fillColor = _score_colour(row['accuracy_pct'])
     drawing.add(chart)

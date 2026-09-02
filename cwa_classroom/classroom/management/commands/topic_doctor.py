@@ -22,6 +22,17 @@ which topics mean the same thing. Fuzzy matching ("Fraction" ~ "Fractions")
 reads well in a demo and is wrong often enough to be dangerous, and a merge is
 not reversible. So the report states facts and a human picks the survivor.
 
+NEAR-DUPLICATE-NAME keeps that rule while catching the twins exact matching
+misses. It is normalisation, not similarity: case, punctuation, ``&`` versus
+``and``, filler words, plurals and word order are discarded, and two names
+either reduce to the same string or they do not. There is no threshold to
+tune and no ranking, and a group is still only a question for a human —
+"Mass"/"Masses" is probably one topic, "Time"/"Times" may well not be.
+
+``--list`` prints the tree strand by strand. Normalisation cannot see a
+duplicate written in different words ("Times Tables" beside "Multiplication
+Facts"); somebody reading the sub-topics side by side can.
+
 Actions
 -------
 ``--keep``/``--absorb`` merges topics: everything pointing at the absorbed rows
@@ -39,7 +50,9 @@ tree three levels deep, and both honour ``--dry-run``.
 Usage
 -----
     python manage.py topic_doctor                          # full report
+    python manage.py topic_doctor --list                   # the tree, to read
     python manage.py topic_doctor --subject mathematics    # one subject
+    python manage.py topic_doctor --only NEAR-DUPLICATE-NAME
     python manage.py topic_doctor --only TOP-LEVEL-HOLDS-QUESTIONS
     python manage.py topic_doctor --keep 207 --absorb 154 --dry-run
     python manage.py topic_doctor --reparent 70 --under 4 --dry-run
@@ -50,6 +63,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 TOP_LEVEL_CODE = 'TOP-LEVEL-HOLDS-QUESTIONS'
+NEAR_DUPLICATE_CODE = 'NEAR-DUPLICATE-NAME'
 
 
 class Command(BaseCommand):
@@ -75,6 +89,10 @@ class Command(BaseCommand):
         parser.add_argument('--under', type=int,
                             help='New parent topic id for --reparent; 0 '
                                  'promotes the row to a top-level strand.')
+        parser.add_argument('--list', action='store_true', dest='list_tree',
+                            help='Print the topic tree, strand by strand, and '
+                                 'stop. Reading the sub-topics side by side is '
+                                 'how a duplicate gets spotted.')
         parser.add_argument('--dry-run', action='store_true',
                             help='Report what an action would do, write nothing.')
 
@@ -88,6 +106,8 @@ class Command(BaseCommand):
             return self._merge(opts)
         if opts['reparent'] is not None:
             return self._reparent(opts)
+        if opts['list_tree']:
+            return self._list(subject_ids)
         return self._report(subject_ids, opts)
 
     # ── helpers ───────────────────────────────────────────────────────────
@@ -117,7 +137,9 @@ class Command(BaseCommand):
 
     # ── report ────────────────────────────────────────────────────────────
     def _report(self, subject_ids, opts):
-        from classroom.topic_merge import (structural_issues, subject_name_clashes,
+        from classroom.topic_merge import (near_duplicate_names,
+                                           structural_issues,
+                                           subject_name_clashes,
                                            top_level_topics_with_questions,
                                            topic_inventory)
 
@@ -177,6 +199,27 @@ class Command(BaseCommand):
                         f"{t['subtopics']} sub-topic(s)"
                         + ('' if t['is_active'] else '  (inactive)'))
 
+        near = near_duplicate_names(subject_ids)
+        if near and (not only or only == NEAR_DUPLICATE_CODE):
+            n = sum(len(c['members']) for c in near)
+            self.stdout.write(self.style.WARNING(
+                f'\n[{NEAR_DUPLICATE_CODE}] {len(near)} group(s), {n} topic(s) '
+                f'whose names differ only by case, punctuation, filler words, '
+                f'plurals or word order'))
+            self.stdout.write(
+                '  A group is a question, not a verdict: "Mass"/"Masses" is '
+                'probably one topic,\n  "Time"/"Times" may well not be. Read '
+                'the rows, then merge the ones that agree.')
+            for cluster in self._capped(near, limit):
+                self.stdout.write(
+                    f"    {cluster['subject']}: " + ' | '.join(cluster['names']))
+                for m in cluster['members']:
+                    self.stdout.write(
+                        f"      [{m['id']:>6}] {self._path(m):<44} "
+                        f"{m['questions']:>5} questions, "
+                        f"{m['subtopics']} sub-topic(s)"
+                        + ('' if m['is_active'] else '  (inactive)'))
+
         clashes = subject_name_clashes()
         if clashes and not only:
             self.stdout.write(self.style.WARNING(
@@ -193,6 +236,53 @@ class Command(BaseCommand):
             '\nNothing was changed. Decide a survivor, then:\n'
             '  python manage.py topic_doctor --keep <id> --absorb <id>[,<id>] --dry-run\n'
             '  python manage.py topic_doctor --reparent <id> --under <parent id> --dry-run')
+
+    def _list(self, subject_ids):
+        """The tree as a human reads it: strand, then its sub-topics indented.
+
+        The findings above name duplicates the normalisation can see. This is
+        for the ones it cannot — a name that means the same thing in different
+        words is only visible to somebody reading the list.
+        """
+        from classroom.topic_merge import normalised_name, topic_inventory
+
+        inventory = topic_inventory(subject_ids)
+        if not inventory:
+            self.stdout.write(self.style.WARNING('No topics.'))
+            return
+
+        for subject in inventory:
+            topics = subject['topics']
+            strands = [t for t in topics if not t['parent_id']]
+            children = defaultdict(list)
+            for t in topics:
+                if t['parent_id']:
+                    children[t['parent_id']].append(t)
+
+            self.stdout.write(self.style.MIGRATE_HEADING(
+                f"\n=== {subject['subject']} — {len(topics)} topic(s), "
+                f"{subject['questions']} question(s) ==="))
+            for strand in sorted(strands, key=lambda t: (t['name'] or '').lower()):
+                self.stdout.write(self._list_row(strand, indent=''))
+                for child in sorted(children.pop(strand['id'], []),
+                                    key=lambda t: (t['name'] or '').lower()):
+                    self.stdout.write(self._list_row(child, indent='    '))
+
+            # A sub-topic whose parent sits in another subject is reported by
+            # the findings; printing it nowhere would hide it from the list.
+            orphans = [t for rows in children.values() for t in rows]
+            for orphan in sorted(orphans, key=lambda t: (t['name'] or '').lower()):
+                self.stdout.write(self._list_row(orphan, indent='    ')
+                                  + f"  (parent {orphan['parent']!r} is elsewhere)")
+
+        self.stdout.write(
+            '\nSpotted two rows that mean the same thing?\n'
+            '  python manage.py topic_doctor --keep <id> --absorb <id>[,<id>] --dry-run')
+
+    def _list_row(self, summary, indent):
+        return (f"{indent}[{summary['id']:>6}] {summary['name']:<44} "
+                f"{summary['questions']:>5} questions"
+                + ('' if summary['is_active'] else '  (inactive)'))
 
     def _capped(self, rows, limit):
         if limit and len(rows) > limit:
