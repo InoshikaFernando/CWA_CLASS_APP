@@ -81,10 +81,11 @@ def health_check(request):
     "the app actually works".
 
     Deep responses also carry a "warnings" object for conditions that are real
-    but must NOT fail the request. Email-queue backlog lives here deliberately:
-    scripts/deploy.sh gates on a 200 from this endpoint, so making a backlog
-    503 would block the very deploy that fixes it. Uptime monitors should watch
-    warnings.email_queue.status for "warning"/"critical".
+    but must NOT fail the request. Email-queue backlog and unpaid access live
+    here deliberately: scripts/deploy.sh gates on a 200 from this endpoint, so
+    making either a 503 would block the very deploy that fixes it. Uptime
+    monitors should watch warnings.email_queue.status and
+    warnings.unpaid_access.status for "warning"/"critical".
     """
     body = {
         "status":    "ok",
@@ -113,7 +114,10 @@ def health_check(request):
         all_ok = all_ok and ok
 
     body["checks"] = checks
-    body["warnings"] = {"email_queue": _email_queue_warning()}
+    body["warnings"] = {
+        "email_queue": _email_queue_warning(),
+        "unpaid_access": _unpaid_access_warning(),
+    }
 
     if not all_ok:
         body["status"] = "degraded"
@@ -138,6 +142,31 @@ def _email_queue_warning():
             "pending": health["pending"],
             "failed": health["failed"],
             "oldest_pending_minutes": health["oldest_pending_min"],
+            "reasons": health["reasons"],
+        }
+    except Exception as exc:  # pragma: no cover - defensive
+        return {"status": "unknown", "detail": str(exc)}
+
+
+def _unpaid_access_warning():
+    """Paywall-leak summary for the deep health body.
+
+    Non-fatal by design — see health_check's docstring. A delinquent account
+    still browsing the app is a billing failure, not a liveness one, so it must
+    never 503 the endpoint a deploy gates on. Any failure to read the signal is
+    reported rather than swallowed, so a broken probe cannot look like a
+    holding paywall.
+    """
+    try:
+        from billing.subscription_health import get_unpaid_access_health
+
+        health = get_unpaid_access_health()
+        return {
+            "status": health["status"],
+            "window_days": health["window_days"],
+            "delinquent": health["delinquent"],
+            "leak_count": health["leak_count"],
+            "hit_count": health["hit_count"],
             "reasons": health["reasons"],
         }
     except Exception as exc:  # pragma: no cover - defensive

@@ -380,6 +380,22 @@ bash scripts/deploy.sh    # re-runs migrate/collectstatic/restart against the ol
 | Error cron check | `scripts/cron_check_errors.sh` |
 | Question-health cron | `scripts/cron_record_question_health.sh` — **must be installed**, or `/admin-dashboard/question-health/` stays empty forever |
 
+#### Daily health checks
+
+Two watchdogs exist because their failure mode is silence, not an error. Both
+are installed by `deploy/setup-app-prod.sh`, both post to Discord, and both are
+also readable on the Ops dashboard (`/admin-dashboard/ops/`) and in
+`/api/health/?deep=1` under `warnings.*` — so a leak is visible without reading
+a chat channel.
+
+| Check | Cron drop-in | Log | Catches |
+|-------|--------------|-----|---------|
+| `check_email_queue_health` | `/etc/cron.d/cwa-email-health` (hourly) | `/var/log/cwa/email_queue_health.log` | the `process_email_queue` drain stopping — invoices read as issued but are never sent |
+| `check_unpaid_access` | `/etc/cron.d/cwa-unpaid-access` (daily 09:00) | `/var/log/cwa/unpaid_access.log` | a delinquent subscription still reaching restricted pages — the paywall letting unpaid accounts through |
+
+Run either by hand with `sudo -u cwa .../manage.py <command>` (§ 4.5); each
+exits non-zero when it finds something, which is the alert condition.
+
 ### 4.2 Restart / reload
 
 ```bash

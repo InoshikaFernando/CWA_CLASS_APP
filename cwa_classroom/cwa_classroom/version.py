@@ -29,5 +29,5 @@ Bump it with ``python scripts/bump_version.py patch`` — never by hand, and
 never on ``test`` or ``main`` (see that script for why).
 """
 
-APP_VERSION = '1.28.5'        # MAJOR.MINOR.PATCH
+APP_VERSION = '1.28.6'        # MAJOR.MINOR.PATCH
 APP_VERSION_DATE = '2026-09-02'     # ISO date of this release

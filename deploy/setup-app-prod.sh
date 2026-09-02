@@ -157,6 +157,23 @@ cat > /etc/cron.d/cwa-email-health <<'MAILHEALTHCRON'
 MAILHEALTHCRON
 chmod 644 /etc/cron.d/cwa-email-health
 
+# ── Unpaid-access watchdog cron ──────────────────────────────────────────────
+# TrialExpiryMiddleware is the only thing between a delinquent account (card
+# failed / cancelled / expired) and the whole app. A regression in that gate
+# does not error — the account simply keeps working and nobody is billed, which
+# is invisible until someone reconciles revenue by hand. This daily check
+# cross-checks every delinquent subscription against the page-hit log and posts
+# any leak to Discord; the same signal is on the Ops dashboard
+# (/admin-dashboard/ops/). PROD is where live PageHits accrue, so this is the
+# droplet that can see it.
+echo "==> Installing unpaid-access watchdog cron..."
+cat > /etc/cron.d/cwa-unpaid-access <<'UNPAIDCRON'
+# CWA unpaid-access watchdog — alert if a delinquent account reached a
+# restricted page. Managed by deploy/setup-app-prod.sh; edit there, not here.
+0 9 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_check_unpaid_access.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env 1 >> /var/log/cwa/unpaid_access.log 2>&1
+UNPAIDCRON
+chmod 644 /etc/cron.d/cwa-unpaid-access
+
 # ── Progress report cron ─────────────────────────────────────────────────────
 # Nothing else calls the report generator, and its absence is invisible: the
 # reports page just stays empty, which reads as "no activity yet" rather than as
