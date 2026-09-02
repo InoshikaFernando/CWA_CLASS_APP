@@ -44,7 +44,7 @@ def _make_module(module='teachers_attendance', name='Teachers Attendance', price
 
 
 def _stripe_price(price_id, amount_cents, product_name, recurring_interval=None,
-                   metadata=None, unit_amount=None):
+                   metadata=None, unit_amount=None, currency='usd'):
     """Build a mock Stripe Price object."""
     product = SimpleNamespace(
         name=product_name,
@@ -55,6 +55,7 @@ def _stripe_price(price_id, amount_cents, product_name, recurring_interval=None,
     return SimpleNamespace(
         id=price_id,
         unit_amount=unit_amount if unit_amount is not None else amount_cents,
+        currency=currency,
         product=product,
         recurring=recurring,
     )
@@ -416,3 +417,139 @@ class SyncStripePricesCommandTests(TestCase):
 
         self.assertIn('updated 1', out)
         self.assertIn('Summary', out)
+
+    # ------------------------------------------------------------------
+    # Currency — every subscription is charged in USD
+    # ------------------------------------------------------------------
+    @patch('billing.management.commands.sync_stripe_prices.stripe')
+    def test_non_usd_price_never_matches(self, mock_stripe):
+        """An NZD 19 price must not be wired to a $19 package."""
+        pkg = _make_package(price='19.00')
+
+        mock_stripe.Product.list.return_value = _stripe_list_response([])
+        mock_stripe.Price.list.return_value = _stripe_list_response([
+            _stripe_price('price_nzd_19', 1900, 'Student Plan',
+                          recurring_interval='month', currency='nzd'),
+        ])
+
+        out, _err = self._call()
+
+        pkg.refresh_from_db()
+        self.assertEqual(pkg.stripe_price_id, '')
+        self.assertIn('Ignored 1 non-USD price', out)
+        self.assertIn('MISS', out)
+
+    @patch('billing.management.commands.sync_stripe_prices.stripe')
+    def test_usd_price_wins_over_same_amount_in_another_currency(self, mock_stripe):
+        """The NZD price is listed last — the position that used to win."""
+        pkg = _make_package(price='19.00')
+
+        mock_stripe.Product.list.return_value = _stripe_list_response([])
+        mock_stripe.Price.list.return_value = _stripe_list_response([
+            _stripe_price('price_usd_19', 1900, 'Wizards Student',
+                          recurring_interval='month', currency='usd'),
+            _stripe_price('price_nzd_19', 1900, 'Student Plan',
+                          recurring_interval='month', currency='nzd'),
+        ])
+
+        self._call()
+
+        pkg.refresh_from_db()
+        self.assertEqual(pkg.stripe_price_id, 'price_usd_19')
+
+    @patch('billing.management.commands.sync_stripe_prices.stripe')
+    def test_two_usd_prices_at_one_amount_are_refused_not_guessed(self, mock_stripe):
+        pkg = _make_package(price='19.00')
+
+        mock_stripe.Product.list.return_value = _stripe_list_response([])
+        mock_stripe.Price.list.return_value = _stripe_list_response([
+            _stripe_price('price_a', 1900, 'Student A', recurring_interval='month'),
+            _stripe_price('price_b', 1900, 'Student B', recurring_interval='month'),
+        ])
+
+        out, _err = self._call()
+
+        pkg.refresh_from_db()
+        self.assertEqual(pkg.stripe_price_id, '')
+        self.assertIn('AMBIGUOUS', out)
+
+    @patch('billing.management.commands.sync_stripe_prices.stripe')
+    def test_ambiguous_plan_amount_is_refused(self, mock_stripe):
+        plan = _make_plan(price='89.00')
+
+        mock_stripe.Product.list.return_value = _stripe_list_response([])
+        mock_stripe.Price.list.return_value = _stripe_list_response([
+            _stripe_price('price_a', 8900, 'Basic A', recurring_interval='month'),
+            _stripe_price('price_b', 8900, 'Basic B', recurring_interval='month'),
+        ])
+
+        out, _err = self._call()
+
+        plan.refresh_from_db()
+        self.assertEqual(plan.stripe_price_id, '')
+        self.assertIn('AMBIGUOUS', out)
+
+    @patch('billing.management.commands.sync_stripe_prices.stripe')
+    def test_ambiguity_in_another_currency_does_not_block_the_usd_match(self, mock_stripe):
+        """Two NZD prices at $19 are both ignored, so the USD one is unambiguous."""
+        pkg = _make_package(price='19.00')
+
+        mock_stripe.Product.list.return_value = _stripe_list_response([])
+        mock_stripe.Price.list.return_value = _stripe_list_response([
+            _stripe_price('price_nzd_a', 1900, 'A', recurring_interval='month', currency='nzd'),
+            _stripe_price('price_nzd_b', 1900, 'B', recurring_interval='month', currency='nzd'),
+            _stripe_price('price_usd', 1900, 'Wizards Student', recurring_interval='month'),
+        ])
+
+        self._call()
+
+        pkg.refresh_from_db()
+        self.assertEqual(pkg.stripe_price_id, 'price_usd')
+
+    @patch('billing.management.commands.sync_stripe_prices.stripe')
+    def test_module_ignores_non_usd_price(self, mock_stripe):
+        mod = _make_module()
+
+        mock_stripe.Product.list.return_value = _stripe_list_response([])
+        mock_stripe.Price.list.return_value = _stripe_list_response([
+            _stripe_price('price_ta_nzd', 1000, 'Teachers Attendance',
+                          recurring_interval='month', currency='nzd',
+                          metadata={'module_slug': 'teachers_attendance'}),
+        ])
+
+        self._call()
+
+        mod.refresh_from_db()
+        self.assertEqual(mod.stripe_price_id, '')
+
+    @patch('billing.management.commands.sync_stripe_prices.stripe')
+    def test_create_missing_creates_a_usd_price(self, mock_stripe):
+        _make_plan(price='89.00')
+
+        mock_stripe.Product.list.return_value = _stripe_list_response([])
+        mock_stripe.Price.list.return_value = _stripe_list_response([])
+        mock_stripe.Product.create.return_value = SimpleNamespace(id='prod_new')
+        mock_stripe.Price.create.return_value = SimpleNamespace(id='price_new_89')
+
+        self._call('--create-missing')
+
+        self.assertEqual(mock_stripe.Price.create.call_args[1]['currency'], 'usd')
+
+    @patch('billing.management.commands.sync_stripe_prices.stripe')
+    def test_ambiguous_amount_leaves_an_already_synced_record_alone(self, mock_stripe):
+        """Two USD prices at $19, but the package already points at one of them:
+        that is not a decision to make, so it is left as it is."""
+        pkg = _make_package(price='19.00', stripe_price_id='price_b')
+
+        mock_stripe.Product.list.return_value = _stripe_list_response([])
+        mock_stripe.Price.list.return_value = _stripe_list_response([
+            _stripe_price('price_a', 1900, 'Student A', recurring_interval='month'),
+            _stripe_price('price_b', 1900, 'Student B', recurring_interval='month'),
+        ])
+
+        out, _err = self._call()
+
+        pkg.refresh_from_db()
+        self.assertEqual(pkg.stripe_price_id, 'price_b')
+        self.assertIn('already synced', out)
+        self.assertNotIn('AMBIGUOUS', out)

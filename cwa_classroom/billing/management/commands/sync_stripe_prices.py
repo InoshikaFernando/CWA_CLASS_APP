@@ -1,9 +1,16 @@
 """
 Management command to sync Stripe Price IDs into InstitutePlan and Package records.
 
-Fetches all active products and their prices from Stripe, then matches them
-to local database records by price amount. Supports --dry-run to preview
-changes before applying.
+Fetches all active products and their prices from Stripe, then matches them to
+local database records by price amount. Only USD prices are eligible: every
+subscription is charged in USD, and the currency of a checkout is decided
+entirely by the Stripe Price we attach here. Matching used to key on amount
+alone, so an NZD 19 price and a USD 19 price collided and whichever Stripe
+listed last silently won — that is how a $19 package once charged NZD 19.
+
+An amount with more than one active USD price is reported as ambiguous and
+left alone rather than guessed at. Supports --dry-run to preview changes
+before applying.
 
 Usage:
     python manage.py sync_stripe_prices          # apply changes
@@ -16,6 +23,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from billing.models import InstitutePlan, ModuleProduct, Package
+from billing.stripe_service import SUBSCRIPTION_CURRENCY
 
 
 class Command(BaseCommand):
@@ -76,28 +84,44 @@ class Command(BaseCommand):
 
         self.stdout.write(f'Found {len(prices)} active prices in Stripe.\n')
 
-        # Build lookup: price amount (in dollars) -> price object
-        # Only recurring monthly prices for institute plans
+        # Build lookup: price amount (in dollars) -> price object.
+        # The key is the amount alone, so prices in different currencies at the
+        # same number would overwrite each other. Only USD prices are admitted
+        # (subscriptions are always charged in USD), and any amount that still
+        # has two active USD prices is recorded as ambiguous so the sync can
+        # refuse it instead of quietly taking whichever Stripe listed last.
         recurring_prices = {}
         one_time_prices = {}
+        recurring_ids = {}   # amount -> {price_id, ...}, >1 means ambiguous
+        one_time_ids = {}
+        skipped_currency = 0
         for price in prices:
             if price.unit_amount is None:
                 continue
+            if str(getattr(price, 'currency', '') or '').lower() != SUBSCRIPTION_CURRENCY:
+                skipped_currency += 1
+                continue
             amount = Decimal(price.unit_amount) / 100  # cents -> dollars
             product_name = price.product.name if hasattr(price.product, 'name') else str(price.product)
+            entry = {
+                'price_id': price.id,
+                'product_name': product_name,
+                'product_id': price.product.id if hasattr(price.product, 'id') else price.product,
+            }
 
             if price.recurring and price.recurring.interval == 'month':
-                recurring_prices[amount] = {
-                    'price_id': price.id,
-                    'product_name': product_name,
-                    'product_id': price.product.id if hasattr(price.product, 'id') else price.product,
-                }
+                recurring_prices[amount] = entry
+                recurring_ids.setdefault(amount, set()).add(price.id)
             elif not price.recurring:
-                one_time_prices[amount] = {
-                    'price_id': price.id,
-                    'product_name': product_name,
-                    'product_id': price.product.id if hasattr(price.product, 'id') else price.product,
-                }
+                one_time_prices[amount] = entry
+                one_time_ids.setdefault(amount, set()).add(price.id)
+
+        if skipped_currency:
+            self.stdout.write(self.style.WARNING(
+                f'Ignored {skipped_currency} non-{SUBSCRIPTION_CURRENCY.upper()} '
+                f'price(s) — subscriptions are always charged in '
+                f'{SUBSCRIPTION_CURRENCY.upper()}.'
+            ))
 
         # Sync InstitutePlan records
         institute_plans = InstitutePlan.objects.filter(is_active=True)
@@ -106,6 +130,25 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.MIGRATE_HEADING('=== Institute Plans ==='))
         for plan in institute_plans:
+            price_ids = recurring_ids.get(plan.price, set())
+            if len(price_ids) > 1:
+                # Two active USD prices at one amount: whichever Stripe listed
+                # last is not an answer. Leave a record that already points at
+                # one of them alone, and refuse to pick for the others.
+                if plan.stripe_price_id in price_ids:
+                    self.stdout.write(
+                        f"  {plan.name} (${plan.price}/mo) — already synced: "
+                        f"{plan.stripe_price_id}"
+                    )
+                    skipped_plans += 1
+                else:
+                    self.stdout.write(self.style.ERROR(
+                        f"  [AMBIGUOUS] {plan.name} (${plan.price}/mo) — more than one "
+                        f"active {SUBSCRIPTION_CURRENCY.upper()} monthly price at this "
+                        f"amount. Not guessing: archive the wrong one in Stripe, or set "
+                        f"stripe_price_id by hand."
+                    ))
+                continue
             match = recurring_prices.get(plan.price)
             if match:
                 old_id = plan.stripe_price_id
@@ -168,7 +211,24 @@ class Command(BaseCommand):
                 self.stdout.write(f"  {pkg.name} — free, skipping")
                 continue
 
-            lookup = recurring_prices if pkg.billing_type == 'recurring' else one_time_prices
+            recurring = pkg.billing_type == 'recurring'
+            lookup = recurring_prices if recurring else one_time_prices
+            price_ids = (recurring_ids if recurring else one_time_ids).get(pkg.price, set())
+            if len(price_ids) > 1:
+                if pkg.stripe_price_id in price_ids:
+                    self.stdout.write(
+                        f"  {pkg.name} (${pkg.price}) — already synced: "
+                        f"{pkg.stripe_price_id}"
+                    )
+                    skipped_packages += 1
+                else:
+                    self.stdout.write(self.style.ERROR(
+                        f"  [AMBIGUOUS] {pkg.name} (${pkg.price}) — more than one active "
+                        f"{SUBSCRIPTION_CURRENCY.upper()} price at this amount. Not "
+                        f"guessing: archive the wrong one in Stripe, or set "
+                        f"stripe_price_id by hand."
+                    ))
+                continue
             match = lookup.get(pkg.price)
             if match:
                 old_id = pkg.stripe_price_id
@@ -209,6 +269,8 @@ class Command(BaseCommand):
         stripe_module_map = {}
         for price in prices:
             if not (price.recurring and price.recurring.interval == 'month'):
+                continue
+            if str(getattr(price, 'currency', '') or '').lower() != SUBSCRIPTION_CURRENCY:
                 continue
             product = price.product
             product_name = product.name if hasattr(product, 'name') else ''
@@ -291,7 +353,6 @@ class Command(BaseCommand):
 
     def _create_stripe_product_and_price(self, name, price_amount, slug, product_type):
         """Create a Stripe Product and recurring monthly Price. Returns the price ID."""
-        currency = getattr(settings, 'STRIPE_CURRENCY', 'usd')
         try:
             product = stripe.Product.create(
                 name=name,
@@ -300,7 +361,7 @@ class Command(BaseCommand):
             price = stripe.Price.create(
                 product=product.id,
                 unit_amount=int(price_amount * 100),
-                currency=currency,
+                currency=SUBSCRIPTION_CURRENCY,
                 recurring={'interval': 'month'},
             )
             return price.id

@@ -45,7 +45,9 @@ INSTALLED_APPS = [..., 'billing', ...]
 STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
 STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
-STRIPE_CURRENCY = os.environ.get('STRIPE_CURRENCY', 'usd')
+# No currency setting: subscriptions are always charged in USD
+# (billing.stripe_service.SUBSCRIPTION_CURRENCY), and school invoices bill in
+# the school's own default_currency.
 
 # Per-module Stripe price IDs (slug → stripe_price_id)
 MODULE_STRIPE_PRICES = {
@@ -60,6 +62,38 @@ In root `urls.py`:
 ```python
 path('', include('billing.urls')),
 ```
+
+## Currency — subscriptions are always USD
+
+Student packages, institute plans and module add-ons are charged in **USD**, pinned
+as `billing.stripe_service.SUBSCRIPTION_CURRENCY`. There is deliberately no
+`STRIPE_CURRENCY` env setting: an env knob is what once minted an NZD 19 Stripe
+price for a $19 package, and a student was charged NZD 19.
+
+Nothing in a checkout call names a currency. Stripe Prices are immutable and carry
+their own, so the currency a card is charged is decided entirely by the Price
+attached to `Package.stripe_price_id` / `InstitutePlan.stripe_price_id` /
+`ModuleProduct.stripe_price_id`. Two guards keep that honest:
+
+- `sync_stripe_prices` matches **USD prices only**, and refuses (`[AMBIGUOUS]`) an
+  amount with more than one active USD price rather than taking whichever Stripe
+  listed last — the old amount-only match silently collided across currencies.
+- `assert_subscription_price_currency()` runs before every subscription Checkout
+  Session, plan change and module add-on, and raises if the attached Price is not
+  USD. Callers log it and show the user an error; nobody is charged.
+
+So a package still pointing at a non-USD price **blocks checkout** rather than
+charging the wrong currency. Fix it by pointing the record at a USD price
+(`python manage.py sync_stripe_prices --dry-run`, then for real, or edit
+`stripe_price_id` in the Django admin) — it is a stored DB column, so creating or
+archiving prices in the Stripe dashboard alone changes nothing.
+
+Existing subscriptions are not migrated by that: a Stripe subscription's currency
+cannot be modified, so anyone already billing in the wrong currency has to be
+cancelled and re-subscribed through a fresh checkout.
+
+School invoices to parents are a separate flow and still bill in each school's own
+`default_currency` — see `create_invoice_checkout_session`.
 
 ## Entitlement API
 

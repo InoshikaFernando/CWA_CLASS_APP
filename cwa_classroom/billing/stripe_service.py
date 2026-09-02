@@ -20,6 +20,53 @@ def _ensure_stripe_key():
 
 
 # ---------------------------------------------------------------------------
+# Currency
+# ---------------------------------------------------------------------------
+
+#: Every platform subscription — student packages, institute plans and module
+#: add-ons — is priced and charged in US dollars.
+#:
+#: This is a pinned constant, deliberately NOT an environment setting. A .env
+#: currency knob (the old ``STRIPE_CURRENCY``) is what once minted an NZD 19
+#: Stripe price for a $19 package and charged a student NZD 19 instead of
+#: USD 19 — nothing in the checkout path names a currency, so whatever the
+#: attached Stripe Price says is what the card is charged.
+#:
+#: School invoices to parents are a different flow and still bill in each
+#: school's own currency — see ``create_invoice_checkout_session``.
+SUBSCRIPTION_CURRENCY = 'usd'
+
+
+def assert_subscription_price_currency(price_id, label):
+    """Raise unless ``price_id`` is a Stripe Price denominated in USD.
+
+    Stripe Prices are immutable and carry their own currency, so the currency a
+    subscriber is charged is decided entirely by which Price we hand to
+    Checkout — no argument in the checkout call can override it. Nothing
+    downstream can correct a wrong one either: a Stripe subscription's currency
+    cannot be modified, so the subscription has to be cancelled and recreated.
+    The mismatch is therefore caught here, loudly, before the session exists.
+
+    Returns the retrieved Stripe Price so callers can reuse it.
+    """
+    if not price_id:
+        raise ValueError(
+            f'{label} has no Stripe Price ID — cannot start checkout.'
+        )
+
+    price = stripe.Price.retrieve(price_id)
+    currency = str(getattr(price, 'currency', '') or '').lower()
+    if currency != SUBSCRIPTION_CURRENCY:
+        raise ValueError(
+            f'{label} is priced in {currency.upper() or "an unknown currency"} '
+            f'(Stripe Price {price_id}), but all subscriptions must be charged '
+            f'in {SUBSCRIPTION_CURRENCY.upper()}. Point it at a USD price '
+            f'(python manage.py sync_stripe_prices) before taking payment.'
+        )
+    return price
+
+
+# ---------------------------------------------------------------------------
 # Customers
 # ---------------------------------------------------------------------------
 
@@ -95,6 +142,7 @@ def create_institute_checkout_session(school, plan, request, trial_period_days=N
     If stripe_coupon_id is set, applies the discount coupon to the subscription.
     """
     _ensure_stripe_key()
+    assert_subscription_price_currency(plan.stripe_price_id, f'Plan "{plan.name}"')
     customer_id = get_or_create_customer(school=school)
 
     line_items = [{'price': plan.stripe_price_id, 'quantity': 1}]
@@ -145,6 +193,7 @@ def create_individual_checkout_session(user, package, request, stripe_coupon_id=
     charge until the trial ends. After the trial, billing starts automatically.
     """
     _ensure_stripe_key()
+    assert_subscription_price_currency(package.stripe_price_id, f'Package "{package.name}"')
     customer_id = get_or_create_customer(user=user)
 
     sub_data = {
@@ -191,6 +240,7 @@ def create_pending_registration_checkout_session(email, package, request, stripe
     (via the success redirect or webhook).
     """
     _ensure_stripe_key()
+    assert_subscription_price_currency(package.stripe_price_id, f'Package "{package.name}"')
 
     session_kwargs = dict(
         customer_email=email,
@@ -227,6 +277,7 @@ def create_student_checkout_session(user, package, request, stripe_coupon_id=Non
     School students are invited by HoI and need their own $19.90/mo subscription.
     """
     _ensure_stripe_key()
+    assert_subscription_price_currency(package.stripe_price_id, f'Package "{package.name}"')
     customer_id = get_or_create_customer(user=user)
 
     session_kwargs = dict(
@@ -274,6 +325,7 @@ def change_institute_plan(school_subscription, new_plan):
     _ensure_stripe_key()
     if not school_subscription.stripe_subscription_id:
         raise ValueError('No active Stripe subscription to modify')
+    assert_subscription_price_currency(new_plan.stripe_price_id, f'Plan "{new_plan.name}"')
 
     stripe_sub = stripe.Subscription.retrieve(
         school_subscription.stripe_subscription_id
@@ -317,6 +369,7 @@ def add_module_to_subscription(school_subscription, module_slug, stripe_price_id
     _ensure_stripe_key()
     if not school_subscription.stripe_subscription_id:
         raise ValueError('No active Stripe subscription')
+    assert_subscription_price_currency(stripe_price_id, f'Module "{module_slug}"')
 
     item = stripe.SubscriptionItem.create(
         subscription=school_subscription.stripe_subscription_id,
@@ -479,7 +532,7 @@ def sync_plan_to_stripe(plan):
     price = stripe.Price.create(
         product=product.id,
         unit_amount=int(plan.price * 100),
-        currency=settings.STRIPE_CURRENCY,
+        currency=SUBSCRIPTION_CURRENCY,
         recurring={'interval': 'month'},
     )
 
@@ -520,7 +573,7 @@ def sync_module_to_stripe(module_product):
     price = stripe.Price.create(
         product=product.id,
         unit_amount=int(module_product.price * 100),
-        currency=settings.STRIPE_CURRENCY,
+        currency=SUBSCRIPTION_CURRENCY,
         recurring={'interval': 'month'},
     )
 
@@ -627,7 +680,8 @@ def create_invoice_checkout_session(parent, amount_applied, invoice_allocations,
     if not currency:
         raise ValueError(
             'currency is required for invoice checkout sessions — '
-            'pass the school\'s default_currency, not the .env STRIPE_CURRENCY.'
+            'pass the school\'s default_currency. Invoices bill in the '
+            'school\'s own currency, never in a platform default.'
         )
     used_currency = currency.lower()
 

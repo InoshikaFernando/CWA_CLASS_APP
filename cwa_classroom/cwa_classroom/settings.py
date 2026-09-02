@@ -667,7 +667,11 @@ WHATSAPP_GRAPH_VERSION = os.environ.get('WHATSAPP_GRAPH_VERSION', 'v19.0')
 STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY', '')
 STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET', '')
-STRIPE_CURRENCY = os.environ.get('STRIPE_CURRENCY', 'usd')
+
+# There is deliberately no STRIPE_CURRENCY setting. Subscriptions are always
+# charged in USD (billing.stripe_service.SUBSCRIPTION_CURRENCY, a pinned
+# constant); school invoices bill in each school's own default_currency. An
+# env-driven currency knob is what once minted an NZD price for a $19 package.
 
 # True when running under `manage.py test` — disables rate limiting in views
 TESTING = 'test' in sys.argv

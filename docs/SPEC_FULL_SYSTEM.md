@@ -621,7 +621,6 @@ Links to `institute_subscription_dashboard` for plan management and module toggl
 | `STRIPE_SECRET_KEY` | Stripe API key |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe frontend key |
 | `STRIPE_WEBHOOK_SECRET` | Webhook signature verification |
-| `STRIPE_CURRENCY` | Default currency (nzd) |
 | `AUTHENTICATION_BACKENDS` | Must include `accounts.backends.EmailOrUsernameBackend` |
 
 ### Deployment Checklist

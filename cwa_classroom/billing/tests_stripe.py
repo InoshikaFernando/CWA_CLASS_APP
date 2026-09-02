@@ -7,6 +7,7 @@ unittest.mock.patch.
 """
 import time
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock, call
 
 from django.test import TestCase, RequestFactory, override_settings
@@ -43,6 +44,19 @@ def _make_request(path='/'):
 
 class StripeTestBase(TestCase):
     """Shared setUp for all Stripe test classes."""
+
+    def setUp(self):
+        super().setUp()
+        # Every subscription path checks that the attached Stripe Price is in
+        # USD before charging anything. The fixtures' price IDs are fake, so
+        # answer that lookup here; a test that wants the wrong-currency case
+        # overrides self.mock_price_retrieve.return_value.
+        patcher = patch(
+            'billing.stripe_service.stripe.Price.retrieve',
+            return_value=SimpleNamespace(id='price_fixture', currency='usd'),
+        )
+        self.mock_price_retrieve = patcher.start()
+        self.addCleanup(patcher.stop)
 
     @classmethod
     def setUpTestData(cls):
@@ -731,6 +745,7 @@ class HandlePaymentEventsTest(StripeTestBase):
 class InstituteCheckoutViewTest(StripeTestBase):
 
     def setUp(self):
+        super().setUp()
         self.client.login(username='testadmin', password='testpass123')
         # Ensure school subscription exists
         self._create_school_subscription()
@@ -781,6 +796,7 @@ class InstituteCheckoutViewTest(StripeTestBase):
 class InstituteChangePlanViewTest(StripeTestBase):
 
     def setUp(self):
+        super().setUp()
         self.client.login(username='testadmin', password='testpass123')
 
     @patch('billing.views.get_school_for_user')
@@ -833,6 +849,7 @@ class InstituteChangePlanViewTest(StripeTestBase):
 class InstituteCancelSubscriptionViewTest(StripeTestBase):
 
     def setUp(self):
+        super().setUp()
         self.client.login(username='testadmin', password='testpass123')
 
     @patch('billing.views.get_school_for_user')

@@ -7,6 +7,7 @@ Tests for enhanced registration flows (CPP-55):
 """
 
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 from django.test import TestCase, Client
@@ -19,6 +20,13 @@ from billing.models import (
     InstituteDiscountCode, DiscountCode,
 )
 from classroom.models import School, SchoolStudent
+
+# Subscription checkout verifies the attached Stripe Price is in USD before it
+# creates a session; these fixtures use fake price IDs, so answer that lookup.
+_usd_price = patch(
+    'billing.stripe_service.stripe.Price.retrieve',
+    new=MagicMock(return_value=SimpleNamespace(id='price_test', currency='usd')),
+)
 
 
 def _create_role(name, display_name=None):
@@ -238,6 +246,7 @@ class SchoolStudentProfileSubscriptionTest(TestCase):
         SchoolStudent.objects.create(school=self.school, student=student)
         return student
 
+    @_usd_price
     @patch('billing.stripe_service.stripe.checkout.Session.create')
     @patch('billing.stripe_service.get_or_create_customer', return_value='cus_test')
     def test_complete_profile_saves_address(self, mock_customer, mock_session):
@@ -330,6 +339,7 @@ class DiscountCodeStripeCouponTest(TestCase):
         )
         self.assertEqual(code.stripe_coupon_id, 'coupon_abc123')
 
+    @_usd_price
     @patch('billing.stripe_service.stripe.checkout.Session.create')
     @patch('billing.stripe_service.get_or_create_customer', return_value='cus_test')
     def test_institute_checkout_passes_coupon(self, mock_customer, mock_session):
@@ -363,6 +373,7 @@ class DiscountCodeStripeCouponTest(TestCase):
         self.assertIn('discounts', call_kwargs)
         self.assertEqual(call_kwargs['discounts'], [{'coupon': 'coupon_xyz'}])
 
+    @_usd_price
     @patch('billing.stripe_service.stripe.checkout.Session.create')
     @patch('billing.stripe_service.get_or_create_customer', return_value='cus_test')
     def test_checkout_without_coupon_has_no_discounts(self, mock_customer, mock_session):
