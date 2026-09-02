@@ -11,7 +11,7 @@ human.
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from classroom.models import Level, School, Subject, Topic
+from classroom.models import Level, School, SubTopic, Subject, Topic, TopicLevel
 from classroom.topic_merge import (
     exact_name_clashes,
     merge_topics,
@@ -574,3 +574,150 @@ class ThreeLevelTests(TopicMergeTestBase):
                       if i['code'] == 'THREE-LEVEL-TOPIC')
         self.assertIn('Division', detail)
         self.assertIn('Number', detail)
+
+
+class CollidingRowsTests(TopicMergeTestBase):
+    """A skipped collision is only free if nothing hangs off the skipped row.
+
+    ``TopicLevel`` is a bare (topic, level) pair, so a collision on it looks
+    like nothing lost. ``SubTopic`` hangs off it with CASCADE, and the walk in
+    merge_topics only sees models pointing at a TOPIC — SubTopic points at a
+    TopicLevel. Skipping alone deleted every one of them.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.y7 = Level.objects.create(level_number=7, display_name='Y7')
+
+    def test_a_subtopic_under_a_colliding_row_reaches_the_survivor(self):
+        keep = self._topic('Fractions', 'fr-k-c')
+        gone = self._topic('Fraction', 'fr-g-c')
+        TopicLevel.objects.create(topic=keep, level=self.y7)
+        tl_gone = TopicLevel.objects.create(topic=gone, level=self.y7)
+        SubTopic.objects.create(topic_level=tl_gone, name='Equivalent',
+                                slug='equiv-c')
+
+        merge_topics(keep, [gone])
+
+        moved = SubTopic.objects.get(slug='equiv-c')
+        self.assertEqual(moved.topic_level.topic_id, keep.id)
+
+    def test_the_summary_reports_what_it_rescued(self):
+        keep = self._topic('Indices', 'ix-k-c')
+        gone = self._topic('Indice', 'ix-g-c')
+        TopicLevel.objects.create(topic=keep, level=self.y7)
+        tl_gone = TopicLevel.objects.create(topic=gone, level=self.y7)
+        SubTopic.objects.create(topic_level=tl_gone, name='Laws', slug='laws-c')
+
+        summary = merge_topics(keep, [gone])
+
+        self.assertEqual(sum(summary['rescued'].values()), 1)
+
+    def test_a_dependent_that_would_clash_is_reported_not_silent(self):
+        # Both sides have a SubTopic with the same slug; SubTopic is unique on
+        # (topic_level, slug), so the survivor's wins — but it must be COUNTED.
+        keep = self._topic('Time', 'ti-k-c')
+        gone = self._topic('Times', 'ti-g-c')
+        tl_keep = TopicLevel.objects.create(topic=keep, level=self.y7)
+        tl_gone = TopicLevel.objects.create(topic=gone, level=self.y7)
+        SubTopic.objects.create(topic_level=tl_keep, name='Clocks', slug='dup-c')
+        SubTopic.objects.create(topic_level=tl_gone, name='Clocks', slug='dup-c')
+
+        summary = merge_topics(keep, [gone])
+
+        self.assertEqual(sum(summary['dropped_dependents'].values()), 1)
+        self.assertEqual(SubTopic.objects.filter(slug='dup-c').count(), 1)
+
+    def test_a_topic_level_with_no_collision_still_moves_whole(self):
+        keep = self._topic('Surds', 'su-k-c')
+        gone = self._topic('Surd', 'su-g-c')
+        tl_gone = TopicLevel.objects.create(topic=gone, level=self.y7)
+        SubTopic.objects.create(topic_level=tl_gone, name='Simplify',
+                                slug='simp-c')
+
+        merge_topics(keep, [gone])
+
+        moved = SubTopic.objects.get(slug='simp-c')
+        self.assertEqual(moved.topic_level.topic_id, keep.id)
+
+
+class StatisticsAfterAMergeTests(TopicMergeTestBase):
+    """The answers move, so the numbers computed over them have to move too.
+
+    ``TopicLevelStatistics`` holds a mean, a sigma and a student count over
+    ``StudentFinalAnswer``. Those rows are re-pointed by the merge; the
+    statistics row is not recomputed by it, so the survivor kept a mean over
+    the students it had BEFORE — and a student's colour band was measured
+    against the wrong population, with nothing raised.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.y7 = Level.objects.create(level_number=7, display_name='Y7')
+
+    def _answer(self, topic, points, who):
+        from maths.models import StudentFinalAnswer
+        student = User.objects.create_user(who, f'{who}@t.com', 'pass1234')
+        return StudentFinalAnswer.objects.create(
+            student=student, topic=topic, level=self.y7, points=points)
+
+    def _stats(self, topic):
+        from maths.models import TopicLevelStatistics
+        return TopicLevelStatistics.objects.filter(
+            topic=topic, level=self.y7).first()
+
+    def test_the_survivor_counts_every_student_it_now_holds(self):
+        from maths.models import TopicLevelStatistics
+        keep = self._topic('Indices', 'ix-k-s')
+        gone = self._topic('Indice', 'ix-g-s')
+        self._answer(keep, 2.0, 's-keep')
+        for i in range(3):
+            self._answer(gone, 10.0, f's-gone-{i}')
+        TopicLevelStatistics.recalculate(keep, self.y7)
+        TopicLevelStatistics.recalculate(gone, self.y7)
+
+        merge_topics(keep, [gone])
+
+        self.assertEqual(self._stats(keep).student_count, 4)
+
+    def test_the_average_is_recomputed_over_the_merged_population(self):
+        from maths.models import TopicLevelStatistics
+        keep = self._topic('Ratios', 'ra-k-s')
+        gone = self._topic('Ratio', 'ra-g-s')
+        self._answer(keep, 0.0, 'r-keep')
+        self._answer(gone, 10.0, 'r-gone')
+        TopicLevelStatistics.recalculate(keep, self.y7)
+
+        merge_topics(keep, [gone])
+
+        self.assertEqual(float(self._stats(keep).average_points), 5.0)
+
+    def test_a_survivor_with_no_prior_statistics_gains_them(self):
+        from maths.models import TopicLevelStatistics
+        keep = self._topic('Surds', 'su-k-s')
+        gone = self._topic('Surd', 'su-g-s')
+        self._answer(gone, 8.0, 'su-gone')
+        TopicLevelStatistics.recalculate(gone, self.y7)
+
+        merge_topics(keep, [gone])
+
+        self.assertEqual(self._stats(keep).student_count, 1)
+
+    def test_a_merge_with_no_answers_writes_no_statistics(self):
+        keep = self._topic('Money', 'mo-k-s')
+        gone = self._topic('Monies', 'mo-g-s')
+
+        merge_topics(keep, [gone])
+
+        self.assertIsNone(self._stats(keep))
+
+    def test_the_summary_reports_the_levels_it_refreshed(self):
+        keep = self._topic('Angles', 'an-k-s')
+        gone = self._topic('Angle', 'an-g-s')
+        self._answer(gone, 6.0, 'an-gone')
+
+        summary = merge_topics(keep, [gone])
+
+        self.assertEqual(summary['statistics_refreshed'], 1)

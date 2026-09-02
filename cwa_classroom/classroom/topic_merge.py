@@ -382,6 +382,84 @@ def validate_merge(keep, absorbed):
     return True, ''
 
 
+def _equivalent_row(obj, field, keep_id):
+    """The survivor's row that blocked re-pointing ``obj``.
+
+    A collision means the survivor already holds a row with the same values in
+    whichever unique_together contains the topic FK. Rebuild that lookup with
+    the topic swapped and the blocker comes straight back.
+    """
+    model = type(obj)
+    for tup in (model._meta.unique_together or ()):
+        if field.name not in tup:
+            continue
+        lookup = {}
+        for name in tup:
+            meta_field = model._meta.get_field(name)
+            lookup[meta_field.attname] = (
+                keep_id if name == field.name else getattr(obj, meta_field.attname))
+        return model.objects.filter(**lookup).first()
+    return None
+
+
+def _move_dependents(obj, twin):
+    """Move whatever hangs off a colliding row onto the survivor's row.
+
+    ``TopicLevel`` is a bare (topic, level) pair, so skipping a collision looks
+    free — and ``SubTopic`` hangs off it with CASCADE. Skipping alone deleted
+    every SubTopic the absorbed topic had at that level, because the walk in
+    ``merge_topics`` only ever sees models pointing at a TOPIC, and SubTopic
+    points at a TopicLevel.
+
+    Returns (moved, skipped): a dependent can hit a unique constraint of its
+    own, and the survivor's row is the one to keep in that case too.
+    """
+    moved = skipped = 0
+    for rel in type(obj)._meta.related_objects:
+        if rel.many_to_many:
+            continue
+        field = rel.field
+        for child in rel.related_model.objects.filter(**{field.name: obj.pk}):
+            setattr(child, field.attname, twin.pk)
+            try:
+                with transaction.atomic():
+                    child.save(update_fields=[field.attname])
+                moved += 1
+            except IntegrityError:
+                skipped += 1
+    return moved, skipped
+
+
+def _refresh_statistics(keep):
+    """Recompute the survivor's topic-level statistics from the merged answers.
+
+    ``TopicLevelStatistics`` holds an average, a sigma and a student count over
+    ``StudentFinalAnswer`` rows — and those rows have just moved. Left alone,
+    the survivor keeps a mean computed over the students it had BEFORE the
+    merge, and the colour band a student sees is measured against the wrong
+    population. Nothing raises; the number is simply wrong.
+    """
+    from maths.models import StudentFinalAnswer, TopicLevelStatistics
+
+    # Everything is derived from the survivor AFTER the merge, so nothing has
+    # to be read before the absorbed rows are deleted: their answers are on the
+    # survivor by now, and any statistics row that did not collide came with
+    # them.
+    level_ids = set(
+        StudentFinalAnswer.objects.filter(topic_id=keep.id)
+        .exclude(level_id=None).values_list('level_id', flat=True).distinct())
+    level_ids.update(
+        TopicLevelStatistics.objects.filter(topic_id=keep.id)
+        .values_list('level_id', flat=True))
+
+    from classroom.models import Level
+    refreshed = 0
+    for level in Level.objects.filter(id__in=level_ids):
+        TopicLevelStatistics.recalculate(keep, level)
+        refreshed += 1
+    return refreshed
+
+
 def merge_topics(keep, absorbed_list, actor=None, request=None):
     """Re-point everything at ``keep``, then delete each absorbed topic.
 
@@ -402,7 +480,10 @@ def merge_topics(keep, absorbed_list, actor=None, request=None):
         'repointed': defaultdict(int),
         'skipped_collisions': defaultdict(int),
         'carried': defaultdict(int),
+        'rescued': defaultdict(int),
+        'dropped_dependents': defaultdict(int),
         'reparented': 0,
+        'statistics_refreshed': 0,
     }
 
     with transaction.atomic():
@@ -435,8 +516,14 @@ def merge_topics(keep, absorbed_list, actor=None, request=None):
                     except IntegrityError:
                         # The survivor already holds the equivalent row (a
                         # unique constraint, e.g. one statistics row per
-                        # topic+level). Nothing is lost by leaving it: the
-                        # absorbed row is about to be deleted with it.
+                        # topic+level). The row itself carries nothing the
+                        # survivor lacks -- but what HANGS OFF it does, and it
+                        # is about to be cascade-deleted, so move that first.
+                        twin = _equivalent_row(obj, field, keep.id)
+                        if twin is not None:
+                            moved, lost = _move_dependents(obj, twin)
+                            summary['rescued'][label] += moved
+                            summary['dropped_dependents'][label] += lost
                         summary['skipped_collisions'][label] += 1
 
             # ``related_objects`` covers only relations pointing AT a topic.
@@ -469,9 +556,16 @@ def merge_topics(keep, absorbed_list, actor=None, request=None):
             })
             absorbed.delete()
 
+        # After every absorbed row is in, not per row: the statistics describe
+        # the survivor's whole population, and recomputing mid-batch would
+        # measure it against a set still being assembled.
+        summary['statistics_refreshed'] = _refresh_statistics(keep)
+
     summary['repointed'] = dict(summary['repointed'])
     summary['skipped_collisions'] = dict(summary['skipped_collisions'])
     summary['carried'] = dict(summary['carried'])
+    summary['rescued'] = dict(summary['rescued'])
+    summary['dropped_dependents'] = dict(summary['dropped_dependents'])
 
     try:
         from audit.services import log_event

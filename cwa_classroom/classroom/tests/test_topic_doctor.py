@@ -374,3 +374,33 @@ def test_a_dry_run_merge_leaves_the_year_links_alone(tree):
     keep.refresh_from_db()
     assert keep.levels.count() == 0
     assert Topic.objects.filter(pk=gone.id).exists()
+
+
+def test_a_merge_reports_the_statistics_it_recomputed(tree):
+    from maths.models import StudentFinalAnswer
+    keep = Topic.objects.create(subject=tree['maths'], name='Angles',
+                                slug='an-k-td', parent=tree['number'])
+    gone = Topic.objects.create(subject=tree['maths'], name='Angle',
+                                slug='an-g-td', parent=tree['number'])
+    student = CustomUser.objects.create_user('td_stat', 'st@example.com', 'pass1234')
+    StudentFinalAnswer.objects.create(student=student, topic=gone,
+                                      level=tree['level7'], points=6.0)
+
+    out = run(keep=keep.id, absorb=str(gone.id))
+    assert 'topic-level statistics recomputed' in out
+
+
+def test_a_merge_reports_dependents_moved_off_a_colliding_row(tree):
+    from classroom.models import SubTopic, TopicLevel
+    keep = Topic.objects.create(subject=tree['maths'], name='Fractions',
+                                slug='fr-k-td', parent=tree['number'])
+    gone = Topic.objects.create(subject=tree['maths'], name='Fraction',
+                                slug='fr-g-td', parent=tree['number'])
+    TopicLevel.objects.create(topic=keep, level=tree['level7'])
+    tl_gone = TopicLevel.objects.create(topic=gone, level=tree['level7'])
+    SubTopic.objects.create(topic_level=tl_gone, name='Equivalent',
+                            slug='equiv-td')
+
+    out = run(keep=keep.id, absorb=str(gone.id))
+    assert 'dependents moved off a colliding row' in out
+    assert SubTopic.objects.get(slug='equiv-td').topic_level.topic_id == keep.id

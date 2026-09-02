@@ -367,11 +367,22 @@ class Command(BaseCommand):
         for label, n in sorted(summary['skipped_collisions'].items()):
             self.stdout.write(self.style.WARNING(
                 f'    {label:<40} {n:>5}  (survivor already had an equivalent row)'))
+        for label, n in sorted(summary.get('rescued', {}).items()):
+            self.stdout.write(f'    {label:<40} {n:>5}  '
+                              f"(dependents moved off a colliding row)")
+        for label, n in sorted(summary.get('dropped_dependents', {}).items()):
+            self.stdout.write(self.style.WARNING(
+                f'    {label:<40} {n:>5}  '
+                f"(dependent clashed too — the survivor's was kept)"))
         for label, n in sorted(summary.get('carried', {}).items()):
             self.stdout.write(f'    {label:<40} {n:>5}  (link carried to the survivor)')
         if summary['reparented']:
             self.stdout.write(f"    sub-topics re-parented{'':<18} "
                               f"{summary['reparented']:>5}")
+        if summary.get('statistics_refreshed'):
+            self.stdout.write(
+                f"    topic-level statistics recomputed{'':<7} "
+                f"{summary['statistics_refreshed']:>5}")
         self.stdout.write(self.style.SUCCESS(
             f"\n{'Would delete' if opts['dry_run'] else 'Deleted'} "
             f"{len(summary['absorbed'])} topic(s): "
