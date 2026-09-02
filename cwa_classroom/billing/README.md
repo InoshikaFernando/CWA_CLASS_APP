@@ -95,6 +95,24 @@ cancelled and re-subscribed through a fresh checkout.
 School invoices to parents are a separate flow and still bill in each school's own
 `default_currency` — see `create_invoice_checkout_session`.
 
+### Putting every student on one package
+
+Django admin → Billing → Packages → tick the package → **"Make this the only
+student package"**. In one transaction it runs `sync_stripe_prices`, checks the
+resolved price is USD, marks the package default (clearing the flag on the
+others) and deactivates every other package.
+
+It is all-or-nothing on purpose. Done as separate clicks there are windows where
+the wrong thing is true — a default package still on a non-USD price, or no
+active package at all — so anything that fails rolls the whole action back,
+including the price IDs the sync had already written.
+
+Retiring a package deactivates it; it never deletes. `Subscription.package` and
+`Payment.package` are `SET_NULL`, so deleting one would blank the plan on
+everyone who was ever on it — and `_class_limit()` reads a missing package as a
+1-class limit. Students already subscribed keep the package they are on; only
+new checkouts see the new one.
+
 ## Entitlement API
 
 Other apps gate access via the entitlements module rather than reading Subscription/Module rows directly:

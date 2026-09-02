@@ -1,10 +1,105 @@
-from django.contrib import admin
+from io import StringIO
+
+from django.contrib import admin, messages
+from django.core.management import call_command
+from django.db import transaction
+
+from audit.services import log_event
 from .models import (
     Package, DiscountCode, Payment, Subscription, PromoCode,
     InstituteDiscountCode,
     InstitutePlan, SchoolSubscription, ModuleProduct, ModuleSubscription,
     StripeEvent, Expense, RecurringExpense,
 )
+
+
+@admin.action(
+    description='Make this the only student package '
+                '(sync USD price, set default, retire the rest)',
+)
+def make_sole_student_package(modeladmin, request, queryset):
+    """Point every future student at one package, in one action.
+
+    Done as separate clicks this leaves windows where the wrong thing is true —
+    a default package still carrying a non-USD price, or every package inactive
+    at once — and it was exactly such a gap that let a student check out on an
+    NZD price. So the Stripe sync, the default flag and the retirement of the
+    other packages land together or not at all: anything that fails rolls the
+    whole action back, including the price IDs the sync wrote.
+    """
+    packages = list(queryset)
+    if len(packages) != 1:
+        modeladmin.message_user(
+            request,
+            'Select exactly one package — this action makes it the only one '
+            'students can subscribe to.',
+            level=messages.ERROR,
+        )
+        return
+
+    package = packages[0]
+    if package.is_free:
+        modeladmin.message_user(
+            request,
+            f'"{package.name}" is free, so it has no Stripe price to sync. '
+            f'Pick the paid package students should be put on.',
+            level=messages.ERROR,
+        )
+        return
+
+    sync_log = StringIO()
+    try:
+        with transaction.atomic():
+            # Pulls the active USD price for every plan, package and module.
+            # It refuses to guess between two USD prices at one amount, so a
+            # package it cannot resolve keeps whatever it had — which the
+            # currency check below then rejects.
+            call_command('sync_stripe_prices', stdout=sync_log, stderr=sync_log)
+            package.refresh_from_db()
+
+            from .stripe_service import assert_subscription_price_currency
+            assert_subscription_price_currency(
+                package.stripe_price_id, f'Package "{package.name}"',
+            )
+
+            package.is_active = True
+            package.is_default = True
+            package.save()   # clears is_default on every other package
+
+            retired = Package.objects.exclude(pk=package.pk).filter(is_active=True)
+            retired_names = list(retired.values_list('name', flat=True))
+            retired.update(is_active=False)
+    except Exception as exc:   # noqa: BLE001 — every failure is the admin's to see
+        modeladmin.message_user(
+            request,
+            f'Nothing was changed. {exc}',
+            level=messages.ERROR,
+        )
+        modeladmin.message_user(request, sync_log.getvalue(), level=messages.INFO)
+        return
+
+    log_event(
+        user=request.user, school=None, category='data_change',
+        action='billing_sole_student_package_set',
+        detail={
+            'package_id': package.id,
+            'package_name': package.name,
+            'stripe_price_id': package.stripe_price_id,
+            'retired_packages': retired_names,
+        },
+        request=request,
+    )
+    retired_note = (
+        f'Retired: {", ".join(retired_names)}.' if retired_names
+        else 'No other package was active.'
+    )
+    modeladmin.message_user(
+        request,
+        f'"{package.name}" is now the only student package — '
+        f'USD price {package.stripe_price_id}. {retired_note} '
+        f'Students already subscribed keep the package they are on.',
+        level=messages.SUCCESS,
+    )
 
 
 @admin.register(Package)
@@ -19,6 +114,7 @@ class PackageAdmin(admin.ModelAdmin):
     )
     list_editable = ('is_active', 'is_default', 'order')
     ordering = ('order',)
+    actions = (make_sole_student_package,)
 
 
 @admin.register(DiscountCode)
