@@ -342,6 +342,69 @@ def top_level_topics_with_questions(subject_ids=None):
             for t in topics if t.n_questions]
 
 
+def rename_topic(topic, new_name, new_slug=None, actor=None, request=None):
+    """Change what a topic is CALLED, and nothing else.
+
+    Merging cannot rename, so the survivor's name is whatever the biggest row
+    happened to be called — "Measurements" for a topic that should read
+    "Measurement", "Place Values" for "Place Value". Editing the row in the
+    admin does the same thing; this exists so the change is auditable and can
+    be scripted alongside the merges it usually follows.
+
+    The slug is left ALONE by default. It is not a display value: image paths
+    under ``questions/year{N}/{slug}/`` are written from it, and the topic is
+    unique on (subject, slug), so changing it moves nothing but can collide
+    with a sibling. Pass ``new_slug`` only when you mean it.
+
+    Returns a dict of what changed. Raises ValueError on an empty name, a
+    name longer than the column, or a slug already taken in this subject.
+    """
+    name = (new_name or '').strip()
+    if not name:
+        raise ValueError('a topic needs a name')
+    limit = Topic._meta.get_field('name').max_length
+    if len(name) > limit:
+        raise ValueError(f'name is {len(name)} characters; the column holds {limit}')
+
+    before = {'name': topic.name, 'slug': topic.slug}
+    fields = ['name']
+    topic.name = name
+
+    if new_slug is not None:
+        slug = (new_slug or '').strip()
+        if not slug:
+            raise ValueError('a topic needs a slug')
+        clash = (Topic.objects
+                 .filter(subject_id=topic.subject_id, slug=slug)
+                 .exclude(pk=topic.pk).first())
+        if clash is not None:
+            raise ValueError(
+                f'slug {slug!r} is already used by [{clash.id}] {clash.name!r} '
+                f'in this subject')
+        topic.slug = slug
+        fields.append('slug')
+
+    topic.save(update_fields=fields)
+
+    summary = {
+        'id': topic.id,
+        'before': before,
+        'after': {'name': topic.name, 'slug': topic.slug},
+        'slug_changed': 'slug' in fields,
+    }
+    try:
+        from audit.services import log_event
+        log_event(
+            user=actor, school=None, category='data_change',
+            action='topic_renamed', result='allowed',
+            detail=summary, request=request,
+        )
+    except Exception:  # audit must never break the rename
+        logger.exception('topic rename audit log failed')
+
+    return summary
+
+
 def validate_reparent(topic, parent):
     """Refuse a re-parent that would break the two-level strand > sub-topic tree.
 

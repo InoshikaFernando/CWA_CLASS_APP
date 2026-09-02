@@ -404,3 +404,75 @@ def test_a_merge_reports_dependents_moved_off_a_colliding_row(tree):
     out = run(keep=keep.id, absorb=str(gone.id))
     assert 'dependents moved off a colliding row' in out
     assert SubTopic.objects.get(slug='equiv-td').topic_level.topic_id == keep.id
+
+
+# ── --rename ──────────────────────────────────────────────────────────────
+def test_rename_changes_the_name(tree):
+    out = run(rename=tree['orphan'].id, new_name='Take Away')
+    tree['orphan'].refresh_from_db()
+    assert tree['orphan'].name == 'Take Away'
+    assert 'Renamed' in out
+
+
+def test_rename_leaves_the_slug_alone(tree):
+    run(rename=tree['orphan'].id, new_name='Take Away')
+    tree['orphan'].refresh_from_db()
+    assert tree['orphan'].slug == 'sub-td'
+
+
+def test_rename_changes_the_slug_when_asked(tree):
+    out = run(rename=tree['orphan'].id, new_name='Take Away', new_slug='take-away-td')
+    tree['orphan'].refresh_from_db()
+    assert tree['orphan'].slug == 'take-away-td'
+    assert 'not moved' in out          # the warning about image paths
+
+
+def test_rename_dry_run_writes_nothing(tree):
+    out = run(rename=tree['orphan'].id, new_name='Take Away', dry_run=True)
+    tree['orphan'].refresh_from_db()
+    assert tree['orphan'].name == 'Subtraction'
+    assert 'Would rename' in out
+
+
+def test_rename_moves_no_questions(tree):
+    tree['q'](tree['orphan'])
+    run(rename=tree['orphan'].id, new_name='Take Away')
+    assert Question.objects.filter(topic=tree['orphan']).count() == 1
+
+
+def test_rename_needs_a_new_name(tree):
+    with pytest.raises(CommandError):
+        run(rename=tree['orphan'].id)
+
+
+def test_rename_needs_an_id(tree):
+    with pytest.raises(CommandError):
+        run(new_name='Take Away')
+
+
+def test_rename_refuses_an_empty_name(tree):
+    with pytest.raises(CommandError):
+        run(rename=tree['orphan'].id, new_name='   ')
+
+
+def test_rename_refuses_a_slug_already_used_in_the_subject(tree):
+    with pytest.raises(CommandError):
+        run(rename=tree['orphan'].id, new_name='Take Away', new_slug='number-td')
+    tree['orphan'].refresh_from_db()
+    assert tree['orphan'].slug == 'sub-td'
+
+
+def test_rename_rejects_an_unknown_topic(tree):
+    with pytest.raises(CommandError):
+        run(rename=999999, new_name='Take Away')
+
+
+def test_rename_and_merge_together_are_refused(tree):
+    with pytest.raises(CommandError):
+        run(rename=tree['orphan'].id, new_name='X',
+            keep=tree['addition'].id, absorb=str(tree['addition_dupe'].id))
+
+
+def test_rename_and_reparent_together_are_refused(tree):
+    with pytest.raises(CommandError):
+        run(rename=tree['orphan'].id, new_name='X', reparent=tree['orphan'].id)
