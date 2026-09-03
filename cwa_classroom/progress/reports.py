@@ -1121,7 +1121,19 @@ def _untouched_topic(data, classrooms):
 
 
 def _habit_items(totals, attempts):
-    """One line about how the work was done, not what it was about."""
+    """One line about how the work was done, not what it was about.
+
+    Silent when nothing was handed in. Every figure below is computed over
+    homework submissions, so with none they are all zero — and zero reads
+    exactly like one attempt each: ``repeat_rate_pct`` is 0, ``avg_best_pct``
+    is 0, and the "attempted once" branch fired next to a Focus line saying
+    none of the nine were attempted at all. Two lines, same block, flatly
+    contradicting each other. There is no habit to describe until there is a
+    submission to describe it from.
+    """
+    if not totals.get('homework_attempted'):
+        return []
+
     gain = totals.get('improvement_pct') or 0
     if gain >= 10:
         return [{

@@ -23,6 +23,8 @@ def topic(name, answered, accuracy):
 def data(topics=(), **totals):
     base = {
         'submissions': 6, 'activity_items': 6, 'assigned': 0, 'completed': 0,
+        # Four homework attempted, two of them twice — six submissions.
+        'homework_attempted': 4,
         'avg_first_pct': 60, 'avg_best_pct': 70, 'improvement_pct': 0,
         'on_time_pct': 100,
     }
@@ -165,7 +167,8 @@ class HabitTests(TestCase):
     def test_not_retrying_is_suggested_instead(self):
         result = next_steps_section({
             'totals': {'submissions': 6, 'activity_items': 6, 'assigned': 0,
-                       'completed': 0, 'avg_best_pct': 60, 'avg_first_pct': 60,
+                       'completed': 0, 'homework_attempted': 6,
+                       'avg_best_pct': 60, 'avg_first_pct': 60,
                        'improvement_pct': 0, 'on_time_pct': 100},
             'topics': [topic('Money', 8, 60)],
             'attempts': {'repeat_rate_pct': 0},
@@ -204,3 +207,65 @@ class ShapeTests(TestCase):
                 item['text'], r'\d',
                 f'no figure in: {item["text"]}',
             )
+
+
+class NothingHandedInTests(TestCase):
+    """The failure a parent spotted: two lines in one block contradicting.
+
+        Focus  None of the 9 homework due this period was attempted.
+        Habit  Most homework was attempted once.
+
+    Every habit figure is computed over homework submissions, so with none
+    they are all zero — and zero reads exactly like one attempt each.
+    """
+
+    def _nothing_done(self, **totals):
+        """Nine set, none attempted, but the period is not empty: the marks
+        on the page came from quizzes and practice, which is what gets the
+        report past the "any activity at all" guard."""
+        base = dict(assigned=9, completed=0, homework_attempted=0,
+                    submissions=0, activity_items=40,
+                    avg_first_pct=0, avg_best_pct=0, improvement_pct=0,
+                    on_time_pct=0)
+        base.update(totals)
+        result = data(**base)
+        result['attempts'] = {'repeat_rate_pct': 0}
+        return result
+
+    def test_no_habit_line_claims_work_was_attempted_once(self):
+        result = next_steps_section(self._nothing_done())
+
+        self.assertNotIn('attempted once', texts(result))
+
+    def test_no_habit_line_at_all(self):
+        result = next_steps_section(self._nothing_done())
+
+        self.assertNotIn('habit', kinds(result))
+
+    def test_the_focus_line_still_names_the_untouched_homework(self):
+        """Suppressing the habit must not suppress the thing worth saying."""
+        result = next_steps_section(self._nothing_done())
+
+        self.assertIn('focus', kinds(result))
+        self.assertIn('None of the 9 homework', texts(result))
+
+    def test_no_line_claims_a_hand_in_rate(self):
+        """0% on time is arithmetically true and useless — nothing was set off."""
+        result = next_steps_section(self._nothing_done())
+
+        self.assertNotIn('on time', texts(result))
+
+    def test_one_homework_attempted_is_enough_to_speak(self):
+        """The guard is "nothing at all", not "not much"."""
+        result = next_steps_section(self._nothing_done(
+            completed=1, homework_attempted=1, submissions=1, avg_best_pct=40))
+
+        self.assertIn('habit', kinds(result))
+        self.assertIn('attempted once', texts(result))
+
+    def test_a_retrying_student_is_unaffected(self):
+        result = next_steps_section(data(
+            assigned=4, completed=4, homework_attempted=4,
+            avg_first_pct=50, avg_best_pct=75, improvement_pct=25))
+
+        self.assertIn('Retrying is working', texts(result))
