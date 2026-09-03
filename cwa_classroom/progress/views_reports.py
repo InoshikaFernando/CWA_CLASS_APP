@@ -164,6 +164,10 @@ def report_detail_context(report, viewer, *, preview=False,
     instead of being reversed from ``report.id``.
     """
     topics = report.topics
+    # The chart plots strands, the table below plots sub-topics. Around thirty
+    # bars answered no question a parent has; "behind in Number" does, and the
+    # table still carries every sub-topic.
+    topic_groups = report.topic_groups
     attempts = report.attempts
     trend = report.trend
 
@@ -172,8 +176,8 @@ def report_detail_context(report, viewer, *, preview=False,
     # add a way for the page to disagree with the PDF.
     charts = {
         'topics': {
-            'labels': [row['topic'] for row in topics],
-            'values': [row['accuracy_pct'] for row in topics],
+            'labels': [row['topic'] for row in topic_groups],
+            'values': [row['accuracy_pct'] for row in topic_groups],
         },
         'attempts': {
             'labels': [
@@ -214,6 +218,7 @@ def report_detail_context(report, viewer, *, preview=False,
         'back_label': back_label,
         'totals': report.totals,
         'topics': topics,
+        'topic_groups': topic_groups,
         'attempts': attempts,
         'awards': report.awards,
         'worksheets': report.worksheets,

@@ -186,6 +186,24 @@ class SubjectPlugin:
         """
         return {}
 
+    def content_topic_paths(self, content_ids) -> dict:
+        """Map content id -> ``(group, topic name)`` for the report breakdown.
+
+        The group is the heading a reader would file the topic under — the
+        curriculum strand in maths, the language in coding. It exists because
+        the report's chart plots one bar per topic, and after the topic tree
+        was tidied there were still ~29 sub-topics in a term: forty bars at 6pt
+        is a wall, not a picture. So the chart plots groups and the table below
+        keeps every sub-topic.
+
+        Defaults to the plugin's topic names with no group, so a plugin that
+        has no grouping to offer still charts exactly what it charted before
+        rather than vanishing from the chart. Returning an empty group is the
+        way to say "this topic is its own heading".
+        """
+        return {content_id: ('', name)
+                for content_id, name in self.content_topic_names(content_ids).items()}
+
     def topic_content_counts(self, classroom, topic_ids, question_type=None,
                              exclude_content_ids=None) -> dict:
         """Map plugin topic id -> how many items this class could draw from it.
