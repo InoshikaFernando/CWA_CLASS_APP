@@ -872,10 +872,31 @@ class TimesTablesSelectViewTest(TestCase):
         self.assertEqual(resp.status_code, 200)
 
     def test_select_view_context_has_all_tables(self):
+        """Every tile the picker can draw, derived from the curriculum.
+
+        Asserted against MAX_TIMES_TABLE rather than a literal: a hard-coded
+        ceiling above the scheme puts a tile on the page that no year can
+        unlock, and one below it hides a table a senior year is entitled to.
+        """
+        from maths.constants import MAX_TIMES_TABLE
+
         url = reverse('multiplication_select', kwargs={'level_number': 4})
         resp = self.client.get(url)
         self.assertIn('all_tables', resp.context)
-        self.assertEqual(list(resp.context['all_tables']), list(range(1, 16)))
+        self.assertEqual(list(resp.context['all_tables']),
+                         list(range(1, MAX_TIMES_TABLE + 1)))
+        self.assertGreater(len(list(resp.context['all_tables'])), 0)
+
+    def test_the_unlocked_tables_are_the_ones_that_year_is_entitled_to(self):
+        """The picker used to read a second copy of the mapping that had
+        drifted from the one in maths.constants — Year 4 was 1-10 in one and
+        1-15 in the other, and this page read the wrong one."""
+        from maths.constants import times_tables_for_year
+
+        url = reverse('multiplication_select', kwargs={'level_number': 4})
+        resp = self.client.get(url)
+        self.assertEqual(list(resp.context['available_tables']),
+                         list(times_tables_for_year(4)))
 
     def test_select_view_context_has_year(self):
         url = reverse('multiplication_select', kwargs={'level_number': 4})

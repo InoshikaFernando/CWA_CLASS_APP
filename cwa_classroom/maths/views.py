@@ -26,7 +26,7 @@ from classroom.models import (
 )  # classroom models
 from accounts.models import CustomUser, Role, UserRole
 from .forms import StudentSignUpForm, TeacherSignUpForm, TeacherCenterRegistrationForm, IndividualStudentRegistrationForm, StudentBulkRegistrationForm, QuestionForm, AnswerFormSet, UserProfileForm, UserPasswordChangeForm
-from .constants import YEAR_TOPICS_MAP, TIMES_TABLES_BY_YEAR
+from .constants import YEAR_TOPICS_MAP
 
 BASIC_FACTS_TOPIC_CONFIG = {
     "addition": {"start_level": 100, "level_count": 7},
