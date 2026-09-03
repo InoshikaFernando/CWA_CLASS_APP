@@ -1033,6 +1033,11 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     sub.discount_code = discount_obj
                     sub.discount_percent_snapshot = 100
                     sub.save()
+                    # A code the owner flagged as a Student Basic promotion
+                    # puts the student on that tier at sign-up. Off on every
+                    # code unless the owner ticked it.
+                    from billing.entitlements import apply_code_student_modules
+                    apply_code_student_modules(user, discount_obj)
                     user.package = package
                     user.profile_completed = True
                     user.save(update_fields=['package', 'profile_completed'])

@@ -13,8 +13,15 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 
 from datetime import timedelta
-from .models import Package, Subscription, Payment, DiscountCode, PromoCode, InstitutePlan, SchoolSubscription, ModuleSubscription
-from .entitlements import get_school_for_user, get_school_subscription, check_class_limit, check_student_limit, check_invoice_limit
+from .models import (
+    Package, Subscription, Payment, DiscountCode, PromoCode, InstitutePlan,
+    SchoolSubscription, ModuleSubscription, ModuleProduct, StudentModule,
+)
+from .entitlements import (
+    apply_code_student_modules, get_school_for_user, get_school_subscription,
+    check_class_limit, check_student_limit, check_invoice_limit,
+    student_has_module,
+)
 from audit.services import log_event
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -217,6 +224,11 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
                 sub.promo_code_used = promo.code
                 sub.save(update_fields=['package', 'status', 'trial_end', 'promo_code_used', 'updated_at'])
 
+                # Attach whatever tier the OWNER flagged on this code. Nothing
+                # here is student-chosen: a code with no flag (every code that
+                # exists today) leaves the student on the app in full.
+                apply_code_student_modules(request.user, promo)
+
                 request.user.package = package
                 request.user.save(update_fields=['package'])
 
@@ -280,6 +292,8 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
             sub.status = Subscription.STATUS_TRIALING
             sub.trial_end = timezone.now() + timedelta(days=grant_days)
             sub.save(update_fields=['package', 'status', 'trial_end', 'updated_at'])
+
+            apply_code_student_modules(request.user, discount)
 
             request.user.package = package
             request.user.save(update_fields=['package'])
@@ -1028,6 +1042,51 @@ class ModuleToggleView(LoginRequiredMixin, View):
             messages.error(request, f'Could not update module: {e}')
 
         return redirect('institute_subscription_dashboard')
+
+
+class StudentAIGradingView(LoginRequiredMixin, View):
+    """What the AI Graded Questions add-on is, for a student on Student Basic.
+
+    Deliberately NOT a checkout. Per-student modules have no Stripe flow yet, so
+    offering a Buy button would be a lie; the POST records interest in the audit
+    log and tells the student the truth — that somebody will set it up with them.
+    Nothing on their account changes here.
+
+    There is no route in the other direction: a student cannot put themselves on
+    Student Basic from this page or anywhere else. That tier is granted.
+    """
+
+    INTEREST_ACTION = 'student_ai_grading_interest'
+
+    def get(self, request):
+        return render(request, 'billing/student_ai_grading.html',
+                      self._context(request))
+
+    def post(self, request):
+        context = self._context(request)
+        if not context['already_included']:
+            log_event(
+                user=request.user, school=None, category='billing',
+                action=self.INTEREST_ACTION,
+                detail={'module': StudentModule.MODULE_AI_GRADING},
+                request=request,
+            )
+            context['registered'] = True
+        return render(request, 'billing/student_ai_grading.html', context)
+
+    def _context(self, request):
+        from worksheets.grading_service import student_can_be_ai_graded
+
+        entitled = student_can_be_ai_graded(request.user)
+        on_basic = student_has_module(request.user, StudentModule.MODULE_BASIC)
+        product = ModuleProduct.objects.filter(
+            module=StudentModule.MODULE_AI_GRADING, is_active=True).first()
+        return {
+            'already_included': entitled,
+            'current_tier': 'Student Basic' if on_basic else 'Full access',
+            'price': product.price if product else None,
+            'registered': False,
+        }
 
 
 class BillingHistoryView(LoginRequiredMixin, View):

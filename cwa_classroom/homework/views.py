@@ -1703,8 +1703,11 @@ def grade_pending_answers(submission, school):
 
     for answer in pending:
         try:
-            result = grade_extended_answer(answer.question, answer.text_answer, school=school)
-            if result.get('error') or result.get('quota_exceeded'):
+            result = grade_extended_answer(
+                answer.question, answer.text_answer, school=school,
+                student=submission.student)
+            if (result.get('error') or result.get('quota_exceeded')
+                    or result.get('not_entitled')):
                 # Not a verdict: the quota ran out, the API failed, or the
                 # question's diagram could not be loaded. Leave the answer
                 # pending so it shows on the teacher's review screen (and a
@@ -3387,8 +3390,11 @@ class HomeworkAIGradeView(RoleRequiredMixin, View):
 
         school = get_school_for_user(request.user)
         try:
-            result = grade_extended_answer(answer.question, answer.text_answer, school=school)
-            if result.get('error') or result.get('quota_exceeded'):
+            result = grade_extended_answer(
+                answer.question, answer.text_answer, school=school,
+                student=answer.submission.student)
+            if (result.get('error') or result.get('quota_exceeded')
+                    or result.get('not_entitled')):
                 # No verdict — say so and leave the answer pending rather than
                 # writing a 0 to the student's record under "AI graded".
                 messages.error(

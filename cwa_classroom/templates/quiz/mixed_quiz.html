@@ -16,6 +16,7 @@
 {% endblock %}
 
 {% block content %}
+{% include "billing/_ai_grading_promo.html" %}
 <form method="post" id="mixed-form">
   {% csrf_token %}
   <input type="hidden" name="session_id" value="{{ session_id }}" />

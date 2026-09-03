@@ -117,14 +117,48 @@ def student_can_be_ai_graded(user):
     Note the asymmetry with AI *import*, which gates a teacher's access to a
     feature. This gates whether a question is offered at all — never whether a
     submitted answer counts.
+
+    Before either population is considered, the student's OWN modules get a
+    say (``billing.StudentModule``). A student the owner has put on **Student
+    Basic** — the free promotional edition — is not AI-graded even if they are
+    an individual, and a student who holds the **AI grading** add-on is, even if
+    their school never bought the module. Everyone else holds neither module,
+    which is every student on the site until somebody is put on a promotion, so
+    the two populations below decide exactly as they always have.
     """
-    from billing.entitlements import get_all_schools_for_user
+    from billing.entitlements import (
+        get_all_schools_for_user, student_module_ai_verdict,
+    )
+
+    by_module = student_module_ai_verdict(user)
+    if by_module is not None:
+        return by_module
 
     schools = list(get_all_schools_for_user(user))
     if not schools:
         return True
     return any(getattr(school, 'free_ai_grading', False)
                or get_ai_grading_tier(school) for school in schools)
+
+
+def ai_grading_offer(user):
+    """Why this student sees (or doesn't see) AI-graded questions.
+
+    ``student_can_be_ai_graded`` answers yes/no; the quiz also needs to know
+    *why*, because only one of the two "no"s is worth showing a promotion for.
+    A school student whose school did not buy the module cannot do anything
+    about it themselves — offering them an upgrade would be pointing a child at
+    a purchase they cannot make. A Student Basic student can.
+
+    Returns ``(entitled, can_upgrade)``.
+    """
+    from billing.models import StudentModule
+    from billing.entitlements import student_has_module
+
+    entitled = student_can_be_ai_graded(user)
+    can_upgrade = (not entitled) and student_has_module(
+        user, StudentModule.MODULE_BASIC)
+    return entitled, can_upgrade
 
 
 def check_ai_grading_quota(school):
@@ -220,9 +254,17 @@ def _get_cache_model():
 # Core grading function
 # ---------------------------------------------------------------------------
 
-def grade_extended_answer(question, answer_text: str, school=None):
+def grade_extended_answer(question, answer_text: str, school=None, student=None):
     """
     Grade a student's extended answer.
+
+    Pass ``student`` wherever the answer belongs to a known student. AI grading
+    costs money per call, and a student who is not entitled to it must not have
+    a call made on their behalf — the quiz already never offers them the
+    question, and this is the same rule at the point where the money is spent,
+    so a teacher-assigned worksheet or homework cannot route around it. Their
+    answer is left for the teacher instead of being marked, exactly as a
+    quota-exhausted one is.
 
     Algorithm:
       1. Normalise the answer text.
@@ -255,7 +297,25 @@ def grade_extended_answer(question, answer_text: str, school=None):
             result.get('score_fraction', 0.0))
         return result
 
-    # ── 2. Quota check ────────────────────────────────────────────────────
+    # ── 2. Is this student AI-graded at all? ─────────────────────────────
+    # After the cache, deliberately: a cached verdict costs nothing and is the
+    # same answer this question has already been given, so withholding it would
+    # save no money and only lose the student a mark.
+    if student is not None and not student_can_be_ai_graded(student):
+        return {
+            'is_correct': False,
+            'score_fraction': 0.0,
+            'feedback': (
+                'This question is marked by the AI grader, which is not part '
+                'of your plan. Your teacher will review this answer.'
+            ),
+            'cache_hit': False,
+            'input_tokens': 0,
+            'output_tokens': 0,
+            'not_entitled': True,
+        }
+
+    # ── 3. Quota check ────────────────────────────────────────────────────
     if school:
         allowed, used, limit = check_ai_grading_quota(school)
         if not allowed:
@@ -272,14 +332,14 @@ def grade_extended_answer(question, answer_text: str, school=None):
                 'quota_exceeded': True,
             }
 
-    # ── 3. Claude evaluates the proof mathematically ──────────────────────
+    # ── 4. Claude evaluates the proof mathematically ──────────────────────
     result = _call_claude_grade(question, answer_text, normalised)
 
-    # ── 4. Record usage ───────────────────────────────────────────────────
+    # ── 5. Record usage ───────────────────────────────────────────────────
     if school:
         record_ai_grading_usage(school, result['input_tokens'], result['output_tokens'])
 
-    # ── 5. Store in cache ─────────────────────────────────────────────────
+    # ── 6. Store in cache ─────────────────────────────────────────────────
     # A failure is not a verdict, so it is never cached: an outage or an
     # unreadable diagram would otherwise be handed back as a cached 0.0 to
     # every later student who wrote the same answer, long after the cause
@@ -287,7 +347,7 @@ def grade_extended_answer(question, answer_text: str, school=None):
     if not result.get('error'):
         _store_cache(question.pk, normalised, result)
 
-    # ── 6. New correct path → update rubric ──────────────────────────────
+    # ── 7. New correct path → update rubric ──────────────────────────────
     # If Claude found a correct answer that isn't already described in the
     # rubric, append it so future evaluations have it as a reference.
     if result.get('is_correct') and not result.get('error'):

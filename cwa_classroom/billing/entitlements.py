@@ -275,3 +275,149 @@ def record_invoice_usage(school, count):
 
     sub.invoices_used_this_year += count
     sub.save(update_fields=['invoices_used_this_year', 'invoice_year_start', 'updated_at'])
+
+
+# ---------------------------------------------------------------------------
+# Per-student modules (billing.StudentModule)
+# ---------------------------------------------------------------------------
+#
+# The individual mirror of the school module system above. A school buys modules
+# against its SchoolSubscription; a student carries them on their own
+# billing.Subscription.
+#
+# The one rule that makes this safe to deploy: **a student with no module rows
+# is not on any tier**. Every student on the site today has none, and a student
+# who subscribes tomorrow gets none, so nothing about their access changes.
+# Modules are attached deliberately, one student at a time — there is no
+# student-facing way to pick one up.
+
+
+def get_student_subscription(user):
+    """Return the individual ``billing.Subscription`` for *user*, or None."""
+    from billing.models import Subscription
+    if not getattr(user, 'is_authenticated', False):
+        return None
+    return Subscription.objects.filter(user=user).first()
+
+
+def active_student_modules(user):
+    """The set of module slugs currently switched on for *user*.
+
+    Empty for everybody who has never been given one — which is the whole
+    site until somebody is put on a promotion.
+    """
+    from billing.models import StudentModule
+    if not getattr(user, 'is_authenticated', False):
+        return set()
+    return set(
+        StudentModule.objects
+        .filter(subscription__user=user, is_active=True)
+        .values_list('module', flat=True)
+    )
+
+
+def student_has_module(user, module_slug):
+    """Is *module_slug* switched on for this student?"""
+    return module_slug in active_student_modules(user)
+
+
+def student_module_ai_verdict(user):
+    """What the student's OWN modules say about AI grading.
+
+    ``True``  — they hold the paid AI grading add-on.
+    ``False`` — they are on Student Basic, the free promotional edition.
+    ``None``  — they hold neither, so their modules have no opinion and the
+                school rules decide (which, for a student in no school, means
+                the app in full, exactly as before this existed).
+
+    The add-on beats Basic on purpose: it is the thing a Basic student upgrades
+    to, so holding both has to read as "upgraded".
+    """
+    from billing.models import StudentModule
+    modules = active_student_modules(user)
+    if StudentModule.MODULE_AI_GRADING in modules:
+        return True
+    if StudentModule.MODULE_BASIC in modules:
+        return False
+    return None
+
+
+def grant_student_module(user, module_slug, granted_by=None, source_code='',
+                         note=''):
+    """Switch *module_slug* on for *user*, and say whether anything changed.
+
+    Returns ``(module_row, changed)``. Re-granting a module the student already
+    has switched on is a no-op rather than an error, so the management command
+    and the admin can both be run twice.
+
+    A student with no ``billing.Subscription`` cannot carry a module — there is
+    nothing to hang it on — and gets ``(None, False)`` rather than a crash, so
+    the caller can report the skip.
+    """
+    from billing.models import StudentModule
+
+    subscription = get_student_subscription(user)
+    if subscription is None:
+        return (None, False)
+
+    row, created = StudentModule.objects.get_or_create(
+        subscription=subscription, module=module_slug,
+        defaults={
+            'granted_by': granted_by, 'source_code': source_code, 'note': note,
+        },
+    )
+    if created:
+        return (row, True)
+    if not row.is_active:
+        row.is_active = True
+        row.deactivated_at = None
+        row.granted_by = granted_by or row.granted_by
+        row.source_code = source_code or row.source_code
+        row.note = note or row.note
+        row.save(update_fields=['is_active', 'deactivated_at', 'granted_by',
+                                'source_code', 'note'])
+        return (row, True)
+    return (row, False)
+
+
+def revoke_student_module(user, module_slug):
+    """Switch *module_slug* off for *user*. Returns ``(row, changed)``.
+
+    The row is kept and deactivated rather than deleted, so who had what, and
+    when, survives the promotion ending.
+    """
+    from django.utils import timezone as tz
+    from billing.models import StudentModule
+
+    row = StudentModule.objects.filter(
+        subscription__user=user, module=module_slug,
+    ).first()
+    if row is None or not row.is_active:
+        return (row, False)
+    row.is_active = False
+    row.deactivated_at = tz.now()
+    row.save(update_fields=['is_active', 'deactivated_at'])
+    return (row, True)
+
+
+def apply_code_student_modules(user, code, granted_by=None):
+    """Attach whatever modules a redeemed promotion/discount *code* grants.
+
+    Called from the redemption paths so a cohort the owner issues a code to
+    lands on the right tier at sign-up instead of needing a second pass. Only
+    reads flags the OWNER set on the code when they created it — a student
+    typing a code can never choose a tier, only receive the one attached to the
+    code they were handed.
+
+    A code with no flags set (every code that exists today) does nothing.
+    """
+    from billing.models import StudentModule
+
+    if code is None or not getattr(code, 'grants_student_basic', False):
+        return None
+    row, _changed = grant_student_module(
+        user, StudentModule.MODULE_BASIC,
+        granted_by=granted_by, source_code=getattr(code, 'code', ''),
+        note='Granted by promotion code at redemption.',
+    )
+    return row

@@ -92,6 +92,14 @@ class DiscountCode(models.Model):
         'Package', blank=True, related_name='discount_codes',
         help_text='Packages this code applies to. Leave empty for all packages.',
     )
+    grants_student_basic = models.BooleanField(
+        default=False,
+        help_text=(
+            'Put students who redeem this code on the Student Basic module — '
+            'the free promotional edition, without the AI-graded questions. '
+            'Off by default: an ordinary code grants the app in full.'
+        ),
+    )
     is_active = models.BooleanField(default=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -183,6 +191,14 @@ class PromoCode(models.Model):
         help_text='Leave blank for unlimited uses.',
     )
     uses = models.PositiveIntegerField(default=0)
+    grants_student_basic = models.BooleanField(
+        default=False,
+        help_text=(
+            'Put students who redeem this code on the Student Basic module — '
+            'the free promotional edition, without the AI-graded questions. '
+            'Off by default: an ordinary code grants the app in full.'
+        ),
+    )
     is_active = models.BooleanField(default=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     redeemed_by = models.ManyToManyField(
@@ -631,6 +647,78 @@ class Subscription(models.Model):
         if total_seconds <= 0:
             return 0
         return math.ceil(total_seconds / 86400)
+
+
+class StudentModule(models.Model):
+    """A module switched on (or deliberately off) for ONE individual student.
+
+    The individual-student mirror of :class:`ModuleSubscription`, which does the
+    same job for a school: a school buys modules against its
+    ``SchoolSubscription``, a student carries them on their own
+    ``billing.Subscription``.
+
+    **Nothing here is a default.** A student with no rows in this table behaves
+    exactly as they did before the table existed — the app in full, AI-graded
+    questions included. That is deliberate and load-bearing: every student on
+    the site today has no rows, so the migration that creates this table changes
+    nobody's access, and a student who subscribes tomorrow gets no rows either.
+    Modules are attached one student at a time, by hand or by a promotion code
+    that says to.
+
+    Two modules, reading in opposite directions:
+
+    ``student_basic``
+        The free promotional edition: the questions the app can mark for
+        itself, and none of the ones a model has to mark. It is a *withhold*,
+        so it applies only to the student it is attached to.
+
+    ``student_ai_grading``
+        The paid add-on that puts the AI-graded questions back. A student
+        holding it is AI-graded whatever else they hold — it is the thing a
+        Student Basic student upgrades to, so it has to win.
+    """
+
+    MODULE_BASIC = 'student_basic'
+    MODULE_AI_GRADING = 'student_ai_grading'
+
+    MODULE_CHOICES = [
+        (MODULE_BASIC, 'Student Basic — self-marked questions only'),
+        (MODULE_AI_GRADING, 'AI Graded Questions'),
+    ]
+
+    subscription = models.ForeignKey(
+        Subscription,
+        on_delete=models.CASCADE,
+        related_name='student_modules',
+    )
+    module = models.CharField(max_length=50, choices=MODULE_CHOICES)
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Untick to switch the module off without losing the record of it.',
+    )
+    granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+        help_text='Who attached this module. Blank when a promotion code did.',
+    )
+    source_code = models.CharField(
+        max_length=50, blank=True,
+        help_text='The promotion/discount code that granted it, if any.',
+    )
+    note = models.CharField(
+        max_length=200, blank=True,
+        help_text='Why this student has it — shown on the admin list.',
+    )
+    activated_at = models.DateTimeField(auto_now_add=True)
+    deactivated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('subscription', 'module')
+        ordering = ['module']
+
+    def __str__(self):
+        state = '' if self.is_active else ' (off)'
+        return f'{self.subscription.user.username} — {self.get_module_display()}{state}'
 
 
 class StripeEvent(models.Model):

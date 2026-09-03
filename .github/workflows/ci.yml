@@ -401,6 +401,13 @@ jobs:
               # templates/quiz/. ui_maths and ui_worksheets already watch this
               # directory for the same reason.
               - 'cwa_classroom/templates/maths/**'
+              # WHICH questions a quiz serves is a billing question: a student
+              # on the free Student Basic module is not shown the AI-graded
+              # ones, and is shown a promotion in their place. Break the
+              # entitlement lookup or that partial and the quiz silently gets
+              # longer or shorter for the wrong students.
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/templates/billing/**'
             # Question/content import: /upload-questions/ (classroom views),
             # the PDF import pipeline (ai_import), and the homework + worksheet
             # upload forms that share the page-range field.

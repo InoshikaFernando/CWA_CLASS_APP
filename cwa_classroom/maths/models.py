@@ -384,6 +384,38 @@ class Question(models.Model):
         """True if this question requires AI or human grading (not instant auto-check)."""
         return self.validation_type in (self.VALIDATION_AI, self.VALIDATION_HUMAN)
 
+    # ------------------------------------------------------------------
+    # AI-graded or not — one definition, in one place
+    # ------------------------------------------------------------------
+    #
+    # A question costs a model call to mark when it is either an
+    # ``extended_answer`` (written prose, no stored answer to match against) or
+    # explicitly marked ``validation_type='ai_graded'``. That pair of conditions
+    # is what separates the bank into the two halves the product is sold as:
+    # the AI-graded questions, and everything the app can mark for itself.
+    #
+    # It used to be written out by hand wherever it was needed — as a ``Q`` in
+    # ``quiz.views.gradable_for``, as an ``if`` elsewhere — so the two halves
+    # could drift apart and a question could be hidden from a quiz while still
+    # being sent to the grader. Both forms now come from here.
+
+    @classmethod
+    def ai_graded_q(cls):
+        """The ``Q`` that selects the AI-graded half of the bank."""
+        return (models.Q(question_type=cls.EXTENDED_ANSWER)
+                | models.Q(validation_type=cls.VALIDATION_AI))
+
+    @property
+    def is_ai_graded(self):
+        """True if marking this question needs a model call.
+
+        The row-level twin of :meth:`ai_graded_q` — the same rule, so a
+        question filtered out of a queryset can never be one this returns
+        ``False`` for.
+        """
+        return (self.question_type == self.EXTENDED_ANSWER
+                or self.validation_type == self.VALIDATION_AI)
+
     def grade_text_answer_parts(self, text_answer):
         """Grade a multi-part typed answer part by part, or return ``None``.
 
