@@ -132,6 +132,41 @@ For a cohort signing up fresh, tick **grants student basic** on the
 exists, and a student typing a code can only receive the tier the owner put on
 it — never pick one.
 
+### Only a 100%-off code may carry Student Basic
+
+Nothing in account creation mentions tiers. The student picks a plan at **step
+3** of the sign-up form, where they read the full price (`$19.90/mo`), and types
+the code at **step 5**, which gives no feedback — it is validated on submit.
+There is no screen in between.
+
+So a code that still charges must not carry Student Basic: the student would
+pay for a plan whose page they had just read, and get fewer questions than it
+described, with no disclosure anywhere. `DiscountCode.clean()` and
+`PromoCode.clean()` refuse the combination, which is what the admin form runs;
+`apply_code_student_modules` refuses it again and logs an error, because the
+form guard cannot see a row written by a script, a fixture or an old migration.
+
+**Consequence, stated plainly:** a fully-free code never goes to Stripe, so no
+*code* reaches the webhook path today. The activation machinery below is still
+correct and still tested — the free paths use it, and it is what a paid student
+module (`student_ai_grading`, when it is sold) will need — but for Student Basic
+it is belt-and-braces rather than load-bearing.
+
+### What the upgrade costs
+
+The way out of Student Basic is **becoming an ordinary paying subscriber**, not
+buying a cheap module on the side. So `/billing/ai-graded-questions/` quotes the
+live `Package` price — the same figure step 3 of the registration form shows —
+and can never drift from it. `is_default` wins if set, else the cheapest active
+paid package; free packages are excluded, since quoting `$0.00` as the upgrade
+price would be worse than quoting nothing. With no paid package at all the price
+block is simply absent and the page still renders.
+
+There is deliberately **no `ModuleProduct` row** for `student_ai_grading`. A
+module price would be a second place for the number to live, and the first
+version of this page read one — which meant it showed no price at all, because
+no such row exists.
+
 ### Why the grant happens at activation, not when the code is typed
 
 There are two shapes of promotion and they activate at completely different
@@ -175,7 +210,7 @@ redemption resolves to nothing rather than breaking an activation.
 | file | pins |
 |---|---|
 | `billing/tests_student_modules.py` | nobody is on a tier by default; grant/revoke/idempotence; code flags; the command |
-| `billing/tests_student_module_signup.py` | every route to a subscription lands on the same tier — free codes, pay-the-remainder codes through the Stripe webhook, and sign-up-then-pay |
+| `billing/tests_student_module_signup.py` | every route to a subscription lands on the same tier; the 100%-only guard, at both layers; the quoted price is the real plan's |
 | `quiz/test_student_basic_quiz.py` | the quiz serves only the self-marked half; the two halves of the bank agree; who is offered the promotion |
 | `worksheets/tests/test_student_basic_grading.py` | the money guard — no model call for an unentitled student, and a cache hit still counts |
 | `ui_tests/quiz/test_student_basic_promo.py` | the AI-graded question is really absent from the page, and the shortened quiz says why |

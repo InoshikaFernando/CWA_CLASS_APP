@@ -110,6 +110,25 @@ class DiscountCode(models.Model):
     def __str__(self):
         return f'{self.code} ({self.discount_percent}% off)'
 
+
+    def clean(self):
+        super().clean()
+        # Student Basic is the FREE promotional edition. Letting it ride on a
+        # code that still charges would sell somebody a reduced product without
+        # a word of it anywhere on screen: the sign-up form quotes the full
+        # plan's price at step 3 and takes the code at step 5, with nothing in
+        # between to say the tier excludes the AI-graded questions. So the flag
+        # is only allowed where the student pays nothing.
+        if self.grants_student_basic and self.discount_percent != 100:
+            raise ValidationError({
+                'grants_student_basic': (
+                    'Student Basic can only be granted by a code that is 100% '
+                    'off. This code charges the student '
+                    f'{100 - self.discount_percent}% of the price, and nothing '
+                    'in the sign-up flow tells them the tier leaves out the '
+                    'AI-graded questions.'
+                ),
+            })
     def is_valid(self):
         if not self.is_active:
             return False
@@ -215,6 +234,25 @@ class PromoCode(models.Model):
         limit = 'unlimited' if self.class_limit == 0 else str(self.class_limit)
         return f'{self.code} ({limit} classes)'
 
+
+    def clean(self):
+        super().clean()
+        # Student Basic is the FREE promotional edition. Letting it ride on a
+        # code that still charges would sell somebody a reduced product without
+        # a word of it anywhere on screen: the sign-up form quotes the full
+        # plan's price at step 3 and takes the code at step 5, with nothing in
+        # between to say the tier excludes the AI-graded questions. So the flag
+        # is only allowed where the student pays nothing.
+        if self.grants_student_basic and self.discount_percent != 100:
+            raise ValidationError({
+                'grants_student_basic': (
+                    'Student Basic can only be granted by a code that is 100% '
+                    'off. This code charges the student '
+                    f'{100 - self.discount_percent}% of the price, and nothing '
+                    'in the sign-up flow tells them the tier leaves out the '
+                    'AI-graded questions.'
+                ),
+            })
     def is_valid(self):
         if not self.is_active:
             return False

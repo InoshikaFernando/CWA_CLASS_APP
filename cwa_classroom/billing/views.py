@@ -15,7 +15,7 @@ from django.utils import timezone
 from datetime import timedelta
 from .models import (
     Package, Subscription, Payment, DiscountCode, PromoCode, InstitutePlan,
-    SchoolSubscription, ModuleSubscription, ModuleProduct, StudentModule,
+    SchoolSubscription, ModuleSubscription, StudentModule,
 )
 from .entitlements import (
     get_school_for_user, get_school_subscription,
@@ -1118,17 +1118,36 @@ class StudentAIGradingView(LoginRequiredMixin, View):
             context['registered'] = True
         return render(request, 'billing/student_ai_grading.html', context)
 
+    @staticmethod
+    def standard_plan():
+        """The paid plan a Student Basic student would move onto.
+
+        The upgrade out of Student Basic is not a cheap module bolted on the
+        side — it is becoming an ordinary paying subscriber on the same plan
+        everyone else sees at sign-up. So the price quoted here is read off
+        that ``Package`` and can never drift from the one step 3 of the
+        registration form shows.
+
+        ``is_default`` wins if the owner has set it; otherwise the cheapest
+        active paid package. The free packages (`grant_free_access` creates
+        one) are excluded — quoting $0.00 as the upgrade price would be worse
+        than quoting nothing.
+        """
+        paid = Package.objects.filter(is_active=True, price__gt=0)
+        return paid.filter(is_default=True).first() or paid.order_by(
+            'order', 'price').first()
+
     def _context(self, request):
         from worksheets.grading_service import student_can_be_ai_graded
 
         entitled = student_can_be_ai_graded(request.user)
         on_basic = student_has_module(request.user, StudentModule.MODULE_BASIC)
-        product = ModuleProduct.objects.filter(
-            module=StudentModule.MODULE_AI_GRADING, is_active=True).first()
+        plan = self.standard_plan()
         return {
             'already_included': entitled,
             'current_tier': 'Student Basic' if on_basic else 'Full access',
-            'price': product.price if product else None,
+            'plan': plan,
+            'price': plan.price if plan else None,
             'registered': False,
         }
 

@@ -408,10 +408,24 @@ def apply_code_student_modules(user, code, granted_by=None):
     code they were handed.
 
     A code with no flags set (every code that exists today) does nothing.
+
+    A flagged code that is not 100% off is refused here as well as in the
+    model's ``clean()``. The form-level guard cannot see a row written by a
+    script, a fixture or an old migration, and this is the last point before a
+    paying student would be silently put on a reduced product.
     """
+    import logging
+
     from billing.models import StudentModule
 
     if code is None or not getattr(code, 'grants_student_basic', False):
+        return None
+    if not getattr(code, 'is_fully_free', False):
+        logging.getLogger(__name__).error(
+            'Code %s is flagged grants_student_basic but is only %s%% off; '
+            'refusing to put a paying student on the free tier.',
+            getattr(code, 'code', code), getattr(code, 'discount_percent', '?'),
+        )
         return None
     row, _changed = grant_student_module(
         user, StudentModule.MODULE_BASIC,
