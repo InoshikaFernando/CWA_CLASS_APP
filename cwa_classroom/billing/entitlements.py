@@ -403,9 +403,7 @@ def revoke_student_module(user, module_slug):
 def apply_code_student_modules(user, code, granted_by=None):
     """Attach whatever modules a redeemed promotion/discount *code* grants.
 
-    Called from the redemption paths so a cohort the owner issues a code to
-    lands on the right tier at sign-up instead of needing a second pass. Only
-    reads flags the OWNER set on the code when they created it — a student
+    Only reads flags the OWNER set on the code when they created it — a student
     typing a code can never choose a tier, only receive the one attached to the
     code they were handed.
 
@@ -421,3 +419,54 @@ def apply_code_student_modules(user, code, granted_by=None):
         note='Granted by promotion code at redemption.',
     )
     return row
+
+
+def codes_on_subscription(subscription):
+    """Every promotion/discount code *subscription* was activated with.
+
+    A subscription can carry a code two ways, because the two code types are
+    recorded differently: ``discount_code`` is a real foreign key to a
+    ``DiscountCode``, while a ``PromoCode`` leaves only its string in
+    ``promo_code_used``. Both are looked up so neither kind of promotion is
+    silently the one that doesn't work.
+    """
+    from billing.models import DiscountCode, PromoCode
+
+    codes = []
+    if subscription.discount_code_id:
+        codes.append(subscription.discount_code)
+    slug = (subscription.promo_code_used or '').strip()
+    if slug:
+        codes.append(PromoCode.objects.filter(code=slug).first()
+                     or DiscountCode.objects.filter(code=slug).first())
+    return [code for code in codes if code is not None]
+
+
+def sync_student_modules(subscription, granted_by=None):
+    """Bring a subscription's modules into line with the code that activated it.
+
+    **Called when a subscription becomes real, not when a code is typed.** That
+    distinction is the whole point of this function. A promotion code that
+    covers the price in full activates the student on the spot; one that leaves
+    a balance sends them to Stripe and the subscription is activated minutes
+    later by the webhook — or, if that is lost, by the success page. Granting at
+    the moment the code was entered would have worked only for the first kind,
+    so a half-price promotion would have quietly handed out the AI-graded
+    questions it was sold without.
+
+    Idempotent by construction (``grant_student_module`` is), so every
+    activation path can call it, the webhook and the success page can both fire,
+    and the result is the same one row.
+
+    Returns the module rows it granted, which is ``[]`` for every subscription
+    whose code carries no tier — i.e. all of them today.
+    """
+    if subscription is None or subscription.user_id is None:
+        return []
+    granted = []
+    for code in codes_on_subscription(subscription):
+        row = apply_code_student_modules(
+            subscription.user, code, granted_by=granted_by)
+        if row is not None:
+            granted.append(row)
+    return granted

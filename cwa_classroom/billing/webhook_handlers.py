@@ -176,6 +176,23 @@ def _activate_individual_from_checkout(metadata, stripe_subscription_id, stripe_
         sub.save()
         logger.info('Individual subscription activated: user=%s package=%s', user_id, package)
 
+    # A promotion code that covered the price in full activated the student
+    # before they ever reached Stripe. One that left a balance to pay lands
+    # HERE instead, minutes later. Both have to end on the same tier, so the
+    # modules are synced from the code the subscription CARRIES rather than at
+    # the moment it was typed — granting at code entry would have worked only
+    # for the free codes, and a half-price promotion would have quietly handed
+    # out the AI-graded questions it was sold without.
+    #
+    # Idempotent, so the success-page safety net can sync the same subscription
+    # again without a second row. A failure here must not lose a paid
+    # activation: it is logged, and the success page retries it.
+    try:
+        from billing.entitlements import sync_student_modules
+        sync_student_modules(sub)
+    except Exception:
+        logger.exception('Could not sync student modules for user %s', user_id)
+
     # Mark profile as complete — school students are gated until payment confirms
     if not user.profile_completed:
         user.profile_completed = True

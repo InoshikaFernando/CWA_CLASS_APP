@@ -128,15 +128,54 @@ the promotion ending. A student with no `Subscription` cannot carry a module and
 is reported as a skip rather than a silent success.
 
 For a cohort signing up fresh, tick **grants student basic** on the
-`DiscountCode` or `PromoCode` you issue them: redemption attaches the module and
-records the code on it. The flag is off on every code that exists, and a student
-typing a code can only receive the tier the owner put on it — never pick one.
+`DiscountCode` or `PromoCode` you issue them. The flag is off on every code that
+exists, and a student typing a code can only receive the tier the owner put on
+it — never pick one.
+
+### Why the grant happens at activation, not when the code is typed
+
+There are two shapes of promotion and they activate at completely different
+moments:
+
+- a code that covers the price **in full** activates the student on the spot,
+  before Stripe is ever involved;
+- a code that leaves a **balance to pay by card** sends them to Stripe, and the
+  subscription is activated minutes later by the webhook — or, if that is lost,
+  by the success page.
+
+Granting when the code was *typed* would work only for the first kind. A
+half-price promotion would quietly hand out the AI-graded questions it was sold
+without, and nothing would fail loudly.
+
+So the code is **recorded on the subscription**, and the tier is resolved from
+it by `billing.entitlements.sync_student_modules(subscription)` every time that
+subscription becomes real. It is idempotent, so every path can call it and the
+webhook and the success page can both fire.
+
+| how the student subscribed | where the code is recorded | where the tier is granted |
+|---|---|---|
+| individual sign-up, free or 100% code | `sub.discount_code` | inline, `accounts.views` |
+| individual sign-up, paid + code | `PendingRegistration.data`, then `sub.discount_code` | `_create_account_from_pending` |
+| school student, 100% code | `sub.discount_code` | inline, `CompleteProfileView` |
+| school student, partial code → card | `sub.discount_code` | Stripe webhook |
+| `ApplyPromoCodeView`, 100% code | `sub.discount_code` / `sub.promo_code_used` | inline |
+| `ApplyPromoCodeView`, partial → card | `sub.discount_code` / `sub.promo_code_used` | Stripe webhook |
+
+Three of those six recorded nothing at all before this: the individual sign-up
+paths and both `ApplyPromoCodeView` branches bumped the code's `uses` counter
+and moved on, so afterwards nothing knew which code had let the student in —
+not the tier, and not anyone asking later why a student pays nothing.
+
+A `PromoCode` leaves only its string in `promo_code_used` (there is no foreign
+key for it), so `codes_on_subscription` looks both up. A code deleted after
+redemption resolves to nothing rather than breaking an activation.
 
 ## Tests
 
 | file | pins |
 |---|---|
 | `billing/tests_student_modules.py` | nobody is on a tier by default; grant/revoke/idempotence; code flags; the command |
+| `billing/tests_student_module_signup.py` | every route to a subscription lands on the same tier — free codes, pay-the-remainder codes through the Stripe webhook, and sign-up-then-pay |
 | `quiz/test_student_basic_quiz.py` | the quiz serves only the self-marked half; the two halves of the bank agree; who is offered the promotion |
 | `worksheets/tests/test_student_basic_grading.py` | the money guard — no model call for an unentitled student, and a cache hit still counts |
 | `ui_tests/quiz/test_student_basic_promo.py` | the AI-graded question is really absent from the page, and the shortened quiz says why |

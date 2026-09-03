@@ -612,7 +612,17 @@ class IndividualStudentRegisterView(View):
                     discount.save(update_fields=['uses'])
                     sub.status = Subscription.STATUS_ACTIVE
                     sub.trial_end = None
-                    sub.save(update_fields=['status', 'trial_end'])
+                    # Record WHICH code let them in. Only `uses` was bumped
+                    # before, so the subscription itself did not know it was on
+                    # a promotion — and neither the tier below nor anyone asking
+                    # later could tell.
+                    sub.discount_code = discount
+                    sub.save(update_fields=['status', 'trial_end',
+                                            'discount_code'])
+
+                if discount:
+                    from billing.entitlements import sync_student_modules
+                    sync_student_modules(sub)
 
             login(request, user, backend='accounts.backends.EmailOrUsernameBackend')
 
@@ -1034,10 +1044,13 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     sub.discount_percent_snapshot = 100
                     sub.save()
                     # A code the owner flagged as a Student Basic promotion
-                    # puts the student on that tier at sign-up. Off on every
-                    # code unless the owner ticked it.
-                    from billing.entitlements import apply_code_student_modules
-                    apply_code_student_modules(user, discount_obj)
+                    # puts the student on that tier. Read off the subscription,
+                    # so this branch and the pay-the-remainder branch below —
+                    # which is activated later, by the Stripe webhook — resolve
+                    # the tier the same way. Off on every code unless the owner
+                    # ticked it.
+                    from billing.entitlements import sync_student_modules
+                    sync_student_modules(sub)
                     user.package = package
                     user.profile_completed = True
                     user.save(update_fields=['package', 'profile_completed'])
