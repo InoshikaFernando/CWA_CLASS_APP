@@ -206,6 +206,15 @@ jobs:
               - 'cwa_classroom/whatsapp/**'
             ops:
               - 'cwa_classroom/ops/**'
+              # The dashboard renders the two health signals it does not own —
+              # the email queue and the subscription paywall — plus its own
+              # template. A change in any of them can break the ops view
+              # without touching a file under ops/, and the symptom would be a
+              # dashboard that stops reporting, not a red build.
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/email_health.py'
+              - 'cwa_classroom/usage/**'
+              - 'cwa_classroom/templates/admin_dashboard/ops/**'
             notifications:
               - 'cwa_classroom/notifications/**'
             progress:
