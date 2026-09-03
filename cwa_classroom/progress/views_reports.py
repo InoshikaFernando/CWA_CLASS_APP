@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.views import View
 
-from billing.entitlements import student_has_module
+from billing.entitlements import student_school_has_module
 from billing.models import ModuleSubscription
 from progress.access import can_view_report, can_view_student
 from progress.models import PeriodReport
@@ -30,7 +30,7 @@ def _entitled(student):
     the rest of this module already follows — a parent must not be able to
     tell, from the response, that another family's report exists.
     """
-    return student_has_module(student, REPORTS_MODULE)
+    return student_school_has_module(student, REPORTS_MODULE)
 
 
 def _resolve_subject(request):

@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("billing", "0045_github_billing_source"),
+        ("billing", "0046_student_modules"),
     ]
 
     operations = [

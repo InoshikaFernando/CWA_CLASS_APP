@@ -122,16 +122,22 @@ def has_module_any_school(user, module_slug):
     return False
 
 
-def student_has_module(student, module_slug):
-    """Whether the school *student* belongs to has *module_slug* active.
+def student_school_has_module(student, module_slug):
+    """Whether the SCHOOL that *student* belongs to has *module_slug* active.
 
-    Deliberately distinct from :func:`has_module_any_school`, which asks about
-    the school of whoever is making the request. Reports are read by parents,
-    and a parent belongs to no school of their own — asking about the viewer
-    would deny a parent the report their child's school has paid for. The rule
-    is that the module is bought by the school that owns the data, so everyone
-    entitled to read a student's data sees it exactly when that student's
-    school has the module.
+    Three near-neighbours, and picking the wrong one is a silent bug rather
+    than an error, so the names spell out whose modules each one reads:
+
+    * :func:`has_module_any_school` — the *viewer's* schools.
+    * :func:`student_has_module`    — the student's OWN per-student modules
+      (``billing.StudentModule``), which is a different table entirely.
+    * this one                      — the *student's* schools.
+
+    Reports need this one. They are read by parents, who belong to no school
+    of their own, so asking about the viewer would deny a parent the report
+    their child's school has paid for; and they are a school-bought module, so
+    asking about the student's own StudentModule rows would deny everybody,
+    since nearly nobody has any.
     """
     if student is None:
         return False
