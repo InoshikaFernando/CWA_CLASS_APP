@@ -45,6 +45,15 @@ class Command(BaseCommand):
             help='Grant to every school that has a subscription.',
         )
         parser.add_argument(
+            '--with-reports', action='store_true',
+            help=(
+                'Narrow the selection to schools that have actually generated '
+                'a period report. Use with --all to grandfather only the '
+                'schools that were really using reports while they were free, '
+                'rather than every school on the books.'
+            ),
+        )
+        parser.add_argument(
             '--reason', default='',
             help='Why this was granted. Recorded in the audit log.',
         )
@@ -75,9 +84,23 @@ class Command(BaseCommand):
                     f'No SchoolSubscription for school id(s): {missing}. '
                     'A school with no subscription cannot hold a module.')
 
+        if options['with_reports']:
+            # Grandfathering should follow use, not the customer list: a school
+            # that never generated a report is not losing anything when the
+            # gate goes up, and granting it a module for free is revenue given
+            # away for nothing. Reports carry their own school_id, so this asks
+            # the evidence directly rather than inferring from settings rows,
+            # which can be switched on and never run.
+            from progress.models import PeriodReport
+            used = PeriodReport.objects.exclude(school__isnull=True) \
+                .values_list('school_id', flat=True).distinct()
+            subs = subs.filter(school_id__in=used)
+
         subs = list(subs)
         if not subs:
-            self.stdout.write('No matching school subscriptions — nothing to do.')
+            scope = ('schools with an existing period report'
+                     if options['with_reports'] else 'matching school subscriptions')
+            self.stdout.write(f'No {scope} — nothing to do.')
             return
 
         dry_run = options['dry_run']
