@@ -122,6 +122,46 @@ def has_module_any_school(user, module_slug):
     return False
 
 
+def student_has_module(student, module_slug):
+    """Whether the school *student* belongs to has *module_slug* active.
+
+    Deliberately distinct from :func:`has_module_any_school`, which asks about
+    the school of whoever is making the request. Reports are read by parents,
+    and a parent belongs to no school of their own — asking about the viewer
+    would deny a parent the report their child's school has paid for. The rule
+    is that the module is bought by the school that owns the data, so everyone
+    entitled to read a student's data sees it exactly when that student's
+    school has the module.
+    """
+    if student is None:
+        return False
+
+    schools = get_all_schools_for_user(student)
+    if not schools.exists():
+        # Individual learner: no institute owns their data, so the institute
+        # module economy does not apply to them. Their access is governed by
+        # their own Subscription and the trial wall, which is the same call
+        # any_school_has_active_subscription() makes for the same reason.
+        return True
+
+    return any(has_module(school, module_slug) for school in schools)
+
+
+def school_ids_with_module(module_slug):
+    """School ids with *module_slug* active, as a queryset for filtering rows.
+
+    Needed where the gate cannot hang off the request: the report API returns
+    rows for other people's children, and the schedule cron runs with no
+    request at all. Matches :func:`has_module` in treating a school with no
+    subscription as not having the module.
+    """
+    from billing.models import ModuleSubscription
+    return ModuleSubscription.objects.filter(
+        module=module_slug,
+        is_active=True,
+    ).values_list('school_subscription__school_id', flat=True)
+
+
 def get_school_for_user(user):
     """
     Resolve the primary school for a user.

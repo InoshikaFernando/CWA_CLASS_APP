@@ -1197,3 +1197,105 @@ def test_the_publish_cron_is_installed():
         'publish_scheduled_homework. Without it every homework with a future '
         'publish_at — including every set the question-schedule cron builds — '
         'stays hidden from students forever, with nothing erroring')
+
+
+# ---------------------------------------------------------------------------
+# Paid modules must stay paid
+# ---------------------------------------------------------------------------
+# A module gate is opt-in: it only exists where somebody wrote
+# `required_module` on the view. That makes forgetting it a silent failure of
+# exactly the kind this project does not accept — no error, no 500, the paid
+# feature simply becomes free and nothing says so. The attendance app is the
+# live proof: CPP-64 copied 22 views out of classroom/ and dropped the mixin
+# on the way, and only the fact that the app was never wired up has kept a
+# paid add-on from shipping for nothing.
+
+_APP_DIR = Path(__file__).resolve().parent
+
+
+def test_the_orphaned_attendance_app_is_not_wired_up_ungated():
+    """Enabling attendance/ as it stands would give away a paid module.
+
+    The app is dormant: not in INSTALLED_APPS and its urlconf included
+    nowhere. Its views carry RoleRequiredMixin but not ModuleRequiredMixin,
+    while the classroom/ copies they were extracted from still require
+    MODULE_STUDENTS_ATTENDANCE. So the day someone finishes the cutover,
+    attendance stops being an add-on and nothing anywhere reports it.
+
+    This test fails on that commit rather than on the invoice three months
+    later. To make it pass legitimately, re-add the gate to the views in
+    attendance/ — then this test's own premise is gone and it can go too.
+    """
+    settings_src = (_APP_DIR / 'cwa_classroom' / 'settings.py').read_text(encoding='utf-8')
+    root_urls = (_APP_DIR / 'cwa_classroom' / 'urls.py').read_text(encoding='utf-8')
+
+    installed = re.search(r"^\s*'attendance',", settings_src, re.MULTILINE) is not None
+    routed = 'attendance.urls' in root_urls
+    if not (installed or routed):
+        return  # still dormant — nothing to enforce
+
+    ungated = [
+        path.name
+        for path in sorted((_APP_DIR / 'attendance').glob('views*.py'))
+        if 'ModuleRequiredMixin' not in path.read_text(encoding='utf-8')
+    ]
+    assert not ungated, (
+        'The attendance app is now wired up (INSTALLED_APPS and/or root '
+        'urls.py), but these view modules still have no module gate:\n  '
+        + '\n  '.join(ungated)
+        + '\nAttendance is a paid add-on — the classroom/ views these were '
+          'extracted from require MODULE_STUDENTS_ATTENDANCE. Add '
+          'ModuleRequiredMixin + required_module to every view here, or the '
+          'module ships free to every school.')
+
+
+def test_every_sellable_module_slug_is_enforced_somewhere():
+    """A slug you can buy but that no code checks is a product that does nothing.
+
+    ModuleProduct rows are created from ModuleSubscription.MODULE_CHOICES, and
+    a school can be charged for any of them. If nothing in the tree ever asks
+    for a given slug, the school pays and gets exactly what it had before —
+    which is worse than an outage, because it looks like it worked.
+
+    Enforcement counts in any form the codebase actually uses: the view mixin's
+    `required_module`, a has_module()/student_has_module() call, a queryset
+    filtered by school_ids_with_module(), or a plain literal — the AI tiers are
+    checked as bare strings in a list, and one prefix match
+    (`module__startswith='ai_import_'`) stands in for all three of them. So a
+    slug counts as enforced if either its constant or its value appears
+    anywhere outside its own definition, or if some prefix it starts with is
+    matched somewhere.
+    """
+    models_src = (_APP_DIR / 'billing' / 'models.py').read_text(encoding='utf-8')
+    block = models_src.split('MODULE_CHOICES = [', 1)[1].split(']', 1)[0]
+    constants = [c.strip('(,') for c in re.findall(r"\(MODULE_[A-Z_]+,", block)]
+    assert constants, 'Could not parse MODULE_CHOICES — has the shape changed?'
+
+    # constant name -> slug value, e.g. MODULE_REPORT_AUTOMATION -> report_automation
+    values = dict(re.findall(r"^\s+(MODULE_[A-Z_]+)\s*=\s*'([^']+)'", models_src, re.MULTILINE))
+
+    sources = []
+    for path in _APP_DIR.rglob('*.py'):
+        if path.name.startswith('test') or 'tests' in path.parts or 'migrations' in path.parts:
+            continue
+        if path == _APP_DIR / 'billing' / 'models.py':
+            continue
+        sources.append(path.read_text(encoding='utf-8'))
+    haystack = '\n'.join(sources)
+
+    prefixes = set(re.findall(r"startswith\(\s*'([a-z_]+)'", haystack))
+
+    unenforced = []
+    for constant in constants:
+        slug = values.get(constant, '')
+        if constant in haystack or (slug and f"'{slug}'" in haystack):
+            continue
+        if any(slug.startswith(p) for p in prefixes if p):
+            continue
+        unenforced.append(f'{constant} ({slug})')
+
+    assert not unenforced, (
+        'These module slugs can be bought but are never checked anywhere, so '
+        'a school that pays for them gets nothing:\n  '
+        + '\n  '.join(unenforced)
+        + '\nGate the feature the slug is meant to sell, or drop the slug.')

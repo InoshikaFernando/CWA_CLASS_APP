@@ -394,6 +394,24 @@ def due_weeks(now=None, *, schedule_id=None):
     )
     if schedule_id:
         qs = qs.filter(schedule_id=schedule_id)
+    # Entitlement, applied to the rows: this runs from cron with no request,
+    # so there is no user to resolve a school from and the view mixin cannot
+    # reach it. A school whose question-automation module has lapsed keeps its
+    # schedules and its already-generated homework — the unattended build is
+    # what stops, which is exactly what the module sells.
+    # A class with no school belongs to an individual learner, who is outside
+    # the institute module economy — the same call progress makes for a report
+    # with no school. Gating them here would silently stop a build nobody is
+    # being billed for in the first place.
+    from django.db.models import Q
+
+    from billing.entitlements import school_ids_with_module
+    from billing.models import ModuleSubscription
+    qs = qs.filter(
+        Q(schedule__classroom__school__isnull=True)
+        | Q(schedule__classroom__school_id__in=school_ids_with_module(
+            ModuleSubscription.MODULE_QUESTION_AUTOMATION)),
+    )
     # build_at() needs the schedule's release time and lead days, so the window
     # is applied in Python. The candidate set is small — active, ungenerated
     # weeks of active schedules — so this never walks the whole table.

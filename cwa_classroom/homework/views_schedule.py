@@ -16,6 +16,8 @@ from django.urls import reverse
 from django.views import View
 
 from audit.services import log_event
+from billing.mixins import ModuleRequiredMixin
+from billing.models import ModuleSubscription
 from classroom.models import ClassRoom
 from classroom.subject_registry import get as get_plugin, homework_subject_choices
 from classroom.views import RoleRequiredMixin
@@ -46,10 +48,11 @@ def _plugin_for(schedule_or_slug):
     return plugin
 
 
-class ClassScheduleListView(RoleRequiredMixin, View):
+class ClassScheduleListView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Every schedule a class has, across subjects."""
 
     required_roles = TEACHER_ROLES
+    required_module = ModuleSubscription.MODULE_QUESTION_AUTOMATION
     template_name = 'homework/schedule_list.html'
 
     def get(self, request, classroom_id):
@@ -67,7 +70,7 @@ class ClassScheduleListView(RoleRequiredMixin, View):
         })
 
 
-class ScheduleCreateView(RoleRequiredMixin, View):
+class ScheduleCreateView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Create a plan, then build its week rows straight away.
 
     The weeks are built on save rather than lazily, so the teacher lands on a
@@ -76,6 +79,7 @@ class ScheduleCreateView(RoleRequiredMixin, View):
     """
 
     required_roles = TEACHER_ROLES
+    required_module = ModuleSubscription.MODULE_QUESTION_AUTOMATION
     template_name = 'homework/schedule_form.html'
 
     def _subject_slug(self, request):
@@ -147,10 +151,11 @@ class ScheduleCreateView(RoleRequiredMixin, View):
         return redirect('homework:schedule_detail', schedule_id=schedule.pk)
 
 
-class ScheduleEditView(RoleRequiredMixin, View):
+class ScheduleEditView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Edit a plan's period or cadence, then rebuild its weeks non-destructively."""
 
     required_roles = TEACHER_ROLES
+    required_module = ModuleSubscription.MODULE_QUESTION_AUTOMATION
     template_name = 'homework/schedule_form.html'
 
     def get(self, request, schedule_id):
@@ -197,10 +202,11 @@ class ScheduleEditView(RoleRequiredMixin, View):
         return redirect('homework:schedule_detail', schedule_id=schedule.pk)
 
 
-class ScheduleDetailView(RoleRequiredMixin, View):
+class ScheduleDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """The week grid — the screen where the teaching plan is actually entered."""
 
     required_roles = TEACHER_ROLES
+    required_module = ModuleSubscription.MODULE_QUESTION_AUTOMATION
     template_name = 'homework/schedule_detail.html'
 
     def get(self, request, schedule_id):
@@ -307,10 +313,11 @@ def _annotate_counts(topic_groups, total_by_topic, fresh_by_topic):
             strand.group_fresh += mid.group_fresh
 
 
-class ScheduleWeekSaveView(RoleRequiredMixin, View):
+class ScheduleWeekSaveView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Save one week's topic plan."""
 
     required_roles = TEACHER_ROLES
+    required_module = ModuleSubscription.MODULE_QUESTION_AUTOMATION
 
     def post(self, request, schedule_id, week_id):
         schedule = _get_schedule(request, schedule_id)
@@ -341,7 +348,7 @@ class ScheduleWeekSaveView(RoleRequiredMixin, View):
         )
 
 
-class ScheduleWeekGenerateView(RoleRequiredMixin, View):
+class ScheduleWeekGenerateView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Build one week's homework now, ahead of its lead time.
 
     Same service call the nightly command makes, with ``force`` set only for
@@ -350,6 +357,7 @@ class ScheduleWeekGenerateView(RoleRequiredMixin, View):
     """
 
     required_roles = TEACHER_ROLES
+    required_module = ModuleSubscription.MODULE_QUESTION_AUTOMATION
 
     def post(self, request, schedule_id, week_id):
         schedule = _get_schedule(request, schedule_id)
@@ -373,10 +381,11 @@ class ScheduleWeekGenerateView(RoleRequiredMixin, View):
         return redirect('homework:schedule_detail', schedule_id=schedule.pk)
 
 
-class ScheduleToggleView(RoleRequiredMixin, View):
+class ScheduleToggleView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Pause or resume a plan without deleting it."""
 
     required_roles = TEACHER_ROLES
+    required_module = ModuleSubscription.MODULE_QUESTION_AUTOMATION
 
     def post(self, request, schedule_id):
         schedule = _get_schedule(request, schedule_id)
@@ -390,7 +399,7 @@ class ScheduleToggleView(RoleRequiredMixin, View):
         return redirect('homework:schedule_detail', schedule_id=schedule.pk)
 
 
-class ScheduleDeleteView(RoleRequiredMixin, View):
+class ScheduleDeleteView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Delete a plan. Homework it already generated is left alone.
 
     ``ScheduleWeek.generated_homework`` is ``SET_NULL`` on the homework side and
@@ -399,6 +408,7 @@ class ScheduleDeleteView(RoleRequiredMixin, View):
     """
 
     required_roles = TEACHER_ROLES
+    required_module = ModuleSubscription.MODULE_QUESTION_AUTOMATION
 
     def post(self, request, schedule_id):
         schedule = _get_schedule(request, schedule_id)
@@ -419,10 +429,11 @@ class ScheduleDeleteView(RoleRequiredMixin, View):
         return redirect('homework:schedule_list', classroom_id=classroom_id)
 
 
-class ScheduleCopyView(RoleRequiredMixin, View):
+class ScheduleCopyView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Copy a plan onto another class the teacher manages."""
 
     required_roles = TEACHER_ROLES
+    required_module = ModuleSubscription.MODULE_QUESTION_AUTOMATION
 
     def post(self, request, schedule_id):
         schedule = _get_schedule(request, schedule_id)

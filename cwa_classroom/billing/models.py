@@ -503,6 +503,11 @@ class ModuleSubscription(models.Model):
     MODULE_AI_GRADING_STARTER = 'ai_grading_starter'
     MODULE_AI_GRADING_PROFESSIONAL = 'ai_grading_professional'
     MODULE_AI_GRADING_ENTERPRISE = 'ai_grading_enterprise'
+    # Automation add-ons. Each sits on top of a feature that is already sold:
+    # the base module buys the thing, these buy it happening without anyone
+    # clicking. Priced separately because unattended runs are what cost us.
+    MODULE_REPORT_AUTOMATION = 'report_automation'
+    MODULE_QUESTION_AUTOMATION = 'question_automation'
 
     MODULE_CHOICES = [
         (MODULE_TEACHERS_ATTENDANCE, 'Teachers Attendance'),
@@ -514,6 +519,8 @@ class ModuleSubscription(models.Model):
         (MODULE_AI_GRADING_STARTER, 'AI Grading - Starter (1,000 answers/mo)'),
         (MODULE_AI_GRADING_PROFESSIONAL, 'AI Grading - Professional (5,000 answers/mo)'),
         (MODULE_AI_GRADING_ENTERPRISE, 'AI Grading - Enterprise (unlimited)'),
+        (MODULE_REPORT_AUTOMATION, 'Student Report Automation (scheduled sending)'),
+        (MODULE_QUESTION_AUTOMATION, 'Question Automation (scheduled to term/year)'),
     ]
 
     school_subscription = models.ForeignKey(

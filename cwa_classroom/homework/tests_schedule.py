@@ -9,6 +9,7 @@ Covers the four things that make or break this feature in production:
 """
 
 from datetime import date, time, timedelta
+from decimal import Decimal
 from io import StringIO
 
 from django.core.management import call_command
@@ -17,6 +18,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import CustomUser, Role
+from billing.models import (
+    InstitutePlan, ModuleSubscription, SchoolSubscription,
+)
 from classroom.models import (
     AcademicYear,
     ClassRoom,
@@ -63,6 +67,24 @@ class ScheduleTestBase(TestCase):
             name='Schedule School', slug='schedule-school', admin=admin,
         )
         SchoolTeacher.objects.create(school=cls.school, teacher=cls.teacher, role='teacher')
+
+        # Question automation is a paid add-on. These tests are about the
+        # schedule working, not about entitlement, so the school buys it here
+        # once; test_schedule_module_gating.py covers the unsubscribed case.
+        cls.school_subscription = SchoolSubscription.objects.create(
+            school=cls.school,
+            plan=InstitutePlan.objects.create(
+                name='Standard', slug='standard', price=Decimal('99.00'),
+                class_limit=0, student_limit=0, invoice_limit_yearly=100,
+                extra_invoice_rate=Decimal('0.50'),
+            ),
+            status=SchoolSubscription.STATUS_ACTIVE,
+        )
+        ModuleSubscription.objects.create(
+            school_subscription=cls.school_subscription,
+            module=ModuleSubscription.MODULE_QUESTION_AUTOMATION,
+            is_active=True,
+        )
 
         cls.department = Department.objects.create(
             school=cls.school, name='Maths Dept', head=cls.hod,

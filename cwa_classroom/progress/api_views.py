@@ -45,11 +45,14 @@ class UpdateTimeLogView(LoginRequiredMixin, View):
 # what keeps the PDF a parent downloads months later saying the same thing the
 # notification said. An API that could edit one would break that guarantee.
 
+from django.db.models import Q  # noqa: E402
 from drf_spectacular.utils import OpenApiParameter, extend_schema  # noqa: E402
 from rest_framework import mixins, viewsets  # noqa: E402
 
 from api.filters import int_param
 from api.scoping import scope_by_student  # noqa: E402
+from billing.entitlements import school_ids_with_module  # noqa: E402
+from billing.models import ModuleSubscription  # noqa: E402
 from progress.api_serializers import (  # noqa: E402
     PeriodReportDetailSerializer, PeriodReportSummarySerializer,
 )
@@ -79,6 +82,19 @@ class PeriodReportViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
         queryset = scope_by_student(
             PeriodReport.objects.select_related('student', 'subject', 'school'),
             self.request.user,
+        )
+        # Entitlement, applied to the rows rather than the request: this list
+        # can span several schools (a parent with children at two institutes),
+        # so one allow/deny for the whole response would be wrong in both
+        # directions. Filtering also gives retrieve() its 404 for free, which
+        # is the answer progress.access already chose over 403 — a reader must
+        # not learn that another family's report exists.
+        # A report with no school belongs to an individual learner, whose
+        # access is their own subscription's business, not an institute's.
+        queryset = queryset.filter(
+            Q(school__isnull=True)
+            | Q(school_id__in=school_ids_with_module(
+                ModuleSubscription.MODULE_PROGRESS_REPORTS)),
         )
         params = self.request.query_params
         student_id = int_param(params, 'student')

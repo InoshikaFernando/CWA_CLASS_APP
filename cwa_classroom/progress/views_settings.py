@@ -12,6 +12,8 @@ from django.views import View
 
 from audit.services import log_event
 from classroom.models import ClassRoom, Department, School, SchoolTeacher
+from billing.mixins import ModuleRequiredMixin
+from billing.models import ModuleSubscription
 from classroom.views import RoleRequiredMixin
 from accounts.models import Role
 from progress import report_settings
@@ -121,10 +123,11 @@ def _tristate(request, prefix, field):
     return None
 
 
-class ReportSettingsView(RoleRequiredMixin, View):
+class ReportSettingsView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """School / department / class report configuration."""
 
     required_roles = CONFIG_ROLES
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
 
     def get(self, request):
         schools = _schools_for(request.user)

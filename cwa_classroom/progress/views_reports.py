@@ -9,11 +9,28 @@ from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.views import View
 
+from billing.entitlements import student_has_module
+from billing.models import ModuleSubscription
 from progress.access import can_view_report, can_view_student
 from progress.models import PeriodReport
 from progress.pdf import render_report_pdf
 
 DETAIL_TEMPLATE = 'progress/period_report_detail.html'
+
+REPORTS_MODULE = ModuleSubscription.MODULE_PROGRESS_REPORTS
+
+
+def _entitled(student):
+    """Whether period reports are sold to the school that owns *student*.
+
+    Checked against the student rather than the viewer: the readers here are
+    students, their parents, their teachers and their institute's staff, and
+    only the first and last of those belong to the school that bought the
+    module. Raising 404 rather than redirecting to the upsell keeps the rule
+    the rest of this module already follows — a parent must not be able to
+    tell, from the response, that another family's report exists.
+    """
+    return student_has_module(student, REPORTS_MODULE)
 
 
 def _resolve_subject(request):
@@ -240,6 +257,8 @@ class PeriodReportListView(LoginRequiredMixin, View):
             return render(request, 'progress/period_report_list.html', {
                 'student': None, 'reports': [], 'is_self': False,
             })
+        if not _entitled(student):
+            raise Http404
 
         reports = list(
             PeriodReport.objects.filter(student=student)
@@ -263,6 +282,8 @@ class PeriodReportDetailView(LoginRequiredMixin, View):
         )
         if not can_view_report(request.user, report):
             raise Http404
+        if not _entitled(report.student):
+            raise Http404
 
         back = reverse('progress:period_report_list')
         if report.student_id != request.user.id:
@@ -285,6 +306,8 @@ class PeriodReportPdfView(LoginRequiredMixin, View):
             id=report_id,
         )
         if not can_view_report(request.user, report):
+            raise Http404
+        if not _entitled(report.student):
             raise Http404
 
         pdf = render_report_pdf(report)
