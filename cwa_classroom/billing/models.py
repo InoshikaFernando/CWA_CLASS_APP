@@ -13,6 +13,57 @@ DURATION_CHOICES = [
 ]
 
 
+class StudentBasicGrantMixin:
+    """The rules for ``grants_student_basic``, shared by both code models.
+
+    Two rules, and both exist because breaking them is silent.
+
+    **A code that still charges may not carry the tier.** Nothing in account
+    creation mentions tiers: the student picks a plan at step 3 of the sign-up
+    form, where they read the full price, and types the code at step 5, which
+    gives no feedback — it is validated on submit. There is no screen in
+    between. A paying student would get fewer questions than the plan they had
+    just read described, with no disclosure anywhere.
+
+    **The flag cannot be changed on a code students already hold.** A code is
+    recorded on the subscriptions that redeemed it, and the tier is resolved
+    from it every time one of those subscriptions is activated. So flipping the
+    flag on a code already in circulation reaches BACKWARDS: the next time one
+    of those students re-checks-out — or the success page runs — they are put on
+    Student Basic, having been promised nothing of the sort. CWA's own free
+    students are exactly the population this would hit.
+
+    A new promotion therefore needs a NEW code. The error says so.
+    """
+
+    def clean(self):
+        super().clean()
+        if self.grants_student_basic and self.discount_percent != 100:
+            raise ValidationError({
+                'grants_student_basic': (
+                    'Student Basic can only be granted by a code that is 100% '
+                    'off. This code charges the student '
+                    f'{100 - self.discount_percent}% of the price, and nothing '
+                    'in the sign-up flow tells them the tier leaves out the '
+                    'AI-graded questions.'
+                ),
+            })
+        if self.pk:
+            stored = type(self).objects.filter(pk=self.pk).values(
+                'grants_student_basic', 'uses').first()
+            if (stored and stored['grants_student_basic']
+                    != self.grants_student_basic and stored['uses'] > 0):
+                raise ValidationError({
+                    'grants_student_basic': (
+                        f'{self.code} has already been redeemed '
+                        f'{stored["uses"]} time(s). Changing this now would '
+                        'change what those students get the next time their '
+                        'subscription is activated. Issue a new code for the '
+                        'new promotion instead.'
+                    ),
+                })
+
+
 class Package(models.Model):
     """Individual student subscription package. billing_type is reserved for future one-time purchases."""
     BILLING_RECURRING = 'recurring'
@@ -61,7 +112,7 @@ class Package(models.Model):
         return self.class_limit == 0
 
 
-class DiscountCode(models.Model):
+class DiscountCode(StudentBasicGrantMixin, models.Model):
     code = models.CharField(max_length=50, unique=True)
     discount_percent = models.PositiveSmallIntegerField(
         default=100,
@@ -92,6 +143,14 @@ class DiscountCode(models.Model):
         'Package', blank=True, related_name='discount_codes',
         help_text='Packages this code applies to. Leave empty for all packages.',
     )
+    grants_student_basic = models.BooleanField(
+        default=False,
+        help_text=(
+            'Put students who redeem this code on the Student Basic module — '
+            'the free promotional edition, without the AI-graded questions. '
+            'Off by default: an ordinary code grants the app in full.'
+        ),
+    )
     is_active = models.BooleanField(default=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -101,6 +160,7 @@ class DiscountCode(models.Model):
 
     def __str__(self):
         return f'{self.code} ({self.discount_percent}% off)'
+
 
     def is_valid(self):
         if not self.is_active:
@@ -151,7 +211,7 @@ class Payment(models.Model):
         return f'{self.user.username} — {self.package} — {self.status}'
 
 
-class PromoCode(models.Model):
+class PromoCode(StudentBasicGrantMixin, models.Model):
     code = models.CharField(max_length=50, unique=True)
     description = models.CharField(max_length=200, blank=True)
     discount_percent = models.PositiveSmallIntegerField(
@@ -183,6 +243,14 @@ class PromoCode(models.Model):
         help_text='Leave blank for unlimited uses.',
     )
     uses = models.PositiveIntegerField(default=0)
+    grants_student_basic = models.BooleanField(
+        default=False,
+        help_text=(
+            'Put students who redeem this code on the Student Basic module — '
+            'the free promotional edition, without the AI-graded questions. '
+            'Off by default: an ordinary code grants the app in full.'
+        ),
+    )
     is_active = models.BooleanField(default=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     redeemed_by = models.ManyToManyField(
@@ -198,6 +266,7 @@ class PromoCode(models.Model):
     def __str__(self):
         limit = 'unlimited' if self.class_limit == 0 else str(self.class_limit)
         return f'{self.code} ({limit} classes)'
+
 
     def is_valid(self):
         if not self.is_active:
@@ -631,6 +700,78 @@ class Subscription(models.Model):
         if total_seconds <= 0:
             return 0
         return math.ceil(total_seconds / 86400)
+
+
+class StudentModule(models.Model):
+    """A module switched on (or deliberately off) for ONE individual student.
+
+    The individual-student mirror of :class:`ModuleSubscription`, which does the
+    same job for a school: a school buys modules against its
+    ``SchoolSubscription``, a student carries them on their own
+    ``billing.Subscription``.
+
+    **Nothing here is a default.** A student with no rows in this table behaves
+    exactly as they did before the table existed — the app in full, AI-graded
+    questions included. That is deliberate and load-bearing: every student on
+    the site today has no rows, so the migration that creates this table changes
+    nobody's access, and a student who subscribes tomorrow gets no rows either.
+    Modules are attached one student at a time, by hand or by a promotion code
+    that says to.
+
+    Two modules, reading in opposite directions:
+
+    ``student_basic``
+        The free promotional edition: the questions the app can mark for
+        itself, and none of the ones a model has to mark. It is a *withhold*,
+        so it applies only to the student it is attached to.
+
+    ``student_ai_grading``
+        The paid add-on that puts the AI-graded questions back. A student
+        holding it is AI-graded whatever else they hold — it is the thing a
+        Student Basic student upgrades to, so it has to win.
+    """
+
+    MODULE_BASIC = 'student_basic'
+    MODULE_AI_GRADING = 'student_ai_grading'
+
+    MODULE_CHOICES = [
+        (MODULE_BASIC, 'Student Basic — self-marked questions only'),
+        (MODULE_AI_GRADING, 'AI Graded Questions'),
+    ]
+
+    subscription = models.ForeignKey(
+        Subscription,
+        on_delete=models.CASCADE,
+        related_name='student_modules',
+    )
+    module = models.CharField(max_length=50, choices=MODULE_CHOICES)
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Untick to switch the module off without losing the record of it.',
+    )
+    granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+        help_text='Who attached this module. Blank when a promotion code did.',
+    )
+    source_code = models.CharField(
+        max_length=50, blank=True,
+        help_text='The promotion/discount code that granted it, if any.',
+    )
+    note = models.CharField(
+        max_length=200, blank=True,
+        help_text='Why this student has it — shown on the admin list.',
+    )
+    activated_at = models.DateTimeField(auto_now_add=True)
+    deactivated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('subscription', 'module')
+        ordering = ['module']
+
+    def __str__(self):
+        state = '' if self.is_active else ' (off)'
+        return f'{self.subscription.user.username} — {self.get_module_display()}{state}'
 
 
 class StripeEvent(models.Model):

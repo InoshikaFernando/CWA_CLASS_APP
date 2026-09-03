@@ -3,7 +3,7 @@ from .models import (
     Package, DiscountCode, Payment, Subscription, PromoCode,
     InstituteDiscountCode,
     InstitutePlan, SchoolSubscription, ModuleProduct, ModuleSubscription,
-    StripeEvent, Expense, RecurringExpense,
+    StripeEvent, Expense, RecurringExpense, StudentModule,
 )
 
 
@@ -16,8 +16,9 @@ class PackageAdmin(admin.ModelAdmin):
 
 @admin.register(DiscountCode)
 class DiscountCodeAdmin(admin.ModelAdmin):
-    list_display = ('code', 'discount_percent', 'grant_days', 'uses', 'max_uses', 'is_active', 'expires_at')
-    list_filter = ('is_active', 'discount_percent')
+    list_display = ('code', 'discount_percent', 'grant_days', 'grants_student_basic',
+                    'uses', 'max_uses', 'is_active', 'expires_at')
+    list_filter = ('is_active', 'discount_percent', 'grants_student_basic')
     search_fields = ('code',)
 
 
@@ -31,19 +32,57 @@ class PaymentAdmin(admin.ModelAdmin):
 
 @admin.register(PromoCode)
 class PromoCodeAdmin(admin.ModelAdmin):
-    list_display = ('code', 'description', 'class_limit', 'uses', 'max_uses', 'is_active', 'expires_at')
+    list_display = ('code', 'description', 'class_limit', 'grants_student_basic',
+                    'uses', 'max_uses', 'is_active', 'expires_at')
+    list_filter = ('is_active', 'grants_student_basic')
     list_editable = ('is_active',)
     search_fields = ('code', 'description')
     filter_horizontal = ('redeemed_by',)
     readonly_fields = ('uses', 'created_at')
 
 
+class StudentModuleInline(admin.TabularInline):
+    """Attach a student's modules from their subscription page.
+
+    This — and the ``student_modules`` management command — are the only ways a
+    student is put on Student Basic. There is no student-facing route to it by
+    design: the promotional tier is granted, never chosen.
+    """
+    model = StudentModule
+    extra = 0
+    fields = ('module', 'is_active', 'note', 'source_code', 'granted_by',
+              'activated_at', 'deactivated_at')
+    readonly_fields = ('activated_at',)
+
+
 @admin.register(Subscription)
 class SubscriptionAdmin(admin.ModelAdmin):
-    list_display = ('user', 'package', 'status', 'trial_end', 'current_period_end')
-    list_filter = ('status',)
+    list_display = ('user', 'package', 'status', 'student_modules_display',
+                    'trial_end', 'current_period_end')
+    list_filter = ('status', 'student_modules__module',
+                   'student_modules__is_active')
     search_fields = ('user__username', 'stripe_subscription_id')
     readonly_fields = ('created_at', 'updated_at')
+    inlines = [StudentModuleInline]
+
+    @admin.display(description='Modules')
+    def student_modules_display(self, obj):
+        """The tier at a glance — blank for the students who are on no tier."""
+        return ', '.join(
+            m.get_module_display() for m in obj.student_modules.all()
+            if m.is_active
+        )
+
+
+@admin.register(StudentModule)
+class StudentModuleAdmin(admin.ModelAdmin):
+    list_display = ('subscription', 'module', 'is_active', 'source_code',
+                    'granted_by', 'activated_at')
+    list_filter = ('module', 'is_active')
+    search_fields = ('subscription__user__username',
+                     'subscription__user__email', 'source_code', 'note')
+    readonly_fields = ('activated_at',)
+    autocomplete_fields = ('subscription',)
 
 
 class ModuleSubscriptionInline(admin.TabularInline):

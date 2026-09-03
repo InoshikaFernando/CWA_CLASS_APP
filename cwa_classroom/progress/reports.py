@@ -281,8 +281,8 @@ def subject_practice_section(student, start, end, subject_slugs=None):
     }
 
 
-def _topic_names_by_subject(answers):
-    """``{(subject_slug, content_id): topic name}`` for a window's answers.
+def _topic_paths_by_subject(answers):
+    """``{(subject_slug, content_id): (group, topic name)}`` for a window's answers.
 
     One bulk call per subject rather than a lookup per answer: a term report
     can carry thousands of answers, and the per-row alternative is what makes a
@@ -291,6 +291,10 @@ def _topic_names_by_subject(answers):
     A subject whose plugin resolves nothing simply contributes no entries, and
     those answers fall through to "Unclassified" — which is honest, and is what
     every non-maths subject did before this existed.
+
+    The group is the strand in maths and the language in coding; a plugin that
+    offers no grouping returns an empty one and the topic stands as its own
+    heading.
     """
     from classroom import subject_registry
 
@@ -298,15 +302,16 @@ def _topic_names_by_subject(answers):
     for answer in answers:
         by_subject[answer['subject_slug']].add(answer['content_id'])
 
-    names = {}
+    paths = {}
     for slug, content_ids in by_subject.items():
         plugin = subject_registry.get(slug)
         if plugin is None:
             continue
-        for content_id, name in plugin.content_topic_names(content_ids).items():
+        for content_id, path in plugin.content_topic_paths(content_ids).items():
+            group, name = path
             if name:
-                names[(slug, content_id)] = name
-    return names
+                paths[(slug, content_id)] = (group or name, name)
+    return paths
 
 
 def topics_section(submissions):
@@ -331,28 +336,71 @@ def topics_section(submissions):
     # that FK points at maths.Question and is null for every other subject, so
     # reading it filed every coding answer under "Unclassified". The modern
     # binding is (subject_slug, content_id), which every subject populates.
-    names = _topic_names_by_subject(answers)
+    paths = _topic_paths_by_subject(answers)
 
     tally = defaultdict(lambda: {'answered': 0, 'correct': 0})
     for answer in answers:
-        name = names.get(
-            (answer['subject_slug'], answer['content_id']), UNCLASSIFIED,
+        group, name = paths.get(
+            (answer['subject_slug'], answer['content_id']),
+            (UNCLASSIFIED, UNCLASSIFIED),
         )
-        tally[name]['answered'] += 1
-        tally[name]['correct'] += 1 if answer['is_correct'] else 0
+        counts = tally[(group, name)]
+        counts['answered'] += 1
+        counts['correct'] += 1 if answer['is_correct'] else 0
 
     rows = [
         {
             'topic': name,
+            # The strand this topic sits under, carried so the chart can roll
+            # up to it. Stored on the row rather than looked up at render time
+            # because the snapshot is frozen: a topic re-parented next term
+            # must not silently redraw a report a family has already read.
+            'group': group,
+            'answered': counts['answered'],
+            'correct': counts['correct'],
+            'accuracy_pct': _pct(counts['correct'], counts['answered']),
+        }
+        for (group, name), counts in tally.items()
+    ]
+    # Weakest first: the point of the chart is to show where the work is.
+    rows.sort(key=lambda r: (r['accuracy_pct'], -r['answered']))
+    return rows
+
+
+def topic_groups_section(rows):
+    """Roll ``topics_section`` up to its strands — what the chart plots.
+
+    The chart used to plot one bar per sub-topic. That was readable while a
+    report covered a handful of them; a term now covers around thirty, the PDF
+    caps the chart at forty and the page plots the lot, and either way the
+    result is a wall of 6pt labels that answers no question a parent has.
+
+    Strands do answer one: is she behind in Number or in Geometry? So the chart
+    plots strands and the table underneath keeps every sub-topic — nothing is
+    hidden, it is just not all in the picture.
+
+    Accuracy is recomputed from the counts, not averaged from the sub-topics: a
+    topic with two questions would otherwise weigh as much as one with sixty.
+    """
+    tally = defaultdict(lambda: {'answered': 0, 'correct': 0, 'topics': 0})
+    for row in rows:
+        counts = tally[row.get('group') or row['topic']]
+        counts['answered'] += row.get('answered', 0)
+        counts['correct'] += row.get('correct', 0)
+        counts['topics'] += 1
+
+    groups = [
+        {
+            'topic': name,
+            'topics': counts['topics'],
             'answered': counts['answered'],
             'correct': counts['correct'],
             'accuracy_pct': _pct(counts['correct'], counts['answered']),
         }
         for name, counts in tally.items()
     ]
-    # Weakest first: the point of the chart is to show where the work is.
-    rows.sort(key=lambda r: (r['accuracy_pct'], -r['answered']))
-    return rows
+    groups.sort(key=lambda r: (r['accuracy_pct'], -r['answered']))
+    return groups
 
 
 def attempts_section(submissions):
@@ -1121,7 +1169,19 @@ def _untouched_topic(data, classrooms):
 
 
 def _habit_items(totals, attempts):
-    """One line about how the work was done, not what it was about."""
+    """One line about how the work was done, not what it was about.
+
+    Silent when nothing was handed in. Every figure below is computed over
+    homework submissions, so with none they are all zero — and zero reads
+    exactly like one attempt each: ``repeat_rate_pct`` is 0, ``avg_best_pct``
+    is 0, and the "attempted once" branch fired next to a Focus line saying
+    none of the nine were attempted at all. Two lines, same block, flatly
+    contradicting each other. There is no habit to describe until there is a
+    submission to describe it from.
+    """
+    if not totals.get('homework_attempted'):
+        return []
+
     gain = totals.get('improvement_pct') or 0
     if gain >= 10:
         return [{
@@ -1312,6 +1372,8 @@ def build_report_data(student, period_type, start, end, term=None,
         round(sum(n * pct for n, pct in counted) / weighted) if weighted else 0
     )
 
+    topics = topics_section(submissions) if content['include_topics'] else []
+
     snapshot = {
         'period': {
             'type': period_type,
@@ -1341,7 +1403,12 @@ def build_report_data(student, period_type, start, end, term=None,
         # trusts this rather than today's settings.
         'sections_included': dict(content),
         'totals': totals,
-        'topics': topics_section(submissions) if content['include_topics'] else [],
+        'topics': topics,
+        # The chart's rows. Frozen alongside the sub-topics rather than derived
+        # at render time so that an old report keeps the picture it was sent
+        # with; a snapshot written before this existed has no key here, and the
+        # page and the PDF both fall back to plotting sub-topics as they did.
+        'topic_groups': topic_groups_section(topics),
         'attempts': attempts_section(submissions),
         'trend': trend_section(submissions, period_type),
         'worksheets': worksheets,

@@ -304,6 +304,45 @@ class PdfCarriesEverySectionTests(TestCase):
         self.assertIn(f'The {TOPIC_CHART_LIMIT} weakest of '
                       f'{TOPIC_CHART_LIMIT + 4} topics', pdf)
 
+    def test_the_chart_plots_strands_and_the_table_plots_sub_topics(self):
+        """The two halves must come from different lists.
+
+        Around thirty sub-topic bars is a wall of 6pt labels; the strand is the
+        unit a parent can act on. Nothing is hidden by the rollup — the table
+        underneath still carries every sub-topic — so this pins both: the
+        strand reaches the caption and the sub-topics reach the table.
+        """
+        pdf = self._render(self._data(
+            topics=[
+                {'topic': 'Fractions', 'group': 'Number', 'answered': 4,
+                 'correct': 1, 'accuracy_pct': 25},
+                {'topic': 'Decimals', 'group': 'Number', 'answered': 4,
+                 'correct': 3, 'accuracy_pct': 75},
+            ],
+            topic_groups=[
+                {'topic': 'Number', 'topics': 2, 'answered': 8, 'correct': 4,
+                 'accuracy_pct': 50},
+            ],
+        ))
+
+        self.assertIn('sub-topics behind each one', pdf)
+        self.assertIn('Fractions', pdf)
+        self.assertIn('Decimals', pdf)
+
+    def test_a_report_written_before_the_rollup_still_charts_its_topics(self):
+        """An old snapshot has no strand to roll up to, and none to derive.
+
+        Charting nothing would turn a shipped report into an empty panel the
+        next time a parent opened it.
+        """
+        pdf = self._render(self._data(topics=[
+            {'topic': 'Fractions', 'answered': 4, 'correct': 1,
+             'accuracy_pct': 25},
+        ]))
+
+        self.assertIn('Accuracy across every question answered', pdf)
+        self.assertIn('Fractions', pdf)
+
     def test_an_uncapped_topic_chart_makes_no_such_claim(self):
         # A real class's topic count. The cap used to bite at ten, so this
         # said "the 10 weakest of 32" on a chart that could have shown them all.

@@ -245,6 +245,25 @@ class CodingExercisePlugin(SubjectPlugin):
             .filter(id__in=content_ids, topic_level__topic__isnull=False)
             .values('id', 'topic_level__topic__name')
         }
+
+    def content_topic_paths(self, content_ids):
+        """CodingExercise -> ``(language, topic name)``.
+
+        Coding topics are flat — ``CodingTopic`` has no parent — so the
+        grouping a reader already thinks in is the language: "Loops" means one
+        thing in Python and another in Scratch, and a child working across two
+        languages has two sets of topics with the same names.
+        """
+        from coding.models import CodingExercise
+
+        return {
+            row['id']: (row['topic_level__topic__language__name'] or '',
+                        row['topic_level__topic__name'])
+            for row in CodingExercise.objects
+            .filter(id__in=content_ids, topic_level__topic__isnull=False)
+            .values('id', 'topic_level__topic__name',
+                    'topic_level__topic__language__name')
+        }
     brainbuzz_subject_key = 'coding'
 
     # Phase 3 — everything under ``/coding/`` is ours (exercise listings,

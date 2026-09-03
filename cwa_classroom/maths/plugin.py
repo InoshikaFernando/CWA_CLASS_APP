@@ -29,6 +29,33 @@ class MathsPlugin(SubjectPlugin):
             .filter(id__in=content_ids, topic__isnull=False)
             .values('id', 'topic__name')
         }
+
+    def content_topic_paths(self, content_ids):
+        """maths.Question -> ``(strand, topic name)``.
+
+        The strand is the ROOT of the topic tree, not the immediate parent.
+        Most of the tree is two deep (``Number > Fractions``) but the times
+        tables are three (``Number > Division > Division (3x)``), and grouping
+        those on the parent would put "Division" on the chart as though it were
+        a strand, eleven times over, while Number itself never appeared.
+
+        A topic with no parent is its own strand, which is what a report built
+        from strand-level questions should show.
+        """
+        from maths.models import Question
+
+        return {
+            row['id']: (
+                row['topic__parent__parent__name']
+                or row['topic__parent__name']
+                or row['topic__name'],
+                row['topic__name'],
+            )
+            for row in Question.objects
+            .filter(id__in=content_ids, topic__isnull=False)
+            .values('id', 'topic__name', 'topic__parent__name',
+                    'topic__parent__parent__name')
+        }
     brainbuzz_subject_key = 'maths'
 
     # Phase 3 — URL routing + sidebar wiring. Maths owns the plain

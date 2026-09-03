@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}AI Graded Questions{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto py-10">
+  <div class="text-center mb-8">
+    <div class="text-5xl mb-3">✨</div>
+    <h1 class="font-display text-2xl text-primary mb-2">AI Graded Questions</h1>
+    <p class="text-gray-500 text-sm">
+      Your current plan is <strong>{{ current_tier }}</strong>.
+    </p>
+  </div>
+
+  {% if already_included %}
+    <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-900">
+      You already have AI-graded questions — nothing to do here.
+    </div>
+  {% else %}
+    <div class="rounded-2xl border border-slate-200 bg-white shadow-sm p-5 mb-5">
+      <p class="text-sm text-gray-600 mb-4">
+        Some questions ask you to <em>explain</em> — to show your working, justify a
+        step, or describe what a graph is telling you. There is no single right string
+        to type, so the app cannot mark them by itself. The AI grader reads what you
+        wrote and says what was right, what was missing, and what to add.
+      </p>
+      <ul class="text-sm text-gray-600 space-y-2">
+        <li class="flex gap-2"><span aria-hidden="true">•</span>
+          <span>Written "explain your reasoning" and proof questions, marked in seconds.</span></li>
+        <li class="flex gap-2"><span aria-hidden="true">•</span>
+          <span>Partial credit — a nearly-complete answer keeps what it earned.</span></li>
+        <li class="flex gap-2"><span aria-hidden="true">•</span>
+          <span>Feedback that names the gap, not just a cross.</span></li>
+      </ul>
+    </div>
+
+    {% if price %}
+      <div class="rounded-2xl border border-slate-200 bg-white shadow-sm p-5 mb-5">
+        <p class="text-sm text-gray-600">
+          They're part of <strong>{{ plan.name }}</strong> — the standard plan,
+          and the same one everyone else is on.
+        </p>
+        <p class="text-2xl font-display font-bold text-primary mt-2">
+          ${{ price }}<span class="text-sm font-normal text-gray-400"> / month</span>
+        </p>
+      </div>
+    {% endif %}
+
+    {% if registered %}
+      <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-900">
+        Thanks — we have your interest and will be in touch about switching this on.
+      </div>
+    {% else %}
+      <form method="post">
+        {% csrf_token %}
+        <button type="submit"
+                class="w-full bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
+          I'd like these on my account
+        </button>
+      </form>
+      <p class="text-xs text-gray-400 text-center mt-3">
+        This registers your interest — nothing is charged, and nothing on your
+        account changes until we set it up with you.
+      </p>
+    {% endif %}
+  {% endif %}
+
+  <div class="mt-6 text-center">
+    <a href="javascript:history.back()" class="text-sm text-gray-400 hover:text-gray-600">Go back</a>
+  </div>
+</div>
+{% endblock %}

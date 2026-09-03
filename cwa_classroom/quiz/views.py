@@ -13,6 +13,9 @@ from django.db.models import Q
 from audit.services import log_event
 from classroom.models import Level as ClassroomLevel, SchoolStudent, Topic as ClassroomTopic
 from maths.models import calculate_points
+# Which times tables each year may practise. This module used to carry its own
+# divergent copy of that mapping, and this was the copy the page actually read.
+from maths.constants import MAX_TIMES_TABLE, times_tables_for_year
 from rewards.models import PointsSource
 from rewards.services import award_points_safe
 from .basic_facts import (
@@ -106,10 +109,34 @@ def gradable_for(user, questions_qs):
     hidden = Q(validation_type=Question.VALIDATION_HUMAN)
 
     if not student_can_be_ai_graded(user):
-        hidden |= (Q(question_type=Question.EXTENDED_ANSWER)
-                   | Q(validation_type=Question.VALIDATION_AI))
+        # One definition of "AI-graded", on the model, so this filter and the
+        # money guard in grade_extended_answer can never disagree about which
+        # half of the bank a question is in.
+        hidden |= Question.ai_graded_q()
 
     return questions_qs.exclude(hidden)
+
+
+def ai_upsell_for(user, hidden_count):
+    """Context for the "you're missing N questions" promotion, or ``{}``.
+
+    Shown only to a student who is BOTH short of questions and able to do
+    something about it — one on Student Basic, the free promotional edition. A
+    school student whose school never bought the module is equally short, and
+    is deliberately shown nothing: pointing a child at a purchase only their
+    school can make is worse than silence.
+
+    Empty dict, not None, so a template can ``{% include %}`` the partial
+    unconditionally.
+    """
+    from worksheets.grading_service import ai_grading_offer
+
+    if hidden_count <= 0:
+        return {}
+    entitled, can_upgrade = ai_grading_offer(user)
+    if entitled or not can_upgrade:
+        return {}
+    return {'ai_upsell': {'hidden_count': hidden_count}}
 
 
 def _log_hidden(user, level_number, topic, shown, total):
@@ -153,15 +180,18 @@ def ai_grade(question, raw, user):
         return (False, 'Write your answer in the box so it can be marked.',
                 True, 0.0)
 
-    result = grade_extended_answer(question, raw, school=school)
+    result = grade_extended_answer(question, raw, school=school, student=user)
 
-    if result.get('quota_exceeded') or result.get('error'):
+    if (result.get('quota_exceeded') or result.get('error')
+            or result.get('not_entitled')):
         logger.warning(
             'AI grading unavailable for Q%s (student %s, school %s): %s — '
             'the answer was left ungraded rather than scored wrong.',
             question.id, getattr(user, 'username', user),
             getattr(school, 'name', None),
-            result.get('error') or 'monthly quota reached',
+            result.get('error')
+            or ('not on this student\'s plan' if result.get('not_entitled')
+                else 'monthly quota reached'),
         )
         return False, (
             'This one could not be marked automatically just now, so it has '
@@ -382,20 +412,6 @@ class BasicFactsResultsView(LoginRequiredMixin, View):
 
 # ── Times Tables ─────────────────────────────────────────────────────────────
 
-TIMES_TABLES_BY_YEAR = {
-    1: [1],
-    2: [1, 2, 10],
-    3: [1, 2, 3, 4, 5, 10],
-    4: list(range(1, 16)),
-    5: list(range(1, 16)),
-    6: list(range(1, 16)),
-    7: list(range(1, 16)),
-    8: list(range(1, 16)),
-    9: list(range(1, 16)),
-    10: list(range(1, 16)),
-}
-
-
 def _generate_times_tables_questions(table, operation, count=12, shuffle=False):
     import random
     multipliers = list(range(1, count + 1))
@@ -441,11 +457,11 @@ class TimesTablesHomeView(LoginRequiredMixin, View):
             if hub_levels.exists():
                 year = hub_levels.order_by('-level_number').first().level_number
 
-        available_tables = TIMES_TABLES_BY_YEAR.get(year, list(range(1, 16)))
+        available_tables = times_tables_for_year(year)
 
         return render(request, 'quiz/times_tables_select.html', {
             'available_tables': available_tables,
-            'all_tables': range(1, 16),
+            'all_tables': range(1, MAX_TIMES_TABLE + 1),
             'year': year,
         })
 
@@ -454,11 +470,11 @@ class TimesTablesSelectView(LoginRequiredMixin, View):
     def get(self, request, level_number, operation):
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
         year = level_number
-        available = TIMES_TABLES_BY_YEAR.get(year, list(range(1, 16)))
+        available = times_tables_for_year(year)
         return render(request, 'quiz/times_tables_select.html', {
             'level': level, 'operation': operation,
             'available_tables': available,
-            'all_tables': range(1, 16),
+            'all_tables': range(1, MAX_TIMES_TABLE + 1),
             'year': year,
         })
 
@@ -710,8 +726,10 @@ class TopicQuizView(LoginRequiredMixin, View):
         in_topic = Question.objects.global_only().filter(topic=topic, level=level)
         questions_qs = list(
             gradable_for(request.user, in_topic).prefetch_related('answers'))
+        in_topic_total = in_topic.count()
         _log_hidden(request.user, level_number, topic.id,
-                    len(questions_qs), in_topic.count())
+                    len(questions_qs), in_topic_total)
+        upsell = ai_upsell_for(request.user, in_topic_total - len(questions_qs))
 
         if not questions_qs:
             from django.contrib import messages
@@ -752,6 +770,7 @@ class TopicQuizView(LoginRequiredMixin, View):
         rnd.shuffle(first_answers)
 
         return render(request, 'quiz/topic_quiz.html', {
+            **upsell,
             'topic': topic, 'level': level,
             'session_id': session_id,
             'question': first_q,
@@ -809,6 +828,7 @@ class MixedQuizView(LoginRequiredMixin, View):
 
         rnd.shuffle(all_questions)
         _log_hidden(request.user, level_number, None, pool_gradable, pool_total)
+        upsell = ai_upsell_for(request.user, pool_total - pool_gradable)
 
         if not all_questions:
             from django.contrib import messages
@@ -827,6 +847,7 @@ class MixedQuizView(LoginRequiredMixin, View):
         }
 
         return render(request, 'quiz/mixed_quiz.html', {
+            **upsell,
             'level': level, 'questions': all_questions,
             'session_id': session_id,
             'total': len(all_questions),

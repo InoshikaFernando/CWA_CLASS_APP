@@ -139,6 +139,18 @@ class MathsQuestionsQuerySet(VisibleQuestionsQuerySet):
         valid_types = ['multiple_choice', 'true_false', 'short_answer', 'fill_blank']
         return self.filter(question_type__in=valid_types)
 
+    def ai_graded(self):
+        """Only the questions that cost a model call to mark.
+
+        The rule lives on the model (``Question.ai_graded_q``) so the queryset
+        half and the row half (``Question.is_ai_graded``) cannot drift apart.
+        """
+        return self.filter(self.model.ai_graded_q())
+
+    def not_ai_graded(self):
+        """Everything the app can mark for itself — the Student Basic half."""
+        return self.exclude(self.model.ai_graded_q())
+
 
 class MathsQuestionsManager(VisibleQuestionsManager):
     """Manager for maths questions with visibility filtering."""
@@ -170,6 +182,14 @@ class MathsQuestionsManager(VisibleQuestionsManager):
     def for_brainbuzz(self):
         """Filter to questions suitable for BrainBuzz."""
         return self.get_queryset().for_brainbuzz()
+
+    def ai_graded(self):
+        """Get the AI-graded half of the bank."""
+        return self.get_queryset().ai_graded()
+
+    def not_ai_graded(self):
+        """Get the half the app can mark for itself."""
+        return self.get_queryset().not_ai_graded()
 
 
 class CodingExercisesQuerySet(VisibleQuestionsQuerySet):
