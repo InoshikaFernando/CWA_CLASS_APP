@@ -3,6 +3,11 @@
 Data comes from OpsSnapshot rows recorded by the ``record_ops_metrics``
 management command (droplet-side cron). Mirrors the finance / subscription
 super-admin dashboards (dark theme, window selector, Chart.js).
+
+Alongside the droplet metrics it carries the two daily health checks whose
+failure mode is silence rather than an error: email delivery (a stalled drain
+leaves invoices "issued" but unsent) and unpaid access (a delinquent account
+still using the app because the paywall let it through).
 """
 from datetime import timedelta
 
@@ -13,6 +18,7 @@ from django.views import View
 # Single source of truth for the superuser gate (same as the usage dashboard).
 from billing.views_admin import SuperuserRequiredMixin
 
+from billing.subscription_health import get_unpaid_access_health
 from classroom.email_health import get_email_queue_health
 
 from .models import OpsSnapshot
@@ -48,9 +54,17 @@ class OpsDashboardView(SuperuserRequiredMixin, View):
         # ten weeks it went unnoticed in 2026.
         email_queue = get_email_queue_health()
 
+        # Same class of silent failure on the billing side: when the paywall
+        # lets a delinquent account through, nothing errors and nobody is
+        # billed — the only evidence is the page hits below. The daily
+        # check_unpaid_access cron alerts on it; this tile is where it is
+        # visible without reading a Discord channel.
+        unpaid_access = get_unpaid_access_health()
+
         return render(request, 'admin_dashboard/ops/dashboard.html', {
             'latest': latest,
             'email_queue': email_queue,
+            'unpaid_access': unpaid_access,
             'latest_stale': latest_stale,
             'stale_after_min': STALE_AFTER_MINUTES,
             'chart_data': series,

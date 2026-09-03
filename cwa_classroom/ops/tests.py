@@ -340,3 +340,64 @@ class OpsDashboardViewTests(TestCase):
         # the incidents table splits status and details across cells, so this
         # contiguous string is unique to the (now-suppressed) banner.
         self.assertNotContains(resp, 'Critical: RAM critically low (10 MB free)')
+
+
+class OpsDashboardUnpaidAccessTests(TestCase):
+    """The paywall watchdog's tile.
+
+    The daily check_unpaid_access cron alerts to Discord; this section is the
+    same signal where a superuser will actually see it. A leak that shows only
+    in a chat channel nobody re-reads is a leak nobody acts on.
+    """
+
+    def setUp(self):
+        self.super = User.objects.create_superuser(
+            username='boss', email='boss@example.local', password='Pass123!')
+        self.client.login(username='boss', password='Pass123!')
+
+    @staticmethod
+    def _delinquent(username, status=None):
+        from billing.models import Subscription
+        user = User.objects.create_user(
+            username=username, email=f'{username}@example.local',
+            password='Pass123!')
+        Subscription.objects.create(
+            user=user, status=status or Subscription.STATUS_PAST_DUE)
+        return user
+
+    @staticmethod
+    def _hit(user, path='/maths/practice/', ago_minutes=5):
+        from usage.models import PageHit
+        hit = PageHit.objects.create(user=user, path=path, status_code=200)
+        PageHit.objects.filter(pk=hit.pk).update(
+            created_at=timezone.now() - timedelta(minutes=ago_minutes))
+
+    def test_healthy_paywall_renders_without_a_banner(self):
+        self._delinquent('gated')
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Subscription access')
+        self.assertEqual(resp.context['unpaid_access']['status'], 'ok')
+        self.assertContains(resp, 'Holding')
+        self.assertNotContains(resp, 'Unpaid accounts are getting in')
+        self.assertContains(resp, 'the paywall is doing its job')
+
+    def test_active_leak_shows_the_banner_and_the_offending_account(self):
+        self._hit(self._delinquent('leaky'))
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+        self.assertEqual(resp.context['unpaid_access']['status'], 'critical')
+        self.assertContains(resp, 'Unpaid accounts are getting in')
+        self.assertContains(resp, 'leaky')
+        self.assertContains(resp, '/maths/practice/')
+
+    def test_stale_leak_is_shown_as_a_warning_not_an_emergency(self):
+        self._hit(self._delinquent('was_leaky'), ago_minutes=60 * 60)
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+        self.assertEqual(resp.context['unpaid_access']['status'], 'warning')
+        self.assertContains(resp, 'Unpaid access seen recently')
+        self.assertNotContains(resp, 'Unpaid accounts are getting in')
+
+    def test_section_renders_with_no_subscriptions_at_all(self):
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'No delinquent subscriptions to check')

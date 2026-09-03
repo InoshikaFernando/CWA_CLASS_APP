@@ -132,6 +132,26 @@ python manage.py send_trial_expiry_warnings --days 7     # 7 days warning
 python manage.py send_trial_expiry_warnings --dry-run    # preview (don't send)
 ```
 
+### `check_unpaid_access`
+Daily paywall watchdog: cross-checks every delinquent subscription (past due /
+cancelled / expired) against the page-hit log and reports any account that
+reached a restricted page while unpaid. `TrialExpiryMiddleware` is the only
+thing stopping that, and a regression in it does not error — the account simply
+keeps working and nobody is billed.
+
+Installed on PROD as `/etc/cron.d/cwa-unpaid-access` (daily 09:00, one-day
+window, logs to `/var/log/cwa/unpaid_access.log`); the same signal is on the Ops
+dashboard's **Subscription access** tile and in
+`/api/health/?deep=1` under `warnings.unpaid_access`. Exits non-zero on a leak so
+a cron wrapper can alert.
+```bash
+python manage.py check_unpaid_access                     # all delinquent users, 7-day window
+python manage.py check_unpaid_access --days 30           # wider window
+python manage.py check_unpaid_access --username Ovindik  # one account
+python manage.py check_unpaid_access --quiet             # print only on a leak
+python manage.py check_unpaid_access --webhook "$FEEDBACK_DISCORD_WEBHOOK"
+```
+
 ---
 
 ## Classroom & Attendance
