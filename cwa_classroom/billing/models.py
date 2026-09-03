@@ -13,6 +13,57 @@ DURATION_CHOICES = [
 ]
 
 
+class StudentBasicGrantMixin:
+    """The rules for ``grants_student_basic``, shared by both code models.
+
+    Two rules, and both exist because breaking them is silent.
+
+    **A code that still charges may not carry the tier.** Nothing in account
+    creation mentions tiers: the student picks a plan at step 3 of the sign-up
+    form, where they read the full price, and types the code at step 5, which
+    gives no feedback — it is validated on submit. There is no screen in
+    between. A paying student would get fewer questions than the plan they had
+    just read described, with no disclosure anywhere.
+
+    **The flag cannot be changed on a code students already hold.** A code is
+    recorded on the subscriptions that redeemed it, and the tier is resolved
+    from it every time one of those subscriptions is activated. So flipping the
+    flag on a code already in circulation reaches BACKWARDS: the next time one
+    of those students re-checks-out — or the success page runs — they are put on
+    Student Basic, having been promised nothing of the sort. CWA's own free
+    students are exactly the population this would hit.
+
+    A new promotion therefore needs a NEW code. The error says so.
+    """
+
+    def clean(self):
+        super().clean()
+        if self.grants_student_basic and self.discount_percent != 100:
+            raise ValidationError({
+                'grants_student_basic': (
+                    'Student Basic can only be granted by a code that is 100% '
+                    'off. This code charges the student '
+                    f'{100 - self.discount_percent}% of the price, and nothing '
+                    'in the sign-up flow tells them the tier leaves out the '
+                    'AI-graded questions.'
+                ),
+            })
+        if self.pk:
+            stored = type(self).objects.filter(pk=self.pk).values(
+                'grants_student_basic', 'uses').first()
+            if (stored and stored['grants_student_basic']
+                    != self.grants_student_basic and stored['uses'] > 0):
+                raise ValidationError({
+                    'grants_student_basic': (
+                        f'{self.code} has already been redeemed '
+                        f'{stored["uses"]} time(s). Changing this now would '
+                        'change what those students get the next time their '
+                        'subscription is activated. Issue a new code for the '
+                        'new promotion instead.'
+                    ),
+                })
+
+
 class Package(models.Model):
     """Individual student subscription package. billing_type is reserved for future one-time purchases."""
     BILLING_RECURRING = 'recurring'
@@ -61,7 +112,7 @@ class Package(models.Model):
         return self.class_limit == 0
 
 
-class DiscountCode(models.Model):
+class DiscountCode(StudentBasicGrantMixin, models.Model):
     code = models.CharField(max_length=50, unique=True)
     discount_percent = models.PositiveSmallIntegerField(
         default=100,
@@ -111,24 +162,6 @@ class DiscountCode(models.Model):
         return f'{self.code} ({self.discount_percent}% off)'
 
 
-    def clean(self):
-        super().clean()
-        # Student Basic is the FREE promotional edition. Letting it ride on a
-        # code that still charges would sell somebody a reduced product without
-        # a word of it anywhere on screen: the sign-up form quotes the full
-        # plan's price at step 3 and takes the code at step 5, with nothing in
-        # between to say the tier excludes the AI-graded questions. So the flag
-        # is only allowed where the student pays nothing.
-        if self.grants_student_basic and self.discount_percent != 100:
-            raise ValidationError({
-                'grants_student_basic': (
-                    'Student Basic can only be granted by a code that is 100% '
-                    'off. This code charges the student '
-                    f'{100 - self.discount_percent}% of the price, and nothing '
-                    'in the sign-up flow tells them the tier leaves out the '
-                    'AI-graded questions.'
-                ),
-            })
     def is_valid(self):
         if not self.is_active:
             return False
@@ -178,7 +211,7 @@ class Payment(models.Model):
         return f'{self.user.username} — {self.package} — {self.status}'
 
 
-class PromoCode(models.Model):
+class PromoCode(StudentBasicGrantMixin, models.Model):
     code = models.CharField(max_length=50, unique=True)
     description = models.CharField(max_length=200, blank=True)
     discount_percent = models.PositiveSmallIntegerField(
@@ -235,24 +268,6 @@ class PromoCode(models.Model):
         return f'{self.code} ({limit} classes)'
 
 
-    def clean(self):
-        super().clean()
-        # Student Basic is the FREE promotional edition. Letting it ride on a
-        # code that still charges would sell somebody a reduced product without
-        # a word of it anywhere on screen: the sign-up form quotes the full
-        # plan's price at step 3 and takes the code at step 5, with nothing in
-        # between to say the tier excludes the AI-graded questions. So the flag
-        # is only allowed where the student pays nothing.
-        if self.grants_student_basic and self.discount_percent != 100:
-            raise ValidationError({
-                'grants_student_basic': (
-                    'Student Basic can only be granted by a code that is 100% '
-                    'off. This code charges the student '
-                    f'{100 - self.discount_percent}% of the price, and nothing '
-                    'in the sign-up flow tells them the tier leaves out the '
-                    'AI-graded questions.'
-                ),
-            })
     def is_valid(self):
         if not self.is_active:
             return False

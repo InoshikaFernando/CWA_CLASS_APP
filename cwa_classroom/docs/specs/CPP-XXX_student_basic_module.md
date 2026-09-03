@@ -146,6 +146,23 @@ described, with no disclosure anywhere. `DiscountCode.clean()` and
 `apply_code_student_modules` refuses it again and logs an error, because the
 form guard cannot see a row written by a script, a fixture or an old migration.
 
+### A new promotion needs a NEW code
+
+The flag **freezes once a code has been redeemed** (`uses > 0`), in either
+direction. Reusing an existing code does not only affect the next cohort: the
+code is recorded on every subscription that redeemed it, and the tier is
+resolved from it each time one of those subscriptions is activated. So flipping
+the flag on a circulating code reaches *backwards* — the next time an existing
+holder re-checks-out, or the success page runs for them, they land on Student
+Basic having been promised nothing of the sort.
+
+CWA's own 100%-off free students are exactly the population that would hit. Do
+not re-flag `CWAFREE`; issue `PROMO2026`. The validation error says so.
+
+A code nobody has redeemed yet can still be corrected — a typo is just a typo —
+and the freeze is on the flag alone, not the whole row (`max_uses`, `expires_at`
+and the rest stay editable).
+
 **Consequence, stated plainly:** a fully-free code never goes to Stripe, so no
 *code* reaches the webhook path today. The activation machinery below is still
 correct and still tested — the free paths use it, and it is what a paid student

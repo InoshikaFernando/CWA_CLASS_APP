@@ -399,3 +399,89 @@ class ThePriceQuotedIsTheRealPlanPriceTests(TestCase):
         Package.objects.all().delete()
         response = self.client.get('/billing/ai-graded-questions/')
         self.assertEqual(response.status_code, 200)
+
+
+class ANewPromotionNeedsANewCodeTests(TestCase):
+    """Reusing a code students already hold reaches backwards to them.
+
+    The code is recorded on every subscription that redeemed it, and the tier
+    is resolved from that code each time one of those subscriptions is
+    activated. So flipping the flag on a circulating code does not only affect
+    the next cohort — the next time an existing holder re-checks-out, or the
+    success page runs for them, they land on Student Basic having been promised
+    nothing of the sort. CWA's own free students are precisely who that would
+    hit, which is why the flag freezes once a code has been redeemed.
+    """
+
+    def test_the_flag_cannot_be_flipped_on_a_redeemed_code(self):
+        from django.core.exceptions import ValidationError
+
+        code = DiscountCode.objects.create(code='CWAFREE',
+                                           discount_percent=100, uses=37)
+        code.grants_student_basic = True
+        with self.assertRaises(ValidationError) as caught:
+            code.full_clean()
+        message = str(caught.exception)
+        self.assertIn('already been redeemed', message)
+        self.assertIn('Issue a new code', message)
+
+    def test_the_same_holds_for_a_promo_code(self):
+        from django.core.exceptions import ValidationError
+
+        code = PromoCode.objects.create(code='OLDPROMO',
+                                        discount_percent=100, uses=5)
+        code.grants_student_basic = True
+        with self.assertRaises(ValidationError):
+            code.full_clean()
+
+    def test_it_cannot_be_turned_off_on_a_redeemed_code_either(self):
+        """Symmetrical: the students on it were promised the reduced tier and
+        the price that went with it, and un-flagging changes that too."""
+        from django.core.exceptions import ValidationError
+
+        code = DiscountCode.objects.create(
+            code='PROMO26', discount_percent=100,
+            grants_student_basic=True, uses=12)
+        code.grants_student_basic = False
+        with self.assertRaises(ValidationError):
+            code.full_clean()
+
+    def test_an_unredeemed_code_can_still_be_corrected(self):
+        """A typo on a code nobody has used yet is just a typo."""
+        code = DiscountCode.objects.create(code='NOTYETUSED',
+                                           discount_percent=100)
+        code.grants_student_basic = True
+        code.full_clean()
+
+    def test_a_brand_new_code_is_the_supported_route(self):
+        """What the error tells the owner to do, working end to end."""
+        old = DiscountCode.objects.create(code='CWAFREE2',
+                                          discount_percent=100, uses=37)
+        new = DiscountCode.objects.create(
+            code='PROMO2026', discount_percent=100, grants_student_basic=True)
+        new.full_clean()
+
+        existing = a_student('existing-cwa')
+        Subscription.objects.create(
+            user=existing, package=a_package(),
+            status=Subscription.STATUS_ACTIVE, discount_code=old)
+        promo = a_student('promo-cohort')
+        promo_sub = Subscription.objects.create(
+            user=promo, package=a_package(),
+            status=Subscription.STATUS_ACTIVE, discount_code=new)
+
+        sync_student_modules(Subscription.objects.get(user=existing))
+        sync_student_modules(promo_sub)
+
+        self.assertTrue(student_can_be_ai_graded(existing))
+        self.assertFalse(student_can_be_ai_graded(promo))
+
+    def test_editing_something_else_on_a_redeemed_code_still_works(self):
+        """The freeze is on the flag, not on the whole row."""
+        code = DiscountCode.objects.create(code='STILLEDITABLE',
+                                           discount_percent=100, uses=9)
+        code.max_uses = 100
+        code.full_clean()
+        code.save(update_fields=['max_uses'])
+        self.assertEqual(
+            DiscountCode.objects.get(pk=code.pk).max_uses, 100)
