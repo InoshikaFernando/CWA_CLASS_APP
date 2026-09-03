@@ -355,8 +355,23 @@ MIDDLEWARE = [
     'cwa_classroom.middleware.TrialExpiryMiddleware',
     'cwa_classroom.middleware.AccountBlockMiddleware',
     'cwa_classroom.middleware.ProfileCompletionMiddleware',
+    # Module entitlement. Below impersonation so "view as" sees the
+    # impersonated user's entitlements, and above usage tracking so a blocked
+    # request is recorded as blocked rather than as a page view. Defaults to
+    # shadow mode — see billing/middleware.py and MODULE_ENFORCEMENT below.
+    'billing.middleware.ModuleEnforcementMiddleware',
     'usage.middleware.UsageTrackingMiddleware',  # last: records final page-view status
 ]
+
+# How billing.middleware.ModuleEnforcementMiddleware behaves:
+#   'off'     — do nothing; the per-view mixins still enforce as before.
+#   'shadow'  — resolve and audit-log every would-be denial, but allow it.
+#   'enforce' — block.
+# Shadow is the default on purpose. Several registry modules describe features
+# that are free today, and switching them off is a commercial decision with
+# real customers behind it — it should follow a week of shadow data, not a
+# deploy. Flip with MODULE_ENFORCEMENT=enforce in the environment.
+MODULE_ENFORCEMENT = os.environ.get('MODULE_ENFORCEMENT', 'shadow')
 
 # Slow-query diagnostics: wrap the request early (near the top of MIDDLEWARE) so
 # it counts queries from every downstream layer, not just the view.

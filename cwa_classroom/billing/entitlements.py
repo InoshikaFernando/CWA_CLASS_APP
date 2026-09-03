@@ -168,6 +168,59 @@ def school_ids_with_module(module_slug):
     ).values_list('school_subscription__school_id', flat=True)
 
 
+def entitled_modules(request):
+    """Every module slug this request is entitled to, resolved once.
+
+    One query for the school modules instead of the per-school, per-module
+    walk :func:`has_module_any_school` does — a sidebar asking about six
+    modules used to pay that six times over, and the middleware asks on every
+    request.
+
+    The result is the union of two things a user can hold modules through:
+    the schools they belong to (``ModuleSubscription``) and, where the slug is
+    one of theirs, their own subscription (``StudentModule``). One set, so a
+    caller never has to know which of the two a given slug came from.
+
+    Cached on the request. A request that grants a module to itself mid-flight
+    (the checkout success page) must re-read rather than trust this — call
+    :func:`clear_entitlement_cache` after such a write.
+    """
+    cached = getattr(request, '_entitled_modules', None)
+    if cached is not None:
+        return cached
+
+    user = getattr(request, 'user', None)
+    if user is None or not getattr(user, 'is_authenticated', False):
+        result = frozenset()
+        request._entitled_modules = result
+        return result
+
+    from billing.models import ModuleSubscription
+
+    slugs = set(
+        ModuleSubscription.objects.filter(
+            is_active=True,
+            school_subscription__school__in=get_all_schools_for_user(user),
+        ).values_list('module', flat=True)
+    )
+    slugs.update(active_student_modules(user))
+
+    result = frozenset(slugs)
+    request._entitled_modules = result
+    return result
+
+
+def clear_entitlement_cache(request):
+    """Drop the cached set so the next read re-queries.
+
+    Needed by the few views that change entitlement and then keep rendering —
+    the module toggle and the checkout return — because otherwise the page
+    that just sold a module renders as though it had not.
+    """
+    if hasattr(request, '_entitled_modules'):
+        del request._entitled_modules
+
+
 def get_school_for_user(user):
     """
     Resolve the primary school for a user.

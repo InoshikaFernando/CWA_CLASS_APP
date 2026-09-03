@@ -508,6 +508,13 @@ class ModuleSubscription(models.Model):
     # clicking. Priced separately because unattended runs are what cost us.
     MODULE_REPORT_AUTOMATION = 'report_automation'
     MODULE_QUESTION_AUTOMATION = 'question_automation'
+    # Features that exist and are currently free. Declared here so they can be
+    # priced and so shadow mode can measure who would be affected; nothing is
+    # denied until MODULE_ENFORCEMENT is switched on. See billing/registry.py.
+    MODULE_BRAINBUZZ = 'brainbuzz'
+    MODULE_WORKSHEETS = 'worksheets'
+    MODULE_REWARDS = 'rewards'
+    MODULE_WHATSAPP = 'whatsapp_notifications'
 
     MODULE_CHOICES = [
         (MODULE_TEACHERS_ATTENDANCE, 'Teachers Attendance'),
@@ -521,6 +528,10 @@ class ModuleSubscription(models.Model):
         (MODULE_AI_GRADING_ENTERPRISE, 'AI Grading - Enterprise (unlimited)'),
         (MODULE_REPORT_AUTOMATION, 'Student Report Automation (scheduled sending)'),
         (MODULE_QUESTION_AUTOMATION, 'Question Automation (scheduled to term/year)'),
+        (MODULE_BRAINBUZZ, 'BrainBuzz Live Quiz'),
+        (MODULE_WORKSHEETS, 'Worksheets'),
+        (MODULE_REWARDS, 'Rewards & Leaderboard'),
+        (MODULE_WHATSAPP, 'WhatsApp Parent Notifications'),
     ]
 
     school_subscription = models.ForeignKey(
