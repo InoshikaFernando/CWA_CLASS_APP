@@ -13,6 +13,9 @@ from django.db.models import Q
 from audit.services import log_event
 from classroom.models import Level as ClassroomLevel, SchoolStudent, Topic as ClassroomTopic
 from maths.models import calculate_points
+# Which times tables each year may practise. This module used to carry its own
+# divergent copy of that mapping, and this was the copy the page actually read.
+from maths.constants import MAX_TIMES_TABLE, times_tables_for_year
 from rewards.models import PointsSource
 from rewards.services import award_points_safe
 from .basic_facts import (
@@ -409,20 +412,6 @@ class BasicFactsResultsView(LoginRequiredMixin, View):
 
 # ── Times Tables ─────────────────────────────────────────────────────────────
 
-TIMES_TABLES_BY_YEAR = {
-    1: [1],
-    2: [1, 2, 10],
-    3: [1, 2, 3, 4, 5, 10],
-    4: list(range(1, 16)),
-    5: list(range(1, 16)),
-    6: list(range(1, 16)),
-    7: list(range(1, 16)),
-    8: list(range(1, 16)),
-    9: list(range(1, 16)),
-    10: list(range(1, 16)),
-}
-
-
 def _generate_times_tables_questions(table, operation, count=12, shuffle=False):
     import random
     multipliers = list(range(1, count + 1))
@@ -468,11 +457,11 @@ class TimesTablesHomeView(LoginRequiredMixin, View):
             if hub_levels.exists():
                 year = hub_levels.order_by('-level_number').first().level_number
 
-        available_tables = TIMES_TABLES_BY_YEAR.get(year, list(range(1, 16)))
+        available_tables = times_tables_for_year(year)
 
         return render(request, 'quiz/times_tables_select.html', {
             'available_tables': available_tables,
-            'all_tables': range(1, 16),
+            'all_tables': range(1, MAX_TIMES_TABLE + 1),
             'year': year,
         })
 
@@ -481,11 +470,11 @@ class TimesTablesSelectView(LoginRequiredMixin, View):
     def get(self, request, level_number, operation):
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
         year = level_number
-        available = TIMES_TABLES_BY_YEAR.get(year, list(range(1, 16)))
+        available = times_tables_for_year(year)
         return render(request, 'quiz/times_tables_select.html', {
             'level': level, 'operation': operation,
             'available_tables': available,
-            'all_tables': range(1, 16),
+            'all_tables': range(1, MAX_TIMES_TABLE + 1),
             'year': year,
         })
 

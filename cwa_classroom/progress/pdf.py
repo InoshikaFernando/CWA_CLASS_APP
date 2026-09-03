@@ -615,19 +615,29 @@ def render_report_pdf(report):
     topics = report.topics
     if topics:
         flow.append(Paragraph('By topic', styles['heading']))
-        chart = _topic_chart(topics)
+        # The chart plots strands, the table plots sub-topics. Thirty bars at
+        # 6pt was a wall of labels that answered no question a parent has;
+        # "behind in Number, fine in Geometry" is a question they do have, and
+        # nothing is lost because every sub-topic is still in the table below.
+        groups = report.topic_groups
+        chart = _topic_chart(groups)
         if chart is not None:
             flow.append(chart)
-            # The chart is capped because thirty bars are unreadable, but it
-            # said so nowhere — it just looked like the whole picture with
-            # topics missing. The table below carries every row.
-            shown = min(len(topics), TOPIC_CHART_LIMIT)
-            caption = 'Accuracy across every question answered, weakest topic first.'
-            if len(topics) > shown:
+            # Still capped — a report can span more strands than fit — and it
+            # says so rather than looking like the whole picture with rows
+            # missing.
+            shown = min(len(groups), TOPIC_CHART_LIMIT)
+            if len(groups) > shown:
                 caption = (
-                    f'The {shown} weakest of {len(topics)} topics. '
+                    f'The {shown} weakest of {len(groups)} topics. '
                     'Every topic is listed in the table below.'
                 )
+            elif groups is not topics:
+                caption = ('Accuracy per topic, weakest first. '
+                           'The sub-topics behind each one are listed below.')
+            else:
+                caption = ('Accuracy across every question answered, '
+                           'weakest topic first.')
             flow.append(Paragraph(caption, styles['caption']))
         flow.append(Spacer(1, 6))
         flow.append(_data_table(

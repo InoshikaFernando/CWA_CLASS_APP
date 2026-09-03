@@ -150,6 +150,41 @@ class DetailRenderTests(ReportViewBase):
             [row['first_pct'] for row in self.report.attempts['items']],
         )
 
+    def test_the_topic_chart_plots_strands_and_the_table_keeps_sub_topics(self):
+        """The page's two halves must come from different lists.
+
+        Around thirty sub-topic bars answered no question a parent has; the
+        strand does. Nothing is hidden — the table below still lists every
+        sub-topic — which is only true if the chart and the table read from
+        different keys.
+        """
+        import json
+
+        self.report.data['topics'] = [
+            {'topic': 'Fractions', 'group': 'Number', 'answered': 4,
+             'correct': 1, 'accuracy_pct': 25},
+            {'topic': 'Decimals', 'group': 'Number', 'answered': 4,
+             'correct': 3, 'accuracy_pct': 75},
+        ]
+        self.report.data['topic_groups'] = [
+            {'topic': 'Number', 'topics': 2, 'answered': 8, 'correct': 4,
+             'accuracy_pct': 50},
+        ]
+        self.report.save(update_fields=['data'])
+
+        self.login(self.student)
+        response = self.client.get(self.detail_url())
+        charts = json.loads(response.context['charts_json'])
+
+        self.assertEqual(charts['topics']['labels'], ['Number'])
+        self.assertEqual(charts['topics']['values'], [50])
+        self.assertEqual(
+            [row['topic'] for row in response.context['topics']],
+            ['Fractions', 'Decimals'],
+        )
+        self.assertContains(response, 'Fractions')
+        self.assertContains(response, 'Decimals')
+
     def test_no_template_syntax_leaks_into_the_page(self):
         """A multi-line `{# … #}` renders verbatim — Django only ends it at the
         line break. It shipped once as a paragraph of implementation notes
