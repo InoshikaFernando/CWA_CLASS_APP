@@ -92,6 +92,31 @@ python manage.py grant_free_access            # apply
 python manage.py grant_free_access --dry-run  # preview
 ```
 
+### `student_modules`
+Put individual students on a per-student module, or take them off one. Student
+Basic (the free promotional edition, without the AI-graded questions) is granted
+here or in the Django admin and nowhere else — there is no student-facing route
+onto it.
+```bash
+python manage.py student_modules --list
+python manage.py student_modules --grant basic --user ada --user grace
+python manage.py student_modules --grant basic --file cohort.txt --dry-run
+python manage.py student_modules --grant ai_grading --user ada   # sell it back
+python manage.py student_modules --revoke basic --user ada
+```
+
+### `promo_code_doctor`
+Report whether each Student (Promo) code has actually taken effect for anybody.
+Read-only — it writes nothing, so it is safe against production. Separates a
+counter with no members (never worked for anyone) from members the promo gave
+nothing new to (worked, but was a no-op) from members whose class access exists
+because of it.
+```bash
+python manage.py promo_code_doctor
+python manage.py promo_code_doctor --code FULLACCESS2026
+python manage.py promo_code_doctor --students   # name every redeemer
+```
+
 ### `reset_invoice_counters`
 Reset yearly invoice usage counters (for annual billing cycles).
 ```bash
