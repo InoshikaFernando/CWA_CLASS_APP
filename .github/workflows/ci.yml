@@ -226,6 +226,13 @@ jobs:
               - 'cwa_classroom/worksheets/**'
               - 'cwa_classroom/maths/**'
               - 'cwa_classroom/classroom/models.py'
+              # The report asks each subject plugin what a piece of content is
+              # called and which strand it sits under, so a plugin change can
+              # empty the "By topic" chart without touching progress/. The
+              # coding suite here is the practice section and the language
+              # grouping, both of which progress/ tests directly.
+              - 'cwa_classroom/classroom/subject_registry.py'
+              - 'cwa_classroom/coding/**'
               # The sidebar visibility flag for period reports is set here, and
               # its tests assert on it.
               - 'cwa_classroom/accounts/context_processors.py'
@@ -389,6 +396,9 @@ jobs:
               # billing.Subscription through billing/selectors.py.
               - 'cwa_classroom/billing/**'
               - 'cwa_classroom/classroom/**'
+              # A coding report's practice section and its topic grouping both
+              # come from the coding plugin.
+              - 'cwa_classroom/coding/**'
               - 'cwa_classroom/homework/**'
               # Quizzes, times tables and basic facts are read straight off
               # maths models, so a change there can break a report.

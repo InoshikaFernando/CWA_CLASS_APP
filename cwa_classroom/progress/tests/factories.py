@@ -76,13 +76,13 @@ def link_parent(parent, student, school=None):
     )
 
 
-def make_topic(name='Fractions'):
+def make_topic(name='Fractions', parent=None, slug=None):
     subject, _ = Subject.objects.get_or_create(
         slug='mathematics', school=None, defaults={'name': 'Mathematics'},
     )
     return Topic.objects.create(
-        name=name, slug=name.lower().replace(' ', '-'),
-        subject=subject, is_active=True,
+        name=name, slug=slug or name.lower().replace(' ', '-'),
+        subject=subject, parent=parent, is_active=True,
     )
 
 

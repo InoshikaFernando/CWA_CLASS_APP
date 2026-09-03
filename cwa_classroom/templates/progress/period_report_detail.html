@@ -194,7 +194,7 @@
     {% if topics %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
       <h2 class="font-display text-xl text-gray-800">By topic</h2>
-      <p class="text-xs text-slate-500 mb-4">Accuracy across every question answered, weakest first.</p>
+      <p class="text-xs text-slate-500 mb-4">Accuracy per topic, weakest first. Sub-topics are in the table below.</p>
       <canvas id="topicChart" height="220" data-testid="chart-topics"></canvas>
     </div>
     {% endif %}
@@ -262,6 +262,7 @@
   {% if topics %}
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-topics">
     <h2 class="font-display text-xl text-gray-800">Topic detail</h2>
+    <p class="text-xs text-slate-500 mt-1">Every sub-topic answered this period.</p>
     <div class="overflow-x-auto mt-4">
       <table class="min-w-full text-sm">
         <thead>
