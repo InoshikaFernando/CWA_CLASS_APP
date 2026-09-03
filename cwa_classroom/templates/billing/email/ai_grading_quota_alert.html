@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8" /><title>AI Grading Allowance</title></head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:Arial,sans-serif; color:#374151;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9; padding:32px 16px;">
+<tr><td align="center">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background:#fff; border-radius:16px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+  <tr><td style="background-color:{% if stopped %}#dc2626{% else %}#f59e0b{% endif %}; padding:24px 32px; text-align:center;">
+    {% if email_logo_url %}
+    <img src="{{ email_logo_url }}" alt="{{ site_name }}" style="max-height:48px; max-width:200px; margin-bottom:12px;" /><br />
+    {% endif %}
+    <h1 style="margin:0; font-size:20px; color:#fff;">
+      {% if stopped %}AI Grading Paused{% else %}AI Grading — {{ percent }}% Used{% endif %}
+    </h1>
+  </td></tr>
+  <tr><td style="padding:32px;">
+    <p style="margin:0 0 16px; font-size:16px;">Hi <strong>{{ recipient_name }}</strong>,</p>
+
+    {% if stopped %}
+    <p style="margin:0 0 16px; font-size:15px; color:#4b5563;">
+      <strong>{{ school.name }}</strong> has used all <strong>{{ limit }}</strong> AI-graded answers
+      included in this month's plan.
+    </p>
+    <p style="margin:0 0 16px; font-size:15px; color:#4b5563;">
+      AI-graded questions are no longer being offered to your students, and will stay off until your
+      allowance resets at the start of next month — or until you move up a plan. Everything else in
+      your account is unaffected, and teachers can still mark these answers themselves.
+    </p>
+    {% else %}
+    <p style="margin:0 0 16px; font-size:15px; color:#4b5563;">
+      <strong>{{ school.name }}</strong> has used <strong>{{ percent }}%</strong> of this month's
+      AI grading allowance — <strong>{{ used }}</strong> of <strong>{{ limit }}</strong> answers,
+      with <strong>{{ remaining }}</strong> left.
+    </p>
+    <p style="margin:0 0 16px; font-size:15px; color:#4b5563;">
+      When the allowance runs out, AI-graded questions stop being offered to your students until it
+      resets next month. We're letting you know now so it doesn't arrive mid-term as a surprise.
+    </p>
+    {% endif %}
+
+    {% if next_tier_name %}
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px;">
+      <tr><td style="padding:16px 20px;">
+        <p style="margin:0 0 6px; font-size:13px; color:#64748b; text-transform:uppercase; letter-spacing:0.05em;">Next plan up</p>
+        <p style="margin:0; font-size:16px; color:#111827;">
+          <strong>{{ next_tier_name }}</strong>
+          {% if next_tier_answers %}— {{ next_tier_answers }} answers a month{% else %}— unlimited answers{% endif %}
+          {% if next_tier_price %}<br /><span style="font-size:14px; color:#4b5563;">${{ next_tier_price }}/month</span>{% endif %}
+        </p>
+      </td></tr>
+    </table>
+    <p style="margin:0 0 8px; font-size:15px; color:#4b5563;">
+      To switch, log in and open <strong>Subscription &rarr; AI Grading</strong>.
+    </p>
+    {% else %}
+    <p style="margin:0 0 8px; font-size:15px; color:#4b5563;">
+      You are already on our largest AI grading plan — please reply to this email if you need more,
+      and we'll sort something out.
+    </p>
+    {% endif %}
+  </td></tr>
+  <tr><td style="background:#f8fafc; border-top:1px solid #e2e8f0; padding:16px 32px; text-align:center;">
+    <p style="margin:0; font-size:12px; color:#94a3b8;">&copy; {{ site_name }}</p>
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

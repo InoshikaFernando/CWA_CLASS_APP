@@ -624,11 +624,17 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
         from .models import ModuleSubscription
         active_modules = list(sub.modules.filter(is_active=True).values_list('module', flat=True))
 
-        # Split standard modules from AI import tiers
+        # Split standard modules from the two tiered add-ons. Both AI families
+        # are pick-one ladders, not independent $10 switches — listing them in
+        # the flat module list let a school "Add" Starter and Professional at
+        # once and be billed for both while only one took effect.
+        from billing.page_quota import AI_IMPORT_MODULE_PREFIX
+        from billing.quota_alerts import GRADING_TIER_ORDER
         AI_IMPORT_SLUGS = {'ai_import_starter', 'ai_import_professional', 'ai_import_enterprise'}
+        AI_GRADING_SLUGS = set(GRADING_TIER_ORDER)
         standard_modules = [
             (k, v) for k, v in ModuleSubscription.MODULE_CHOICES
-            if k not in AI_IMPORT_SLUGS
+            if k not in AI_IMPORT_SLUGS and k not in AI_GRADING_SLUGS
         ]
         ai_import_tiers = [
             {'slug': 'ai_import_starter', 'name': 'Starter', 'pages': 300, 'price': 15, 'full_price': 30, 'discount_months': 6},
@@ -638,6 +644,37 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
         active_ai_import_tier = next(
             (s for s in AI_IMPORT_SLUGS if s in active_modules), None
         )
+
+        # Grading tiers come from the catalogue rather than a literal list, so
+        # a price or allowance change in ModuleProduct shows here without a
+        # code edit. Order is the ladder in GRADING_TIER_ORDER, not the DB's.
+        from billing.models import ModuleProduct
+        products = {
+            p.module: p for p in ModuleProduct.objects.filter(
+                module__in=GRADING_TIER_ORDER, is_active=True,
+            )
+        }
+        ai_grading_tiers = []
+        for slug in GRADING_TIER_ORDER:
+            product = products.get(slug)
+            if not product:
+                continue
+            ai_grading_tiers.append({
+                'slug': slug,
+                # 'AI Grading - Professional' → 'Professional'
+                'name': product.name.split('-')[-1].strip(),
+                'answers': product.questions_per_month,
+                'price': product.price,
+            })
+        active_ai_grading_tier = next(
+            (s for s in GRADING_TIER_ORDER if s in active_modules), None
+        )
+
+        # Live meters so the institute sees what it is actually consuming next
+        # to the plan it is choosing between.
+        from billing.page_quota import quota_status
+        from worksheets.grading_service import check_ai_grading_quota
+        _grading_allowed, grading_used, grading_limit = check_ai_grading_quota(school)
 
         return render(request, 'billing/institute_dashboard.html', {
             'school': school,
@@ -654,6 +691,15 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
             'standard_modules': standard_modules,
             'ai_import_tiers': ai_import_tiers,
             'active_ai_import_tier': active_ai_import_tier,
+            'ai_grading_tiers': ai_grading_tiers,
+            'active_ai_grading_tier': active_ai_grading_tier,
+            'grading_used': grading_used,
+            'grading_limit': grading_limit,
+            'grading_percent': (
+                min(100, round(grading_used / grading_limit * 100))
+                if grading_limit else 0
+            ),
+            'page_quota': quota_status(school),
         })
 
 
@@ -960,15 +1006,25 @@ class ModuleToggleView(LoginRequiredMixin, View):
         stripe_price_id = module_product.stripe_price_id if module_product else ''
         module_name = dict(ModuleSubscription.MODULE_CHOICES).get(module_slug, module_slug)
 
-        # AI import tiers are mutually exclusive — deactivate others when adding one
+        # Both AI families are pick-one ladders: adding a tier must retire the
+        # tier it replaces, or the school is billed for two and only one takes
+        # effect. Grading was missing from this and was sold as three separate
+        # $10 modules that could all be switched on at once.
+        from billing.quota_alerts import GRADING_TIER_ORDER
         AI_IMPORT_SLUGS = {'ai_import_starter', 'ai_import_professional', 'ai_import_enterprise'}
-        is_ai_import = module_slug in AI_IMPORT_SLUGS
+        AI_GRADING_SLUGS = set(GRADING_TIER_ORDER)
+        if module_slug in AI_IMPORT_SLUGS:
+            exclusive_family = AI_IMPORT_SLUGS
+        elif module_slug in AI_GRADING_SLUGS:
+            exclusive_family = AI_GRADING_SLUGS
+        else:
+            exclusive_family = set()
 
         try:
             if action == 'add':
-                # Deactivate other AI tiers first (mutual exclusivity)
-                if is_ai_import:
-                    other_ai_slugs = AI_IMPORT_SLUGS - {module_slug}
+                # Deactivate the other tiers in this family (mutual exclusivity)
+                if exclusive_family:
+                    other_ai_slugs = exclusive_family - {module_slug}
                     for other_slug in other_ai_slugs:
                         existing = ModuleSubscription.objects.filter(
                             school_subscription=sub, module=other_slug, is_active=True,

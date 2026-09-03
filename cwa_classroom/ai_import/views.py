@@ -136,6 +136,7 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                 from classroom.models import ClassRoom
                 classrooms = ClassRoom.objects.filter(id__in=classroom_ids, is_active=True)
 
+        from billing.page_quota import quota_status
         return render(request, 'ai_import/upload.html', {
             'tier': tier_name,
             'remaining_pages': remaining,
@@ -143,6 +144,9 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
             'pages_used': used,
             'usage_percent': round((used / limit * 100) if limit else 0),
             'classrooms': classrooms,
+            'page_quota': quota_status(
+                school, unlimited=request.user.is_superuser,
+            ),
         })
 
     def post(self, request):
@@ -156,12 +160,6 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
         if not pdf_file.name.lower().endswith('.pdf'):
             messages.error(request, 'Only PDF files are supported.')
             return redirect('ai_import:upload')
-
-        # Check usage limit (superusers have unlimited)
-        if request.user.is_superuser:
-            remaining, limit, used = (999999, 999999, 0)
-        else:
-            remaining, limit, used = _get_remaining_pages(school) if school else (0, 0, 0)
 
         # Which pages to extract ("2-7, 9"; blank = all). Validated before the
         # quota check so a bad range is an immediate form error, and so an upload
@@ -185,21 +183,19 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
             page_count = (len(selected_pages) if selected_pages is not None
                           else get_pdf_page_count(pdf_file))
 
-            if page_count > remaining:
-                if remaining == 0:
-                    messages.error(
-                        request,
-                        f'You’ve used all {limit} pages in your monthly quota. '
-                        f'Please upgrade your plan or wait until next month.',
-                    )
-                else:
-                    what = ('Your page selection covers' if page_selection
-                            else 'This PDF has')
-                    messages.error(
-                        request,
-                        f'{what} {page_count} pages but you only have {remaining} pages remaining this month. '
-                        f'Please upgrade your plan, select fewer pages, or upload a smaller file.',
-                    )
+            # The monthly allowance is shared with homework and worksheet
+            # uploads and charged at upload, not at confirm: the classification
+            # job below spends the money whether or not the teacher ever
+            # reaches the confirm step. See billing/page_quota.py.
+            from billing.page_quota import (
+                check_page_budget, consume_pages, refund_pages,
+            )
+            is_unlimited = request.user.is_superuser
+            allowed, quota_message, _quota = check_page_budget(
+                school, page_count, unlimited=is_unlimited,
+            )
+            if not allowed:
+                messages.error(request, quota_message)
                 return redirect('ai_import:upload')
 
             # Step 2: Persist the upload + create a PROCESSING session.
@@ -219,6 +215,10 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                 status=AIImportSession.STATUS_PROCESSING,
             )
 
+            # Charge now, not when the worker finishes: two uploads landing
+            # together would otherwise both pass the check above and overshoot.
+            consume_pages(school, page_count, unlimited=is_unlimited)
+
             # Step 3: Enqueue background classification (default queue). If the
             # queue is unavailable, don't leave an orphaned PROCESSING session.
             from taskqueue.services import enqueue_task
@@ -237,6 +237,9 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                 logging.getLogger(__name__).exception(
                     'Failed to enqueue AI import for session %s', session.pk,
                 )
+                # Nothing will be classified, so the pages charged above were
+                # never spent — hand them back.
+                refund_pages(school, page_count, unlimited=is_unlimited)
                 session.delete()
                 messages.error(
                     request,
@@ -684,12 +687,17 @@ class ConfirmImportView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
 
         result = save_questions_from_session(session, request.user, session.extracted_data)
 
-        # Record usage
+        # Record token usage only. The pages were charged at upload (see
+        # UploadPDFView.post) because the classification job spends them there
+        # — charging again here would bill the same PDF twice, and charging
+        # ONLY here is what let an uploaded-but-never-confirmed import run for
+        # free while homework and worksheets went unmetered entirely.
         if school:
+            from django.db.models import F
             usage = _get_usage_for_school(school)
-            usage.pages_processed += session.page_count
-            usage.tokens_used += session.tokens_used
-            usage.save(update_fields=['pages_processed', 'tokens_used'])
+            AIImportUsage.objects.filter(pk=usage.pk).update(
+                tokens_used=F('tokens_used') + (session.tokens_used or 0),
+            )
 
         # Audit log
         log_event(

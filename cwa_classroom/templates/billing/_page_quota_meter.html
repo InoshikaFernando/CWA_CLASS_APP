@@ -1,0 +1,54 @@
+{% comment %}
+Monthly AI page allowance — the meter shown above every upload form that spends
+pages (homework, worksheets, AI import). Takes the dict returned by
+billing.page_quota.quota_status() as `page_quota`.
+
+Renders nothing at all when the school isn't metered (no AI import tier, or an
+unlimited one), so a plain-plan school doesn't see an empty 0/0 bar.
+
+The warning threshold is billing.page_quota.WARN_RATIO (75%) and arrives as
+`page_quota.warn` — don't re-derive it from the percentage here, or the banner
+and the code that actually refuses an upload can drift apart.
+{% endcomment %}
+{% if page_quota.metered %}
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+  <div class="flex items-center justify-between mb-2">
+    <span class="text-sm font-semibold text-gray-700">Monthly page allowance</span>
+    <span class="text-sm text-gray-500">{{ page_quota.used }} / {{ page_quota.limit }} pages</span>
+  </div>
+  <div class="w-full bg-gray-100 rounded-full h-3">
+    <div class="h-3 rounded-full transition-all duration-500
+                {% if page_quota.exhausted %}bg-red-500
+                {% elif page_quota.warn %}bg-amber-500
+                {% else %}bg-emerald-500{% endif %}"
+         style="width: {{ page_quota.percent }}%"></div>
+  </div>
+  <div class="flex items-center justify-between mt-2">
+    <span class="text-xs text-gray-400">{{ page_quota.tier_name }} plan</span>
+    <span class="text-xs text-gray-400">{{ page_quota.remaining }} pages remaining</span>
+  </div>
+
+  {% if page_quota.exhausted %}
+  <p class="text-sm text-red-600 mt-3 font-medium">
+    You have used all {{ page_quota.limit }} pages of your {{ page_quota.tier_name }} allowance this month.
+    {% if page_quota.next_tier_name %}
+      <a href="{% url 'ai_import:tier_select' %}" class="underline">Upgrade to {{ page_quota.next_tier_name }}</a>
+      ({{ page_quota.next_tier_pages }} pages a month) to carry on,
+      or wait until it resets on {{ page_quota.reset_label }}.
+    {% else %}
+      Your allowance resets on {{ page_quota.reset_label }}.
+    {% endif %}
+  </p>
+  {% elif page_quota.warn %}
+  <p class="text-sm text-amber-600 mt-3 font-medium">
+    You have used {{ page_quota.percent }}% of this month's pages — {{ page_quota.remaining }} left.
+    {% if page_quota.next_tier_name %}
+      <a href="{% url 'ai_import:tier_select' %}" class="underline">Upgrade to {{ page_quota.next_tier_name }}</a>
+      for {{ page_quota.next_tier_pages }} pages a month, or your allowance resets on {{ page_quota.reset_label }}.
+    {% else %}
+      Your allowance resets on {{ page_quota.reset_label }}.
+    {% endif %}
+  </p>
+  {% endif %}
+</div>
+{% endif %}

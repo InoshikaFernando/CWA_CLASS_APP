@@ -100,7 +100,13 @@ class WorksheetUploadView(RoleRequiredMixin, View):
     required_roles = TEACHER_ROLES
 
     def get(self, request):
-        return render(request, 'worksheets/upload.html', {})
+        from billing.page_quota import quota_status
+        return render(request, 'worksheets/upload.html', {
+            'page_quota': quota_status(
+                get_school_for_user(request.user),
+                unlimited=request.user.is_superuser,
+            ),
+        })
 
     def post(self, request):
         school = get_school_for_user(request.user)
@@ -138,6 +144,21 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             messages.error(request, str(exc))
             return redirect('worksheets:upload')
 
+        # The monthly AI page allowance is checked BEFORE extraction — the
+        # worker spends real AI money per page regardless of what the teacher
+        # does with the result. See billing/page_quota.py.
+        from billing.page_quota import (
+            check_page_budget, consume_pages, refund_pages, upload_page_count,
+        )
+        is_unlimited = request.user.is_superuser
+        quota_pages = upload_page_count(_selected, _total, pdf_file)
+        allowed, quota_message, _quota = check_page_budget(
+            school, quota_pages, unlimited=is_unlimited,
+        )
+        if not allowed:
+            messages.error(request, quota_message)
+            return redirect('worksheets:upload')
+
         # Persist the upload + create a PROCESSING session, then classify in the
         # background (CPP-327) so the request returns immediately.
         session = WorksheetUploadSession.objects.create(
@@ -150,6 +171,10 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             shape_naming=request.POST.get('shape_naming') == 'on',
             status=WorksheetUploadSession.STATUS_PROCESSING,
         )
+
+        # Charge now, not when the worker finishes: two uploads landing together
+        # would otherwise both pass the check above and overshoot the allowance.
+        consume_pages(school, quota_pages, unlimited=is_unlimited)
 
         from taskqueue.services import enqueue_task
         from .tasks import process_worksheet_pdf
@@ -164,6 +189,9 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             )
         except Exception:
             logger.exception('Failed to enqueue worksheet PDF for session %s', session.pk)
+            # Nothing will be extracted, so the pages charged above were never
+            # spent — hand them back rather than billing a job that never ran.
+            refund_pages(school, quota_pages, unlimited=is_unlimited)
             session.delete()
             messages.error(
                 request,

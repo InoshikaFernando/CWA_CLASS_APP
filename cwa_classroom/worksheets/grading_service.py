@@ -117,14 +117,38 @@ def student_can_be_ai_graded(user):
     Note the asymmetry with AI *import*, which gates a teacher's access to a
     feature. This gates whether a question is offered at all — never whether a
     submitted answer counts.
+
+    A school that has spent its monthly allowance is treated as not having the
+    feature until the allowance resets or it moves up a plan. Owning the module
+    is not enough on its own: offering a child a question we then can't mark is
+    worse than not offering it, and that was the old behaviour — the quota was
+    only consulted at grading time, so the question was asked, answered, and
+    then came back "quota reached, your teacher will review this manually".
     """
     from billing.entitlements import get_all_schools_for_user
 
     schools = list(get_all_schools_for_user(user))
     if not schools:
         return True
-    return any(getattr(school, 'free_ai_grading', False)
-               or get_ai_grading_tier(school) for school in schools)
+    for school in schools:
+        if getattr(school, 'free_ai_grading', False):
+            return True
+        if not get_ai_grading_tier(school):
+            continue
+        allowed, _used, _limit = check_ai_grading_quota(school)
+        if allowed:
+            return True
+    return False
+
+
+def get_ai_grading_limit(school):
+    """Monthly graded-answer allowance for a school's tier, or None = unlimited."""
+    tier = get_ai_grading_tier(school)
+    if not tier:
+        return 0
+    from billing.models import ModuleProduct
+    product = ModuleProduct.objects.filter(module=tier, is_active=True).first()
+    return product.questions_per_month if product else None
 
 
 def check_ai_grading_quota(school):
@@ -142,13 +166,11 @@ def check_ai_grading_quota(school):
     if not tier:
         return (False, 0, 0)
 
-    from billing.models import ModuleProduct, AIGradingUsage
-    product = ModuleProduct.objects.filter(module=tier, is_active=True).first()
-    limit = product.questions_per_month if product else None  # None = unlimited
-
+    limit = get_ai_grading_limit(school)
     if limit is None:
         return (True, 0, None)
 
+    from billing.models import AIGradingUsage
     today = timezone.localdate()
     period_start = today.replace(day=1)
     usage = AIGradingUsage.objects.filter(school=school, period_start=period_start).first()
@@ -175,6 +197,21 @@ def record_ai_grading_usage(school, input_tokens, output_tokens):
         tokens_used=models.F('tokens_used') + input_tokens + output_tokens,
         estimated_cost_usd=models.F('estimated_cost_usd') + cost,
     )
+
+    # Warn the institute on the way up (75/80/85/90/95%) and once more when the
+    # allowance is gone, so running out is never first noticed as children
+    # silently stopping being marked. Each rung fires once a month; the call is
+    # a no-op between thresholds and never raises. See billing/quota_alerts.py.
+    limit = get_ai_grading_limit(school)
+    if limit:
+        from billing.quota_alerts import check_grading_quota_alerts
+        used = (
+            AIGradingUsage.objects
+            .filter(school=school, period_start=period_start)
+            .values_list('answers_graded', flat=True)
+            .first()
+        ) or 0
+        check_grading_quota_alerts(school, used, limit)
 
 
 # ---------------------------------------------------------------------------
