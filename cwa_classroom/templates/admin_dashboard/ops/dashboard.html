@@ -51,6 +51,17 @@
   </div>
   {% endif %}
 
+  {% if unpaid_access.status != 'ok' %}
+  <div class="mb-6 px-4 py-3 rounded-xl text-sm {% if unpaid_access.status == 'critical' %}bg-red-500/10 border border-red-500/30 text-red-300{% else %}bg-amber-500/10 border border-amber-500/30 text-amber-300{% endif %}">
+    {% if unpaid_access.status == 'critical' %}🔴 Unpaid accounts are getting in{% else %}🟡 Unpaid access seen recently{% endif %} —
+    {% for reason in unpaid_access.reasons %}{{ reason }}{% if not forloop.last %}; {% endif %}{% endfor %}.
+    Every one of these page views is a student working for free, so check
+    <code>TrialExpiryMiddleware</code> before assuming the log is wrong.
+    Details from <code>manage.py check_unpaid_access</code> and
+    <code>/var/log/cwa/unpaid_access.log</code>.
+  </div>
+  {% endif %}
+
   <!-- Email queue (delivery path for every invoice email) -->
   <div class="mb-6">
     <h2 class="text-sm font-semibold text-slate-400 mb-3">Email queue</h2>
@@ -86,6 +97,81 @@
     <p class="text-xs text-slate-500 mt-2">
       Waiting by type:
       {% for kind, count in email_queue.pending_by_type.items %}<span class="text-slate-400">{{ kind }}</span> {{ count }}{% if not forloop.last %} · {% endif %}{% endfor %}
+    </p>
+    {% endif %}
+  </div>
+
+  <!-- Unpaid access (the paywall's own watchdog) -->
+  <div class="mb-6">
+    <h2 class="text-sm font-semibold text-slate-400 mb-3">
+      Subscription access
+      <span class="font-normal text-slate-500">— last {{ unpaid_access.window_days }} day{{ unpaid_access.window_days|pluralize }}</span>
+    </h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if unpaid_access.status == 'critical' %}border-red-500/40{% elif unpaid_access.status == 'warning' %}border-amber-500/40{% else %}border-emerald-500/40{% endif %}">
+        <p class="text-sm text-slate-400">Paywall</p>
+        <p class="text-2xl font-bold mt-1 {% if unpaid_access.status == 'critical' %}text-red-400{% elif unpaid_access.status == 'warning' %}text-amber-400{% else %}text-emerald-400{% endif %}">
+          {% if unpaid_access.status == 'critical' %}Leaking{% elif unpaid_access.status == 'warning' %}Leaked{% else %}Holding{% endif %}
+        </p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if unpaid_access.last_seen_at %}last unpaid page view {{ unpaid_access.last_seen_at|timesince }} ago{% else %}no unpaid page views{% endif %}
+        </p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if unpaid_access.leak_count %}border-red-500/40{% else %}border-slate-700{% endif %}">
+        <p class="text-sm text-slate-400">Accounts getting in</p>
+        <p class="text-2xl font-bold mt-1 {% if unpaid_access.leak_count %}text-red-400{% else %}text-slate-100{% endif %}">{{ unpaid_access.leak_count }}</p>
+        <p class="text-xs text-slate-500 mt-1">of {{ unpaid_access.delinquent }} delinquent account{{ unpaid_access.delinquent|pluralize }}</p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">Restricted page views</p>
+        <p class="text-2xl font-bold mt-1 text-slate-100">{{ unpaid_access.hit_count }}</p>
+        <p class="text-xs text-slate-500 mt-1">served to unpaid accounts</p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">Delinquent accounts</p>
+        <p class="text-2xl font-bold mt-1 text-slate-100">{{ unpaid_access.delinquent }}</p>
+        <p class="text-xs text-slate-500 mt-1">past due, cancelled or expired</p>
+      </div>
+    </div>
+
+    {% if unpaid_access.leaks %}
+    <div class="mt-4 bg-slate-800 rounded-2xl border border-slate-700 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="text-slate-400 border-b border-slate-700">
+          <tr>
+            <th class="text-left font-medium px-4 py-2">Account</th>
+            <th class="text-left font-medium px-4 py-2">Subscription</th>
+            <th class="text-right font-medium px-4 py-2">Page views</th>
+            <th class="text-left font-medium px-4 py-2">Last seen</th>
+            <th class="text-left font-medium px-4 py-2">Last page</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for leak in unpaid_access.leaks %}
+          <tr class="border-b border-slate-700/50 last:border-0">
+            <td class="px-4 py-2 text-slate-200">{{ leak.name }} <span class="text-slate-500">({{ leak.username }})</span></td>
+            <td class="px-4 py-2 text-amber-300">{{ leak.status }}</td>
+            <td class="px-4 py-2 text-right text-slate-200">{{ leak.count }}</td>
+            <td class="px-4 py-2 text-slate-400">{{ leak.last_seen|date:"D d M, H:i" }}</td>
+            <td class="px-4 py-2 text-slate-400"><code>{{ leak.last_path }}</code></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if unpaid_access.truncated %}
+      <p class="text-xs text-slate-500 px-4 py-2">
+        Showing the {{ unpaid_access.leaks|length }} most recent —
+        run <code>manage.py check_unpaid_access</code> for the full list.
+      </p>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="text-xs text-slate-500 mt-2">
+      {% if unpaid_access.delinquent %}
+        No delinquent account reached a restricted page in this window — the paywall is doing its job.
+      {% else %}
+        No delinquent subscriptions to check.
+      {% endif %}
     </p>
     {% endif %}
   </div>

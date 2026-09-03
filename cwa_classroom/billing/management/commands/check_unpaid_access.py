@@ -3,13 +3,16 @@ Detect users who keep accessing restricted pages while their personal
 subscription is delinquent (card failed / cancelled / expired) — i.e. the
 exact leak that TrialExpiryMiddleware._check_personal_subscription closes.
 
-Cross-checks each currently-delinquent ``billing.Subscription`` against the
-``usage.PageHit`` log: any 200 response on a NON-billing path within the
-lookback window means the user navigated somewhere they shouldn't while unpaid.
+The detection itself lives in ``billing.subscription_health`` so this command,
+the Ops dashboard and the deep health endpoint all agree on what a leak is.
+This layer is the alerting: it prints a report, POSTs to a webhook when
+something is wrong, and exits non-zero so a cron wrapper treats it as an alert
+condition (mirrors check_email_queue_health).
 
-Intended to run as a cron on PROD (where live PageHits accrue) so a bypass is
-noticed immediately; also useful on demand. Exits non-zero when leaks are found
-so a wrapper/cron can alert, and can POST a summary to a webhook directly.
+Runs daily on PROD (``/etc/cron.d/cwa-unpaid-access``, written by
+deploy/setup-app-prod.sh) — that is where live PageHits accrue, so a bypass is
+noticed the next morning rather than at the next revenue review. Also useful on
+demand.
 
 Examples:
     python manage.py check_unpaid_access                 # all delinquent users, 7-day window
@@ -20,30 +23,15 @@ import json
 import urllib.request
 
 from django.core.management.base import BaseCommand
-from django.utils import timezone
-from datetime import timedelta
 
-from accounts.models import CustomUser
-from billing.models import Subscription
-from usage.models import PageHit
-from cwa_classroom.middleware import TrialExpiryMiddleware
-
-# Paths a gated user is legitimately allowed to reach (mirror the middleware's
-# allow-list, plus onboarding/static that never count as "restricted").
-ALLOWED_PREFIXES = TrialExpiryMiddleware.ALLOWED_PATHS + (
-    '/accounts/complete-profile/', '/accounts/blocked/', '/accounts/login/',
-    '/static/', '/media/', '/favicon',
+from billing.subscription_health import (
+    DEFAULT_LOOKBACK_DAYS, STATUS_CRITICAL, STATUS_OK, STATUS_WARNING,
+    get_unpaid_access_health,
 )
 
-DELINQUENT = (
-    Subscription.STATUS_PAST_DUE,
-    Subscription.STATUS_EXPIRED,
-    Subscription.STATUS_CANCELLED,
-)
-
-
-def _is_restricted(path):
-    return not any(path.startswith(p) for p in ALLOWED_PREFIXES)
+ICON = {STATUS_OK: ':white_check_mark:',
+        STATUS_WARNING: ':warning:',
+        STATUS_CRITICAL: ':rotating_light:'}
 
 
 class Command(BaseCommand):
@@ -51,64 +39,54 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--username', help='Only check this username.')
-        parser.add_argument('--days', type=int, default=7,
-                            help='Lookback window for PageHits (default 7).')
+        parser.add_argument('--days', type=int, default=DEFAULT_LOOKBACK_DAYS,
+                            help=f'Lookback window for PageHits (default {DEFAULT_LOOKBACK_DAYS}).')
         parser.add_argument('--webhook', default='',
                             help='Optional Slack/Discord webhook to POST a summary to.')
+        parser.add_argument('--quiet', action='store_true',
+                            help='Print nothing when there is no leak (for noisy crons).')
 
     def handle(self, *args, **opts):
-        since = timezone.now() - timedelta(days=opts['days'])
+        health = get_unpaid_access_health(
+            days=opts['days'], username=opts['username'],
+        )
+        days = health['window_days']
 
-        subs = Subscription.objects.select_related('user').filter(status__in=DELINQUENT)
-        if opts['username']:
-            subs = subs.filter(user__username=opts['username'])
-
-        leaks = []
-        for sub in subs:
-            user = sub.user
-            if user is None or not user.is_active:
-                continue
-            hits = (PageHit.objects
-                    .filter(user=user, status_code=200, created_at__gte=since)
-                    .order_by('-created_at'))
-            restricted = [h for h in hits if _is_restricted(h.path)]
-            if not restricted:
-                continue
-            leaks.append({
-                'username': user.username,
-                'name': user.get_full_name() or user.username,
-                'status': sub.status,
-                'count': len(restricted),
-                'last_seen': restricted[0].created_at,
-                'last_path': restricted[0].path,
-            })
-
-        if not leaks:
-            self.stdout.write(self.style.SUCCESS(
-                f'OK — no delinquent user accessed a restricted page in the last {opts["days"]} day(s).'
-            ))
+        if health['status'] == STATUS_OK:
+            if not opts['quiet']:
+                self.stdout.write(self.style.SUCCESS(
+                    f'OK — no delinquent user accessed a restricted page in '
+                    f'the last {days} day(s) '
+                    f'({health["delinquent"]} delinquent account(s) checked).'
+                ))
             return
 
         self.stdout.write(self.style.ERROR(
-            f'LEAK — {len(leaks)} delinquent user(s) accessed restricted pages '
-            f'in the last {opts["days"]} day(s):'
+            f'LEAK — {health["leak_count"]} delinquent user(s) accessed '
+            f'restricted pages in the last {days} day(s):'
         ))
         lines = []
-        for lk in sorted(leaks, key=lambda x: x['last_seen'], reverse=True):
-            line = (f"  {lk['username']} ({lk['name']}) [{lk['status']}] — "
-                    f"{lk['count']} hit(s), last {lk['last_seen']:%Y-%m-%d %H:%M} at {lk['last_path']}")
+        for leak in health['leaks']:
+            line = (f"  {leak['username']} ({leak['name']}) [{leak['status']}] — "
+                    f"{leak['count']} hit(s), last "
+                    f"{leak['last_seen']:%Y-%m-%d %H:%M} at {leak['last_path']}")
             self.stdout.write(line)
             lines.append(line.strip())
+        if health['truncated']:
+            note = (f'  … and {health["leak_count"] - len(health["leaks"])} '
+                    f'more not listed')
+            self.stdout.write(note)
+            lines.append(note.strip())
 
         if opts['webhook']:
-            self._alert(opts['webhook'], len(leaks), lines)
+            self._alert(opts['webhook'], health, lines)
 
         # Non-zero exit so a cron wrapper treats this as an alert condition.
         raise SystemExit(1)
 
-    def _alert(self, url, n, lines):
-        msg = ':rotating_light: CWA billing leak — {} delinquent user(s) reached restricted pages:\n{}'.format(
-            n, '\n'.join(lines),
+    def _alert(self, url, health, lines):
+        msg = '{} CWA billing leak — {} delinquent user(s) reached restricted pages:\n{}'.format(
+            ICON.get(health['status'], ''), health['leak_count'], '\n'.join(lines),
         )
         payload = json.dumps({'text': msg, 'content': msg}).encode()
         try:

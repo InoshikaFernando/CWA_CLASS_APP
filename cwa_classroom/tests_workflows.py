@@ -1177,12 +1177,13 @@ def test_every_cron_wrapper_script_is_actually_installed():
 # Cron wrappers that exist in scripts/ but are deliberately NOT installed by
 # setup-app-prod.sh. Each needs a reason; an empty reason is not a decision.
 _CRON_SCRIPTS_NOT_INSTALLED = {
-    # Reviewed 2026-08-31 while fixing the missing publish cron: these four
-    # predate that review and their install status was never decided either
-    # way. Listed to make them visible rather than to bless them — each still
-    # needs a call on whether it should run on the droplets.
+    # Reviewed 2026-08-31 while fixing the missing publish cron: these predate
+    # that review and their install status was never decided either way. Listed
+    # to make them visible rather than to bless them — each still needs a call
+    # on whether it should run on the droplets.
+    # (cron_check_unpaid_access.sh got that call: it now has a daily drop-in,
+    # /etc/cron.d/cwa-unpaid-access, and feeds the Ops dashboard's paywall tile.)
     'cron_check_errors.sh': 'install status never decided — see CPP',
-    'cron_check_unpaid_access.sh': 'install status never decided — see CPP',
     'cron_record_question_health.sh': 'install status never decided — see CPP',
     'cron_sync_sprint_burndown.sh': 'install status never decided — see CPP',
 }

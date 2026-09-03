@@ -13,8 +13,15 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 
 from datetime import timedelta
-from .models import Package, Subscription, Payment, DiscountCode, PromoCode, InstitutePlan, SchoolSubscription, ModuleSubscription
-from .entitlements import get_school_for_user, get_school_subscription, check_class_limit, check_student_limit, check_invoice_limit
+from .models import (
+    Package, Subscription, Payment, DiscountCode, PromoCode, InstitutePlan,
+    SchoolSubscription, ModuleSubscription, StudentModule,
+)
+from .entitlements import (
+    get_school_for_user, get_school_subscription,
+    check_class_limit, check_student_limit, check_invoice_limit,
+    student_has_module, sync_student_modules,
+)
 from audit.services import log_event
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -74,12 +81,22 @@ def _create_account_from_pending(pending, stripe_subscription_id=''):
         )
         UserRole.objects.create(user=user, role=role)
 
-        Subscription.objects.create(
+        # The discount code the student typed at sign-up rode along in the
+        # pending row (they had no account to record it against yet). Record it
+        # on the subscription now: it is what the tier is read from, here and at
+        # every later activation.
+        code = None
+        if data.get('discount_code'):
+            code = DiscountCode.objects.filter(
+                code=data['discount_code']).first()
+        sub = Subscription.objects.create(
             user=user,
             package=package,
             status=Subscription.STATUS_ACTIVE,
             stripe_subscription_id=stripe_subscription_id or '',
+            discount_code=code,
         )
+        sync_student_modules(sub)
 
         pending.completed = True
         pending.save(update_fields=['completed'])
@@ -217,6 +234,12 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
                 sub.promo_code_used = promo.code
                 sub.save(update_fields=['package', 'status', 'trial_end', 'promo_code_used', 'updated_at'])
 
+                # Attach whatever tier the OWNER flagged on this code, read
+                # off the subscription rather than the form. Nothing here is
+                # student-chosen: a code with no flag (every code that exists
+                # today) leaves the student on the app in full.
+                sync_student_modules(sub)
+
                 request.user.package = package
                 request.user.save(update_fields=['package'])
 
@@ -236,10 +259,20 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
                     'grant_days': grant_days,
                 })
 
-            # Partial discount from PromoCode
+            # Partial discount from PromoCode — the student pays the rest by
+            # card. Same reasoning as the DiscountCode branch below: record the
+            # code before they leave for Stripe, because the tier is read back
+            # off the subscription when the webhook activates them.
             promo.uses += 1
             promo.save(update_fields=['uses'])
             promo.redeemed_by.add(request.user)
+
+            sub, _ = Subscription.objects.get_or_create(
+                user=request.user, defaults={'package': package},
+            )
+            sub.package = package
+            sub.promo_code_used = promo.code
+            sub.save(update_fields=['package', 'promo_code_used', 'updated_at'])
 
             discounted_price = round(float(package.price) * (1 - promo.discount_percent / 100), 2)
 
@@ -279,7 +312,15 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
             sub.package = package
             sub.status = Subscription.STATUS_TRIALING
             sub.trial_end = timezone.now() + timedelta(days=grant_days)
-            sub.save(update_fields=['package', 'status', 'trial_end', 'updated_at'])
+            # Record WHICH code activated this subscription. It was not stored
+            # anywhere before, so there was nothing to read afterwards — not for
+            # the tier below, and not for anyone asking later why this student
+            # pays nothing.
+            sub.discount_code = discount
+            sub.save(update_fields=['package', 'status', 'trial_end',
+                                    'discount_code', 'updated_at'])
+
+            sync_student_modules(sub)
 
             request.user.package = package
             request.user.save(update_fields=['package'])
@@ -300,9 +341,21 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
                 'grant_days': grant_days,
             })
 
-        # Partial discount — return info for Stripe checkout
+        # Partial discount — the student pays the remainder by card, so they
+        # leave for Stripe here and come back activated by the webhook. Record
+        # the code on their subscription BEFORE they go: it is the only thing
+        # that survives the round trip, and the tier is read off it on the way
+        # back in (``sync_student_modules``). Without this a half-price
+        # promotion would grant the app in full while a free one did not.
         discount.uses += 1
         discount.save(update_fields=['uses'])
+
+        sub, _ = Subscription.objects.get_or_create(
+            user=request.user, defaults={'package': package},
+        )
+        sub.package = package
+        sub.discount_code = discount
+        sub.save(update_fields=['package', 'discount_code', 'updated_at'])
 
         discounted_price = round(float(package.price) * (1 - discount.discount_percent / 100), 2)
 
@@ -382,6 +435,11 @@ class CheckoutSuccessView(View):
                     user.package = pkg
                     user.save(update_fields=['package'])
                 sub.save()
+                # The webhook normally does this; it is repeated here for the
+                # same reason the activation is — a lost or late webhook must
+                # not leave the student on a different tier from the one their
+                # promotion code bought. Idempotent, so doing both is free.
+                sync_student_modules(sub)
                 log_event(
                     user=user, category='billing',
                     action='subscription_activated_from_success_page',
@@ -1028,6 +1086,70 @@ class ModuleToggleView(LoginRequiredMixin, View):
             messages.error(request, f'Could not update module: {e}')
 
         return redirect('institute_subscription_dashboard')
+
+
+class StudentAIGradingView(LoginRequiredMixin, View):
+    """What the AI Graded Questions add-on is, for a student on Student Basic.
+
+    Deliberately NOT a checkout. Per-student modules have no Stripe flow yet, so
+    offering a Buy button would be a lie; the POST records interest in the audit
+    log and tells the student the truth — that somebody will set it up with them.
+    Nothing on their account changes here.
+
+    There is no route in the other direction: a student cannot put themselves on
+    Student Basic from this page or anywhere else. That tier is granted.
+    """
+
+    INTEREST_ACTION = 'student_ai_grading_interest'
+
+    def get(self, request):
+        return render(request, 'billing/student_ai_grading.html',
+                      self._context(request))
+
+    def post(self, request):
+        context = self._context(request)
+        if not context['already_included']:
+            log_event(
+                user=request.user, school=None, category='billing',
+                action=self.INTEREST_ACTION,
+                detail={'module': StudentModule.MODULE_AI_GRADING},
+                request=request,
+            )
+            context['registered'] = True
+        return render(request, 'billing/student_ai_grading.html', context)
+
+    @staticmethod
+    def standard_plan():
+        """The paid plan a Student Basic student would move onto.
+
+        The upgrade out of Student Basic is not a cheap module bolted on the
+        side — it is becoming an ordinary paying subscriber on the same plan
+        everyone else sees at sign-up. So the price quoted here is read off
+        that ``Package`` and can never drift from the one step 3 of the
+        registration form shows.
+
+        ``is_default`` wins if the owner has set it; otherwise the cheapest
+        active paid package. The free packages (`grant_free_access` creates
+        one) are excluded — quoting $0.00 as the upgrade price would be worse
+        than quoting nothing.
+        """
+        paid = Package.objects.filter(is_active=True, price__gt=0)
+        return paid.filter(is_default=True).first() or paid.order_by(
+            'order', 'price').first()
+
+    def _context(self, request):
+        from worksheets.grading_service import student_can_be_ai_graded
+
+        entitled = student_can_be_ai_graded(request.user)
+        on_basic = student_has_module(request.user, StudentModule.MODULE_BASIC)
+        plan = self.standard_plan()
+        return {
+            'already_included': entitled,
+            'current_tier': 'Student Basic' if on_basic else 'Full access',
+            'plan': plan,
+            'price': plan.price if plan else None,
+            'registered': False,
+        }
 
 
 class BillingHistoryView(LoginRequiredMixin, View):

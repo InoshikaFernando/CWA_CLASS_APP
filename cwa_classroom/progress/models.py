@@ -132,6 +132,17 @@ class PeriodReport(models.Model):
         return self.data.get('topics') or []
 
     @property
+    def topic_groups(self):
+        """Strand-level rollup for the chart, or the sub-topics themselves.
+
+        Reports written before the rollup existed carry no ``topic_groups``,
+        and there is nothing to derive it from — the sub-topic rows in an old
+        snapshot never recorded a strand. So an old report charts what it
+        always charted rather than showing an empty panel.
+        """
+        return self.data.get('topic_groups') or self.topics
+
+    @property
     def attempts(self):
         return self.data.get('attempts') or {}
 

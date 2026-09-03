@@ -73,6 +73,58 @@ class HealthCheckTests(TestCase):
         self.assertEqual(body["checks"]["cache"]["detail"], "boom")
 
 
+    def test_deep_health_carries_the_non_fatal_warnings(self):
+        # Email backlog and unpaid access are real problems that must NOT 503:
+        # scripts/deploy.sh gates on a 200 here, so failing the endpoint would
+        # block the very deploy that fixes them. They ride in "warnings".
+        resp = self.client.get(reverse("api_health"), {"deep": "1"})
+        self.assertEqual(resp.status_code, 200)
+        warnings = resp.json()["warnings"]
+        self.assertEqual(warnings["email_queue"]["status"], "ok")
+        unpaid = warnings["unpaid_access"]
+        self.assertEqual(unpaid["status"], "ok")
+        self.assertEqual(unpaid["leak_count"], 0)
+        self.assertIn("window_days", unpaid)
+
+    def test_unpaid_access_leak_warns_without_failing_the_endpoint(self):
+        from datetime import timedelta
+
+        from django.contrib.auth import get_user_model
+        from django.utils import timezone
+
+        from billing.models import Subscription
+        from usage.models import PageHit
+
+        user = get_user_model().objects.create_user(
+            username="leaky", email="leaky@test.local", password="Pass123!")
+        Subscription.objects.create(
+            user=user, status=Subscription.STATUS_PAST_DUE)
+        hit = PageHit.objects.create(
+            user=user, path="/maths/practice/", status_code=200)
+        PageHit.objects.filter(pk=hit.pk).update(
+            created_at=timezone.now() - timedelta(minutes=5))
+
+        resp = self.client.get(reverse("api_health"), {"deep": "1"})
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["status"], "ok")
+        unpaid = body["warnings"]["unpaid_access"]
+        self.assertEqual(unpaid["status"], "critical")
+        self.assertEqual(unpaid["leak_count"], 1)
+        self.assertTrue(unpaid["reasons"])
+
+    def test_a_broken_warning_probe_is_reported_not_swallowed(self):
+        from unittest import mock
+
+        with mock.patch(
+            "billing.subscription_health.get_unpaid_access_health",
+            side_effect=RuntimeError("boom"),
+        ):
+            resp = self.client.get(reverse("api_health"), {"deep": "1"})
+        unpaid = resp.json()["warnings"]["unpaid_access"]
+        self.assertEqual(unpaid["status"], "unknown")
+        self.assertIn("boom", unpaid["detail"])
+
 class SlowQueryLoggingMiddlewareTests(TestCase):
     """The slow-query/N+1 diagnostic middleware."""
 

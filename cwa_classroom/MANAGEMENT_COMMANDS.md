@@ -92,6 +92,31 @@ python manage.py grant_free_access            # apply
 python manage.py grant_free_access --dry-run  # preview
 ```
 
+### `student_modules`
+Put individual students on a per-student module, or take them off one. Student
+Basic (the free promotional edition, without the AI-graded questions) is granted
+here or in the Django admin and nowhere else — there is no student-facing route
+onto it.
+```bash
+python manage.py student_modules --list
+python manage.py student_modules --grant basic --user ada --user grace
+python manage.py student_modules --grant basic --file cohort.txt --dry-run
+python manage.py student_modules --grant ai_grading --user ada   # sell it back
+python manage.py student_modules --revoke basic --user ada
+```
+
+### `promo_code_doctor`
+Report whether each Student (Promo) code has actually taken effect for anybody.
+Read-only — it writes nothing, so it is safe against production. Separates a
+counter with no members (never worked for anyone) from members the promo gave
+nothing new to (worked, but was a no-op) from members whose class access exists
+because of it.
+```bash
+python manage.py promo_code_doctor
+python manage.py promo_code_doctor --code FULLACCESS2026
+python manage.py promo_code_doctor --students   # name every redeemer
+```
+
 ### `reset_invoice_counters`
 Reset yearly invoice usage counters (for annual billing cycles).
 ```bash
@@ -105,6 +130,26 @@ Send email warnings to schools/students whose trial expires within N days.
 python manage.py send_trial_expiry_warnings              # default: 3 days
 python manage.py send_trial_expiry_warnings --days 7     # 7 days warning
 python manage.py send_trial_expiry_warnings --dry-run    # preview (don't send)
+```
+
+### `check_unpaid_access`
+Daily paywall watchdog: cross-checks every delinquent subscription (past due /
+cancelled / expired) against the page-hit log and reports any account that
+reached a restricted page while unpaid. `TrialExpiryMiddleware` is the only
+thing stopping that, and a regression in it does not error — the account simply
+keeps working and nobody is billed.
+
+Installed on PROD as `/etc/cron.d/cwa-unpaid-access` (daily 09:00, one-day
+window, logs to `/var/log/cwa/unpaid_access.log`); the same signal is on the Ops
+dashboard's **Subscription access** tile and in
+`/api/health/?deep=1` under `warnings.unpaid_access`. Exits non-zero on a leak so
+a cron wrapper can alert.
+```bash
+python manage.py check_unpaid_access                     # all delinquent users, 7-day window
+python manage.py check_unpaid_access --days 30           # wider window
+python manage.py check_unpaid_access --username Ovindik  # one account
+python manage.py check_unpaid_access --quiet             # print only on a leak
+python manage.py check_unpaid_access --webhook "$FEEDBACK_DISCORD_WEBHOOK"
 ```
 
 ---

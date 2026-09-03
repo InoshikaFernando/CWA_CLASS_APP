@@ -1118,7 +1118,9 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                 text_answer = request.POST.get('text_answer', '').strip()
                 school = get_school_for_user(request.user)
                 try:
-                    result = grade_extended_answer(question, text_answer, school=school)
+                    result = grade_extended_answer(
+                        question, text_answer, school=school,
+                        student=request.user)
                     is_correct = result.get('is_correct', False)
                     score_frac = result.get('score_fraction', 0.0)
                     answer_data = {
@@ -1134,7 +1136,8 @@ class WorksheetAnswerView(LoginRequiredMixin, View):
                     # failed, or the question's diagram could not be loaded.
                     # Hand it to the teacher rather than showing the child a
                     # 0 for something that was never marked.
-                    if result.get('quota_exceeded') or result.get('error'):
+                    if (result.get('quota_exceeded') or result.get('error')
+                            or result.get('not_entitled')):
                         answer_data['review_status'] = 'pending_ai'
                     # Full marks, the share it earned, or nothing at all —
                     # credit_for() draws the same lines the student is shown.

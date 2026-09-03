@@ -206,6 +206,15 @@ jobs:
               - 'cwa_classroom/whatsapp/**'
             ops:
               - 'cwa_classroom/ops/**'
+              # The dashboard renders the two health signals it does not own —
+              # the email queue and the subscription paywall — plus its own
+              # template. A change in any of them can break the ops view
+              # without touching a file under ops/, and the symptom would be a
+              # dashboard that stops reporting, not a red build.
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/email_health.py'
+              - 'cwa_classroom/usage/**'
+              - 'cwa_classroom/templates/admin_dashboard/ops/**'
             notifications:
               - 'cwa_classroom/notifications/**'
             progress:
@@ -217,6 +226,13 @@ jobs:
               - 'cwa_classroom/worksheets/**'
               - 'cwa_classroom/maths/**'
               - 'cwa_classroom/classroom/models.py'
+              # The report asks each subject plugin what a piece of content is
+              # called and which strand it sits under, so a plugin change can
+              # empty the "By topic" chart without touching progress/. The
+              # coding suite here is the practice section and the language
+              # grouping, both of which progress/ tests directly.
+              - 'cwa_classroom/classroom/subject_registry.py'
+              - 'cwa_classroom/coding/**'
               # The sidebar visibility flag for period reports is set here, and
               # its tests assert on it.
               - 'cwa_classroom/accounts/context_processors.py'
@@ -380,6 +396,9 @@ jobs:
               # billing.Subscription through billing/selectors.py.
               - 'cwa_classroom/billing/**'
               - 'cwa_classroom/classroom/**'
+              # A coding report's practice section and its topic grouping both
+              # come from the coding plugin.
+              - 'cwa_classroom/coding/**'
               - 'cwa_classroom/homework/**'
               # Quizzes, times tables and basic facts are read straight off
               # maths models, so a change there can break a report.
@@ -401,6 +420,13 @@ jobs:
               # templates/quiz/. ui_maths and ui_worksheets already watch this
               # directory for the same reason.
               - 'cwa_classroom/templates/maths/**'
+              # WHICH questions a quiz serves is a billing question: a student
+              # on the free Student Basic module is not shown the AI-graded
+              # ones, and is shown a promotion in their place. Break the
+              # entitlement lookup or that partial and the quiz silently gets
+              # longer or shorter for the wrong students.
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/templates/billing/**'
             # Question/content import: /upload-questions/ (classroom views),
             # the PDF import pipeline (ai_import), and the homework + worksheet
             # upload forms that share the page-range field.

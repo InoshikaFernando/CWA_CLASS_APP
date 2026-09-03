@@ -3,10 +3,14 @@
 # reached restricted pages while unpaid (see the billing check_unpaid_access
 # management command). Posts leaks to FEEDBACK_DISCORD_WEBHOOK.
 #
-# Mirrors cron_sync_sprint_burndown.sh: pass the app dir + env file as args.
+# Mirrors cron_sync_sprint_burndown.sh: pass the app dir + env file as args
+# (third arg = lookback days, default 1).
 #
-# Install (crontab on the DO server) — daily 09:00, PROD:
-#   0 9 * * * /home/cwa/CWA_CLASS_APP/scripts/cron_check_unpaid_access.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/unpaid_access.log 2>&1
+# Install (cron drop-in written by deploy/setup-app-prod.sh) — daily 09:00, PROD:
+#   0 9 * * * /home/cwa/CWA_CLASS_APP/scripts/cron_check_unpaid_access.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env 1 >> /var/log/cwa/unpaid_access.log 2>&1
+#
+# The same signal is on the Ops dashboard (/admin-dashboard/ops/), which reads
+# billing.subscription_health directly — this cron is the alerting half.
 #
 # Safe to install BEFORE the command ships: it no-ops (exit 0) until
 # check_unpaid_access is deployed, so the cron can be staged early.
