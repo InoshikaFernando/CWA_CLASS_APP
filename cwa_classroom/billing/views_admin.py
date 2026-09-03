@@ -1247,7 +1247,8 @@ class PromoCodeCreateView(SuperuserRequiredMixin, View):
         log_event(
             user=request.user, school=None, category='data_change',
             action='promo_code_created',
-            detail={'promo_id': promo.id, 'code': code, 'class_limit': class_limit_val},
+            detail={'promo_id': promo.id, 'code': code,
+                    'class_limit': class_limit_val},
             request=request,
         )
         messages.success(request, f'Promo code "{code}" created.')
@@ -1577,6 +1578,7 @@ class CouponCodeListView(SuperuserRequiredMixin, View):
                 'id': promo.pk, 'type': 'student_promo', 'type_label': 'Student Promo',
                 'code': promo.code, 'description': promo.description,
                 'discount_percent': promo.discount_percent,
+                'grants_student_basic': promo.grants_student_basic,
                 'duration_display': _duration_display(promo),
                 'max_uses': promo.max_uses, 'uses': promo.uses,
                 'is_active': promo.is_active, 'expires_at': promo.expires_at,
@@ -1593,6 +1595,7 @@ class CouponCodeListView(SuperuserRequiredMixin, View):
                 'id': dc.pk, 'type': 'student_discount', 'type_label': 'Student Billing',
                 'code': dc.code, 'description': '',
                 'discount_percent': dc.discount_percent,
+                'grants_student_basic': dc.grants_student_basic,
                 'duration_display': _duration_display(dc),
                 'max_uses': dc.max_uses, 'uses': dc.uses,
                 'is_active': dc.is_active, 'expires_at': dc.expires_at,
@@ -1720,6 +1723,31 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
                 except ValueError:
                     errors['override_student_limit'] = 'Enter a valid number.'
 
+        # Student Basic — the free promotional edition. Only a student code can
+        # carry it, and only one that charges nothing: a paying student would
+        # get fewer questions than the plan they read at sign-up, with nothing
+        # anywhere telling them. The model's clean() enforces the same rule; this
+        # is so the superuser is told on the form rather than by a 500.
+        grants_student_basic = bool(data.get('grants_student_basic'))
+        if grants_student_basic:
+            if target_type != 'student_discount':
+                # Only a Student (Billing) code reaches a subscription. An
+                # institute has no student tier at all, and a Student (Promo)
+                # code is redeemed on the Select Classes page, where it grants
+                # class access and never touches the subscription the tier
+                # would hang off — so ticking it there would do exactly
+                # nothing, silently.
+                errors['grants_student_basic'] = (
+                    'Only a Student (Billing) code can set the plan tier. '
+                    'An institute code has no student tier, and a Student '
+                    '(Promo) code grants class access without touching the '
+                    "student's subscription."
+                )
+            elif percent_val != 100:
+                errors['grants_student_basic'] = (
+                    'Only a 100% off code can grant Student Basic. This code '
+                    f'still charges {100 - percent_val}% of the price.')
+
         if target_type == 'student_promo':
             if grant_days:
                 try:
@@ -1790,6 +1818,7 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
                 duration=duration,
                 duration_in_months=duration_in_months_val,
                 expires_at=expires_at_val,
+                grants_student_basic=grants_student_basic,
             )
             if selected_packages:
                 promo.applicable_packages.set(selected_packages)
@@ -1797,7 +1826,9 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
             log_event(
                 user=request.user, school=None, category='data_change',
                 action='coupon_code_created',
-                detail={'type': 'student_promo', 'code': code, 'discount_percent': percent_val},
+                detail={'type': 'student_promo', 'code': code,
+                        'discount_percent': percent_val,
+                        'grants_student_basic': grants_student_basic},
                 request=request,
             )
 
@@ -1808,6 +1839,7 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
                 duration=duration,
                 duration_in_months=duration_in_months_val,
                 expires_at=expires_at_val,
+                grants_student_basic=grants_student_basic,
             )
             if selected_packages:
                 dc.applicable_packages.set(selected_packages)
@@ -1823,7 +1855,9 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
             log_event(
                 user=request.user, school=None, category='data_change',
                 action='coupon_code_created',
-                detail={'type': 'student_discount', 'code': code, 'discount_percent': percent_val},
+                detail={'type': 'student_discount', 'code': code,
+                        'discount_percent': percent_val,
+                        'grants_student_basic': grants_student_basic},
                 request=request,
             )
 

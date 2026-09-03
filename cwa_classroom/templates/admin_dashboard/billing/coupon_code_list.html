@@ -68,6 +68,12 @@
             <td class="px-6 py-4 text-gray-700">
               {{ c.discount_percent }}%
               {% if c.discount_percent == 100 %}<span class="text-xs text-green-600">(Free)</span>{% endif %}
+              {% if c.grants_student_basic %}
+                <span class="block mt-1 inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800"
+                      title="Redeeming this code puts the student on Student Basic — no AI-graded questions.">
+                  Student Basic
+                </span>
+              {% endif %}
             </td>
             <td class="px-6 py-4 text-gray-700 text-sm">{{ c.duration_display }}</td>
             <td class="px-6 py-4">

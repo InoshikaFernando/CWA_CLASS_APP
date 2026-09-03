@@ -1,0 +1,33 @@
+{% comment %}
+Shown to a student on the free Student Basic edition when a quiz was shortened
+because some of its questions need the AI grader.
+
+Only ever rendered for a student who can actually act on it — see
+``quiz.views.ai_upsell_for``. A school student whose school did not buy the
+module never sees it, because pointing a child at a purchase only their school
+can make is worse than saying nothing.
+
+Nothing here offers Student Basic as a choice; the tier is granted, and this
+only ever offers the way OUT of it.
+{% endcomment %}
+{% if ai_upsell %}
+<div class="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
+  <span class="flex-shrink-0 text-xl leading-none" aria-hidden="true">✨</span>
+  <div class="flex-1 min-w-0">
+    <p class="text-sm font-semibold text-amber-900">
+      {{ ai_upsell.hidden_count }} more question{{ ai_upsell.hidden_count|pluralize }}
+      {{ ai_upsell.hidden_count|pluralize:"is,are" }} waiting on this topic
+    </p>
+    <p class="text-xs text-amber-800 mt-1">
+      You're on <strong>Student Basic</strong>, which covers every question the app
+      marks for itself. The written "explain your reasoning" questions are marked by
+      the AI grader, which reads your working and tells you what to add — they're part
+      of the <strong>AI Graded Questions</strong> add-on.
+    </p>
+    <a href="{% url 'student_ai_grading' %}"
+       class="inline-block mt-2 text-xs font-bold text-amber-900 underline underline-offset-2 hover:text-amber-700">
+      See what's in it →
+    </a>
+  </div>
+</div>
+{% endif %}
