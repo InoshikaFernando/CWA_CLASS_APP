@@ -290,7 +290,9 @@ function toggleTarget() {
     studentProducts.classList.remove('hidden');
     instituteOverrides.classList.add('hidden');
     promoFields.classList.remove('hidden');
-    studentTier.classList.remove('hidden');
+    // A promo code grants CLASS ACCESS on the Select Classes page and never
+    // touches the student's subscription, so it has no plan tier to set.
+    studentTier.classList.add('hidden');
   } else {
     instituteProducts.classList.add('hidden');
     studentProducts.classList.remove('hidden');

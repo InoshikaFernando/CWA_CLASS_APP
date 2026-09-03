@@ -1228,13 +1228,6 @@ class PromoCodeCreateView(SuperuserRequiredMixin, View):
             except (ValueError, TypeError):
                 pass
 
-        # Student Basic — see CouponCodeCreateView for why it is 100%-only.
-        grants_student_basic = bool(data.get('grants_student_basic'))
-        if grants_student_basic and discount_percent_val != 100:
-            errors['grants_student_basic'] = (
-                'Only a 100% off code can grant Student Basic. This code still '
-                f'charges {100 - discount_percent_val}% of the price.')
-
         if errors:
             return render(request, 'admin_dashboard/billing/promo_code_form.html', {
                 'form_data': data,
@@ -1249,15 +1242,13 @@ class PromoCodeCreateView(SuperuserRequiredMixin, View):
             class_limit=class_limit_val,
             max_uses=max_uses_val,
             expires_at=expires_at_val,
-            grants_student_basic=grants_student_basic,
         )
 
         log_event(
             user=request.user, school=None, category='data_change',
             action='promo_code_created',
             detail={'promo_id': promo.id, 'code': code,
-                    'class_limit': class_limit_val,
-                    'grants_student_basic': grants_student_basic},
+                    'class_limit': class_limit_val},
             request=request,
         )
         messages.success(request, f'Promo code "{code}" created.')
@@ -1739,9 +1730,19 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
         # is so the superuser is told on the form rather than by a 500.
         grants_student_basic = bool(data.get('grants_student_basic'))
         if grants_student_basic:
-            if target_type == 'institute':
+            if target_type != 'student_discount':
+                # Only a Student (Billing) code reaches a subscription. An
+                # institute has no student tier at all, and a Student (Promo)
+                # code is redeemed on the Select Classes page, where it grants
+                # class access and never touches the subscription the tier
+                # would hang off — so ticking it there would do exactly
+                # nothing, silently.
                 errors['grants_student_basic'] = (
-                    'Student Basic applies to students, not institutes.')
+                    'Only a Student (Billing) code can set the plan tier. '
+                    'An institute code has no student tier, and a Student '
+                    '(Promo) code grants class access without touching the '
+                    "student's subscription."
+                )
             elif percent_val != 100:
                 errors['grants_student_basic'] = (
                     'Only a 100% off code can grant Student Basic. This code '

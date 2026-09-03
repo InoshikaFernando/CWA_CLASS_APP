@@ -108,9 +108,31 @@ the account changes.
 ## Where the superuser sets it
 
 **Admin dashboard → Billing → Coupon Codes → + New Code**, the same screen the
-codes are already managed on. Pick **Student (Promo)** or **Student (Billing)**
-as the target and the Student Basic panel appears under Applicable Packages.
-The standalone Promo Code form carries the same control.
+codes are already managed on. Pick **Student (Billing)** as the Target and the
+Student Basic panel appears under Applicable Packages.
+
+### Only Student (Billing) — the other two targets cannot carry it
+
+The three targets are three different models with three different redemption
+paths, and only one of them reaches a subscription:
+
+| Target | Model | Redeemed where | Grants |
+|---|---|---|---|
+| Institute | `InstituteDiscountCode` | institute checkout | % off a school's plan, plan/limit overrides |
+| Student (Promo) | `PromoCode` | **Select Classes** page (`SelectClassesView`, `action=redeem`) | class access (`class_limit`) — **never touches the subscription** |
+| Student (Billing) | `DiscountCode` | **sign-up step 5** and **Complete Profile** | % off the student's subscription price |
+
+Student Basic hangs off `billing.Subscription`. An institute has no student
+tier at all, and a Student (Promo) redemption only adds the student to
+`redeemed_by` and bumps `uses` — there is no subscription in that code path for
+a tier to attach to, so a ticked promo code would do *nothing*, silently. The
+form therefore shows the panel only for Student (Billing), and the view refuses
+the combination outright rather than storing a flag that can never fire.
+
+The `grants_student_basic` field stays on `PromoCode` because
+`sync_student_modules` reads both code types off a subscription, and
+`ApplyPromoCodeView` — which *does* create subscriptions from promo codes,
+though no page currently reaches it — would honour it correctly.
 
 The tick is disabled unless Discount Percent is exactly 100 — enforced three
 times over, because each layer sees something the others cannot: the form

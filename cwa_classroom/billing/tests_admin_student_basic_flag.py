@@ -59,11 +59,21 @@ class CouponFormTests(TestCase):
         self.assertFalse(
             DiscountCode.objects.get(code='PROMO2026').grants_student_basic)
 
-    def test_a_ticked_free_promo_code_carries_the_tier(self):
+    def test_it_refuses_a_ticked_student_promo_code(self):
+        """A promo code is redeemed on the Select Classes page, where it
+        grants class access and never touches the subscription the tier would
+        hang off. Ticking it there would do nothing at all, silently — so the
+        form does not offer it and the view refuses it."""
+        response = self._post(target_type='student_promo', code='PROMOP',
+                              grants_student_basic='1', class_limit='0')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(PromoCode.objects.filter(code='PROMOP').exists())
+        self.assertContains(response, 'Only a Student (Billing) code')
+
+    def test_an_unticked_student_promo_code_is_created_as_usual(self):
         self._post(target_type='student_promo', code='PROMOP',
-                   grants_student_basic='1', class_limit='0')
-        self.assertTrue(
-            PromoCode.objects.get(code='PROMOP').grants_student_basic)
+                   class_limit='0')
+        self.assertTrue(PromoCode.objects.filter(code='PROMOP').exists())
 
     # -- the combinations the form must refuse ---------------------------
 
@@ -79,7 +89,7 @@ class CouponFormTests(TestCase):
         response = self._post(target_type='institute', code='INST1',
                               grants_student_basic='1')
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'not institutes')
+        self.assertContains(response, 'Only a Student (Billing) code')
 
     def test_a_partial_code_is_still_created_when_the_box_is_left_alone(self):
         self._post(discount_percent='50')
@@ -105,7 +115,11 @@ class CouponFormTests(TestCase):
 
 
 class StandalonePromoFormTests(TestCase):
-    """The other creation surface — same rules."""
+    """The promo-code form creates PromoCodes only, so it offers no tier.
+
+    Not an oversight: the tier has nowhere to attach on that path. See
+    ``test_it_refuses_a_ticked_student_promo_code`` above.
+    """
 
     URL = '/admin-dashboard/billing/promo-codes/create/'
 
@@ -114,20 +128,19 @@ class StandalonePromoFormTests(TestCase):
             username='super2', password='pass1234', email='super2@test.com')
         self.client.force_login(self.admin)
 
-    def test_the_form_offers_the_tick(self):
-        self.assertContains(self.client.get(self.URL), 'grants_student_basic')
+    def test_the_form_does_not_offer_the_tier(self):
+        self.assertNotContains(self.client.get(self.URL),
+                               'grants_student_basic')
 
-    def test_a_ticked_free_code_carries_the_tier(self):
+    def test_a_smuggled_tick_is_ignored_rather_than_obeyed(self):
         self.client.post(self.URL, {
-            'code': 'FREEP', 'discount_percent': '100', 'class_limit': '0'
-        } | {'grants_student_basic': '1'})
-        self.assertTrue(PromoCode.objects.get(code='FREEP').grants_student_basic)
-
-    def test_it_refuses_a_ticked_partial_code(self):
-        response = self.client.post(self.URL, {
-            'code': 'HALFP', 'discount_percent': '40', 'class_limit': '0',
+            'code': 'FREEP', 'discount_percent': '100', 'class_limit': '0',
             'grants_student_basic': '1',
         })
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(PromoCode.objects.filter(code='HALFP').exists())
-        self.assertContains(response, 'Only a 100% off code')
+        promo = PromoCode.objects.get(code='FREEP')
+        self.assertFalse(promo.grants_student_basic)
+
+    def test_an_ordinary_promo_code_is_still_created(self):
+        self.client.post(self.URL, {
+            'code': 'PLAINP', 'discount_percent': '100', 'class_limit': '0'})
+        self.assertTrue(PromoCode.objects.filter(code='PLAINP').exists())
