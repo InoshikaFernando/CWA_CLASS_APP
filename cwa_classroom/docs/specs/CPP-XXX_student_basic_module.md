@@ -105,6 +105,23 @@ flow yet, so the button records interest in the audit log
 (`student_ai_grading_interest`) and says so — nothing is charged and nothing on
 the account changes.
 
+## Where the superuser sets it
+
+**Admin dashboard → Billing → Coupon Codes → + New Code**, the same screen the
+codes are already managed on. Pick **Student (Promo)** or **Student (Billing)**
+as the target and the Student Basic panel appears under Applicable Packages.
+The standalone Promo Code form carries the same control.
+
+The tick is disabled unless Discount Percent is exactly 100 — enforced three
+times over, because each layer sees something the others cannot: the form
+(so the superuser is told before submitting), the view (so a hand-crafted POST
+cannot get past it), and the model's `clean()` (so the Django admin and any
+future form are covered).
+
+The Coupon Codes list shows a **Student Basic** badge beside the discount, so
+which of two 100%-off codes is the promotional one is visible at a glance
+rather than something to remember.
+
 ## Operating it
 
 ```bash
@@ -156,8 +173,9 @@ the flag on a circulating code reaches *backwards* — the next time an existing
 holder re-checks-out, or the success page runs for them, they land on Student
 Basic having been promised nothing of the sort.
 
-CWA's own 100%-off free students are exactly the population that would hit. Do
-not re-flag `CWAFREE`; issue `PROMO2026`. The validation error says so.
+CWA's own 100%-off free students are exactly the population that would hit —
+`CWAEBC` (14 redemptions) and `FULLACCESS2026` (26) are already in circulation.
+Do not re-flag them; issue a new code. The validation error says so.
 
 A code nobody has redeemed yet can still be corrected — a typo is just a typo —
 and the freeze is on the flag alone, not the whole row (`max_uses`, `expires_at`
