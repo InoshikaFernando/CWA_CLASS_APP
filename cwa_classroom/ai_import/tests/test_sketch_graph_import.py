@@ -86,17 +86,23 @@ class SaveSketchGraphTests(TestCase):
         self.assertEqual(len(q.sketch_spec['features']), 4)
         self.assertEqual(q.answers.count(), 0)
 
-    def test_the_imported_question_grades_its_features(self):
+    def test_the_imported_question_grades_its_sketch_and_its_features(self):
         self._save({
             'question_text': TEXT, 'question_type': 'sketch_graph',
             'sketch_spec': SPEC, 'difficulty': 2, 'points': 1,
         })
         q = Question.objects.get(question_type='sketch_graph')
-        grade = q.grade_text_answer_parts(json.dumps({'features': {
-            'vertex': '(-0.5, -2.25)', 'x_intercept': '(-2, 0), (1, 0)',
-            'y_intercept': '(0, -2)', 'axis_of_symmetry': 'x = -0.5',
-        }}))
+        grade = q.grade_text_answer_parts(json.dumps({
+            'features': {
+                'vertex': '(-0.5, -2.25)', 'x_intercept': '(-2, 0), (1, 0)',
+                'y_intercept': '(0, -2)', 'axis_of_symmetry': 'x = -0.5',
+            },
+            # The imported plane is something the student can sketch on, and the
+            # sketch is marked with the boxes.
+            'points': [[-2, 0], [-1, -2], [1, 0]],
+        }))
         self.assertTrue(grade.is_correct)
+        self.assertEqual(grade.total, 5)
 
     def test_invalid_spec_is_skipped(self):
         result = self._save({

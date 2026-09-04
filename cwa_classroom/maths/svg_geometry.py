@@ -487,22 +487,15 @@ _SKETCH_SAMPLES = 240
 def sketch_curve_y(curve, x):
     """The curve's y at ``x`` as a float, or ``None`` if it cannot be evaluated.
 
-    Understands the families ``validate_sketch_spec`` accepts — a quadratic
-    ``y = ax² + bx + c`` and a line ``y = mx + c``. Pure arithmetic, so the
-    sampling loop and the tests share one definition of the curve.
+    A float view of ``geometry_grading.sketch_curve_value``, which is where the
+    families ``validate_sketch_spec`` accepts — a quadratic ``y = ax² + bx + c``
+    and a line ``y = mx + c`` — are actually evaluated. One definition, so the
+    curve this samples for the drawing is the curve a student's plotted points
+    are marked against.
     """
-    if not isinstance(curve, dict):
-        return None
-    try:
-        if curve.get('type') == 'quadratic':
-            a, b, c = (float(curve['a']), float(curve['b']), float(curve['c']))
-            return a * x * x + b * x + c
-        if curve.get('type') == 'linear':
-            m, c = float(curve['m']), float(curve['c'])
-            return m * x + c
-    except (KeyError, TypeError, ValueError):
-        return None
-    return None
+    from maths.geometry_grading import sketch_curve_value
+    value = sketch_curve_value(curve, x)
+    return None if value is None else float(value)
 
 
 def sketch_curve_polylines(sketch_spec):
@@ -511,11 +504,15 @@ def sketch_curve_polylines(sketch_spec):
     One polyline per stretch of the curve that is inside the plane: a parabola
     whose arms leave the top of the grid comes back as two separate strokes, so
     the drawing never joins them with a false line across the figure.
+
+    Takes the curve from ``sketch_curve``, which falls back to the one implied by
+    the features, so a spec whose author left the coefficients out still shows
+    the pupil the curve their plotted points were marked against.
     """
-    from maths.geometry_grading import _plane_bounds
+    from maths.geometry_grading import _plane_bounds, sketch_curve
     if not isinstance(sketch_spec, dict):
         return []
-    curve = sketch_spec.get('curve')
+    curve = sketch_curve(sketch_spec)
     bounds = _plane_bounds(sketch_spec)
     if not curve or bounds is None:
         return []

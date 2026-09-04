@@ -346,17 +346,21 @@
   }
 
   function submitSketchGraph(sessionId, questionId) {
-    // The key features post as one hidden {"features":{...}} JSON (kept in sync
-    // by sketch_graph.js), graded feature by feature by grade_sketch_parts
-    // server-side. An untouched set of boxes is not submitted — the student has
-    // answered nothing yet, and posting it would burn the question as wrong.
+    // The sketch and the key features post as one hidden
+    // {"features":{...},"points":[...]} JSON (kept in sync by sketch_graph.js),
+    // graded part by part by grade_sketch_parts server-side. An untouched
+    // question is not submitted — the student has answered nothing yet, and
+    // posting it would burn the question as wrong. Points plotted on the plane
+    // count as having answered: a sketch is half of what was asked for.
     const stage = document.querySelector('[data-sk-stage]');
     const hidden = stage ? stage.querySelector('[data-sk-hidden]') : null;
     if (!hidden) return;
     let filled = false;
     try {
-      const features = (JSON.parse(hidden.value || '{}').features) || {};
-      filled = Object.keys(features).some(k => (features[k] || '').trim() !== '');
+      const answer = JSON.parse(hidden.value || '{}');
+      const features = answer.features || {};
+      filled = Object.keys(features).some(k => (features[k] || '').trim() !== '')
+        || (Array.isArray(answer.points) && answer.points.length > 0);
     } catch (e) { /* malformed — treat as empty */ }
     if (!filled) return;
     _submitAndAdvance(sessionId, {

@@ -101,21 +101,39 @@ family of Year 10–11 quadratics questions, and one the app used to hand to the
 teacher as an un-gradeable drawing, because "sketch … graph" reads as a
 construction (`worksheets.services._CONSTRUCTION_PATTERNS`).
 
-It is not one. A student cannot draw a curve here, but the curve is not what
-these questions are marked on — the **features the stem names** are, and those
-can be typed. So the app draws the blank plane the worksheet printed, takes one
-box per feature, and marks each within a tolerance.
+It is not one. The question asks for two things and the app can take both:
+
+* the **sketch** — the student taps lattice points on the plane the worksheet
+  printed and the widget joins them into a smooth curve (the same "join the
+  dots" curve a `plot_points` question draws). A freehand stroke is still not
+  something this app can take, and it is not what a sketch is marked on: enough
+  points, every one of them on the curve, and — for a parabola whose grid shows
+  both arms — points either side of the turn.
+* the **features the stem names** — one typed box each, marked within a
+  tolerance.
+
+Each is one part of a partial-credit grade, so a pupil who draws the curve and
+finds three of four features keeps four fifths of the mark.
 
 The pieces:
 
 | Concern | Where |
 |---|---|
 | The spec (plane + features + optional coefficients) | `Question.sketch_spec`, validated by `geometry_grading.validate_sketch_spec` |
-| Grading, feature by feature (partial credit) | `geometry_grading.grade_sketch_parts` → `Question.grade_text_answer_parts` |
-| Render data (blank plane for the student, answer figure for feedback) | `Question.sketch_data` |
+| The curve the sketch is marked against | `geometry_grading.sketch_curve` — the spec's `curve`, else the one the features imply |
+| Grading, part by part (the sketch, then each feature) | `geometry_grading.grade_sketch_parts` / `sketch_drawing_part` → `Question.grade_text_answer_parts` |
+| Render data (plottable plane for the student, answer figure for feedback) | `Question.sketch_data` |
 | The drawn answer (curve, axis of symmetry, labelled key points) | `svg_geometry.sketch_answer_svg` |
 | The widget | `templates/maths/partials/_sketch_graph_tool.html` + `static/js/sketch_graph.js` |
 | Extraction from a PDF | rule 17 of `worksheets.services.WORKSHEET_SYSTEM_PROMPT` and the matching rule in `ai_import.services`; both fill `sketch_spec` |
+
+`curve` stays optional in a spec — an importer often leaves it out — but a
+sketch needs one to be right or wrong against, so `sketch_curve` recovers it
+from the features when it can: a parabola from its vertex and any second point
+on it (or from both roots and the y-intercept), a line from its two intercepts.
+When neither is available the plane keeps no tappable points and no sketch part
+is graded — the student is never marked on a drawing nobody can check — and the
+preview's grading notes say so.
 
 Feature kinds are `vertex`, `x_intercept`, `y_intercept` and `axis_of_symmetry`
 — a spec lists only the ones its question actually asks for. Coordinates are
