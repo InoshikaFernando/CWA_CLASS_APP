@@ -1305,6 +1305,12 @@ class Question(models.Model):
 
         * ``svg`` / ``width`` / ``height`` — the BLANK plane the worksheet
           printed, so the pupil has the same axes to work the sketch out on.
+        * ``dots`` (with ``pad`` / ``step`` / ``xmin`` / ``ymax``) — the lattice
+          points of that plane, tappable, so the sketch the stem asks for can
+          actually be drawn: the student plots points and the widget joins them
+          into a curve. Empty when the question cannot be sketched (no curve to
+          mark a drawing against, or too few of its points inside the plane),
+          which leaves the plane exactly as it was — paper to work on.
         * ``features`` — one box per feature the stem asks for, each with the
           label it is called by and a placeholder showing the form to type. The
           correct value is deliberately NOT here; it lives in the spec and never
@@ -1321,7 +1327,8 @@ class Question(models.Model):
         if self.question_type != self.SKETCH_GRAPH or not self.sketch_spec:
             return None
         from maths.geometry_grading import (
-            SKETCH_FEATURE_LABELS, _plane_bounds, sketch_feature_expected,
+            SKETCH_FEATURE_LABELS, _plane_bounds, sketch_curve,
+            sketch_drawing_part, sketch_feature_expected,
         )
         from maths.svg_geometry import cartesian_plane_svg, sketch_answer_svg
 
@@ -1332,6 +1339,23 @@ class Question(models.Model):
         pad, step = 28, 32
         width = pad * 2 + (xmax - xmin) * step
         height = pad * 2 + (ymax - ymin) * step
+
+        def px(x):
+            return pad + (x - xmin) * step
+
+        def py(y):
+            # y grows upward on a Cartesian plane, downward in SVG.
+            return pad + (ymax - y) * step
+
+        # The plane is only made tappable when a drawn sketch can be marked —
+        # the same test the grader applies, asked once here so the widget never
+        # invites a student to plot points that could not count.
+        curve = sketch_curve(self.sketch_spec)
+        drawable = sketch_drawing_part(self.sketch_spec, [], curve) is not None
+        dots = [
+            {'gx': x, 'gy': y, 'px': px(x), 'py': py(y)}
+            for y in range(ymin, ymax + 1) for x in range(xmin, xmax + 1)
+        ] if drawable else []
 
         features, answer_features = [], []
         for feature in (self.sketch_spec.get('features') or []):
@@ -1360,6 +1384,8 @@ class Question(models.Model):
             'svg': cartesian_plane_svg(self.sketch_spec, pad=pad, step=step),
             'answer_svg': sketch_answer_svg(self.sketch_spec, pad=pad, step=step),
             'width': width, 'height': height,
+            'pad': pad, 'step': step, 'xmin': xmin, 'ymax': ymax,
+            'dots': dots, 'drawable': drawable,
             'features': features, 'answer_features': answer_features,
         }
 

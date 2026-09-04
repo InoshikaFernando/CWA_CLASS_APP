@@ -559,10 +559,11 @@ QUESTION TYPE RULES (important):
   named features of it — "Sketch the graph of y = x² + x - 2 showing the coordinates of the vertex,
   x-axis and y-axis intercepts and equation of the axis of symmetry", "Sketch the parabola
   y = x² - 3x - 4 on the axes provided showing clearly: the y-intercept, the x-intercepts, the
-  vertex" — use "sketch_graph" and fill sketch_spec. The curve is not what such a question is marked
-  on; the NAMED FEATURES are, and the student types those. equation = the function as printed;
+  vertex" — use "sketch_graph" and fill sketch_spec. The student plots the curve on the plane the
+  app draws and types the NAMED FEATURES; both are marked. equation = the function as printed;
   bounds = the axis range of the grid on the sheet, widened if needed so every feature fits;
-  curve = the EXPANDED coefficients (y = 2(x+1)² - 4 is a=2, b=4, c=-2; y = -(x-3)(x+1) is
+  curve = the EXPANDED coefficients, ALWAYS given — they are what the sketch the student draws is
+  marked against (y = 2(x+1)² - 4 is a=2, b=4, c=-2; y = -(x-3)(x+1) is
   a=-1, b=2, c=3); features = ONLY what the question asks for, in its order, each worked out from
   the equation and CHECKED — vertex (-b/2a and the y there), x_intercept (every root of y = 0;
   omit the feature if there are none), y_intercept (x = 0), axis_of_symmetry (the vertex's x).
@@ -737,8 +738,9 @@ CLASSIFICATION_TOOL = {
                                 "intercepts / axis of symmetry' question. equation = the function as "
                                 "printed (\"y = x^2 + x - 2\"); bounds = the integer axis range of the "
                                 "grid printed on the sheet {xmin, xmax, ymin, ymax}, wide enough to "
-                                "contain every feature; curve = the EXPANDED coefficients so the app can "
-                                "draw the answer, {\"type\": \"quadratic\", \"a\", \"b\", \"c\"} or "
+                                "contain every feature; curve = the EXPANDED coefficients — always "
+                                "give them, they are what the sketch the student draws is marked "
+                                "against — {\"type\": \"quadratic\", \"a\", \"b\", \"c\"} or "
                                 "{\"type\": \"linear\", \"m\", \"c\"}; features = ONLY the features this "
                                 "question asks the student to show, in its order — "
                                 "{\"kind\": \"vertex\", \"points\": [[x, y]]}, "

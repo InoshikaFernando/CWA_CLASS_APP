@@ -9,7 +9,7 @@ CPP-332 adds ``grade_measure`` for the ``measure`` question type; CPP-337 adds
 """
 import json
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 
 
 def _to_decimal(raw):
@@ -1349,6 +1349,293 @@ def sketch_tolerance(sketch_spec):
     return value if value >= 0 else DEFAULT_SKETCH_TOLERANCE
 
 
+# ── the sketch itself: the curve the student draws ────────────────────────────
+# "Sketch the graph … showing the vertex and the intercepts" asks for two things,
+# and the app used to take only one of them. The named features were typed into
+# boxes; the CURVE — the thing the verb "sketch" actually names — had nowhere to
+# go, so the plane sat inert beside the boxes and a pupil told to sketch a graph
+# could not sketch anything. They now plot lattice points on that plane (the
+# widget joins them into a smooth curve, the way a plot_points question does),
+# and this is where those points are marked.
+#
+# What is asked of the sketch is what a teacher asks of one on paper: enough
+# points, every one of them on the curve, and — for a parabola — points either
+# side of the turn, because three dots up one arm do not show its shape.
+
+SKETCH_DRAWING_LABEL = 'The sketch (points on the curve)'
+
+# How far off the curve one plotted point may sit, in plane units. Half a square:
+# the points are LATTICE points, so where the curve passes between two of them
+# the nearer one must still count. Per-question override: ``curve_tolerance``.
+DEFAULT_SKETCH_CURVE_TOLERANCE = Decimal('0.5')
+
+# How many points make a sketch: a parabola needs three (an arm, the turn, the
+# other arm), a straight line is fixed by two.
+_MIN_DRAWING_POINTS = {'quadratic': 3, 'linear': 2}
+
+# Plotted points beyond this are a scribble, not a sketch, and only slow the
+# page down. The widget stops accepting them at the same count.
+MAX_DRAWN_POINTS = 40
+
+
+def sketch_curve_value(curve, x):
+    """The curve's y at ``x`` as a ``Decimal``, or ``None`` if it won't evaluate.
+
+    The one definition of what these curves ARE — the families
+    ``validate_sketch_spec`` accepts, a quadratic ``y = ax² + bx + c`` and a line
+    ``y = mx + c``. The grader marks the student's points against this and
+    ``svg_geometry.sketch_curve_y`` samples the drawn curve from it, so the mark
+    and the picture can never disagree about where the curve goes.
+    """
+    if not isinstance(curve, dict):
+        return None
+    xd = _to_decimal_strict(x)
+    if xd is None:
+        return None
+    coeffs = {}
+    for name in _SKETCH_CURVE_COEFFS.get(curve.get('type'), ()):
+        value = _to_decimal_strict(curve.get(name))
+        if value is None:
+            return None
+        coeffs[name] = value
+    if curve.get('type') == 'quadratic':
+        return coeffs['a'] * xd * xd + coeffs['b'] * xd + coeffs['c']
+    if curve.get('type') == 'linear':
+        return coeffs['m'] * xd + coeffs['c']
+    return None
+
+
+def sketch_curve_tolerance(sketch_spec):
+    """The ± band, in plane units, a plotted point is allowed off the curve."""
+    raw = (sketch_spec or {}).get('curve_tolerance')
+    if raw is None:
+        return DEFAULT_SKETCH_CURVE_TOLERANCE
+    value = _to_decimal_strict(raw)
+    if value is None or value < 0:
+        return DEFAULT_SKETCH_CURVE_TOLERANCE
+    return value
+
+
+def sketch_curve(sketch_spec):
+    """The curve this sketch is of: the stored ``curve``, else one derived.
+
+    ``curve`` is optional in a spec and an importer often leaves it out, but
+    without it there is nothing for a drawn sketch to be right or wrong against.
+    The features carry enough to recover it — a parabola is fixed by its vertex
+    and any second point on it, a line by its two intercepts — so a spec that
+    names them is sketchable whether or not the coefficients were written down.
+
+    A stored curve wins (it is what the author meant, and what the answer figure
+    already draws). Returns ``None`` when neither is available, which is the
+    signal to leave the plane un-plottable rather than mark a student against a
+    curve nobody knows.
+    """
+    if not isinstance(sketch_spec, dict):
+        return None
+    curve = sketch_spec.get('curve')
+    if isinstance(curve, dict):
+        try:
+            _validate_sketch_curve(curve)
+        except ValueError:
+            curve = None   # unusable as authored — derive one instead
+        else:
+            return curve
+    return _curve_from_features(sketch_spec)
+
+
+def _sketch_feature_points(sketch_spec):
+    """``{kind: [(x, y), ...]}`` for the spec's point features, skipping bad ones."""
+    out = {}
+    for feature in (sketch_spec.get('features') or []):
+        if not isinstance(feature, dict):
+            continue
+        kind = feature.get('kind')
+        if kind not in SKETCH_POINT_KINDS:
+            continue
+        points = _sketch_points(feature)
+        if points:
+            out[kind] = points
+    return out
+
+
+def _curve_from_features(sketch_spec):
+    """Recover the curve's coefficients from the features, or ``None``.
+
+    Three cases, in the order they identify a curve unambiguously:
+
+    * vertex ``(h, k)`` + any second point ``(x₀, y₀)`` with ``x₀ ≠ h`` →
+      ``a = (y₀ − k)/(x₀ − h)²``, and ``y = a(x − h)² + k`` expanded.
+    * both roots ``r₁, r₂`` + the y-intercept ``(0, c)``, ``r₁r₂ ≠ 0`` →
+      ``a = c/(r₁r₂)`` and ``y = a(x − r₁)(x − r₂)``.
+    * one root ``(r, 0)`` + the y-intercept ``(0, c)``, ``r ≠ 0``, and no vertex
+      → the line ``y = (−c/r)x + c``.
+    """
+    features = _sketch_feature_points(sketch_spec)
+    vertex = (features.get('vertex') or [None])[0]
+    y_int = (features.get('y_intercept') or [None])[0]
+    roots = features.get('x_intercept') or []
+
+    if vertex is not None:
+        h, k = vertex
+        for x0, y0 in ([y_int] if y_int else []) + list(roots):
+            if x0 == h:
+                continue     # the same point again fixes nothing
+            a = (y0 - k) / ((x0 - h) ** 2)
+            if a == 0:
+                continue     # a flat "parabola" is not one; try another point
+            return {'type': 'quadratic', 'a': float(a),
+                    'b': float(-2 * a * h), 'c': float(a * h * h + k)}
+        return None
+
+    if y_int is not None:
+        c = y_int[1]
+        if len(roots) >= 2:
+            r1, r2 = roots[0][0], roots[1][0]
+            if r1 != r2 and r1 * r2 != 0:
+                a = c / (r1 * r2)
+                if a != 0:
+                    return {'type': 'quadratic', 'a': float(a),
+                            'b': float(-a * (r1 + r2)), 'c': float(c)}
+        if len(roots) == 1 and roots[0][0] != 0:
+            return {'type': 'linear', 'm': float(-c / roots[0][0]),
+                    'c': float(c)}
+    return None
+
+
+def sketch_axis_x(sketch_spec, curve):
+    """The x the curve turns at, as a ``Decimal``, or ``None`` if it doesn't.
+
+    Prefers what the spec says (the vertex, then the axis of symmetry) over
+    ``-b/2a``, so a sketch is marked against the same turning point the boxes
+    are.
+    """
+    vertex = (_sketch_feature_points(sketch_spec).get('vertex') or [None])[0]
+    if vertex is not None:
+        return vertex[0]
+    for feature in (sketch_spec.get('features') or []):
+        if isinstance(feature, dict) and feature.get('kind') == 'axis_of_symmetry':
+            value = _to_decimal_strict(feature.get('value'))
+            if value is not None:
+                return value
+    if isinstance(curve, dict) and curve.get('type') == 'quadratic':
+        a = _to_decimal_strict(curve.get('a'))
+        b = _to_decimal_strict(curve.get('b'))
+        if a not in (None, 0) and b is not None:
+            return -b / (2 * a)
+    return None
+
+
+def sketch_plottable_points(sketch_spec, curve=None):
+    """Every lattice point of the plane a correct sketch could be plotted on.
+
+    One per whole-number x whose curve value is inside the plane and within
+    tolerance of a whole-number y — the points the student can actually tap.
+    Doubles as the check that the sketch is answerable AT ALL: a curve that
+    leaves the grid almost at once offers too few to sketch with, and a question
+    that cannot be sketched must not be marked as though it could be.
+    """
+    curve = curve if curve is not None else sketch_curve(sketch_spec)
+    bounds = _plane_bounds(sketch_spec)
+    if not curve or bounds is None:
+        return []
+    xmin, xmax, ymin, ymax = bounds
+    tol = sketch_curve_tolerance(sketch_spec)
+    out = []
+    for x in range(xmin, xmax + 1):
+        y = sketch_curve_value(curve, x)
+        if y is None:
+            return []
+        nearest = int((y + Decimal('0.5')).to_integral_value(rounding=ROUND_FLOOR))
+        if abs(y - nearest) <= tol and ymin <= nearest <= ymax:
+            out.append((Decimal(x), Decimal(nearest)))
+    return out
+
+
+def parse_drawn_points(raw):
+    """The ``points`` of a sketch payload as ``[(Decimal, Decimal), ...]``.
+
+    Anything malformed is DROPPED rather than raised on: a stray entry must not
+    cost a student the features they typed beside it.
+    """
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw[:MAX_DRAWN_POINTS]:
+        if not (isinstance(item, (list, tuple)) and len(item) == 2):
+            continue
+        x, y = _to_decimal_strict(item[0]), _to_decimal_strict(item[1])
+        if x is None or y is None:
+            continue
+        if (x, y) not in out:
+            out.append((x, y))
+    return out
+
+
+def sketch_drawing_part(sketch_spec, drawn, curve=None):
+    """The student's drawn sketch as one graded ``Part``, or ``None``.
+
+    ``None`` — no part, no mark either way — when the question cannot be
+    sketched: no curve to mark against, or too few lattice points on it inside
+    the plane to make a sketch out of. Everything else is graded:
+
+    * enough points (three for a curve, two for a line),
+    * every one of them on the curve and inside the plane, within
+      ``curve_tolerance``,
+    * and, for a parabola whose plane shows both arms, points either side of the
+      turning point.
+    """
+    from maths.partial_credit import Part
+
+    curve = curve if curve is not None else sketch_curve(sketch_spec)
+    bounds = _plane_bounds(sketch_spec)
+    targets = sketch_plottable_points(sketch_spec, curve)
+    needed = _MIN_DRAWING_POINTS.get((curve or {}).get('type'), 3)
+    if bounds is None or len(targets) < needed:
+        return None
+    xmin, xmax, ymin, ymax = bounds
+
+    axis_x = sketch_axis_x(sketch_spec, curve)
+    both_arms = (
+        curve.get('type') == 'quadratic' and axis_x is not None
+        and any(x < axis_x for x, _y in targets)
+        and any(x > axis_x for x, _y in targets)
+    )
+
+    tol = sketch_curve_tolerance(sketch_spec)
+    on_curve = []
+    off_curve = False
+    for x, y in drawn:
+        want = sketch_curve_value(curve, x)
+        on_plane = xmin <= x <= xmax and ymin <= y <= ymax
+        if not on_plane or want is None or abs(y - want) > tol:
+            off_curve = True
+        else:
+            on_curve.append((x, y))
+
+    xs = {x for x, _y in on_curve}
+    is_correct = (
+        not off_curve
+        and len(xs) >= needed
+        and (not both_arms
+             or (any(x < axis_x for x in xs) and any(x > axis_x for x in xs)))
+    )
+
+    if both_arms:
+        expected = (f'{needed} or more points on the curve, either side of '
+                    f'x = {_fmt_sketch_number(axis_x)} — e.g. '
+                    + ', '.join(_fmt_sketch_point(p) for p in targets[:5]))
+    else:
+        expected = (f'{needed} or more points on the curve — e.g. '
+                    + ', '.join(_fmt_sketch_point(p) for p in targets[:5]))
+
+    return Part(
+        label=SKETCH_DRAWING_LABEL,
+        typed=', '.join(_fmt_sketch_point(p) for p in drawn),
+        expected=expected,
+        is_correct=is_correct,
+    )
+
+
 def _points_match(want, got, tol):
     """True when two coordinate lists are the same set within ``tol``.
 
@@ -1382,8 +1669,13 @@ def grade_sketch_parts(sketch_spec, payload):
     quarters of the question, so each feature is one part and is worth its
     share — the same rule as a table of values. Never raises.
 
+    The SKETCH is one more part, first, whenever the question can be sketched
+    (:func:`sketch_drawing_part`) — the drawing is what the stem asks for, and
+    marking only the boxes beside it left the verb "sketch" worth nothing.
+
     ``payload`` is the JSON the client serialises,
-    ``{"features": {"vertex": "(-0.5, -2.25)", ...}}`` keyed by feature kind.
+    ``{"features": {"vertex": "(-0.5, -2.25)", ...}, "points": [[-2, 5], ...]}``
+    — the typed boxes keyed by feature kind, and the points plotted on the plane.
     """
     from maths.partial_credit import Part, PartialGrade
 
@@ -1406,6 +1698,9 @@ def grade_sketch_parts(sketch_spec, payload):
     tol = sketch_tolerance(sketch_spec)
 
     parts = []
+    drawing = sketch_drawing_part(sketch_spec, parse_drawn_points(data.get('points')))
+    if drawing is not None:
+        parts.append(drawing)
     for feature in features:
         if not isinstance(feature, dict):
             return None
@@ -1479,11 +1774,19 @@ def describe_sketch_answer(payload, sketch_spec=None):
     if not kinds:
         kinds = [k for k in SKETCH_FEATURE_KINDS if k in typed]
 
-    return '; '.join(
+    out = [
         f'{SKETCH_FEATURE_LABELS.get(k, k)}: '
         f'{(str(typed.get(k) or "").strip() or "—")}'
         for k in kinds
-    )
+    ]
+    # The sketch itself, when they plotted one. A review page that showed only
+    # the typed boxes would report a student who drew the curve as having drawn
+    # nothing.
+    drawn = parse_drawn_points(data.get('points'))
+    if drawn:
+        out.insert(0, f'{SKETCH_DRAWING_LABEL}: '
+                      + ', '.join(_fmt_sketch_point(p) for p in drawn))
+    return '; '.join(out)
 
 
 def describe_sketch_spec(sketch_spec):

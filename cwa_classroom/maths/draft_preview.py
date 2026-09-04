@@ -462,6 +462,33 @@ def grading_notes(question, draft, *, promote_blanks):
             'Marked against the number line below. Every value must land on a '
             'tick — nothing between ticks can be marked.')))
         return notes
+    if q_type == Question.SKETCH_GRAPH:
+        data = question.sketch_data or {}
+        count = len(data.get('features') or [])
+        if not count:
+            notes.append(_note('warn', (
+                'This sketch has no features for the student to state, so there '
+                'is nothing to mark. Add the vertex, the intercepts or the axis '
+                'of symmetry the question asks for.')))
+            return notes
+        plural = 's' if count != 1 else ''
+        if data.get('drawable'):
+            notes.append(_note('info', (
+                f'The student plots the curve on the plane and types {count} '
+                f'feature{plural}. Marked part by part — the sketch is one part '
+                f'and each feature another — so most of it right earns most of '
+                f'the mark.')))
+        else:
+            notes.append(_note('info', (
+                f'The student types {count} feature{plural}, marked part by '
+                f'part, so most of them right earns most of the mark.')))
+            notes.append(_note('warn', (
+                'They cannot draw the graph itself: this question has no curve '
+                'to mark a sketch against, and none can be worked out from its '
+                'features. Add "curve" — the expanded coefficients, e.g. '
+                '{"type": "quadratic", "a": 1, "b": 1, "c": -2} — and the plane '
+                'becomes something they can plot the curve on.')))
+        return notes
     if q_type == Question.TABLE_OF_VALUES:
         notes.append(_note('info', (
             'The student fills the blank cells of the table. Marked '

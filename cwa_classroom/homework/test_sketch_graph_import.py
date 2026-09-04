@@ -41,9 +41,11 @@ _SKETCH_SPEC = {
     ],
 }
 
+# The whole answer: the sketch plotted on the plane, and the four typed boxes.
 _RIGHT = ('{"features": {"vertex": "(-0.5, -2.25)", '
           '"x_intercept": "(-2, 0), (1, 0)", "y_intercept": "(0, -2)", '
-          '"axis_of_symmetry": "x = -0.5"}}')
+          '"axis_of_symmetry": "x = -0.5"}, '
+          '"points": [[-2, 0], [-1, -2], [1, 0]]}')
 
 
 class ExtractionSchemaTests(TestCase):
@@ -120,10 +122,21 @@ class SaveSketchGraphTests(_TeacherFixture):
         q = self._save([self._question(points=4)])[0]
         result = MathsPlugin().grade_answer(q.pk, {f'answer_{q.id}': (
             '{"features": {"vertex": "(0, 0)", "x_intercept": "(-2, 0), (1, 0)", '
-            '"y_intercept": "(0, -2)", "axis_of_symmetry": "x = -0.5"}}')})
+            '"y_intercept": "(0, -2)", "axis_of_symmetry": "x = -0.5"}, '
+            '"points": [[-2, 0], [-1, -2], [1, 0]]}')})
         self.assertFalse(result['is_correct'])
-        self.assertEqual(result['points_earned'], 3.0)
-        self.assertEqual(result['answer_data']['parts_correct'], 3)
+        self.assertEqual(result['points_earned'], 3.2)   # four parts of five
+        self.assertEqual(result['answer_data']['parts_correct'], 4)
+
+    def test_the_sketch_is_one_of_the_parts_the_import_grades(self):
+        """An imported question is one a student can draw the curve on, and the
+        drawing carries a share of the mark like every other part."""
+        from maths.plugin import MathsPlugin
+        q = self._save([self._question(points=4)])[0]
+        result = MathsPlugin().grade_answer(q.pk, {f'answer_{q.id}': (
+            '{"features": {}, "points": [[-2, 0], [-1, -2], [1, 0]]}')})
+        self.assertEqual(result['answer_data']['parts_correct'], 1)
+        self.assertEqual(result['points_earned'], 0.8)
 
     def test_a_malformed_sketch_spec_is_skipped_not_imported_broken(self):
         saved = self._save([self._question(

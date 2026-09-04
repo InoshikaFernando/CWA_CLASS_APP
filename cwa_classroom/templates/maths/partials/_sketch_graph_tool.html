@@ -2,32 +2,65 @@
 {% comment %}
 Shared sketch-a-graph widget. "Sketch the graph of y = x² + x − 2 showing the
 coordinates of the vertex, the x-axis and y-axis intercepts and the equation of
-the axis of symmetry." The app draws the BLANK plane the worksheet printed, and
-the student types the key features the stem asks for — one box each. The boxes
-serialise to JSON in the hidden ``field_name`` input as
-{"features":{"vertex":"(-0.5, -2.25)"}} via static/js/sketch_graph.js — no
-inline script, so it survives the innerHTML question swap on the quiz /
-worksheet surfaces. The correct values live in the spec and are never emitted
-into the page (``d.answer_svg`` / ``d.answer_features`` are feedback-only and
-deliberately not rendered here).
+the axis of symmetry."
+
+Two halves, because the stem asks for two things:
+
+* the SKETCH — the student taps lattice points on the plane the worksheet
+  printed and the widget joins them into a smooth curve, the way a plot_points
+  question does. The plane is only tappable when ``d.drawable`` (there is a
+  curve to mark the drawing against); otherwise it stays the blank axes it has
+  always been, to work on.
+* the FEATURES the stem names — one typed box each.
+
+Both serialise to JSON in the hidden ``field_name`` input as
+{"features":{"vertex":"(-0.5, -2.25)"},"points":[[-2,0],[0,-2]]} via
+static/js/sketch_graph.js — no inline script, so it survives the innerHTML
+question swap on the quiz / worksheet surfaces. The correct values live in the
+spec and are never emitted into the page (``d.answer_svg`` / ``d.answer_features``
+are feedback-only and deliberately not rendered here).
+
 Context: q (the Question), field_name (the hidden input's name — "answer_<id>"
 on homework, "text_answer" on quiz / worksheets).
 {% endcomment %}
 {% if q.sketch_data %}{% with d=q.sketch_data %}
-<div data-sk-stage>
-  <input type="hidden" name="{{ field_name }}" data-sk-hidden value='{"features":{}}' />
+<div data-sk-stage data-sk-pad="{{ d.pad }}" data-sk-step="{{ d.step }}"
+     data-sk-xmin="{{ d.xmin }}" data-sk-ymax="{{ d.ymax }}">
+  <input type="hidden" name="{{ field_name }}" data-sk-hidden value='{"features":{},"points":[]}' />
   {% if d.svg %}
+  <p class="text-xs text-gray-500 mb-2">
+    {% if d.dots %}Tap the grid to plot each point of your sketch — they are joined into a curve as you go. Tap a point again to remove it.{% else %}Work the sketch out on these axes.{% endif %}
+  </p>
   <svg viewBox="0 0 {{ d.width }} {{ d.height }}"
-       class="border border-gray-200 rounded-lg bg-white select-none max-w-full mb-3"
+       class="border border-gray-200 rounded-lg bg-white touch-none select-none max-w-full mb-2"
        style="width:100%;max-width:{{ d.width }}px;height:auto"
-       role="img" aria-label="Blank coordinate plane to sketch the graph on">
+       {% if d.dots %}role="group" aria-label="Coordinate plane — tap a point to plot it"{% else %}role="img" aria-label="Blank coordinate plane to sketch the graph on"{% endif %}>
     {{ d.svg|safe }}
+    <path data-sk-curve d="" fill="none" stroke="#dc2626" stroke-width="2.5"
+          stroke-linejoin="round" stroke-linecap="round"></path>
+    <g data-sk-marks></g>
+    {% for dot in d.dots %}
+    <g class="cursor-pointer" data-sk-dot data-gx="{{ dot.gx }}" data-gy="{{ dot.gy }}"
+       tabindex="0" role="button" aria-label="plot point {{ dot.gx }}, {{ dot.gy }}">
+      <circle cx="{{ dot.px }}" cy="{{ dot.py }}" r="15" fill="transparent"/>
+      <circle cx="{{ dot.px }}" cy="{{ dot.py }}" r="2.5" fill="#94a3b8"/>
+    </g>
+    {% endfor %}
   </svg>
+  {% if d.dots %}
+  <div class="mb-3 flex items-center gap-3 flex-wrap">
+    <button type="button" data-sk-undo
+            class="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50">Undo</button>
+    <button type="button" data-sk-clear
+            class="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50">Clear</button>
+    <p class="text-sm text-gray-600">Your sketch: <span data-sk-readout class="font-medium text-gray-800">—</span></p>
+  </div>
+  {% endif %}
   {% endif %}
   <p class="text-xs text-gray-500 mb-2">
-    Work the sketch out on the axes{% if d.equation %} for
-    <span class="font-mono">{{ d.equation|exponents }}</span>{% endif %}, then write
-    down each feature below. Sketch on paper if it helps — the boxes are what is marked.
+    {% if d.equation %}The curve is <span class="font-mono">{{ d.equation|exponents }}</span>. {% endif %}
+    {% if d.dots %}Write down each feature below as well — the sketch and the boxes are both marked.
+    {% else %}Write down each feature below. Sketch on paper if it helps — the boxes are what is marked.{% endif %}
   </p>
   <div class="space-y-2">
     {% for f in d.features %}
