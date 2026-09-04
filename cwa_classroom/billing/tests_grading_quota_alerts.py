@@ -230,3 +230,142 @@ class AlertContentTests(TestCase):
             tier_slug='ai_grading_starter', stopped=False,
         )
         self.assertEqual(mock_email.call_count, 1)
+
+
+class HeadOfInstituteLoginAlertTests(TestCase):
+    """The in-app warning shown to the head of institute from 75% on."""
+
+    def setUp(self):
+        _seed_grading_products()
+        self.school = _school(slug='hoi', used=0)
+        self.head = self.school.admin   # School.save() makes its admin the HOI
+
+    def _set_used(self, used):
+        AIGradingUsage.objects.filter(school=self.school).update(answers_graded=used)
+
+    def _alert(self, session=None):
+        return quota_alerts.grading_alert_for_user(
+            self.head, {} if session is None else session)
+
+    def test_nothing_below_75_percent(self):
+        self._set_used(740)
+        self.assertIsNone(self._alert())
+
+    def test_a_warning_from_75_percent(self):
+        self._set_used(750)
+        alert = self._alert()
+        self.assertIsNotNone(alert)
+        self.assertEqual(alert['percent'], 75)
+        self.assertEqual((alert['used'], alert['limit']), (750, 1000))
+        self.assertEqual(alert['remaining'], 250)
+        self.assertFalse(alert['stopped'])
+        self.assertEqual(alert['next_tier_name'], 'AI Grading - Professional')
+
+    def test_at_the_limit_it_says_grading_has_stopped(self):
+        self._set_used(1000)
+        alert = self._alert()
+        self.assertTrue(alert['stopped'])
+        self.assertEqual(alert['percent'], 100)
+
+    def test_an_acknowledged_rung_is_not_shown_again(self):
+        self._set_used(750)
+        session = {}
+        alert = self._alert(session)
+        session[quota_alerts.SESSION_KEY] = alert['token']
+        self.assertIsNone(self._alert(session))
+
+    def test_a_higher_rung_shows_again_despite_the_acknowledgement(self):
+        """Dismissing 75% must not silence the one that says it stopped."""
+        self._set_used(750)
+        session = {quota_alerts.SESSION_KEY: self._alert({})['token']}
+        self.assertIsNone(self._alert(session))
+
+        self._set_used(1000)
+        later = self._alert(session)
+        self.assertIsNotNone(later)
+        self.assertTrue(later['stopped'])
+
+    def test_a_teacher_who_is_not_a_head_sees_nothing(self):
+        from accounts.models import Role
+
+        self._set_used(900)
+        teacher = CustomUser.objects.create_user(
+            'hoi-teacher', 'hoi-teacher@test.internal', 'pw1!')
+        role, _ = Role.objects.get_or_create(
+            name=Role.TEACHER, defaults={'display_name': 'Teacher'})
+        teacher.roles.add(role)
+        self.assertIsNone(
+            quota_alerts.grading_alert_for_user(teacher, {}))
+
+    def test_a_school_with_no_metered_tier_sees_nothing(self):
+        from billing.models import ModuleSubscription
+
+        self._set_used(900)
+        ModuleSubscription.objects.filter(
+            school_subscription__school=self.school).update(is_active=False)
+        self.assertIsNone(self._alert())
+
+    def test_an_anonymous_user_sees_nothing(self):
+        from django.contrib.auth.models import AnonymousUser
+        self.assertIsNone(quota_alerts.grading_alert_for_user(AnonymousUser(), {}))
+
+
+class AlertAckEndpointTests(TestCase):
+    def setUp(self):
+        _seed_grading_products()
+        self.school = _school(slug='ack', used=750)
+
+    def test_posting_a_token_records_it_in_the_session(self):
+        from django.urls import reverse
+        import json
+
+        self.client.force_login(self.school.admin)
+        response = self.client.post(
+            reverse('ai_grading_alert_ack'),
+            data=json.dumps({'token': '2026-09:75'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self.client.session[quota_alerts.SESSION_KEY], '2026-09:75')
+
+    def test_a_junk_body_is_not_an_error(self):
+        from django.urls import reverse
+
+        self.client.force_login(self.school.admin)
+        response = self.client.post(
+            reverse('ai_grading_alert_ack'),
+            data='not json', content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(quota_alerts.SESSION_KEY, self.client.session)
+
+
+class AlertModalRenderTests(TestCase):
+    """The modal has to survive a real render — {% url %} and all."""
+
+    def setUp(self):
+        _seed_grading_products()
+        self.school = _school(slug='render', used=0)
+
+    def _set_used(self, used):
+        AIGradingUsage.objects.filter(school=self.school).update(answers_graded=used)
+
+    def _dashboard(self):
+        from django.urls import reverse
+        self.client.force_login(self.school.admin)
+        return self.client.get(reverse('institute_subscription_dashboard'))
+
+    def test_the_modal_is_absent_below_75_percent(self):
+        self._set_used(500)
+        self.assertNotContains(self._dashboard(), 'ai-grading-alert-modal')
+
+    def test_the_modal_renders_with_the_usage_sentence(self):
+        self._set_used(800)
+        response = self._dashboard()
+        self.assertContains(response, 'ai-grading-alert-modal')
+        self.assertContains(response, '800/1000')
+
+    def test_the_stopped_modal_explains_the_questions_have_gone(self):
+        self._set_used(1000)
+        response = self._dashboard()
+        self.assertContains(response, 'AI grading has paused')

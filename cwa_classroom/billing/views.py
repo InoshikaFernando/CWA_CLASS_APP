@@ -1228,3 +1228,25 @@ class BillingHistoryView(LoginRequiredMixin, View):
             'subscription': sub,
             'individual_sub': individual_sub,
         })
+
+
+class AIGradingAlertAckView(LoginRequiredMixin, View):
+    """Remember that this head of institute has seen the AI grading warning.
+
+    Written only once the modal has actually rendered in front of them, so a
+    head who never clicks anything still sees it exactly once — and sees it
+    again at the next rung, because the token carries the threshold.
+    """
+
+    def post(self, request):
+        import json
+
+        from billing.quota_alerts import SESSION_KEY
+
+        try:
+            token = json.loads(request.body or '{}').get('token', '')
+        except (ValueError, TypeError):
+            token = ''
+        if token:
+            request.session[SESSION_KEY] = str(token)[:32]
+        return JsonResponse({'ok': True})

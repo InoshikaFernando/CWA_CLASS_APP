@@ -186,3 +186,82 @@ def check_grading_quota_alerts(school, used, limit):
             getattr(school, 'pk', None),
         )
         return None
+
+
+# ---------------------------------------------------------------------------
+# The head-of-institute login warning
+# ---------------------------------------------------------------------------
+#
+# The threshold emails go out as the allowance is consumed, but an inbox is
+# easy to miss and the person who can act on it is the head of institute. So
+# the same ladder is shown to them in the app, once per login per rung: at 75%
+# it is a warning, at 100% it explains that AI-graded questions have stopped.
+#
+# "Once per rung" rather than "once ever": a head who dismissed the 75% notice
+# should still be told when it reaches 90%, and again when it stops.
+
+SESSION_KEY = 'ai_grading_alert_ack'
+
+
+def _ack_token(period_start, threshold):
+    """What the session remembers: this month, this rung."""
+    return f'{period_start:%Y-%m}:{threshold}'
+
+
+def grading_alert_for_user(user, session=None):
+    """The AI grading warning to show ``user`` on login, or None.
+
+    Only heads of institute see it — they are the ones who can move the plan.
+    Returns a dict for the modal, or None when there is nothing to say (below
+    75%, no metered tier, not a head, or this rung already acknowledged in
+    this session).
+    """
+    if not user or not user.is_authenticated:
+        return None
+    try:
+        if not user.has_role('head_of_institute'):
+            return None
+
+        from billing.entitlements import get_school_for_user
+        from worksheets.grading_service import (
+            check_ai_grading_quota, get_ai_grading_tier,
+        )
+
+        school = get_school_for_user(user)
+        if not school:
+            return None
+        _allowed, used, limit = check_ai_grading_quota(school)
+        if not limit:
+            return None
+
+        percent = min(100, int(used / limit * 100))
+        threshold = threshold_reached(percent)
+        if not threshold:
+            return None
+
+        from django.utils import timezone
+        period_start = timezone.localdate().replace(day=1)
+        token = _ack_token(period_start, threshold)
+        if session is not None and session.get(SESSION_KEY) == token:
+            return None
+
+        upgrade = next_grading_tier(get_ai_grading_tier(school))
+        return {
+            'token': token,
+            'school': school,
+            'percent': percent,
+            'used': used,
+            'limit': limit,
+            'remaining': max(0, limit - used),
+            'stopped': threshold >= 100,
+            'next_tier_name': upgrade.name if upgrade else '',
+            'next_tier_answers': upgrade.questions_per_month if upgrade else None,
+            'next_tier_price': upgrade.price if upgrade else None,
+        }
+    except Exception:
+        # A warning banner must never take a page down with it.
+        logger.exception(
+            'Could not build the AI grading login alert for user %s',
+            getattr(user, 'pk', None),
+        )
+        return None
