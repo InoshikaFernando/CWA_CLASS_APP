@@ -1,13 +1,19 @@
 """Page selection through the AI-import upload view, task and quota check."""
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import CustomUser
-from ai_import.models import AIImportSession
+from ai_import.models import AIImportSession, AIImportUsage
 from ai_import.tasks import process_pdf_import
+from billing.models import (
+    InstitutePlan, ModuleProduct, ModuleSubscription, SchoolSubscription,
+)
+from billing.page_quota import current_period_start
 from classroom.models import School
 
 
@@ -96,12 +102,37 @@ class AIImportQuotaWithSelectionTests(TestCase):
         cls.school = School.objects.create(
             name='AI PS Quota School', slug='ai-ps-quota-school', admin=cls.user)
 
+        # A real 50-page tier with 46 already spent, rather than a patched
+        # quota helper: the budget now lives in billing.page_quota and is
+        # charged at upload, so the arithmetic under test is the real one.
+        plan = InstitutePlan.objects.create(
+            name='AI PS Quota Plan', slug='ai-ps-quota-plan', price=Decimal('89.00'),
+            class_limit=5, student_limit=100, invoice_limit_yearly=500,
+            extra_invoice_rate=Decimal('0.30'),
+        )
+        sub = SchoolSubscription.objects.create(
+            school=cls.school, plan=plan, status='active',
+            current_period_start=timezone.now(),
+            current_period_end=timezone.now() + timezone.timedelta(days=30),
+        )
+        ModuleProduct.objects.update_or_create(
+            module='ai_import_professional',
+            defaults={'name': 'AI Import - Professional',
+                      'price': Decimal('30.00'), 'pages_per_month': 50},
+        )
+        ModuleSubscription.objects.create(
+            school_subscription=sub, module='ai_import_professional', is_active=True,
+        )
+        AIImportUsage.objects.create(
+            school=cls.school, period_start=current_period_start(),
+            pages_processed=46, tokens_used=0,
+        )
+
     @patch('ai_import.views._has_ai_import_access', return_value=True)
     @patch('ai_import.views.get_school_for_user')
-    @patch('ai_import.views._get_remaining_pages', return_value=(4, 50, 46))
     @patch('ai_import.tasks.process_pdf_import')
     @patch('taskqueue.services.django_rq.get_queue')
-    def _upload(self, spec, mock_get_queue, _mock_task, _mock_remaining,
+    def _upload(self, spec, mock_get_queue, _mock_task,
                 mock_school, _mock_access):
         mock_school.return_value = self.school
         job = MagicMock(); job.id = 'job-1'

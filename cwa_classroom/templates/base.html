@@ -109,6 +109,9 @@
   </div>
 
   {% if request.user.is_authenticated %}
+  {% load billing_tags %}
+  {% ai_grading_login_alert %}
+
   {% include "help/partials/help_widget.html" %}
   {% include "feedback/_partials/feedback_launcher.html" %}
   {% endif %}
