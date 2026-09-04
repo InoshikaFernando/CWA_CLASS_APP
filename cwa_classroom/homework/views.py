@@ -1803,7 +1803,15 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
         error = request.GET.get('error')
         if error:
             messages.error(request, f'Error processing PDF: {error}')
-        return render(request, self.template_name, {'classrooms': classrooms})
+        from billing.entitlements import get_school_for_user
+        from billing.page_quota import quota_status
+        return render(request, self.template_name, {
+            'classrooms': classrooms,
+            'page_quota': quota_status(
+                get_school_for_user(request.user),
+                unlimited=request.user.is_superuser,
+            ),
+        })
 
     def post(self, request):
         from billing.entitlements import get_school_for_user
@@ -1868,6 +1876,30 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             messages.error(request, str(exc))
             return redirect('homework:pdf_upload')
 
+        # The monthly AI page allowance is checked BEFORE any extraction runs:
+        # the background worker spends real AI money on every selected page
+        # whether or not the teacher ever confirms the questions, so a refusal
+        # has to happen here to be worth anything. Charged after the session
+        # exists, refunded if the job can't be queued. See billing/page_quota.py.
+        from billing.page_quota import (
+            check_page_budget, consume_pages, refund_pages, upload_page_count,
+        )
+        is_unlimited = request.user.is_superuser
+        quota_pages = upload_page_count(_selected, _total, pdf_bytes)
+        allowed, quota_message, _quota = check_page_budget(
+            school, quota_pages, unlimited=is_unlimited,
+        )
+        if not allowed:
+            log_event(
+                user=request.user, school=school,
+                category='entitlement', action='homework_pdf_upload_blocked',
+                result='blocked',
+                detail={'pages': quota_pages, 'pdf_filename': pdf_file.name},
+                request=request,
+            )
+            messages.error(request, quota_message)
+            return redirect('homework:pdf_upload')
+
         # Create session immediately so we can redirect to the polling page
         session = HomeworkUploadSession.objects.create(
             user=request.user,
@@ -1880,6 +1912,10 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             status=HomeworkUploadSession.STATUS_PROCESSING,
         )
         session.pdf_file.save(pdf_file.name, ContentFile(pdf_bytes), save=True)
+
+        # Charge now rather than when the worker finishes: two uploads landing
+        # together would otherwise both pass the check above and overshoot.
+        consume_pages(school, quota_pages, unlimited=is_unlimited)
 
         log_event(
             user=request.user,
@@ -1920,6 +1956,9 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             logging.getLogger(__name__).exception(
                 'Failed to enqueue homework PDF for session %s', session.pk,
             )
+            # Nothing will be extracted, so the pages charged above were never
+            # spent — hand them back rather than billing a job that never ran.
+            refund_pages(school, quota_pages, unlimited=is_unlimited)
             session.delete()
             messages.error(
                 request,

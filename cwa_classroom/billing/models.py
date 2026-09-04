@@ -852,6 +852,15 @@ class AIGradingUsage(models.Model):
         max_digits=10, decimal_places=6, default=0,
         help_text='Estimated Anthropic API cost in USD for this period.',
     )
+    highest_alert_sent = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            'Highest usage-percentage warning already emailed for this period '
+            '(0 = none sent). The 75/80/85/90/95/100% alerts fire once each: '
+            'without this they would re-send on every answer graded past the '
+            'threshold. Resets naturally, since each month gets its own row.'
+        ),
+    )
 
     class Meta:
         unique_together = ('school', 'period_start')
