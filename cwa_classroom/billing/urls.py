@@ -27,6 +27,7 @@ urlpatterns = [
     path('billing/institute/cancel/', views.InstituteCancelSubscriptionView.as_view(), name='institute_cancel_subscription'),
     path('billing/portal/', views.StripeBillingPortalView.as_view(), name='stripe_billing_portal'),
     path('billing/institute/module/toggle/', views.ModuleToggleView.as_view(), name='module_toggle'),
+    path('billing/ai-grading-alert/ack/', views.AIGradingAlertAckView.as_view(), name='ai_grading_alert_ack'),
     path('billing/history/', views.BillingHistoryView.as_view(), name='billing_history'),
     path('billing/ai-graded-questions/', views.StudentAIGradingView.as_view(), name='student_ai_grading'),
 

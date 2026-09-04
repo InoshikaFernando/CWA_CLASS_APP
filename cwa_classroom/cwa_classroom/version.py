@@ -30,4 +30,4 @@ never on ``test`` or ``main`` (see that script for why).
 """
 
 APP_VERSION = '1.31.0'        # MAJOR.MINOR.PATCH
-APP_VERSION_DATE = '2026-09-03'     # ISO date of this release
+APP_VERSION_DATE = '2026-09-04'     # ISO date of this release

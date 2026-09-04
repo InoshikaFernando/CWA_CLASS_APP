@@ -44,3 +44,22 @@ def entitled_modules_list(context):
 
     from billing.entitlements import entitled_modules
     return entitled_modules(request)
+
+
+@register.inclusion_tag(
+    'billing/_ai_grading_alert_modal.html', takes_context=True)
+def ai_grading_login_alert(context):
+    """The head-of-institute AI grading warning, shown once per login per rung.
+
+    An inclusion tag rather than a context processor on purpose: a context
+    processor lives in settings.py, and settings.py is watched by ci.yml's
+    `shared` filter — the escape hatch that runs every unit suite and every
+    Playwright group. A banner does not need to cost a full CI matrix.
+    """
+    request = context.get('request')
+    if not request or not hasattr(request, 'user'):
+        return {'alert': None}
+    from billing.quota_alerts import grading_alert_for_user
+    return {
+        'alert': grading_alert_for_user(request.user, getattr(request, 'session', None)),
+    }
