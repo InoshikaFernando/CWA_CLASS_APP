@@ -1318,6 +1318,15 @@ class TopicAccordionTest(ScheduleTestBase):
         self.assertEqual(len(self.SHUT_GROUP.findall(html)), 0)
         self.assertGreaterEqual(len(self.OPEN_GROUP.findall(html)), 1)
 
+    def test_every_week_gets_its_own_filter_box(self):
+        """Typing narrows the strand a teacher is inside — per week, since each
+        week carries its own copy of the tree."""
+        html = self._html()
+        self.assertEqual(html.count('id="topic-filter-'),
+                         self.schedule.weeks.count())
+        self.assertEqual(html.count('<div data-topic-tree>'),
+                         self.schedule.weeks.count())
+
     def test_a_shut_group_still_reports_what_it_holds(self):
         """A badge and the count, so a shut group never hides a selection."""
         html = self._html()

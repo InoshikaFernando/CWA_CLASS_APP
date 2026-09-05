@@ -145,7 +145,24 @@
               {% endif %}
             </summary>
 
+            <div data-topic-tree>
+              {% comment %}
+                Type-to-filter, because collapsing the strands does not shorten
+                the strand a teacher is actually in — Number alone runs to
+                twenty-odd sub-topics. Filtering hides rows, it never unticks
+                them, and a hidden ticked box still posts.
+              {% endcomment %}
+              <label class="sr-only" for="topic-filter-{{ week.id }}">Filter topics</label>
+              <input type="search" id="topic-filter-{{ week.id }}" data-topic-filter
+                     placeholder="Filter topics…" autocomplete="off"
+                     class="w-full mt-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm
+                            focus:outline-none focus:ring-2 focus:ring-blue-500">
+
             <div class="mt-2 border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-64 overflow-y-auto">
+              <p class="px-3 py-3 text-sm text-gray-500" style="display:none"
+                 data-topic-filter-empty>
+                No topic matches “<span data-topic-filter-term></span>”.
+              </p>
               {% for strand, mid_items in topic_groups %}
               {% comment %}
                 Every node is tickable, parents included. Ticking a parent
@@ -183,7 +200,7 @@
                            data-group-toggle
                            data-total="{{ strand.total_count }}" data-fresh="{{ strand.fresh_count }}"
                            {% if strand.pk in week.topic_ids %}checked{% endif %}>
-                    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">{{ strand.name }}</span>
+                    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide" data-topic-name>{{ strand.name }}</span>
                     <span class="text-xs font-normal {% if strand.group_fresh %}text-gray-400{% else %}text-red-500{% endif %}">
                       ({{ strand.group_fresh }}{% if strand.group_total != strand.group_fresh %} of {{ strand.group_total }}{% endif %})
                     </span>
@@ -208,7 +225,7 @@
                                data-group-toggle
                                data-total="{{ mid.total_count }}" data-fresh="{{ mid.fresh_count }}"
                                {% if mid.pk in week.topic_ids %}checked{% endif %}>
-                        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">{{ mid.name }}</span>
+                        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide" data-topic-name>{{ mid.name }}</span>
                         <span class="text-xs font-normal {% if mid.group_fresh %}text-gray-400{% else %}text-red-500{% endif %}">
                           ({{ mid.group_fresh }}{% if mid.group_total != mid.group_fresh %} of {{ mid.group_total }}{% endif %})
                         </span>
@@ -228,7 +245,7 @@
                                class="rounded text-blue-600 focus:ring-blue-500"
                                data-total="{{ leaf.total_count }}" data-fresh="{{ leaf.fresh_count }}"
                                {% if leaf.pk in week.topic_ids %}checked{% endif %}>
-                        <span>{{ leaf.name }}</span>
+                        <span data-topic-name>{{ leaf.name }}</span>
                         <span class="text-xs {% if leaf.fresh_count %}text-gray-400{% else %}text-red-500{% endif %}">
                           ({{ leaf.fresh_count }}{% if leaf.total_count != leaf.fresh_count %} of {{ leaf.total_count }}{% endif %})
                         </span>
@@ -242,7 +259,7 @@
                            class="rounded text-blue-600 focus:ring-blue-500"
                            data-total="{{ mid.total_count }}" data-fresh="{{ mid.fresh_count }}"
                            {% if mid.pk in week.topic_ids %}checked{% endif %}>
-                    <span>{{ mid.name }}</span>
+                    <span data-topic-name>{{ mid.name }}</span>
                     <span class="text-xs {% if mid.fresh_count %}text-gray-400{% else %}text-red-500{% endif %}">
                       ({{ mid.fresh_count }}{% if mid.total_count != mid.fresh_count %} of {{ mid.total_count }}{% endif %})
                     </span>
@@ -257,7 +274,7 @@
                        class="rounded text-blue-600 focus:ring-blue-500"
                        data-total="{{ strand.total_count }}" data-fresh="{{ strand.fresh_count }}"
                        {% if strand.pk in week.topic_ids %}checked{% endif %}>
-                <span>{{ strand.name }}</span>
+                <span data-topic-name>{{ strand.name }}</span>
                 <span class="text-xs {% if strand.fresh_count %}text-gray-400{% else %}text-red-500{% endif %}">
                   ({{ strand.fresh_count }}{% if strand.total_count != strand.fresh_count %} of {{ strand.total_count }}{% endif %})
                 </span>
@@ -277,6 +294,7 @@
               </p>
               {% endfor %}
             </div>
+            </div>{# /data-topic-tree #}
           </details>
 
           <div class="flex flex-wrap items-end gap-3">
@@ -475,4 +493,6 @@
     });
   })();
 </script>
+
+{% include 'homework/partials/_topic_filter.html' %}
 {% endblock %}

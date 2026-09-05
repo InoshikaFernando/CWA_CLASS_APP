@@ -238,6 +238,14 @@ class TeacherHomeworkCreateTest(HomeworkTestBase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Create Homework')
 
+    def test_the_topic_picker_offers_a_filter_box(self):
+        """A long strand is navigated by typing, not by scrolling it."""
+        url = reverse('homework:teacher_create',
+                      kwargs={'classroom_id': self.classroom.id})
+        resp = self.client.get(url)
+        self.assertContains(resp, 'data-topic-filter')
+        self.assertContains(resp, 'data-topic-tree')
+
     def test_create_homework_success(self):
         url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
         due = (timezone.now() + timedelta(days=3)).strftime('%Y-%m-%dT%H:%M')

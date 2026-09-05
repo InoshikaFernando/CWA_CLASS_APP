@@ -70,7 +70,24 @@
             </div>
           </div>
 
+          <div data-topic-tree>
+            {% comment %}
+              Type-to-filter: collapsing the strands does not shorten the
+              strand a teacher is actually in — Number alone runs to twenty-odd
+              sub-topics. Hiding a row never unticks it, and a hidden ticked
+              box still posts, so filtering cannot quietly drop a selection.
+            {% endcomment %}
+            <label class="sr-only" for="topic-filter">Filter topics</label>
+            <input type="search" id="topic-filter" data-topic-filter
+                   placeholder="Filter topics…" autocomplete="off"
+                   class="w-full mb-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm
+                          focus:outline-none focus:ring-2 focus:ring-blue-500">
+
           <div class="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-72 overflow-y-auto">
+            <p class="px-3 py-3 text-sm text-gray-500" style="display:none"
+               data-topic-filter-empty>
+              No topic matches “<span data-topic-filter-term></span>”.
+            </p>
             {% for strand, mid_items in topic_groups %}
             {% comment %}
               Shut unless it is the only strand: open, every strand's
@@ -83,7 +100,7 @@
             <details class="group" data-topic-group {% if topic_groups|length == 1 %}open{% endif %}>
               <!-- Strand header (e.g. Number, Algebra) -->
               <summary class="flex items-center justify-between gap-2 px-3 py-2 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 transition">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">{{ strand.name }}</span>
+                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide" data-topic-name>{{ strand.name }}</span>
                 <span class="flex items-center gap-2 shrink-0">
                   <span class="text-[11px] font-semibold text-blue-600" data-group-selected hidden></span>
                   <svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -99,7 +116,7 @@
                 <!-- Mid topic has leaf children — a sub-group, collapsible too -->
                 <details class="group/mid mt-2" data-topic-group open>
                   <summary class="flex items-center justify-between gap-2 cursor-pointer select-none mb-1">
-                    <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">{{ mid.name }}</span>
+                    <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide" data-topic-name>{{ mid.name }}</span>
                     <span class="flex items-center gap-2 shrink-0">
                       <span class="text-[11px] font-semibold text-blue-600" data-group-selected hidden></span>
                       <svg class="w-3.5 h-3.5 text-gray-300 transition-transform group-open/mid:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -115,7 +132,7 @@
                              value="{{ leaf.id }}"
                              class="topic-checkbox rounded text-blue-600 focus:ring-blue-500"
                              {% if leaf.id in form.topics.value %}checked{% endif %}>
-                      <span>{{ leaf.name }}</span>
+                      <span data-topic-name>{{ leaf.name }}</span>
                     </label>
                     {% endfor %}
                   </div>
@@ -128,7 +145,7 @@
                          value="{{ mid.id }}"
                          class="topic-checkbox rounded text-blue-600 focus:ring-blue-500"
                          {% if mid.id in form.topics.value %}checked{% endif %}>
-                  <span>{{ mid.name }}</span>
+                  <span data-topic-name>{{ mid.name }}</span>
                 </label>
                 {% endif %}
                 {% endfor %}
@@ -143,7 +160,7 @@
                        value="{{ strand.id }}"
                        class="topic-checkbox rounded text-blue-600 focus:ring-blue-500"
                        {% if strand.id in form.topics.value %}checked{% endif %}>
-                <span>{{ strand.name }}</span>
+                <span data-topic-name>{{ strand.name }}</span>
               </label>
             </div>
             {% endif %}
@@ -151,6 +168,7 @@
             <p class="px-3 py-4 text-sm text-gray-400 text-center">No active topics found.</p>
             {% endfor %}
           </div>
+          </div>{# /data-topic-tree #}
 
           {% if form.topics.errors %}<p class="text-xs text-red-600 mt-1">{{ form.topics.errors.0 }}</p>{% endif %}
         </div>
@@ -187,6 +205,8 @@
           });
           refreshTopicGroupBadges();
         </script>
+
+        {% include 'homework/partials/_topic_filter.html' %}
 
         <!-- Question type — constrains which questions are auto-selected -->
         {% if question_type_choices %}
