@@ -130,14 +130,32 @@ def test_the_api_gets_402_not_a_redirect(client, school_student):
 
     Worse, it looks like success — the client follows it, gets 200, and shows
     an empty screen. 402 names the module so the client can say what to buy.
+
+    Uses a DRF viewset deliberately: a viewset is one of the two surfaces
+    ``ModuleRequiredMixin`` cannot reach at all, which is why the middleware
+    exists.
     """
     student, _school = school_student
     client.force_login(student)
-    resp = client.get('/api/v1/points/')
+    resp = client.get('/api/v1/worksheet-assignments/')
     assert resp.status_code == 402
     body = resp.json()
     assert body['code'] == 'module_required'
-    assert body['module'] == 'rewards'
+    assert body['module'] == 'worksheets'
+
+
+@override_settings(MODULE_ENFORCEMENT='enforce')
+def test_the_leaderboard_api_is_never_gated(client, school_student):
+    """Points and the leaderboard are free on every plan.
+
+    A school that has bought nothing still reaches them. This is the API half
+    of the rule ``tests_module_registry`` pins on the routes: the board is
+    what makes a student do the next piece of work, so it is base product.
+    """
+    student, _school = school_student
+    client.force_login(student)
+    for path in ('/api/v1/points/', '/api/v1/points/total/', '/api/v1/leaderboard/'):
+        assert client.get(path).status_code != 402, f'{path} was gated'
 
 
 @override_settings(MODULE_ENFORCEMENT='enforce')

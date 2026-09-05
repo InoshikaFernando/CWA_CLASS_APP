@@ -513,8 +513,11 @@ class ModuleSubscription(models.Model):
     # denied until MODULE_ENFORCEMENT is switched on. See billing/registry.py.
     MODULE_BRAINBUZZ = 'brainbuzz'
     MODULE_WORKSHEETS = 'worksheets'
-    MODULE_REWARDS = 'rewards'
     MODULE_WHATSAPP = 'whatsapp_notifications'
+    # Deliberately NOT here: 'rewards'. Points and the leaderboard are free on
+    # every plan and belong to the base product — see billing/registry.py
+    # BASE_APPS for why. A slug listed here is a thing we can charge for, so
+    # leaving it out is the decision, not an omission.
 
     MODULE_CHOICES = [
         (MODULE_TEACHERS_ATTENDANCE, 'Teachers Attendance'),
@@ -530,7 +533,6 @@ class ModuleSubscription(models.Model):
         (MODULE_QUESTION_AUTOMATION, 'Question Automation (scheduled to term/year)'),
         (MODULE_BRAINBUZZ, 'BrainBuzz Live Quiz'),
         (MODULE_WORKSHEETS, 'Worksheets'),
-        (MODULE_REWARDS, 'Rewards & Leaderboard'),
         (MODULE_WHATSAPP, 'WhatsApp Parent Notifications'),
     ]
 

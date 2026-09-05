@@ -151,8 +151,35 @@ def test_a_service_only_module_declares_no_routes():
             'routes are wrong or the enforcement kind is')
 
 
-def test_rewards_is_api_only():
-    """The rewards app has no urls.py at all — a route gate would cover nothing."""
-    module = registry.REGISTRY['rewards']
-    assert module.enforcement == (registry.API,)
-    assert module.api_basenames
+def test_the_leaderboard_is_free_on_every_plan():
+    """Points and the leaderboard are base product, and must stay that way.
+
+    This is a commercial decision with a mechanism behind it: the board is the
+    first thing a student sees — ``hub/home.html`` renders it and
+    ``should_show_daily_popup()`` puts "Top Wizards" in front of them once a
+    day — and it is what makes them do the next piece of work. Charging for it
+    would mean charging for the engagement every other paid module is measured
+    by.
+
+    It is pinned by a test rather than a comment because the pull is the other
+    way: ``rewards`` looks like a sellable feature, it was briefly declared as
+    one, and the next person tidying the registry would put it back.
+
+    Gating it would also have been half-done whatever the price. The
+    middleware only reaches the API; the hub card is rendered server-side by
+    ``classroom/views.py``, so enforcement would have left the board on screen
+    with the API refusing to fill it.
+    """
+    assert 'rewards' not in registry.slugs(), (
+        'rewards is declared as a paid module — points and the leaderboard are '
+        'free on every plan. Remove it from REGISTRY.')
+    assert 'rewards' not in registry.FULLY_MODULAR_APPS
+    assert 'rewards' in registry.BASE_APPS, (
+        'rewards must be in BASE_APPS, or its routes are claimed by nothing '
+        'and the build fails as "undecided" rather than "free".')
+
+    routes = {r['name']: r for r in _routes()}
+    for name in ('points-total', 'leaderboard'):
+        assert name in routes, f'{name} is no longer routed — update this test'
+        assert _decision(routes[name]) is None, (
+            f'{name} now resolves to a module; the leaderboard must stay free')

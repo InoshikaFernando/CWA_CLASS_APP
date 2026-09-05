@@ -181,21 +181,6 @@ _add(Module(
 ))
 
 _add(Module(
-    slug='rewards',
-    name='Rewards & Leaderboard',
-    audience=BOTH,
-    # No pages at all — the rewards app has no urls.py. A route-only gate
-    # would have silently covered nothing.
-    enforcement=(API,),
-    # 'points' is the router viewset; the other two are bare APIViews mounted
-    # by hand, so they carry no -list/-detail basename to match on. Found by
-    # the registry guard, which is the point of it.
-    api_basenames=('points',),
-    route_names=('points-total', 'leaderboard'),
-    note='Cross-subject points and the global leaderboard.',
-))
-
-_add(Module(
     slug='whatsapp_notifications',
     name='WhatsApp Parent Notifications',
     audience=INSTITUTE,
@@ -247,13 +232,27 @@ BASE_APPS = frozenset({
     'sprints',
     'cwa_classroom',  # health check, sitemap, static pages
     'notifications',
+    # Points and the global leaderboard, free for every student on every plan.
+    # This one is a deliberate commercial choice rather than an oversight, so
+    # it is stated here rather than left to fall through: the leaderboard is
+    # what makes a student do the next piece of work. It is the first thing
+    # they see — hub/home.html renders the board, and should_show_daily_popup()
+    # puts "Top Wizards" in front of them once a day on their first hub load.
+    # Charging for the thing that drives the engagement every other paid
+    # module is measured by would be charging for our own retention.
+    #
+    # It is also the one module that could not have been gated cleanly: the
+    # enforcement middleware only reaches the API, while the hub card is
+    # rendered server-side by classroom/views.py. Enforcing it would have left
+    # the board on screen with the API refusing to fill it.
+    'rewards',
 })
 
 #: Apps that are wholly a paid module. Deliberately absent from BASE_APPS: a
 #: route here that no module rule claims must fail the build rather than fall
 #: through to "base", which is how the attendance routes stayed free.
 FULLY_MODULAR_APPS = frozenset({
-    'attendance', 'brainbuzz', 'worksheets', 'ai_import', 'rewards',
+    'attendance', 'brainbuzz', 'worksheets', 'ai_import',
 })
 
 #: Subject packs are a *future* split: maths and coding are base today. Listed
