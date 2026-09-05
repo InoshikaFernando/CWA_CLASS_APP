@@ -8,6 +8,7 @@ Covers the four things that make or break this feature in production:
   * students see nothing until the existing publish cron says so.
 """
 
+import re
 from datetime import date, time, timedelta
 from io import StringIO
 
@@ -1250,3 +1251,75 @@ class ParentTopicSelectionTest(ScheduleTestBase):
         self.assertEqual(nodes[self.strand.pk].total_count, 0)
         self.assertNotContains(
             resp, f'name="topic_ids" value="{self.strand.pk}"')
+
+
+# ---------------------------------------------------------------------------
+# The topic picker's accordion
+# ---------------------------------------------------------------------------
+
+class TopicAccordionTest(ScheduleTestBase):
+    """Strands collapse, so the picker opens on names rather than a wall.
+
+    Every group used to render open, which ran the strands together into one
+    alphabetical list of sub-topics — the headings scrolled out of the box and
+    the grouping stopped being visible at all.
+    """
+
+    OPEN_GROUP = re.compile(r'<details class="group" data-topic-group\s+open>')
+    SHUT_GROUP = re.compile(r'<details class="group" data-topic-group\s*>')
+
+    def setUp(self):
+        subject = self.topic.subject
+        self.strands = []
+        for strand_name, sub_name, slug in (
+            ('Number Acc', 'Decimals Acc', 'acc-number'),
+            ('Algebra Acc', 'BODMAS Acc', 'acc-algebra'),
+        ):
+            strand = Topic.objects.create(
+                subject=subject, name=strand_name, slug=f'{slug}-strand',
+            )
+            sub = Topic.objects.create(
+                subject=subject, parent=strand, name=sub_name, slug=f'{slug}-sub',
+            )
+            q = Question.objects.create(
+                level=self.level, topic=sub, question_text=f'{sub_name}?',
+                question_type=Question.MULTIPLE_CHOICE, difficulty=1,
+            )
+            Answer.objects.create(question=q, answer_text='Right',
+                                  is_correct=True, order=0)
+            Answer.objects.create(question=q, answer_text='Wrong',
+                                  is_correct=False, order=1)
+            self.strands.append((strand, sub))
+
+        self.client = Client()
+        self.client.login(username='sched_teacher', password='pass1234')
+        self.schedule = self.make_schedule()
+        self.url = reverse(
+            'homework:schedule_detail', kwargs={'schedule_id': self.schedule.pk},
+        )
+
+    def _html(self):
+        return self.client.get(self.url).content.decode()
+
+    def test_several_strands_all_render_shut(self):
+        html = self._html()
+        self.assertEqual(len(self.OPEN_GROUP.findall(html)), 0)
+        self.assertGreaterEqual(len(self.SHUT_GROUP.findall(html)), 2)
+
+    def test_a_lone_strand_stays_open(self):
+        """Collapsing the only group would be a click that buys nothing."""
+        self.topic.is_active = False
+        self.topic.save(update_fields=['is_active'])
+        strand, _sub = self.strands[1]
+        Topic.objects.filter(pk__in=[strand.pk, strand.subtopics.first().pk]).update(
+            is_active=False)
+
+        html = self._html()
+        self.assertEqual(len(self.SHUT_GROUP.findall(html)), 0)
+        self.assertGreaterEqual(len(self.OPEN_GROUP.findall(html)), 1)
+
+    def test_a_shut_group_still_reports_what_it_holds(self):
+        """A badge and the count, so a shut group never hides a selection."""
+        html = self._html()
+        self.assertIn('data-group-selected', html)
+        self.assertIn('Number Acc', html)
