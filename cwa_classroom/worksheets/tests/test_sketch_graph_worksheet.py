@@ -42,10 +42,14 @@ SPEC = {
     ],
 }
 
+# The sketch — the lattice points of y = x² + x − 2 inside this plane — and the
+# four typed features. Both halves are marked, so a "right answer" here is both.
+RIGHT_POINTS = [[-3, 4], [-2, 0], [-1, -2], [0, -2], [1, 0], [2, 4]]
+
 ALL_RIGHT = {'features': {
     'vertex': '(-0.5, -2.25)', 'x_intercept': '(-2, 0), (1, 0)',
     'y_intercept': '(0, -2)', 'axis_of_symmetry': 'x = -0.5',
-}}
+}, 'points': RIGHT_POINTS}
 
 
 class ExtractionRulesTests(SimpleTestCase):
@@ -96,6 +100,8 @@ class SketchGraphWorksheetPartialTests(SessionDispatchTestBase):
         self.assertIn('data-sk-feature', html)         # one box per feature
         self.assertIn('name="text_answer"', html)      # boxes serialise here
         self.assertIn('data-kind="vertex"', html)
+        self.assertIn('data-sk-dot', html)             # the plane can be plotted on
+        self.assertIn('data-sk-curve', html)           # …and joins them into a curve
 
     def test_the_answers_never_reach_the_student_widget(self):
         html = render_to_string(
@@ -132,19 +138,33 @@ class SketchGraphWorksheetGradingTests(SessionDispatchTestBase):
         self.assertTrue(row.is_correct)
         self.assertEqual(row.points_earned, 1.0)
 
-    def test_three_features_of_four_earns_three_quarters(self):
-        payload = {'features': dict(ALL_RIGHT['features'], vertex='(0, 0)')}
+    def test_four_parts_of_five_earns_four_fifths(self):
+        payload = dict(ALL_RIGHT, features=dict(ALL_RIGHT['features'],
+                                                vertex='(0, 0)'))
         _, row = self._submit(self._question(), payload)
-        self.assertFalse(row.is_correct)   # full marks still means every feature
-        self.assertEqual(row.points_earned, 0.75)
-        self.assertEqual(row.answer_data['parts_correct'], 3)
+        self.assertFalse(row.is_correct)   # full marks still means every part
+        self.assertEqual(row.points_earned, 0.8)
+        self.assertEqual(row.answer_data['parts_correct'], 4)
+
+    def test_the_sketch_they_drew_is_marked_with_the_boxes(self):
+        """The stem says "sketch": a pupil who types all four features but plots
+        nothing has not done the question, and one who plots the curve on a
+        question they otherwise fluff still gets credit for the drawing."""
+        _, row = self._submit(self._question(), dict(ALL_RIGHT, points=[]))
+        self.assertFalse(row.is_correct)
+        self.assertEqual(row.points_earned, 0.8)
+
+        _, row = self._submit(
+            self._question(), {'features': {}, 'points': RIGHT_POINTS})
+        self.assertEqual(row.points_earned, 0.2)
 
     def test_the_feedback_names_the_feature_that_cost_the_mark(self):
-        payload = {'features': dict(ALL_RIGHT['features'], vertex='(0, 0)')}
+        payload = dict(ALL_RIGHT, features=dict(ALL_RIGHT['features'],
+                                                vertex='(0, 0)'))
         resp, _ = self._submit(self._question(), payload)
         html = resp.content.decode()
         self.assertIn('Partially correct', html)
-        self.assertIn('3 of the 4 features are right.', html)
+        self.assertIn('4 of the 5 features are right.', html)
         self.assertIn('Vertex (turning point)', html)
         self.assertIn('(-0.5, -2.25)', html)
 
@@ -152,4 +172,4 @@ class SketchGraphWorksheetGradingTests(SessionDispatchTestBase):
         _, row = self._submit(self._question(), {'features': {}})
         self.assertFalse(row.is_correct)
         self.assertEqual(row.points_earned, 0.0)
-        self.assertEqual(len(row.answer_data['parts']), 4)
+        self.assertEqual(len(row.answer_data['parts']), 5)
