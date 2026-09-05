@@ -666,20 +666,44 @@ class TestTopicQuizMeasureGrading(TestCase):
         self.assertIn('measure-figure', html)          # generated angle figure
         self.assertIn('id="text-answer-input"', html)  # numeric box for the reading
 
-    def test_topic_question_partial_renders_ruler_for_length(self):
-        """A length-unit measure question gets a ruler instead of a protractor."""
+    def _render_topic_question(self):
         from django.template.loader import render_to_string
 
-        self.q.answer_unit = 'cm'
-        self.q.save(update_fields=['answer_unit'])
-        html = render_to_string('quiz/partials/topic_question.html', {
+        return render_to_string('quiz/partials/topic_question.html', {
             'question': self.q,
             'answers': [],
             'session_id': 'abc',
             'question_number': 1,
             'total_questions': 2,
         })
-        self.assertIn('data-measure-tool="ruler"', html)
+
+    def test_topic_question_partial_renders_ruler_for_length(self):
+        """A length-unit measure question gets a ruler instead of a protractor.
+
+        Only angles are generated true-to-scale, so a length question needs an
+        uploaded figure before there is anything to lay a ruler over.
+        """
+        self.q.answer_unit = 'cm'
+        self.q.image = 'questions/year7/measurement/line.png'
+        self.q.save(update_fields=['answer_unit', 'image'])
+
+        self.assertIn('data-measure-tool="ruler"', self._render_topic_question())
+
+    def test_length_measure_with_no_figure_says_so(self):
+        """CPP-406: a ruler over empty space is not a question.
+
+        A length measure generates no figure of its own, so without an image
+        the stage rendered blank under a hint telling the child to drag an
+        instrument across it. Say what is wrong instead.
+        """
+        self.q.answer_unit = 'cm'
+        self.q.save(update_fields=['answer_unit'])
+
+        html = self._render_topic_question()
+
+        self.assertIn('missing the figure', html)
+        self.assertNotIn('data-measure-tool', html)
+        self.assertIn('id="text-answer-input"', html)   # the box still renders
 
 
 class TestTopicQuizShortAnswerGrading(TestCase):

@@ -623,3 +623,141 @@ def verify_typed_answer_question(question):
                 break
 
     return issues
+
+
+# --------------------------------------------------------------------------
+# Missing figures
+# --------------------------------------------------------------------------
+# A question can be perfectly well-formed — right answer, right options — and
+# still be impossible to answer, because the picture it talks about never
+# reaches the page. CPP-406 is the report: a student met "Measure X" with no
+# figure above it and asked, reasonably, how they were supposed to know what X
+# was. Nothing in the bank was looking for that.
+#
+# ``ai_import`` has flagged this at IMPORT time since the PDF pipeline learned
+# to crop figures, but a question authored by hand, edited afterwards, or
+# imported before that check existed was never looked at again. These constants
+# live here so the import-time check and the bank-wide audit read the same
+# wording and cannot drift apart; ``ai_import.verification`` imports them.
+
+MISSING_FIGURE = 'MISSING-FIGURE'
+
+# Deictic references to a concrete visual the question is meant to read off —
+# "this shape", "the diagram", "the graph below", "shown opposite". A question
+# whose text points at a figure like this but carries NO figure cannot be
+# answered as it stands. Indefinite descriptions ("a rectangle with perimeter
+# 20cm") are deliberately excluded — those are spelled out in the text and point
+# at no picture, so requiring a definite/deictic marker in front of the visual
+# noun keeps the false-positive rate down.
+FIGURE_REFERENCE_RE = re.compile(
+    r'\b(?:'
+    r'(?:this|these|the)\s+'
+    r'(?:shape|shapes|diagram|figure|pattern|net|graph|grid|'
+    r'number\s+line|clock(?:\s+face)?|picture|image|table|chart|'
+    r'arrangement|tiles?|solid)'
+    r'|shown\s+(?:below|above|opposite|here|in|on)'
+    r'|as\s+shown'
+    r')\b',
+    re.IGNORECASE,
+)
+
+# One- and two-letter words that are English, not labels. Without them
+# "measure a line" and "the length of it" would read as labelled parts.
+_NOT_A_LABEL = (r'(?:a|an|as|at|be|by|do|go|he|if|in|is|it|its|me|my|no|of|on|'
+                r'or|so|the|to|up|us|we)')
+
+# A bare letter used as a NAME — "Measure X", "measure AB". Outside a figure
+# such a label denotes nothing at all, which is the CPP-406 wording exactly.
+# Restricted to the measuring verbs and to a 1-2 character label, because a
+# capital letter loose in a sentence is far more often algebra ("T = 5") or a
+# multiple-choice marker than a point on a drawing.
+LABEL_REFERENCE_RE = re.compile(
+    r'\b(?:measure|estimate)\s+(?!' + _NOT_A_LABEL + r'\b)[A-Za-z]{1,2}\b',
+    re.IGNORECASE,
+)
+
+# Types whose "grid" / "bracket" visual is scaffolding transcribed into the
+# structured fields (never attached as a figure), so a figure reference in their
+# text is not a missing image.
+FIGURE_OPTIONAL_TYPES = {'long_division', 'column_operation'}
+
+# Types whose ANSWER is read off — or drawn on — a figure. There is no wording
+# to sniff here: a measure question with nothing to measure and a read-a-graph
+# question with no graph are unanswerable whatever their stem says.
+FIGURE_DEPENDENT_TYPES = {
+    'measure', 'read_graph', 'draw_on_grid', 'shape_select',
+    'plot_points', 'plot_line', 'identify_coords', 'number_line',
+}
+
+
+def verify_question_figure(question):
+    """Return the issues on a question whose figure never reaches the student.
+
+    Separate from ``verify_question`` because it applies to EVERY type — a
+    multiple-choice question that says "which of these shapes…" is as broken
+    without its picture as a measure question is. Returns a list of
+    :class:`Issue`, empty when the question needs no figure or already has one.
+
+    Two ways a question earns MISSING-FIGURE, both requiring that nothing at all
+    renders (``Question.renders_a_figure``):
+
+    TYPE     the question type reads its answer off a figure — ``measure``,
+             ``read_graph``, ``identify_coords`` … — and there is none. The
+             CPP-406 case: a length/mass ``measure`` question generates no
+             figure (only angles are drawable true-to-scale), so without an
+             uploaded image the student is shown a ruler and empty space.
+
+    WORDING  the stem points at a figure ("this shape", "the diagram below",
+             "measure X") that was never attached — typically a PDF import
+             whose crop was skipped.
+
+    Blocking, not advisory: a question nobody can answer costs the student the
+    mark just as surely as a wrong answer key does.
+    """
+    issues = []
+
+    # Scaffolding-visual types transcribe their "grid" into structured fields,
+    # so a figure word in their text is not a missing picture.
+    if question.question_type in FIGURE_OPTIONAL_TYPES:
+        return issues
+
+    # A self-graded type with its spec missing is already reported as
+    # NO-CORRECT, with a detail naming the very field that is absent. Adding
+    # "and it draws no figure" points at the same single fix twice.
+    if (question.question_type in SELF_GRADED_ANSWER_FIELDS
+            and not _self_graded_answer(question)):
+        return issues
+
+    # ``renders_a_figure`` asks each spec-backed type to build its figure, and
+    # a spec that arrived by bulk import never went through ``clean()``. One
+    # unrenderable row must not take down a walk of the whole bank — and it is
+    # a finding in its own right, because nothing reaches the student either
+    # way. Report it, naming the cause, rather than crash or skip.
+    try:
+        has_figure = question.renders_a_figure
+    except Exception as exc:                       # noqa: BLE001 — see above
+        issues.append(Issue(
+            MISSING_FIGURE,
+            f'the figure this question draws itself from cannot be built, so '
+            f'nothing renders: {type(exc).__name__}: {exc}'))
+        return issues
+
+    if has_figure:
+        return issues
+
+    if question.question_type in FIGURE_DEPENDENT_TYPES:
+        issues.append(Issue(
+            MISSING_FIGURE,
+            f'a {question.question_type} question with no figure — its answer '
+            f'is read off a picture, and neither an uploaded image nor a '
+            f'generated one reaches the student'))
+        return issues
+
+    text = question.question_text or ''
+    if FIGURE_REFERENCE_RE.search(text) or LABEL_REFERENCE_RE.search(text):
+        issues.append(Issue(
+            MISSING_FIGURE,
+            'the question points at a figure ("this shape" / "the diagram" / '
+            'a labelled part) but no image is attached — the student is asked '
+            'to read something that is not on the page'))
+    return issues
