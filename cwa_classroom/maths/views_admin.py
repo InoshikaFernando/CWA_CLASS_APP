@@ -16,6 +16,7 @@ from django.views import View
 from billing.views_admin import SuperuserRequiredMixin
 
 from .models import QuestionHealthSnapshot
+from .question_review import USER_REPORTED
 
 # A daily recorder is considered stalled after two missed days, so a single
 # skipped cron run does not cry wolf.
@@ -36,6 +37,11 @@ CODE_LABELS = {
     'BLANK-OPTION': 'Blank option',
     'WRONG-ANSWER-KEY': 'Answer key is wrong',
     'DUPLICATE-VALUE': 'Two distractors are the same value',
+    # Raised from QuestionReport rows rather than by the verifier (CPP-398).
+    # A question a student objected to is unhealthy even when every
+    # deterministic check passes it — the verifier having no objection is
+    # exactly the case the complaint is worth reading.
+    USER_REPORTED: 'Reported by a user',
 }
 
 # Codes that cannot mismark a student — shown, but never in the headline.
@@ -156,8 +162,9 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
     def get(self, request):
         from classroom.models import Level, Subject, Topic
 
-        from .answer_verification import verify_question
+        from .answer_verification import Issue, verify_question
         from .models import Question
+        from .question_review import ReviewState, report_detail
 
         subject_ids = _ids(request, 'subject')
         level_ids = _ids(request, 'level')
@@ -200,6 +207,7 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
         ran = request.GET.get('run') == '1'
         rows = []
         scanned = 0
+        cleared = 0
         truncated = False
         checked_through = 0
         total_matching = 0
@@ -243,9 +251,26 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
                 params.pop('after', None)
                 restart_url = f'{request.path}?{params.urlencode()}'
 
+            # Reports and clearances for this batch, in two queries rather
+            # than two per row (CPP-398).
+            state = ReviewState([q.id for q in batch])
+
             for question in batch:
                 scanned += 1
+                # A person has looked at this one and passed it. Nothing more
+                # to say about it until it is edited or reported again — which
+                # is the whole point of the verdict.
+                if state.is_cleared(question):
+                    cleared += 1
+                    continue
                 issues, _verified = verify_question(question)
+                reports = state.open_reports(question)
+                if reports:
+                    # Appended rather than merged into verify_question: the
+                    # verifier reports what it can prove about the data, and
+                    # "somebody objected" is not that kind of claim.
+                    issues = list(issues) + [
+                        Issue(USER_REPORTED, report_detail(reports))]
                 if not include_advisory:
                     issues = [i for i in issues
                               if i.code not in ADVISORY_LABELS
@@ -300,6 +325,7 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
             'max_limit': CHECK_MAX_LIMIT,
             'ran': ran,
             'rows': rows,
+            'cleared': cleared,
             'bulk_actions': BULK_ACTIONS,
             'scanned': scanned,
             'truncated': truncated,
@@ -322,6 +348,12 @@ BULK_ACTIONS = (
     ('fill_answer', 'Work out the missing answer (arithmetic only)'),
     ('fix_answer_key', 'Correct the answer key (arithmetic only)'),
     ('drop_blank_options', 'Delete blank answer options'),
+    # Not repairs — verdicts (CPP-398). The deterministic checks are blunt, so
+    # a question can be flagged and still be perfectly sound; before these the
+    # only exits from such a row were to edit it needlessly or delete it, and
+    # the same false positives came back on every run.
+    ('mark_reviewed_correct', 'Reviewed and correct — clear it from this list'),
+    ('mark_reviewed_broken', 'Reviewed — needs fixing (keep it listed)'),
 )
 
 # Which fixes address which finding, best first. Every code in CODE_LABELS
@@ -346,6 +378,10 @@ FIXES_FOR_CODE = {
     'DUPLICATE-VALUE': ('replace_duplicates', 'delete_duplicates'),
     'TOO-FEW-OPTIONS': ('pad_options', 'to_short_answer'),
     'TOO-MANY-OPTIONS': ('trim_options',),
+    # A complaint is not a defect the machine can repair — the only route out
+    # is a person looking. Both verdicts are manual (below), so 'auto' never
+    # reaches this and a sweep can never dismiss somebody's report.
+    USER_REPORTED: ('mark_reviewed_correct', 'mark_reviewed_broken'),
 }
 
 # Fixes that decide for themselves. 'set_answer_key' is deliberately excluded:
@@ -359,7 +395,12 @@ FIXES_FOR_CODE = {
 # sweep may choose on a reviewer's behalf, so it stays a deliberate pick from
 # the menu. It is absent from FIXES_FOR_CODE too, which is what actually keeps
 # 'auto' away from it; this is the belt to that pair of braces.
-MANUAL_FIXES = frozenset({'set_answer_key', 'to_ai_graded'})
+#
+# The two review verdicts are manual for the plainest reason of all: they record
+# what a PERSON concluded. A sweep that wrote "reviewed and correct" would be
+# the dashboard vouching for text nobody read.
+MANUAL_FIXES = frozenset({'set_answer_key', 'to_ai_graded',
+                          'mark_reviewed_correct', 'mark_reviewed_broken'})
 
 # The codes whose only remaining route needs a person to tick an option. The
 # check page renders that ticker inline for these rows, so the answer key can
@@ -450,9 +491,13 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
                 )
 
         if changed:
+            # "3 questions fixed" would be a lie for a verdict — nothing about
+            # the question changed, a person's reading of it was recorded.
+            noun = ('reviewed' if action.startswith('mark_reviewed_')
+                    else 'fixed')
             messages.success(
                 request,
-                f'{changed} question{"s" if changed != 1 else ""} fixed.')
+                f'{changed} question{"s" if changed != 1 else ""} {noun}.')
         for note in skipped:
             # Reported individually rather than as a count: "3 skipped" tells
             # the reviewer nothing about what still needs a human.
@@ -647,6 +692,29 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
                 answer.save(update_fields=['is_correct'])
             return {'flagged': [a.answer_text for a in to_flag],
                     'unflagged': [a.answer_text for a in to_unflag]}
+
+        if action in ('mark_reviewed_correct', 'mark_reviewed_broken'):
+            from .models import QuestionReview
+            from .question_review import ReviewState, record_review
+
+            verdict = (QuestionReview.VERDICT_CORRECT
+                       if action == 'mark_reviewed_correct'
+                       else QuestionReview.VERDICT_BROKEN)
+            user = getattr(request, 'user', None) if request else None
+
+            # Re-clearing a question already cleared would stack identical rows
+            # and read as work done. Saying "nothing to change" is the honest
+            # answer, and an edit or a fresh report since the last verdict makes
+            # this false again — which is when a new review IS worth recording.
+            if (verdict == QuestionReview.VERDICT_CORRECT
+                    and ReviewState([question.id]).is_cleared(question)):
+                return None
+
+            review = record_review(question, user=user, verdict=verdict)
+            return {'verdict': verdict, 'review_id': review.id,
+                    'question_updated_at': (
+                        question.updated_at.isoformat()
+                        if question.updated_at else None)}
 
         if action == 'to_short_answer':
             if not plan_type_change(question, answers):

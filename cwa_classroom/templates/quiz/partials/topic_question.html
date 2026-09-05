@@ -370,6 +370,25 @@
     </div>
   {% endif %}
 
+  {% comment %}Report a problem with THIS question (CPP-398). Before it, a student
+  who hit a broken question could only reach the global feedback button, which
+  captures the page URL — and a topic quiz page serves dozens of questions, so the
+  report could not be traced back to the one they were looking at.
+
+  The click is handled by a delegated listener in topic_quiz.html's persistent
+  extra_js block, not by hx-* attributes here: this card is swapped in by
+  innerHTML, which HTMX never gets to process, so hx-get would work on the first
+  question of a quiz and silently do nothing on every one after it.{% endcomment %}
+  <div class="mt-6 pt-4 border-t border-gray-100 text-right">
+    <button type="button"
+            data-report-question="{{ question.id }}"
+            data-testid="report-question"
+            class="text-xs text-gray-400 hover:text-danger transition
+                   hover:underline underline-offset-2">
+      ⚑ Report a problem with this question
+    </button>
+  </div>
+
 </div>
 {% endif %}
 
