@@ -38,7 +38,7 @@
           {% comment %}A fill-in-the-blank sentence prints itself below, with an input in
           each gap — printing it here too would show the question twice.{% endcomment %}
           {% if not q.blank_data %}
-          <p class="font-semibold text-gray-800">{{ q.question_text }}</p>
+          <p class="font-semibold text-gray-800 whitespace-pre-line">{{ q.question_text }}</p>
           {% endif %}
         </div>
       </div>
