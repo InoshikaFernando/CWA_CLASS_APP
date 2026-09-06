@@ -152,6 +152,19 @@
   </p>
   {% endif %}
 
+  {% comment %}A suppressed question that vanishes without a word is how a
+  reviewer comes away believing a bank is clean when part of it was simply
+  hidden. The count says exactly how much of this run is not on screen and on
+  whose authority.{% endcomment %}
+  {% if cleared %}
+  <p class="text-[11px] text-slate-500 mb-4" data-testid="cleared-note">
+    {{ cleared }} question{{ cleared|pluralize }} not listed — someone reviewed
+    {{ cleared|pluralize:"it,them" }} and marked
+    {{ cleared|pluralize:"it,them" }} correct. Editing a question, or a fresh
+    report against it, brings it back.
+  </p>
+  {% endif %}
+
   {% if rows %}
   <form method="post" action="{% url 'question_bulk_fix_admin_dashboard' %}"
         id="bulk-fix" class="bg-slate-800 rounded-xl border border-slate-700 p-4 mb-4">

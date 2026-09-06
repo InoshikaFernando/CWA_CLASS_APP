@@ -465,6 +465,22 @@
     });
   }
 
+  // ── "Report a problem with this question" (CPP-398) ───────────────────────
+  // Delegated from the document rather than bound in _initQuestion(): the
+  // listener then survives every innerHTML swap without needing to be re-bound,
+  // and the card's button carries no HTMX attributes, which a swapped-in node
+  // would never have had processed anyway.
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('[data-report-question]');
+    if (!btn) return;
+    const id = btn.dataset.reportQuestion;
+    // htmx.ajax (not fetch + innerHTML) so the modal's own hx-post form is
+    // processed — a form swapped in raw would post nowhere.
+    htmx.ajax('GET', '{% url "feedback:submit" %}?question=' + encodeURIComponent(id),
+              '#feedback-modal-body');
+    window.dispatchEvent(new CustomEvent('report-question'));
+  });
+
   // Wire the server-rendered first question.
   _initQuestion();
 </script>
