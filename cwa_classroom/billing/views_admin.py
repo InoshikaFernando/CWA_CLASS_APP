@@ -133,6 +133,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         students = self._student_stats(country, today)
         institutes = self._institute_stats(country, institution, today)
         addons = self._addon_stats()
+        past_due = self._past_due_rows(country)
 
         # --- earnings: actual paid revenue from Stripe (fallback: estimate) --
         earnings_source = 'stripe'
@@ -189,6 +190,7 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
             'hide_footer': True,
             'students': students,
             'institutes': institutes,
+            'past_due': past_due,
             'earnings_source': earnings_source,
             'earnings_currency': earnings_currency,
             'counts_source': counts_source,
@@ -276,6 +278,74 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
                     count=Count('id')).order_by('-count'),
             ),
             'donut': self._donut(paying_n, free_n, trial_n, inactive_n),
+        }
+
+    @staticmethod
+    def _past_due_rows(country=''):
+        """Who has a failed payment, and has anyone actually told them.
+
+        The donut says "6 past due" and stops there, which is the number you
+        can do least with. What a person needs before acting is whether those
+        six know: a family that has been emailed is waiting on a card, and one
+        that has not is waiting on us.
+
+        The distinction is not cosmetic. `invoice.payment_failed` was arriving
+        and being processed while the handler could not resolve which
+        subscription it belonged to, so 41 failures notified nobody and the
+        dashboard showed a count that looked handled. "Not told" is the state
+        this panel exists to make visible.
+        """
+        from classroom.models import ParentStudent
+        from audit.models import AuditLog
+
+        qs = (Subscription.objects
+              .filter(status=Subscription.STATUS_PAST_DUE)
+              .select_related('user')
+              .order_by('updated_at'))
+        if country:
+            qs = qs.filter(user__country__iexact=country)
+
+        subs = list(qs)
+        user_ids = [s.user_id for s in subs]
+
+        parents = {}
+        for link in (ParentStudent.objects
+                     .filter(student_id__in=user_ids, is_active=True)
+                     .select_related('parent')):
+            if link.parent and link.parent.email:
+                parents.setdefault(link.student_id, []).append(link.parent.email)
+
+        # Told since THIS lapse, not ever: a student who failed, paid, and
+        # failed again is owed another notice, and showing the old one as
+        # current would hide that.
+        told = {}
+        for ev in AuditLog.objects.filter(
+                user_id__in=user_ids,
+                action__in=('payment_failed_notice_sent',
+                            'payment_failed_unreachable')).order_by('created_at'):
+            told.setdefault(ev.user_id, []).append(ev)
+
+        rows = []
+        for sub in subs:
+            emails = ([sub.user.email] if sub.user.email else [])
+            emails += [e for e in parents.get(sub.user_id, []) if e not in emails]
+            notified = any(
+                ev.action == 'payment_failed_notice_sent'
+                and ev.created_at >= sub.updated_at
+                for ev in told.get(sub.user_id, []))
+            rows.append({
+                'username': sub.user.username,
+                'name': sub.user.get_full_name() or sub.user.username,
+                'since': sub.updated_at,
+                'emails': emails,
+                'reachable': bool(emails),
+                'notified': notified,
+            })
+        return {
+            'rows': rows,
+            'count': len(rows),
+            'untold': sum(1 for r in rows if not r['notified'] and r['reachable']),
+            'unreachable': sum(1 for r in rows if not r['reachable']),
         }
 
     # -- institutes ----------------------------------------------------------
