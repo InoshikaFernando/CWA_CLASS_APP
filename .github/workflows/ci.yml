@@ -190,6 +190,10 @@ jobs:
               - 'cwa_classroom/billing/**'
             homework:
               - 'cwa_classroom/homework/**'
+              # The take page renders coding's shared window for a coding item,
+              # and coding's plugin builds that window's context.
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/templates/coding/**'
             brainbuzz:
               - 'cwa_classroom/brainbuzz/**'
             ai_import:
@@ -328,6 +332,10 @@ jobs:
               - 'cwa_classroom/homework/**'
               - 'cwa_classroom/maths/**'
               - 'cwa_classroom/templates/homework/**'
+              # A coding item on the take page renders coding's shared window
+              # and posts its runs to coding's API.
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/templates/coding/**'
             # Deployed-environment tests (-m migration / -m live). They skip
             # without --live-url, so the job only proves they still import and
             # collect — cheap, and the alternative is finding a broken live

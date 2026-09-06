@@ -28,6 +28,12 @@ Parameters (via {% include ... with %}):
   cw_extra_code     Optional snippet; adds a button that loads it into the
                     editor (the builder preview passes the reference solution).
   cw_extra_label    Label for that button. Default "Load solution".
+  cw_textarea_name  Optional form field name for the editor's textarea, so the
+                    code posts with the surrounding form (homework, worksheet
+                    session). Omit for read-only/try-it windows.
+  cw_mark_complete  Truthy to send mark_complete:true with the run. Pages that
+                    own grading elsewhere (homework, worksheet session) leave
+                    it off — a Run there is feedback, never a submission.
 {% endcomment %}
 <div class="cw-window" data-code-window id="cw-{{ cw_id }}"
      {% if cw_height %}style="--cw-panel-h: {{ cw_height }};"{% endif %}>
@@ -45,7 +51,7 @@ Parameters (via {% include ... with %}):
     "expectedOutput": {% if cw_expected_output %}"{{ cw_expected_output|escapejs }}"{% else %}null{% endif %},
     "readOnly": {{ cw_read_only|yesno:"true,false" }},
     "extraCode": "{{ cw_extra_code|escapejs }}",
-    "payload": {% if cw_exercise_id %}{"exercise_id": {{ cw_exercise_id }}}{% else %}{}{% endif %}
+    "payload": {% if cw_exercise_id %}{"exercise_id": {{ cw_exercise_id }}, "mark_complete": {{ cw_mark_complete|yesno:"true,false" }}}{% else %}{}{% endif %}
   }
   </script>
 
@@ -83,11 +89,19 @@ Parameters (via {% include ... with %}):
           <span class="cw-dot cw-dot-g"></span>
           <span class="cw-file-label">{{ cw_filename|default:"main.py" }}</span>
         </div>
+        {% comment %}The starter code is rendered INTO the textarea rather than
+        pushed in from the config: CodeMirror seeds itself from the textarea, so
+        a page that writes a saved draft into it before mount (the homework
+        resume path) keeps that draft instead of having it overwritten.
+        cw_textarea_name gives the field a name so the code posts with the form
+        — CodeMirror flushes back to the textarea on submit.{% endcomment %}
         {% if cw_mode == 'preview' %}
-        <div class="cw-host cw-host-html"><textarea class="cw-editor-html"></textarea></div>
-        <div class="cw-host cw-host-css hidden"><textarea class="cw-editor-css"></textarea></div>
+        <div class="cw-host cw-host-html"><textarea class="cw-editor-html">{{ cw_starter_html }}</textarea></div>
+        <div class="cw-host cw-host-css hidden"><textarea class="cw-editor-css">{{ cw_starter_css }}</textarea></div>
         {% else %}
-        <div class="cw-host"><textarea class="cw-editor"></textarea></div>
+        <div class="cw-host"><textarea class="cw-editor"
+             {% if cw_textarea_name %}name="{{ cw_textarea_name }}" id="{{ cw_textarea_name }}"{% endif %}
+             spellcheck="false">{{ cw_starter }}</textarea></div>
         {% endif %}
       </div>
 

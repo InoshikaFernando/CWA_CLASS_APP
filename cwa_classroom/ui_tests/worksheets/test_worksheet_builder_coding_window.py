@@ -41,10 +41,21 @@ def coding_exercise(db, coding_topic_level):
     )
 
 
-def _open_coding_preview(page: Page, live_server_url: str) -> None:
-    """Log-in-to-open-preview: the click path a teacher actually takes."""
-    page.goto(f"{live_server_url}/worksheets/builder/")
+def _go_to_builder(page: Page) -> None:
+    """Reach the builder the way a teacher does — by clicking the sidebar.
+
+    Deliberately no page.goto(): typing the URL would pass even if the sidebar
+    entry did not exist, and for a long time it did not. The builder's only way
+    in was a button on the Worksheets page, so a teacher who did not already
+    know the page was there could not find it.
+    """
+    page.get_by_role("link", name="Worksheet Builder").click()
     page.wait_for_load_state("networkidle")
+    expect(page.locator("select#filter-subject")).to_be_visible(timeout=10000)
+
+
+def _open_coding_preview(page: Page) -> None:
+    """From the builder, filter to Coding and open an exercise's preview."""
 
     # Subject → Coding swaps the cascade (topic/level/type selects), which in
     # turn reloads the question list. Wait for a coding card rather than for a
@@ -66,7 +77,8 @@ class TestBuilderCodingWindow:
     ):
         """Editor and console both render, with the starter code loaded."""
         do_login(page, live_server.url, teacher_user)
-        _open_coding_preview(page, live_server.url)
+        _go_to_builder(page)
+        _open_coding_preview(page)
 
         window = page.locator("#preview-modal [data-code-window]")
         expect(window).to_be_visible()
@@ -92,7 +104,8 @@ class TestBuilderCodingWindow:
         builder refreshes it. This is the regression guard for that refresh.
         """
         do_login(page, live_server.url, teacher_user)
-        _open_coding_preview(page, live_server.url)
+        _go_to_builder(page)
+        _open_coding_preview(page)
 
         editor = page.locator("#preview-modal .CodeMirror")
         expect(editor).to_be_visible(timeout=5000)
@@ -128,7 +141,8 @@ class TestBuilderCodingWindow:
 
         page.route("**/coding/api/preview-run/", _fake_run)
 
-        _open_coding_preview(page, live_server.url)
+        _go_to_builder(page)
+        _open_coding_preview(page)
 
         with page.expect_request("**/coding/api/preview-run/"):
             page.locator("#preview-modal .cw-run").click()
@@ -144,7 +158,8 @@ class TestBuilderCodingWindow:
     ):
         """One click to check the reference solution against expected output."""
         do_login(page, live_server.url, teacher_user)
-        _open_coding_preview(page, live_server.url)
+        _go_to_builder(page)
+        _open_coding_preview(page)
 
         page.locator("#preview-modal .cw-load").click()
         expect(page.locator("#preview-modal .CodeMirror")).to_contain_text(
@@ -156,7 +171,8 @@ class TestBuilderCodingWindow:
     ):
         """The window is an addition to the preview, not a replacement."""
         do_login(page, live_server.url, teacher_user)
-        _open_coding_preview(page, live_server.url)
+        _go_to_builder(page)
+        _open_coding_preview(page)
 
         page.locator("#preview-modal .preview-add-btn").click()
         expect(page.locator("#sidebar-question-list")).to_contain_text(
@@ -181,7 +197,8 @@ class TestBuilderCodingWindow:
             body='{"stdout": "hello world", "stderr": "", "exit_code": 0}',
         ))
 
-        _open_coding_preview(page, live_server.url)
+        _go_to_builder(page)
+        _open_coding_preview(page)
         expect(page.locator("#preview-modal .CodeMirror")).to_be_visible(timeout=5000)
         page.wait_for_timeout(400)
 

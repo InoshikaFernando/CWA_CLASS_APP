@@ -222,6 +222,95 @@ class TestCodingHomeworkTake:
         # Language badge
         expect(page.get_by_text(coding_exercise.topic_level.topic.language.name).first).to_be_visible()
 
+    @pytest.mark.django_db(transaction=True)
+    def test_take_page_uses_the_shared_coding_window(
+        self, page: Page, live_server, enrolled_student, coding_homework_ready, coding_exercise
+    ):
+        """Editor and console side by side, as everywhere else in the app.
+
+        This page used to build its own CodeMirror and put the output panel
+        below the editor; it renders coding/partials/_code_window.html now.
+        """
+        page.set_viewport_size({"width": 1440, "height": 1000})
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/homework/{coding_homework_ready.pk}/take/")
+        page.wait_for_load_state("networkidle")
+
+        window = page.locator("[data-code-window]").first
+        expect(window).to_be_visible()
+        expect(window.locator(".cw-stdout")).to_be_visible()
+
+        editor_box = window.locator(".cw-chrome").bounding_box()
+        console_box = window.locator(".cw-output-wrap").bounding_box()
+        assert editor_box and console_box
+        assert console_box["x"] > editor_box["x"] + editor_box["width"] - 10, (
+            "console should sit beside the editor, not under it"
+        )
+
+    @pytest.mark.django_db(transaction=True)
+    def test_typed_code_is_submitted_with_the_form(
+        self, page: Page, live_server, enrolled_student, coding_homework_ready, coding_exercise
+    ):
+        """The editor's text must reach the server as code_<id>.
+
+        CodeMirror replaces the textarea with its own DOM and only writes back
+        on submit; if that flush stops working the student's code posts as
+        whatever the textarea held at page load — silently, with no error.
+        """
+        from homework.models import HomeworkStudentAnswer
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/homework/{coding_homework_ready.pk}/take/")
+        page.wait_for_load_state("networkidle")
+
+        editor = page.locator("[data-code-window] .CodeMirror").first
+        expect(editor).to_be_visible(timeout=5000)
+        editor.click()
+        page.keyboard.press("Control+A")
+        page.keyboard.type('print("Hello")')
+
+        page.get_by_role("button", name="Submit").last.click()
+        page.wait_for_load_state("networkidle")
+
+        answer = HomeworkStudentAnswer.objects.filter(
+            submission__homework=coding_homework_ready,
+            content_id=coding_exercise.pk,
+        ).first()
+        assert answer is not None, "no answer row was created for the coding item"
+        assert 'print("Hello")' in (answer.text_answer or ""), (
+            f"submitted code did not reach the server: {answer.text_answer!r}"
+        )
+
+    @pytest.mark.django_db(transaction=True)
+    def test_saved_draft_is_not_overwritten_by_the_starter_code(
+        self, page: Page, live_server, enrolled_student, coding_homework_ready, coding_exercise
+    ):
+        """Resuming must show the student's code, not the starter again.
+
+        The page writes a saved draft into the textarea before the editor
+        mounts. An editor that seeded itself from its config instead would
+        throw that work away on every resume.
+        """
+        from homework.models import HomeworkDraft
+
+        HomeworkDraft.objects.update_or_create(
+            homework=coding_homework_ready,
+            student=enrolled_student,
+            defaults={
+                "answers_data": {f"code_{coding_exercise.pk}": '# my saved work\nprint(1)\n'},
+                "time_taken_seconds": 42,
+            },
+        )
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/homework/{coding_homework_ready.pk}/take/")
+        page.wait_for_load_state("networkidle")
+
+        editor = page.locator("[data-code-window] .CodeMirror").first
+        expect(editor).to_be_visible(timeout=5000)
+        expect(editor).to_contain_text("my saved work")
+        expect(editor).not_to_contain_text("Write your solution")
+
 
 # ---------------------------------------------------------------------------
 # Plugin grade_answer unit tests  (no Piston required)

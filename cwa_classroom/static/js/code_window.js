@@ -76,7 +76,7 @@
     }
   }
 
-  CodeWindow.prototype._makeEditor = function (textarea, mode, value) {
+  CodeWindow.prototype._makeEditor = function (textarea, mode) {
     var self = this;
     var opts = Object.assign({}, CM_BASE_OPTS, {
       mode: mode,
@@ -91,8 +91,11 @@
         'Cmd-Enter': function () { self.run(); },
       },
     });
+    // fromTextArea seeds the editor from the textarea's own value — do NOT
+    // setValue() over it. On the homework page a saved draft is written into
+    // that textarea before mount, and overwriting it would silently throw a
+    // student's resumed work away. cfg.starter is only what Reset goes back to.
     var cm = CodeMirror.fromTextArea(textarea, opts);
-    cm.setValue(value || '');
     cm.clearHistory();
     cm.setSize('100%', '100%');
     return cm;
@@ -100,13 +103,11 @@
 
   CodeWindow.prototype._buildEditors = function () {
     if (this.isPreview) {
-      this.editorHtml = this._makeEditor(
-        $(this.root, '.cw-editor-html'), 'htmlmixed', this.cfg.starterHtml);
-      this.editorCss = this._makeEditor(
-        $(this.root, '.cw-editor-css'), 'css', this.cfg.starterCss);
+      this.editorHtml = this._makeEditor($(this.root, '.cw-editor-html'), 'htmlmixed');
+      this.editorCss = this._makeEditor($(this.root, '.cw-editor-css'), 'css');
     } else {
       this.editor = this._makeEditor(
-        $(this.root, '.cw-editor'), this.cfg.cmMode || 'python', this.cfg.starter);
+        $(this.root, '.cw-editor'), this.cfg.cmMode || 'python');
     }
   };
 
@@ -175,8 +176,9 @@
   };
 
   /* Show whether stdout matched the exercise's expected output.
-   * `state` is true (match), false (mismatch) or null (nothing to say). */
-  CodeWindow.prototype._setMatch = function (state) {
+   * `state` is true (match), false (mismatch) or null (nothing to say);
+   * `message` overrides the default wording. */
+  CodeWindow.prototype._setMatch = function (state, message) {
     var el = $(this.root, '.cw-match');
     if (!el) return;
     if (state === null) {
@@ -187,9 +189,9 @@
     el.style.display = 'block';
     el.classList.toggle('cw-match-ok', state);
     el.classList.toggle('cw-match-bad', !state);
-    el.textContent = state
+    el.textContent = message || (state
       ? '✓ Output matches the expected output.'
-      : '✗ Output does not match the expected output.';
+      : '✗ Output does not match the expected output.');
   };
 
   /* Replace what is in the editor (the HTML pane, in preview mode). */
@@ -245,13 +247,24 @@
     var stdinEl = $(this.root, '.cw-stdin');
     var originalLabel = btn ? btn.innerHTML : '';
 
+    if (!this.editor.getValue().trim()) {
+      stdout.textContent = 'Write some code first.';
+      this._setStderr('');
+      this._setMatch(null);
+      return Promise.resolve();
+    }
+
     if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
     stdout.textContent = 'Running…';
     this._setStderr('');
     this._setMatch(null);
 
+    // `language` and `language_slug` carry the same value: the playground and
+    // teacher-preview endpoints read the first, api_run_code the second. One
+    // window serves all three rather than each caller owning a spelling.
     var payload = Object.assign({
       language: this.cfg.language,
+      language_slug: this.cfg.language,
       code: this.editor.getValue(),
       stdin: stdinEl ? stdinEl.value : '',
     }, this.cfg.payload || {});
@@ -283,14 +296,58 @@
       return;
     }
 
+    // HTML/CSS and DOM exercises render in the browser and never reach the
+    // sandbox, so api_run_code answers with this instead of output.
+    if (data.browser_sandbox) {
+      stdout.textContent = 'This one runs in the browser — open it on the '
+                         + 'exercise page to see the rendered result.';
+      this._setStderr('');
+      this._setMatch(null);
+      return;
+    }
+
     var out = data.stdout || '';
     stdout.textContent = out || (data.error ? data.error : '(no output)');
     this._setStderr(data.stderr || '');
+    this._setVerdict(data, out);
+  };
+
+  /* Did the run produce what the exercise wanted?
+   *
+   * Prefer the server's answer whenever it gives one: api_run_code also
+   * enforces the exercise's required_code_patterns, so a plain client-side
+   * comparison would cheerfully tell a student "matches" on a run the server
+   * is about to reject for using the wrong approach. Fall back to comparing
+   * against cfg.expectedOutput only where no exercise is in play (the teacher
+   * preview, which scores nothing). */
+  CodeWindow.prototype._setVerdict = function (data, out) {
+    if (data.exercise_has_expected && typeof data.exercise_score === 'number') {
+      if (data.exercise_score === 100) {
+        this._setMatch(true);
+      } else {
+        this._setMatch(false, data.exercise_pattern_fail
+          ? '✗ Output is correct, but use the approach shown in the starter code.'
+          : null);
+      }
+      return;
+    }
 
     var expected = this.cfg.expectedOutput;
     if (expected !== null && expected !== undefined && expected !== '') {
       this._setMatch(out.trim() === String(expected).trim());
     }
+  };
+
+  /* Write the editor's text back into the textarea it replaced.
+   *
+   * CodeMirror does this itself on a NATIVE form submit, which is not enough
+   * here: the worksheet session posts over htmx, and the homework page
+   * serialises the form for autosave without submitting it at all. Both read
+   * the textarea, so both need an explicit flush first — see syncAll(). */
+  CodeWindow.prototype.save = function () {
+    [this.editor, this.editorHtml, this.editorCss].forEach(function (cm) {
+      if (cm) cm.save();
+    });
   };
 
   CodeWindow.prototype.refresh = function () {
@@ -342,6 +399,18 @@
         host.querySelectorAll('[data-code-window]'), refresh);
     },
 
+    /* Flush every window's editor back into its textarea, so a form read
+     * (submit, htmx serialisation, autosave) sees the current code. */
+    syncAll: function (scope) {
+      var host = scope || document;
+      var save = function (root) {
+        if (root[INSTANCE]) root[INSTANCE].save();
+      };
+      if (host.matches && host.matches('[data-code-window]')) save(host);
+      Array.prototype.forEach.call(
+        host.querySelectorAll('[data-code-window]'), save);
+    },
+
     /* The instance for a root element, or undefined. */
     get: function (root) { return root ? root[INSTANCE] : undefined; },
   };
@@ -350,10 +419,34 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     api.mountAll(document);
+
     // htmx-loaded windows (the worksheet builder's preview modal) mount as
     // soon as they land in the DOM.
     document.body.addEventListener('htmx:afterSwap', function (evt) {
       api.mountAll(evt.target || document);
+    });
+
+    // An htmx post serialises the form itself, without a native submit, so
+    // CodeMirror's own submit hook never fires. The worksheet session submits
+    // this way, and flushing the textarea here is NOT enough on its own:
+    // htmx:configRequest fires AFTER htmx has already read the form, so the
+    // request would still carry whatever the textarea held at page load — the
+    // starter code, every time, with nothing anywhere reporting a problem.
+    // The fresh value therefore goes into the outgoing parameters directly.
+    document.body.addEventListener('htmx:configRequest', function (evt) {
+      var target = evt.target;
+      var scope = (target && target.closest && target.closest('form')) || target || document;
+      api.syncAll(scope);
+
+      var params = evt.detail && evt.detail.parameters;
+      if (!params || !scope.querySelectorAll) return;
+
+      Array.prototype.forEach.call(
+        scope.querySelectorAll('[data-code-window] textarea[name]'), function (ta) {
+          // htmx 2 hands over a FormData; htmx 1 a plain object.
+          if (typeof params.set === 'function') params.set(ta.name, ta.value);
+          else params[ta.name] = ta.value;
+        });
     });
   });
 

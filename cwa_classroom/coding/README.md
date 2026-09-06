@@ -66,11 +66,28 @@ into a container that is still hidden needs `CodeWindow.refreshAll()` once the
 container is visible — CodeMirror measures itself on mount and otherwise draws
 a zero-height box.
 
-Rendered by the standalone compilers and by the worksheet builder's exercise
-preview. `templates/coding/exercise_detail.html`, `problem_detail.html`, the
-homework take page and the worksheet session still carry their own copies —
-migrating them onto this partial is the remaining work, and would also get them
-off the CodeMirror CDN.
+`_exercise_code_window.html` is the wrapper for an exercise sitting inside an
+answer form: pass it the dict from `CodingPlugin.take_item_context()` and it
+forwards everything. Console mode, `mark_complete` false, and a
+`code_<content_id>` textarea so the code posts with the form.
+
+Rendered by the standalone compilers, the worksheet builder's exercise preview,
+the homework take page and the worksheet session.
+`templates/coding/exercise_detail.html` and `problem_detail.html` still carry
+their own copies — migrating them is the remaining work, and would also get
+them off the CodeMirror CDN.
+
+**Reading a run's verdict.** `api_run_code` also enforces an exercise's
+`required_code_patterns`, so where the response carries `exercise_score` the
+window reports the server's answer, never its own comparison — otherwise it
+would tell a student "matches" on a run the server is about to reject for using
+the wrong approach.
+
+**Forms.** CodeMirror writes back to its textarea only on a native submit. A
+page that posts over htmx or serialises the form itself (autosave) must go
+through `CodeWindow.syncAll()`; the window installs an `htmx:configRequest`
+hook that also writes the fresh code into the outgoing parameters, because
+htmx has already read the form by the time that event fires.
 
 ## Integration
 
