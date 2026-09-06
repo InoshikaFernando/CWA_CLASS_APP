@@ -2,10 +2,22 @@
 CPP-335: measure partial — generated true-scale figure + a numeric box.
 The grader strips the unit, so the student types just the number.
 Context: question
+
+session.html renders ``question.image`` directly above this partial, so an
+uploaded figure is already on the page and is deliberately not repeated here.
+Only a question with NEITHER — no image and no generated angle — leaves the
+student with nothing to measure, which is CPP-406; say so rather than print a
+lone "Measure…" box over blank space.
 {% endcomment %}
 <div>
   {% if question.measure_figure_svg %}
   <div class="measure-figure mb-4 max-w-[16rem] text-gray-900">{{ question.measure_figure_svg|safe }}</div>
+  {% elif not question.renders_a_figure %}
+  <p class="measure-missing-figure mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+     role="status">
+    This question is missing the figure you are meant to measure, so there is
+    nothing to read here. Please tell your teacher.
+  </p>
   {% endif %}
   <div class="flex items-center gap-2">
     <input type="text" name="text_answer" inputmode="decimal" required

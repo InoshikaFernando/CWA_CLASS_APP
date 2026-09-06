@@ -16,6 +16,27 @@ from django.utils import timezone
 QUESTION_IMAGE_PATH_RE = re.compile(r'^questions/year[0-9]+/[a-zA-Z0-9_-]+/.+')
 
 
+# What each question type draws for ITSELF, keyed to the render property the
+# take templates read. When that property comes back empty the type puts no
+# picture on the page, so an uploaded image is the only thing the student has to
+# look at — which is what ``Question.renders_a_figure`` below reports.
+#
+# A type absent from here never generates a figure at all (a multiple-choice
+# question, a short answer): for those an image is the only possible visual.
+FIGURE_RENDER_PROPERTIES = {
+    'measure': 'measure_figure_svg',
+    'read_graph': 'graph_data',
+    'draw_on_grid': 'draw_on_grid_data',
+    'shape_select': 'shape_select_data',
+    'plot_points': 'plane_data',
+    'plot_line': 'plane_data',
+    'identify_coords': 'plane_data',
+    'number_line': 'number_line_data',
+    'table_of_values': 'table_data',
+    'sketch_graph': 'sketch_data',
+}
+
+
 # A "list every value" answer ("54, 63" / "54 and 63" / "54; 63") split into
 # its values. A comma that groups digits ("1,000", "12,345,678") is part of the
 # number, not a separator, so it is protected before the split — otherwise
@@ -1388,6 +1409,28 @@ class Question(models.Model):
             'dots': dots, 'drawable': drawable,
             'features': features, 'answer_features': answer_features,
         }
+
+    @property
+    def renders_a_figure(self):
+        """Does a student taking this question see a picture of any kind?
+
+        True for an uploaded image or video, and for the types that draw their
+        own figure once the spec behind it is set — the angle a ``measure``
+        question generates from ``numeric_answer``, the plane a ``plot_points``
+        question draws from ``plane_spec``, and so on. Reads the same render
+        properties the take templates read, so "is there anything on the page
+        to look at" is answered once here rather than re-derived per template
+        and per audit (``maths.answer_verification.verify_question_figure``).
+
+        False does NOT mean the question is broken: most questions need no
+        figure. It means an image is the only visual this question could have,
+        and it has none — which IS a fault when the stem points at a figure or
+        the type is one whose answer is read off one (CPP-406).
+        """
+        if self.image or self.video:
+            return True
+        prop = FIGURE_RENDER_PROPERTIES.get(self.question_type)
+        return bool(getattr(self, prop)) if prop else False
 
     @property
     def blank_data(self):

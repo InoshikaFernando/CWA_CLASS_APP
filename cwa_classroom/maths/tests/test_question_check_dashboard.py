@@ -5,6 +5,7 @@ answers "what is wrong in Year 7 Fractions, right now?" and puts Edit/Delete
 next to each finding, so a super-admin never needs a shell to act on it.
 """
 import re
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
@@ -1153,9 +1154,12 @@ class EveryProblemHasAFixTests(QuestionCheckTestBase):
     """A problem the page reports but offers no route out of is a dead end."""
 
     def test_every_reported_code_maps_to_a_fix(self):
-        from maths.views_admin import BULK_ACTIONS, CODE_LABELS, FIXES_FOR_CODE
+        from maths.views_admin import (
+            BULK_ACTIONS, CODE_LABELS, FIXES_FOR_CODE, MANUAL_ONLY_CODES)
         actions = {value for value, _label in BULK_ACTIONS}
         for code in CODE_LABELS:
+            if code in MANUAL_ONLY_CODES:
+                continue
             with self.subTest(code):
                 self.assertIn(code, FIXES_FOR_CODE,
                               f'{code} is reported with no fix offered')
@@ -1164,6 +1168,46 @@ class EveryProblemHasAFixTests(QuestionCheckTestBase):
                 for fix in FIXES_FOR_CODE[code]:
                     self.assertIn(fix, actions)
 
+    def test_manual_only_codes_are_deliberately_out_of_the_fix_map(self):
+        """The exemption above must be a decision, not a gap.
+
+        A missing figure has no bulk fix — which picture belongs is a
+        judgement only a person with the source can make — so MISSING-FIGURE
+        is exempt. But the exemption has to be spelled out in
+        ``MANUAL_ONLY_CODES``, and a code cannot be exempt AND mapped: that
+        combination means someone added a fix and forgot to lift the
+        exemption, and the dropdown would then silently do nothing.
+        """
+        from maths.views_admin import (
+            CODE_LABELS, FIXES_FOR_CODE, MANUAL_ONLY_CODES)
+        self.assertTrue(MANUAL_ONLY_CODES <= set(CODE_LABELS),
+                        'a code exempt from the fix map is not even reported')
+        for code in MANUAL_ONLY_CODES:
+            with self.subTest(code):
+                self.assertNotIn(code, FIXES_FOR_CODE)
+
+    def test_auto_says_so_when_only_a_person_can_fix_it(self):
+        """'Fix automatically' must never report a broken question as clean.
+
+        The fixer re-verifies rather than trusting the rendered row, and it
+        used to run only the OPTION checks — so a question whose sole fault
+        was a missing figure came back "nothing wrong with it now", the page
+        contradicting its own finding (CPP-406).
+        """
+        from maths.views_admin import QuestionBulkFixView
+
+        q = Question.objects.create(
+            level=self.y7, topic=self.fractions, question_text='Measure X',
+            question_type=Question.MEASURE, difficulty=1, points=1,
+            numeric_answer=Decimal('6.5'), answer_tolerance=Decimal('0.2'),
+            answer_unit='cm',
+        )
+        applied, reason = QuestionBulkFixView()._auto(None, q, [])
+
+        self.assertEqual(applied, [])
+        self.assertIn('figure', reason)
+        self.assertNotIn('nothing wrong', reason)
+
     def test_every_code_keeps_a_fix_that_worded_answers_can_use(self):
         """The arithmetic-only fixes are not enough on their own.
 
@@ -1171,10 +1215,13 @@ class EveryProblemHasAFixTests(QuestionCheckTestBase):
         anything non-numeric is reported with no usable route out — which is
         the dead end this class exists to prevent, dressed up as a mapping.
         """
-        from maths.views_admin import CODE_LABELS, FIXES_FOR_CODE
+        from maths.views_admin import (
+            CODE_LABELS, FIXES_FOR_CODE, MANUAL_ONLY_CODES)
         arithmetic_only = {'fill_answer', 'fix_answer_key',
                            'replace_duplicates', 'pad_options'}
         for code in CODE_LABELS:
+            if code in MANUAL_ONLY_CODES:
+                continue
             with self.subTest(code):
                 general = [f for f in FIXES_FOR_CODE[code]
                            if f not in arithmetic_only]
