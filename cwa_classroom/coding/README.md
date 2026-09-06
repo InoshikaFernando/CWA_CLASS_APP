@@ -47,7 +47,16 @@ auto-completion — and rejects the browser-sandbox languages rather than
 returning empty output for them.
 
 The playgrounds (`/coding/playground/…`) are `login_required` only: free-form
-compilers for everyone, tied to no exercise.
+compilers for everyone, tied to no exercise. Three of them:
+
+- **Python** and **JavaScript** — run through Piston into the console.
+- **HTML / CSS / JS** — three panes (`index.html`, `style.css`, `script.js`)
+  assembled in the browser into one page: the stylesheet before `</head>`, the
+  script before `</body>` so it runs against parsed markup rather than finding
+  an empty document. Nothing here reaches the server.
+
+Its URL slug is still `html-css` although the name says JS — the slug is in the
+URL and renaming it would break every bookmark for the sake of cosmetics.
 
 ## The shared coding window
 

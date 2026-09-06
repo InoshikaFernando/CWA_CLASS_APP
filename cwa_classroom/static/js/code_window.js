@@ -54,6 +54,15 @@
 
   var IDLE_MESSAGE = 'Press “Run” to see your output here.';
 
+  /* The panes a live-preview window can carry. HTML and CSS are always there;
+   * JS appears only when the page asked for it (cw_show_js), because an
+   * exercise seeds a single document and has nothing to put in a third pane. */
+  var PREVIEW_PANES = {
+    html: { editor: 'editorHtml', selector: '.cw-editor-html', host: '.cw-host-html', mode: 'htmlmixed', filename: 'index.html' },
+    css:  { editor: 'editorCss',  selector: '.cw-editor-css',  host: '.cw-host-css',  mode: 'css',       filename: 'style.css' },
+    js:   { editor: 'editorJs',   selector: '.cw-editor-js',   host: '.cw-host-js',   mode: 'javascript', filename: 'script.js' },
+  };
+
   // ── helpers ──────────────────────────────────────────────────────────────
 
   function $(root, selector) { return root.querySelector(selector); }
@@ -85,6 +94,7 @@
     this.editor = null;
     this.editorHtml = null;
     this.editorCss = null;
+    this.editorJs = null;
 
     if (this.panes !== 'console') this._buildEditors();
     this._bind();
@@ -126,13 +136,17 @@
   };
 
   CodeWindow.prototype._buildEditors = function () {
-    if (this.isPreview) {
-      this.editorHtml = this._makeEditor($(this.root, '.cw-editor-html'), 'htmlmixed');
-      this.editorCss = this._makeEditor($(this.root, '.cw-editor-css'), 'css');
-    } else {
+    if (!this.isPreview) {
       this.editor = this._makeEditor(
         $(this.root, '.cw-editor'), this.cfg.cmMode || 'python');
+      return;
     }
+    var self = this;
+    Object.keys(PREVIEW_PANES).forEach(function (key) {
+      var pane = PREVIEW_PANES[key];
+      var textarea = $(self.root, pane.selector);
+      if (textarea) self[pane.editor] = self._makeEditor(textarea, pane.mode);
+    });
   };
 
   CodeWindow.prototype._bind = function () {
@@ -164,23 +178,26 @@
   // ── tabs (HTML / CSS preview mode) ───────────────────────────────────────
 
   CodeWindow.prototype.showTab = function (which) {
-    var showHtml = which === 'html';
+    var pane = PREVIEW_PANES[which];
+    if (!pane) return;
     var root = this.root;
 
-    $(root, '.cw-host-html').classList.toggle('hidden', !showHtml);
-    $(root, '.cw-host-css').classList.toggle('hidden', showHtml);
+    Object.keys(PREVIEW_PANES).forEach(function (key) {
+      var host = $(root, PREVIEW_PANES[key].host);
+      if (host) host.classList.toggle('hidden', key !== which);
+    });
 
     Array.prototype.forEach.call(root.querySelectorAll('.cw-tab'), function (tab) {
       tab.classList.toggle('active', tab.dataset.cwTab === which);
     });
 
     var label = $(root, '.cw-file-label');
-    if (label) label.textContent = showHtml ? 'index.html' : 'style.css';
+    if (label) label.textContent = pane.filename;
 
     // CodeMirror measures itself on creation; an editor that was hidden then
     // needs a refresh or it draws as an empty box.
-    var cm = showHtml ? this.editorHtml : this.editorCss;
-    setTimeout(function () { cm.refresh(); }, 0);
+    var cm = this[pane.editor];
+    if (cm) setTimeout(function () { cm.refresh(); }, 0);
   };
 
   // ── output panel ─────────────────────────────────────────────────────────
@@ -231,8 +248,9 @@
     if (!this.editor && !this.editorHtml) return;
     if (!window.confirm('Reset code to the starter template?')) return;
     if (this.isPreview) {
-      this.editorHtml.setValue(this.cfg.starterHtml || '');
-      this.editorCss.setValue(this.cfg.starterCss || '');
+      if (this.editorHtml) this.editorHtml.setValue(this.cfg.starterHtml || '');
+      if (this.editorCss) this.editorCss.setValue(this.cfg.starterCss || '');
+      if (this.editorJs) this.editorJs.setValue(this.cfg.starterJs || '');
       this.run();
     } else {
       this.editor.setValue(this.cfg.starter || '');
@@ -256,16 +274,35 @@
     return this._runRemote(code, extraPayload);
   };
 
-  /* HTML + CSS are two editors but one document: inject the stylesheet just
-   * before </head>, or prepend it when the snippet has no head. */
+  /* Up to three editors, one document: the stylesheet goes just before
+   * </head>, the script just before </body>, and each falls back to being
+   * bolted on when the snippet has no such tag.
+   *
+   * The script goes LAST on purpose — it runs against a parsed page, so
+   * document.querySelector finds the markup written in the HTML pane. Put it
+   * in the head and every DOM lookup a student writes returns null. */
   CodeWindow.prototype.buildDocument = function () {
     if (!this.editorHtml) return '';
-    var html = this.editorHtml.getValue();
-    var styleTag = '<style>\n' + this.editorCss.getValue() + '\n</style>';
-    if (/<\/head>/i.test(html)) {
-      return html.replace(/<\/head>/i, styleTag + '\n</head>');
+    var doc = this.editorHtml.getValue();
+
+    if (this.editorCss) {
+      var styleTag = '<style>\n' + this.editorCss.getValue() + '\n</style>';
+      doc = /<\/head>/i.test(doc)
+        ? doc.replace(/<\/head>/i, styleTag + '\n</head>')
+        : styleTag + '\n' + doc;
     }
-    return styleTag + '\n' + html;
+
+    if (this.editorJs) {
+      var js = this.editorJs.getValue();
+      if (js.trim()) {
+        var scriptTag = '<script>\n' + js + '\n<\/script>';
+        doc = /<\/body>/i.test(doc)
+          ? doc.replace(/<\/body>/i, scriptTag + '\n</body>')
+          : doc + '\n' + scriptTag;
+      }
+    }
+
+    return doc;
   };
 
   CodeWindow.prototype.run = function () {
@@ -407,13 +444,13 @@
    * serialises the form for autosave without submitting it at all. Both read
    * the textarea, so both need an explicit flush first — see syncAll(). */
   CodeWindow.prototype.save = function () {
-    [this.editor, this.editorHtml, this.editorCss].forEach(function (cm) {
+    [this.editor, this.editorHtml, this.editorCss, this.editorJs].forEach(function (cm) {
       if (cm) cm.save();
     });
   };
 
   CodeWindow.prototype.refresh = function () {
-    [this.editor, this.editorHtml, this.editorCss].forEach(function (cm) {
+    [this.editor, this.editorHtml, this.editorCss, this.editorJs].forEach(function (cm) {
       if (cm) cm.refresh();
     });
   };

@@ -1,6 +1,7 @@
 {% comment %}
 The shared coding window: editor on the left, console (or live preview) on the
-right. Behaviour lives in static/js/code_window.js, styles and CodeMirror in
+right. A preview window can carry up to three panes — index.html, style.css
+and (with cw_show_js) script.js — which the browser assembles into one page. Behaviour lives in static/js/code_window.js, styles and CodeMirror in
 coding/partials/_code_window_head.html — include that once in the page head.
 
 Parameters (via {% include ... with %}):
@@ -16,6 +17,10 @@ Parameters (via {% include ... with %}):
   cw_starter        Starter code (run mode).
   cw_starter_html   Starter HTML (preview mode).
   cw_starter_css    Starter CSS (preview mode).
+  cw_starter_js     Starter JavaScript (preview mode, with cw_show_js).
+  cw_show_js        Truthy for a third pane, script.js, injected before
+                    </body> so it runs against the parsed page. Off for an
+                    exercise, which seeds a single document from one field.
   cw_exercise_id    Optional — sent as exercise_id so the endpoint can resolve
                     the exercise (e.g. for a browser-sandbox language).
   cw_expected_output Optional — when set, a run reports whether stdout matched.
@@ -67,6 +72,7 @@ card and mark-complete button) without the window knowing about exercises.
     "starter": "{{ cw_starter|escapejs }}",
     "starterHtml": "{{ cw_starter_html|escapejs }}",
     "starterCss": "{{ cw_starter_css|escapejs }}",
+    "starterJs": "{{ cw_starter_js|escapejs }}",
     "expectedOutput": {% if cw_expected_output %}"{{ cw_expected_output|escapejs }}"{% else %}null{% endif %},
     "readOnly": {{ cw_read_only|yesno:"true,false" }},
     "panes": "{{ cw_panes|default:'both'|escapejs }}",
@@ -90,6 +96,9 @@ card and mark-complete button) without the window knowing about exercises.
           <div class="cw-tabs">
             <button type="button" class="cw-tab active" data-cw-tab="html">index.html</button>
             <button type="button" class="cw-tab" data-cw-tab="css">style.css</button>
+            {% if cw_show_js %}
+            <button type="button" class="cw-tab" data-cw-tab="js">script.js</button>
+            {% endif %}
           </div>
           {% elif cw_lang_label or cw_language %}
           <span class="cw-lang-label">{{ cw_lang_label|default:cw_language }}</span>
@@ -125,6 +134,9 @@ card and mark-complete button) without the window knowing about exercises.
         {% if cw_mode == 'preview' %}
         <div class="cw-host cw-host-html"><textarea class="cw-editor-html">{{ cw_starter_html }}</textarea></div>
         <div class="cw-host cw-host-css hidden"><textarea class="cw-editor-css">{{ cw_starter_css }}</textarea></div>
+        {% if cw_show_js %}
+        <div class="cw-host cw-host-js hidden"><textarea class="cw-editor-js">{{ cw_starter_js }}</textarea></div>
+        {% endif %}
         {% else %}
         <div class="cw-host"><textarea class="cw-editor"
              {% if cw_textarea_name %}name="{{ cw_textarea_name }}" id="{{ cw_textarea_name }}"{% endif %}

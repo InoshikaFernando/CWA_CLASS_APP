@@ -1257,23 +1257,34 @@ PLAYGROUNDS = {
         'filename': 'main.js',
         'starter': 'console.log("Hello, world!");\n',
     },
+    # The slug stays 'html-css' though the name now says JS too: it is in the
+    # URL, and renaming it would break every bookmark and shared link to this
+    # playground for the sake of cosmetics.
     'html-css': {
-        'name': 'HTML / CSS',
+        'name': 'HTML / CSS / JS',
         'tagline': 'Build a web page with a live preview.',
         'mode': 'preview',
         'piston_language': None,
         'cm_mode': 'htmlmixed',
         'filename': 'index.html',
+        'show_js': True,
         'starter_html': (
             '<!DOCTYPE html>\n<html>\n<head>\n  <title>My Page</title>\n'
             '</head>\n<body>\n  <h1>Hello, world!</h1>\n'
-            '  <p>Edit the HTML and CSS, then press Run.</p>\n'
+            '  <p>Edit the HTML, CSS and JS, then press Run.</p>\n'
+            '  <button id="greet">Say hello</button>\n'
             '</body>\n</html>\n'
         ),
         'starter_css': (
             'body {\n  font-family: system-ui, sans-serif;\n'
             '  margin: 2rem;\n  color: #1a1a18;\n}\n\n'
             'h1 {\n  color: #1D9E75;\n}\n'
+        ),
+        'starter_js': (
+            "document.getElementById('greet').addEventListener('click', "
+            "function () {\n"
+            "  alert('Hello from JavaScript!');\n"
+            "});\n"
         ),
     },
 }

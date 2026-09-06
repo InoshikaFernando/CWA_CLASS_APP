@@ -66,6 +66,33 @@ class TestPlaygroundPages(TestCase):
         self.assertContains(resp, 'cw-preview')
         self.assertContains(resp, 'style.css')
 
+    def test_web_playground_has_three_panes(self):
+        """HTML, CSS and JS — one page, three files, as a web page really is."""
+        resp = self.client.get(reverse('coding:playground', kwargs={'lang': 'html-css'}))
+        content = resp.content.decode()
+        for tab in ('index.html', 'style.css', 'script.js'):
+            self.assertIn(tab, content)
+        self.assertIn('cw-editor-js', content)
+
+    def test_web_playground_seeds_all_three_panes(self):
+        resp = self.client.get(reverse('coding:playground', kwargs={'lang': 'html-css'}))
+        content = resp.content.decode()
+        self.assertIn('Hello, world!', content)          # html
+        self.assertIn('font-family', content)            # css
+        self.assertIn('addEventListener', content)       # js
+
+    def test_slug_is_unchanged_though_the_name_now_says_js(self):
+        """Renaming the slug would break every bookmarked link to this page."""
+        self.assertEqual(
+            reverse('coding:playground', kwargs={'lang': 'html-css'}),
+            '/coding/playground/html-css/',
+        )
+
+    def test_python_playground_has_no_js_pane(self):
+        """A console playground has one file; tabs would be meaningless."""
+        resp = self.client.get(reverse('coding:playground', kwargs={'lang': 'python'}))
+        self.assertNotContains(resp, 'cw-editor-js')
+
     def test_unknown_language_404(self):
         resp = self.client.get(reverse('coding:playground', kwargs={'lang': 'cobol'}))
         self.assertEqual(resp.status_code, 404)
