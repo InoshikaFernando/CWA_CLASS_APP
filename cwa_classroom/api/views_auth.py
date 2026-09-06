@@ -14,9 +14,10 @@ from rest_framework_simplejwt.views import (
     TokenVerifyView as BaseTokenVerifyView,
 )
 
-from api.serializers import UserSerializer
+from api.serializers import TokenPairSerializer, UserSerializer
 
 
+@extend_schema(responses={200: TokenPairSerializer})
 class LoginView(BaseTokenObtainPairView):
     """POST username/email + password → access and refresh tokens.
 
@@ -28,6 +29,10 @@ class LoginView(BaseTokenObtainPairView):
 
     permission_classes = [AllowAny]
     throttle_scope = 'auth'
+    # The serializer comes from SIMPLE_JWT['TOKEN_OBTAIN_SERIALIZER'], and it
+    # builds its response in validate() rather than declaring output fields —
+    # which drf-spectacular cannot introspect. Hence the explicit `responses`
+    # above; without it the schema documented this as having no body at all.
 
 
 class RefreshView(BaseTokenRefreshView):

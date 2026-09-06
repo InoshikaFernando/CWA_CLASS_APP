@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: CWA Classroom API
-  version: 1.20.0
+  version: 1.32.1
   description: |-
     JSON API for the Wizards Learning Hub mobile app.
 
@@ -116,7 +116,11 @@ paths:
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+          description: ''
   /api/v1/auth/logout/:
     post:
       operationId: auth_logout_create
@@ -4969,6 +4973,28 @@ components:
       required:
       - password
       - username
+    TokenPair:
+      type: object
+      description: 'A signed-in session: the token pair, plus the caller''s own profile.'
+      properties:
+        access:
+          type: string
+          readOnly: true
+          description: 'Short-lived bearer token. Send as `Authorization: Bearer <token>`.'
+        refresh:
+          type: string
+          readOnly: true
+          description: Long-lived token for `/auth/refresh/`. Rotation is on, so each
+            refresh returns a new one and blacklists this one — the client must store
+            what it gets back.
+        user:
+          allOf:
+          - $ref: '#/components/schemas/User'
+          readOnly: true
+      required:
+      - access
+      - refresh
+      - user
     TokenRefresh:
       type: object
       properties:

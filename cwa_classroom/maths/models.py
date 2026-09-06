@@ -16,6 +16,27 @@ from django.utils import timezone
 QUESTION_IMAGE_PATH_RE = re.compile(r'^questions/year[0-9]+/[a-zA-Z0-9_-]+/.+')
 
 
+# What each question type draws for ITSELF, keyed to the render property the
+# take templates read. When that property comes back empty the type puts no
+# picture on the page, so an uploaded image is the only thing the student has to
+# look at — which is what ``Question.renders_a_figure`` below reports.
+#
+# A type absent from here never generates a figure at all (a multiple-choice
+# question, a short answer): for those an image is the only possible visual.
+FIGURE_RENDER_PROPERTIES = {
+    'measure': 'measure_figure_svg',
+    'read_graph': 'graph_data',
+    'draw_on_grid': 'draw_on_grid_data',
+    'shape_select': 'shape_select_data',
+    'plot_points': 'plane_data',
+    'plot_line': 'plane_data',
+    'identify_coords': 'plane_data',
+    'number_line': 'number_line_data',
+    'table_of_values': 'table_data',
+    'sketch_graph': 'sketch_data',
+}
+
+
 # A "list every value" answer ("54, 63" / "54 and 63" / "54; 63") split into
 # its values. A comma that groups digits ("1,000", "12,345,678") is part of the
 # number, not a separator, so it is protected before the split — otherwise
@@ -1390,6 +1411,28 @@ class Question(models.Model):
         }
 
     @property
+    def renders_a_figure(self):
+        """Does a student taking this question see a picture of any kind?
+
+        True for an uploaded image or video, and for the types that draw their
+        own figure once the spec behind it is set — the angle a ``measure``
+        question generates from ``numeric_answer``, the plane a ``plot_points``
+        question draws from ``plane_spec``, and so on. Reads the same render
+        properties the take templates read, so "is there anything on the page
+        to look at" is answered once here rather than re-derived per template
+        and per audit (``maths.answer_verification.verify_question_figure``).
+
+        False does NOT mean the question is broken: most questions need no
+        figure. It means an image is the only visual this question could have,
+        and it has none — which IS a fault when the stem points at a figure or
+        the type is one whose answer is read off one (CPP-406).
+        """
+        if self.image or self.video:
+            return True
+        prop = FIGURE_RENDER_PROPERTIES.get(self.question_type)
+        return bool(getattr(self, prop)) if prop else False
+
+    @property
     def blank_data(self):
         """Render-ready data for a fill_blank question, or None.
 
@@ -2025,6 +2068,12 @@ class QuestionHealthSnapshot(models.Model):
         default=0, help_text='Questions with an issue that can mismark a student.')
     questions_advisory = models.PositiveIntegerField(
         default=0, help_text='Questions with only non-mismarking issues.')
+    questions_cleared = models.PositiveIntegerField(
+        default=0,
+        help_text='Flagged questions a person reviewed and marked correct, so '
+                  'left out of the counts above (CPP-398). Recorded rather '
+                  'than merely subtracted: a suppressed question that vanishes '
+                  'without a number is how a clean-looking bank hides work.')
 
     # Per-code counts, so the dashboard can show what is actually wrong.
     # Keyed by the issue codes in maths.answer_verification.
@@ -2138,6 +2187,125 @@ class QuestionAIReview(models.Model):
         ordering = ['-reviewed_at']
         indexes = [models.Index(fields=['question', '-reviewed_at'])]
         verbose_name = 'question AI review'
+
+    def __str__(self):
+        return f'Q{self.question_id} — {self.get_verdict_display()}'
+
+    @property
+    def is_stale(self):
+        """True if the question was edited after this review was made."""
+        if not self.question_updated_at or not self.question.updated_at:
+            return False
+        return self.question.updated_at > self.question_updated_at
+
+
+class QuestionReport(models.Model):
+    """A person said this specific question is wrong (CPP-398).
+
+    The global feedback button captures a description and the page URL, which
+    for a quiz page names a topic serving dozens of questions. CPP-398 — "the
+    answer in a quality answer was 23 or 23 pencils but why" against a Year 7
+    topic quiz — could not be traced to the question it was about, so the
+    report went to Jira and the question stayed live.
+
+    This row is the missing link: the question the reporter was actually
+    looking at. It is deliberately a *report*, not a verdict — it records that
+    somebody objected, never that they were right. What settles it is a
+    QuestionReview below.
+
+    The ``feedback`` link keeps the conversation (description, screenshots,
+    Jira key) where it already lives rather than copying it here; ``note`` is
+    a denormalised copy of what was written so the report still reads on its
+    own if the feedback item is later removed.
+    """
+
+    question = models.ForeignKey(
+        Question, on_delete=models.CASCADE, related_name='reports')
+    # Tenant context for reporting, matching feedback.Feedback. Null for users
+    # with no school — an individual student, which is who raised CPP-398.
+    school = models.ForeignKey(
+        'classroom.School', on_delete=models.CASCADE,
+        null=True, blank=True, db_index=True,
+        related_name='question_reports')
+    # SET_NULL rather than CASCADE: the report is evidence about the question
+    # bank, and deleting a student's account must not quietly repair the bank
+    # by taking their complaints with it.
+    reported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='question_reports')
+    feedback = models.ForeignKey(
+        'feedback.Feedback', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='question_reports',
+        help_text='The feedback item this came in on, for the description, '
+                  'screenshots and Jira key.')
+    note = models.TextField(
+        blank=True, default='',
+        help_text='What the reporter wrote, copied so the report stands alone.')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['question', '-created_at'])]
+        verbose_name = 'question report'
+
+    def __str__(self):
+        return f'Q{self.question_id} reported {self.created_at:%Y-%m-%d}'
+
+
+class QuestionReview(models.Model):
+    """A person looked at a question and gave a verdict (CPP-398).
+
+    The deterministic audits are blunt by design: EQUIVALENT-OPTION fires on
+    distractors equal as text but not as intent, WRONG-ANSWER-KEY on a question
+    whose arithmetic the evaluator reads differently from a person. Before this
+    row a super-admin who checked such a question and found it sound had only
+    two exits — edit it needlessly or delete it — so the same false positives
+    were re-read on every run, and a list nobody can shrink is a list nobody
+    reads.
+
+    "Reviewed and correct" is therefore a first-class verdict, and it
+    suppresses the question from every unhealthy surface. That is a strong
+    claim, so it is deliberately narrow:
+
+    * ``question_updated_at`` snapshots the content version reviewed, exactly
+      as QuestionAIReview does. An edit afterwards makes the clearance stale
+      rather than letting it vouch for text nobody checked.
+    * Only the LATEST review counts, whatever its verdict — an old 'correct'
+      never outranks a newer 'broken'.
+    * A report filed AFTER the review re-opens the question: a second
+      independent complaint is new evidence, not the one already judged.
+
+    Those three rules live in ``maths.question_review``, not here, because the
+    dashboards need them answered for a thousand questions at a time.
+    """
+
+    VERDICT_CORRECT = 'correct'
+    VERDICT_BROKEN = 'broken'
+    VERDICT_CHOICES = [
+        (VERDICT_CORRECT, 'Reviewed and correct'),
+        (VERDICT_BROKEN, 'Reviewed — needs fixing'),
+    ]
+
+    question = models.ForeignKey(
+        Question, on_delete=models.CASCADE, related_name='human_reviews')
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='question_reviews')
+    reviewed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    verdict = models.CharField(max_length=10, choices=VERDICT_CHOICES)
+    note = models.TextField(
+        blank=True, default='',
+        help_text='Why, in the reviewer\'s words. Shown next to the verdict.')
+
+    # Compared against Question.updated_at to detect a review made stale by a
+    # later edit. Null only for rows whose question had no timestamp.
+    question_updated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-reviewed_at']
+        indexes = [models.Index(fields=['question', '-reviewed_at'])]
+        verbose_name = 'question review'
 
     def __str__(self):
         return f'Q{self.question_id} — {self.get_verdict_display()}'

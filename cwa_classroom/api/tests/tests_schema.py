@@ -82,3 +82,56 @@ def test_the_schema_advertises_the_bearer_scheme(generated_schema):
     and every call 401s."""
     schemes = generated_schema['components']['securitySchemes']
     assert schemes['jwtAuth']['scheme'] == 'bearer'
+
+
+def test_login_documents_its_response_body(generated_schema):
+    """The login response must be described, not just implied.
+
+    SimpleJWT builds it in the serializer's ``validate()`` rather than
+    declaring output fields, so drf-spectacular documented it as having no
+    200 body — leaving the one response that carries the access token, the
+    refresh token and the user as the only part of the contract nothing here
+    could check. ``LoginView`` names the response explicitly to close that.
+    """
+    response = generated_schema['paths']['/api/v1/auth/login/']['post']['responses']['200']
+    assert 'content' in response, (
+        'POST /auth/login/ documents no response body. The mobile client '
+        'generates its types from this schema, so an undescribed login '
+        'response is one the app has to guess at.')
+
+    schema = response['content']['application/json']['schema']
+    assert schema['$ref'].endswith('/TokenPair')
+
+
+def test_the_documented_login_response_matches_the_real_one(
+        api, student, generated_schema):
+    """Guards the hand-written declaration against the actual view.
+
+    ``TokenPairSerializer`` is written by hand, so nothing but this stops it
+    drifting from what ``TokenObtainPairSerializer.validate()`` really
+    returns — which is exactly the failure the declaration exists to prevent.
+    """
+    documented = generated_schema['components']['schemas']['TokenPair']
+
+    response = api.post('/api/v1/auth/login/',
+                        {'username': 'student1', 'password': 'pw-for-tests-123'},
+                        format='json')
+    assert response.status_code == 200
+
+    assert set(response.data) == set(documented['properties']), (
+        'The login response and its documented schema have drifted.')
+    # Every documented field is required, so none may come back missing.
+    assert set(documented['required']) == set(documented['properties'])
+
+
+def test_the_documented_user_shape_matches_the_real_one(
+        api, student, generated_schema):
+    """The nested profile is the half most likely to drift, because it changes
+    whenever ``UserSerializer`` does."""
+    documented = generated_schema['components']['schemas']['User']
+
+    response = api.post('/api/v1/auth/login/',
+                        {'username': 'student1', 'password': 'pw-for-tests-123'},
+                        format='json')
+
+    assert set(response.data['user']) == set(documented['properties'])
