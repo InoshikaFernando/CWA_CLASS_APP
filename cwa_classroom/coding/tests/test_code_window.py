@@ -228,6 +228,20 @@ class TestCodeWindowAssetsAreSelfHosted(TestCase):
         urls = re.findall(r'(?:src|href)="(https?://[^"]+)"', source)
         self.assertEqual(urls, [], f'CDN reference in {HEAD_PARTIAL.name}: {urls}')
 
+    def test_no_coding_template_references_the_codemirror_cdn(self):
+        """Every coding page serves its editor from static/, not cdnjs.
+
+        Each page used to paste the CodeMirror script tags into its own head.
+        They all include _code_window_head.html now — this is what stops a new
+        page (or a revert) quietly reintroducing the CDN dependency.
+        """
+        offenders = [
+            path.relative_to(TEMPLATES_DIR)
+            for path in (TEMPLATES_DIR / 'coding').rglob('*.html')
+            if 'cdnjs.cloudflare.com/ajax/libs/codemirror' in path.read_text(encoding='utf-8')
+        ]
+        self.assertEqual(offenders, [], f'CodeMirror loaded from a CDN in: {offenders}')
+
     def test_vendored_codemirror_files_exist(self):
         vendor = Path(settings.BASE_DIR) / 'static' / 'vendor' / 'codemirror'
         for rel in (
@@ -237,6 +251,8 @@ class TestCodeWindowAssetsAreSelfHosted(TestCase):
             'mode/htmlmixed/htmlmixed.min.js',
             'addon/edit/matchbrackets.min.js', 'addon/edit/closebrackets.min.js',
             'addon/selection/active-line.min.js',
+            'addon/hint/show-hint.min.js', 'addon/hint/show-hint.min.css',
+            'addon/hint/anyword-hint.min.js',
         ):
             self.assertTrue((vendor / rel).is_file(), f'missing vendored asset: {rel}')
 

@@ -34,6 +34,25 @@ Parameters (via {% include ... with %}):
   cw_mark_complete  Truthy to send mark_complete:true with the run. Pages that
                     own grading elsewhere (homework, worksheet session) leave
                     it off — a Run there is feedback, never a submission.
+  cw_panes          "both" (default), "editor" (no console — the problem page
+                    reports test-case results its own way) or "console" (no
+                    editor — the Scratch exercises edit in a Blockly
+                    workspace and hand their generated code to runWith()).
+  cw_autocomplete   Truthy for Ctrl-Space word completion.
+  cw_hide_run       Truthy to drop the Run button (the page has its own).
+  cw_run_label      Alternative Run button label.
+  cw_hide_toolbar   Truthy to drop the editor column's toolbar (a page that
+                    keeps its own Run/Reset above the window).
+  cw_hide_console_toolbar  Same for the console column's Output/Clear bar.
+  cw_external_run   Truthy so Run (and Ctrl-Enter) dispatch `code-window:run`
+                    instead of posting — for a page that owns the request.
+  cw_hide_verdict   Truthy to drop the match/mismatch line, for a page that
+                    reports the result its own way (the exercise page's score
+                    card) and would otherwise say it twice.
+
+A run dispatches `code-window:result` on the window root, carrying the
+response, so a page can drive extra UI of its own (the exercise page's score
+card and mark-complete button) without the window knowing about exercises.
 {% endcomment %}
 <div class="cw-window" data-code-window id="cw-{{ cw_id }}"
      {% if cw_height %}style="--cw-panel-h: {{ cw_height }};"{% endif %}>
@@ -50,15 +69,20 @@ Parameters (via {% include ... with %}):
     "starterCss": "{{ cw_starter_css|escapejs }}",
     "expectedOutput": {% if cw_expected_output %}"{{ cw_expected_output|escapejs }}"{% else %}null{% endif %},
     "readOnly": {{ cw_read_only|yesno:"true,false" }},
+    "panes": "{{ cw_panes|default:'both'|escapejs }}",
+    "autocomplete": {{ cw_autocomplete|yesno:"true,false" }},
+    "externalRun": {{ cw_external_run|yesno:"true,false" }},
     "extraCode": "{{ cw_extra_code|escapejs }}",
     "payload": {% if cw_exercise_id %}{"exercise_id": {{ cw_exercise_id }}, "mark_complete": {{ cw_mark_complete|yesno:"true,false" }}}{% else %}{}{% endif %}
   }
   </script>
 
-  <div class="cw-split">
+  <div class="cw-split{% if cw_panes %} cw-single{% endif %}">
 
+    {% if cw_panes != 'console' %}
     {# ── LEFT: editor ──────────────────────────────────────────────────── #}
     <div class="cw-col">
+      {% if not cw_hide_toolbar %}
       <div class="cw-toolbar">
         <div class="cw-toolbar-left">
           <span class="cw-subtitle">{{ cw_title|default:"Code" }}</span>
@@ -78,9 +102,12 @@ Parameters (via {% include ... with %}):
           {% if not cw_hide_reset %}
           <button type="button" class="cw-reset">Reset</button>
           {% endif %}
-          <button type="button" class="cw-run">&#9654; Run</button>
+          {% if not cw_hide_run %}
+          <button type="button" class="cw-run">{{ cw_run_label|default:"&#9654; Run"|safe }}</button>
+          {% endif %}
         </div>
       </div>
+      {% endif %}
 
       <div class="cw-chrome">
         <div class="cw-chrome-bar">
@@ -113,31 +140,37 @@ Parameters (via {% include ... with %}):
       </div>
       {% endif %}
     </div>
+    {% endif %}
 
+    {% if cw_panes != 'editor' %}
     {# ── RIGHT: console, or live preview for HTML/CSS ──────────────────── #}
     <div class="cw-col">
       {% if cw_mode == 'preview' %}
+      {% if not cw_hide_toolbar %}
       <div class="cw-toolbar">
         <div class="cw-toolbar-left">
           <span class="cw-panel-label">Live Preview</span>
         </div>
         <span class="cw-preview-hint">Press Run to refresh</span>
       </div>
+      {% endif %}
       <div class="cw-preview-wrap">
         <iframe class="cw-preview" id="cw-preview-{{ cw_id }}"
                 sandbox="allow-scripts allow-modals" srcdoc=""></iframe>
       </div>
       {% else %}
+      {% if not cw_hide_console_toolbar %}
       <div class="cw-toolbar">
         <div class="cw-toolbar-left">
           <span class="cw-panel-label">Output</span>
         </div>
         <button type="button" class="cw-clear">Clear</button>
       </div>
+      {% endif %}
       <div class="cw-output-wrap">
         <pre class="cw-stdout" id="cw-stdout-{{ cw_id }}">Press &#8220;Run&#8221; to see your output here.</pre>
         <div class="cw-stderr"></div>
-        <p class="cw-match"></p>
+        {% if not cw_hide_verdict %}<p class="cw-match"></p>{% endif %}
       </div>
       {% if cw_expected_output %}
       <div class="cw-expected-wrap">
@@ -147,6 +180,7 @@ Parameters (via {% include ... with %}):
       {% endif %}
       {% endif %}
     </div>
+    {% endif %}
 
   </div>
 </div>

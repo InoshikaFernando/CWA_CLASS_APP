@@ -408,6 +408,10 @@ def exercise_detail(request, lang_slug, exercise_id):
         )
         server_blocks_xml = latest or ''
 
+    from django.urls import reverse
+
+    from .code_window import editor_params_for_language
+
     return render(request, 'coding/exercise_detail.html', {
         'language': language,
         'exercise': exercise,
@@ -416,6 +420,14 @@ def exercise_detail(request, lang_slug, exercise_id):
         'is_quiz': is_quiz,
         'quiz_feedback': quiz_feedback,
         'subject_sidebar': 'coding',
+        # Editor mode/filename and the run endpoint for the shared coding
+        # window. A DOM exercise edits a page, not a script, whatever language
+        # it is filed under.
+        'run_url': reverse('coding:api_run_code'),
+        **editor_params_for_language(
+            language,
+            browser_sandbox=language.uses_browser_sandbox or exercise.uses_browser_sandbox,
+        ),
     })
 
 
@@ -508,6 +520,8 @@ def problem_detail(request, lang_slug, problem_id):
     # Latest submission for display (if any)
     latest = StudentProblemSubmission.get_best_result(request.user, problem)
 
+    from .code_window import editor_params_for_language
+
     return render(request, 'coding/problem_detail.html', {
         'language': language,
         'problem': problem,
@@ -516,6 +530,8 @@ def problem_detail(request, lang_slug, problem_id):
         'has_solved': has_solved,
         'latest_submission': latest,
         'subject_sidebar': 'coding',
+        # Editor mode/filename for the shared coding window.
+        **editor_params_for_language(language),
     })
 
 

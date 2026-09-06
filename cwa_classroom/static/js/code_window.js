@@ -2,25 +2,38 @@
  * code_window.js — the shared "coding window": editor on one side, console on
  * the other.
  *
- * The same split view is wanted in several places (the standalone compilers,
- * the worksheet-builder preview a teacher opens while authoring, homework and
- * worksheet sessions).  It used to be copy-pasted per page, which is how the
- * worksheet session ended up stacking its output UNDER the editor while every
- * other page put it beside — same component, four different behaviours.
+ * Every page that shows code renders this: the standalone compilers, the
+ * exercise and problem pages, homework, the worksheet session, and the
+ * preview a teacher opens while building a worksheet. Each used to paste in
+ * its own CodeMirror setup, which is how the worksheet session ended up
+ * stacking its output UNDER the editor while every other page put it beside —
+ * one component, six behaviours.
  *
  * Markup lives in templates/coding/partials/_code_window.html; this file only
  * brings it to life.  Everything is scoped to the window's root element, never
- * to document-wide ids, so a page can host several windows at once (homework
- * renders one per question).
+ * to document-wide ids, so a page can host several windows at once — homework
+ * renders one per question, and the exercise page renders the two halves as
+ * separate windows so the console can sit beside the exercise text.
  *
  * Usage from a template:
  *     {% include "coding/partials/_code_window_head.html" %}   (once, in head)
  *     {% include "coding/partials/_code_window.html" with ... %}
  *
- * Windows mount themselves on DOMContentLoaded and after any htmx swap.  A
- * window swapped into a container that is still hidden (the builder's preview
- * modal) renders at zero height, so call CodeWindow.refreshAll() once the
- * container is visible.
+ * A page that needs more than "run this and show the output" hooks in through
+ * two events on the window root:
+ *
+ *     code-window:run     — Run/Ctrl-Enter, when cw_external_run is set, so
+ *                           the page makes the request itself (the problem
+ *                           page submits against test cases).
+ *     code-window:result  — after every run, carrying the response, so the
+ *                           page can layer its own reading on it (the
+ *                           exercise page's score card and mark-complete).
+ *
+ * Windows mount themselves on DOMContentLoaded and after any htmx swap — so
+ * a page script running inline must look a window up when it needs one, not
+ * cache it at parse time, when nothing is mounted yet. A window swapped into
+ * a container that is still hidden (the builder's preview modal) renders at
+ * zero height, so call CodeWindow.refreshAll() once the container is visible.
  * ======================================================================== */
 (function (window, document) {
   'use strict';
@@ -64,15 +77,24 @@
     this.root = root;
     this.cfg = cfg;
     this.isPreview = cfg.mode === 'preview';
+    // A page can render one half only: "editor" where it shows results its own
+    // way (the problem page runs against test cases, so a stdout pane would be
+    // wrong), "console" where the editor is not a textarea at all (the Scratch
+    // exercises are a Blockly workspace).
+    this.panes = cfg.panes || 'both';
     this.editor = null;
     this.editorHtml = null;
     this.editorCss = null;
 
-    this._buildEditors();
+    if (this.panes !== 'console') this._buildEditors();
     this._bind();
 
-    if (this.isPreview && cfg.autoRun !== false) {
-      this.run();   // show something in the iframe before the first click
+    // Show something in the iframe before the first click — but only when
+    // this window has editors of its own to build a document from. A
+    // console-only preview is fed by its page (the exercise page's Run
+    // renders the editor window's code into it).
+    if (this.isPreview && this.editorHtml && cfg.autoRun !== false) {
+      this.run();
     }
   }
 
@@ -89,6 +111,8 @@
         'Shift-Tab': 'indentLess',
         'Ctrl-Enter': function () { self.run(); },
         'Cmd-Enter': function () { self.run(); },
+        // Word completion, where the page asked for it and the addon loaded.
+        'Ctrl-Space': this.cfg.autocomplete ? 'autocomplete' : undefined,
       },
     });
     // fromTextArea seeds the editor from the textarea's own value — do NOT
@@ -197,12 +221,14 @@
   /* Replace what is in the editor (the HTML pane, in preview mode). */
   CodeWindow.prototype.setCode = function (code) {
     var cm = this.isPreview ? this.editorHtml : this.editor;
+    if (!cm) return;
     cm.setValue(code || '');
     cm.refresh();
     if (this.isPreview) this.run();
   };
 
   CodeWindow.prototype.reset = function () {
+    if (!this.editor && !this.editorHtml) return;
     if (!window.confirm('Reset code to the starter template?')) return;
     if (this.isPreview) {
       this.editorHtml.setValue(this.cfg.starterHtml || '');
@@ -218,12 +244,22 @@
   // ── running ──────────────────────────────────────────────────────────────
 
   CodeWindow.prototype.getValue = function () {
+    if (!this.editor && !this.editorHtml) return '';
     return this.isPreview ? this.buildDocument() : this.editor.getValue();
+  };
+
+  /* Run code the page supplies rather than the editor's own.
+   * A console-only window has no editor to read — the Scratch exercises
+   * generate their code from a Blockly workspace. `extraPayload` is merged
+   * into the request (Scratch sends its blocks XML along for the record). */
+  CodeWindow.prototype.runWith = function (code, extraPayload) {
+    return this._runRemote(code, extraPayload);
   };
 
   /* HTML + CSS are two editors but one document: inject the stylesheet just
    * before </head>, or prepend it when the snippet has no head. */
   CodeWindow.prototype.buildDocument = function () {
+    if (!this.editorHtml) return '';
     var html = this.editorHtml.getValue();
     var styleTag = '<style>\n' + this.editorCss.getValue() + '\n</style>';
     if (/<\/head>/i.test(html)) {
@@ -233,29 +269,47 @@
   };
 
   CodeWindow.prototype.run = function () {
+    // A page that owns the running — the problem page submits against test
+    // cases, the exercise page drives an editor window and a console window
+    // as a pair — gets told to run rather than having a request made for it.
+    // Keeps Ctrl-Enter meaning the same thing on every page.
+    if (this.cfg.externalRun) {
+      this.root.dispatchEvent(new CustomEvent('code-window:run', { bubbles: true }));
+      return Promise.resolve();
+    }
     if (this.isPreview) {
-      $(this.root, '.cw-preview').srcdoc = this.buildDocument();
+      this.setPreview(this.buildDocument());
       return Promise.resolve();
     }
     return this._runRemote();
   };
 
-  CodeWindow.prototype._runRemote = function () {
+  /* Render a document in the live-preview iframe. Used by a console-only
+   * preview window, which has no editor of its own to build one from. */
+  CodeWindow.prototype.setPreview = function (html) {
+    var frame = $(this.root, '.cw-preview');
+    if (frame) frame.srcdoc = html || '';
+  };
+
+  CodeWindow.prototype._runRemote = function (overrideCode, extraPayload) {
     var self = this;
     var btn = $(this.root, '.cw-run');
     var stdout = $(this.root, '.cw-stdout');
     var stdinEl = $(this.root, '.cw-stdin');
     var originalLabel = btn ? btn.innerHTML : '';
+    var code = overrideCode !== undefined && overrideCode !== null
+      ? overrideCode
+      : (this.editor ? this.editor.getValue() : '');
 
-    if (!this.editor.getValue().trim()) {
-      stdout.textContent = 'Write some code first.';
+    if (!code.trim()) {
+      if (stdout) stdout.textContent = 'Write some code first.';
       this._setStderr('');
       this._setMatch(null);
       return Promise.resolve();
     }
 
     if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
-    stdout.textContent = 'Running…';
+    if (stdout) stdout.textContent = 'Running…';
     this._setStderr('');
     this._setMatch(null);
 
@@ -265,9 +319,9 @@
     var payload = Object.assign({
       language: this.cfg.language,
       language_slug: this.cfg.language,
-      code: this.editor.getValue(),
+      code: code,
       stdin: stdinEl ? stdinEl.value : '',
-    }, this.cfg.payload || {});
+    }, this.cfg.payload || {}, extraPayload || {});
 
     return fetch(this.cfg.runUrl, {
       method: 'POST',
@@ -280,8 +334,15 @@
       return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
     }).then(function (result) {
       self._render(result);
+      // Pages layer their own reading on a run — the exercise page shows a
+      // score card and unlocks "mark complete". Hand them the response rather
+      // than teaching the window about exercises.
+      self.root.dispatchEvent(new CustomEvent('code-window:result', {
+        bubbles: true,
+        detail: { ok: result.ok, status: result.status, data: result.data },
+      }));
     }).catch(function () {
-      stdout.textContent = 'Network error — please try again.';
+      if (stdout) stdout.textContent = 'Network error — please try again.';
     }).then(function () {
       if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; }
     });
@@ -290,6 +351,7 @@
   CodeWindow.prototype._render = function (result) {
     var stdout = $(this.root, '.cw-stdout');
     var data = result.data || {};
+    if (!stdout) return;   // editor-only window: the page renders results
 
     if (!result.ok) {
       stdout.textContent = data.error || ('Server error ' + result.status);

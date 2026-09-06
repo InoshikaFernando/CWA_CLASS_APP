@@ -71,11 +71,31 @@ answer form: pass it the dict from `CodingPlugin.take_item_context()` and it
 forwards everything. Console mode, `mark_complete` false, and a
 `code_<content_id>` textarea so the code posts with the form.
 
-Rendered by the standalone compilers, the worksheet builder's exercise preview,
-the homework take page and the worksheet session.
-`templates/coding/exercise_detail.html` and `problem_detail.html` still carry
-their own copies — migrating them is the remaining work, and would also get
-them off the CodeMirror CDN.
+Every coding page renders it, and none of them loads CodeMirror from a CDN any
+more — a test fails the build if one starts again.
+
+Two CDN dependencies remain on these pages and are NOT covered by that test:
+**Blockly** (unpkg, exercise and problem pages, Scratch only) and
+**highlight.js** (cdnjs, exercise descriptions). Both fail the same way the
+CodeMirror one did — silently, leaving a page that looks fine and does
+nothing — so they are worth vendoring next.
+
+A page can take one half only, via `cw_panes`:
+
+| Page | Panes | Why |
+|------|-------|-----|
+| compilers, homework, worksheet session, builder preview | both | editor and console together |
+| exercise detail | `console` + `editor`, as two windows | the exercise text belongs beside the output, so the halves sit in different columns |
+| exercise detail (Scratch) | `console` only | blocks are a Blockly workspace, but the generated Python still runs |
+| problem detail | `editor` only | graded on test cases, so it reports verdicts rather than stdout |
+
+With `cw_external_run` the window's Run and Ctrl-Enter dispatch
+`code-window:run` instead of posting, and every run dispatches
+`code-window:result` with the response. That is the seam the exercise page uses
+for its score card and mark-complete state machine, and the problem page for
+submitting against test cases — neither needs the window to know what an
+exercise is. `runWith(code, extra)` runs code the page supplies, which is how
+Scratch gets its generated Python (and its blocks XML) to the console.
 
 **Reading a run's verdict.** `api_run_code` also enforces an exercise's
 `required_code_patterns`, so where the response carries `exercise_score` the

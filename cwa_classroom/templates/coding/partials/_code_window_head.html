@@ -35,6 +35,9 @@ is loaded into.
 <script src="{% static 'vendor/codemirror/addon/edit/matchbrackets.min.js' %}"></script>
 <script src="{% static 'vendor/codemirror/addon/edit/closebrackets.min.js' %}"></script>
 <script src="{% static 'vendor/codemirror/addon/selection/active-line.min.js' %}"></script>
+<link rel="stylesheet" href="{% static 'vendor/codemirror/addon/hint/show-hint.min.css' %}">
+<script src="{% static 'vendor/codemirror/addon/hint/show-hint.min.js' %}"></script>
+<script src="{% static 'vendor/codemirror/addon/hint/anyword-hint.min.js' %}"></script>
 <script src="{% static 'js/code_window.js' %}"></script>
 <style>
   /* ── Shared coding window ───────────────────────────────────────────────
@@ -52,6 +55,7 @@ is loaded into.
   }
 
   .cw-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  .cw-split.cw-single { grid-template-columns: 1fr; }
   @media (max-width: 900px) { .cw-split { grid-template-columns: 1fr; } }
 
   .cw-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }

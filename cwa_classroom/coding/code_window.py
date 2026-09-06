@@ -47,6 +47,32 @@ _CONSOLE_WINDOW = {
 AUTO = 'auto'
 CONSOLE = 'console'
 
+# The filename shown in the editor's title bar, per language. A DOM exercise
+# filed under a non-browser language overrides this to index.html — what the
+# student is actually editing there is a page, not a script.
+_FILENAME = {
+    CodingLanguage.PYTHON:     'main.py',
+    CodingLanguage.JAVASCRIPT: 'main.js',
+    CodingLanguage.HTML:       'index.html',
+    CodingLanguage.CSS:        'style.css',
+    CodingLanguage.SCRATCH:    'scratch.py',
+}
+
+
+def editor_params_for_language(language, browser_sandbox=False):
+    """CodeMirror mode and editor filename for a language.
+
+    For pages that render the shared window around something other than a
+    single exercise — the problem page, which has a starter and a language but
+    grades against test cases.
+    """
+    if browser_sandbox:
+        return {'cm_mode': 'htmlmixed', 'editor_filename': 'index.html'}
+    cm_mode, filename = _CONSOLE_WINDOW.get(
+        language.slug, ('text/plain', 'code.txt'),
+    )
+    return {'cm_mode': cm_mode, 'editor_filename': filename}
+
 
 def supports_code_window(exercise, mode=AUTO):
     """True when this exercise can be shown in the coding window.

@@ -163,6 +163,10 @@ jobs:
               - 'cwa_classroom/coding/**'
               # Same for CodingExercise's manager.
               - 'cwa_classroom/brainbuzz/managers.py'
+              # The suite asserts on the rendered pages: which half of the
+              # shared coding window each language gets, and that none of them
+              # went back to loading CodeMirror from a CDN.
+              - 'cwa_classroom/templates/coding/**'
             api:
               - 'cwa_classroom/api/**'
               # The API suite drives every app it exposes, so a serializer,
