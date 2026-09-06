@@ -51,6 +51,30 @@ def student_required(view_func):
     return _wrapped
 
 
+def teacher_required(view_func):
+    """Decorator: allow only staff-side roles — teachers and above.
+
+    The mirror image of :func:`student_required`. Teachers are locked out of
+    the student coding pages so they cannot accumulate submissions and time
+    logs; that block also left them with no way to *try* an exercise they are
+    about to set. Views wearing this decorator give them the coding window
+    without any of the student bookkeeping.
+    """
+    @wraps(view_func)
+    def _wrapped(request, *args, **kwargs):
+        allowed_flags = (
+            'is_any_teacher',
+            'is_head_of_institute',
+            'is_head_of_department',
+            'is_institute_owner',
+            'is_admin_user',
+        )
+        if not any(getattr(request.user, flag, False) for flag in allowed_flags):
+            return redirect('home')
+        return view_func(request, *args, **kwargs)
+    return _wrapped
+
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1293,3 +1317,54 @@ def api_playground_run(request):
     from .execution import run_code
     result = run_code(cfg['piston_language'], code, stdin)
     return JsonResponse(result)
+
+
+@login_required
+@teacher_required
+@require_POST
+def api_preview_run(request):
+    """Run code from a teacher-facing preview.  POST /coding/api/preview-run/
+
+    Request JSON:  { language, code, stdin (optional) }
+    Response JSON: { stdout, stderr, exit_code, run_time_seconds, error? }
+
+    Deliberately write-only-nothing: no StudentExerciseSubmission, no
+    CodingTimeLog, no auto-completion. A teacher checking that an exercise
+    still produces its expected output must not land in the student's
+    progress data — which is exactly why ``student_required`` keeps them off
+    ``api_run_code``.
+
+    ``language`` is a CodingLanguage slug (python, javascript). Browser-sandbox
+    languages (HTML, CSS) and Scratch never reach Piston, so they are rejected
+    here rather than silently returning empty output.
+    """
+    import json
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    # The shared coding window posts `language`; accept `language_slug` too so
+    # this endpoint reads the same as api_run_code for anyone switching between
+    # them.
+    lang_slug = (body.get('language') or body.get('language_slug') or '').strip()
+    code = body.get('code') or ''
+    stdin = body.get('stdin', '')
+
+    if not lang_slug:
+        return JsonResponse({'error': 'language is required'}, status=400)
+    if not code.strip():
+        return JsonResponse({'error': 'code is required'}, status=400)
+
+    language = CodingLanguage.objects.filter(slug=lang_slug, is_active=True).first()
+    if language is None:
+        return JsonResponse({'error': 'Unknown language'}, status=400)
+
+    if language.uses_browser_sandbox or language.uses_scratch_vm:
+        return JsonResponse({
+            'error': f'{language.name} runs in the browser — open the exercise '
+                     'preview to see it.',
+        }, status=400)
+
+    from .execution import run_code
+    return JsonResponse(run_code(language.piston_language, code, stdin))

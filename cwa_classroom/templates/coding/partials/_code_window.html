@@ -1,0 +1,138 @@
+{% comment %}
+The shared coding window: editor on the left, console (or live preview) on the
+right. Behaviour lives in static/js/code_window.js, styles and CodeMirror in
+coding/partials/_code_window_head.html — include that once in the page head.
+
+Parameters (via {% include ... with %}):
+
+  cw_id             REQUIRED. Unique per window on the page — ids are derived
+                    from it, and a page may host several windows.
+  cw_run_url        REQUIRED for cw_mode="run". Endpoint the Run button POSTs
+                    {language, code, stdin, …} to.
+  cw_mode           "run" (console) or "preview" (HTML/CSS iframe). Default run.
+  cw_language       Language slug sent in the POST body.
+  cw_cm_mode        CodeMirror mode: python / javascript / htmlmixed / css.
+  cw_filename       Filename shown in the editor's title bar.
+  cw_starter        Starter code (run mode).
+  cw_starter_html   Starter HTML (preview mode).
+  cw_starter_css    Starter CSS (preview mode).
+  cw_exercise_id    Optional — sent as exercise_id so the endpoint can resolve
+                    the exercise (e.g. for a browser-sandbox language).
+  cw_expected_output Optional — when set, a run reports whether stdout matched.
+  cw_lang_label     Language name shown beside the heading. Default cw_language.
+  cw_title          Left toolbar heading. Default "Code".
+  cw_height         CSS height of both panels. Default 480px.
+  cw_hide_stdin     Truthy to drop the stdin box (run mode).
+  cw_hide_reset     Truthy to drop the Reset button.
+  cw_read_only      Truthy for a look-but-don't-touch editor.
+  cw_extra_code     Optional snippet; adds a button that loads it into the
+                    editor (the builder preview passes the reference solution).
+  cw_extra_label    Label for that button. Default "Load solution".
+{% endcomment %}
+<div class="cw-window" data-code-window id="cw-{{ cw_id }}"
+     {% if cw_height %}style="--cw-panel-h: {{ cw_height }};"{% endif %}>
+
+  <script type="application/json" class="cw-config">
+  {
+    "mode": "{{ cw_mode|default:'run'|escapejs }}",
+    "language": "{{ cw_language|escapejs }}",
+    "cmMode": "{{ cw_cm_mode|default:'python'|escapejs }}",
+    "runUrl": "{{ cw_run_url|escapejs }}",
+    "csrfToken": "{{ csrf_token|escapejs }}",
+    "starter": "{{ cw_starter|escapejs }}",
+    "starterHtml": "{{ cw_starter_html|escapejs }}",
+    "starterCss": "{{ cw_starter_css|escapejs }}",
+    "expectedOutput": {% if cw_expected_output %}"{{ cw_expected_output|escapejs }}"{% else %}null{% endif %},
+    "readOnly": {{ cw_read_only|yesno:"true,false" }},
+    "extraCode": "{{ cw_extra_code|escapejs }}",
+    "payload": {% if cw_exercise_id %}{"exercise_id": {{ cw_exercise_id }}}{% else %}{}{% endif %}
+  }
+  </script>
+
+  <div class="cw-split">
+
+    {# ── LEFT: editor ──────────────────────────────────────────────────── #}
+    <div class="cw-col">
+      <div class="cw-toolbar">
+        <div class="cw-toolbar-left">
+          <span class="cw-subtitle">{{ cw_title|default:"Code" }}</span>
+          {% if cw_mode == 'preview' %}
+          <div class="cw-tabs">
+            <button type="button" class="cw-tab active" data-cw-tab="html">index.html</button>
+            <button type="button" class="cw-tab" data-cw-tab="css">style.css</button>
+          </div>
+          {% elif cw_lang_label or cw_language %}
+          <span class="cw-lang-label">{{ cw_lang_label|default:cw_language }}</span>
+          {% endif %}
+        </div>
+        <div class="cw-toolbar-btns">
+          {% if cw_extra_code %}
+          <button type="button" class="cw-load">{{ cw_extra_label|default:"Load solution" }}</button>
+          {% endif %}
+          {% if not cw_hide_reset %}
+          <button type="button" class="cw-reset">Reset</button>
+          {% endif %}
+          <button type="button" class="cw-run">&#9654; Run</button>
+        </div>
+      </div>
+
+      <div class="cw-chrome">
+        <div class="cw-chrome-bar">
+          <span class="cw-dot cw-dot-r"></span>
+          <span class="cw-dot cw-dot-y"></span>
+          <span class="cw-dot cw-dot-g"></span>
+          <span class="cw-file-label">{{ cw_filename|default:"main.py" }}</span>
+        </div>
+        {% if cw_mode == 'preview' %}
+        <div class="cw-host cw-host-html"><textarea class="cw-editor-html"></textarea></div>
+        <div class="cw-host cw-host-css hidden"><textarea class="cw-editor-css"></textarea></div>
+        {% else %}
+        <div class="cw-host"><textarea class="cw-editor"></textarea></div>
+        {% endif %}
+      </div>
+
+      {% if cw_mode != 'preview' and not cw_hide_stdin %}
+      <div class="cw-stdin-wrap">
+        <div class="cw-stdin-bar">Standard input (optional)</div>
+        <textarea class="cw-stdin" id="cw-stdin-{{ cw_id }}"
+                  placeholder="Lines here are piped to your program's stdin&hellip;"></textarea>
+      </div>
+      {% endif %}
+    </div>
+
+    {# ── RIGHT: console, or live preview for HTML/CSS ──────────────────── #}
+    <div class="cw-col">
+      {% if cw_mode == 'preview' %}
+      <div class="cw-toolbar">
+        <div class="cw-toolbar-left">
+          <span class="cw-panel-label">Live Preview</span>
+        </div>
+        <span class="cw-preview-hint">Press Run to refresh</span>
+      </div>
+      <div class="cw-preview-wrap">
+        <iframe class="cw-preview" id="cw-preview-{{ cw_id }}"
+                sandbox="allow-scripts allow-modals" srcdoc=""></iframe>
+      </div>
+      {% else %}
+      <div class="cw-toolbar">
+        <div class="cw-toolbar-left">
+          <span class="cw-panel-label">Output</span>
+        </div>
+        <button type="button" class="cw-clear">Clear</button>
+      </div>
+      <div class="cw-output-wrap">
+        <pre class="cw-stdout" id="cw-stdout-{{ cw_id }}">Press &#8220;Run&#8221; to see your output here.</pre>
+        <div class="cw-stderr"></div>
+        <p class="cw-match"></p>
+      </div>
+      {% if cw_expected_output %}
+      <div class="cw-expected-wrap">
+        <div class="cw-expected-bar">Expected output</div>
+        <pre class="cw-expected">{{ cw_expected_output }}</pre>
+      </div>
+      {% endif %}
+      {% endif %}
+    </div>
+
+  </div>
+</div>

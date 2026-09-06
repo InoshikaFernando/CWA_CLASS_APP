@@ -63,7 +63,7 @@ class TestPlaygroundPages(TestCase):
     def test_html_css_playground_has_preview_iframe(self):
         resp = self.client.get(reverse('coding:playground', kwargs={'lang': 'html-css'}))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'ed-preview-frame')
+        self.assertContains(resp, 'cw-preview')
         self.assertContains(resp, 'style.css')
 
     def test_unknown_language_404(self):

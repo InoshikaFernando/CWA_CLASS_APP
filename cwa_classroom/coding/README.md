@@ -29,8 +29,48 @@ Mounted at `/coding/` (namespace `coding`).
 - `/coding/<lang>/exercise/<id>/` — exercise detail
 - `/coding/<lang>/problems/`, `/coding/<lang>/problems/<id>/` — problem set & detail
 - `/coding/api/run/` — run code (output only)
+- `/coding/api/preview-run/` — run code from a teacher-facing preview
 - `/coding/api/submit/<problem_id>/` — submit & test
 - `/coding/api/update-time-log/` — time tracking
+
+## Who can reach what
+
+Everything above is student-only: `student_required` redirects teachers, heads
+and owners to `home` so elevated roles never accumulate `CodingTimeLog` or
+submission rows.
+
+`teacher_required` is its mirror, and `api/preview-run/` is the endpoint that
+wears it: a teacher building a coding worksheet needs to *run* an exercise to
+check it still produces its expected output, and must do so without landing in
+anybody's progress data. It writes nothing — no submission, no time log, no
+auto-completion — and rejects the browser-sandbox languages rather than
+returning empty output for them.
+
+The playgrounds (`/coding/playground/…`) are `login_required` only: free-form
+compilers for everyone, tied to no exercise.
+
+## The shared coding window
+
+The editor-beside-console component every coding page renders:
+
+| File | Role |
+|------|------|
+| `templates/coding/partials/_code_window.html` | markup; parameters in its header comment |
+| `templates/coding/partials/_code_window_head.html` | CodeMirror (vendored), styles — include **once** per page |
+| `static/js/code_window.js` | mounts and drives every window on the page |
+| `coding/code_window.py` | maps a `CodingExercise` onto the partial's parameters |
+
+It is scoped to its root element rather than to document ids, so one page can
+host several windows, and it mounts itself after an htmx swap. A window swapped
+into a container that is still hidden needs `CodeWindow.refreshAll()` once the
+container is visible — CodeMirror measures itself on mount and otherwise draws
+a zero-height box.
+
+Rendered by the standalone compilers and by the worksheet builder's exercise
+preview. `templates/coding/exercise_detail.html`, `problem_detail.html`, the
+homework take page and the worksheet session still carry their own copies —
+migrating them onto this partial is the remaining work, and would also get them
+off the CodeMirror CDN.
 
 ## Integration
 

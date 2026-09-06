@@ -1,0 +1,114 @@
+{% load static %}
+{% comment %}
+Assets for the shared coding window (templates/coding/partials/_code_window.html).
+
+Include this ONCE in a page's {% block extra_head %}, however many windows the
+page renders. It loads CodeMirror 5 (vendored, see below), defines the window's styles, and
+loads code_window.js, which mounts every window on the page.
+
+Every page that wanted an editor used to paste these nine CodeMirror tags into
+its own head; they now live here so a version bump is one edit.
+{% endcomment %}
+{% comment %}
+CodeMirror 5.65.16, vendored under static/vendor/codemirror/ rather than pulled
+from cdnjs.
+
+The worksheet builder loads this partial, and the builder has been down this
+road before: SortableJS came from a CDN, the fetch failed, and because the
+library is used at the top of the page's IIFE the ENTIRE builder went dead — no
+search, no adding questions, no save. A coding window that fails to load should
+degrade to a plain textarea, not take its host page with it, and the surest way
+there is not to depend on someone else's uptime.
+
+coding/tests/test_code_window.py fails the build if a CDN URL creeps back in
+here, and worksheets' TestBuilderAssetsAreSelfHosted covers the builder page it
+is loaded into.
+{% endcomment %}
+<link rel="stylesheet" href="{% static 'vendor/codemirror/codemirror.min.css' %}">
+<link rel="stylesheet" href="{% static 'vendor/codemirror/theme/dracula.min.css' %}">
+<script src="{% static 'vendor/codemirror/codemirror.min.js' %}"></script>
+<script src="{% static 'vendor/codemirror/mode/python/python.min.js' %}"></script>
+<script src="{% static 'vendor/codemirror/mode/javascript/javascript.min.js' %}"></script>
+<script src="{% static 'vendor/codemirror/mode/xml/xml.min.js' %}"></script>
+<script src="{% static 'vendor/codemirror/mode/css/css.min.js' %}"></script>
+<script src="{% static 'vendor/codemirror/mode/htmlmixed/htmlmixed.min.js' %}"></script>
+<script src="{% static 'vendor/codemirror/addon/edit/matchbrackets.min.js' %}"></script>
+<script src="{% static 'vendor/codemirror/addon/edit/closebrackets.min.js' %}"></script>
+<script src="{% static 'vendor/codemirror/addon/selection/active-line.min.js' %}"></script>
+<script src="{% static 'js/code_window.js' %}"></script>
+<style>
+  /* ── Shared coding window ───────────────────────────────────────────────
+     Editor left, console (or live preview) right. Both panels share one
+     height so they line up; override it per window with --cw-panel-h.        */
+  .cw-window {
+    --cw-panel-h: 480px;
+    --cw-ed-bg: #1a1b2e;
+    --cw-ed-bar: #13141f;
+    --cw-ed-border: #2a2d3a;
+    --cw-accent: #1D9E75;
+    --cw-accent-dark: #0F6E56;
+    --cw-muted: #888780;
+    --cw-secondary: #5F5E5A;
+  }
+
+  .cw-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .cw-split { grid-template-columns: 1fr; } }
+
+  .cw-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  /* Equal-height toolbars in BOTH columns keep the panels below aligned. */
+  .cw-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; }
+  .cw-toolbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .cw-subtitle { font-size: 14px; font-weight: 700; color: #1a1a18; white-space: nowrap; }
+  .cw-lang-label { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-muted); }
+  .cw-panel-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-muted); }
+  .cw-toolbar-btns { display: flex; gap: 8px; align-items: center; }
+
+  .cw-reset, .cw-load { font-size: 12px; padding: 7px 14px; border-radius: 8px; background: #fff; border: 1px solid rgba(0,0,0,0.13); color: var(--cw-secondary); cursor: pointer; font-family: inherit; transition: background .15s; }
+  .cw-reset:hover, .cw-load:hover { background: #f1f0ea; }
+  .cw-run { font-size: 13px; font-weight: 600; padding: 7px 20px; border-radius: 8px; background: var(--cw-accent); color: #fff; border: none; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; transition: background .15s, opacity .15s; }
+  .cw-run:hover { background: var(--cw-accent-dark); }
+  .cw-run:disabled { opacity: .6; cursor: not-allowed; }
+  .cw-clear { font-size: 11px; color: var(--cw-muted); background: none; border: none; cursor: pointer; font-family: inherit; padding: 0; transition: color .15s; }
+  .cw-clear:hover { color: var(--cw-secondary); }
+
+  /* Tabs — HTML/CSS mode only */
+  .cw-tabs { display: flex; gap: 4px; }
+  .cw-tab { font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 8px 8px 0 0; border: 1px solid rgba(0,0,0,0.08); border-bottom: none; background: #e9efe9; color: var(--cw-muted); cursor: pointer; font-family: inherit; }
+  .cw-tab.active { background: var(--cw-ed-bar); color: #e2e8f0; }
+
+  /* Editor chrome */
+  .cw-chrome { border-radius: 14px; overflow: hidden; border: 1px solid var(--cw-ed-border); height: var(--cw-panel-h); display: flex; flex-direction: column; }
+  .cw-chrome-bar { display: flex; align-items: center; gap: 6px; padding: 9px 14px; background: var(--cw-ed-bar); border-bottom: 1px solid var(--cw-ed-border); flex: 0 0 auto; }
+  .cw-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .cw-dot-r { background: #ff5f57; } .cw-dot-y { background: #febc2e; } .cw-dot-g { background: #28c840; }
+  .cw-file-label { font-size: 12px; color: #6b7280; font-family: 'JetBrains Mono', monospace; margin-left: 6px; }
+
+  .cw-host { flex: 1 1 auto; min-height: 0; }
+  .cw-host.hidden { display: none; }
+  .cw-host .CodeMirror { height: 100%; background: var(--cw-ed-bg); color: #e2e8f0; font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; font-size: 14px; line-height: 1.7; }
+  .cw-host .CodeMirror-cursor { border-left: 2px solid var(--cw-accent); }
+
+  /* Console */
+  .cw-output-wrap { background: #0f1117; border-radius: 14px; border: 1px solid var(--cw-ed-border); overflow: hidden; height: var(--cw-panel-h); display: flex; flex-direction: column; }
+  .cw-stdout { font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; font-size: 13px; line-height: 1.6; color: #4ade80; padding: 14px; flex: 1 1 auto; min-height: 0; white-space: pre-wrap; overflow-y: auto; margin: 0; }
+  .cw-stderr { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; color: #f87171; padding: 0 14px 12px; white-space: pre-wrap; display: none; flex: 0 0 auto; }
+  .cw-match { font-size: 12px; font-weight: 600; padding: 8px 14px; margin: 0; display: none; flex: 0 0 auto; border-top: 1px solid var(--cw-ed-border); }
+  .cw-match-ok { color: #4ade80; }
+  .cw-match-bad { color: #f87171; }
+
+  /* Expected output, shown above the console when an exercise declares one */
+  .cw-expected-wrap { background: #fff; border-radius: 12px; border: 1px solid rgba(0,0,0,0.08); overflow: hidden; }
+  .cw-expected-bar { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-muted); padding: 8px 12px; border-bottom: 1px solid rgba(0,0,0,0.08); }
+  .cw-expected { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #1a1a18; margin: 0; padding: 10px 12px; white-space: pre-wrap; overflow-x: auto; }
+
+  /* Standard input */
+  .cw-stdin-wrap { background: #fff; border-radius: 12px; border: 1px solid rgba(0,0,0,0.08); overflow: hidden; }
+  .cw-stdin-bar { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-muted); padding: 8px 12px; border-bottom: 1px solid rgba(0,0,0,0.08); }
+  .cw-stdin { width: 100%; border: none; resize: vertical; min-height: 56px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #1a1a18; box-sizing: border-box; outline: none; }
+
+  /* Live preview — HTML/CSS mode */
+  .cw-preview-wrap { background: #fff; border-radius: 14px; border: 1px solid rgba(0,0,0,0.08); overflow: hidden; height: var(--cw-panel-h); display: flex; flex-direction: column; }
+  .cw-preview-hint { font-size: 11px; color: var(--cw-accent-dark); }
+  .cw-preview { width: 100%; flex: 1 1 auto; min-height: 0; border: none; display: block; background: #fff; }
+</style>

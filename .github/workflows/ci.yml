@@ -196,6 +196,11 @@ jobs:
               - 'cwa_classroom/ai_import/**'
             worksheets:
               - 'cwa_classroom/worksheets/**'
+              # The builder previews a coding exercise in coding's shared
+              # window and runs it through coding:api_preview_run, so the
+              # worksheets suite asserts against coding's URLs and templates.
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/templates/coding/**'
             taskqueue:
               - 'cwa_classroom/taskqueue/**'
             feedback:
@@ -461,6 +466,12 @@ jobs:
               # feedback block, so a change there breaks a worksheet test
               # without touching templates/worksheets/.
               - 'cwa_classroom/templates/maths/**'
+              # The builder's preview of a coding exercise renders the shared
+              # coding window (templates/coding/partials/) and runs code
+              # through coding's teacher preview endpoint. Break either and the
+              # builder tests fail with nothing under worksheets/ touched.
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/templates/coding/**'
 
       # ---- Has the release PR's tree actually passed on `test`? -------------
       #

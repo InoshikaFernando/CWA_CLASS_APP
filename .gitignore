@@ -50,3 +50,6 @@ venv-test/
 
 # Throwaway database built by scripts/demo_fill_blanks.sh
 cwa_classroom/fill_blank_demo.sqlite3*
+
+# Playwright screenshots written by the UI suite (design-review artefacts)
+cwa_classroom/ui_tests/screenshots/*.png
