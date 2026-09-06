@@ -4,6 +4,12 @@ A student opens a homework containing a `measure` question, sees the
 generated figure + a numeric box, types a value within tolerance, submits,
 and the submission is marked correct. Mirrors the fixtures in
 test_homework_e2e_maths.py. Epic CPP-330.
+
+Also covers CPP-406: a LENGTH measure question generates no figure of its own
+(only angles are drawable true-to-scale), so one saved without an uploaded
+image left the child a ruler hovering over blank space. The page must say the
+figure is missing instead — this is the one place that proves it on the real
+take page, with the real JS running.
 """
 from __future__ import annotations
 
@@ -38,21 +44,56 @@ def measure_question(db, level, topic):
 
 
 @pytest.fixture
-def measure_homework_ready(db, classroom, teacher_user, topic, measure_question):
+def figureless_measure_question(db, level, topic):
+    """The CPP-406 shape: a length to measure, with nothing to measure it on.
+
+    Well-formed by every check the bank had — right type, right value, right
+    tolerance — and still unanswerable, because a centimetre cannot be drawn
+    true-to-scale on an unknown screen and no image was uploaded.
+    """
+    from maths.models import Question
+
+    return Question.objects.create(
+        level=level,
+        topic=topic,
+        question_text="Measure X",
+        question_type=Question.MEASURE,
+        difficulty=1,
+        points=1,
+        numeric_answer=Decimal("6.5"),
+        answer_tolerance=Decimal("0.2"),
+        answer_unit="cm",
+    )
+
+
+def _homework_with(question, classroom, teacher_user, topic, title):
     from homework.models import Homework, HomeworkQuestion
 
     hw = Homework.objects.create(
         classroom=classroom,
         created_by=teacher_user,
-        title="Measure E2E",
+        title=title,
         homework_type="topic",
         num_questions=1,
         due_date=timezone.now() + timedelta(days=3),
         max_attempts=3,
     )
     hw.topics.add(topic)
-    HomeworkQuestion.objects.create(homework=hw, question=measure_question, order=0)
+    HomeworkQuestion.objects.create(homework=hw, question=question, order=0)
     return hw
+
+
+@pytest.fixture
+def measure_homework_ready(db, classroom, teacher_user, topic, measure_question):
+    return _homework_with(measure_question, classroom, teacher_user, topic,
+                          "Measure E2E")
+
+
+@pytest.fixture
+def figureless_homework_ready(db, classroom, teacher_user, topic,
+                              figureless_measure_question):
+    return _homework_with(figureless_measure_question, classroom, teacher_user,
+                          topic, "Measure with no figure")
 
 
 class TestMeasureQuestionTake:
@@ -133,6 +174,29 @@ class TestMeasureQuestionTake:
         expect(stage.locator("[data-role='rotate']")).to_have_count(1)
         # The figure to measure is still rendered, inside the same stage.
         expect(stage.locator(".measure-figure svg")).to_be_visible()
+
+
+class TestMeasureQuestionWithNoFigure:
+    """CPP-406 — the reported defect, on the page the student actually met."""
+
+    @pytest.mark.django_db(transaction=True)
+    def test_student_is_told_the_figure_is_missing(
+        self, page: Page, live_server, enrolled_student,
+        figureless_homework_ready, figureless_measure_question
+    ):
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/homework/{figureless_homework_ready.pk}/take/")
+        page.wait_for_load_state("networkidle")
+
+        expect(page.locator(".measure-missing-figure")).to_be_visible()
+        # No instrument, and no stage for measure_tool.js to mount one into:
+        # a ruler laid over empty space is what made the question unreadable.
+        expect(page.locator(".measure-stage")).to_have_count(0)
+        expect(page.locator(".measure-instrument")).to_have_count(0)
+        # The answer box still renders — the author's mistake must not also
+        # take the input away from a student who can work the value out.
+        expect(page.locator(
+            f"input[name='answer_{figureless_measure_question.pk}']")).to_be_visible()
 
 
 class TestMeasureAuthoringForm:

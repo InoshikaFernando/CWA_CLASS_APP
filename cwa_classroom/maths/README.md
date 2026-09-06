@@ -101,21 +101,39 @@ family of Year 10–11 quadratics questions, and one the app used to hand to the
 teacher as an un-gradeable drawing, because "sketch … graph" reads as a
 construction (`worksheets.services._CONSTRUCTION_PATTERNS`).
 
-It is not one. A student cannot draw a curve here, but the curve is not what
-these questions are marked on — the **features the stem names** are, and those
-can be typed. So the app draws the blank plane the worksheet printed, takes one
-box per feature, and marks each within a tolerance.
+It is not one. The question asks for two things and the app can take both:
+
+* the **sketch** — the student taps lattice points on the plane the worksheet
+  printed and the widget joins them into a smooth curve (the same "join the
+  dots" curve a `plot_points` question draws). A freehand stroke is still not
+  something this app can take, and it is not what a sketch is marked on: enough
+  points, every one of them on the curve, and — for a parabola whose grid shows
+  both arms — points either side of the turn.
+* the **features the stem names** — one typed box each, marked within a
+  tolerance.
+
+Each is one part of a partial-credit grade, so a pupil who draws the curve and
+finds three of four features keeps four fifths of the mark.
 
 The pieces:
 
 | Concern | Where |
 |---|---|
 | The spec (plane + features + optional coefficients) | `Question.sketch_spec`, validated by `geometry_grading.validate_sketch_spec` |
-| Grading, feature by feature (partial credit) | `geometry_grading.grade_sketch_parts` → `Question.grade_text_answer_parts` |
-| Render data (blank plane for the student, answer figure for feedback) | `Question.sketch_data` |
+| The curve the sketch is marked against | `geometry_grading.sketch_curve` — the spec's `curve`, else the one the features imply |
+| Grading, part by part (the sketch, then each feature) | `geometry_grading.grade_sketch_parts` / `sketch_drawing_part` → `Question.grade_text_answer_parts` |
+| Render data (plottable plane for the student, answer figure for feedback) | `Question.sketch_data` |
 | The drawn answer (curve, axis of symmetry, labelled key points) | `svg_geometry.sketch_answer_svg` |
 | The widget | `templates/maths/partials/_sketch_graph_tool.html` + `static/js/sketch_graph.js` |
 | Extraction from a PDF | rule 17 of `worksheets.services.WORKSHEET_SYSTEM_PROMPT` and the matching rule in `ai_import.services`; both fill `sketch_spec` |
+
+`curve` stays optional in a spec — an importer often leaves it out — but a
+sketch needs one to be right or wrong against, so `sketch_curve` recovers it
+from the features when it can: a parabola from its vertex and any second point
+on it (or from both roots and the y-intercept), a line from its two intercepts.
+When neither is available the plane keeps no tappable points and no sketch part
+is graded — the student is never marked on a drawing nobody can check — and the
+preview's grading notes say so.
 
 Feature kinds are `vertex`, `x_intercept`, `y_intercept` and `axis_of_symmetry`
 — a spec lists only the ones its question actually asks for. Coordinates are
@@ -127,6 +145,50 @@ The correct values live in the spec, never in `Answer` rows, so
 `correct_answer_display()` and `display_text_answer()` read them from there —
 without that a student who got it wrong is shown a blank where the answer
 belongs.
+
+## Questions that cannot be answered: the figure check
+
+A question can pass every answer check the bank has and still be impossible:
+the picture it talks about never reaches the page. CPP-406 is the report — a
+student met "Measure X" on a live homework with nothing above it and asked how
+they were supposed to know what X was. The question was well-formed. It had the
+right type, the right value and the right tolerance, and no option checks apply
+to a `measure` question at all, so nothing had ever looked at it.
+
+| Concern | Where |
+|---|---|
+| Is there anything on the page to look at? | `Question.renders_a_figure` — an uploaded image/video, or the figure the type draws for itself (`FIGURE_RENDER_PROPERTIES`) |
+| Finding the rest of them | `answer_verification.verify_question_figure` → the `MISSING-FIGURE` code |
+| What the student sees instead of a blank stage | `templates/maths/partials/_measure_tool.html`, `templates/worksheets/partials/_answer_measure.html` |
+| Catching it at import instead | `ai_import.verification.flag_missing_figures`, which reads the same patterns |
+
+Two ways a question earns `MISSING-FIGURE`, both needing `renders_a_figure` to
+be false:
+
+* **by type** — a `measure`, `read_graph`, `identify_coords` … question reads
+  its answer *off* a figure. Only an ANGLE measure generates one (a centimetre
+  cannot be drawn true-to-scale on an unknown screen), so a length or mass one
+  needs an uploaded image or there is nothing to measure.
+* **by wording** — the stem points at a figure (`FIGURE_REFERENCE_RE`: "this
+  shape", "the diagram below", "shown opposite"; `LABEL_REFERENCE_RE`: "measure
+  X") that was never attached.
+
+Both patterns live in `maths/answer_verification.py` and are imported by
+`ai_import`, so import-time and bank-time agree on what counts as a figure
+reference. They are deliberately narrow — the code is blocking, and a pattern
+that fired on questions spelled out in words ("a rectangle with perimeter
+20cm") would bury the real backlog rather than surface it.
+
+To find the affected questions in a live bank:
+
+```bash
+python manage.py verify_question_answers --check MISSING-FIGURE
+```
+
+There is no bulk fix, and there should not be: which picture belongs to a
+question is a judgement only a person with the source can make. The code is in
+`views_admin.MANUAL_ONLY_CODES` for that reason, and the check page reports and
+filters it while sending the reviewer to the editor.
 
 ## Dependencies
 

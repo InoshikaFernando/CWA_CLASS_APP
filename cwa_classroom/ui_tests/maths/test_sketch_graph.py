@@ -2,16 +2,16 @@
 
 A student opens a homework containing "Sketch the graph of y = x² + x − 2
 showing the coordinates of the vertex, x-axis and y-axis intercepts and equation
-of the axis of symmetry", sees the blank plane the worksheet printed plus one
-box per feature the stem names, types them, submits, and the answer is marked
-feature by feature: correct only when every feature is right, but worth the
-share that are.
+of the axis of symmetry", sees the plane the worksheet printed, PLOTS the curve
+on it point by point, types the features the stem names, submits, and the answer
+is marked part by part: correct only when the sketch and every feature are
+right, but worth the share that are.
 
-The JS half matters as much as the grading half. The boxes are collected into a
-hidden field by static/js/sketch_graph.js, mounted through the shared
-maths_mounts.js registry. If that never mounts, the hidden field stays empty and
-every student is marked wrong — which no server-side test would catch. Mirrors
-test_fill_blank_question.py.
+The JS half matters as much as the grading half. Both the plotted points and the
+boxes are collected into a hidden field by static/js/sketch_graph.js, mounted
+through the shared maths_mounts.js registry. If that never mounts, the hidden
+field stays empty and every student is marked wrong — which no server-side test
+would catch. Mirrors test_fill_blank_question.py.
 """
 from __future__ import annotations
 
@@ -95,6 +95,16 @@ def _fill(page, **features):
         page.locator(f"[data-sk-feature][data-kind='{kind}']").fill(value)
 
 
+# Three lattice points of y = x² + x − 2 either side of its turning point — the
+# least that counts as a sketch of it.
+RIGHT_SKETCH = ((-2, 0), (-1, -2), (1, 0))
+
+
+def _plot(page, *points):
+    for x, y in points:
+        page.locator(f"[data-sk-dot][data-gx='{x}'][data-gy='{y}']").click()
+
+
 class TestSketchGraphQuestionTake:
 
     @pytest.mark.django_db(transaction=True)
@@ -109,6 +119,45 @@ class TestSketchGraphQuestionTake:
         expect(stage.locator("[data-sk-feature]")).to_have_count(4)
         expect(stage).to_contain_text("Vertex (turning point)")
         expect(stage).to_contain_text("Equation of the axis of symmetry")
+
+    @pytest.mark.django_db(transaction=True)
+    def test_the_plane_can_be_sketched_on(
+        self, page: Page, live_server, enrolled_student, sketch_homework_ready
+    ):
+        """The question says "sketch": every lattice point of the plane is
+        tappable, and the taps are joined into a curve."""
+        _open_take(page, live_server, enrolled_student, sketch_homework_ready)
+
+        stage = page.locator("[data-sk-stage]")
+        expect(stage.locator("[data-sk-dot]")).to_have_count(13 * 13)
+        expect(stage.locator("[data-sk-curve]")).to_have_attribute("d", "")
+
+        _plot(page, *RIGHT_SKETCH)
+
+        expect(stage.locator("[data-sk-marks] circle")).to_have_count(3)
+        expect(stage.locator("[data-sk-curve]")).not_to_have_attribute("d", "")
+        expect(stage.locator("[data-sk-readout]")).to_have_text(
+            "(-2, 0), (-1, -2), (1, 0)")
+
+    @pytest.mark.django_db(transaction=True)
+    def test_a_mis_tap_can_be_taken_back(
+        self, page: Page, live_server, enrolled_student, sketch_homework_ready
+    ):
+        _open_take(page, live_server, enrolled_student, sketch_homework_ready)
+        stage = page.locator("[data-sk-stage]")
+
+        _plot(page, (-2, 0), (3, 3))
+        _plot(page, (3, 3))                       # tapping it again removes it
+        expect(stage.locator("[data-sk-marks] circle")).to_have_count(1)
+
+        page.get_by_role("button", name="Undo").click()
+        expect(stage.locator("[data-sk-marks] circle")).to_have_count(0)
+
+        _plot(page, *RIGHT_SKETCH)
+        page.get_by_role("button", name="Clear").click()
+        expect(stage.locator("[data-sk-marks] circle")).to_have_count(0)
+        assert json.loads(
+            page.locator("[data-sk-hidden]").input_value())["points"] == []
 
     @pytest.mark.django_db(transaction=True)
     def test_the_widget_mounts_through_the_shared_registry(
@@ -142,18 +191,21 @@ class TestSketchGraphQuestionTake:
         _open_take(page, live_server, enrolled_student, sketch_homework_ready)
 
         _fill(page, vertex="(-0.5, -2.25)", axis_of_symmetry="x = -0.5")
+        _plot(page, *RIGHT_SKETCH)
 
         payload = json.loads(page.locator("[data-sk-hidden]").input_value())
         assert payload == {"features": {"vertex": "(-0.5, -2.25)",
-                                        "axis_of_symmetry": "x = -0.5"}}
+                                        "axis_of_symmetry": "x = -0.5"},
+                           "points": [[-2, 0], [-1, -2], [1, 0]]}
 
     @pytest.mark.django_db(transaction=True)
-    def test_every_feature_right_is_marked_correct(
+    def test_the_sketch_and_every_feature_right_is_marked_correct(
         self, page: Page, live_server, enrolled_student,
         sketch_homework_ready, sketch_question
     ):
         _open_take(page, live_server, enrolled_student, sketch_homework_ready)
 
+        _plot(page, *RIGHT_SKETCH)
         _fill(page,
               vertex="(-0.5, -2.25)",
               x_intercept="(1, 0), (-2, 0)",   # either order is the same answer
@@ -166,12 +218,13 @@ class TestSketchGraphQuestionTake:
         assert ans.points_earned == sketch_question.points
 
     @pytest.mark.django_db(transaction=True)
-    def test_one_wrong_feature_keeps_the_other_three_marks(
+    def test_one_wrong_feature_keeps_the_other_four_marks(
         self, page: Page, live_server, enrolled_student,
         sketch_homework_ready, sketch_question
     ):
         _open_take(page, live_server, enrolled_student, sketch_homework_ready)
 
+        _plot(page, *RIGHT_SKETCH)
         _fill(page,
               vertex="(0, 0)",
               x_intercept="(-2, 0), (1, 0)",
@@ -181,9 +234,30 @@ class TestSketchGraphQuestionTake:
 
         ans = _answer(sketch_homework_ready, enrolled_student, sketch_question)
         assert ans.is_correct is False
-        assert ans.points_earned == 3.0
-        assert ans.answer_data["parts_correct"] == 3
-        assert ans.answer_data["parts_total"] == 4
+        assert ans.points_earned == 3.2          # four fifths of four points
+        assert ans.answer_data["parts_correct"] == 4
+        assert ans.answer_data["parts_total"] == 5
+
+    @pytest.mark.django_db(transaction=True)
+    def test_the_features_alone_are_not_the_whole_question(
+        self, page: Page, live_server, enrolled_student,
+        sketch_homework_ready, sketch_question
+    ):
+        """A pupil who types all four features but sketches nothing has not
+        done what the stem asked for, and is told which part is missing."""
+        _open_take(page, live_server, enrolled_student, sketch_homework_ready)
+
+        _fill(page,
+              vertex="(-0.5, -2.25)",
+              x_intercept="(-2, 0), (1, 0)",
+              y_intercept="(0, -2)",
+              axis_of_symmetry="x = -0.5")
+        _submit(page)
+
+        ans = _answer(sketch_homework_ready, enrolled_student, sketch_question)
+        assert ans.is_correct is False
+        assert ans.answer_data["parts_correct"] == 4
+        assert "The sketch" in page.content()
 
     @pytest.mark.django_db(transaction=True)
     def test_the_result_page_shows_the_sketch_that_was_wanted(

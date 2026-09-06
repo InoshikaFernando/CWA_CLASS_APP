@@ -50,6 +50,35 @@ class AccountStandingDenied(PermissionDenied):
         self.resolve_path = resolve_path
 
 
+# Every account-standing code the API can answer with.
+#
+# This is the contract the mobile app switches on: each code routes to a
+# different "here is what to do about it" screen, so an app that does not
+# recognise one cannot act on it. The app is a separate repository on a store
+# release cycle, so a code added here reaches a phone weeks later at best, and
+# never on installs that are not updated.
+#
+# `tests_account_standing.py` reads the wall call sites out of the middleware
+# and fails if this list and those walls disagree, so adding a wall without
+# adding it here is a red build rather than a client that signs the user out
+# when it meets an error it cannot name.
+ACCOUNT_STANDING_CODES = (
+    'subscription_required',
+    'trial_expired',
+    'school_subscription_expired',
+    'payment_required',
+    'account_blocked',
+    'school_suspended',
+    'profile_incomplete',
+    # Not a wall of its own: what a wall degrades to when its envelope cannot
+    # be parsed. Still a denial, and still something the app must recognise.
+    'access_denied',
+)
+
+#: What an unparseable wall degrades to. Part of the tuple above.
+ACCOUNT_STANDING_FALLBACK_CODE = 'access_denied'
+
+
 _PASSED_THROUGH = object()
 
 # Ordered as in settings.MIDDLEWARE, so a user behind two walls is told about
@@ -79,7 +108,7 @@ def _read_envelope(response):
     except (ValueError, KeyError, UnicodeDecodeError):
         # A wall we cannot parse is still a wall: deny, but do not invent a
         # reason for it.
-        return ('access_denied',
+        return (ACCOUNT_STANDING_FALLBACK_CODE,
                 'This account cannot use the API right now.', None)
 
 

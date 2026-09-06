@@ -306,6 +306,25 @@ def test_various_figure_references_are_flagged():
         assert flag_missing_figures([q]) == 1, text
 
 
+def test_bare_label_reference_is_flagged():
+    """CPP-406: "Measure X" names something only a drawing can show.
+
+    The deictic patterns above ("this shape", "the diagram") miss it — there is
+    no visual noun at all, just a label. A student met exactly this on a live
+    homework and asked how they were meant to know what X was.
+    """
+    for text in ['Measure X', 'Measure AB to the nearest millimetre.']:
+        q = _text_q(text)
+        assert flag_missing_figures([q]) == 1, text
+
+
+def test_a_measured_quantity_spelled_out_is_not_flagged():
+    # "measure a line of 5 cm" describes what to draw; it points at no picture.
+    q = _text_q('Measure a line of 5 cm with your ruler.')
+    assert flag_missing_figures([q]) == 0
+    assert 'needs_review' not in q
+
+
 def test_text_only_question_is_not_flagged():
     # A rectangle fully described in words points at no picture.
     q = _text_q('A rectangle has a perimeter of 20cm and a length of 6cm. '

@@ -19,6 +19,58 @@ def _ts_to_dt(timestamp):
     return datetime.fromtimestamp(timestamp, tz=timezone.utc)
 
 
+def subscription_id_from_invoice(invoice):
+    """The subscription an invoice belongs to, from wherever Stripe puts it.
+
+    Stripe moved this off the invoice object and onto
+    ``parent.subscription_details.subscription``. The old top-level key is not
+    merely deprecated on newer API versions — it is ABSENT, so
+    ``invoice.get('subscription')`` returns None and every caller silently
+    decides the invoice belongs to nobody.
+
+    That is not hypothetical. On production all 41 ``invoice.payment_failed``
+    events had been processed with ``stripe_subscription_id: None``: the
+    handler ran, logged an audit event naming no subscription, could not
+    resolve a user, and so sent NOTHING to 41 failed payments' worth of
+    families — while the app correctly walled those students out. Six students
+    were locked out with no idea why, and nobody was told.
+
+    Reads the new location first and falls back to the old, so it is correct
+    on either API version and stays correct through the changeover.
+    """
+    parent = invoice.get('parent') or {}
+    if isinstance(parent, dict):
+        details = parent.get('subscription_details') or {}
+        if isinstance(details, dict) and details.get('subscription'):
+            return details['subscription']
+    return invoice.get('subscription') or None
+
+
+def subscription_period(stripe_sub):
+    """``(period_start, period_end)`` for a subscription, from either shape.
+
+    The same API change moved ``current_period_start`` / ``current_period_end``
+    off the subscription and onto its ITEMS. Same failure mode, same silence:
+    on production 0 of 129 subscriptions carried a period date while 88 had a
+    live Stripe subscription, because 390 ``customer.subscription.updated``
+    events had each read a key that is no longer there and written None.
+
+    Nothing that needs a billing date could work — no renewal reminder, no
+    dunning window, no answer to "what were they paid up to?".
+
+    Takes the first item's period. A subscription with several items shares one
+    billing cycle across them, so any item's period is the subscription's.
+    """
+    start = stripe_sub.get('current_period_start')
+    end = stripe_sub.get('current_period_end')
+    if start is None or end is None:
+        items = (stripe_sub.get('items') or {}).get('data') or []
+        if items and isinstance(items[0], dict):
+            start = start if start is not None else items[0].get('current_period_start')
+            end = end if end is not None else items[0].get('current_period_end')
+    return _ts_to_dt(start), _ts_to_dt(end)
+
+
 def _is_stale_incomplete(raw_status, current_status, active_statuses):
     """True when a transient ``incomplete`` event would downgrade a sub we
     already know to be active/trialing.
@@ -236,8 +288,7 @@ def handle_subscription_updated(event_data):
 
     sub_type = metadata.get('type', '')
     cancel_at_period_end = stripe_sub.get('cancel_at_period_end', False)
-    current_period_start = _ts_to_dt(stripe_sub.get('current_period_start'))
-    current_period_end = _ts_to_dt(stripe_sub.get('current_period_end'))
+    current_period_start, current_period_end = subscription_period(stripe_sub)
     stripe_customer_id = stripe_sub.get('customer', '') or ''
 
     if sub_type == 'institute':
@@ -444,7 +495,7 @@ def handle_payment_succeeded(event_data):
     """Record successful payment. Subscription status is handled by subscription.updated."""
     from audit.services import log_event
     invoice = event_data['object']
-    stripe_sub_id = invoice.get('subscription')
+    stripe_sub_id = subscription_id_from_invoice(invoice)
     amount = invoice.get('amount_paid', 0)
     logger.info(
         'Payment succeeded: subscription=%s amount=%s cents',
@@ -472,7 +523,7 @@ def handle_payment_failed(event_data):
     """
     from audit.services import log_event
     invoice = event_data['object']
-    stripe_sub_id = invoice.get('subscription')
+    stripe_sub_id = subscription_id_from_invoice(invoice)
     customer_id = invoice.get('customer')
     amount = invoice.get('amount_due', 0)
 

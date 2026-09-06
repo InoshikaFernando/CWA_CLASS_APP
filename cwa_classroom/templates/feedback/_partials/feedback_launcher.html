@@ -4,8 +4,13 @@ every authenticated role. Clicking the button opens an Alpine modal and lazily
 loads the capture form (an HTMX partial) into the modal body.
 {% endcomment %}
 {% if request.user.is_authenticated %}
+{% comment %}`report-question` is dispatched by the "Report a problem" link on a
+question card (CPP-398). The link loads this same modal body over HTMX, scoped to
+its question, and fires the event so the modal opens around it — one modal, not a
+second one grown alongside it.{% endcomment %}
 <div x-data="{ open: false }"
      @keydown.escape.window="open = false"
+     @report-question.window="open = true"
      @feedback-submitted.window="setTimeout(() => open = false, 1500)">
 
   <!-- Launcher button — fixed in the bottom-right, stacked directly above the

@@ -55,6 +55,15 @@ import re
 
 from django.conf import settings
 
+# The wording that marks a question as needing a figure, shared with the
+# bank-wide audit that runs the same check over questions already imported
+# (CPP-406) — one copy so import time and bank time cannot drift apart.
+from maths.answer_verification import (
+    FIGURE_OPTIONAL_TYPES as _FIGURE_OPTIONAL_TYPES,
+    FIGURE_REFERENCE_RE as _NEEDS_FIGURE_RE,
+    LABEL_REFERENCE_RE as _NEEDS_LABEL_FIGURE_RE,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -676,32 +685,6 @@ def flag_visual_comparisons(questions):
     return flagged
 
 
-# Deictic references to a concrete visual the question is meant to read off —
-# "this shape", "the diagram", "the graph below", "shown opposite". A question
-# whose text points at a figure like this but ends up with NO attached image has
-# almost certainly had its figure skipped (the model boxed nothing, or the crop
-# was dropped), so it can't be answered as imported. Indefinite descriptions ("a
-# rectangle with perimeter 20cm") are deliberately excluded — those are spelled
-# out in the text and point at no picture, so requiring a definite/deictic marker
-# in front of the visual noun keeps the false-positive rate down.
-_NEEDS_FIGURE_RE = re.compile(
-    r'\b(?:'
-    r'(?:this|these|the)\s+'
-    r'(?:shape|shapes|diagram|figure|pattern|net|graph|grid|'
-    r'number\s+line|clock(?:\s+face)?|picture|image|table|chart|'
-    r'arrangement|tiles?|solid)'
-    r'|shown\s+(?:below|above|opposite|here|in|on)'
-    r'|as\s+shown'
-    r')\b',
-    re.IGNORECASE,
-)
-
-# Types whose "grid" / "bracket" visual is scaffolding transcribed into the
-# structured fields (never attached as a figure), so a figure reference in their
-# text is not a missing image.
-_FIGURE_OPTIONAL_TYPES = {'long_division', 'column_operation'}
-
-
 def _needs_figure_but_missing(q):
     """A question that references a figure in its text but carries no image.
 
@@ -712,7 +695,9 @@ def _needs_figure_but_missing(q):
         return False
     if q.get('question_type') in _FIGURE_OPTIONAL_TYPES:
         return False
-    return bool(_NEEDS_FIGURE_RE.search(q.get('question_text') or ''))
+    text = q.get('question_text') or ''
+    return bool(_NEEDS_FIGURE_RE.search(text)
+                or _NEEDS_LABEL_FIGURE_RE.search(text))
 
 
 def flag_missing_figures(questions):
