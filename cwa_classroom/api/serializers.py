@@ -78,6 +78,31 @@ class UserSummarySerializer(serializers.ModelSerializer):
         return obj.get_full_name() or obj.username
 
 
+# Declared by hand because SimpleJWT builds the login response inside
+# TokenObtainPairSerializer.validate() rather than declaring output fields,
+# so drf-spectacular saw TokenObtainPairView as having no 200 body at all.
+# That left the one response carrying the access token, the refresh token and
+# the user as the only part of the contract the schema did not describe — and
+# therefore the only part tests_schema.py could not protect, even though the
+# mobile client generates its types from that schema.
+#
+# It is output-only: nothing validates a request through it. The fields mirror
+# what validate() actually returns, and tests_schema.py asserts the two stay
+# in step rather than trusting this declaration.
+class TokenPairSerializer(serializers.Serializer):
+    """A signed-in session: the token pair, plus the caller's own profile."""
+
+    access = serializers.CharField(
+        read_only=True,
+        help_text='Short-lived bearer token. Send as `Authorization: Bearer <token>`.')
+    refresh = serializers.CharField(
+        read_only=True,
+        help_text='Long-lived token for `/auth/refresh/`. Rotation is on, so '
+                  'each refresh returns a new one and blacklists this one — '
+                  'the client must store what it gets back.')
+    user = UserSerializer(read_only=True)
+
+
 class TokenObtainPairSerializer(BaseTokenObtainPairSerializer):
     """Login. Adds role claims, and refuses a blocked account outright.
 
