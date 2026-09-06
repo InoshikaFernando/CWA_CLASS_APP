@@ -18,6 +18,13 @@ Checks applied to each typed-answer (short answer / calculation) question:
     UNMARKED-SET       asks for a collection but grades in order (CPP-378)
     FRAGMENT-ROW       a correct row is one value of another correct row's list
 
+Applied to EVERY question, whatever its type:
+
+    MISSING-FIGURE     the question is read off a picture that never reaches
+                       the page — a measure question with nothing to measure,
+                       or a stem pointing at "the diagram" with no image
+                       attached (CPP-406)
+
 Typed answers used to be skipped entirely, which is how 559 questions came to
 accept a fragment of a list answer as the whole thing. Both codes describe
 authoring only a human can resolve, so they are reported and fail the run
@@ -52,7 +59,7 @@ from django.core.management.base import BaseCommand
 
 from maths.answer_verification import (
     DUPLICATE_OPTION, DUPLICATE_VALUE, TOO_MANY_OPTIONS, verify_question,
-    verify_typed_answer_question)
+    verify_question_figure, verify_typed_answer_question)
 
 # Codes that cannot mismark a student. They are reported, but they do not fail
 # the run (without --strict) and they stay out of the dashboard's headline —
@@ -121,6 +128,10 @@ class Command(BaseCommand):
             scanned += 1
             issues, verified = verify_question(
                 question, min_options=options['min_options'])
+            # Runs over every type, not just this loop's choice questions —
+            # a well-formed multiple choice is still unanswerable when the
+            # shape it asks about is not on the page (CPP-406).
+            issues = issues + verify_question_figure(question)
             if verified:
                 arithmetic_checked += 1
             else:
@@ -152,7 +163,8 @@ class Command(BaseCommand):
         typed_scanned = 0
         for question in typed.order_by('id'):
             typed_scanned += 1
-            issues = verify_typed_answer_question(question)
+            issues = (verify_typed_answer_question(question)
+                      + verify_question_figure(question))
             if only:
                 issues = [i for i in issues if i.code in only]
             if not issues:

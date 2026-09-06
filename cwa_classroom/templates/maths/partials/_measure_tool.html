@@ -7,7 +7,20 @@ reading into the numeric input the host template supplies.
 
 The instrument is positioned/rotated client-side; this partial only lays out the
 stage, the figure, and a reset control. measure_tool.js mounts itself.
+
+A measure question only generates its own figure when it is an ANGLE — a length
+or mass one (unit cm, g, …) cannot be drawn true-to-scale on an unknown screen,
+so its author has to upload the figure. When neither exists there is nothing to
+measure, and the stage used to render as empty space under a hint telling the
+child to drag a ruler over it: CPP-406, where a student met "Measure X" and
+asked how they were meant to know what X was. Say so instead of showing an
+instrument with nothing under it. The host template still renders the answer
+box below, so a student who can work the value out another way is not blocked;
+the fault itself is the author's to fix, and
+``maths.answer_verification.verify_question_figure`` is what finds the rest of
+them in the bank.
 {% endcomment %}
+{% if q.renders_a_figure %}
 <p class="measure-hint text-[11px] text-gray-400 mb-1">
   Drag the {{ q.measure_tool }} to move it • drag the white knob to rotate •
   read the value, then type it below.
@@ -30,3 +43,10 @@ stage, the figure, and a reset control. measure_tool.js mounts itself.
     Reset tool
   </button>
 </div>
+{% else %}
+<p class="measure-missing-figure mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+   role="status">
+  This question is missing the figure you are meant to measure, so there is
+  nothing to read here. Please tell your teacher.
+</p>
+{% endif %}
