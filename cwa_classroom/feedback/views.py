@@ -4,6 +4,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Case, IntegerField, Value, When
+from django.http import Http404
 from django.shortcuts import get_object_or_404, render
 from django.views import View
 
@@ -39,6 +40,38 @@ def _validate_images(files):
     return ''
 
 
+def _reported_question(request, raw_id):
+    """The maths Question a report is scoped to, or ``None``.
+
+    A question is reportable when the submitter could already be looking at it:
+    a global (school-less) question, or one belonging to their own school.
+    Anything else is treated as not found — the same 404-not-403 rule the rest
+    of the app uses for cross-tenant access, so the modal never reveals that a
+    question id exists in another school.
+    """
+    from maths.models import Question
+
+    raw_id = (raw_id or '').strip()
+    if not raw_id:
+        return None
+    try:
+        question_id = int(raw_id)
+    except (TypeError, ValueError):
+        return None
+
+    school = get_school_for_user(request.user)
+    question = (Question.objects
+                .select_related('topic', 'level')
+                .filter(id=question_id)
+                .first())
+    if question is None:
+        return None
+    if question.school_id is not None and question.school_id != getattr(
+            school, 'id', None):
+        return None
+    return question
+
+
 def _safe_page_url(url):
     """Sanitise a submitter-supplied page URL before storing it.
 
@@ -65,24 +98,39 @@ class SubmitFeedbackView(LoginRequiredMixin, View):
     POST → validates and creates a Feedback record assigned to the product
            owner, returning a success partial; invalid submissions re-render
            the form partial with inline errors (HTTP 400).
+
+    A ``question`` parameter scopes the report to one maths question (CPP-398).
+    The same modal is reused rather than a second one being grown alongside it,
+    so the screenshot handling, the Jira filing and the validation messages all
+    stay in one place.
     """
 
     def get(self, request):
+        question = _reported_question(request, request.GET.get('question'))
+        if request.GET.get('question') and question is None:
+            # An id that names nothing this user can see. Saying so beats
+            # rendering the plain modal, which would look like the report had
+            # been scoped when it had not.
+            raise Http404('No such question.')
+        initial = ({'category': Feedback.CATEGORY_BUG} if question else {})
         return render(
             request,
             'feedback/_partials/feedback_modal.html',
-            {'form': FeedbackForm()},
+            {'form': FeedbackForm(initial=initial), 'question': question},
         )
 
     def post(self, request):
         form = FeedbackForm(request.POST)
         images = request.FILES.getlist('screenshots')
         image_error = _validate_images(images)
+        raw_question_id = request.POST.get('question_id', '')
+        question = _reported_question(request, raw_question_id)
         if not form.is_valid() or image_error:
             return render(
                 request,
                 'feedback/_partials/feedback_modal.html',
-                {'form': form, 'image_error': image_error},
+                {'form': form, 'image_error': image_error,
+                 'question': question},
                 status=400,
             )
 
@@ -102,6 +150,29 @@ class SubmitFeedbackView(LoginRequiredMixin, View):
         # them) sees a complete set.
         for f in images:
             FeedbackImage.objects.create(feedback=feedback, image=f)
+
+        # Scoped to a question (CPP-398) — record which one, so the question
+        # health dashboard can raise it for review instead of the complaint
+        # resting in a Jira queue while the question stays live.
+        if question is not None:
+            from maths.models import QuestionReport
+            QuestionReport.objects.create(
+                question=question,
+                school=feedback.school,
+                reported_by=request.user,
+                feedback=feedback,
+                note=feedback.description,
+            )
+        elif raw_question_id:
+            # The id did not survive validation between opening the modal and
+            # sending it. The feedback is still saved — losing what somebody
+            # typed is worse than losing the link — but nothing false is
+            # recorded against the bank, and the mismatch is not swallowed.
+            logger.warning(
+                'Feedback %s arrived with unusable question id %r from user '
+                '%s — saved without a question report.',
+                feedback.id, raw_question_id[:50], request.user.id,
+            )
 
         # Bug reports get auto-filed to Jira (+ Discord) in the background. The
         # task is config-gated and idempotent, so enqueue unconditionally for

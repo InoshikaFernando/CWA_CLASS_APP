@@ -134,6 +134,18 @@ def report_feedback_bug(feedback):
         f'Page: {feedback.page_url or "(none)"}'
     )
 
+    # A report raised from a question card names the question (CPP-398). The
+    # ticket that prompted this — "the answer in a quality answer was 23 or 23
+    # pencils but why" against a topic quiz serving dozens of questions — could
+    # not be traced to one without it, so the complaint was unactionable.
+    report = feedback.question_reports.select_related('question').first()
+    if report is not None and report.question_id:
+        question = report.question
+        description += (
+            f'\nQuestion: #{question.id} — '
+            f'{(question.question_text or "")[:200]}'
+        )
+
     key = create_jira_bug(
         summary=summary,
         description=description,

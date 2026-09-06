@@ -43,7 +43,7 @@
   {% else %}
 
   <!-- Headline tiles -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
     <div class="rounded-2xl p-5 border {% if latest.status == 'crit' %}bg-red-500/10 border-red-500/30{% elif latest.status == 'warn' %}bg-amber-500/10 border-amber-500/30{% else %}bg-emerald-500/10 border-emerald-500/30{% endif %}">
       <p class="text-xs uppercase tracking-wide text-slate-400">Healthy</p>
       <p class="text-3xl font-bold {% if latest.status == 'crit' %}text-red-300{% elif latest.status == 'warn' %}text-amber-300{% else %}text-emerald-300{% endif %} mt-1">{{ latest.health_percent }}%</p>
@@ -66,6 +66,16 @@
       <p class="text-xs uppercase tracking-wide text-slate-400">Machine-verified</p>
       <p class="text-3xl font-bold text-slate-200 mt-1">{{ latest.coverage_percent }}%</p>
       <p class="text-xs text-slate-400 mt-1">{{ latest.unverifiable }} need a human</p>
+    </div>
+
+    {% comment %}The number the three tiles above do NOT contain (CPP-398).
+    Cleared questions are left out of the counts on a person's say-so, so the
+    say-so is shown rather than the bank simply reading healthier.{% endcomment %}
+    <div class="rounded-2xl p-5 bg-slate-800 border border-slate-700"
+         data-testid="cleared-tile">
+      <p class="text-xs uppercase tracking-wide text-slate-400">Cleared by review</p>
+      <p class="text-3xl font-bold text-slate-200 mt-1">{{ latest.questions_cleared }}</p>
+      <p class="text-xs text-slate-400 mt-1">flagged, checked, found correct</p>
     </div>
   </div>
 
