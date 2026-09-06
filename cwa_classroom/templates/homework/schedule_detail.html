@@ -145,7 +145,24 @@
               {% endif %}
             </summary>
 
+            <div data-topic-tree>
+              {% comment %}
+                Type-to-filter, because collapsing the strands does not shorten
+                the strand a teacher is actually in — Number alone runs to
+                twenty-odd sub-topics. Filtering hides rows, it never unticks
+                them, and a hidden ticked box still posts.
+              {% endcomment %}
+              <label class="sr-only" for="topic-filter-{{ week.id }}">Filter topics</label>
+              <input type="search" id="topic-filter-{{ week.id }}" data-topic-filter
+                     placeholder="Filter topics…" autocomplete="off"
+                     class="w-full mt-2 border border-gray-300 rounded-lg px-3 py-1.5 text-sm
+                            focus:outline-none focus:ring-2 focus:ring-blue-500">
+
             <div class="mt-2 border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-64 overflow-y-auto">
+              <p class="px-3 py-3 text-sm text-gray-500" style="display:none"
+                 data-topic-filter-empty>
+                No topic matches “<span data-topic-filter-term></span>”.
+              </p>
               {% for strand, mid_items in topic_groups %}
               {% comment %}
                 Every node is tickable, parents included. Ticking a parent
@@ -161,9 +178,20 @@
                 one topic — summing subtree counts there would count a
                 parent's children twice over.
               {% endcomment %}
+              {% comment %}
+                Every group is an accordion, SHUT unless it is the only one.
+                Open, the strands ran together into one alphabetical wall of
+                sub-topics — the headings scrolled out of the box and the
+                grouping stopped being visible at all. Shut, the teacher sees
+                the strands first and opens the one they are planning. The
+                summary carries the subtree count and, once anything inside is
+                ticked, an "n selected" badge, so a shut group never hides a
+                choice; the script below also re-opens any group that already
+                holds one.
+              {% endcomment %}
               {% if mid_items %}
-              <details class="group" open data-topic-group>
-                <summary class="flex items-center justify-between px-3 py-2 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 transition">
+              <details class="group" data-topic-group {% if topic_groups|length == 1 %}open{% endif %}>
+                <summary class="flex items-center justify-between gap-2 px-3 py-2 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 transition">
                   {% comment %} The label stops a click on the box toggling the <details> open/shut. {% endcomment %}
                   <label class="flex items-center gap-2 cursor-pointer" onclick="event.stopPropagation()">
                     <input type="checkbox"
@@ -172,28 +200,44 @@
                            data-group-toggle
                            data-total="{{ strand.total_count }}" data-fresh="{{ strand.fresh_count }}"
                            {% if strand.pk in week.topic_ids %}checked{% endif %}>
-                    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">{{ strand.name }}</span>
+                    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide" data-topic-name>{{ strand.name }}</span>
                     <span class="text-xs font-normal {% if strand.group_fresh %}text-gray-400{% else %}text-red-500{% endif %}">
                       ({{ strand.group_fresh }}{% if strand.group_total != strand.group_fresh %} of {{ strand.group_total }}{% endif %})
                     </span>
                   </label>
+                  <span class="flex items-center gap-2 shrink-0">
+                    <span class="text-[11px] font-semibold text-blue-600" data-group-selected hidden></span>
+                    <svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180"
+                         fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                  </span>
                 </summary>
                 <div class="px-3 py-2 space-y-1">
                   {% for mid, leaves in mid_items %}
                   {% if leaves %}
-                  <div class="mt-2" data-topic-group>
-                    <label class="flex items-center gap-2 cursor-pointer mb-1">
-                      <input type="checkbox"
-                             {% if mid.total_count %}name="topic_ids" value="{{ mid.pk }}"{% endif %}
-                             class="rounded text-blue-600 focus:ring-blue-500"
-                             data-group-toggle
-                             data-total="{{ mid.total_count }}" data-fresh="{{ mid.fresh_count }}"
-                             {% if mid.pk in week.topic_ids %}checked{% endif %}>
-                      <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">{{ mid.name }}</span>
-                      <span class="text-xs font-normal {% if mid.group_fresh %}text-gray-400{% else %}text-red-500{% endif %}">
-                        ({{ mid.group_fresh }}{% if mid.group_total != mid.group_fresh %} of {{ mid.group_total }}{% endif %})
+                  <details class="group/mid mt-2" data-topic-group open>
+                    <summary class="flex items-center justify-between gap-2 cursor-pointer select-none mb-1">
+                      <label class="flex items-center gap-2 cursor-pointer" onclick="event.stopPropagation()">
+                        <input type="checkbox"
+                               {% if mid.total_count %}name="topic_ids" value="{{ mid.pk }}"{% endif %}
+                               class="rounded text-blue-600 focus:ring-blue-500"
+                               data-group-toggle
+                               data-total="{{ mid.total_count }}" data-fresh="{{ mid.fresh_count }}"
+                               {% if mid.pk in week.topic_ids %}checked{% endif %}>
+                        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide" data-topic-name>{{ mid.name }}</span>
+                        <span class="text-xs font-normal {% if mid.group_fresh %}text-gray-400{% else %}text-red-500{% endif %}">
+                          ({{ mid.group_fresh }}{% if mid.group_total != mid.group_fresh %} of {{ mid.group_total }}{% endif %})
+                        </span>
+                      </label>
+                      <span class="flex items-center gap-2 shrink-0">
+                        <span class="text-[11px] font-semibold text-blue-600" data-group-selected hidden></span>
+                        <svg class="w-3.5 h-3.5 text-gray-300 transition-transform group-open/mid:rotate-180"
+                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
                       </span>
-                    </label>
+                    </summary>
                     <div class="pl-6 space-y-1">
                       {% for leaf in leaves %}
                       <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer py-0.5">
@@ -201,21 +245,21 @@
                                class="rounded text-blue-600 focus:ring-blue-500"
                                data-total="{{ leaf.total_count }}" data-fresh="{{ leaf.fresh_count }}"
                                {% if leaf.pk in week.topic_ids %}checked{% endif %}>
-                        <span>{{ leaf.name }}</span>
+                        <span data-topic-name>{{ leaf.name }}</span>
                         <span class="text-xs {% if leaf.fresh_count %}text-gray-400{% else %}text-red-500{% endif %}">
                           ({{ leaf.fresh_count }}{% if leaf.total_count != leaf.fresh_count %} of {{ leaf.total_count }}{% endif %})
                         </span>
                       </label>
                       {% endfor %}
                     </div>
-                  </div>
+                  </details>
                   {% else %}
                   <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer py-0.5">
                     <input type="checkbox" name="topic_ids" value="{{ mid.pk }}"
                            class="rounded text-blue-600 focus:ring-blue-500"
                            data-total="{{ mid.total_count }}" data-fresh="{{ mid.fresh_count }}"
                            {% if mid.pk in week.topic_ids %}checked{% endif %}>
-                    <span>{{ mid.name }}</span>
+                    <span data-topic-name>{{ mid.name }}</span>
                     <span class="text-xs {% if mid.fresh_count %}text-gray-400{% else %}text-red-500{% endif %}">
                       ({{ mid.fresh_count }}{% if mid.total_count != mid.fresh_count %} of {{ mid.total_count }}{% endif %})
                     </span>
@@ -230,7 +274,7 @@
                        class="rounded text-blue-600 focus:ring-blue-500"
                        data-total="{{ strand.total_count }}" data-fresh="{{ strand.fresh_count }}"
                        {% if strand.pk in week.topic_ids %}checked{% endif %}>
-                <span>{{ strand.name }}</span>
+                <span data-topic-name>{{ strand.name }}</span>
                 <span class="text-xs {% if strand.fresh_count %}text-gray-400{% else %}text-red-500{% endif %}">
                   ({{ strand.fresh_count }}{% if strand.total_count != strand.fresh_count %} of {{ strand.total_count }}{% endif %})
                 </span>
@@ -250,6 +294,7 @@
               </p>
               {% endfor %}
             </div>
+            </div>{# /data-topic-tree #}
           </details>
 
           <div class="flex flex-wrap items-end gap-3">
@@ -382,6 +427,28 @@
       });
     }
 
+    // A shut group has to say what it is holding, or a teacher re-picking a
+    // week cannot see their own selection without opening every strand.
+    function refreshBadges(form) {
+      form.querySelectorAll('[data-topic-group]').forEach(function (group) {
+        var badge = group.querySelector(':scope > summary [data-group-selected]');
+        if (!badge) return;
+        var on = children(group).filter(function (b) { return b.checked; }).length;
+        badge.textContent = on ? on + ' selected' : '';
+        badge.hidden = !on;
+      });
+    }
+
+    // Run once, on load: a group carrying a selection opens itself, so the
+    // week's existing plan is visible without hunting. Only on load — a
+    // teacher who then shuts a group means it.
+    function openGroupsWithSelections(form) {
+      form.querySelectorAll('details[data-topic-group]').forEach(function (group) {
+        if (group.open) return;
+        if (children(group).some(function (b) { return b.checked; })) group.open = true;
+      });
+    }
+
     function cascade(toggle) {
       var group = toggle.closest('[data-topic-group]');
       if (!group) return;
@@ -400,8 +467,11 @@
           if (!isTopicBox(e.target)) return;
           if (e.target.hasAttribute('data-group-toggle')) cascade(e.target);
           refreshToggles(form);
+          refreshBadges(form);
         });
         refreshToggles(form);
+        refreshBadges(form);
+        openGroupsWithSelections(form);
       }
     });
 
@@ -423,4 +493,6 @@
     });
   })();
 </script>
+
+{% include 'homework/partials/_topic_filter.html' %}
 {% endblock %}
