@@ -37,12 +37,25 @@ CODE_LABELS = {
     'BLANK-OPTION': 'Blank option',
     'WRONG-ANSWER-KEY': 'Answer key is wrong',
     'DUPLICATE-VALUE': 'Two distractors are the same value',
+    'MISSING-FIGURE': 'Figure missing — nothing to look at',
     # Raised from QuestionReport rows rather than by the verifier (CPP-398).
     # A question a student objected to is unhealthy even when every
     # deterministic check passes it — the verifier having no objection is
     # exactly the case the complaint is worth reading.
     USER_REPORTED: 'Reported by a user',
 }
+
+# Codes whose only route out is a person opening the question: attaching the
+# figure it talks about, or rewording the stem so it stops talking about one.
+# No bulk mutation can settle that — which option to add is a judgement, and
+# WHICH picture belongs is one only a human with the source can make.
+#
+# They are reported and filterable all the same. The dead end the fix map
+# guards against is a problem a reviewer cannot act on; a missing figure is
+# perfectly actionable from the row's edit link, just not from the dropdown.
+# ``FIXES_FOR_CODE`` therefore omits them deliberately, and a test asserts the
+# omission is deliberate rather than forgotten.
+MANUAL_ONLY_CODES = frozenset({'MISSING-FIGURE'})
 
 # Codes that cannot mismark a student — shown, but never in the headline.
 # DUPLICATE-OPTION is here because a repeated WRONG option only makes the
@@ -162,7 +175,8 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
     def get(self, request):
         from classroom.models import Level, Subject, Topic
 
-        from .answer_verification import Issue, verify_question
+        from .answer_verification import (
+            Issue, verify_question, verify_question_figure)
         from .models import Question
         from .question_review import ReviewState, report_detail
 
@@ -264,12 +278,17 @@ class QuestionCheckView(SuperuserRequiredMixin, View):
                     cleared += 1
                     continue
                 issues, _verified = verify_question(question)
+                # A question can pass every option check and still be
+                # unanswerable because the picture it talks about never
+                # reaches the page (CPP-406), so the figure check runs over
+                # the same batch rather than in a tool nobody opens.
+                issues = list(issues) + verify_question_figure(question)
                 reports = state.open_reports(question)
                 if reports:
                     # Appended rather than merged into verify_question: the
                     # verifier reports what it can prove about the data, and
                     # "somebody objected" is not that kind of claim.
-                    issues = list(issues) + [
+                    issues = issues + [
                         Issue(USER_REPORTED, report_detail(reports))]
                 if not include_advisory:
                     issues = [i for i in issues
@@ -548,16 +567,34 @@ class QuestionBulkFixView(SuperuserRequiredMixin, View):
         further in one pass on purpose — after a change the findings differ,
         and the reviewer should see the new state before more is done to it.
         """
-        from .answer_verification import verify_question
+        from .answer_verification import (
+            verify_question, verify_question_figure)
         from .duplicate_repair import Skipped
+        from .question_review import ReviewState
 
         issues, _ = verify_question(question)
+        # Without this a question whose ONLY fault is a missing figure would be
+        # reported as 'nothing wrong with it now' — the page's own finding
+        # contradicted by its own fixer. An open user report is the same shape
+        # of contradiction, so it counts here too (CPP-398); no fix will ever
+        # suit it, and saying so is the honest answer.
+        issues = issues + verify_question_figure(question)
         codes = {issue.code for issue in issues}
+        if ReviewState([question.id]).open_reports(question):
+            codes.add(USER_REPORTED)
         if not codes:
             return [], 'nothing wrong with it now'
 
         sequence = auto_fix_sequence(codes)
         if not sequence:
+            if codes <= MANUAL_ONLY_CODES:
+                return [], ('the figure this question refers to is missing — '
+                            'open the question and attach it, or reword the '
+                            'stem so it does not ask for one')
+            if USER_REPORTED in codes:
+                return [], ('a user reported this one — read it and choose '
+                            '"Reviewed and correct" or "Reviewed — needs '
+                            'fixing"; no sweep can settle a complaint')
             return [], 'no automatic fix suits this problem'
 
         reasons = []

@@ -146,6 +146,50 @@ The correct values live in the spec, never in `Answer` rows, so
 without that a student who got it wrong is shown a blank where the answer
 belongs.
 
+## Questions that cannot be answered: the figure check
+
+A question can pass every answer check the bank has and still be impossible:
+the picture it talks about never reaches the page. CPP-406 is the report — a
+student met "Measure X" on a live homework with nothing above it and asked how
+they were supposed to know what X was. The question was well-formed. It had the
+right type, the right value and the right tolerance, and no option checks apply
+to a `measure` question at all, so nothing had ever looked at it.
+
+| Concern | Where |
+|---|---|
+| Is there anything on the page to look at? | `Question.renders_a_figure` — an uploaded image/video, or the figure the type draws for itself (`FIGURE_RENDER_PROPERTIES`) |
+| Finding the rest of them | `answer_verification.verify_question_figure` → the `MISSING-FIGURE` code |
+| What the student sees instead of a blank stage | `templates/maths/partials/_measure_tool.html`, `templates/worksheets/partials/_answer_measure.html` |
+| Catching it at import instead | `ai_import.verification.flag_missing_figures`, which reads the same patterns |
+
+Two ways a question earns `MISSING-FIGURE`, both needing `renders_a_figure` to
+be false:
+
+* **by type** — a `measure`, `read_graph`, `identify_coords` … question reads
+  its answer *off* a figure. Only an ANGLE measure generates one (a centimetre
+  cannot be drawn true-to-scale on an unknown screen), so a length or mass one
+  needs an uploaded image or there is nothing to measure.
+* **by wording** — the stem points at a figure (`FIGURE_REFERENCE_RE`: "this
+  shape", "the diagram below", "shown opposite"; `LABEL_REFERENCE_RE`: "measure
+  X") that was never attached.
+
+Both patterns live in `maths/answer_verification.py` and are imported by
+`ai_import`, so import-time and bank-time agree on what counts as a figure
+reference. They are deliberately narrow — the code is blocking, and a pattern
+that fired on questions spelled out in words ("a rectangle with perimeter
+20cm") would bury the real backlog rather than surface it.
+
+To find the affected questions in a live bank:
+
+```bash
+python manage.py verify_question_answers --check MISSING-FIGURE
+```
+
+There is no bulk fix, and there should not be: which picture belongs to a
+question is a judgement only a person with the source can make. The code is in
+`views_admin.MANUAL_ONLY_CODES` for that reason, and the check page reports and
+filters it while sending the reviewer to the editor.
+
 ## Dependencies
 
 - **accounts** — `CustomUser` is the student.

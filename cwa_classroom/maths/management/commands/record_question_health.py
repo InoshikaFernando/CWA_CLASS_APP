@@ -18,7 +18,8 @@ from collections import Counter
 from django.core.management.base import BaseCommand
 
 from maths.answer_verification import (
-    Issue, verify_question, verify_typed_answer_question)
+    Issue, verify_question, verify_question_figure,
+    verify_typed_answer_question)
 from maths.management.commands.verify_question_answers import ADVISORY_CODES
 from maths.question_review import USER_REPORTED, ReviewState, report_detail
 
@@ -96,6 +97,10 @@ class Command(BaseCommand):
         for question in questions.iterator(chunk_size=200):
             choice_total += 1
             issues, was_verified = verify_question(question)
+            # The figure check applies to every type: a question whose picture
+            # never reaches the page cannot be answered however well-formed its
+            # options are (CPP-406).
+            issues = issues + verify_question_figure(question)
             if was_verified:
                 verified += 1
             reports = state.open_reports(question)
@@ -146,7 +151,8 @@ class Command(BaseCommand):
         typed_total = 0
         for question in typed.iterator(chunk_size=200):
             typed_total += 1
-            issues = verify_typed_answer_question(question)
+            issues = (verify_typed_answer_question(question)
+                      + verify_question_figure(question))
             reports = state.open_reports(question)
             if reports:
                 issues = list(issues) + [
@@ -158,8 +164,9 @@ class Command(BaseCommand):
                 continue
             issue_codes = [issue.code for issue in issues]
             codes.update(issue_codes)
-            # Neither typed code is advisory, and nor is a user report: each
-            # one mismarks a student.
+            # None of these codes is advisory: the typed ones mismark a
+            # student, a missing figure costs them the mark outright, and a
+            # user report is somebody saying it already did.
             blocking += 1
             if len(flagged) < max_flagged:
                 flagged.append({
