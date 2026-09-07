@@ -517,7 +517,7 @@ class TestExerciseDetailDomContext(TestCase):
 
     def test_dom_exercise_renders_iframe_preview(self):
         """DOM exercise must render the sandboxed iframe preview panel."""
-        self.assertContains(self.dom_resp, 'id="ed-preview-frame"')
+        self.assertContains(self.dom_resp, 'id="cw-preview-output"')
 
     def test_dom_exercise_iframe_has_allow_scripts(self):
         """The preview iframe must include allow-scripts in the sandbox attribute."""
@@ -532,17 +532,17 @@ class TestExerciseDetailDomContext(TestCase):
 
     def test_algo_exercise_does_not_render_iframe_preview(self):
         """Algorithm JS exercise must NOT render the iframe preview panel."""
-        self.assertNotContains(self.algo_resp, 'id="ed-preview-frame"')
+        self.assertNotContains(self.algo_resp, 'id="cw-preview-output"')
 
     # ── Template content: output panel ───────────────────────────────────────
 
     def test_algo_exercise_renders_output_panel(self):
         """Algorithm JS exercise must render the Node.js output panel."""
-        self.assertContains(self.algo_resp, 'id="ed-stdout"')
+        self.assertContains(self.algo_resp, 'id="cw-stdout-output"')
 
     def test_dom_exercise_does_not_render_output_panel(self):
         """DOM exercise must NOT render the Node.js output panel."""
-        self.assertNotContains(self.dom_resp, 'id="ed-stdout"')
+        self.assertNotContains(self.dom_resp, 'id="cw-stdout-output"')
 
     # ── Template content: file label ─────────────────────────────────────────
 
