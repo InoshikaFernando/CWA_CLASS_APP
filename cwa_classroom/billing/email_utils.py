@@ -116,8 +116,9 @@ def notify_past_due_backlog(user, since=None):
       account gets "No billing account found" and a dead end. The subscription
       belongs to the student, and the message now says so.
 
-    It also says plainly that the delay was our fault. The families did nothing
-    wrong and a silent month needs accounting for.
+    It does not apologise for the delay. Payment is the family's to keep up
+    with, and an apology in the opening line reads as an offer to waive the
+    charge rather than a request to settle it.
     """
     from classroom.email_service import _get_email_logo_url
     from django.conf import settings
