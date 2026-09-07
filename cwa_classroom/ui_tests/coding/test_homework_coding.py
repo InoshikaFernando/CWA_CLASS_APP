@@ -19,6 +19,16 @@ NOTE: Piston-backed grading for server-side languages (python/javascript)
 is tested at the plugin layer via a separate unit test — hitting a live
 Piston from Playwright would make these tests require external
 infrastructure.
+
+Nothing here waits on "networkidle" before an expect(). c54a0cd took that wait
+out of the Scratch tests after two CI timeouts and left these files alone,
+"worth revisiting if they ever flake"; test_verdict_is_rendered_from_the_response
+then timed out at 30s on a release run whose tree had passed this same group
+twenty minutes earlier. These pages mount CodeMirror and the vendored editor
+assets, so "no request for 500ms" is a coin toss on a slow runner — and the
+expect() that followed was already waiting for the editor, which is the thing
+each test actually needs. The waits that remain are the ones doing real work:
+before a bare assert, before an action, or at the tail of a helper.
 """
 
 from __future__ import annotations
@@ -209,7 +219,6 @@ class TestCodingHomeworkTake:
         """
         do_login(page, live_server.url, enrolled_student)
         page.goto(f"{live_server.url}/homework/{coding_homework_ready.pk}/take/")
-        page.wait_for_load_state("networkidle")
 
         expect(page.get_by_text(coding_exercise.title)).to_be_visible()
         # The textarea is in the DOM (CodeMirror hides it but reads/writes its value).
@@ -234,7 +243,6 @@ class TestCodingHomeworkTake:
         page.set_viewport_size({"width": 1440, "height": 1000})
         do_login(page, live_server.url, enrolled_student)
         page.goto(f"{live_server.url}/homework/{coding_homework_ready.pk}/take/")
-        page.wait_for_load_state("networkidle")
 
         window = page.locator("[data-code-window]").first
         expect(window).to_be_visible()
@@ -261,7 +269,6 @@ class TestCodingHomeworkTake:
 
         do_login(page, live_server.url, enrolled_student)
         page.goto(f"{live_server.url}/homework/{coding_homework_ready.pk}/take/")
-        page.wait_for_load_state("networkidle")
 
         editor = page.locator("[data-code-window] .CodeMirror").first
         expect(editor).to_be_visible(timeout=5000)
@@ -304,7 +311,6 @@ class TestCodingHomeworkTake:
 
         do_login(page, live_server.url, enrolled_student)
         page.goto(f"{live_server.url}/homework/{coding_homework_ready.pk}/take/")
-        page.wait_for_load_state("networkidle")
 
         editor = page.locator("[data-code-window] .CodeMirror").first
         expect(editor).to_be_visible(timeout=5000)

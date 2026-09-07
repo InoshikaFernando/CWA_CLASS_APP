@@ -9,6 +9,16 @@ its own Run button, score card and mark-complete state machine, driven by the
 
 Piston is unreachable in CI, so the run endpoint is stubbed: what these tests
 cover is the page's wiring, not the sandbox.
+
+Nothing here waits on "networkidle" before an expect(). c54a0cd took that wait
+out of the Scratch tests after two CI timeouts and left these files alone,
+"worth revisiting if they ever flake"; test_verdict_is_rendered_from_the_response
+then timed out at 30s on a release run whose tree had passed this same group
+twenty minutes earlier. These pages mount CodeMirror and the vendored editor
+assets, so "no request for 500ms" is a coin toss on a slow runner — and the
+expect() that followed was already waiting for the editor, which is the thing
+each test actually needs. The waits that remain are the ones doing real work:
+before a bare assert, before an action, or at the tail of a helper.
 """
 
 from __future__ import annotations
@@ -71,7 +81,6 @@ class TestExerciseDetailWindow:
     ):
         do_login(page, live_server.url, student_user)
         page.goto(_url(live_server, python_exercise))
-        page.wait_for_load_state("networkidle")
 
         editor = page.locator("#cw-editor .CodeMirror")
         expect(editor).to_be_visible(timeout=5000)
@@ -86,7 +95,6 @@ class TestExerciseDetailWindow:
         _stub_run(page, {"stdout": "hello", "stderr": "", "exit_code": 0,
                          "exercise_has_expected": True, "exercise_score": 100})
         page.goto(_url(live_server, python_exercise))
-        page.wait_for_load_state("networkidle")
 
         editor = page.locator("#cw-editor .CodeMirror")
         expect(editor).to_be_visible(timeout=5000)
@@ -114,7 +122,6 @@ class TestExerciseDetailWindow:
         _stub_run(page, {"stdout": "hello", "stderr": "", "exit_code": 0,
                          "exercise_has_expected": True, "exercise_score": 100})
         page.goto(_url(live_server, python_exercise))
-        page.wait_for_load_state("networkidle")
         expect(page.locator("#cw-editor .CodeMirror")).to_be_visible(timeout=5000)
 
         page.locator("#ed-run-btn").click()
@@ -131,7 +138,6 @@ class TestExerciseDetailWindow:
         _stub_run(page, {"stdout": "nope", "stderr": "", "exit_code": 0,
                          "exercise_has_expected": True, "exercise_score": 0})
         page.goto(_url(live_server, python_exercise))
-        page.wait_for_load_state("networkidle")
         expect(page.locator("#cw-editor .CodeMirror")).to_be_visible(timeout=5000)
 
         page.locator("#ed-run-btn").click()
@@ -149,7 +155,6 @@ class TestExerciseDetailWindow:
                          "exit_code": 1, "exercise_has_expected": True,
                          "exercise_score": 0})
         page.goto(_url(live_server, python_exercise))
-        page.wait_for_load_state("networkidle")
         expect(page.locator("#cw-editor .CodeMirror")).to_be_visible(timeout=5000)
 
         page.locator("#ed-run-btn").click()
@@ -164,7 +169,6 @@ class TestExerciseDetailWindow:
         _stub_run(page, {"stdout": "hello", "stderr": "", "exit_code": 0,
                          "exercise_has_expected": True, "exercise_score": 100})
         page.goto(_url(live_server, python_exercise))
-        page.wait_for_load_state("networkidle")
         expect(page.locator("#cw-editor .CodeMirror")).to_be_visible(timeout=5000)
 
         page.locator("#ed-run-btn").click()
@@ -178,7 +182,6 @@ class TestExerciseDetailWindow:
         """This page never piped stdin; an inert box would only mislead."""
         do_login(page, live_server.url, student_user)
         page.goto(_url(live_server, python_exercise))
-        page.wait_for_load_state("networkidle")
         expect(page.locator("#cw-editor .CodeMirror")).to_be_visible(timeout=5000)
         expect(page.locator(".cw-stdin")).to_have_count(0)
 
@@ -192,7 +195,6 @@ class TestExerciseDetailWindow:
 
         do_login(page, live_server.url, student_user)
         page.goto(_url(live_server, dom_exercise))
-        page.wait_for_load_state("networkidle")
 
         expect(page.locator("#cw-preview-output")).to_be_visible()
         expect(page.locator("#cw-output .cw-stdout")).to_have_count(0)
