@@ -6,10 +6,11 @@
 <tr><td align="center">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px; background:#fff; border-radius:16px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
   {% comment %}
-    Amber, not the red of the automated payment_failed card. This one arrives
-    days or weeks after the fact and is partly an apology; a red alarm implies
-    something is going wrong right now rather than something that already went
-    wrong and was not reported.
+    Amber, not the red of the automated payment_failed card. That one fires
+    the day a charge fails, when the family can still act before anything
+    locks. This one goes out after the account is already paused, so the
+    urgency it is announcing has passed; red would overstate a state that
+    has been sitting quietly for weeks.
   {% endcomment %}
   <tr><td style="background-color:#b45309; padding:24px 32px; text-align:center;">
     {% if email_logo_url %}
@@ -18,17 +19,13 @@
     <h1 style="margin:0; font-size:20px; color:#fff;">{{ student_name }}'s account is paused</h1>
   </td></tr>
   <tr><td style="padding:32px;">
-    <p style="margin:0 0 16px; font-size:16px;">Hi,</p>
     <p style="margin:0 0 16px; font-size:15px; color:#4b5563;">
-      A payment for <strong>{{ student_name }}</strong>'s subscription did not go
-      through{% if since %} on {{ since|date:"j F" }}{% endif %}, and the account has been paused since then.
-      {{ first_name }} can still sign in, but lessons and homework stay locked
-      until the payment is updated.
+      Hi &mdash; a subscription payment for <strong>{{ student_name }}</strong>{% if since %}
+      on {{ since|date:"j F" }}{% endif %} did not go through, so lessons and homework are locked.
     </p>
     <p style="margin:0 0 24px; font-size:15px; color:#4b5563;">
-      We are sorry this is the first you are hearing of it. A fault on our side
-      meant the automatic notice was never sent. That has been fixed, and this
-      message is us catching up.
+      To restore access, sign in to <strong>{{ first_name }}'s</strong> own account
+      (not a parent account) and you'll land on the payment page.
     </p>
     <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
       <tr><td style="background:#4f46e5; border-radius:8px;">
@@ -37,14 +34,8 @@
         </a>
       </td></tr>
     </table>
-    <p style="margin:0 0 16px; font-size:14px; color:#4b5563;">
-      Sign in to <strong>{{ first_name }}'s</strong> account rather than a parent
-      account — the subscription belongs to the student. You will be taken
-      straight to the payment page, and access returns as soon as it goes through.
-    </p>
     <p style="margin:0; font-size:14px; color:#6b7280;">
-      If you have already sorted this out, or you would rather not continue,
-      just reply to this email.
+      Already sorted, or would rather not continue? Just reply.
     </p>
   </td></tr>
   <tr><td style="background:#f8fafc; border-top:1px solid #e2e8f0; padding:16px 32px; text-align:center;">

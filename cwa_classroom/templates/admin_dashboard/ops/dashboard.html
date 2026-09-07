@@ -132,7 +132,34 @@
         <p class="text-2xl font-bold mt-1 text-slate-100">{{ unpaid_access.delinquent }}</p>
         <p class="text-xs text-slate-500 mt-1">past due, cancelled or expired</p>
       </div>
+      {% comment %}
+        The leak tiles above ask "is anyone getting in without paying". This
+        one asks the opposite and equally expensive question: is anyone locked
+        out without being told why. Six families sat past due for weeks while
+        the billing dashboard showed a count that looked handled.
+      {% endcomment %}
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if payment_delays.status == 'critical' %}border-red-500/40{% elif payment_delays.status == 'warning' %}border-amber-500/40{% else %}border-slate-700{% endif %}"
+           data-testid="payment-delays-tile">
+        <p class="text-sm text-slate-400">Payment delays</p>
+        <p class="text-2xl font-bold mt-1 {% if payment_delays.status == 'critical' %}text-red-400{% elif payment_delays.status == 'warning' %}text-amber-400{% else %}text-slate-100{% endif %}">{{ payment_delays.count }}</p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if payment_delays.untold or payment_delays.unreachable %}
+            {{ payment_delays.untold }} not told{% if payment_delays.unreachable %}, {{ payment_delays.unreachable }} unreachable{% endif %}{% if payment_delays.oldest_untold_days is not None %} — oldest {{ payment_delays.oldest_untold_days }}d{% endif %}
+          {% elif payment_delays.count %}
+            all families notified
+          {% else %}
+            no failed payments
+          {% endif %}
+        </p>
+      </div>
     </div>
+
+    {% if payment_delays.reasons %}
+    <div class="mt-4 px-4 py-3 rounded-xl text-sm {% if payment_delays.status == 'critical' %}bg-red-500/10 border border-red-500/30 text-red-300{% else %}bg-amber-500/10 border border-amber-500/30 text-amber-300{% endif %}">
+      {% for reason in payment_delays.reasons %}{{ reason }}{% if not forloop.last %}; {% endif %}{% endfor %}.
+      <span class="text-slate-400">Send with <code>manage.py notify_past_due --send</code>.</span>
+    </div>
+    {% endif %}
 
     {% if unpaid_access.leaks %}
     <div class="mt-4 bg-slate-800 rounded-2xl border border-slate-700 overflow-x-auto">

@@ -117,6 +117,7 @@ def health_check(request):
     body["warnings"] = {
         "email_queue": _email_queue_warning(),
         "unpaid_access": _unpaid_access_warning(),
+        "payment_delays": _payment_delay_warning(),
     }
 
     if not all_ok:
@@ -167,6 +168,31 @@ def _unpaid_access_warning():
             "delinquent": health["delinquent"],
             "leak_count": health["leak_count"],
             "hit_count": health["hit_count"],
+            "reasons": health["reasons"],
+        }
+    except Exception as exc:  # pragma: no cover - defensive
+        return {"status": "unknown", "detail": str(exc)}
+
+
+def _payment_delay_warning():
+    """Failed-payment summary for the deep health body.
+
+    Non-fatal by design — see health_check's docstring. A family locked out
+    with no notice is a billing failure, not a liveness one, and a deploy that
+    fixes the notifier must not be blocked by the backlog it is fixing. Any
+    failure to read the signal is reported rather than swallowed, so a broken
+    probe cannot look like an empty backlog.
+    """
+    try:
+        from billing.subscription_health import get_payment_delay_health
+
+        health = get_payment_delay_health()
+        return {
+            "status": health["status"],
+            "past_due": health["count"],
+            "untold": health["untold"],
+            "unreachable": health["unreachable"],
+            "oldest_untold_days": health["oldest_untold_days"],
             "reasons": health["reasons"],
         }
     except Exception as exc:  # pragma: no cover - defensive

@@ -1,15 +1,11 @@
 Hi,
 
-This is about {{ student_name }}'s account at {{ site_name }}.
+{{ student_name }}'s account is paused: a subscription payment{% if since %} on {{ since|date:"j F" }}{% endif %} did not go through, so lessons and homework are locked.
 
-A payment for this subscription did not go through{% if since %} on {{ since|date:"j F" }}{% endif %}, and the account has been paused since then. {{ first_name }} can still sign in, but lessons and homework stay locked until the payment is updated.
+To restore access, sign in to {{ first_name }}'s own account (not a parent account) and you'll land on the payment page:
 
-We're sorry this is the first you are hearing of it. A fault on our side meant the automatic notice was never sent. That has been fixed, and this message is us catching up.
+{{ site_url }}
 
-To restore access
------------------
-Sign in to {{ first_name }}'s account at {{ site_url }} — not a parent account, as the subscription belongs to the student. You will be taken straight to a page where the card can be updated, and access returns as soon as the payment goes through.
-
-If you have already sorted this out, or you would rather not continue, reply to this email and we will take it from there.
+Already sorted, or would rather not continue? Just reply.
 
 — The {{ site_name }} Team

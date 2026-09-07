@@ -289,64 +289,13 @@ class SubscriptionOverviewView(SuperuserRequiredMixin, View):
         six know: a family that has been emailed is waiting on a card, and one
         that has not is waiting on us.
 
-        The distinction is not cosmetic. `invoice.payment_failed` was arriving
-        and being processed while the handler could not resolve which
-        subscription it belonged to, so 41 failures notified nobody and the
-        dashboard showed a count that looked handled. "Not told" is the state
-        this panel exists to make visible.
+        The derivation lives in ``billing.subscription_health`` because the ops
+        health page and the deep health endpoint ask the same question, and
+        three copies of "has this family been told" would drift.
         """
-        from classroom.models import ParentStudent
-        from audit.models import AuditLog
+        from billing.subscription_health import get_payment_delay_health
 
-        qs = (Subscription.objects
-              .filter(status=Subscription.STATUS_PAST_DUE)
-              .select_related('user')
-              .order_by('updated_at'))
-        if country:
-            qs = qs.filter(user__country__iexact=country)
-
-        subs = list(qs)
-        user_ids = [s.user_id for s in subs]
-
-        parents = {}
-        for link in (ParentStudent.objects
-                     .filter(student_id__in=user_ids, is_active=True)
-                     .select_related('parent')):
-            if link.parent and link.parent.email:
-                parents.setdefault(link.student_id, []).append(link.parent.email)
-
-        # Told since THIS lapse, not ever: a student who failed, paid, and
-        # failed again is owed another notice, and showing the old one as
-        # current would hide that.
-        told = {}
-        for ev in AuditLog.objects.filter(
-                user_id__in=user_ids,
-                action__in=('payment_failed_notice_sent',
-                            'payment_failed_unreachable')).order_by('created_at'):
-            told.setdefault(ev.user_id, []).append(ev)
-
-        rows = []
-        for sub in subs:
-            emails = ([sub.user.email] if sub.user.email else [])
-            emails += [e for e in parents.get(sub.user_id, []) if e not in emails]
-            notified = any(
-                ev.action == 'payment_failed_notice_sent'
-                and ev.created_at >= sub.updated_at
-                for ev in told.get(sub.user_id, []))
-            rows.append({
-                'username': sub.user.username,
-                'name': sub.user.get_full_name() or sub.user.username,
-                'since': sub.updated_at,
-                'emails': emails,
-                'reachable': bool(emails),
-                'notified': notified,
-            })
-        return {
-            'rows': rows,
-            'count': len(rows),
-            'untold': sum(1 for r in rows if not r['notified'] and r['reachable']),
-            'unreachable': sum(1 for r in rows if not r['reachable']),
-        }
+        return get_payment_delay_health(country=country)
 
     # -- institutes ----------------------------------------------------------
     def _institute_stats(self, country, institution, today):
