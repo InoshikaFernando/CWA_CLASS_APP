@@ -88,11 +88,14 @@ class TestCompleteness:
 
     def test_seed_command_scripts_are_all_covered(self):
         """Sanity check on the test's own premise: SEED currently covers
-        exactly latin/sinhala/tamil. If a new language is seeded later,
-        this starts failing until stroke_order_data.js gains that script
-        (or the character-lookup fallback for a fourth script is wired up
-        in stroke_order.js's caller) — which is the point."""
-        assert set(SEEDED_CHARS_BY_SCRIPT.keys()) == {'latin', 'sinhala', 'tamil'}
+        exactly latin/sinhala/tamil/cjk/kana/hangul (French added 'latin'
+        characters only, reusing the existing script; Mandarin added
+        'cjk', Japanese added 'kana' and Korean added 'hangul', each its
+        own new script). If a new script is seeded later, this starts
+        failing until stroke_order_data.js gains it (or the
+        character-lookup fallback for that script is wired up in
+        stroke_order.js's caller) — which is the point."""
+        assert set(SEEDED_CHARS_BY_SCRIPT.keys()) == {'latin', 'sinhala', 'tamil', 'cjk', 'kana', 'hangul'}
 
 
 # ---------------------------------------------------------------------------
@@ -141,18 +144,21 @@ class TestStrokeCounts:
         )
 
     @pytest.mark.parametrize('char,expected', [
-        ('ක', 1),   # ka — single anticlockwise loop (no second component authored)
-        ('ර', 2),   # ra — loop + tail, per CPP-393's own note that some
-                    # letters carry a second visual component
-        ('අ', 1),   # a (vowel) — single loop
+        ('ක', 1),   # ka — single continuous stroke per the edibear.com
+                    # tracing worksheet (small loop -> double hump -> C-loop,
+                    # drawn without a pen lift)
+        ('ර', 1),   # ra — single continuous stroke (circle + tail) per the
+                    # worksheet; earlier placeholder guessed a 2-stroke split
+        ('අ', 1),   # a (vowel) — single continuous stroke per the worksheet
     ])
     def test_sinhala_sample(self, char, expected):
         """Sample per CPP-393's test-criteria ask for 'an agreed sample for
-        Sinhala' — these three reflect the template-generated placeholder
-        data (see stroke_order_data.js header) actually authored this
-        session, NOT a native-speaker-confirmed count. Re-baseline this
-        test against the real stroke count once a native Sinhala writer
-        reviews the data, per the ticket's explicit sign-off requirement."""
+        Sinhala'. These three are transcribed from the numbered stroke/arrow
+        diagrams at edibear.com/books?tag=SINHALA — real per-letter stroke
+        counts, not a guessed template — but the anchor coordinates are
+        still this session's eyeballed estimate of each diagram, not a
+        measured trace, so a native-speaker visual pass is still worthwhile.
+        Re-baseline this test if that review changes the stroke count."""
         strokes = STROKE_DATA['sinhala'][char]
         assert len(strokes) == expected, (
             f"sinhala {char!r}: expected {expected} strokes, got {len(strokes)}"

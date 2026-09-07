@@ -10,6 +10,8 @@ class Language(models.Model):
     SCRIPT_DEVANAGARI = 'devanagari'
     SCRIPT_ARABIC = 'arabic'
     SCRIPT_CJK = 'cjk'
+    SCRIPT_KANA = 'kana'
+    SCRIPT_HANGUL = 'hangul'
     SCRIPT_CHOICES = [
         (SCRIPT_LATIN, 'Latin'),
         (SCRIPT_SINHALA, 'Sinhala'),
@@ -17,6 +19,8 @@ class Language(models.Model):
         (SCRIPT_DEVANAGARI, 'Devanagari'),
         (SCRIPT_ARABIC, 'Arabic'),
         (SCRIPT_CJK, 'CJK'),
+        (SCRIPT_KANA, 'Kana'),
+        (SCRIPT_HANGUL, 'Hangul'),
     ]
 
     name = models.CharField(max_length=100)

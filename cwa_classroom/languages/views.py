@@ -9,6 +9,7 @@ from django.db.models import Case, IntegerField, Prefetch, When
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
 from accounts.decorators import student_required
@@ -39,16 +40,21 @@ def _recalculate_progress(student, topic_level):
     if total == 0:
         return False
 
-    answers = {
-        a.exercise_id: a.score
-        for a in LanguageStudentAnswer.objects.filter(
+    answers = list(
+        LanguageStudentAnswer.objects.filter(
             student=student, exercise__in=exercises
-        ).only('exercise_id', 'score')
-    }
+        ).only('exercise_id', 'score', 'is_correct')
+    )
 
-    scores = list(answers.values())
+    scores = [a.score for a in answers]
     best_score_avg = round(sum(scores) / len(scores), 1) if scores else 0.0
-    exercises_completed = sum(1 for s in scores if s >= 80.0)
+    # Count against the same is_correct each exercise type already computed
+    # at submission time (e.g. score >= 50 for handwriting, exact match for
+    # MCQ/spelling), not a second, stricter score >= 80 re-check — that
+    # mismatch let a student go 100% green (every exercise showing as
+    # correct on the dashboard) while still failing to unlock the next
+    # level, because most handwriting attempts land in the 50-79% band.
+    exercises_completed = sum(1 for a in answers if a.is_correct)
 
     is_beginner = topic_level.level_choice == LanguageTopicLevel.BEGINNER
     mastery = best_score_avg >= 80.0 and (exercises_completed / total) >= 0.8
@@ -172,7 +178,13 @@ _LEVEL_SORT = Case(
 
 @login_required
 @student_required
+@never_cache
 def languages_index(request):
+    # Progress badges (correct/attempted) are computed fresh on every
+    # request. Without an explicit no-store, the browser's back/forward
+    # navigation is allowed to reuse the last cached response for this
+    # page — so completing an exercise and hitting its Back button showed
+    # the pre-attempt badges until a manual refresh forced a real request.
     levels_qs = LanguageTopicLevel.objects.annotate(
         _sort=_LEVEL_SORT
     ).order_by('_sort').prefetch_related('exercises')

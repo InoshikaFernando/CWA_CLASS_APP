@@ -5,6 +5,8 @@ CANVAS_CONFIG = {
     'devanagari': {'line_height': 120, 'descender': 0,  'lines': 3},
     'arabic':     {'line_height': 110, 'descender': 25, 'lines': 3},
     'cjk':        {'line_height': 130, 'descender': 0,  'lines': 2},
+    'kana':       {'line_height': 130, 'descender': 0,  'lines': 2},
+    'hangul':     {'line_height': 130, 'descender': 0,  'lines': 2},
 }
 DEFAULT_CONFIG = {'line_height': 65, 'descender': 20, 'lines': 3}
 
@@ -16,17 +18,22 @@ FONT_MAP = {
     'devanagari': ('Noto+Sans+Devanagari:ital,wght@0,400;0,700', 'Noto Sans Devanagari'),
     'arabic':     ('Noto+Naskh+Arabic:wght@400;700', 'Noto Naskh Arabic'),
     'cjk':        ('Noto+Sans+SC:wght@400;700', 'Noto Sans SC'),
+    'kana':       ('Noto+Sans+JP:wght@400;700', 'Noto Sans JP'),
+    'hangul':     ('Noto+Sans+KR:wght@400;700', 'Noto Sans KR'),
 }
 
 
 # Language code → BCP-47 tag for Web Speech API SpeechSynthesis
 TTS_LANG_MAP = {
     'en': 'en-NZ',
+    'fr': 'fr-FR',
     'si': 'si-LK',
     'ta': 'ta-IN',
     'hi': 'hi-IN',
     'ar': 'ar-SA',
     'zh': 'zh-CN',
+    'ja': 'ja-JP',
+    'ko': 'ko-KR',
 }
 
 

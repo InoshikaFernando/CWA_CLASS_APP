@@ -281,11 +281,13 @@ class TestDegenerateInk:
 class TestUnsupportedScriptFallback:
 
     def test_devanagari_falls_back_instead_of_erroring(self):
-        """devanagari/arabic/cjk are valid Language.script_type choices but
-        no font is vendored for them (FONT_FILES only covers this ticket's
-        scope: latin/sinhala/tamil) — compute_score() must degrade to the
-        same generous ink-presence heuristic CPP-311 used for this case,
-        not raise ScoringError on every single submission for that language."""
+        """devanagari/arabic are valid Language.script_type choices but no
+        font is vendored for them (FONT_FILES covers latin/sinhala/tamil/
+        cjk; cjk's is a subset covering only the curated Mandarin
+        character set — see its comment in scoring.py) — compute_score()
+        must degrade to the same generous ink-presence heuristic CPP-311
+        used for this case, not raise ScoringError on every single
+        submission for that language."""
         png_b64 = _mask_to_png_b64(_correct_trace_raw('A', 'latin'))
         score, reason = scoring.compute_score(png_b64, 'क', 'devanagari', LATIN_CONFIG)
         assert score == 72.0

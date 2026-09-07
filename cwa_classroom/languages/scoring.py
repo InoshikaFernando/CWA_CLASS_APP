@@ -40,6 +40,36 @@ FONT_FILES = {
     'latin':   'NotoSans.ttf',
     'sinhala': 'NotoSansSinhala.ttf',
     'tamil':   'NotoSansTamil.ttf',
+    # Subsetted (fontTools --text-file) from Noto Sans SC's *variable*
+    # release down to exactly the 231 characters seed_language_exercises.py's
+    # Mandarin SEED uses (numbers, all 214 Kangxi radicals, common words) —
+    # variable, not the static per-weight build, so _load_font's
+    # set_variation_by_axes(_BOLD_AXES) call below actually selects bold
+    # instead of silently falling back with a warning (as it would on a
+    # static source). A full CJK font is 10-20MB+ vs. this subset's ~55KB,
+    # in line with the other vendored fonts here (tens-to-hundreds of KB).
+    # If the Mandarin character set grows again, re-subset from a fresh
+    # Noto Sans SC *Variable* download (Sans/Variable/OTF in
+    # googlefonts/noto-cjk) with the new full character list, or
+    # MIN_TEMPLATE_INK_PX below will silently treat any newly-added,
+    # uncovered character as a missing/tofu glyph.
+    'cjk':     'NotoSansSC.otf',
+    # Subsetted (fontTools --text-file) from Noto Sans JP's *variable*
+    # release down to exactly the 142 kana characters
+    # seed_language_exercises.py's Japanese SEED uses (46 hiragana + 20
+    # dakuten + 5 handakuten, x2 for katakana) — same rationale as 'cjk'
+    # above (variable so set_variation_by_axes(_BOLD_AXES) works cleanly;
+    # a full CJK-range font is 10-20MB+ vs. this subset's tens of KB).
+    'kana':    'NotoSansJP.otf',
+    # Subsetted (fontTools --text-file) from Noto Sans KR's *variable*
+    # release down to exactly the 51 characters seed_language_exercises.py's
+    # Korean SEED uses (14 basic + 5 doubled consonants, 10 basic + 11
+    # compound vowels, 11 syllable-final consonant clusters) — Hangul
+    # Compatibility Jamo codepoints (U+3131-U+318E), which render as
+    # standalone letterforms outside a syllable block, unlike the
+    # positional Hangul Jamo block (U+1100-U+11FF) meant for composing
+    # precomposed syllables. Same variable-font rationale as cjk/kana above.
+    'hangul':  'NotoSansKR.otf',
 }
 DEFAULT_FONT_FILE = 'NotoSans.ttf'
 
@@ -66,9 +96,11 @@ MAX_INK_IMAGE_B64_CHARS = 400_000  # ~300KB decoded; small near-binary PNG
 
 # Below this many dark pixels, the rendered "glyph" is really a tofu box,
 # missing glyph, or blank — the vendored font doesn't cover this character.
-# Only latin/sinhala/tamil are vendored (FONT_FILES); anything else falls
-# back to NotoSans.ttf, which is latin-only, so this guard is what stops an
-# out-of-coverage script from silently being scored against an empty template.
+# Only latin/sinhala/tamil/cjk/kana/hangul are vendored (FONT_FILES, and
+# cjk/kana/hangul are curated character subsets — see their comments
+# there); anything else falls back to NotoSans.ttf, which is latin-only,
+# so this guard is what stops an out-of-coverage script from silently
+# being scored against an empty template.
 MIN_TEMPLATE_INK_PX = 80
 
 
