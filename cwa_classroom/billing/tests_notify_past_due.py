@@ -152,6 +152,26 @@ class NotifyPastDueTests(TestCase):
 
         self.assertEqual(mail.outbox[0].to, ['child@example.test'])
 
+    def test_the_body_sends_them_to_the_student_account_not_a_parent_one(self):
+        """The one instruction the message exists to carry.
+
+        The billing portal reads ``request.user.subscription``; a parent who
+        signs in to their own account hits "No billing account found" and
+        gives up. Both bodies are trimmed for length from time to time and
+        this sentence is the first thing that reads as cuttable, so it is
+        pinned here rather than left to the next edit's judgement.
+        """
+        self._student('npd_whose', email='ayana@example.test')
+
+        run(send=True)
+
+        msg = mail.outbox[0]
+        html, mimetype = msg.alternatives[0]
+        self.assertEqual(mimetype, 'text/html')
+        for body in (msg.body, html):
+            self.assertIn('not a parent account', body)
+            self.assertIn('npd_whose', body.lower())
+
     def test_the_send_is_audit_logged_with_its_recipients(self):
         user = self._student('npd_f')
 
