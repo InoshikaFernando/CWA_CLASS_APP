@@ -46,6 +46,18 @@ permissions:
   issues: write
   contents: read
 
+# A deploy step is silent for minutes at a time (migrate, collectstatic), and a
+# GitHub runner's NAT drops a TCP flow that carries no bytes for four minutes —
+# which killed every run of the weekly audit. Here it would abandon a deploy
+# mid-migration and report it as failed. SSH_OPTS keeps the connection warm.
+env:
+  SSH_OPTS: >-
+    -o IdentitiesOnly=yes
+    -o BatchMode=yes
+    -o ConnectTimeout=30
+    -o ServerAliveInterval=30
+    -o ServerAliveCountMax=10
+
 jobs:
   dashboard:
     name: AI usage → pinned issue
@@ -96,7 +108,7 @@ jobs:
             echo "::group::Refresh ${NAME} (${DIR})"
             local PY="from taskqueue.dashboard import update_dashboard_issue; print(update_dashboard_issue(days=${WINDOW_DAYS}))"
             local REMOTE="set -a; . '${ENVF}'; set +a; '${DIR}/venv/bin/python' '${DIR}/cwa_classroom/manage.py' shell -c '${PY}'"
-            ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${SSH_USER:-cwa}@${HOST}" "$REMOTE" \
+            ssh $SSH_OPTS -i ~/.ssh/deploy_key "${SSH_USER:-cwa}@${HOST}" "$REMOTE" \
               || echo "::warning::${NAME} dashboard refresh failed (non-fatal)"
             echo "::endgroup::"
           }
