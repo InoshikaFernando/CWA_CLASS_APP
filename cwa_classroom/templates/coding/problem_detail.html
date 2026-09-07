@@ -1,4 +1,5 @@
 {% extends "coding/base.html" %}
+{% load static %}
 {% block coding_title %}{{ problem.title }}{% endblock %}
 
 {% block extra_head %}
@@ -11,10 +12,17 @@ editor itself is the same one every other coding page shows.{% endcomment %}
 {% include "coding/partials/_code_window_head.html" %}
 {% if language.uses_scratch_vm %}
 {# ── Google Blockly v9 with Python generator — Scratch problems only ── #}
-<script src="https://unpkg.com/blockly@9.3.3/blockly_compressed.js"></script>
-<script src="https://unpkg.com/blockly@9.3.3/blocks_compressed.js"></script>
-<script src="https://unpkg.com/blockly@9.3.3/python_compressed.js"></script>
-<script src="https://unpkg.com/blockly@9.3.3/msg/en.js"></script>
+{% comment %}Blockly 9.3.3, vendored under static/vendor/blockly/ rather than
+pulled from unpkg — see the note beside the CodeMirror include for why this
+app does not put a page's editor on someone else's uptime. Its media/ (the
+toolbox icons and sounds) is vendored too and passed to Blockly.inject below:
+Blockly otherwise fetches those from blockly-demo.appspot.com at runtime,
+which is a third remote dependency and the least visible of the three — the
+icons simply do not draw.{% endcomment %}
+<script src="{% static 'vendor/blockly/blockly_compressed.js' %}"></script>
+<script src="{% static 'vendor/blockly/blocks_compressed.js' %}"></script>
+<script src="{% static 'vendor/blockly/python_compressed.js' %}"></script>
+<script src="{% static 'vendor/blockly/msg/en.js' %}"></script>
 {% endif %}
 {% endblock %}
 
@@ -359,6 +367,8 @@ function initBlockly() {
   ].join('\n');
 
   workspace = Blockly.inject('pd-blockly-div', {
+    // Vendored icons and sounds; the default is a remote Google demo host.
+    media:      "{% static 'vendor/blockly/media/' %}",
     toolbox:    toolboxXml,
     scrollbars: true,
     trashcan:   true,

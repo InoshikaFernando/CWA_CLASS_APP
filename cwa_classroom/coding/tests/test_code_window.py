@@ -228,19 +228,76 @@ class TestCodeWindowAssetsAreSelfHosted(TestCase):
         urls = re.findall(r'(?:src|href)="(https?://[^"]+)"', source)
         self.assertEqual(urls, [], f'CDN reference in {HEAD_PARTIAL.name}: {urls}')
 
-    def test_no_coding_template_references_the_codemirror_cdn(self):
-        """Every coding page serves its editor from static/, not cdnjs.
+    def test_no_coding_template_loads_a_third_party_asset(self):
+        """Every coding page serves its JS and CSS from static/, not a CDN.
 
-        Each page used to paste the CodeMirror script tags into its own head.
-        They all include _code_window_head.html now — this is what stops a new
-        page (or a revert) quietly reintroducing the CDN dependency.
+        Each page used to paste in its own CodeMirror, Blockly and
+        highlight.js tags. All three are vendored now, and this is what stops
+        a new page — or a revert — quietly putting a page's editor back on
+        somebody else's uptime. The failure mode is the reason: a blocked or
+        down CDN leaves a page that renders fine and does nothing.
         """
+        offenders = {}
+        for path in (TEMPLATES_DIR / 'coding').rglob('*.html'):
+            source = path.read_text(encoding='utf-8')
+            urls = re.findall(r'(?:src|href)="(https?://[^"]+)"', source)
+            if urls:
+                offenders[str(path.relative_to(TEMPLATES_DIR))] = urls
+        self.assertEqual(offenders, {}, f'third-party assets loaded in: {offenders}')
+
+    def test_blockly_media_is_served_locally(self):
+        """Blockly fetches its icons and sounds from its media path.
+
+        Left unset that path is https://blockly-demo.appspot.com/static/media/
+        — a remote dependency that is easy to miss, because when it fails the
+        workspace still works and only the icons go missing.
+        """
+        for name in ('exercise_detail.html', 'problem_detail.html'):
+            source = (TEMPLATES_DIR / 'coding' / name).read_text(encoding='utf-8')
+            if 'Blockly.inject' not in source:
+                continue
+            self.assertIn(
+                'vendor/blockly/media', source,
+                f'{name} injects Blockly without pointing media/ at static/ — '
+                'it would fall back to the remote demo host',
+            )
+
+    def test_no_vendored_file_references_a_source_map(self):
+        """A dangling .map reference breaks the deploy, not just the page.
+
+        Production serves static files through ManifestStaticFilesStorage,
+        which rewrites every URL a JS file references — including the
+        `//# sourceMappingURL=` comment. Blockly ships that comment pointing at
+        a multi-megabyte .map we do not vendor, and collectstatic does not warn
+        and carry on: it raises, and the deploy fails outright. The comments
+        are stripped from the vendored copies; this keeps them stripped.
+        """
+        vendor = Path(settings.BASE_DIR) / 'static' / 'vendor'
         offenders = [
-            path.relative_to(TEMPLATES_DIR)
-            for path in (TEMPLATES_DIR / 'coding').rglob('*.html')
-            if 'cdnjs.cloudflare.com/ajax/libs/codemirror' in path.read_text(encoding='utf-8')
+            str(path.relative_to(vendor))
+            for path in vendor.rglob('*.js')
+            if 'sourceMappingURL' in path.read_text(encoding='utf-8', errors='ignore')
         ]
-        self.assertEqual(offenders, [], f'CodeMirror loaded from a CDN in: {offenders}')
+        self.assertEqual(
+            offenders, [],
+            f'vendored files reference source maps that are not collected: {offenders}',
+        )
+
+    def test_vendored_blockly_and_highlightjs_files_exist(self):
+        vendor = Path(settings.BASE_DIR) / 'static' / 'vendor'
+        for rel in (
+            'blockly/blockly_compressed.js', 'blockly/blocks_compressed.js',
+            'blockly/python_compressed.js', 'blockly/msg/en.js',
+            'highlightjs/highlight.min.js',
+            'highlightjs/styles/github-dark.min.css',
+        ):
+            self.assertTrue((vendor / rel).is_file(), f'missing vendored asset: {rel}')
+
+        media = vendor / 'blockly' / 'media'
+        self.assertTrue(media.is_dir(), 'Blockly media/ was not vendored')
+        self.assertTrue(
+            any(media.iterdir()), 'Blockly media/ is empty — icons would 404',
+        )
 
     def test_vendored_codemirror_files_exist(self):
         vendor = Path(settings.BASE_DIR) / 'static' / 'vendor' / 'codemirror'

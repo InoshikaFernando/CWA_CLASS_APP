@@ -80,14 +80,22 @@ answer form: pass it the dict from `CodingPlugin.take_item_context()` and it
 forwards everything. Console mode, `mark_complete` false, and a
 `code_<content_id>` textarea so the code posts with the form.
 
-Every coding page renders it, and none of them loads CodeMirror from a CDN any
-more — a test fails the build if one starts again.
+Every coding page renders it, and no coding page loads anything from a CDN. A
+test fails the build if a `src`/`href` pointing at `http(s)://` appears in any
+`templates/coding/` file.
 
-Two CDN dependencies remain on these pages and are NOT covered by that test:
-**Blockly** (unpkg, exercise and problem pages, Scratch only) and
-**highlight.js** (cdnjs, exercise descriptions). Both fail the same way the
-CodeMirror one did — silently, leaving a page that looks fine and does
-nothing — so they are worth vendoring next.
+Everything these pages need is vendored under `static/vendor/`:
+
+| Library | Used by |
+|---|---|
+| CodeMirror 5.65.16 | the shared window, every page |
+| Blockly 9.3.3 (+ `media/`) | Scratch exercises and problems |
+| highlight.js 11.9.0 | code samples in exercise descriptions |
+
+Blockly's `media/` matters and is easy to miss: unset, `Blockly.inject` fetches
+its icons and sounds from `blockly-demo.appspot.com`, and when that fails the
+workspace still works — only the icons quietly stop drawing. Both pages pin
+`media:` at the vendored copy, and a test checks they do.
 
 A page can take one half only, via `cw_panes`:
 
