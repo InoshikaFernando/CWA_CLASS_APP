@@ -1,15 +1,16 @@
 {% extends "coding/base.html" %}
 {% load bb_extras %}
+{% load static %}
 {% block coding_title %}{{ exercise.title }}{% endblock %}
 
 {% block extra_head %}
 {{ block.super }}
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
-      integrity="sha512-RwJS3k4Z0IK6TGoL3pgQlA9g2THFhKL7z9TYWdAI8u6xK0AUuMWieJuWgTRayywC9A94ifUj1RzjDa1NIlUIg=="
-      crossorigin="anonymous">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
-        integrity="sha512-D9gUyxqja7hBtkWpPWGt9wfbfaMGVt9gnyCvYa+jojwwPHLCzUm5i8rpk7vD7wNee9bA35eYIjobYPaQuKS1MQ=="
-        crossorigin="anonymous"></script>
+{% comment %}highlight.js 11.9.0, vendored. It colours the code samples inside
+an exercise description; served from a CDN it would take the descriptions'
+formatting down with it, quietly. The SRI hashes went with the CDN — a local
+file needs no integrity check.{% endcomment %}
+<link rel="stylesheet" href="{% static 'vendor/highlightjs/styles/github-dark.min.css' %}">
+<script src="{% static 'vendor/highlightjs/highlight.min.js' %}"></script>
 <style>
   /* Code-snippet rendering in exercise descriptions */
   .bb-prose { display: block; white-space: pre-wrap; color: inherit; }
@@ -38,27 +39,26 @@
   .ed-desc .bb-prose { white-space: pre-wrap; }
   .ed-desc .bb-code  { white-space: pre; }
 </style>
-{# ── CodeMirror 5 — loaded in <head> so it's ready before DOMContentLoaded ── #}
-<link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
-<link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
-<link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/anyword-hint.min.js"></script>
+{% comment %}CodeMirror and the shared coding window. This page renders it as
+two halves — a console on the left (coding/partials/_code_window.html with
+cw_panes="console") and the editor on the right (cw_panes="editor") — because
+the exercise text belongs beside the output, not above it. The page keeps the
+Run button, the score card and the mark-complete state machine; the window
+hands it each run's response as a code-window:result event.{% endcomment %}
+{% include "coding/partials/_code_window_head.html" %}
 {% if language.uses_scratch_vm %}
 {# ── Google Blockly v9 with Python generator — Scratch exercises only ── #}
-<script src="https://unpkg.com/blockly@9.3.3/blockly_compressed.js"></script>
-<script src="https://unpkg.com/blockly@9.3.3/blocks_compressed.js"></script>
-<script src="https://unpkg.com/blockly@9.3.3/python_compressed.js"></script>
-<script src="https://unpkg.com/blockly@9.3.3/msg/en.js"></script>
+{% comment %}Blockly 9.3.3, vendored under static/vendor/blockly/ rather than
+pulled from unpkg — see the note beside the CodeMirror include for why this
+app does not put a page's editor on someone else's uptime. Its media/ (the
+toolbox icons and sounds) is vendored too and passed to Blockly.inject below:
+Blockly otherwise fetches those from blockly-demo.appspot.com at runtime,
+which is a third remote dependency and the least visible of the three — the
+icons simply do not draw.{% endcomment %}
+<script src="{% static 'vendor/blockly/blockly_compressed.js' %}"></script>
+<script src="{% static 'vendor/blockly/blocks_compressed.js' %}"></script>
+<script src="{% static 'vendor/blockly/python_compressed.js' %}"></script>
+<script src="{% static 'vendor/blockly/msg/en.js' %}"></script>
 {% endif %}
 {% endblock %}
 
@@ -178,13 +178,6 @@
   .ed-hint-body { margin-top: 6px; padding: 12px 16px; background: var(--cw-amber-50); border: 1px solid var(--cw-amber-200); border-radius: 12px; font-size: 13px; color: var(--cw-amber-700); white-space: pre-wrap; line-height: 1.6; display: none; }
   .ed-hint-body.open { display: block; }
 
-  .ed-output-wrap { background: #0f1117; border-radius: 14px; border: 1px solid #2a2d3a; overflow: hidden; }
-  .ed-output-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #161821; border-bottom: 1px solid #2a2d3a; }
-  .ed-output-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #6b7280; }
-  .ed-clear-btn { font-size: 11px; color: #6b7280; background: none; border: none; cursor: pointer; font-family: inherit; padding: 0; transition: color .15s; }
-  .ed-clear-btn:hover { color: #9ca3af; }
-  #ed-stdout { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 13px; line-height: 1.6; color: #4ade80; padding: 14px; min-height: 120px; max-height: 240px; white-space: pre-wrap; overflow-y: auto; margin: 0; }
-  #ed-stderr { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; color: #f87171; padding: 0 14px 12px; white-space: pre-wrap; display: none; }
 
   /* Score result banner */
   #ed-score-result { display: none; border-radius: 12px; padding: 12px 16px; font-size: 13px; font-weight: 600; }
@@ -193,11 +186,6 @@
   #ed-score-result.score-empty { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; }
   .score-icon { margin-right: 6px; }
 
-  .ed-preview-wrap { background: var(--cw-surface); border-radius: 14px; border: 1px solid var(--cw-border); overflow: hidden; }
-  .ed-preview-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--cw-border); }
-  .ed-preview-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--cw-text-muted); }
-  .ed-preview-hint  { font-size: 11px; color: var(--cw-green-600); }
-  #ed-preview-frame { width: 100%; height: 300px; border: none; display: block; background: #fff; }
 
   /* RIGHT */
   .ed-right { display: flex; flex-direction: column; gap: 12px; }
@@ -216,32 +204,6 @@
   .ed-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
   .ed-dot-r { background: #ff5f57; } .ed-dot-y { background: #febc2e; } .ed-dot-g { background: #28c840; }
   .ed-file { font-size: 12px; color: #6b7280; font-family: 'JetBrains Mono', monospace; margin-left: 6px; }
-
-  /* ── CodeMirror 5 overrides to match platform dark theme ── */
-  #ed-code-wrap .CodeMirror {
-    height: 400px;
-    background: var(--ed-bg);
-    color: #e2e8f0;
-    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
-    font-size: 14px;
-    line-height: 1.7;
-    border-radius: 0;
-  }
-  #ed-code-wrap .CodeMirror-gutters {
-    background: var(--ed-gutter);
-    border-right: 1px solid #2a2d3a;
-  }
-  #ed-code-wrap .CodeMirror-gutter-wrapper,
-  #ed-code-wrap .CodeMirror-linenumber { color: #4b5563; }
-  #ed-code-wrap .CodeMirror-activeline-background { background: rgba(255,255,255,0.04); }
-  #ed-code-wrap .CodeMirror-activeline-gutter .CodeMirror-linenumber { color: #9ca3af; }
-  #ed-code-wrap .CodeMirror-cursor { border-left: 2px solid #1D9E75; }
-  #ed-code-wrap .CodeMirror-selected { background: #2d4a3e; }
-  #ed-code-wrap .CodeMirror-focused .CodeMirror-selected { background: #2d4a3e; }
-  #ed-code-wrap .CodeMirror-matchingbracket { outline: 1px solid #1D9E75; color: inherit !important; border-radius: 2px; }
-  #ed-code-wrap .CodeMirror-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
-  #ed-code-wrap .CodeMirror-scroll::-webkit-scrollbar-track { background: var(--ed-bg); }
-  #ed-code-wrap .CodeMirror-scroll::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 3px; }
 
   /* Mark complete */
   .ed-mark-btn { width: 100%; padding: 11px; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: border-color .15s, color .15s, background .15s; }
@@ -299,26 +261,13 @@
 
         <!-- Output (Python / JS / Scratch) — hidden for browser-sandbox exercises -->
         {% if not language.uses_browser_sandbox and not exercise.uses_browser_sandbox %}
-        <div class="ed-output-wrap">
-          <div class="ed-output-bar">
-            <span class="ed-output-label">Output</span>
-            <button type="button" class="ed-clear-btn" onclick="edClearOutput()">Clear</button>
-          </div>
-          <pre id="ed-stdout">Click &#34;Run Code&#34; to see your output here.</pre>
-          <div id="ed-stderr"></div>
-        </div>
+        {% include "coding/partials/_code_window.html" with cw_id="output" cw_mode="run" cw_panes="console" cw_language=language.slug cw_run_url=run_url cw_exercise_id=exercise.id cw_hide_verdict=True cw_height="360px" %}
         <div id="ed-score-result"></div>
         {% endif %}
 
         <!-- HTML/CSS / DOM live preview -->
         {% if language.uses_browser_sandbox or exercise.uses_browser_sandbox %}
-        <div class="ed-preview-wrap">
-          <div class="ed-preview-bar">
-            <span class="ed-preview-label">Live Preview</span>
-            <span class="ed-preview-hint">Click Run Code to preview</span>
-          </div>
-          <iframe id="ed-preview-frame" sandbox="allow-scripts allow-modals" srcdoc=""></iframe>
-        </div>
+        {% include "coding/partials/_code_window.html" with cw_id="output" cw_mode="preview" cw_panes="console" cw_language=language.slug cw_run_url=run_url cw_height="360px" %}
         {% endif %}
 
       </div>
@@ -355,25 +304,7 @@
           <pre id="sc-generated-code"># Drag blocks to generate Python code…</pre>
         </div>
         {% else %}
-        <div class="ed-chrome">
-          <div class="ed-chrome-bar">
-            <span class="ed-dot ed-dot-r"></span>
-            <span class="ed-dot ed-dot-y"></span>
-            <span class="ed-dot ed-dot-g"></span>
-            <span class="ed-file">
-              {% if language.slug == 'python' %}main.py
-              {% elif language.slug == 'javascript' and exercise.uses_browser_sandbox %}index.html
-              {% elif language.slug == 'javascript' %}main.js
-              {% elif language.slug == 'html' %}index.html
-              {% elif language.slug == 'css' %}style.css
-              {% else %}code.txt{% endif %}
-            </span>
-          </div>
-          {# CodeMirror 5 wraps this textarea — do NOT remove it #}
-          <div id="ed-code-wrap">
-            <textarea id="ed-code"></textarea>
-          </div>
-        </div>
+        {% include "coding/partials/_code_window.html" with cw_id="editor" cw_mode="run" cw_panes="editor" cw_language=language.slug cw_cm_mode=cm_mode cw_filename=editor_filename cw_starter=exercise.starter_code cw_autocomplete=True cw_external_run=True cw_hide_toolbar=True cw_hide_stdin=True cw_height="400px" %}
         {% endif %}
 
         <!-- Mark complete -->
@@ -411,9 +342,21 @@ var modeMap = {
 };
 
 // ── Editor state ──────────────────────────────────────────────────────────
-var editor    = null;   // CodeMirror instance (non-Scratch)
 var workspace = null;   // Blockly workspace (Scratch)
 var LS_KEY    = 'scratch_blocks_' + EXERCISE_ID;
+
+// The two halves of the shared coding window: the editor on the right, the
+// console (or live preview) on the left beside the exercise text.
+//
+// Looked up on each call rather than cached: code_window.js mounts on
+// DOMContentLoaded, which is AFTER this script runs, so anything captured here
+// at parse time would be undefined for the life of the page.
+function codeWindow(id) {
+  var root = document.getElementById(id);
+  return root && window.CodeWindow ? window.CodeWindow.get(root) : null;
+}
+function editorWindow() { return codeWindow('cw-editor'); }
+function outputWindow() { return codeWindow('cw-output'); }
 
 // ── Initialise ────────────────────────────────────────────────────────────
 if (IS_SCRATCH) {
@@ -423,30 +366,12 @@ if (IS_SCRATCH) {
 }
 
 function initCodeMirror() {
-  editor = CodeMirror.fromTextArea(document.getElementById('ed-code'), {
-    mode:              modeMap[LANG_SLUG] || 'text/plain',
-    theme:             'dracula',
-    lineNumbers:       true,
-    indentUnit:        2,
-    tabSize:           2,
-    indentWithTabs:    false,
-    autoCloseBrackets: true,
-    matchBrackets:     true,
-    styleActiveLine:   true,
-    lineWrapping:      false,
-    extraKeys: {
-      'Tab': function(cm) {
-        if (cm.somethingSelected()) { cm.indentSelection('add'); }
-        else { cm.replaceSelection('  ', 'end'); }
-      },
-      'Shift-Tab': 'indentLess',
-      'Ctrl-Enter': function() { edRun(); },
-      'Cmd-Enter':  function() { edRun(); },
-      'Ctrl-Space': 'autocomplete',
-    },
-  });
-  editor.setValue(STARTER || '');
-  editor.setSize('100%', '400px');
+  // The editor is the shared window; code_window.js builds it. It is
+  // configured with cw_external_run, so its Run and Ctrl-Enter arrive here as
+  // code-window:run rather than making a request of their own — this page
+  // decides what a run means (scoring, auto-completion).
+  var root = document.getElementById('cw-editor');
+  if (root) root.addEventListener('code-window:run', function () { edRun(); });
 }
 
 function initBlockly() {
@@ -504,6 +429,8 @@ function initBlockly() {
   ].join('\n');
 
   workspace = Blockly.inject('blocklyDiv', {
+    // Vendored icons and sounds; the default is a remote Google demo host.
+    media:      "{% static 'vendor/blockly/media/' %}",
     toolbox:    toolboxXml,
     scrollbars: true,
     trashcan:   true,
@@ -537,7 +464,8 @@ function getCode() {
   if (IS_SCRATCH) {
     return workspace ? Blockly.Python.workspaceToCode(workspace) : '';
   }
-  return editor ? editor.getValue() : '';
+  var win = editorWindow();
+  return win ? win.getValue() : '';
 }
 
 function getBlocksXml() {
@@ -556,9 +484,8 @@ function edToggleHint() {
 }
 
 function edClearOutput() {
-  document.getElementById('ed-stdout').textContent = 'Click \u201cRun Code\u201d to see your output here.';
-  var se = document.getElementById('ed-stderr');
-  if (se) { se.textContent = ''; se.style.display = 'none'; }
+  var out = outputWindow();
+  if (out) out.clear();
   edHideScore();
 }
 
@@ -603,12 +530,12 @@ function edReset() {
     if (pre) pre.textContent = '# Drag blocks to generate Python code\u2026';
     return;
   }
-  if (confirm('Reset code to starter?')) {
-    editor.setValue(STARTER || '');
-    editor.clearHistory();
+  var win = editorWindow();
+  if (win && confirm('Reset code to starter?')) {
+    win.setCode(STARTER || '');
     if (IS_BROWSER) {
-      var f = document.getElementById('ed-preview-frame');
-      if (f) f.srcdoc = '';
+      var out = outputWindow();
+      if (out) out.setPreview('');
     }
   }
 }
@@ -618,83 +545,71 @@ async function edRun() {
 
   // HTML/CSS — render in the sandboxed iframe; no server call needed
   if (IS_BROWSER) {
-    var f = document.getElementById('ed-preview-frame');
-    if (f) f.srcdoc = getCode();
+    var preview = outputWindow();
+    if (preview) preview.setPreview(getCode());
     return;
   }
 
-  var stdoutEl = document.getElementById('ed-stdout');
-  var stderrEl = document.getElementById('ed-stderr');
+  var out = outputWindow();
+  if (!out) return;
 
-  btn.disabled       = true;
-  btn.textContent    = 'Running\u2026';
-  stdoutEl.textContent = 'Running\u2026';
+  btn.disabled    = true;
+  btn.textContent = 'Running\u2026';
   edHideScore();
-  if (stderrEl) { stderrEl.textContent = ''; stderrEl.style.display = 'none'; }
 
-  // Always include exercise_id so the server can evaluate expected_output.
-  var payload = { language_slug: LANG_SLUG, code: getCode(), exercise_id: EXERCISE_ID };
-  if (IS_SCRATCH) payload.blocks_xml = getBlocksXml();
-
-  try {
-    var res  = await fetch('{% url "coding:api_run_code" %}', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
-      body:    JSON.stringify(payload),
-    });
-    var data = await res.json();
-
-    var rawOutput = data.stdout || '';
-    var displayOutput = rawOutput || (data.error ? data.error : '(no output)');
-    stdoutEl.textContent = displayOutput;
-
-    if (data.stderr && stderrEl) {
-      stderrEl.textContent = data.stderr;
-      stderrEl.style.display = 'block';
-    }
-
-    // Score display
-    if (data.exercise_has_expected) {
-      // Scored exercise: binary match comparison
-      var isEmpty = !rawOutput || rawOutput.trim() === '' || rawOutput.trim() === '(no output)';
-      edShowScore(data.exercise_score, isEmpty);
-    } else if (data.free_form_completed) {
-      // Free-form + output produced: show info message, no score
-      var scoreEl = document.getElementById('ed-score-result');
-      scoreEl.className = 'score-empty';
-      scoreEl.innerHTML = 'This exercise has no fixed expected output. It is a free\u2011form task, so it is marked complete without points.';
-      scoreEl.style.display = 'block';
-    }
-    // Free-form + no output: show nothing, wait for user to run code
-
-    // Auto-complete UI update
-    var shouldComplete = (data.exercise_has_expected && data.exercise_score === 100)
-                      || (!data.exercise_has_expected && data.free_form_completed);
-    if (shouldComplete && !IS_DONE) {
-      IS_DONE = true;
-      var markBtn = document.getElementById('ed-mark-btn');
-      if (markBtn) {
-        markBtn.className = 'ed-mark-btn done';
-        markBtn.textContent = '\u2713 Exercise completed';
-      }
-      var badge = document.querySelector('.ed-done-badge');
-      if (!badge) {
-        var topbar = document.querySelector('.ed-topbar');
-        if (topbar) {
-          var b = document.createElement('span');
-          b.className = 'ed-done-badge';
-          b.textContent = '\u2713 Completed';
-          topbar.appendChild(b);
-        }
-      }
-    }
-  } catch (_) {
-    stdoutEl.textContent = 'Network error \u2014 please try again.';
-  }
+  // The window makes the request and renders stdout/stderr; the response comes
+  // back to the code-window:result listener below, which owns everything
+  // exercise-specific — the score card, and unlocking "mark complete".
+  var extra = IS_SCRATCH ? { blocks_xml: getBlocksXml() } : {};
+  await out.runWith(getCode(), extra);
 
   btn.disabled    = false;
   btn.textContent = '\u25B6 Run Code';
 }
+
+/* Read one run's response: score card, then auto-completion.
+ *
+ * The verdict is the server's — api_run_code also enforces the exercise's
+ * required_code_patterns, so nothing here re-derives it from the output. */
+function edApplyResult(data) {
+  var rawOutput = data.stdout || '';
+
+  if (data.exercise_has_expected) {
+    var isEmpty = !rawOutput || rawOutput.trim() === '' || rawOutput.trim() === '(no output)';
+    edShowScore(data.exercise_score, isEmpty);
+  } else if (data.free_form_completed) {
+    // Free-form + output produced: an explanation, not a score.
+    var scoreEl = document.getElementById('ed-score-result');
+    scoreEl.className = 'score-empty';
+    scoreEl.innerHTML = 'This exercise has no fixed expected output. It is a free\u2011form task, so it is marked complete without points.';
+    scoreEl.style.display = 'block';
+  }
+  // Free-form + no output: show nothing, wait for the student to run code.
+
+  var shouldComplete = (data.exercise_has_expected && data.exercise_score === 100)
+                    || (!data.exercise_has_expected && data.free_form_completed);
+  if (!shouldComplete || IS_DONE) return;
+
+  IS_DONE = true;
+  var markBtn = document.getElementById('ed-mark-btn');
+  if (markBtn) {
+    markBtn.className = 'ed-mark-btn done';
+    markBtn.textContent = '\u2713 Exercise completed';
+  }
+  if (!document.querySelector('.ed-done-badge')) {
+    var topbar = document.querySelector('.ed-topbar');
+    if (topbar) {
+      var b = document.createElement('span');
+      b.className = 'ed-done-badge';
+      b.textContent = '\u2713 Completed';
+      topbar.appendChild(b);
+    }
+  }
+}
+
+document.addEventListener('code-window:result', function (evt) {
+  if (evt.detail && evt.detail.ok) edApplyResult(evt.detail.data || {});
+});
 
 async function edMarkDone() {
   if (IS_DONE) return;

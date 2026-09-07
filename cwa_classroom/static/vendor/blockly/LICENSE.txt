@@ -1,0 +1,15 @@
+Blockly 9.3.3 — https://github.com/google/blockly
+Copyright Google LLC
+Licensed under the Apache License, Version 2.0:
+https://www.apache.org/licenses/LICENSE-2.0
+
+Vendored from the npm package `blockly@9.3.3`, which ships no LICENSE file of
+its own; its package.json declares "license": "Apache-2.0". Only the files this
+app loads are kept: blockly_compressed.js, blocks_compressed.js,
+python_compressed.js, msg/en.js and media/ (the toolbox icons and sounds
+Blockly fetches at runtime from its media path).
+
+The `//# sourceMappingURL=` comment is stripped from each file: the .map files
+are megabytes, are of no use in production, and — because production uses
+ManifestStaticFilesStorage — a reference to a map that is not collected makes
+`collectstatic` raise and the deploy fail outright.

@@ -18,7 +18,8 @@ from django.views import View
 # Single source of truth for the superuser gate (same as the usage dashboard).
 from billing.views_admin import SuperuserRequiredMixin
 
-from billing.subscription_health import get_unpaid_access_health
+from billing.subscription_health import (
+    get_payment_delay_health, get_unpaid_access_health)
 from classroom.email_health import get_email_queue_health
 
 from .models import OpsSnapshot
@@ -61,10 +62,18 @@ class OpsDashboardView(SuperuserRequiredMixin, View):
         # visible without reading a Discord channel.
         unpaid_access = get_unpaid_access_health()
 
+        # The other half of the same wall. The leak tile answers "is
+        # anyone getting in without paying"; this one answers "is anyone
+        # locked out without being told why", which is how six families
+        # sat past due for weeks with a dashboard that showed a count and
+        # nothing about whether it had been acted on.
+        payment_delays = get_payment_delay_health()
+
         return render(request, 'admin_dashboard/ops/dashboard.html', {
             'latest': latest,
             'email_queue': email_queue,
             'unpaid_access': unpaid_access,
+            'payment_delays': payment_delays,
             'latest_stale': latest_stale,
             'stale_after_min': STALE_AFTER_MINUTES,
             'chart_data': series,

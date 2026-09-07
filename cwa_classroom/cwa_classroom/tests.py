@@ -113,6 +113,45 @@ class HealthCheckTests(TestCase):
         self.assertEqual(unpaid["leak_count"], 1)
         self.assertTrue(unpaid["reasons"])
 
+    def test_payment_delays_warn_without_failing_the_endpoint(self):
+        """A backlog of un-notified failures rides in warnings, never a 503.
+
+        scripts/deploy.sh gates on a 200 here, and the deploy most likely to
+        be carrying a fix for the notifier is the one that would be blocked by
+        its own backlog.
+        """
+        from django.contrib.auth import get_user_model
+
+        from billing.models import Subscription
+
+        user = get_user_model().objects.create_user(
+            username="stranded", email="stranded@test.local", password="Pass123!")
+        Subscription.objects.create(
+            user=user, status=Subscription.STATUS_PAST_DUE)
+
+        resp = self.client.get(reverse("api_health"), {"deep": "1"})
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["status"], "ok")
+        delays = body["warnings"]["payment_delays"]
+        self.assertEqual(delays["status"], "warning")
+        self.assertEqual((delays["past_due"], delays["untold"]), (1, 1))
+        self.assertTrue(delays["reasons"])
+
+    def test_a_broken_payment_delay_probe_is_reported_not_swallowed(self):
+        from unittest import mock
+
+        with mock.patch(
+            "billing.subscription_health.get_payment_delay_health",
+            side_effect=RuntimeError("kaboom"),
+        ):
+            resp = self.client.get(reverse("api_health"), {"deep": "1"})
+
+        delays = resp.json()["warnings"]["payment_delays"]
+        self.assertEqual(delays["status"], "unknown")
+        self.assertIn("kaboom", delays["detail"])
+
     def test_a_broken_warning_probe_is_reported_not_swallowed(self):
         from unittest import mock
 

@@ -22,6 +22,20 @@ class TestSeniorTeacherSidebarLinks:
         page.goto(f"{self.url}/teacher/")
         page.wait_for_load_state("domcontentloaded")
 
+    # ── Worksheets (partials/sidebar_includes/worksheet_links.html) ─────────
+    #
+    # Worksheet Builder had no sidebar entry of its own: the only way in was a
+    # button on the Worksheets page, so it was unreachable for anyone who did
+    # not already know it existed. Both entries are asserted here, per role.
+
+    def test_worksheets_link(self):
+        click_sidebar_link(self.page, "Worksheets")
+        expect(self.page).to_have_url(re.compile(r"/worksheets/|/billing/module-required"))
+
+    def test_worksheet_builder_link(self):
+        click_sidebar_link(self.page, "Worksheet Builder")
+        expect(self.page).to_have_url(re.compile(r"/worksheets/builder/|/billing/module-required"))
+
     def test_dashboard_link(self):
         assert_sidebar_has_link(self.page, "Dashboard")
 

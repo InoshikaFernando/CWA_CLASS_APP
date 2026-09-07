@@ -163,6 +163,10 @@ jobs:
               - 'cwa_classroom/coding/**'
               # Same for CodingExercise's manager.
               - 'cwa_classroom/brainbuzz/managers.py'
+              # The suite asserts on the rendered pages: which half of the
+              # shared coding window each language gets, and that none of them
+              # went back to loading CodeMirror from a CDN.
+              - 'cwa_classroom/templates/coding/**'
             api:
               - 'cwa_classroom/api/**'
               # The API suite drives every app it exposes, so a serializer,
@@ -190,12 +194,21 @@ jobs:
               - 'cwa_classroom/billing/**'
             homework:
               - 'cwa_classroom/homework/**'
+              # The take page renders coding's shared window for a coding item,
+              # and coding's plugin builds that window's context.
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/templates/coding/**'
             brainbuzz:
               - 'cwa_classroom/brainbuzz/**'
             ai_import:
               - 'cwa_classroom/ai_import/**'
             worksheets:
               - 'cwa_classroom/worksheets/**'
+              # The builder previews a coding exercise in coding's shared
+              # window and runs it through coding:api_preview_run, so the
+              # worksheets suite asserts against coding's URLs and templates.
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/templates/coding/**'
             taskqueue:
               - 'cwa_classroom/taskqueue/**'
             feedback:
@@ -323,6 +336,10 @@ jobs:
               - 'cwa_classroom/homework/**'
               - 'cwa_classroom/maths/**'
               - 'cwa_classroom/templates/homework/**'
+              # A coding item on the take page renders coding's shared window
+              # and posts its runs to coding's API.
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/templates/coding/**'
             # Deployed-environment tests (-m migration / -m live). They skip
             # without --live-url, so the job only proves they still import and
             # collect — cheap, and the alternative is finding a broken live
@@ -468,6 +485,12 @@ jobs:
               # feedback block, so a change there breaks a worksheet test
               # without touching templates/worksheets/.
               - 'cwa_classroom/templates/maths/**'
+              # The builder's preview of a coding exercise renders the shared
+              # coding window (templates/coding/partials/) and runs code
+              # through coding's teacher preview endpoint. Break either and the
+              # builder tests fail with nothing under worksheets/ touched.
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/templates/coding/**'
 
       # ---- Has the release PR's tree actually passed on `test`? -------------
       #

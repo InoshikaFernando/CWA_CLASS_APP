@@ -1,0 +1,198 @@
+{% comment %}
+The shared coding window: editor on the left, console (or live preview) on the
+right. A preview window can carry up to three panes — index.html, style.css
+and (with cw_show_js) script.js — which the browser assembles into one page. Behaviour lives in static/js/code_window.js, styles and CodeMirror in
+coding/partials/_code_window_head.html — include that once in the page head.
+
+Parameters (via {% include ... with %}):
+
+  cw_id             REQUIRED. Unique per window on the page — ids are derived
+                    from it, and a page may host several windows.
+  cw_run_url        REQUIRED for cw_mode="run". Endpoint the Run button POSTs
+                    {language, code, stdin, …} to.
+  cw_mode           "run" (console) or "preview" (HTML/CSS iframe). Default run.
+  cw_language       Language slug sent in the POST body.
+  cw_cm_mode        CodeMirror mode: python / javascript / htmlmixed / css.
+  cw_filename       Filename shown in the editor's title bar.
+  cw_starter        Starter code (run mode).
+  cw_starter_html   Starter HTML (preview mode).
+  cw_starter_css    Starter CSS (preview mode).
+  cw_starter_js     Starter JavaScript (preview mode, with cw_show_js).
+  cw_show_js        Truthy for a third pane, script.js, injected before
+                    </body> so it runs against the parsed page. Off for an
+                    exercise, which seeds a single document from one field.
+  cw_exercise_id    Optional — sent as exercise_id so the endpoint can resolve
+                    the exercise (e.g. for a browser-sandbox language).
+  cw_expected_output Optional — when set, a run reports whether stdout matched.
+  cw_lang_label     Language name shown beside the heading. Default cw_language.
+  cw_title          Left toolbar heading. Default "Code".
+  cw_height         CSS height of both panels. Default 480px.
+  cw_hide_stdin     Truthy to drop the stdin box (run mode).
+  cw_hide_reset     Truthy to drop the Reset button.
+  cw_read_only      Truthy for a look-but-don't-touch editor.
+  cw_extra_code     Optional snippet; adds a button that loads it into the
+                    editor (the builder preview passes the reference solution).
+  cw_extra_label    Label for that button. Default "Load solution".
+  cw_textarea_name  Optional form field name for the editor's textarea, so the
+                    code posts with the surrounding form (homework, worksheet
+                    session). Omit for read-only/try-it windows.
+  cw_mark_complete  Truthy to send mark_complete:true with the run. Pages that
+                    own grading elsewhere (homework, worksheet session) leave
+                    it off — a Run there is feedback, never a submission.
+  cw_panes          "both" (default), "editor" (no console — the problem page
+                    reports test-case results its own way) or "console" (no
+                    editor — the Scratch exercises edit in a Blockly
+                    workspace and hand their generated code to runWith()).
+  cw_autocomplete   Truthy for Ctrl-Space word completion.
+  cw_hide_run       Truthy to drop the Run button (the page has its own).
+  cw_run_label      Alternative Run button label.
+  cw_hide_toolbar   Truthy to drop the editor column's toolbar (a page that
+                    keeps its own Run/Reset above the window).
+  cw_hide_console_toolbar  Same for the console column's Output/Clear bar.
+  cw_external_run   Truthy so Run (and Ctrl-Enter) dispatch `code-window:run`
+                    instead of posting — for a page that owns the request.
+  cw_hide_verdict   Truthy to drop the match/mismatch line, for a page that
+                    reports the result its own way (the exercise page's score
+                    card) and would otherwise say it twice.
+
+A run dispatches `code-window:result` on the window root, carrying the
+response, so a page can drive extra UI of its own (the exercise page's score
+card and mark-complete button) without the window knowing about exercises.
+{% endcomment %}
+<div class="cw-window" data-code-window id="cw-{{ cw_id }}"
+     {% if cw_height %}style="--cw-panel-h: {{ cw_height }};"{% endif %}>
+
+  <script type="application/json" class="cw-config">
+  {
+    "mode": "{{ cw_mode|default:'run'|escapejs }}",
+    "language": "{{ cw_language|escapejs }}",
+    "cmMode": "{{ cw_cm_mode|default:'python'|escapejs }}",
+    "runUrl": "{{ cw_run_url|escapejs }}",
+    "csrfToken": "{{ csrf_token|escapejs }}",
+    "starter": "{{ cw_starter|escapejs }}",
+    "starterHtml": "{{ cw_starter_html|escapejs }}",
+    "starterCss": "{{ cw_starter_css|escapejs }}",
+    "starterJs": "{{ cw_starter_js|escapejs }}",
+    "expectedOutput": {% if cw_expected_output %}"{{ cw_expected_output|escapejs }}"{% else %}null{% endif %},
+    "readOnly": {{ cw_read_only|yesno:"true,false" }},
+    "panes": "{{ cw_panes|default:'both'|escapejs }}",
+    "autocomplete": {{ cw_autocomplete|yesno:"true,false" }},
+    "externalRun": {{ cw_external_run|yesno:"true,false" }},
+    "extraCode": "{{ cw_extra_code|escapejs }}",
+    "payload": {% if cw_exercise_id %}{"exercise_id": {{ cw_exercise_id }}, "mark_complete": {{ cw_mark_complete|yesno:"true,false" }}}{% else %}{}{% endif %}
+  }
+  </script>
+
+  <div class="cw-split{% if cw_panes %} cw-single{% endif %}">
+
+    {% if cw_panes != 'console' %}
+    {# ── LEFT: editor ──────────────────────────────────────────────────── #}
+    <div class="cw-col">
+      {% if not cw_hide_toolbar %}
+      <div class="cw-toolbar">
+        <div class="cw-toolbar-left">
+          <span class="cw-subtitle">{{ cw_title|default:"Code" }}</span>
+          {% if cw_mode == 'preview' %}
+          <div class="cw-tabs">
+            <button type="button" class="cw-tab active" data-cw-tab="html">index.html</button>
+            <button type="button" class="cw-tab" data-cw-tab="css">style.css</button>
+            {% if cw_show_js %}
+            <button type="button" class="cw-tab" data-cw-tab="js">script.js</button>
+            {% endif %}
+          </div>
+          {% elif cw_lang_label or cw_language %}
+          <span class="cw-lang-label">{{ cw_lang_label|default:cw_language }}</span>
+          {% endif %}
+        </div>
+        <div class="cw-toolbar-btns">
+          {% if cw_extra_code %}
+          <button type="button" class="cw-load">{{ cw_extra_label|default:"Load solution" }}</button>
+          {% endif %}
+          {% if not cw_hide_reset %}
+          <button type="button" class="cw-reset">Reset</button>
+          {% endif %}
+          {% if not cw_hide_run %}
+          <button type="button" class="cw-run">{{ cw_run_label|default:"&#9654; Run"|safe }}</button>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="cw-chrome">
+        <div class="cw-chrome-bar">
+          <span class="cw-dot cw-dot-r"></span>
+          <span class="cw-dot cw-dot-y"></span>
+          <span class="cw-dot cw-dot-g"></span>
+          <span class="cw-file-label">{{ cw_filename|default:"main.py" }}</span>
+        </div>
+        {% comment %}The starter code is rendered INTO the textarea rather than
+        pushed in from the config: CodeMirror seeds itself from the textarea, so
+        a page that writes a saved draft into it before mount (the homework
+        resume path) keeps that draft instead of having it overwritten.
+        cw_textarea_name gives the field a name so the code posts with the form
+        — CodeMirror flushes back to the textarea on submit.{% endcomment %}
+        {% if cw_mode == 'preview' %}
+        <div class="cw-host cw-host-html"><textarea class="cw-editor-html">{{ cw_starter_html }}</textarea></div>
+        <div class="cw-host cw-host-css hidden"><textarea class="cw-editor-css">{{ cw_starter_css }}</textarea></div>
+        {% if cw_show_js %}
+        <div class="cw-host cw-host-js hidden"><textarea class="cw-editor-js">{{ cw_starter_js }}</textarea></div>
+        {% endif %}
+        {% else %}
+        <div class="cw-host"><textarea class="cw-editor"
+             {% if cw_textarea_name %}name="{{ cw_textarea_name }}" id="{{ cw_textarea_name }}"{% endif %}
+             spellcheck="false">{{ cw_starter }}</textarea></div>
+        {% endif %}
+      </div>
+
+      {% if cw_mode != 'preview' and not cw_hide_stdin %}
+      <div class="cw-stdin-wrap">
+        <div class="cw-stdin-bar">Standard input (optional)</div>
+        <textarea class="cw-stdin" id="cw-stdin-{{ cw_id }}"
+                  placeholder="Lines here are piped to your program's stdin&hellip;"></textarea>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if cw_panes != 'editor' %}
+    {# ── RIGHT: console, or live preview for HTML/CSS ──────────────────── #}
+    <div class="cw-col">
+      {% if cw_mode == 'preview' %}
+      {% if not cw_hide_toolbar %}
+      <div class="cw-toolbar">
+        <div class="cw-toolbar-left">
+          <span class="cw-panel-label">Live Preview</span>
+        </div>
+        <span class="cw-preview-hint">Press Run to refresh</span>
+      </div>
+      {% endif %}
+      <div class="cw-preview-wrap">
+        <iframe class="cw-preview" id="cw-preview-{{ cw_id }}"
+                sandbox="allow-scripts allow-modals" srcdoc=""></iframe>
+      </div>
+      {% else %}
+      {% if not cw_hide_console_toolbar %}
+      <div class="cw-toolbar">
+        <div class="cw-toolbar-left">
+          <span class="cw-panel-label">Output</span>
+        </div>
+        <button type="button" class="cw-clear">Clear</button>
+      </div>
+      {% endif %}
+      <div class="cw-output-wrap">
+        <pre class="cw-stdout" id="cw-stdout-{{ cw_id }}">Press &#8220;Run&#8221; to see your output here.</pre>
+        <div class="cw-stderr"></div>
+        {% if not cw_hide_verdict %}<p class="cw-match"></p>{% endif %}
+      </div>
+      {% if cw_expected_output %}
+      <div class="cw-expected-wrap">
+        <div class="cw-expected-bar">Expected output</div>
+        <pre class="cw-expected">{{ cw_expected_output }}</pre>
+      </div>
+      {% endif %}
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div>
+</div>
