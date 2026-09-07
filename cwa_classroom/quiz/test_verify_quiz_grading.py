@@ -293,3 +293,70 @@ class InterruptedSweepTests(TestCase):
         before = User.objects.count()
         call_command('verify_quiz_grading', '--level', 987)
         self.assertEqual(User.objects.count(), before)
+
+
+class SessionReuseTests(TestCase):
+    """One session per question, not one per submission.
+
+    The sweep used to inject a fresh quiz session before every single
+    submission — a read and a write of the session row each time, and a
+    multiple-choice question submits every option. On the test droplet's
+    managed MySQL those are network round trips, and the sweep's cost is
+    round trips: run 34086730396 answered 3700 questions in 60 minutes and
+    was cut off with 16,000 still to go.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        cls.level = Level.objects.create(level_number=986, display_name='Reuse')
+        cls.topic = Topic.objects.create(
+            subject=cls.subject, name='Reuse Fractions',
+            slug='reuse-fractions', is_active=True,
+        )
+        cls.topic.levels.add(cls.level)
+        question = Question.objects.create(
+            question_text='Calculate: 9/10 - 3/5',
+            question_type=Question.MULTIPLE_CHOICE,
+            topic=cls.topic, level=cls.level,
+        )
+        for order, (text, correct) in enumerate(
+                [('3/10', True), ('1/2', False),
+                 ('2/5', False), ('6/10', False)]):
+            Answer.objects.create(question=question, answer_text=text,
+                                  is_correct=correct, order=order)
+
+    def test_one_session_serves_every_option(self):
+        sessions = []
+        from quiz.management.commands import verify_quiz_grading as module
+
+        real = module.Command._session_for
+
+        def record(self, client, question, submissions=1):
+            session_id = real(self, client, question, submissions)
+            sessions.append(session_id)
+            return session_id
+
+        with patch.object(module.Command, '_session_for', record):
+            call_command('verify_quiz_grading', '--level', 986)
+
+        self.assertEqual(
+            len(sessions), 1,
+            'the sweep built a session per submission again — four options '
+            'means four needless round trips to the session table')
+
+    def test_the_last_option_is_still_not_the_last_question(self):
+        """The completion machinery must stay out of the way.
+
+        The session lists the question one more time than there are
+        submissions. One too few and the final option would finish the quiz,
+        dragging in results, points and a saved attempt — none of which a
+        grading check should touch.
+        """
+        out = StringIO()
+        call_command('verify_quiz_grading', '--level', 986, stdout=out)
+        self.assertIn('PASSED', out.getvalue())
+        self.assertEqual(StudentAnswer.objects.count(), 0)

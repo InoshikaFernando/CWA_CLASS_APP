@@ -104,18 +104,24 @@ class Command(BaseCommand):
             help='Print a progress line at most this often (0 = never).')
 
     # -- submission helpers ------------------------------------------------
-    def _session_for(self, client, question):
-        """Inject a topic-quiz session so the endpoint accepts a submission.
+    def _session_for(self, client, question, submissions=1):
+        """Inject a topic-quiz session, ONCE for all of a question's submissions.
 
-        The question is listed twice so the submission is never 'last', which
-        keeps the quiz-completion machinery (final results, points) out of the
-        way of a pure grading check.
+        It used to be once per submission, and each one cost a read and a write
+        of the session row — on managed MySQL that is two network round trips
+        bought for nothing, four times over on a multiple-choice question.
+        One session now serves every submission that question needs.
+
+        ``submissions`` is how many answers will be posted against it. The
+        question is listed one MORE time than that, so the last submission is
+        never 'last' and the quiz-completion machinery (final results, points)
+        stays out of the way of a pure grading check.
         """
         session_id = str(uuid.uuid4())
         session = client.session
         session[f'tq_{session_id}'] = {
             'current': 0,
-            'questions': [{'id': question.id}, {'id': question.id}],
+            'questions': [{'id': question.id}] * (submissions + 1),
             'correct': 0,
             'start_time': time.time(),
             'topic_id': question.topic_id,
@@ -126,9 +132,8 @@ class Command(BaseCommand):
         session.save()
         return session_id
 
-    def _submit(self, client, question, payload):
+    def _submit(self, client, question, payload, session_id):
         """POST one answer. Returns is_correct, or None if the view errored."""
-        session_id = self._session_for(client, question)
         body = {'session_id': session_id, 'question_id': question.id}
         body.update(payload)
         response = client.post(
@@ -159,9 +164,11 @@ class Command(BaseCommand):
             if v is not None
         ]
 
+        session_id = self._session_for(client, question, len(options))
         scored_correct = []
         for option in options:
-            result = self._submit(client, question, {'answer_id': option.id})
+            result = self._submit(client, question, {'answer_id': option.id},
+                                  session_id)
             if result is None:
                 problems.append(f'endpoint error submitting A{option.id}')
                 continue
@@ -195,8 +202,10 @@ class Command(BaseCommand):
         if not correct_texts:
             return ['no stored correct answer to submit']
 
+        session_id = self._session_for(client, question, len(correct_texts))
         for text in correct_texts:
-            result = self._submit(client, question, {'text_answer': text})
+            result = self._submit(client, question, {'text_answer': text},
+                                  session_id)
             if result is None:
                 problems.append(f'endpoint error submitting {text!r}')
             elif not result:
@@ -212,7 +221,8 @@ class Command(BaseCommand):
         from maths.pattern_grading import example_answer, parse_pattern_request
 
         text = example_answer(parse_pattern_request(question.question_text))
-        result = self._submit(client, question, {'text_answer': text})
+        result = self._submit(client, question, {'text_answer': text},
+                              self._session_for(client, question))
         if result is None:
             return [f'endpoint error submitting {text!r}']
         if not result:
@@ -223,7 +233,8 @@ class Command(BaseCommand):
         if question.numeric_answer is None:
             return ['measure question with no numeric_answer']
         text = f'{question.numeric_answer.normalize():f}'
-        result = self._submit(client, question, {'text_answer': text})
+        result = self._submit(client, question, {'text_answer': text},
+                              self._session_for(client, question))
         if result is None:
             return [f'endpoint error submitting {text!r}']
         if not result:
