@@ -97,6 +97,62 @@ def notify_payment_failed(school=None, user=None, detail=None):
         logger.exception('Failed to send payment failure email to %s', recipients)
 
 
+def notify_past_due_backlog(user, since=None):
+    """The catching-up notice, for a failure nobody was told about at the time.
+
+    Separate from ``notify_payment_failed`` because the two arrive in different
+    worlds and the automated one is right for its own job:
+
+    * It says "to avoid any interruption to your service". By the time this
+      message goes out the interruption has already happened, in one case for
+      nearly a month, so that sentence reads as either stale or oblivious.
+    * It greets ``{{ name }}``, which is the STUDENT's name — and the recipient
+      list includes the parents, so a parent with two children past due would
+      receive two red cards, one opening "Hi Randula" and one "Hi Hansi", both
+      in the same inbox. This one greets nobody by name and names the student
+      in the body instead, which is true for every recipient.
+    * It says "log in" without saying WHOSE account. The billing portal reads
+      ``request.user.subscription``, so a parent signing in to their own
+      account gets "No billing account found" and a dead end. The subscription
+      belongs to the student, and the message now says so.
+
+    It also says plainly that the delay was our fault. The families did nothing
+    wrong and a silent month needs accounting for.
+    """
+    from classroom.email_service import _get_email_logo_url
+    from django.conf import settings
+
+    recipients = ([user.email] if user.email else [])
+    recipients += [e for e in _parent_emails(user) if e not in recipients]
+    if not recipients:
+        logger.warning('No recipient for past-due backlog notice')
+        return []
+
+    full = user.get_full_name() or user.username
+    context = {
+        'site_name': SITE_NAME,
+        'site_url': getattr(settings, 'SITE_URL', ''),
+        'student_name': full,
+        # "Randula can still sign in" reads better than the full name repeated.
+        'first_name': user.first_name or full,
+        'since': since,
+        'email_logo_url': _get_email_logo_url(None),
+    }
+    try:
+        send_mail(
+            subject=f'[{SITE_NAME}] {full}\u2019s account is paused \u2014 payment needs updating',
+            message=render_to_string('emails/payment_past_due_notice.txt', context),
+            from_email=DEFAULT_FROM,
+            recipient_list=list(dict.fromkeys(recipients)),
+            html_message=render_to_string('emails/payment_past_due_notice.html', context),
+            fail_silently=True,
+        )
+    except Exception:
+        logger.exception('Failed to send past-due backlog notice to %s', recipients)
+        return []
+    return list(dict.fromkeys(recipients))
+
+
 def notify_subscription_cancelled(school=None, user=None):
     """Send cancellation confirmation email."""
     from classroom.email_service import _get_email_logo_url
