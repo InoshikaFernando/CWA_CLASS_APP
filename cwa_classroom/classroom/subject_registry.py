@@ -74,7 +74,8 @@ class SubjectPlugin:
         """
         return 'topics'
 
-    def pick_homework_items(self, classroom, selected_topic_ids, n: int, question_type=None) -> list[int]:
+    def pick_homework_items(self, classroom, selected_topic_ids, n: int,
+                            question_type=None, exclude_content_ids=None) -> list[int]:
         """Return up to n content ids drawn from the selected topics.
 
         The plugin owns the selection strategy (stratified random, weighted,
@@ -84,6 +85,20 @@ class SubjectPlugin:
 
         ``question_type`` optionally constrains selection to a single
         ``question_type`` value (e.g. 'write_code'); ``None`` means "any type".
+
+        ``exclude_content_ids`` is an optional iterable of ids to leave out —
+        used by the question-automation schedule (CPP-399) so a class does not
+        get the same questions two weeks running. Selection is the plugin's
+        job, so the exclusion belongs here rather than being applied to the
+        returned list: filtering afterwards would hand back fewer than ``n``
+        items even when the bank had plenty left. ``None`` (the default) is
+        exactly the pre-CPP-399 behaviour, so every existing caller is
+        unaffected.
+
+        Callers that must have ``n`` items are responsible for topping up:
+        excluding can legitimately empty a small bank, and the schedule
+        generator re-asks without the exclusion rather than shipping a short
+        set (see ``homework.schedule_services.pick_items_for_week``).
         """
         raise NotImplementedError
 
@@ -157,6 +172,96 @@ class SubjectPlugin:
 
     #: Key stored in ``BrainBuzzSession.subject``.  Empty string = opt out.
     brainbuzz_subject_key: str = ''
+
+    def content_topic_names(self, content_ids) -> dict:
+        """Map content id -> topic name, for the progress report breakdown.
+
+        Bulk rather than one call per id: the breakdown covers every answer in
+        a period, and a term report would otherwise issue a query per answer.
+
+        Ids this plugin does not recognise are simply absent from the result —
+        the caller decides what to call them. The default returns nothing, so a
+        plugin with no topics degrades to "Unclassified" exactly as before
+        rather than raising on a code path that renders a parent's report.
+        """
+        return {}
+
+    def content_topic_paths(self, content_ids) -> dict:
+        """Map content id -> ``(group, topic name)`` for the report breakdown.
+
+        The group is the heading a reader would file the topic under — the
+        curriculum strand in maths, the language in coding. It exists because
+        the report's chart plots one bar per topic, and after the topic tree
+        was tidied there were still ~29 sub-topics in a term: forty bars at 6pt
+        is a wall, not a picture. So the chart plots groups and the table below
+        keeps every sub-topic.
+
+        Defaults to the plugin's topic names with no group, so a plugin that
+        has no grouping to offer still charts exactly what it charted before
+        rather than vanishing from the chart. Returning an empty group is the
+        way to say "this topic is its own heading".
+        """
+        return {content_id: ('', name)
+                for content_id, name in self.content_topic_names(content_ids).items()}
+
+    def topic_content_counts(self, classroom, topic_ids, question_type=None,
+                             exclude_content_ids=None) -> dict:
+        """Map plugin topic id -> how many items this class could draw from it.
+
+        The counterpart to ``pick_homework_items``: same pool, same class
+        scoping, same ``question_type`` and ``exclude_content_ids`` filters —
+        counted instead of sampled. It has to be the same filters or the number
+        shown to a teacher would be a number the generator does not honour,
+        which is worse than showing nothing.
+
+        Used by the question-automation schedule to tell a teacher, while they
+        are planning, whether a topic can actually cover the set size they
+        asked for — rather than letting them find out weeks later when a set
+        comes out padded with repeats.
+
+        An item belongs to exactly one topic in both maths (``Question.topic``)
+        and coding (``CodingExercise.topic_level``), so counts across topics do
+        not overlap and a caller may sum them for a multi-topic week.
+
+        Topics with no items are simply absent from the result.
+        """
+        return {}
+
+    def topic_labels(self, topic_ids) -> dict:
+        """Map plugin topic id -> human label, for ids from ``homework_topic_tree``.
+
+        The inverse of the tree: the tree hands out selectable leaves, this
+        turns a stored selection back into names. The question-automation
+        schedule (CPP-399) stores raw plugin topic ids — the only shape that
+        round-trips both maths ``Topic`` pks and coding ``TopicLevel`` pks —
+        and needs their names to render a plan and to denormalise labels so a
+        plan still reads correctly after a topic is renamed or deleted.
+
+        Ids this plugin does not recognise are simply absent from the result,
+        so the caller can tell a stale selection from a live one rather than
+        being handed a plausible-looking blank.
+        """
+        return {}
+
+    def practice_section(self, student, begin, finish):
+        """Practice this subject's students did OUTSIDE homework, in a window.
+
+        Maths has had this since CPP-388 as times tables and basic facts, read
+        directly by the report. Every other subject was invisible: a student
+        who spent a week on coding exercises got a report saying they had done
+        nothing, which is the exact complaint that added the maths strands.
+
+        Return ``None`` (the default) when a subject has no practice of its own
+        — the report then omits the section rather than showing an empty one.
+        Otherwise return::
+
+            {'label': str, 'items': int, 'attempts': int,
+             'avg_first_pct': int, 'avg_best_pct': int,
+             'improvement_pct': int, 'rows': [...]}
+
+        where each row is ``{name, attempts, first_pct, best_pct, gain_pct}``.
+        """
+        return None
 
     def brainbuzz_topic_choices(self) -> dict:
         """Context variables injected into the BrainBuzz create-form template.

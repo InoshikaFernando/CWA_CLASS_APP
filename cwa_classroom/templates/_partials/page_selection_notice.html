@@ -1,0 +1,21 @@
+{% comment %}
+Pages the teacher deliberately left out at upload time via the "Pages to extract"
+field (a cover / instruction sheet, a marking scheme at the back). Shown so a
+page missing from the import is a stated choice rather than a mystery — and so a
+mistyped range is obvious here instead of after the questions are saved.
+
+Context: page_selection — {'total', 'selected_label', 'excluded_label',
+'excluded_count', 'spec'} or None, from
+worksheets.page_selection.describe_page_selection().
+{% endcomment %}
+{% if page_selection %}
+<div class="mb-4 p-3 rounded-lg text-sm bg-amber-50 border border-amber-200 text-amber-900">
+  Extracted page{{ page_selection.selected_count|pluralize }}
+  <strong>{{ page_selection.selected_label }}</strong> of {{ page_selection.total }}, as you asked
+  {% if page_selection.spec %}(<code>{{ page_selection.spec }}</code>){% endif %}.
+  Page{{ page_selection.excluded_count|pluralize }}
+  <strong>{{ page_selection.excluded_label }}</strong>
+  {{ page_selection.excluded_count|pluralize:"was,were" }} not read, so nothing was
+  extracted from {{ page_selection.excluded_count|pluralize:"it,them" }}.
+</div>
+{% endif %}

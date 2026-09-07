@@ -1,10 +1,13 @@
 name: CI — Tests
 
 on:
+  # `test` only. A push to `main` is a release merge — the identical tree has
+  # already run the full matrix on `test`, and re-running it there tested
+  # nothing new while costing a second full matrix per release.
   push:
-    branches: [main, test, dev]
+    branches: [test]
   pull_request:
-    branches: [main, test, dev]
+    branches: [main, test]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -14,9 +17,740 @@ env:
   DB_ENGINE: sqlite
 
 jobs:
+  # Work out which areas a PR actually touched so we only run the relevant app
+  # suites instead of all ~20 every time (each job is a fresh runner + full pip
+  # install, so running the whole matrix on a one-app change burns Actions
+  # minutes for nothing). SAFETY NET: a push to main/test (i.e. a merge / release)
+  # ignores the filter and runs EVERY suite, so the promotion gate is always the
+  # full test matrix; only PR validation is narrowed. `shared` (project package,
+  # requirements, conftest, this workflow) forces the whole matrix even on a PR.
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 10   # ~10s
+    permissions:
+      contents: read
+      pull-requests: read
+      # skip_ui_matrix looks up whether this tree already passed on the PR.
+      actions: read
+    outputs:
+      # The unit suites this diff needs, as a pytest argument list. One job
+      # runs them all: 20 near-identical jobs spent 30s installing deps to run
+      # 15s of tests and then billed a whole minute each.
+      unit_dirs: ${{ steps.unit.outputs.dirs }}
+      # True when the tree this push lands is byte-identical to one a PR run
+      # already validated, so the UI matrix would re-run over identical
+      # content. Scoped to the UI matrix ONLY — see the step for why the unit
+      # suites can never use it.
+      #
+      # NOT named `ui_*`. ui-matrix builds its group list from every output
+      # whose name starts with `ui_`, so an output called `ui_already_tested`
+      # became a matrix group called `already_tested` and the run died on
+      # `pytest ui_tests/already_tested` (exit 5, no tests collected). It only
+      # showed on a push: on a `pull_request` the step is skipped, its output
+      # is the empty string, and toJSON drops empty outputs.
+      skip_ui_matrix: ${{ steps.tested.outputs.already_tested }}
+      # True on a release PR (test -> main).
+      release: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+      # ...and whether that release PR's tree is one `test` has actually taken
+      # through a full matrix. 'true' skips the suites in favour of
+      # release-already-tested; anything else runs EVERY suite. Empty on any
+      # other event, which is why the skips below test for != 'true' rather
+      # than == 'false'.
+      release_validated: ${{ steps.release.outputs.validated }}
+      # The run that covered it, so the skip names its evidence.
+      release_run: ${{ steps.release.outputs.run_url }}
+      shared: ${{ steps.filter.outputs.shared }}
+      version: ${{ steps.filter.outputs.version }}
+      classroom: ${{ steps.filter.outputs.classroom }}
+      maths: ${{ steps.filter.outputs.maths }}
+      quiz: ${{ steps.filter.outputs.quiz }}
+      puzzles: ${{ steps.filter.outputs.puzzles }}
+      coding: ${{ steps.filter.outputs.coding }}
+      accounts: ${{ steps.filter.outputs.accounts }}
+      audit: ${{ steps.filter.outputs.audit }}
+      billing: ${{ steps.filter.outputs.billing }}
+      homework: ${{ steps.filter.outputs.homework }}
+      brainbuzz: ${{ steps.filter.outputs.brainbuzz }}
+      ai_import: ${{ steps.filter.outputs.ai_import }}
+      worksheets: ${{ steps.filter.outputs.worksheets }}
+      taskqueue: ${{ steps.filter.outputs.taskqueue }}
+      feedback: ${{ steps.filter.outputs.feedback }}
+      sprints: ${{ steps.filter.outputs.sprints }}
+      whatsapp: ${{ steps.filter.outputs.whatsapp }}
+      ops: ${{ steps.filter.outputs.ops }}
+      notifications: ${{ steps.filter.outputs.notifications }}
+      progress: ${{ steps.filter.outputs.progress }}
+      usage: ${{ steps.filter.outputs.usage }}
+      rewards: ${{ steps.filter.outputs.rewards }}
+      languages: ${{ steps.filter.outputs.languages }}
+      ui_core: ${{ steps.filter.outputs.ui_core }}
+      ui_billing: ${{ steps.filter.outputs.ui_billing }}
+      ui_brainbuzz: ${{ steps.filter.outputs.ui_brainbuzz }}
+      ui_classroom: ${{ steps.filter.outputs.ui_classroom }}
+      ui_coding: ${{ steps.filter.outputs.ui_coding }}
+      ui_feedback: ${{ steps.filter.outputs.ui_feedback }}
+      ui_homework: ${{ steps.filter.outputs.ui_homework }}
+      ui_live: ${{ steps.filter.outputs.ui_live }}
+      ui_maths: ${{ steps.filter.outputs.ui_maths }}
+      ui_messaging: ${{ steps.filter.outputs.ui_messaging }}
+      ui_navigation: ${{ steps.filter.outputs.ui_navigation }}
+      ui_parent: ${{ steps.filter.outputs.ui_parent }}
+      ui_progress: ${{ steps.filter.outputs.ui_progress }}
+      ui_quiz: ${{ steps.filter.outputs.ui_quiz }}
+      ui_uploads: ${{ steps.filter.outputs.ui_uploads }}
+      ui_worksheets: ${{ steps.filter.outputs.ui_worksheets }}
+      ui_languages: ${{ steps.filter.outputs.ui_languages }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared:
+              - 'cwa_classroom/requirements-test.txt'
+              - 'cwa_classroom/requirements.txt'
+              - 'cwa_classroom/conftest.py'
+              - 'cwa_classroom/pytest.ini'
+              - 'cwa_classroom/manage.py'
+              - '.github/workflows/ci.yml'
+              # The project package, file by file rather than as `**`.
+              #
+              # The one file NOT here is version.py, and that is the whole
+              # point: the runbook makes every feature branch bump APP_VERSION
+              # before its PR merges, the constant lived in settings.py, and
+              # so EVERY PR tripped `shared` and ran all 20 unit suites, the
+              # classroom suite and all 15 UI groups — then did it again on
+              # the merge to `test`. The path filtering below never once
+              # narrowed anything.
+              #
+              # Listed rather than globbed because dorny/paths-filter's
+              # default quantifier is `some`: a '!…/version.py' line here
+              # would not exclude anything, it would match every file that
+              # is NOT version.py. Keeping the list honest is a test's job,
+              # not a reviewer's — tests_workflows.py fails the build if a
+              # file in this package is neither listed here nor named as the
+              # version file, so a new module cannot go unwatched.
+              - 'cwa_classroom/cwa_classroom/__init__.py'
+              - 'cwa_classroom/cwa_classroom/context_processors.py'
+              - 'cwa_classroom/cwa_classroom/email_backends.py'
+              - 'cwa_classroom/cwa_classroom/jira_client.py'
+              - 'cwa_classroom/cwa_classroom/middleware.py'
+              - 'cwa_classroom/cwa_classroom/settings.py'
+              - 'cwa_classroom/cwa_classroom/settings_test.py'
+              - 'cwa_classroom/cwa_classroom/sitemaps.py'
+              - 'cwa_classroom/cwa_classroom/tests.py'
+              - 'cwa_classroom/cwa_classroom/urls.py'
+              - 'cwa_classroom/cwa_classroom/views.py'
+              - 'cwa_classroom/cwa_classroom/wsgi.py'
+            # A version bump changes one string, which nothing but the project
+            # package's own tests can see (/api/health/ reports it, base.html
+            # prints it). It runs those and stops there, instead of standing in
+            # for a change to settings.
+            version:
+              - 'cwa_classroom/cwa_classroom/version.py'
+            classroom:
+              - 'cwa_classroom/classroom/**'
+            maths:
+              - 'cwa_classroom/maths/**'
+              # maths.Question's manager lives in brainbuzz — a change there
+              # (e.g. the visibility filters) can break maths without touching
+              # a single file under maths/.
+              - 'cwa_classroom/brainbuzz/managers.py'
+            quiz:
+              - 'cwa_classroom/quiz/**'
+            puzzles:
+              - 'cwa_classroom/number_puzzles/**'
+            coding:
+              - 'cwa_classroom/coding/**'
+              # Same for CodingExercise's manager.
+              - 'cwa_classroom/brainbuzz/managers.py'
+              # The suite asserts on the rendered pages: which half of the
+              # shared coding window each language gets, and that none of them
+              # went back to loading CodeMirror from a CDN.
+              - 'cwa_classroom/templates/coding/**'
+            api:
+              - 'cwa_classroom/api/**'
+              # The API suite drives every app it exposes, so a serializer,
+              # scoping or model change in any of them can break it without
+              # touching a file under api/. A filter that watched only api/
+              # would let those breakages through silently — the tests would
+              # simply not run rather than go red.
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/progress/**'
+              - 'cwa_classroom/rewards/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/number_puzzles/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/feedback/**'
+              - 'cwa_classroom/help/**'
+              - 'cwa_classroom/accounts/**'
+            accounts:
+              - 'cwa_classroom/accounts/**'
+            audit:
+              - 'cwa_classroom/audit/**'
+            billing:
+              - 'cwa_classroom/billing/**'
+            homework:
+              - 'cwa_classroom/homework/**'
+              # The take page renders coding's shared window for a coding item,
+              # and coding's plugin builds that window's context.
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/templates/coding/**'
+            brainbuzz:
+              - 'cwa_classroom/brainbuzz/**'
+            ai_import:
+              - 'cwa_classroom/ai_import/**'
+            worksheets:
+              - 'cwa_classroom/worksheets/**'
+              # The builder previews a coding exercise in coding's shared
+              # window and runs it through coding:api_preview_run, so the
+              # worksheets suite asserts against coding's URLs and templates.
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/templates/coding/**'
+            taskqueue:
+              - 'cwa_classroom/taskqueue/**'
+            feedback:
+              - 'cwa_classroom/feedback/**'
+            sprints:
+              - 'cwa_classroom/sprints/**'
+            whatsapp:
+              - 'cwa_classroom/whatsapp/**'
+            ops:
+              - 'cwa_classroom/ops/**'
+              # The dashboard renders the two health signals it does not own —
+              # the email queue and the subscription paywall — plus its own
+              # template. A change in any of them can break the ops view
+              # without touching a file under ops/, and the symptom would be a
+              # dashboard that stops reporting, not a red build.
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/email_health.py'
+              - 'cwa_classroom/usage/**'
+              - 'cwa_classroom/templates/admin_dashboard/ops/**'
+            notifications:
+              - 'cwa_classroom/notifications/**'
+            progress:
+              - 'cwa_classroom/progress/**'
+              # The period report reads homework submissions, worksheet results
+              # and class membership — a change in any of those can break the
+              # report without touching a file under progress/.
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/classroom/models.py'
+              # The report asks each subject plugin what a piece of content is
+              # called and which strand it sits under, so a plugin change can
+              # empty the "By topic" chart without touching progress/. The
+              # coding suite here is the practice section and the language
+              # grouping, both of which progress/ tests directly.
+              - 'cwa_classroom/classroom/subject_registry.py'
+              - 'cwa_classroom/coding/**'
+              # The sidebar visibility flag for period reports is set here, and
+              # its tests assert on it.
+              - 'cwa_classroom/accounts/context_processors.py'
+            usage:
+              - 'cwa_classroom/usage/**'
+            rewards:
+              - 'cwa_classroom/rewards/**'
+              # The ledger's tests drive the real award site in every app that
+              # gives a student points. A change in any of them can stop that
+              # activity crediting the leaderboard without touching a file under
+              # rewards/ — which would show as a board that quietly stops
+              # moving, not as a failure. Watch them all.
+              - 'cwa_classroom/quiz/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/number_puzzles/**'
+              - 'cwa_classroom/brainbuzz/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/templates/hub/**'
+            languages:
+              - 'cwa_classroom/languages/**'
+            # ---- UI (Playwright) --------------------------------------------
+            # One filter per ui_tests/<group>/ package. The names MUST stay in
+            # lockstep with the directories on disk — tests_workflows.py fails
+            # the build if a group has no filter (its tests would silently stop
+            # running) or a filter has no group.
+            #
+            # `ui_core` is the cross-cutting escape hatch: shared UI fixtures,
+            # the base templates/sidebars every page inherits, and all static
+            # assets. Anything here can break any page, so it runs EVERY group.
+            ui_core:
+              - 'cwa_classroom/ui_tests/*.py'
+              - 'cwa_classroom/templates/base*.html'
+              # partials/ is the genuinely global set — topbar, toasts, modals,
+              # pagination, breadcrumbs, the role-sidebar dispatcher. Every page
+              # inherits them, so a change here runs the whole matrix rather
+              # than being second-guessed file by file.
+              - 'cwa_classroom/templates/partials/**'
+              - 'cwa_classroom/static/**'
+              - 'cwa_classroom/**/static/**'
+            ui_billing:
+              - 'cwa_classroom/ui_tests/billing/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/attendance/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/templates/billing/**'
+              - 'cwa_classroom/templates/invoicing/**'
+              - 'cwa_classroom/templates/accounting/**'
+              - 'cwa_classroom/templates/reports/**'
+            ui_brainbuzz:
+              - 'cwa_classroom/ui_tests/brainbuzz/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/brainbuzz/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/templates/brainbuzz/**'
+            ui_classroom:
+              - 'cwa_classroom/ui_tests/classroom/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/attendance/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/templates/admin_dashboard/**'
+              - 'cwa_classroom/templates/hierarchy/**'
+              - 'cwa_classroom/templates/hod/**'
+              - 'cwa_classroom/templates/progress/**'
+              - 'cwa_classroom/templates/reports/**'
+              - 'cwa_classroom/templates/student/**'
+              - 'cwa_classroom/templates/teacher/**'
+            ui_coding:
+              - 'cwa_classroom/ui_tests/coding/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/templates/coding/**'
+            ui_feedback:
+              - 'cwa_classroom/ui_tests/feedback/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/feedback/**'
+              - 'cwa_classroom/templates/feedback/**'
+            ui_homework:
+              - 'cwa_classroom/ui_tests/homework/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/templates/homework/**'
+              # A coding item on the take page renders coding's shared window
+              # and posts its runs to coding's API.
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/templates/coding/**'
+            # Deployed-environment tests (-m migration / -m live). They skip
+            # without --live-url, so the job only proves they still import and
+            # collect — cheap, and the alternative is finding a broken live
+            # test during a release.
+            ui_live:
+              - 'cwa_classroom/ui_tests/live/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/ai_import/**'
+              - 'cwa_classroom/brainbuzz/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/number_puzzles/**'
+              - 'cwa_classroom/quiz/**'
+              - 'cwa_classroom/ui_tests/live_helpers.py'
+            ui_maths:
+              - 'cwa_classroom/ui_tests/maths/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/templates/maths/**'
+              # The interactive question types are exercised through the homework
+              # take page, so its partials decide whether a maths widget renders
+              # at all — a change there can break every test in this group
+              # without touching templates/maths/.
+              - 'cwa_classroom/templates/homework/**'
+              # "Preview as student" in the global question bank draws those
+              # same take partials from the admin listing row and the edit
+              # modal, so this group is what catches a change to either.
+              - 'cwa_classroom/templates/admin_dashboard/**'
+            # The sidebars link into every subject app, so a change to any of
+            # them can break a nav test. Broad on purpose.
+            ui_messaging:
+              - 'cwa_classroom/ui_tests/messaging/**'
+              - 'cwa_classroom/accounts/**'
+              # The Messaging Centre lives inside the classroom app
+              # (views_messaging.py, send_due_messages, email_service), so a
+              # change there is what most often breaks these tests.
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/templates/messaging/**'
+            ui_navigation:
+              - 'cwa_classroom/ui_tests/navigation/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/rewards/**'
+              - 'cwa_classroom/ai_import/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/help/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/music/**'
+              - 'cwa_classroom/number_puzzles/**'
+              - 'cwa_classroom/quiz/**'
+              - 'cwa_classroom/science/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/templates/accounts/**'
+              - 'cwa_classroom/templates/hub/**'
+              - 'cwa_classroom/templates/registration/**'
+            ui_parent:
+              - 'cwa_classroom/ui_tests/parent/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/number_puzzles/**'
+              - 'cwa_classroom/templates/parent/**'
+            ui_progress:
+              - 'cwa_classroom/ui_tests/progress/**'
+              - 'cwa_classroom/accounts/**'
+              # The preview's "subscribed students only" filter reads
+              # billing.Subscription through billing/selectors.py.
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/**'
+              # A coding report's practice section and its topic grouping both
+              # come from the coding plugin.
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/homework/**'
+              # Quizzes, times tables and basic facts are read straight off
+              # maths models, so a change there can break a report.
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/progress/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/templates/progress/**'
+            ui_quiz:
+              - 'cwa_classroom/ui_tests/quiz/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/quiz/**'
+              - 'cwa_classroom/templates/quiz/**'
+              - 'cwa_classroom/templates/base_quiz.html'
+              # The quiz question card renders the shared maths widgets — the
+              # fill-in-the-blank sentence, the number line, the protractor,
+              # the "create your own pattern" boxes — so a change to one of
+              # them can leave a question unanswerable without touching
+              # templates/quiz/. ui_maths and ui_worksheets already watch this
+              # directory for the same reason.
+              - 'cwa_classroom/templates/maths/**'
+              # WHICH questions a quiz serves is a billing question: a student
+              # on the free Student Basic module is not shown the AI-graded
+              # ones, and is shown a promotion in their place. Break the
+              # entitlement lookup or that partial and the quiz silently gets
+              # longer or shorter for the wrong students.
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/templates/billing/**'
+              # The question card carries "Report a problem with this question"
+              # (CPP-398), which opens the feedback modal and writes a report
+              # row. The modal, its launcher and the submit view all live in
+              # feedback/, so a change there can break reporting from the quiz
+              # without touching a single file under quiz/.
+              - 'cwa_classroom/feedback/**'
+              - 'cwa_classroom/templates/feedback/**'
+            # Question/content import: /upload-questions/ (classroom views),
+            # the PDF import pipeline (ai_import), and the homework + worksheet
+            # upload forms that share the page-range field.
+            ui_uploads:
+              - 'cwa_classroom/ui_tests/uploads/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/ai_import/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/homework/**'
+              - 'cwa_classroom/quiz/**'
+              - 'cwa_classroom/worksheets/**'
+              # "Preview as student" on the review page builds a maths.Question
+              # and renders the student take partial, so a change to either
+              # breaks the upload screens without touching an upload app.
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/templates/homework/**'
+              - 'cwa_classroom/templates/ai_import/**'
+              - 'cwa_classroom/templates/_partials/**'
+              - 'cwa_classroom/ui_tests/xls_fixtures.py'
+            ui_worksheets:
+              - 'cwa_classroom/ui_tests/worksheets/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/billing/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/maths/**'
+              - 'cwa_classroom/taskqueue/**'
+              - 'cwa_classroom/worksheets/**'
+              - 'cwa_classroom/templates/worksheets/**'
+              # The session page renders the shared maths widgets (the table of
+              # values, the fill-in-the-blank sentence) and the partial-credit
+              # feedback block, so a change there breaks a worksheet test
+              # without touching templates/worksheets/.
+              - 'cwa_classroom/templates/maths/**'
+              # The builder's preview of a coding exercise renders the shared
+              # coding window (templates/coding/partials/) and runs code
+              # through coding's teacher preview endpoint. Break either and the
+              # builder tests fail with nothing under worksheets/ touched.
+              - 'cwa_classroom/coding/**'
+              - 'cwa_classroom/templates/coding/**'
+            ui_languages:
+              - 'cwa_classroom/ui_tests/languages/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/languages/**'
+
+      # ---- Has the release PR's tree actually passed on `test`? -------------
+      #
+      # A release PR merges `test` into `main` unchanged, so its tree is
+      # normally byte-identical to the one the full matrix just ran on `test`.
+      # Re-running every suite over it proves nothing and costs a second full
+      # matrix per release — which is how the Actions spending limit was
+      # reached mid-release on 2026-08-24.
+      #
+      # But "normally" is doing real work in that sentence. A release PR with a
+      # commit of its own on top carries a tree NOTHING has tested, and the old
+      # behaviour there was to skip every suite and go red with "do not merge"
+      # — a promotion gate that reports no test result at all in exactly the
+      # case where the tests are the thing you want.
+      #
+      # So the claim is made once, here, and it decides: a tree `test` has
+      # proven green skips the suites (release-already-tested names the run
+      # that covered it); anything else runs the FULL matrix, path filters
+      # ignored, the same as a push to `test`.
+      #
+      # Every path out of this step except the successful lookup is `false`,
+      # including an API error: doubt costs a matrix, never a skipped gate.
+      - name: Has this release PR's tree passed on test?
+        id: release
+        if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const sha = context.payload.pull_request.head.sha;
+            const runEverything = (why) => {
+              core.info(`Running the full matrix: ${why}`);
+              core.setOutput('validated', 'false');
+            };
+
+            let found;
+            try {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'ci.yml',
+                branch: 'test',
+                head_sha: sha,
+                event: 'push',
+              });
+              found = runs.data.workflow_runs;
+            } catch (error) {
+              return runEverything(
+                `could not read the runs on test for ${sha} (${error.message})`);
+            }
+
+            const passed = found.find((r) => r.conclusion === 'success');
+            if (!passed) {
+              const running = found.find((r) => r.status !== 'completed');
+              return runEverything(running
+                ? `CI on test is still running for ${sha} (run ` +
+                  `#${running.run_number}: ${running.html_url}), so this tree ` +
+                  `is not proven yet`
+                : `no successful CI run on test for ${sha} — this tree has ` +
+                  `not been validated`);
+            }
+
+            core.info(
+              `CI run #${passed.run_number} passed on test for ${sha} ` +
+              `(${passed.html_url}) — the suites are skipped in favour of ` +
+              `'Release tree already tested on test'.`);
+            core.setOutput('validated', 'true');
+            core.setOutput('run_url', passed.html_url);
+
+      # ---- Which unit suites does this diff need? ---------------------------
+      #
+      # These used to be 20 separate jobs, one per app, each doing checkout +
+      # setup-python + `pip install -r requirements-test.txt` before running
+      # its suite. Measured on a full run: 22 unit jobs cost 44 billed minutes
+      # to run 21.7 minutes of tests. Notifications billed a full minute for
+      # six seconds of tests.
+      #
+      # Two thirds of that was setup repeated 20 times and GitHub rounding
+      # every job up to a whole minute, so they are now ONE job — but with a
+      # target list built from the same path filters, not a fixed group. A
+      # fixed group would make the common case worse: an accounts-only PR runs
+      # `pytest accounts/` for ~2 billed minutes today, and would pay for all
+      # 20 suites instead. Deriving the list keeps that PR at ~2 and takes the
+      # full run from 32 billed minutes to ~12.
+      #
+      # `classroom` is deliberately NOT here. At 11 of the 21.7 test-minutes it
+      # is the long pole, and keeping its own job lets it run beside this one
+      # instead of in front of it — merging it would double the wall clock.
+      - name: Which unit suites does this diff need?
+        id: unit
+        env:
+          # filter key -> pytest target. Data rather than shell so
+          # tests_workflows.py can check the same map the job runs on: a suite
+          # dropped from here would stop running everywhere, silently.
+          UNIT_SUITES: |
+            accounts:accounts/
+            ai_import:ai_import/
+            api:api/
+            audit:audit/
+            billing:billing/
+            brainbuzz:brainbuzz/
+            coding:coding/
+            feedback:feedback/
+            homework:homework/
+            languages:languages/tests/
+            maths:maths/
+            notifications:notifications/
+            ops:ops/
+            progress:progress/
+            puzzles:number_puzzles/
+            quiz:quiz/
+            rewards:rewards/
+            sprints:sprints/
+            taskqueue:taskqueue/
+            usage:usage/
+            whatsapp:whatsapp/
+            worksheets:worksheets/
+          # The project package's own tests have no app filter of their own.
+          # They run on `shared` (one of the two things inside RUN_ALL) and on
+          # a bare version bump, which is the only other change that can reach
+          # them: /api/health/ reports APP_VERSION and base.html prints it.
+          UNIT_SHARED_ONLY: cwa_classroom/tests.py
+          CHANGED: ${{ toJSON(steps.filter.outputs) }}
+          # The safety net the per-app jobs used to carry in their own `if:`.
+          # A merge to `test` is the promotion gate and runs EVERY unit suite:
+          # they are the cheap half and the half that catches one app breaking
+          # another, which a PR narrowed to the changed app cannot see.
+          #
+          # A release PR whose tree `test` has NOT proven green is the third
+          # case: the promotion gate has to be the whole suite, and no path
+          # filter narrows it. A validated one skips these jobs entirely.
+          RUN_ALL: ${{ github.event_name == 'push' || steps.filter.outputs.shared == 'true' || steps.release.outputs.validated == 'false' }}
+          # A version bump on its own. NOT part of RUN_ALL — it adds the
+          # project package's tests and nothing else, which is the whole
+          # saving: this used to be a `shared` change and ran all 20 suites.
+          VERSION_ONLY: ${{ steps.filter.outputs.version }}
+        run: |
+          set -euo pipefail
+          dirs=""
+          while IFS=: read -r key target; do
+            [ -n "$key" ] || continue
+            if [ "$RUN_ALL" = "true" ] \
+               || [ "$(jq -r --arg k "$key" '.[$k] // "false"' <<<"$CHANGED")" = "true" ]; then
+              dirs="$dirs $target"
+            fi
+          done <<<"$UNIT_SUITES"
+          if [ "$RUN_ALL" = "true" ] || [ "$VERSION_ONLY" = "true" ]; then
+            dirs="$dirs $UNIT_SHARED_ONLY"
+          fi
+          dirs=$(echo $dirs)
+          # An empty list makes the job vanish, which reads the same as a CI
+          # that has quietly stopped running — say which it was.
+          if [ -z "$dirs" ]; then
+            echo "No unit suites needed for this diff."
+          else
+            echo "Unit suites selected: $dirs"
+          fi
+          echo "dirs=$dirs" >> "$GITHUB_OUTPUT"
+
+      # ---- Has this exact tree already been through the UI matrix? ----------
+      #
+      # A `pull_request` run does NOT test the PR head — it tests
+      # `refs/pull/N/merge`, i.e. the PR merged into its base. So when a merge
+      # to `test` lands a tree the PR run already had, the push re-runs the UI
+      # groups over byte-identical content. Roughly half of merges here are in
+      # that position (the PR branch was up to date with `test`), and the UI
+      # matrix is ~60 of the ~105 billed minutes a full run costs.
+      #
+      # THIS IS FOR THE UI MATRIX ONLY. The unit suites are unfiltered on a
+      # push precisely because a PR run is narrowed to the apps it touched —
+      # that push is what catches one app breaking another, and skipping it
+      # against a narrowed PR run would delete exactly that signal. The UI
+      # matrix is different: it is path-filtered identically on both events
+      # (since 2026-08-24), so for one tree the two runs select the same
+      # groups and the second proves nothing.
+      #
+      # The claim is only made when all four hold, so the PR really did run
+      # this content through the same groups:
+      #
+      #   1. the push is a two-parent merge commit — parents [base, head];
+      #   2. tree(merge) == tree(head): the merge brought in nothing new, so
+      #      what lands IS what the PR branch held;
+      #   3. base is an ancestor of head: the PR was up to date with `test`,
+      #      so `refs/pull/N/merge` reduced to the head commit itself and the
+      #      PR therefore tested this tree — and the PR's path filter ran
+      #      against a base no newer than this one, so it selected these
+      #      groups or a superset of them;
+      #   4. a `pull_request` CI run on that head SHA actually concluded
+      #      success.
+      #
+      # Any doubt resolves to running the matrix — every path out of this step
+      # except the last one is `false`.
+      - name: Has this tree already passed the UI matrix?
+        id: tested
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/test' }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const run = (why) => {
+              core.info(`Running the UI matrix: ${why}`);
+              core.setOutput('already_tested', 'false');
+            };
+
+            const { data: merge } = await github.rest.git.getCommit({
+              owner, repo, commit_sha: context.sha,
+            });
+            if (merge.parents.length !== 2) {
+              return run(`${context.sha.slice(0, 8)} is not a two-parent merge`);
+            }
+            const [base, head] = merge.parents.map((p) => p.sha);
+
+            const { data: headCommit } = await github.rest.git.getCommit({
+              owner, repo, commit_sha: head,
+            });
+            if (headCommit.tree.sha !== merge.tree.sha) {
+              return run(
+                `the merge of ${head.slice(0, 8)} changed the tree, so this ` +
+                `content has not been tested as a whole`);
+            }
+
+            const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({
+              owner, repo, basehead: `${base}...${head}`,
+            });
+            if (!['ahead', 'identical'].includes(cmp.status)) {
+              return run(
+                `${head.slice(0, 8)} was not up to date with test ` +
+                `(${cmp.status}), so the PR tested a different merge`);
+            }
+
+            const { data: runs } = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: 'ci.yml', head_sha: head,
+              event: 'pull_request',
+            });
+            const passed = runs.workflow_runs.find(
+              (r) => r.conclusion === 'success');
+            if (!passed) {
+              return run(`no successful PR run for ${head.slice(0, 8)}`);
+            }
+
+            core.info(
+              `Tree ${merge.tree.sha.slice(0, 8)} already passed in PR run ` +
+              `#${passed.run_number} (${passed.html_url}) — skipping the UI ` +
+              `matrix. Unit suites still run in full.`);
+            core.setOutput('already_tested', 'true');
+
+  # Always runs — missing/conflicting migrations must never slip through, and the
+  # check is cheap. Not gated on `changes`.
   migration-check:
     name: Migration Health
     runs-on: ubuntu-latest
+    timeout-minutes: 20   # ~2min
     steps:
       - uses: actions/checkout@v4
 
@@ -33,9 +767,63 @@ jobs:
         working-directory: cwa_classroom
         run: pytest tests_migrations.py -v --tb=short
 
+      # Runs here because this job is the only one that is never path-gated.
+      # An invalid workflow file does not go red — GitHub kills the run in zero
+      # seconds and PRs show no checks at all — so it has to be caught by a
+      # test rather than by noticing the absence of one.
+      - name: Validate the GitHub Actions workflow files
+        working-directory: cwa_classroom
+        run: pytest tests_workflows.py -v --tb=short
+
+      # Also runs here for the same reason: a template belongs to no app's unit
+      # suite, and a comment Django prints instead of hiding does not go red —
+      # the page returns 200 with a developer note sitting in the middle of it,
+      # which is how one reached the student-facing worksheet feedback page.
+      - name: Check templates print no developer notes
+        working-directory: cwa_classroom
+        run: pytest tests_templates.py -q --tb=short
+
+  # A release PR (test -> main) merges `test` into `main` unchanged, so its tree
+  # is normally byte-identical to the one the full matrix just ran on `test`.
+  # Re-running every suite over it proved nothing and cost a second full matrix
+  # per release — which is how the Actions spending limit was reached
+  # mid-release.
+  #
+  # This job is the READABLE half of that skip. `changes` makes the claim (see
+  # "Has this release PR's tree passed on test?"); this states it, and names
+  # the run that covered the tree. It exists because a PR showing no checks at
+  # all is how a dead CI went unnoticed here for four days — a skip has to say
+  # so out loud.
+  #
+  # It no longer has to fail: a release PR whose tree is NOT validated does not
+  # reach this job at all. It runs the full matrix instead, which is a better
+  # answer than a red tick telling you the tests you wanted were not run.
+  release-already-tested:
+    name: Release tree already tested on test
+    needs: changes
+    if: ${{ needs.changes.outputs.release == 'true' && needs.changes.outputs.release_validated == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5   # instant
+    steps:
+      - name: Report which run validated this tree
+        env:
+          RUN_URL: ${{ needs.changes.outputs.release_run }}
+        run: |
+          echo "This release PR's tree already passed the full CI matrix on"
+          echo "\`test\`, so the suites are skipped rather than re-run over"
+          echo "byte-identical content."
+          echo
+          echo "The run that covered it: ${RUN_URL:-(see 'Detect changed areas')}"
+          echo
+          echo "Had the tree NOT been validated — a release PR carrying a commit"
+          echo "of its own — this job would not run and the full matrix would."
+
   classroom-tests:
     name: Classroom Tests
+    needs: changes
+    if: ${{ (needs.changes.outputs.release != 'true' || needs.changes.outputs.release_validated != 'true') && (github.event_name == 'push' || needs.changes.outputs.release_validated == 'false' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.classroom == 'true') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 45   # ~3min
     steps:
       - uses: actions/checkout@v4
 
@@ -50,11 +838,22 @@ jobs:
 
       - name: Run classroom tests
         working-directory: cwa_classroom
-        run: pytest classroom/tests/ -n auto --dist=loadscope -v --tb=short
+        run: pytest classroom/ -n auto --dist=loadscope -v --tb=short
 
-  maths-tests:
-    name: Maths Tests
+  # One job for every app suite except classroom, with its targets chosen by
+  # the `changes` job. See the "Which unit suites does this diff need?" step
+  # there for the measurements and for why classroom is not in it.
+  #
+  # KEEP THE NAME STABLE. The per-app checks ("Billing Tests", "Accounts
+  # Tests", …) are gone, so branch protection for `test` and `main` must
+  # require this one instead — a required check that no longer exists blocks
+  # every PR forever.
+  unit-tests:
+    name: Unit Tests
+    needs: changes
+    if: ${{ (needs.changes.outputs.release != 'true' || needs.changes.outputs.release_validated != 'true') && needs.changes.outputs.unit_dirs != '' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 40   # ~2min
     steps:
       - uses: actions/checkout@v4
 
@@ -67,279 +866,256 @@ jobs:
       - name: Install dependencies
         run: pip install -r cwa_classroom/requirements-test.txt
 
-      - name: Run maths tests
+      - name: Run unit suites
         working-directory: cwa_classroom
-        run: pytest maths/tests/ -n auto --dist=loadscope -v --tb=short
+        env:
+          DIRS: ${{ needs.changes.outputs.unit_dirs }}
+        # Unquoted on purpose — DIRS is a pytest argument LIST, and the values
+        # are fixed in ci.yml rather than coming from the diff.
+        run: pytest $DIRS -n auto --dist=loadscope -v --tb=short
 
-  puzzles-tests:
-    name: Number Puzzles Tests
+
+  # ── UI (Playwright) ──────────────────────────────────────────────────────
+  # The UI suite is by far the most expensive thing in CI (~33 min as one job),
+  # so it is split into per-app-area packages under cwa_classroom/ui_tests/ and
+  # only the areas a change actually touches get a runner.
+  #
+  #   PR            → the groups whose paths changed, in full. A PR that touches
+  #                   no UI-relevant path runs no UI job at all; one that touches
+  #                   `ui_core` or `shared` (base templates, sidebars, static,
+  #                   shared fixtures) runs every group, because those can break
+  #                   any page.
+  #   push to test  → the same path filter, against the previous `test` tip, so
+  #                   the merge runs the groups it actually brought in. The
+  #                   `ui_core` / `shared` escape still forces every group.
+  #   push to main  → nothing. That tree already passed the full suite on `test`;
+  #                   re-running it here is pure waste.
+  #
+  # WHY THE PUSH IS FILTERED TOO (changed 2026-08-24)
+  # -------------------------------------------------
+  # It used to run all 15 groups on every push to `test`, unfiltered, as the
+  # pre-production gate. That is 67 of the ~120 billed minutes a full matrix
+  # costs, on every merge — and the UI groups are not slow, they are large
+  # (classroom 231 tests, billing 233, navigation 223), so there is no fat to
+  # trim inside them. The only lever is running the ones a change can affect.
+  #
+  # At ~8 merges a day that unfiltered gate was ~$5.75/day of a ~$16.50/day
+  # bill, and on 2026-08-24 the account hit its Actions spending limit: every
+  # workflow in the repository, including the production deploy, began dying in
+  # two seconds with no logs.
+  #
+  # The unit suites are deliberately NOT filtered on a push (see
+  # test_ci_still_runs_every_suite_on_a_push) — they are cheap and they are
+  # what catches a change in one app breaking another. What this gives up is
+  # narrower: a UI regression in an area whose paths the merge did not touch is
+  # caught at the release PR rather than at the merge.
+  #
+  # Groups run as a dynamic matrix, so they execute in parallel — a full run is
+  # now bounded by the slowest single group rather than the sum of all of them.
+  ui-matrix:
+    name: Select UI suites
+    needs: changes
+    if: ${{ (needs.changes.outputs.release != 'true' || needs.changes.outputs.release_validated != 'true') && needs.changes.outputs.skip_ui_matrix != 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/test')) }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10   # instant
+    outputs:
+      groups: ${{ steps.pick.outputs.groups }}
+      shards: ${{ steps.pack.outputs.shards }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Pick the UI groups to run
+        id: pick
+        env:
+          # Every `ui_*` filter result, as JSON. The group list is derived from
+          # these keys, so ci.yml stays the single source of truth for which
+          # groups exist (tests_workflows.py checks it against the directories).
+          CHANGED: ${{ toJSON(needs.changes.outputs) }}
+          # No `push` arm: a merge to `test` runs the groups its own diff
+          # touches, exactly as a PR does. `shared` / `ui_core` still force
+          # every group on either event, because those can break any page.
+          # An unvalidated release PR is the third case: nothing has taken
+          # this tree through the matrix, so the promotion gate runs every
+          # group rather than the ones its diff happens to touch.
+          RUN_ALL: ${{ needs.changes.outputs.shared == 'true' || needs.changes.outputs.ui_core == 'true' || needs.changes.outputs.release_validated == 'false' }}
+        run: |
+          set -euo pipefail
+          all=$(jq -c '[to_entries[]
+                        | select(.key | startswith("ui_"))
+                        | select(.key != "ui_core")
+                        | (.key | sub("^ui_"; ""))] | sort' <<<"$CHANGED")
+          if [ "$RUN_ALL" = "true" ]; then
+            groups="$all"
+            echo "Running the full UI matrix (push, or a shared/ui_core change)."
+          else
+            groups=$(jq -c '[to_entries[]
+                             | select(.key | startswith("ui_"))
+                             | select(.key != "ui_core")
+                             | select(.value == "true")
+                             | (.key | sub("^ui_"; ""))] | sort' <<<"$CHANGED")
+          fi
+          # An empty matrix would make the ui-tests job vanish with no signal at
+          # all, so say out loud that nothing UI-related changed.
+          if [ "$groups" = "[]" ]; then
+            echo "No UI-relevant paths changed — skipping the UI suite."
+          else
+            echo "UI groups selected: $groups (of $all)"
+          fi
+          echo "groups=$groups" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
+      # ---- Pack those groups onto as few runners as possible ---------------
+      #
+      # A runner per group is most of what a full matrix costs. Every job pays
+      # the same ~50s of checkout + pip install + Playwright browser install
+      # before its first test, and GitHub bills each one rounded UP to a whole
+      # minute. Measured on run #2518 (a full 15-group matrix): 53 minutes of
+      # actual tests were billed as 87. The other 34 minutes were fifteen
+      # copies of the same setup, plus rounding.
+      #
+      # So the selected groups are packed onto a few runners instead, heaviest
+      # first onto whichever runner is currently lightest. The budget below is
+      # set just above the LONGEST SINGLE GROUP (billing, ~10 min), because
+      # that group alone already decides the wall clock — filling the other
+      # runners up to the same depth costs no extra time and deletes two
+      # thirds of the setup. Same 15 groups: 5 runners, ~60 billed minutes,
+      # still ~12 minutes end to end.
+      #
+      # A PARTIAL selection packs by the same rule and can only get cheaper:
+      # three small groups that used to be three billed minutes become one.
+      # A selection that is already one big group is left exactly as it was.
+      - name: Pack the groups onto runners
+        id: pack
+        env:
+          GROUPS: ${{ steps.pick.outputs.groups }}
+          # Seconds of pytest per group, in CI-runner terms. Re-measured after
+          # the test-password hasher fix (conftest._fast_password_hashing),
+          # which took the whole matrix from 3207s to 2750s — unevenly, because
+          # it only helps groups that log in a lot: billing 605->472 and parent
+          # 337->252, while live and brainbuzz did not move at all. Packing off
+          # the old numbers would have kept sending runners the wrong work.
+          #
+          # Measured locally at 2 cores / -n 4 and scaled by 1.68, the ratio
+          # between this repo's CI runner and that box on an identical run. The
+          # groups that barely log in land back on their known CI times (live
+          # 20, brainbuzz 60 vs 61, feedback 29 vs 32), which is what says the
+          # scaling is honest rather than fitted.
+          #
+          # These only decide how work is DIVIDED — a stale number costs a
+          # little balance, never coverage — but re-measure after anything that
+          # moves the suite this much. tests_workflows.py fails the build if a
+          # group has no entry.
+          #
+          # `languages` is not yet re-measured on a CI runner (added with that
+          # UI group) — estimated from a local run of comparable shape to
+          # quiz/homework (similar test count, canvas/Playwright-heavy).
+          # Replace with a real number once it has run on CI a few times.
+          UI_WEIGHTS: |
+            billing:472
+            classroom:469
+            navigation:469
+            parent:252
+            messaging:222
+            homework:192
+            languages:150
+            quiz:143
+            maths:113
+            uploads:91
+            worksheets:86
+            coding:72
+            progress:60
+            brainbuzz:60
+            feedback:29
+            live:20
+          # Comfortably above billing (472s), the longest single group, which
+          # already sets the wall clock on its own. This is what decides how
+          # many runners a selection gets: total test-seconds / budget.
+          # 2750s of tests over a 660s budget is 5 runners of ~9.5 min.
+          SHARD_BUDGET_SECONDS: 660
+          # Ceiling on runners, so a future group explosion cannot quietly go
+          # wide again. The full 15 groups come to 5 by the budget alone, so
+          # today this is slack rather than a constraint.
+          MAX_SHARDS: 5
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, math, os
 
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
+          weights = {}
+          for line in os.environ['UI_WEIGHTS'].splitlines():
+              line = line.strip()
+              if not line:
+                  continue
+              key, _, seconds = line.partition(':')
+              weights[key] = int(seconds)
 
-      - name: Run number puzzles tests
-        working-directory: cwa_classroom
-        run: pytest number_puzzles/tests/ -n auto --dist=loadscope -v --tb=short
+          groups = json.loads(os.environ['GROUPS'])
+          budget = int(os.environ['SHARD_BUDGET_SECONDS'])
+          cap = int(os.environ['MAX_SHARDS'])
 
-  coding-tests:
-    name: Coding Tests
+          # A group with no measured weight is treated as the heaviest there
+          # is, so a newly added one gets a runner to itself rather than being
+          # packed behind something big on a guess.
+          heaviest = max(weights.values())
+          def weigh(group):
+              return weights.get(group, heaviest)
+
+          total = sum(weigh(g) for g in groups)
+          runners = max(1, min(cap, len(groups), math.ceil(total / budget)))
+
+          # Longest-processing-time first: the classic greedy pack, and within
+          # a few percent of optimal for a list this shape.
+          packed = [[] for _ in range(runners)]
+          load = [0] * runners
+          for group in sorted(groups, key=weigh, reverse=True):
+              lightest = load.index(min(load))
+              packed[lightest].append(group)
+              load[lightest] += weigh(group)
+
+          shards = [' '.join(sorted(bucket)) for bucket in packed if bucket]
+
+          for shard in shards:
+              seconds = sum(weigh(g) for g in shard.split())
+              print(f'  runner: {shard}  (~{seconds // 60}m{seconds % 60:02d}s)')
+          print(f'{len(groups)} group(s), ~{total // 60} test-minutes, '
+                f'on {len(shards)} runner(s).')
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write('shards=' + json.dumps(shards) + '\n')
+          PY
+
+  # Skipping is not the same as not checking: a push showing no UI check at all
+  # is how a dead CI went unnoticed here for four days. When the matrix is
+  # deduped this job says so, and names the PR run that covered the tree, so the
+  # claim is readable rather than implied by an absent job.
+  ui-already-tested:
+    name: UI matrix already ran for this tree
+    needs: changes
+    if: ${{ needs.changes.outputs.skip_ui_matrix == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5   # instant
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run coding tests
-        working-directory: cwa_classroom
-        run: pytest coding/tests/ -n auto --dist=loadscope -v --tb=short
-
-  languages-tests:
-    name: Languages Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run languages tests
-        working-directory: cwa_classroom
-        run: pytest languages/tests/ -n auto --dist=loadscope -v --tb=short
-
-  accounts-tests:
-    name: Accounts Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run accounts tests
-        working-directory: cwa_classroom
-        run: pytest accounts/tests.py -n auto --dist=loadscope -v --tb=short
-
-  health-tests:
-    name: Health Check Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run health check tests
-        working-directory: cwa_classroom
-        run: pytest cwa_classroom/tests.py -n auto --dist=loadscope -v --tb=short
-
-  audit-tests:
-    name: Audit Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run audit tests
-        working-directory: cwa_classroom
-        run: pytest audit/tests.py -n auto --dist=loadscope -v --tb=short
-
-  billing-tests:
-    name: Billing Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run billing tests
-        working-directory: cwa_classroom
-        run: pytest billing/tests.py billing/tests_admin.py billing/tests_gaps.py billing/tests_parent_invoice_payment.py billing/tests_stripe.py billing/tests_views_coverage.py billing/tests_webhook_handlers.py -n auto --dist=loadscope -v --tb=short
-
-  homework-tests:
-    name: Homework Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run homework tests
-        working-directory: cwa_classroom
-        run: pytest homework/tests.py -n auto --dist=loadscope -v --tb=short
-
-  brainbuzz-tests:
-    name: BrainBuzz Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run brainbuzz tests
-        working-directory: cwa_classroom
-        run: pytest brainbuzz/tests/ --ignore=brainbuzz/tests/test_student_playwright_mobile.py -n auto --dist=loadscope -v --tb=short
-
-  worksheets-tests:
-    name: Worksheets Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run worksheets tests
-        working-directory: cwa_classroom
-        run: pytest worksheets/tests/ -n auto --dist=loadscope -v --tb=short
-
-  taskqueue-tests:
-    name: Taskqueue Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run taskqueue tests
-        working-directory: cwa_classroom
-        run: pytest taskqueue/tests/ -n auto --dist=loadscope -v --tb=short
-
-  feedback-tests:
-    name: Feedback Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run feedback tests
-        working-directory: cwa_classroom
-        run: pytest feedback/tests/ -n auto --dist=loadscope -v --tb=short
-
-  sprints-tests:
-    name: Sprints Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run sprints tests
-        working-directory: cwa_classroom
-        run: pytest sprints/tests/ -n auto --dist=loadscope -v --tb=short
-
-  whatsapp-tests:
-    name: WhatsApp Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: cwa_classroom/requirements-test.txt
-
-      - name: Install dependencies
-        run: pip install -r cwa_classroom/requirements-test.txt
-
-      - name: Run whatsapp tests
-        working-directory: cwa_classroom
-        run: pytest whatsapp/tests/ -n auto --dist=loadscope -v --tb=short
+      - name: Report which run covered it
+        run: |
+          echo "This push lands a tree a pull_request run already took through"
+          echo "the UI matrix — see 'Detect changed areas' for the run number"
+          echo "and the four conditions that were checked."
+          echo
+          echo "The unit suites are NOT deduped and ran in full on this push."
 
   ui-tests:
-    name: UI Tests (Playwright)
+    name: UI Tests (${{ matrix.shard }})
+    needs: ui-matrix
+    if: ${{ needs.ui-matrix.outputs.groups != '[]' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 35   # ~10min
+    strategy:
+      # One broken area must not cancel the others — a full run should report
+      # every failing group, not just the first.
+      fail-fast: false
+      matrix:
+        # One entry per RUNNER, not per group: `ui-matrix` packs the selected
+        # groups onto a few runners so the same tests stop paying fifteen
+        # copies of checkout + pip install + browser install. An entry is a
+        # space-separated list of group names, e.g. "billing live".
+        shard: ${{ fromJSON(needs.ui-matrix.outputs.shards) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -361,9 +1137,100 @@ jobs:
       - name: Install Playwright browsers
         run: playwright install --with-deps chromium
 
-      - name: Run UI tests
+      - name: Run UI tests — ${{ matrix.shard }}
         working-directory: cwa_classroom
+        env:
+          # `-n auto` is one worker per CPU, and a PRIVATE repo's runner has
+          # TWO — so each group still ran two browsers at a time. These tests
+          # are I/O-bound (waiting on the browser, not computing), so more
+          # workers than cores is the right call and cuts each runner's wall
+          # clock and billed minutes together. Raise further only with
+          # evidence: the ceiling is the SQLite contention --reruns absorbs.
+          UI_WORKERS: 4
+          # Read as data rather than interpolated into the command line. The
+          # values are group names fixed in ci.yml, not anything from a diff.
+          SHARD: ${{ matrix.shard }}
         # --reruns retries ONLY the known SQLite "database is locked" flake from
         # parallel Playwright workers (see cwa_classroom/conftest.py); scoped via
         # --only-rerun so genuine assertion failures still fail on the first run.
-        run: pytest ui_tests/ brainbuzz/tests/test_student_playwright_mobile.py -n auto -v --tb=short --reruns 2 --only-rerun "database is locked"
+        run: |
+          set -euo pipefail
+          # One pytest process over every group on this runner — which is how
+          # the suite ran before it was split, and why there is a single
+          # ui_tests/conftest.py rather than one per group. xdist balances
+          # across the lot, so a runner is not held up by its own long tail.
+          UI_TARGETS=$(for group in $SHARD; do printf 'ui_tests/%s ' "$group"; done)
+          echo "Running: $UI_TARGETS"
+          # Unquoted on purpose — a pytest argument LIST, built just above.
+          pytest $UI_TARGETS -n "$UI_WORKERS" -v --tb=short \
+            --reruns 2 --only-rerun "database is locked"
+
+  # Branch protection needs ONE check name that never moves. The matrix jobs are
+  # called "UI Tests (billing)", "UI Tests (classroom)", … and that set changes
+  # whenever a group is added, so a required check pointing at any of them (or
+  # at the old single "UI Tests (Playwright)" job) would either block forever or
+  # silently stop gating. This job keeps that name, always runs, and is red iff
+  # the UI suite is red.
+  #
+  # KEEP THE NAME STABLE. Point branch protection for `test` and `main` here.
+  ui-tests-gate:
+    name: UI Tests (Playwright)
+    needs: [changes, ui-matrix, ui-tests]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5   # instant
+    steps:
+      - name: Report the UI suite result
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          MATRIX: ${{ needs.ui-matrix.result }}
+          TESTS: ${{ needs.ui-tests.result }}
+          GROUPS: ${{ needs.ui-matrix.outputs.groups }}
+          ALREADY_TESTED: ${{ needs.changes.outputs.skip_ui_matrix }}
+        run: |
+          set -euo pipefail
+          echo "changes:   $CHANGES"
+          echo "ui-matrix: $MATRIX"
+          echo "ui-tests:  $TESTS"
+          echo "groups:    ${GROUPS:-(none)}"
+
+          # `changes` has no if:, so it always runs. If it did not succeed, the
+          # jobs below it were skipped for want of a filter result, not because
+          # there was nothing to do — that must not read as green.
+          if [ "$CHANGES" != "success" ]; then
+            echo "::error::Path filtering failed ($CHANGES); UI coverage is unknown"
+            exit 1
+          fi
+
+          # ui-matrix skips on a push to main, where the UI suite is
+          # deliberately not run — that is a pass, not a gap.
+          case "$MATRIX" in
+            success|skipped) ;;
+            *)
+              echo "::error::Could not determine which UI suites to run ($MATRIX)"
+              exit 1
+              ;;
+          esac
+
+          # skipped = no UI-relevant paths changed, or the whole suite was not
+          # scheduled for this event. Anything other than that or success means
+          # a group failed, was cancelled, or never reported.
+          case "$TESTS" in
+            success)
+              echo "UI suite green for: ${GROUPS:-(none)}"
+              ;;
+            skipped)
+              # Three different reasons land here, and "nothing changed" is the
+              # only one that is self-evident. Say which it was.
+              if [ "$ALREADY_TESTED" = "true" ]; then
+                echo "UI matrix already ran for this tree on the PR — see the"
+                echo "'UI matrix already ran for this tree' check."
+              else
+                echo "No UI suites needed to run."
+              fi
+              ;;
+            *)
+              echo "::error::UI suite did not pass ($TESTS)"
+              exit 1
+              ;;
+          esac

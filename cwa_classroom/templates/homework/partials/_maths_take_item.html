@@ -4,7 +4,12 @@ Renders one maths question on the homework take page.
 Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
 {% endcomment %}
 {% with q=ctx.question %}
+{% comment %}A fill-in-the-blank sentence IS its own widget (the gaps sit inside the
+text), so it prints the question itself further down — printing it here too would
+show the question twice.{% endcomment %}
+{% if not q.blank_data %}
 <p class="text-gray-900 font-medium mb-4">{{ q.question_text|exponents }}</p>
+{% endif %}
 
 {% comment %} measure renders its own figure inside the interactive tool stage. {% endcomment %}
 {% if q.image and q.question_type != 'measure' %}
@@ -453,7 +458,9 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
   {{ d.svg|safe }}
   {% for p in d.given %}
   <circle cx="{{ p.px }}" cy="{{ p.py }}" r="5" fill="#1f6feb"/>
+  {% if p.label %}<text x="{{ p.lx }}" y="{{ p.ly }}" fill="#1f6feb" font-size="13" font-weight="600">{{ p.label }}</text>{% endif %}
   {% endfor %}
+  {% if d.curve %}<path data-pl-curve="{{ q.id }}" d="" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"></path>{% endif %}
   <polyline data-pl-line="{{ q.id }}" points="" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"></polyline>
   <g data-pl-marks="{{ q.id }}"></g>
   {% for dot in d.dots %}
@@ -477,6 +484,8 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
   var hidden = document.querySelector('[data-pl-hidden="' + id + '"]');
   var marks = document.querySelector('[data-pl-marks="' + id + '"]');
   var line = document.querySelector('[data-pl-line="' + id + '"]');
+  var curvePath = document.querySelector('[data-pl-curve="' + id + '"]');
+  var curve = {% if d.curve %}true{% else %}false{% endif %};
   var readout = document.querySelector('[data-pl-readout="' + id + '"]');
   var clearBtn = document.querySelector('[data-pl-clear="' + id + '"]');
   if (!svg || !hidden || !marks) return;
@@ -487,6 +496,21 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
   function py(y){ return pad + (ymax - y) * step; }
   function fmt(p){ return "(" + p[0] + ", " + p[1] + ")"; }
   function eq(a, b){ return a[0] === b[0] && a[1] === b[1]; }
+
+  // Smooth (Catmull-Rom → cubic Bézier) path through pixel points, for the
+  // opt-in "join the dots into a parabola" curve. Points must be pre-sorted by x.
+  function smoothPath(p){
+    if (p.length < 2) return "";
+    if (p.length === 2) return "M" + p[0][0] + "," + p[0][1] + " L" + p[1][0] + "," + p[1][1];
+    var d = "M" + p[0][0] + "," + p[0][1];
+    for (var i = 0; i < p.length - 1; i++){
+      var p0 = p[i - 1] || p[i], p1 = p[i], p2 = p[i + 1], p3 = p[i + 2] || p2;
+      var c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
+      var c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+      d += " C" + c1x + "," + c1y + " " + c2x + "," + c2y + " " + p2[0] + "," + p2[1];
+    }
+    return d;
+  }
 
   function sync(){
     if (mode === "segments"){
@@ -512,6 +536,18 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
     // unconnected — connecting them would misrepresent a "plot these points" task.
     if (line && mode === "segments"){
       line.setAttribute("points", pts.map(function(p){ return px(p[0]) + "," + py(p[1]); }).join(" "));
+    }
+    // Opt-in curve: draw a smooth parabola through the plotted points (points mode
+    // only), sorted left→right. Grading still compares the point set, unchanged.
+    if (curvePath){
+      if (curve && mode !== "segments" && pts.length >= 2){
+        var pix = pts.slice()
+          .sort(function(a, b){ return a[0] - b[0]; })
+          .map(function(p){ return [px(p[0]), py(p[1])]; });
+        curvePath.setAttribute("d", smoothPath(pix));
+      } else {
+        curvePath.setAttribute("d", "");
+      }
     }
   }
   function onDot(g){
@@ -568,16 +604,27 @@ string to a coordinate set (parse_coords) and comparing to target.points.
   {{ d.svg|safe }}
   {% for p in d.given %}
   <circle cx="{{ p.px }}" cy="{{ p.py }}" r="5" fill="#dc2626"/>
+  {% if p.label %}<text x="{{ p.lx }}" y="{{ p.ly }}" fill="#dc2626" font-size="13" font-weight="600">{{ p.label }}</text>{% endif %}
   {% endfor %}
 </svg>
+{% endwith %}
+{% elif q.image %}
+<div class="mb-3"><img src="{{ q.image.url }}" alt="Coordinate grid" class="max-w-full rounded-lg border border-gray-200"></div>
+{% endif %}
+{% comment %}
+The answer box is OUTSIDE the plane_data guard on purpose. An identify_coords
+question stored without a renderable plane_spec used to render nothing at all —
+no grid and no input — so the child met a blank space and the mark was lost
+silently. The grader reads the typed string, not the drawing, so the question is
+still answerable from its text; the missing figure is the author's bug to fix,
+not the child's mark to lose.
+{% endcomment %}
 <div class="mt-2">
   <input type="text" id="answer_{{ q.id }}" name="answer_{{ q.id }}"
          class="w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
          placeholder="e.g. (-2, 4)" aria-label="Coordinates">
   <p class="text-xs text-gray-500 mt-1">Enter as <span class="font-mono">(x, y)</span>. Separate several points with spaces.</p>
 </div>
-{% endwith %}
-{% endif %}
 
 {% elif q.question_type == 'read_graph' %}
 {% comment %}
@@ -596,6 +643,55 @@ suffix — the same input as a measure question; grading reuses grade_measure.
          placeholder="Read off…" aria-label="Value read from graph">
   {% if q.answer_unit %}<span class="text-gray-700 font-medium" aria-hidden="true">{{ q.answer_unit }}</span>{% endif %}
 </div>
+
+{% elif q.question_type == 'number_line' and q.number_line_data %}
+{% comment %}
+Number line: mark mode overlays tappable ticks on the drawn scale (marks
+serialise to JSON in answer_<id> via static/js/number_line.js); read mode draws
+the arrow(s) and takes a typed value. Mirrors the measure tool include.
+{% endcomment %}
+{% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_number_line_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
+
+{% elif q.question_type == 'table_of_values' and q.table_data %}
+{% comment %}
+Table of values: the student fills the blank cells (e.g. compute y for each given
+x). The shared widget serialises the blank cells to JSON in answer_<id> via
+static/js/table_of_values.js; graded server-side by numeric tolerance
+(grade_table). Correct answers are never emitted into the page.
+{% endcomment %}
+{% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_table_of_values_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
+
+{% elif q.question_type == 'sketch_graph' and q.sketch_data %}
+{% comment %}
+Sketch a graph: the app draws the plane the worksheet printed, the student
+plots the curve on it (points, joined into a curve — a freehand stroke is not
+something this app can take) and types the key features the stem names (vertex,
+intercepts, axis of symmetry). Both serialise to JSON in answer_<id> via
+static/js/sketch_graph.js; graded part by part server-side
+(grade_sketch_parts), the sketch and each feature alike, so four of five earns
+four fifths. The correct values are never emitted into the page.
+{% endcomment %}
+{% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_sketch_graph_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
+
+{% elif q.question_type == 'fill_blank' and q.blank_data %}
+{% comment %}
+Fill in the blanks: the sentence is re-laid-out with an input in each gap. The
+typed values serialise to JSON in answer_<id> via static/js/fill_blank.js;
+graded all-or-nothing server-side (grade_fill_blank). Correct answers are never
+emitted into the page. A fill_blank question with no blank_spec falls through to
+the single box below, which is what it has always used.
+{% endcomment %}
+{% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_fill_blank_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
+
+{% elif q.pattern_field_data %}
+{% comment %}
+"Create your own number pattern": a box per number the question asks for and a
+box for the rule, composed into answer_<id> by static/js/pattern_fields.js as
+the one line maths.pattern_grading.grade_pattern reads — the same line a
+student would have typed into the single box below, which is what these
+questions used to get.
+{% endcomment %}
+{% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_pattern_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
 
 {% else %}
 <input type="text" name="answer_{{ q.id }}"

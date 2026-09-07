@@ -1,0 +1,16 @@
+{% comment %}
+Pages the extractor recognised as carrying no questions (a multiple-choice
+answer sheet, a worked answer key) and deliberately never sent to the AI.
+Shown so a page missing from the import is never a mystery.
+
+Context: skipped_pages — [{'page': int, 'label': str}], from
+worksheets.services.describe_skipped_pages().
+{% endcomment %}
+{% if skipped_pages %}
+<div class="mb-4 p-3 rounded-lg text-sm bg-blue-50 border border-blue-200 text-blue-800">
+  Skipped {{ skipped_pages|length }} page{{ skipped_pages|pluralize }} with no questions on
+  {{ skipped_pages|pluralize:"it,them" }}:
+  {% for skip in skipped_pages %}page {{ skip.page }} ({{ skip.label }}){% if not forloop.last %}, {% endif %}{% endfor %}.
+  Nothing was extracted from {{ skipped_pages|pluralize:"that page,those pages" }}.
+</div>
+{% endif %}

@@ -182,6 +182,74 @@
     {% endif %}
   </div>
 
+  <!-- AI Grading -->
+  <div class="border border-gray-200 rounded-xl p-4 mb-6">
+    <h3 class="font-semibold text-gray-800 mb-3">AI Grading</h3>
+    <p class="text-xs text-gray-400 mb-3">Claude marks written and working-out answers automatically. Select one plan below.</p>
+
+    {% if active_ai_grading_tier and grading_limit %}
+    <div class="mb-4">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-xs text-gray-500">This month</span>
+        <span class="text-xs text-gray-500">{{ grading_used }} / {{ grading_limit }} answers</span>
+      </div>
+      <div class="w-full bg-gray-100 rounded-full h-2">
+        <div class="h-2 rounded-full transition-all duration-500
+                    {% if grading_percent >= 100 %}bg-red-500
+                    {% elif grading_percent >= 75 %}bg-amber-500
+                    {% else %}bg-emerald-500{% endif %}"
+             style="width: {{ grading_percent }}%"></div>
+      </div>
+      {% if grading_percent >= 100 %}
+      <p class="text-xs text-red-600 mt-2 font-medium">Allowance used up — AI-graded questions are paused for your students until it resets next month, or you move up a plan.</p>
+      {% elif grading_percent >= 75 %}
+      <p class="text-xs text-amber-600 mt-2 font-medium">{{ grading_percent }}% used. When it runs out, AI-graded questions stop being offered until the allowance resets.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <form id="ai-grading-tier-form" method="post" action="{% url 'module_toggle' %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add">
+      <div class="space-y-2">
+        {% for tier in ai_grading_tiers %}
+        <label class="flex items-center justify-between py-3 px-4 rounded-lg border cursor-pointer transition
+                      {% if tier.slug in active_modules %}border-primary bg-primary/5{% else %}border-gray-200 hover:border-gray-300 hover:bg-gray-50{% endif %}">
+          <div class="flex items-center gap-3">
+            <input type="radio" name="module_slug" value="{{ tier.slug }}"
+                   {% if tier.slug in active_modules %}checked{% endif %}
+                   class="text-primary focus:ring-primary" />
+            <div>
+              <span class="text-sm font-semibold text-gray-700">{{ tier.name }}</span>
+              <span class="text-xs text-gray-400 ml-1">{% if tier.answers %}{{ tier.answers }} answers/mo{% else %}unlimited answers{% endif %}</span>
+            </div>
+          </div>
+          <div class="text-right">
+            <span class="text-sm font-bold text-primary">${{ tier.price }}/mo</span>
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+      <div class="flex gap-2 mt-4">
+        <button type="button"
+                @click="show({ title: 'Change AI Grading Plan', message: 'Switch to the selected AI Grading plan?', confirmText: 'Confirm', variant: 'default', formId: 'ai-grading-tier-form' })"
+                class="text-xs bg-primary hover:bg-primary-dark text-white font-semibold rounded-lg px-4 py-2 transition">
+          {% if active_ai_grading_tier %}Switch Plan{% else %}Activate{% endif %}
+        </button>
+      </div>
+    </form>
+    {% if active_ai_grading_tier %}
+    <form id="remove-ai-grading" method="post" action="{% url 'module_toggle' %}" class="mt-2">
+      {% csrf_token %}
+      <input type="hidden" name="module_slug" value="{{ active_ai_grading_tier }}">
+      <input type="hidden" name="action" value="remove">
+      <button type="button"
+              @click="show({ title: 'Remove AI Grading', message: 'Remove AI Grading? Written answers will need to be marked by teachers.', confirmText: 'Remove', variant: 'danger', formId: 'remove-ai-grading' })"
+              class="text-xs text-red-500 hover:text-red-700 font-medium px-4 py-2">Remove</button>
+    </form>
+    {% endif %}
+  </div>
+
   <!-- Cancel Subscription -->
   {% if subscription.stripe_subscription_id and subscription.status == 'active' %}
   <div class="border border-gray-200 rounded-xl p-4">

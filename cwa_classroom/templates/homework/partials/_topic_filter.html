@@ -1,0 +1,119 @@
+{% comment %}
+Type-to-filter for the homework topic picker — shared by the week planner
+(schedule_detail) and "+ New Homework" (teacher_create).
+
+Include this ONCE per page, after the tree(s). It wires every element marked
+`data-topic-tree`, so a page with one tree per week needs no per-week script.
+
+What a tree has to provide:
+
+  [data-topic-tree]            the wrapper, one per picker
+    [data-topic-filter]        the search input
+    [data-topic-filter-empty]  the "nothing matches" line (starts hidden)
+      [data-topic-filter-term] where the typed text is echoed
+    label > [data-topic-name]  a topic row (any label holding a checkbox)
+    details[data-topic-group] > summary [data-topic-name]   a group heading
+
+Matching reads the `data-topic-name` span only, never the row's whole text —
+otherwise "2" would match the "(2)" count beside every thin topic and the
+"2 selected" badge on every group.
+
+Filtering is a VIEW: rows are hidden, never unticked, and a hidden checkbox
+still posts its value. So a teacher who filters, ticks, filters again and
+saves keeps everything they chose — the one behaviour that would make a
+filter box worse than no filter box at all.
+{% endcomment %}
+<script>
+  (function () {
+    function nameOf(el, scoped) {
+      var span = el.querySelector(scoped ? ':scope > summary [data-topic-name]'
+                                         : '[data-topic-name]');
+      return (span ? span.textContent : el.textContent).trim().toLowerCase();
+    }
+
+    function init(tree) {
+      var box = tree.querySelector('[data-topic-filter]');
+      if (!box) return;
+
+      var groups = Array.prototype.slice.call(
+        tree.querySelectorAll('details[data-topic-group]'));
+      var rows = Array.prototype.filter.call(
+        tree.querySelectorAll('label'),
+        function (el) {
+          return el.querySelector('input[type="checkbox"]') && !el.closest('summary');
+        });
+      var empty = tree.querySelector('[data-topic-filter-empty]');
+      var term = tree.querySelector('[data-topic-filter-term]');
+      // What was open before filtering started, so clearing the box puts the
+      // accordion back exactly as the teacher had arranged it.
+      var baseline = null;
+
+      function show(el, on) { el.style.display = on ? '' : 'none'; }
+
+      function underMatchingGroup(row, q) {
+        var group = row.closest('details[data-topic-group]');
+        while (group) {
+          if (nameOf(group, true).indexOf(q) !== -1) return true;
+          group = group.parentElement
+            ? group.parentElement.closest('details[data-topic-group]') : null;
+        }
+        return false;
+      }
+
+      function apply() {
+        var q = box.value.trim().toLowerCase();
+
+        if (!q) {
+          rows.forEach(function (row) { show(row, true); });
+          groups.forEach(function (group) {
+            show(group, true);
+            if (baseline && baseline.has(group)) group.open = baseline.get(group);
+          });
+          baseline = null;
+          if (empty) show(empty, false);
+          return;
+        }
+
+        if (!baseline) {
+          baseline = new Map();
+          groups.forEach(function (group) { baseline.set(group, group.open); });
+        }
+
+        var hits = 0;
+        rows.forEach(function (row) {
+          // A group whose own name matches shows everything under it — typing
+          // "number" should hand over the strand, not just a topic called
+          // "Number Patterns".
+          var hit = nameOf(row).indexOf(q) !== -1 || underMatchingGroup(row, q);
+          show(row, hit);
+          if (hit) hits += 1;
+        });
+        groups.forEach(function (group) {
+          var kept = rows.some(function (row) {
+            return group.contains(row) && row.style.display !== 'none';
+          });
+          show(group, kept);
+          // Open every surviving group: a match hidden inside a shut group is
+          // a filter that found nothing as far as the teacher can tell.
+          if (kept) group.open = true;
+        });
+
+        if (empty) {
+          if (term) term.textContent = box.value.trim();
+          show(empty, hits === 0);
+        }
+      }
+
+      box.addEventListener('input', apply);
+      box.addEventListener('keydown', function (e) {
+        // The box sits inside the week's form: Enter here means "filter",
+        // never "save the week".
+        if (e.key === 'Enter') { e.preventDefault(); apply(); }
+        if (e.key === 'Escape') { box.value = ''; apply(); }
+      });
+      apply();
+    }
+
+    document.querySelectorAll('[data-topic-tree]').forEach(init);
+  })();
+</script>

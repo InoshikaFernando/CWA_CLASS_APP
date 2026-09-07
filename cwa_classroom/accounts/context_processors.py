@@ -95,6 +95,14 @@ def user_role(request):
             student=user, is_active=True,
         ).exists()
 
+    # Period progress reports are opt-in per school/department/class, so the
+    # "My Reports" link only appears once there is something behind it — either
+    # a report already generated, or a class configured to generate one. A
+    # permanent link to an empty page reads as a broken feature.
+    if active_role in (Role.STUDENT, Role.INDIVIDUAL_STUDENT, Role.PARENT):
+        from progress.visibility import has_reports_for_sidebar
+        ctx['show_period_reports'] = has_reports_for_sidebar(user, active_role)
+
     # Trial / promo info for all students (sidebar banner)
     trial_info = {'is_trialing': False, 'is_promo': False, 'days_remaining': 0}
     if active_role in (Role.STUDENT, Role.INDIVIDUAL_STUDENT):

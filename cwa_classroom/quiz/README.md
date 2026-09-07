@@ -22,6 +22,33 @@ Three URL modules, included from the root urlconf at three different mount point
 | `quiz.subject_urls` | `/` | `/<subject>/level/<n>/topic/<id>/quiz/` and similar |
 | `quiz.api_urls` | `/api/v1/` and `/api/` | JSON quiz API (legacy alias kept) |
 
+## Grading typed answers
+
+Multiple-choice questions post an `Answer` id; everything typed is graded by
+`_grade_short_answer` (`quiz/views.py`), which mirrors
+`maths.Question.grade_text_answer`:
+
+- **Every** ticked answer row is an accepted alternative — not just the first.
+- Matching is case-, space-, exponent- and inequality-insensitive, so the maths
+  keypad buttons work wherever a student types.
+- There is no multi-select question type: a "which of these are correct?"
+  question is authored as a typed answer listing the option labels (`"D and E"`),
+  so those are compared as a **set** — `"E,D"` and `"E D"` are the same answer.
+  The set rule is bounded to lists of single letters, so an ordered answer
+  ("write these in order: 3, 5, 7") stays order-sensitive.
+- A numeric answer also grades within `ANSWER_NUMERIC_TOLERANCE`.
+- A question the student **invents the answer to** — "Create your own
+  subtraction number pattern of six numbers" — is tagged
+  `answer_format='pattern'` and graded by `maths.pattern_grading` against what
+  the question asked for (same step each time, right operation, right count),
+  because there is no answer to store and match. Such a question has no
+  correct `Answer` row at all, and an untagged one scores **every** student
+  zero — so a typed question that reaches the grader with nothing to match
+  against is logged as a content defect rather than failing quietly.
+  `manage.py set_pattern_answer_format` finds and tags them;
+  `manage.py verify_quiz_grading` checks them by submitting a model pattern
+  built from the question's own wording.
+
 ## Integration
 
 In `settings.py`:

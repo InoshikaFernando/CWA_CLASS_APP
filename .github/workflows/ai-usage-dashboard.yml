@@ -19,12 +19,23 @@ name: AI Usage Dashboard
 #   AI_USAGE_WINDOW_DAYS           — default 30
 #
 # Each env's section is also refreshed live after every AI call (record_ai_usage);
-# this hourly run is the backstop that corrects drift / covers idle windows. An env
+# this 6-hourly run is the backstop that corrects drift / covers idle windows. An env
 # with AI_DASHBOARD_* unconfigured simply no-ops.
 
 on:
   schedule:
-    - cron: "23 * * * *"     # hourly, at :23 past (off the top-of-hour rush)
+    # Every 6 hours, at :23 past (off the top-of-hour rush).
+    #
+    # This ran hourly and it was the single most frequent job in the repo:
+    # ~20 runs a day, each ~22s of work billed as a whole minute, so ~600
+    # Actions minutes a month — about six full CI matrices — to refresh a
+    # dashboard. It is only a BACKSTOP: every env already rewrites its own
+    # section after each AI call (record_ai_usage), so all the schedule
+    # actually covers is drift and windows where nothing ran at all. Six
+    # hours is well inside the 30-day window the numbers are reported over.
+    #
+    # workflow_dispatch is still there for an immediate refresh.
+    - cron: "23 */6 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -35,10 +46,23 @@ permissions:
   issues: write
   contents: read
 
+# A deploy step is silent for minutes at a time (migrate, collectstatic), and a
+# GitHub runner's NAT drops a TCP flow that carries no bytes for four minutes —
+# which killed every run of the weekly audit. Here it would abandon a deploy
+# mid-migration and report it as failed. SSH_OPTS keeps the connection warm.
+env:
+  SSH_OPTS: >-
+    -o IdentitiesOnly=yes
+    -o BatchMode=yes
+    -o ConnectTimeout=30
+    -o ServerAliveInterval=30
+    -o ServerAliveCountMax=10
+
 jobs:
   dashboard:
     name: AI usage → pinned issue
     runs-on: ubuntu-latest
+    timeout-minutes: 15   # ~25s
     steps:
       - name: Check deploy secrets
         id: gate
@@ -84,7 +108,7 @@ jobs:
             echo "::group::Refresh ${NAME} (${DIR})"
             local PY="from taskqueue.dashboard import update_dashboard_issue; print(update_dashboard_issue(days=${WINDOW_DAYS}))"
             local REMOTE="set -a; . '${ENVF}'; set +a; '${DIR}/venv/bin/python' '${DIR}/cwa_classroom/manage.py' shell -c '${PY}'"
-            ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "${SSH_USER:-cwa}@${HOST}" "$REMOTE" \
+            ssh $SSH_OPTS -i ~/.ssh/deploy_key "${SSH_USER:-cwa}@${HOST}" "$REMOTE" \
               || echo "::warning::${NAME} dashboard refresh failed (non-fatal)"
             echo "::endgroup::"
           }

@@ -12,11 +12,16 @@ import pytest
 from maths.algebra_grading import (
     MathAnswerError,
     _collect,
+    _is_simple_expression,
     _parse_term,
     _split_terms,
+    fold_degrees,
+    fold_division,
     fold_exponents,
     fold_inequalities,
     is_algebraic_answer_correct,
+    is_equation_answer_correct,
+    is_reordered_expression_correct,
     normalize_notation,
 )
 
@@ -247,3 +252,181 @@ class TestFoldInequalities:
     def test_plain_values_unaffected(self):
         assert fold_inequalities("8") == "8"
         assert fold_inequalities("2x + 3") == "2x + 3"
+
+
+# --------------------------------------------------------------------------- #
+# fold_degrees — degree-insensitive matching so an angle answer grades the same
+# with or without the ° the keypad button inserts (50 == 50°).
+# --------------------------------------------------------------------------- #
+class TestFoldDegrees:
+    def test_with_and_without_degree_sign_collapse_equal(self):
+        forms = ["50°", "50"]
+        folded = {fold_exponents(fold_inequalities(fold_degrees(f))) for f in forms}
+        assert folded == {"50"}
+
+    def test_degree_sign_stripped(self):
+        assert fold_degrees("50°") == "50"
+        assert fold_degrees("90° ") == "90 "
+
+    def test_plain_values_unaffected(self):
+        assert fold_degrees("8") == "8"
+        assert fold_degrees("2x + 3") == "2x + 3"
+
+
+# --------------------------------------------------------------------------- #
+# The term-order fallback used by plain-text ('text') answers.
+# --------------------------------------------------------------------------- #
+class TestReorderedExpression:
+    """A written expression must grade the same whichever order its terms are in.
+
+    "The cost is $110 room hire plus $12 per person — write an expression for
+    p people" is an ordinary typed question, so it was graded by literal match
+    and "110 + 12p" came back WRONG against the stored "12p + 110".
+    """
+
+    @pytest.mark.parametrize("typed", [
+        "110+12p",
+        "110 + 12p",
+        "12p + 110",
+        "12p+110",
+        "110+12*p",
+    ])
+    def test_either_term_order_is_accepted(self, typed):
+        assert is_reordered_expression_correct(typed, "12p + 110") is True
+
+    @pytest.mark.parametrize("typed", [
+        "110 + 11p",     # wrong coefficient
+        "12p - 110",     # wrong sign
+        "12p + 100",     # wrong constant
+        "110 + 12",      # variable dropped
+        "12q + 110",     # wrong variable
+        "110 + 12p + 1",  # extra term
+    ])
+    def test_a_different_expression_is_still_wrong(self, typed):
+        assert is_reordered_expression_correct(typed, "12p + 110") is False
+
+    def test_unsimplified_work_is_still_wrong(self):
+        # The fallback forgives term ORDER only — it never marks work the
+        # student was asked to finish as correct.
+        assert is_reordered_expression_correct("6p + 6p + 110", "12p + 110") is False
+        assert is_reordered_expression_correct("2(6p + 55)", "12p + 110") is False
+
+    @pytest.mark.parametrize("typed,correct", [
+        ("felt", "left"),          # same letters, different word
+        ("was", "saw"),
+        ("fifty-three", "three-fifty"),
+        ("63, 54", "54, 63"),      # "write these in order" stays ordered
+        ("1/4 2", "2 1/4"),
+    ])
+    def test_word_and_ordered_answers_are_not_reordered(self, typed, correct):
+        # The polynomial parser reads a run of letters as a product of
+        # single-letter variables, so the guard must keep worded answers out.
+        assert is_reordered_expression_correct(typed, correct) is False
+
+    @pytest.mark.parametrize("typed,correct", [
+        ("12-3p", "-3p+12"),        # constant first
+        ("-3p+12", "12-3p"),        # negative term first
+        ("12 - 3p", "-3p + 12"),
+        ("-x+5", "5-x"),
+        ("-15-7x+2x^2", "2x^2-7x-15"),
+    ])
+    def test_a_negative_term_may_lead_either_side(self, typed, correct):
+        # The sign travels with its term, so subtraction reorders too.
+        assert is_reordered_expression_correct(typed, correct) is True
+
+    @pytest.mark.parametrize("typed", ["3p+12", "12+3p", "-12-3p", "3p-12"])
+    def test_moving_a_sign_is_a_different_expression(self, typed):
+        assert is_reordered_expression_correct(typed, "12-3p") is False
+
+    def test_alternatives_are_each_tried(self):
+        assert is_reordered_expression_correct("110 + 12p", "12p + 110|110 + 12p") is True
+
+    @pytest.mark.parametrize("typed", [
+        "-(3p - 12)",   # negated bracket
+        "3(4 - p)",     # common factor taken out
+        "-3(p - 4)",
+    ])
+    def test_a_bracketed_equivalent_is_not_accepted(self, typed):
+        # The line the fallback must not cross: these are the SAME value as
+        # "12 - 3p", but the student was asked to expand. Term order is
+        # forgiven; unfinished work is not. A question that should accept
+        # these belongs on answer_format='equation' (is_equation_answer_correct),
+        # which grades by algebraic equivalence — not on the text path.
+        assert is_reordered_expression_correct(typed, "12 - 3p") is False
+        assert is_algebraic_answer_correct(typed, "12 - 3p") is False
+
+    @pytest.mark.parametrize("typed", ["-(3x - 12)", "3(4 - x)", "-3(x - 4)"])
+    def test_equation_format_is_where_bracketed_forms_belong(self, typed):
+        # The counterpart to the test above: the same spellings the text and
+        # algebra paths reject ARE accepted by the equivalence grader.
+        assert is_equation_answer_correct(typed, "12 - 3x") is True
+
+    @pytest.mark.parametrize("text,expected", [
+        ("12p + 110", True),
+        ("2x^2 - 7x - 15", True),
+        ("x + y", True),
+        ("12p", False),          # one term: nothing to reorder
+        ("felt", False),         # word
+        ("3(x + 2)", False),     # brackets
+        ("", False),
+    ])
+    def test_simple_expression_guard(self, text, expected):
+        assert _is_simple_expression(text) is expected
+
+
+# --------------------------------------------------------------------------- #
+# fold_division — "n ÷ 4" and "n/4" are the same answer written two ways, so a
+# stored answer in either spelling must accept the other.
+# --------------------------------------------------------------------------- #
+class TestFoldDivision:
+    def test_division_spellings_collapse_equal(self):
+        forms = ["n ÷ 4", "n/4", "n ∕ 4", "n ⁄ 4", "n／4"]
+        folded = {fold_exponents(fold_inequalities(fold_division(f))) for f in forms}
+        assert folded == {"n/4"}
+
+    def test_division_sign_folded_to_slash(self):
+        assert fold_division("n ÷ 4") == "n / 4"
+        assert fold_division("12 ÷ 3 = 4") == "12 / 3 = 4"
+
+    def test_operand_order_still_matters(self):
+        # n ÷ 4 is not 4 ÷ n — folding the operator must not make the two equal.
+        assert fold_division("n ÷ 4") != fold_division("4 ÷ n")
+
+    def test_plain_values_unaffected(self):
+        assert fold_division("8") == "8"
+        assert fold_division("2x + 3") == "2x + 3"
+
+
+# --------------------------------------------------------------------------- #
+# Division inside an algebra answer: a quotient is a legitimate simplified term
+# ("a number divided by 4" is n/4), and the ÷ button must work there too.
+# --------------------------------------------------------------------------- #
+class TestQuotientTerms:
+    @pytest.mark.parametrize("answer", ["n/4", "n ÷ 4", "n/4 ", "N/4", "0.25n", "1/4n"])
+    def test_accepts_every_spelling_of_a_quarter_of_n(self, answer):
+        assert is_algebraic_answer_correct(answer, "n ÷ 4") is True
+
+    @pytest.mark.parametrize("answer", ["4/n", "4 ÷ n", "n/5", "n", "n*4"])
+    def test_rejects_a_different_expression(self, answer):
+        assert is_algebraic_answer_correct(answer, "n ÷ 4") is False
+
+    def test_parses_quotient_term_as_a_fractional_coefficient(self):
+        assert _parse_term("n/4") == (Fraction(1, 4), (("n", 1),))
+        assert _parse_term("-2x/3") == (Fraction(-2, 3), (("x", 1),))
+        assert _parse_term("x^2/2") == (Fraction(1, 2), (("x", 2),))
+
+    def test_division_by_zero_is_a_wrong_answer_not_a_crash(self):
+        with pytest.raises(MathAnswerError):
+            _parse_term("n/0")
+        assert is_algebraic_answer_correct("n/0", "n ÷ 4") is False
+
+    def test_plain_fraction_coefficients_still_parse(self):
+        # The new trailing-divisor group must not steal "3/4" from the
+        # coefficient token.
+        assert _parse_term("3/4") == (Fraction(3, 4), ())
+        assert _parse_term("3/4x") == (Fraction(3, 4), (("x", 1),))
+
+    def test_like_quotient_terms_must_still_be_combined(self):
+        # Strictness is unchanged: two x terms written as quotients is still
+        # an un-simplified answer.
+        assert is_algebraic_answer_correct("x/2 + x/2", "x") is False

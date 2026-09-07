@@ -1,0 +1,26 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "strings",
+  "level": "beginner",
+  "exercises": [
+    {
+      "title": "String Length",
+      "question_type": "write_code",
+      "instructions": "Given text = \"Hello World\", print the length of the string.",
+      "starter_code": "let text = \"Hello World\";\n\n// Print the length\n",
+      "expected_output": "11",
+      "hints": "Use .length",
+      "display_order": 1
+    },
+    {
+      "title": "String Uppercase and Lowercase",
+      "question_type": "write_code",
+      "instructions": "Given word = \"JavaScript\", print it in uppercase and lowercase.",
+      "starter_code": "let word = \"JavaScript\";\n\n// Print uppercase and lowercase\n",
+      "expected_output": "JAVASCRIPT\njavascript",
+      "hints": "Use .toUpperCase() and .toLowerCase() methods.",
+      "display_order": 2
+    }
+  ]
+}

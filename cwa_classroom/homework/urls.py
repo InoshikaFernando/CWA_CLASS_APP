@@ -1,5 +1,6 @@
 from django.urls import path
-from . import views
+
+from . import views, views_schedule
 
 app_name = 'homework'
 
@@ -14,12 +15,39 @@ urlpatterns = [
     path('homework/<int:homework_id>/publish/', views.HomeworkPublishView.as_view(), name='publish'),
     path('homework/<int:homework_id>/assign/', views.HomeworkAssignToClassView.as_view(), name='assign_to_class'),
 
+    # Teacher: question automation schedule (CPP-399)
+    path('homework/class/<int:classroom_id>/schedules/',
+         views_schedule.ClassScheduleListView.as_view(), name='schedule_list'),
+    path('homework/class/<int:classroom_id>/schedules/create/',
+         views_schedule.ScheduleCreateView.as_view(), name='schedule_create'),
+    path('homework/schedule/<int:schedule_id>/',
+         views_schedule.ScheduleDetailView.as_view(), name='schedule_detail'),
+    path('homework/schedule/<int:schedule_id>/edit/',
+         views_schedule.ScheduleEditView.as_view(), name='schedule_edit'),
+    path('homework/schedule/<int:schedule_id>/toggle/',
+         views_schedule.ScheduleToggleView.as_view(), name='schedule_toggle'),
+    path('homework/schedule/<int:schedule_id>/delete/',
+         views_schedule.ScheduleDeleteView.as_view(), name='schedule_delete'),
+    path('homework/schedule/<int:schedule_id>/copy/',
+         views_schedule.ScheduleCopyView.as_view(), name='schedule_copy'),
+    path('homework/schedule/<int:schedule_id>/week/<int:week_id>/save/',
+         views_schedule.ScheduleWeekSaveView.as_view(), name='schedule_week_save'),
+    path('homework/schedule/<int:schedule_id>/week/<int:week_id>/generate/',
+         views_schedule.ScheduleWeekGenerateView.as_view(), name='schedule_week_generate'),
+
     # Teacher: PDF upload flow
     path('homework/pdf/upload/', views.HomeworkPDFUploadView.as_view(), name='pdf_upload'),
     path('homework/pdf/processing/<int:session_id>/', views.HomeworkPDFProcessingView.as_view(), name='pdf_processing'),
     path('homework/pdf/status/<int:session_id>/', views.HomeworkPDFStatusView.as_view(), name='pdf_status'),
     path('homework/pdf/preview/<int:session_id>/', views.HomeworkPDFPreviewView.as_view(), name='pdf_preview'),
+    path('homework/pdf/preview/<int:session_id>/page-image/', views.HomeworkPDFPageImageView.as_view(), name='pdf_page_image'),
+    path('homework/pdf/preview/<int:session_id>/recrop/', views.HomeworkPDFRecropView.as_view(), name='pdf_recrop'),
+    path('homework/pdf/preview/<int:session_id>/reuse-image/', views.HomeworkPDFReuseImageView.as_view(), name='pdf_reuse_image'),
+    path('homework/pdf/preview/<int:session_id>/question-preview/',
+         views.HomeworkPDFQuestionPreviewView.as_view(), name='pdf_question_preview'),
     path('homework/pdf/confirm/<int:session_id>/', views.HomeworkPDFConfirmView.as_view(), name='pdf_confirm'),
+    # Teacher: authored JSON/ZIP upload (skips AI extraction + preview)
+    path('homework/json/confirm/<int:session_id>/', views.HomeworkJSONConfirmView.as_view(), name='json_confirm'),
 
     # Teacher: grading review
     path('homework/review/', views.HomeworkPendingReviewView.as_view(), name='pending_review'),

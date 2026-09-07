@@ -126,7 +126,8 @@ class ProgressSummaryTest(_BaseAttendanceProgressTest):
         self.assertEqual(tt['table'], 7)
         self.assertEqual(tt['multiplication_pct'], 80)
         self.assertIsNone(tt['division_pct'])
-        self.assertEqual(s['basic_facts'][0], {'subtopic': 'Addition', 'best_pct': 100})
+        self.assertEqual(s['basic_facts'][0],
+                         {'subtopic': 'Addition', 'level': 1, 'best_pct': 100})
 
     # ----- Coding + orchestrator ------------------------------------------
 

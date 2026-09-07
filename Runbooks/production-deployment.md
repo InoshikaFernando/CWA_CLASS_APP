@@ -8,8 +8,11 @@ password reset, log access). The supporting scripts live in
 ## TL;DR
 
 - **Test site:** every merge to `test` auto-deploys (`deploy-test.yml`).
-- **Production:** scheduled weekly release, Sunday ~03:00 NZ, of `main`
-  (`deploy-prod.yml`); also runnable manually. See § 2 for the full model.
+- **Production:** every push to `main` auto-deploys (`deploy-prod.yml`) — in
+  practice, merging the weekly release PR. Also runnable on demand via
+  `workflow_dispatch`. See § 2 for the full model.
+  (There is no cron for this: the release *cadence* is weekly by convention,
+  but the *trigger* is the push to `main`, not a schedule.)
 
 Both run the same script the manual path does:
 
@@ -262,15 +265,45 @@ The script path still works by hand exactly as before — bump the version
 (§ 2.1) and run the script on the server (§ 2.2). The automated workflows run
 those same steps for you.
 
-### 2.1 Bump the version (optional but recommended)
+### 2.1 Bump the version — on the FEATURE BRANCH, before the merge
 
-`APP_VERSION` in `settings.py` is what `/api/health/` reports — bump it so you
-can confirm the new build is live:
+`APP_VERSION` lives in `cwa_classroom/cwa_classroom/version.py` and is what
+`/api/health/` reports — bump it so you can confirm the new build is live.
+Use `scripts/bump_version.py`; do not edit the file by hand and do not move
+the constant back into `settings.py`. Every file in that package is watched
+by ci.yml's `shared` filter — the one that runs every suite in the repo — so
+a version line there made every PR a full-matrix run.
+
+**Bump before the PR merges, never on `test` afterwards.** A push to `test`
+runs the full CI matrix (~29 jobs, ~119 billed Actions minutes; path filters
+are ignored there on purpose). Bumping on `test` after a merge buys a second
+full matrix per release, and that second push cancels the first mid-flight, so
+~25 already-running jobs are paid for and thrown away. Three of those in one
+evening exhausted the Actions spending limit on 2026-08-24 and stopped every
+workflow in the repo — the production deploy included.
 
 ```bash
+git checkout <your-feature-branch>
 python scripts/bump_version.py patch   # or minor / major
-git commit -am "Release vX.Y.Z" && git push origin main
+git commit -am "Release vX.Y.Z" && git push
 ```
+
+Then merge the PR into `test`. That single push carries the version, costs one
+matrix, and is the run the release gate ("Release tree already tested on test")
+looks for when you open the `test` → `main` PR.
+
+**What the `test` → `main` PR runs.** CI looks for a passing push run on `test`
+for that exact commit. If it finds one the tree is already proven, so the
+suites are skipped and "Release tree already tested on test" names the run that
+covered it. If it does **not** — a release PR carrying a commit of its own, or
+one opened before CI on `test` finished — the full matrix runs on the release
+PR instead: every unit suite, the classroom suite and all 15 UI groups, path
+filters ignored. So a release is never promoted on a tree nothing has tested,
+and the ordinary release still costs nothing.
+
+`bump_version.py` refuses to run on `test` or `main` for this reason. A hotfix
+going straight out can override with `--allow-protected`, accepting the second
+matrix.
 
 ### 2.2 Deploy on the Droplet
 
@@ -345,6 +378,23 @@ bash scripts/deploy.sh    # re-runs migrate/collectstatic/restart against the ol
 | Caddyfile | `/etc/caddy/Caddyfile` |
 | Caddy logs | `/var/log/caddy/access.log` + `journalctl -u caddy` |
 | Error cron check | `scripts/cron_check_errors.sh` |
+| Question-health cron | `scripts/cron_record_question_health.sh` — **must be installed**, or `/admin-dashboard/question-health/` stays empty forever |
+
+#### Daily health checks
+
+Two watchdogs exist because their failure mode is silence, not an error. Both
+are installed by `deploy/setup-app-prod.sh`, both post to Discord, and both are
+also readable on the Ops dashboard (`/admin-dashboard/ops/`) and in
+`/api/health/?deep=1` under `warnings.*` — so a leak is visible without reading
+a chat channel.
+
+| Check | Cron drop-in | Log | Catches |
+|-------|--------------|-----|---------|
+| `check_email_queue_health` | `/etc/cron.d/cwa-email-health` (hourly) | `/var/log/cwa/email_queue_health.log` | the `process_email_queue` drain stopping — invoices read as issued but are never sent |
+| `check_unpaid_access` | `/etc/cron.d/cwa-unpaid-access` (daily 09:00) | `/var/log/cwa/unpaid_access.log` | a delinquent subscription still reaching restricted pages — the paywall letting unpaid accounts through |
+
+Run either by hand with `sudo -u cwa .../manage.py <command>` (§ 4.5); each
+exits non-zero when it finds something, which is the alert condition.
 
 ### 4.2 Restart / reload
 

@@ -1,7 +1,18 @@
 {% comment %}
 CPP-277: short_answer partial — multi-line textarea.
+
+A "create your own number pattern" question takes the shared pattern boxes
+instead: one per number the question asks for, one for the rule, composed into
+text_answer as the single line maths.pattern_grading.grade_pattern reads. It is
+the same line a student would have typed into the textarea, so nothing about
+grading or the review pages changes — the question just stops making them guess
+the shape of the answer.
+
 Context: question
 {% endcomment %}
+{% if question.pattern_field_data %}
+{% include "maths/partials/_pattern_tool.html" with q=question field_name='text_answer' %}
+{% else %}
 <div>
   <textarea name="text_answer" required rows="3"
             placeholder="Write your answer here…"
@@ -9,3 +20,4 @@ Context: question
                    focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent
                    transition resize-y"></textarea>
 </div>
+{% endif %}

@@ -33,7 +33,75 @@ bulk-fill script: [`Runbooks/jira-story-points.md`](Runbooks/jira-story-points.m
 - `manage.py` lives at `cwa_classroom/manage.py`; run Django commands from there.
 - Per-app test suites (`cwa_classroom/<app>/tests/`); CI runs one job per app
   (`.github/workflows/ci.yml`). Tests use SQLite via `DB_ENGINE=sqlite`.
+- Every CI job points at an app directory (`pytest billing/`), never a
+  hand-written file list — `pytest.ini` widens `python_files` so `tests.py` and
+  `tests_*.py` are collected. `tests_workflows.py` fails the build if any test
+  file ends up in no job, i.e. never runs anywhere.
+- Playwright UI tests are split by app area into `cwa_classroom/ui_tests/<group>/`
+  and CI runs only the groups a change touches — on pull requests **and on the
+  merge to `test`** — where a group's filter watches every app its tests drive,
+  not just its namesake. A `ui_core`/`shared` change still runs every group. So
+  **a group's path filter is the only thing that makes its tests run**: get it
+  wrong and they go quiet rather than red. The unit suites are NOT filtered on a
+  push — the merge to `test` runs all of them, and that is what catches one app
+  breaking another. A new UI test goes **inside** a group package — one left at
+  the `ui_tests/` root belongs to no CI job and would never run
+  (`tests_workflows.py` fails the build if that happens). See
+  [`cwa_classroom/ui_tests/README.md`](cwa_classroom/ui_tests/README.md).
 - Branch discipline: develop on a feature branch; `test` deploys to the test
   site, `main` deploys to production. Open a PR; never push to `main` directly.
+- **Bump `APP_VERSION` on the feature branch, before the PR merges — never on
+  `test` afterwards.** A push to `test` can run the full CI matrix (~65 billed
+  Actions minutes), so a later bump buys a second one AND cancels the first
+  mid-flight. `scripts/bump_version.py` refuses to run on `test`/`main`
+  (`--allow-protected` for a hotfix). This exhausted the Actions spending limit
+  once, which stopped the production deploy:
+  [`Runbooks/production-deployment.md`](Runbooks/production-deployment.md) § 2.1.
+- **The version constant lives in `cwa_classroom/cwa_classroom/version.py`, on
+  its own, and must stay there.** Every other file in that package is watched by
+  ci.yml's `shared` filter — the escape hatch that runs all 20 unit suites, the
+  classroom suite and all 15 UI groups. Because every PR bumps the version, a
+  version line in `settings.py` meant every PR ran the full matrix and the path
+  filtering never narrowed anything. `shared` therefore lists the package file
+  by file; `tests_workflows.py` fails the build if a new module there goes
+  unwatched, or if the version drifts back into `settings.py`.
 - No silent failure — surface errors (blank data, swallowed 4xx, no-op commands)
   rather than hiding them.
+
+## Hosting & deployment
+
+**Both sites run on DigitalOcean Droplets — NOT PythonAnywhere.** The app was
+migrated off PythonAnywhere (see `scripts/migrate_db_pa_to_do.sh`); any
+PythonAnywhere instruction you find in a skill, runbook, or older ticket is
+stale. The stack is Caddy (TLS) → gunicorn → Django, with DigitalOcean Managed
+MySQL, Redis, and Spaces for media. Full details:
+[`Runbooks/production-deployment.md`](Runbooks/production-deployment.md).
+
+**Deploys are automatic — do not hand anyone a manual server checklist.**
+
+| Push to | Workflow | Result |
+|---------|----------|--------|
+| `test`  | `.github/workflows/deploy-test.yml` | deploys the test site |
+| `main`  | `.github/workflows/deploy-prod.yml` | deploys production |
+
+Merging the release PR **is** the deploy: the workflow SSHes to the droplet and
+runs `scripts/deploy.sh` (reset to origin → deps → `migrate` → `collectstatic`
+→ `check --deploy` → restart gunicorn → deep health gate → restart RQ worker),
+then a public smoke test. Both workflows also accept `workflow_dispatch` for a
+manual re-deploy. If `DEPLOY_HOST` is unset the deploy no-ops rather than
+half-deploying.
+
+So after merging to `main`, the job is to **verify the deploy run went green**,
+not to tell anyone to pull and migrate by hand:
+
+```bash
+curl -s https://www.wizardslearninghub.co.nz/api/health/          # version + liveness
+curl -s "https://www.wizardslearninghub.co.nz/api/health/?deep=1" # DB + migrations + cache
+```
+
+`version` in the response should equal the `APP_VERSION` just shipped. Note the
+sandbox's egress proxy blocks this host, so check the workflow run instead when
+curl returns a 403 CONNECT.
+
+Tagging releases needs a human: this environment's GitHub credentials can push
+branches but get **403 on tag refs**.

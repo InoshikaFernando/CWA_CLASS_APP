@@ -9,6 +9,8 @@ No silent failures: every non-2xx / exception path is logged (warning when the
 integration is simply unconfigured, error when a configured call fails).
 """
 import logging
+import mimetypes
+import os
 
 import requests
 from django.conf import settings
@@ -132,6 +134,18 @@ def report_feedback_bug(feedback):
         f'Page: {feedback.page_url or "(none)"}'
     )
 
+    # A report raised from a question card names the question (CPP-398). The
+    # ticket that prompted this — "the answer in a quality answer was 23 or 23
+    # pencils but why" against a topic quiz serving dozens of questions — could
+    # not be traced to one without it, so the complaint was unactionable.
+    report = feedback.question_reports.select_related('question').first()
+    if report is not None and report.question_id:
+        question = report.question
+        description += (
+            f'\nQuestion: #{question.id} — '
+            f'{(question.question_text or "")[:200]}'
+        )
+
     key = create_jira_bug(
         summary=summary,
         description=description,
@@ -141,11 +155,37 @@ def report_feedback_bug(feedback):
     if key:
         feedback.jira_key = key
         feedback.save(update_fields=['jira_key', 'updated_at'])
+        attach_feedback_images(feedback, key)
         base_url = (settings.JIRA_BASE_URL or '').rstrip('/')
         link = f'{base_url}/browse/{key}' if base_url else key
     else:
         link = '(Jira not configured)'
 
+    shots = feedback.images.count()
+    suffix = f' ({shots} screenshot{"s" if shots != 1 else ""})' if shots else ''
     post_discord(
-        f'\U0001f41e New bug from feedback: {title} — {link} — by {reporter}'
+        f'\U0001f41e New bug from feedback: {title} — {link} — by {reporter}{suffix}'
     )
+
+
+def attach_feedback_images(feedback, issue_key):
+    """Push each of ``feedback``'s screenshots onto the Jira issue.
+
+    Best-effort and isolated: a storage read or upload failure on one image is
+    logged and skipped so it can't lose the others or crash the worker. The
+    stored image already survives in our own media (Spaces), so a failed Jira
+    push degrades traceability, not the record.
+    """
+    for img in feedback.images.all():
+        try:
+            with img.image.open('rb') as fh:
+                content = fh.read()
+            filename = os.path.basename(img.image.name) or f'screenshot-{img.pk}.png'
+            content_type = mimetypes.guess_type(filename)[0] or 'image/png'
+            jira_client.upload_attachment(
+                issue_key, filename, content, content_type=content_type,
+            )
+        except Exception:
+            logger.exception(
+                'Could not attach feedback image %s to Jira %s', img.pk, issue_key,
+            )

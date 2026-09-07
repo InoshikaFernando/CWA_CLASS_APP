@@ -20,10 +20,22 @@ Receives ``ctx`` with keys: ans (HomeworkStudentAnswer), exercise (CodingExercis
       {% if ex %}{{ ex.title }}{% else %}(deleted exercise){% endif %}
     </p>
     {% if ex %}
-      <p class="text-xs text-gray-500 mb-2 whitespace-pre-line">{{ ex.description|truncatechars:200 }}</p>
+      <p class="text-xs text-gray-500 mb-2 whitespace-pre-wrap">{{ ex.description|truncatechars:200 }}</p>
     {% endif %}
 
-    {% if ans.answer_data.code %}
+    {% if ans.answer_data.question_type %}
+    {# Quiz-type coding answer (MCQ / TF / short-answer / fill-blank) #}
+    <p class="text-xs text-gray-600 mb-1">
+      Your answer:
+      <span class="font-medium {% if ans.is_correct %}text-green-700{% else %}text-red-600{% endif %}">
+        {% firstof ans.answer_data.selected_text ans.answer_data.submitted ans.text_answer "(no answer)" %}
+      </span>
+    </p>
+    {% if not ans.is_correct and ans.answer_data.correct_text %}
+    <p class="text-xs text-green-700">Correct answer: <span class="font-medium">{{ ans.answer_data.correct_text }}</span></p>
+    {% endif %}
+
+    {% elif ans.answer_data.code %}
     <details class="mb-2">
       <summary class="text-xs text-blue-600 cursor-pointer hover:underline">Show your code</summary>
       <pre class="font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg p-2 mt-1 overflow-x-auto">{{ ans.answer_data.code }}</pre>

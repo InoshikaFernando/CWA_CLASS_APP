@@ -1,0 +1,11 @@
+Hi,
+
+{{ student_name }}'s account is paused: a subscription payment{% if since %} on {{ since|date:"j F" }}{% endif %} did not go through, so lessons and homework are locked.
+
+To restore access, sign in to {{ first_name }}'s own account (not a parent account) and you'll land on the payment page:
+
+{{ site_url }}
+
+Already sorted, or would rather not continue? Just reply.
+
+— The {{ site_name }} Team

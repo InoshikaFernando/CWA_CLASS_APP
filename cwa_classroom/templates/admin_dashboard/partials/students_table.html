@@ -8,7 +8,7 @@
   {% for col, label in sort_columns %}
     {% with is_asc=order_by|stringformat:"s" %}
     <button type="button"
-            hx-get="{% url 'admin_school_students' school.id %}?order_by={% if is_asc == col %}-{{ col }}{% else %}{{ col }}{% endif %}{% if show_inactive %}&amp;show_inactive=1{% endif %}"
+            hx-get="{% url 'admin_school_students' school.id %}?order_by={% if is_asc == col %}-{{ col }}{% else %}{{ col }}{% endif %}{% if show_inactive %}&amp;show_inactive=1{% endif %}{% if subscribed_only %}&amp;subscribed=1{% endif %}"
             hx-target="#students-panel" hx-swap="innerHTML"
             hx-include="input[name='q']"
             hx-push-url="true"
@@ -135,6 +135,16 @@
             </div>
             <div class="mt-3 ml-13 flex items-center gap-3">
               {% if ss.is_active %}
+              {% if request.user.is_superuser %}
+              <a href="{% url 'impersonation_start' ss.student.id %}"
+                 class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-accent hover:bg-accent-light rounded-lg transition border border-accent/40">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+                </svg>
+                View as
+              </a>
+              {% endif %}
               <button type="button"
                       @click.stop="openEditModal('{% url 'admin_user_password_reset_modal' school.id ss.student.id %}')"
                       class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-600 hover:bg-amber-50 rounded-lg transition border border-amber-200">
@@ -184,7 +194,19 @@
         </div>
       {% empty %}
         <div class="px-6 py-12 text-center text-gray-400">
-          {% if q %}No students matching "{{ q }}".{% else %}No students found.{% endif %}
+          {% comment %}
+            Name the filter that emptied the list. "No students found" under an
+            active Subscribed-only chip reads as "this school has no students".
+          {% endcomment %}
+          {% if q and subscribed_only %}
+            No subscribed students matching "{{ q }}".
+          {% elif q %}
+            No students matching "{{ q }}".
+          {% elif subscribed_only %}
+            No students with an active or trialing subscription.
+          {% else %}
+            No students found.
+          {% endif %}
         </div>
       {% endfor %}
     </div>

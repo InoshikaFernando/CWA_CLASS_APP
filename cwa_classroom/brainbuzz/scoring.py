@@ -82,7 +82,9 @@ def normalize_short_answer(text: str) -> str:
        and the quiz views, so a student can use the x² button anywhere.
        (fold_exponents also lowercases and strips ALL whitespace, so
        "py thon" == "python".)
-    2. Remove commas (digit-grouping or list commas are insignificant, so
+    2. Fold every division sign onto "/" so a quotient answer matches however
+       it is written — "n ÷ 4" == "n/4".
+    3. Remove commas (digit-grouping or list commas are insignificant, so
        "1,000" == "1000" and "red,green" == "red green").
 
     Args:
@@ -106,12 +108,18 @@ def normalize_short_answer(text: str) -> str:
 
         >>> normalize_short_answer("3 × 10²") == normalize_short_answer("3 × 10^2")
         True
+
+        >>> normalize_short_answer("n ÷ 4") == normalize_short_answer("n/4")
+        True
     """
     # Lazy import keeps scoring.py importable without the maths app loaded.
-    from maths.algebra_grading import fold_exponents, fold_inequalities
+    from maths.algebra_grading import (
+        fold_division, fold_exponents, fold_inequalities,
+    )
 
-    # Fold inequalities then exponents (lowercases + strips whitespace).
-    text = fold_exponents(fold_inequalities(text))
+    # Fold division, then inequalities, then exponents (the last lowercases +
+    # strips whitespace).
+    text = fold_exponents(fold_inequalities(fold_division(text)))
 
     # Commas are insignificant (digit-grouping or list commas).
     text = text.replace(',', '')
@@ -163,6 +171,10 @@ def is_short_answer_correct(
     if not user_answer or not correct_answers:
         return False
 
+    # Kept before normalisation strips the separators out: option-label matching
+    # below needs to see the student's "E, D" as two tokens, not "ed".
+    raw_user, raw_correct = user_answer, correct_answers
+
     if answer_format == "algebra":
         # Lazy import keeps scoring.py importable without the maths app loaded.
         from maths.algebra_grading import is_algebraic_answer_correct
@@ -184,7 +196,19 @@ def is_short_answer_correct(
         
         if user_answer == acceptable_answer:
             return True
-    
+
+    # "Select all that apply" answers list the option labels ("D and E"); the
+    # student types the same labels in their own order ("E,D"), so compare them
+    # as a set. option_label_set returns None for anything that isn't a list of
+    # single letters, so ordered answers stay order-sensitive (CPP-374).
+    from maths.algebra_grading import option_label_set
+
+    user_labels = option_label_set(raw_user)
+    if user_labels is not None:
+        for alt in raw_correct.split('|'):
+            if user_labels == option_label_set(alt):
+                return True
+
     return False
 
 

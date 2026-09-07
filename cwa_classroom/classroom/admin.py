@@ -13,7 +13,7 @@ from .models import (
     PaymentReferenceMapping, InvoicePayment, CreditTransaction,
     TeacherHourlyRate, TeacherRateOverride, SalaryNumberSequence,
     SalarySlip, SalarySlipLineItem, SalaryPayment,
-    ParentStudent, ParentInvite, Term,
+    ParentStudent, ParentInvite, Term, Location,
     StudentCard,
 )
 
@@ -83,8 +83,11 @@ class ClassSessionInline(admin.TabularInline):
 
 @admin.register(School)
 class SchoolAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'admin', 'default_currency', 'is_active', 'created_at')
-    list_filter = ('is_active', 'default_currency')
+    list_display = ('name', 'slug', 'admin', 'default_currency', 'is_active',
+                    'free_ai_grading', 'created_at')
+    # Filterable so "which schools am I giving AI grading to for free?" is one
+    # click rather than a query.
+    list_filter = ('is_active', 'free_ai_grading', 'default_currency')
     search_fields = ('name', 'slug')
     prepopulated_fields = {'slug': ('name',)}
     autocomplete_fields = ('default_currency',)
@@ -125,6 +128,14 @@ class TermAdmin(admin.ModelAdmin):
     list_display = ('name', 'school', 'academic_year', 'start_date', 'end_date', 'order')
     list_filter = ('school', 'academic_year')
     ordering = ('school', 'order', 'start_date')
+
+
+@admin.register(Location)
+class LocationAdmin(admin.ModelAdmin):
+    list_display = ('name', 'school', 'is_online', 'is_active', 'created_at')
+    list_filter = ('school', 'is_online', 'is_active')
+    search_fields = ('name', 'address')
+    ordering = ('school', 'name')
 
 
 # ---------------------------------------------------------------------------
@@ -180,13 +191,13 @@ class SubTopicAdmin(admin.ModelAdmin):
 
 @admin.register(ClassRoom)
 class ClassRoomAdmin(admin.ModelAdmin):
-    list_display = ('name', 'code', 'school', 'subject', 'currency_override', 'created_by', 'is_active', 'student_count', 'created_at')
-    list_filter = ('is_active', 'school', 'subject', 'levels', 'currency_override')
+    list_display = ('name', 'code', 'school', 'subject', 'location', 'is_online', 'currency_override', 'created_by', 'is_active', 'student_count', 'created_at')
+    list_filter = ('is_active', 'is_online', 'school', 'subject', 'levels', 'currency_override')
     search_fields = ('name', 'code')
     inlines = [ClassTeacherInline, ClassStudentInline, ClassSessionInline]
     filter_horizontal = ('levels',)
     readonly_fields = ('code',)
-    autocomplete_fields = ('subject', 'currency_override')
+    autocomplete_fields = ('subject', 'currency_override', 'location')
 
     def student_count(self, obj):
         return obj.students.count()

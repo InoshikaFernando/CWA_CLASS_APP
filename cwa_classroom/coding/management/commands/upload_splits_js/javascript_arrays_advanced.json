@@ -1,0 +1,41 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "arrays",
+  "level": "advanced",
+  "exercises": [
+    {
+      "title": "Filter Even Numbers",
+      "question_type": "write_code",
+      "instructions": "Given numbers = [1..10], create a new array containing only even numbers.\nPrint it using JSON.stringify().",
+      "starter_code": "let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];\n\n// Filter even numbers and print with JSON.stringify\n",
+      "expected_output": "[2,4,6,8,10]",
+      "hints": "Use .filter(): numbers.filter(x => x % 2 === 0), then JSON.stringify the result.",
+      "display_order": 1
+    },
+    {
+      "title": "What is the output of [3, 1, 2].sort((a, b) => b - a)?",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 2,
+      "answers": [
+        {
+          "text": "[3, 2, 1]",
+          "is_correct": true
+        },
+        {
+          "text": "[1, 2, 3]",
+          "is_correct": false
+        },
+        {
+          "text": "[2, 1, 3]",
+          "is_correct": false
+        },
+        {
+          "text": "Error",
+          "is_correct": false
+        }
+      ]
+    }
+  ]
+}

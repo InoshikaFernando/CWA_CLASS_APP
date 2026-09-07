@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Avg, Count, F, Q
+from django.db.models import Avg, Count, F, Q, Sum
 from django.http import JsonResponse, HttpResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -51,6 +51,8 @@ from .models import (
 )
 from audit.services import log_event
 from classroom.models import SchoolStudent
+from rewards.models import PointsSource
+from rewards.services import award_points_safe, normalise
 
 from .scoring import calculate_points, is_short_answer_correct
 from .ranking import compute_ranks
@@ -1243,6 +1245,21 @@ def api_submit(request, join_code):
         BrainBuzzParticipant.objects.filter(pk=participant.pk).update(**update_data)
 
     participant.refresh_from_db()
+
+    # Credit the global leaderboard. BrainBuzz scores natively run to
+    # points_base (1000 by default) *per question*, so a session is normalised
+    # against the best score its answered questions could have produced —
+    # otherwise one live quiz would outweigh a whole term of homework.
+    # Anonymous players have no account to credit; award_points ignores them.
+    if participant.student_id:
+        max_possible = BrainBuzzSessionQuestion.objects.filter(
+            answers__participant=participant,
+        ).aggregate(total=Sum('points_base'))['total'] or 0
+        award_points_safe(
+            participant.student, PointsSource.BRAINBUZZ, str(session.id),
+            normalise(participant.score, max_possible),
+            label=f'BrainBuzz — {session.code}',
+        )
 
     # Audit log — only if the participant is a logged-in student (not anonymous)
     if participant.student_id:

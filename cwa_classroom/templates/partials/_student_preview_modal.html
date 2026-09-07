@@ -1,0 +1,277 @@
+{% load static %}
+{% comment %}
+"Preview as student" modal, shared by the homework, worksheet and AI import
+review screens.
+
+Include it once per review page, passing the endpoint that flow exposes:
+
+    {% url 'homework:pdf_question_preview' session.pk as preview_url %}
+    {% include "partials/_student_preview_modal.html" with preview_url=preview_url %}
+
+The buttons that open it are ordinary elements carrying ``data-preview-open``
+(a question index) or ``data-preview-all``; the review template does not need
+any script of its own.
+
+A screen that previews a question which ALREADY exists — the admin question
+editor — has no ``preview_url`` to include with and no ``q_<idx>_`` card. Its
+button names both on itself instead:
+
+    <button type="button" data-preview-open="{{ question.id }}"
+            data-preview-url="{% url 'admin_global_question_preview' question.id %}"
+            data-preview-form="#question-edit-form">
+
+and the whole of that form is posted in place of the card's fields.
+
+The widget scripts below are the same ones the student take page loads. The
+mount registry (maths_mounts.js) picks up anything injected into the page, so
+the number line, table and fill-in-the-blank widgets mount themselves; the
+question types that carry an inline script instead are re-executed by hand in
+runScripts(), because scripts inserted via innerHTML never run on their own.
+{% endcomment %}
+<script defer src="{% static 'js/measure_tool.js' %}"></script>
+<script defer src="{% static 'js/maths_mounts.js' %}"></script>
+<script defer src="{% static 'js/number_line.js' %}"></script>
+<script defer src="{% static 'js/table_of_values.js' %}"></script>
+<script defer src="{% static 'js/sketch_graph.js' %}"></script>
+<script defer src="{% static 'js/fill_blank.js' %}"></script>
+<script defer src="{% static 'js/pattern_fields.js' %}"></script>
+<style>
+  #student-preview .answer-option input[type="radio"]:checked + label {
+    background-color: #dbeafe;
+    border-color: #3b82f6;
+    color: #1d4ed8;
+  }
+</style>
+
+<div id="student-preview" class="fixed inset-0 z-50 hidden" role="dialog" aria-modal="true"
+     aria-labelledby="student-preview-title">
+  <div class="absolute inset-0 bg-gray-900/50" data-preview-close></div>
+  <div class="relative mx-auto my-8 w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl bg-white shadow-xl">
+
+    <div class="sticky top-0 z-10 flex items-center gap-3 border-b border-gray-100 bg-white px-5 py-3">
+      <div class="flex-1">
+        <h2 id="student-preview-title" class="text-sm font-semibold text-gray-800">As a student sees it</h2>
+        <p class="text-xs text-gray-400" data-preview-counter></p>
+      </div>
+      <button type="button" data-preview-step="-1"
+              class="hidden px-2.5 py-1 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50">← Prev</button>
+      <button type="button" data-preview-step="1"
+              class="hidden px-2.5 py-1 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50">Next →</button>
+      <button type="button" data-preview-close aria-label="Close preview"
+              class="text-gray-400 hover:text-gray-600">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div data-preview-body>
+      <p class="p-8 text-center text-sm text-gray-400">Loading…</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var URL_ = "{{ preview_url }}";
+  var modal = document.getElementById("student-preview");
+  if (!modal) return;
+
+  var body = modal.querySelector("[data-preview-body]");
+  var counter = modal.querySelector("[data-preview-counter]");
+  var prevBtn = modal.querySelector('[data-preview-step="-1"]');
+  var nextBtn = modal.querySelector('[data-preview-step="1"]');
+
+  var walk = [];       // question indices being stepped through ("Preview all")
+  var atIndex = 0;     // position within walk
+  var current = null;  // question index on screen
+  var url = URL_;      // endpoint for the open preview; an opener may name its own
+  var formSel = null;  // a form to post whole, instead of one card's fields
+
+  function csrf() {
+    var el = document.querySelector('input[name="csrfmiddlewaretoken"]');
+    return el ? el.value : "";
+  }
+
+  // Every control this question card owns, wherever the review template put it.
+  // Keyed off the shared `q_<idx>_` naming rather than a container id, which is
+  // what lets one modal serve three differently-built review pages.
+  function cardFields(index, data) {
+    // A named form is posted entire — that screen's question is stored already,
+    // so the endpoint reads the editor's own field names rather than a card's.
+    if (formSel) {
+      var form = document.querySelector(formSel);
+      if (form) {
+        new FormData(form).forEach(function (value, name) {
+          if (value instanceof File) return;   // images are read server-side
+          data.append(name, value);
+        });
+      }
+      return data;
+    }
+
+    var prefix = "q_" + index + "_";
+    var controls = document.querySelectorAll("input[name], select[name], textarea[name]");
+    Array.prototype.forEach.call(controls, function (el) {
+      if (el.name.indexOf(prefix) !== 0) return;
+      if (el.type === "file") return;              // the crop/replace image is read server-side
+      if (el.type === "checkbox" || el.type === "radio") {
+        if (el.checked) data.append(el.name, el.value || "on");
+      } else {
+        data.append(el.name, el.value);
+      }
+    });
+    return data;
+  }
+
+  // Inline <script> blocks inserted via innerHTML do not run. The interactive
+  // question types (plane, long division, draw-on-grid, shape select, column
+  // arithmetic) mount from one, so re-create each as a live element. The widgets
+  // that use maths_mounts.js need nothing here — its observer finds them.
+  function runScripts(root) {
+    root.querySelectorAll("script").forEach(function (old) {
+      var fresh = document.createElement("script");
+      if (old.src) { fresh.src = old.src; } else { fresh.textContent = old.textContent; }
+      old.parentNode.replaceChild(fresh, old);
+    });
+  }
+
+  function load(index, extra) {
+    current = index;
+    var data = cardFields(index, new FormData());
+    data.append("preview_index", index);
+    data.append("csrfmiddlewaretoken", csrf());
+    if (extra) {
+      Object.keys(extra).forEach(function (k) { data.append(k, extra[k]); });
+    }
+
+    body.innerHTML = '<p class="p-8 text-center text-sm text-gray-400">Loading…</p>';
+    fetch(url, { method: "POST", body: data, credentials: "same-origin" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.text();
+      })
+      .then(function (html) {
+        body.innerHTML = html;
+        runScripts(body);
+        if (window.MathsMounts) window.MathsMounts.scanAll();
+      })
+      .catch(function (err) {
+        // Say what went wrong rather than leaving a spinner: a preview that
+        // silently never arrives reads as "the question is fine".
+        body.innerHTML =
+          '<p class="p-8 text-center text-sm text-red-600">Could not build the preview (' +
+          String(err.message || err) + '). The question itself has not been changed.</p>';
+      });
+  }
+
+  function showCounter() {
+    if (walk.length > 1) {
+      counter.textContent =
+        "Question " + (walk[atIndex] + 1) + " — " +
+        (atIndex + 1) + " of " + walk.length + " included";
+      prevBtn.classList.toggle("hidden", atIndex === 0);
+      nextBtn.classList.toggle("hidden", atIndex >= walk.length - 1);
+    } else {
+      counter.textContent = "";
+      prevBtn.classList.add("hidden");
+      nextBtn.classList.add("hidden");
+    }
+  }
+
+  function open(indices, startAt) {
+    walk = indices;
+    atIndex = startAt || 0;
+    modal.classList.remove("hidden");
+    document.body.classList.add("overflow-hidden");
+    showCounter();
+    load(walk[atIndex]);
+  }
+
+  function close() {
+    modal.classList.add("hidden");
+    document.body.classList.remove("overflow-hidden");
+    body.innerHTML = "";
+    current = null;
+  }
+
+  // Included questions, in the order the review page shows them.
+  function includedIndices() {
+    var order = document.getElementById("question-order");
+    var indices = order && order.value
+      ? order.value.split(",").filter(function (s) { return s.trim() !== ""; }).map(Number)
+      : null;
+    if (!indices) {
+      indices = [];
+      document.querySelectorAll('input[name^="q_"][name$="_include"]').forEach(function (cb) {
+        indices.push(Number(cb.name.slice(2, -"_include".length)));
+      });
+    }
+    return indices.filter(function (i) {
+      var cb = document.querySelector('input[name="q_' + i + '_include"]');
+      return !cb || cb.checked;
+    });
+  }
+
+  // The trial answer, in whichever shape the grader expects. Every question type
+  // funnels into exactly one `answer_<id>` control, so this stays type-agnostic:
+  // a picked option travels as its position, everything else as its value.
+  function trialAnswer() {
+    var stage = body.querySelector("[data-preview-stage]");
+    if (!stage) return null;
+    if (stage.dataset.answerMode === "choice") {
+      var options = stage.querySelectorAll('input[type="radio"][name^="answer_"]');
+      for (var i = 0; i < options.length; i++) {
+        if (options[i].checked) return { preview_answer_index: i };
+      }
+      return { preview_answer_index: "" };
+    }
+    var field = stage.querySelector('[name^="answer_"]');
+    return { preview_answer: field ? field.value : "" };
+  }
+
+  document.addEventListener("click", function (e) {
+    var openOne = e.target.closest("[data-preview-open]");
+    if (openOne) {
+      e.preventDefault();
+      url = openOne.dataset.previewUrl || URL_;
+      formSel = openOne.dataset.previewForm || null;
+      if (!url) return;
+      open([Number(openOne.dataset.previewOpen)]);
+      return;
+    }
+    var openAll = e.target.closest("[data-preview-all]");
+    if (openAll) {
+      e.preventDefault();
+      url = openAll.dataset.previewUrl || URL_;
+      formSel = openAll.dataset.previewForm || null;
+      if (!url) return;
+      var all = includedIndices();
+      if (!all.length) {
+        window.alert("Tick at least one question to preview it as a student.");
+        return;
+      }
+      open(all);
+      return;
+    }
+    if (e.target.closest("[data-preview-close]")) { close(); return; }
+
+    var step = e.target.closest("[data-preview-step]");
+    if (step && !modal.classList.contains("hidden")) {
+      atIndex = Math.min(Math.max(atIndex + Number(step.dataset.previewStep), 0), walk.length - 1);
+      showCounter();
+      load(walk[atIndex]);
+      return;
+    }
+    if (e.target.closest("[data-preview-check]") && current !== null) {
+      load(current, trialAnswer());
+    }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
+  });
+})();
+</script>

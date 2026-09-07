@@ -18,6 +18,44 @@ class MathsPlugin(SubjectPlugin):
     display_name = 'Mathematics'
     order = 10
     supports_homework = True
+
+    def content_topic_names(self, content_ids):
+        """maths.Question -> its Topic name."""
+        from maths.models import Question
+
+        return {
+            row['id']: row['topic__name']
+            for row in Question.objects
+            .filter(id__in=content_ids, topic__isnull=False)
+            .values('id', 'topic__name')
+        }
+
+    def content_topic_paths(self, content_ids):
+        """maths.Question -> ``(strand, topic name)``.
+
+        The strand is the ROOT of the topic tree, not the immediate parent.
+        Most of the tree is two deep (``Number > Fractions``) but the times
+        tables are three (``Number > Division > Division (3x)``), and grouping
+        those on the parent would put "Division" on the chart as though it were
+        a strand, eleven times over, while Number itself never appeared.
+
+        A topic with no parent is its own strand, which is what a report built
+        from strand-level questions should show.
+        """
+        from maths.models import Question
+
+        return {
+            row['id']: (
+                row['topic__parent__parent__name']
+                or row['topic__parent__name']
+                or row['topic__name'],
+                row['topic__name'],
+            )
+            for row in Question.objects
+            .filter(id__in=content_ids, topic__isnull=False)
+            .values('id', 'topic__name', 'topic__parent__name',
+                    'topic__parent__parent__name')
+        }
     brainbuzz_subject_key = 'maths'
 
     # Phase 3 — URL routing + sidebar wiring. Maths owns the plain
@@ -39,9 +77,13 @@ class MathsPlugin(SubjectPlugin):
     # UI / routing  (Phase 3)
     # ------------------------------------------------------------------
 
-    def sidebar_template(self) -> str:
-        # Matches the pre-existing per-subject sidebar partial.
-        return 'partials/sidebar_maths.html'
+    def sidebar_template(self) -> str | None:
+        # Maths has no standalone sidebar partial: the maths student nav is
+        # rendered inline by the unified ``sidebar_student.html`` (its
+        # ``subject_sidebar == 'maths'`` branch). Returning None keeps this in
+        # sync with base.html, which dispatches on role + subject_sidebar and
+        # never calls this hook for maths.
+        return None
 
     def has_content(self, classroom=None) -> bool:
         from maths.models import Question
@@ -97,7 +139,44 @@ class MathsPlugin(SubjectPlugin):
         from maths.models import Question
         return Question.QUESTION_TYPES
 
-    def pick_homework_items(self, classroom, selected_topic_ids, n, question_type=None):
+    def topic_labels(self, topic_ids):
+        from classroom.models import Topic
+
+        return {
+            row['id']: (
+                f"{row['parent__name']} \u203a {row['name']}"
+                if row['parent__name'] else row['name']
+            )
+            for row in Topic.objects.filter(pk__in=list(topic_ids))
+            .values('id', 'name', 'parent__name')
+        }
+
+    def topic_content_counts(self, classroom, topic_ids, question_type=None,
+                             exclude_content_ids=None):
+        from django.db.models import Count
+        from maths.models import Question
+
+        ids = [int(t) for t in topic_ids if str(t).isdigit()]
+        if not ids:
+            return {}
+        # Same scoping as pick_homework_items — visible_to_classroom plus the
+        # class's levels — so the count a teacher reads is the pool the
+        # generator will actually draw from.
+        qs = Question.objects.visible_to_classroom(classroom).filter(topic_id__in=ids)
+        classroom_levels = classroom.levels.all()
+        if classroom_levels.exists():
+            qs = qs.filter(level__in=classroom_levels)
+        if question_type:
+            qs = qs.filter(question_type=question_type)
+        if exclude_content_ids:
+            qs = qs.exclude(pk__in=list(exclude_content_ids))
+        return {
+            row['topic_id']: row['n']
+            for row in qs.values('topic_id').annotate(n=Count('pk'))
+        }
+
+    def pick_homework_items(self, classroom, selected_topic_ids, n, question_type=None,
+                            exclude_content_ids=None):
         from classroom.models import Topic
         from maths.models import Question
         from maths.views import select_questions_stratified
@@ -107,11 +186,16 @@ class MathsPlugin(SubjectPlugin):
             return []
 
         classroom_levels = classroom.levels.all()
-        qs = Question.objects.filter(topic__in=topics).select_related('topic')
+        # Scope to what this CLASS may draw on. Unscoped, homework generated for
+        # one school pulled in every other school's private questions.
+        qs = (Question.objects.visible_to_classroom(classroom)
+              .filter(topic__in=topics).select_related('topic'))
         if classroom_levels.exists():
             qs = qs.filter(level__in=classroom_levels)
         if question_type:
             qs = qs.filter(question_type=question_type)
+        if exclude_content_ids:
+            qs = qs.exclude(pk__in=list(exclude_content_ids))
         all_questions = list(qs)
 
         if not all_questions:
@@ -147,13 +231,23 @@ class MathsPlugin(SubjectPlugin):
         Returns fields suitable for ``HomeworkStudentAnswer(**result)`` —
         plus ``points_earned`` computed as 1.0 per correct row (legacy
         behaviour — callers can override by passing question.points).
+
+        The multi-part types (fill_blank, table_of_values) are the exception:
+        they are marked part by part, so ``points_earned`` is the share of
+        gaps/cells the student got right and ``answer_data`` carries the
+        breakdown the result page needs to say which one was wrong.
+        ``is_correct`` still means *every* part right.
         """
         from maths.models import Answer, Question
+        from maths.partial_credit import points_for
 
         q = Question.objects.get(pk=content_id)
         is_correct = False
         selected_answer_obj = None
         text_answer = ''
+        # Set only by the part-graded types below (fill_blank, table_of_values);
+        # None everywhere else means "one answer, marked all or nothing".
+        partial = None
 
         if q.question_type in (Question.MULTIPLE_CHOICE, Question.TRUE_FALSE):
             answer_id = post_data.get(f'answer_{q.id}')
@@ -247,6 +341,30 @@ class MathsPlugin(SubjectPlugin):
             from maths.geometry_grading import grade_measure
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
             is_correct = grade_measure(q, text_answer)
+        elif q.question_type == Question.NUMBER_LINE and q.number_line_spec:
+            # Mark a value on / read a value off a number line. Mark mode serialises
+            # {"marks":[...]} to JSON in answer_{id}; read mode posts the typed value.
+            from maths.geometry_grading import grade_number_line
+            text_answer = post_data.get(f'answer_{q.id}', '')
+            is_correct = grade_number_line(q.number_line_spec, text_answer)
+        elif ((q.question_type == Question.TABLE_OF_VALUES and q.table_spec)
+              or (q.question_type == Question.FILL_BLANK and q.blank_spec)
+              or (q.question_type == Question.SKETCH_GRAPH and q.sketch_spec)):
+            # Several answers in one question: a fill-in table of values
+            # (cells serialised as {"cells":{"r,c":"value"}}), a
+            # fill-in-the-blank sentence ({"blanks":[...]}) or the key features
+            # of a sketch ({"features":{"vertex": "(-0.5, -2.25)"}}), all posted
+            # in answer_{id}. Marked part by part, so nine of ten right earns nine
+            # tenths of the points and answer_data names the tenth — see
+            # maths.partial_credit.
+            text_answer = post_data.get(f'answer_{q.id}', '')
+            partial = q.grade_text_answer_parts(text_answer)
+            if partial is None:
+                # No verdict part by part (spec and payload don't line up) —
+                # fall back to the all-or-nothing grader.
+                is_correct = q.grade_text_answer(text_answer.strip())
+            else:
+                is_correct = partial.is_correct
         else:
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
             # Routes to algebra grading when q.answer_format == 'algebra',
@@ -258,8 +376,15 @@ class MathsPlugin(SubjectPlugin):
             'selected_answer_id': selected_answer_obj.pk if selected_answer_obj else None,
             'text_answer': text_answer,
             'is_correct': is_correct,
-            'points_earned': q.points if is_correct else 0,
-            'answer_data': {},                  # unused for maths
+            # A part-graded answer is worth the share of its parts that are
+            # right (0.9 of a 1-point money chart for nine of ten cells);
+            # everything else is still all-or-nothing.
+            'points_earned': (points_for(q.points, partial) if partial is not None
+                              else (q.points if is_correct else 0)),
+            # The per-part breakdown for the result page — which cell was
+            # wrong, what was typed, what was wanted. Empty for the
+            # single-answer types, which have nothing to break down.
+            'answer_data': partial.as_answer_data() if partial is not None else {},
         }
 
     def result_item_template(self) -> str:
@@ -284,12 +409,13 @@ class MathsPlugin(SubjectPlugin):
             .select_related('subject', 'parent', 'parent__parent')
             .order_by('subject__name', 'parent__name', 'name')
         )
+        visible = Question.objects.visible_to_classroom(classroom)
         if classroom_levels.exists():
-            question_filter = Question.objects.filter(
+            question_filter = visible.filter(
                 topic=OuterRef('pk'), level__in=classroom_levels,
             )
         else:
-            question_filter = Question.objects.filter(topic=OuterRef('pk'))
+            question_filter = visible.filter(topic=OuterRef('pk'))
         return base_qs.filter(Exists(question_filter))
 
     @staticmethod

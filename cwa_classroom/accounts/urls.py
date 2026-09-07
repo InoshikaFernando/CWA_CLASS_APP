@@ -1,13 +1,13 @@
 from django.urls import path
-from django.contrib.auth.views import LogoutView
-from django.views.decorators.csrf import csrf_exempt
 from . import views
+from . import views_impersonation
 from .views_parent_join import ParentSelfJoinView
 
 urlpatterns = [
-    # CSRF-exempt logout: prevents 403 when CSRF token is stale due to
-    # login/logout in another tab (CPP-36).  Logging out is safe to exempt.
-    path('logout/', csrf_exempt(LogoutView.as_view()), name='logout'),
+    # CSRF-exempt logout: prevents 403 when the CSRF token is stale because of a
+    # login/logout in another tab (CPP-36).  Logging out is safe to exempt — see
+    # CsrfExemptLogoutView for why wrapping Django's LogoutView wasn't enough.
+    path('logout/', views.CsrfExemptLogoutView.as_view(), name='logout'),
 
     # Override Django's built-in login with audit logging
     path('login/', views.AuditLoginView.as_view(), name='login'),
@@ -31,6 +31,16 @@ urlpatterns = [
 
     # Role switcher
     path('switch-role/', views.SwitchRoleView.as_view(), name='switch_role'),
+
+    # Super-admin "View as" — browse read-only as a real student/teacher/parent.
+    # NOTE: the stop path is duplicated as a literal in accounts.impersonation
+    # (STOP_PATH) because middleware runs before URL resolution; keep them in sync.
+    path('view-as/', views_impersonation.ImpersonationPickerView.as_view(),
+         name='impersonation_picker'),
+    path('view-as/<int:user_id>/', views_impersonation.ImpersonationStartView.as_view(),
+         name='impersonation_start'),
+    path('stop-viewing-as/', views_impersonation.ImpersonationStopView.as_view(),
+         name='impersonation_stop'),
 
     # Parent self-join (public)
     path('register/parent-join/', ParentSelfJoinView.as_view(), name='register_parent_join'),

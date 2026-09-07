@@ -1,8 +1,11 @@
 import json
+import logging
 import random
 import time as time_module
 from datetime import datetime, time as datetime_time, timedelta
+from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
@@ -23,6 +26,9 @@ from classroom.subject_registry import (
 )
 from classroom.views import RoleRequiredMixin
 from maths.models import Answer, Question, calculate_points
+from worksheets.grading_service import credit_for, verdict
+from rewards.models import PointsSource
+from rewards.services import award_points_safe, normalise
 from maths.views import select_questions_stratified
 
 from .forms import HomeworkCreateForm, HomeworkEditForm
@@ -1058,8 +1064,13 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
         # Find classrooms the student belongs to, keeping the join date per
         # classroom so "overdue" can be judged relative to when this student
         # actually enrolled (a late joiner never sees pre-join work as overdue).
+        # A student who left a class but is still in the school (moved_at set)
+        # keeps that class's homework, so we include those alongside active
+        # enrolments. Only a whole-school removal clears moved_at, and such a
+        # student (inactive, moved_at None) sees nothing.
         memberships = ClassStudent.objects.filter(
-            student=request.user, is_active=True
+            Q(is_active=True) | Q(moved_at__isnull=False),
+            student=request.user,
         ).values_list('classroom_id', 'joined_at')
         joined_at_by_class = {cid: joined for cid, joined in memberships}
         class_ids = list(joined_at_by_class.keys())
@@ -1237,6 +1248,13 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             graded_by_index = [_grade(hwq) for hwq in hw_questions]
 
         score = 0
+        # Credit counts the same questions as ``score``, but a part-graded one
+        # (a fill-in-the-blank sentence, a table of values) contributes the
+        # share of its gaps the student got right rather than 0 or 1. ``score``
+        # stays the count of questions answered fully correctly — the two are
+        # different questions ("how many did I get right" vs "what is this
+        # worth"), so they are kept apart rather than one distorting the other.
+        credit = 0.0
         total = len(hw_questions)
         answer_records = []
         for hwq, graded in zip(hw_questions, graded_by_index):
@@ -1244,6 +1262,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
                 continue
             if graded.get('is_correct'):
                 score += 1
+            credit += _answer_credit(graded)
             answer_records.append(HomeworkStudentAnswer(
                 # legacy FK — only populated for maths rows that return a
                 # ``question_id``; other subjects leave it as None.
@@ -1289,7 +1308,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
 
             HomeworkStudentAnswer.objects.bulk_create(answer_records)
 
-            pts = calculate_points(score, total, time_taken)
+            pts = calculate_points(credit, total, time_taken)
             submission.score = score
             submission.points = pts
             submission.save(update_fields=['score', 'points'])
@@ -1303,6 +1322,8 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             # Keep only the most recent attempts (with their answers) per the
             # shared attempt-history limit.
             HomeworkSubmission.prune_old_attempts(homework, request.user)
+
+        _award_homework_points(submission)
 
         log_event(
             user=request.user,
@@ -1567,8 +1588,12 @@ def _student_enrollment_redirect(request, classroom):
 
     user = request.user
 
+    # Active enrolment — or having left this class while still in the school
+    # (moved_at set), which keeps homework access — lets them proceed. Only a
+    # whole-school removal (moved_at None) does not.
     if ClassStudent.objects.filter(
-        student=user, classroom=classroom, is_active=True,
+        Q(is_active=True) | Q(moved_at__isnull=False),
+        student=user, classroom=classroom,
     ).exists():
         return None
 
@@ -1678,12 +1703,31 @@ def grade_pending_answers(submission, school):
 
     for answer in pending:
         try:
-            result = grade_extended_answer(answer.question, answer.text_answer, school=school)
+            result = grade_extended_answer(
+                answer.question, answer.text_answer, school=school,
+                student=submission.student)
+            if (result.get('error') or result.get('quota_exceeded')
+                    or result.get('not_entitled')):
+                # Not a verdict: the quota ran out, the API failed, or the
+                # question's diagram could not be loaded. Leave the answer
+                # pending so it shows on the teacher's review screen (and a
+                # later run can retry it) instead of recording a 0 the
+                # grader never actually reached.
+                answer.ai_feedback = result.get('feedback', '')
+                answer.save(update_fields=['ai_feedback'])
+                logging.getLogger(__name__).warning(
+                    'AI grading left HomeworkStudentAnswer %s pending: %s',
+                    answer.pk, result.get('error') or 'monthly quota reached',
+                )
+                continue
             score_frac = result.get('score_fraction', 0.0)
             answer.is_correct = result.get('is_correct', False)
             answer.ai_score_fraction = score_frac
             answer.ai_feedback = result.get('feedback', '')
-            answer.points_earned = round(answer.question.points * score_frac, 2)
+            # Below the pass mark the answer is wrong and earns nothing; from
+            # there up it keeps its share of the marks (credit_for).
+            answer.points_earned = round(
+                answer.question.points * credit_for(score_frac), 2)
             answer.review_status = HomeworkStudentAnswer.REVIEW_AI_DONE
             answer.graded_at = timezone.now()
             answer.save(update_fields=[
@@ -1691,13 +1735,24 @@ def grade_pending_answers(submission, school):
                 'points_earned', 'review_status', 'graded_at',
             ])
         except Exception:
-            import logging
             logging.getLogger(__name__).exception(
                 f'AI grading failed for HomeworkStudentAnswer {answer.pk}'
             )
 
     # Recalculate submission score to include AI-graded points
     _recalculate_submission_score(submission)
+
+
+def _answer_credit(graded):
+    """How much of one question a freshly graded answer earned, 0.0–1.0.
+
+    Thin wrapper over ``maths.partial_credit.credit_from_answer_data`` so the
+    submit path and the backfill command read a part-graded answer's worth the
+    same way — one definition, not two that can drift.
+    """
+    from maths.partial_credit import credit_from_answer_data
+    return credit_from_answer_data(
+        graded.get('answer_data'), graded.get('is_correct'))
 
 
 def _recalculate_submission_score(submission):
@@ -1708,6 +1763,27 @@ def _recalculate_submission_score(submission):
     submission.score = score
     submission.points = pts
     submission.save(update_fields=['score', 'points'])
+    # A late AI/teacher verdict can only raise the ledger entry, never lower it
+    # (award_points keeps the better of the two), so a student never loses
+    # leaderboard points they were shown on submit.
+    _award_homework_points(submission)
+
+
+def _award_homework_points(submission):
+    """Credit the global leaderboard for a homework attempt.
+
+    Scored on the percentage rather than ``submission.points`` on purpose: the
+    two writers of that column disagree on scale — the submit path sets
+    ``calculate_points(...)`` (0–100), while ``_recalculate_submission_score``
+    sums ``points_earned`` (one per question, so ~0–10). Percentage is what both
+    agree on, and it is the homework leaderboard's own primary sort key.
+    """
+    homework = submission.homework
+    award_points_safe(
+        submission.student, PointsSource.HOMEWORK, str(homework.id),
+        normalise(submission.score, submission.total_questions),
+        label=f'Homework — {homework.title}',
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1727,11 +1803,25 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
         error = request.GET.get('error')
         if error:
             messages.error(request, f'Error processing PDF: {error}')
-        return render(request, self.template_name, {'classrooms': classrooms})
+        from billing.entitlements import get_school_for_user
+        from billing.page_quota import quota_status
+        return render(request, self.template_name, {
+            'classrooms': classrooms,
+            'page_quota': quota_status(
+                get_school_for_user(request.user),
+                unlimited=request.user.is_superuser,
+            ),
+        })
 
     def post(self, request):
         from billing.entitlements import get_school_for_user
         from classroom.models import Topic, Level
+
+        # Authored JSON/ZIP upload — skips AI extraction + preview, goes straight
+        # to a lightweight confirm step (CPP JSON-assignment upload).
+        json_file = request.FILES.get('json_file')
+        if json_file:
+            return self._handle_json_upload(request, json_file)
 
         pdf_file = request.FILES.get('pdf_file')
         classroom_id = request.POST.get('classroom_id')
@@ -1772,6 +1862,44 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
 
         shape_naming = request.POST.get('shape_naming') == 'on'
 
+        # Which pages to extract ("2-7, 9"; blank = all). Validated here against
+        # the real PDF so a bad range is an immediate form error rather than a
+        # background job the teacher only sees fail minutes later.
+        from worksheets.page_selection import (
+            PageSelectionError, clean_upload_selection,
+        )
+        try:
+            page_selection, _selected, _total = clean_upload_selection(
+                request.POST.get('page_selection'), pdf_bytes,
+            )
+        except PageSelectionError as exc:
+            messages.error(request, str(exc))
+            return redirect('homework:pdf_upload')
+
+        # The monthly AI page allowance is checked BEFORE any extraction runs:
+        # the background worker spends real AI money on every selected page
+        # whether or not the teacher ever confirms the questions, so a refusal
+        # has to happen here to be worth anything. Charged after the session
+        # exists, refunded if the job can't be queued. See billing/page_quota.py.
+        from billing.page_quota import (
+            check_page_budget, consume_pages, refund_pages, upload_page_count,
+        )
+        is_unlimited = request.user.is_superuser
+        quota_pages = upload_page_count(_selected, _total, pdf_bytes)
+        allowed, quota_message, _quota = check_page_budget(
+            school, quota_pages, unlimited=is_unlimited,
+        )
+        if not allowed:
+            log_event(
+                user=request.user, school=school,
+                category='entitlement', action='homework_pdf_upload_blocked',
+                result='blocked',
+                detail={'pages': quota_pages, 'pdf_filename': pdf_file.name},
+                request=request,
+            )
+            messages.error(request, quota_message)
+            return redirect('homework:pdf_upload')
+
         # Create session immediately so we can redirect to the polling page
         session = HomeworkUploadSession.objects.create(
             user=request.user,
@@ -1779,10 +1907,15 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             classroom=classroom,
             pdf_filename=pdf_file.name,
             homework_title=hw_title,
+            page_selection=page_selection,
             shape_naming=shape_naming,
             status=HomeworkUploadSession.STATUS_PROCESSING,
         )
         session.pdf_file.save(pdf_file.name, ContentFile(pdf_bytes), save=True)
+
+        # Charge now rather than when the worker finishes: two uploads landing
+        # together would otherwise both pass the check above and overshoot.
+        consume_pages(school, quota_pages, unlimited=is_unlimited)
 
         log_event(
             user=request.user,
@@ -1810,12 +1943,22 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
                 func=process_homework_pdf,
                 args=[session.pk, existing_topics, existing_levels],
                 queue='default',
+                # A long worksheet legitimately runs past the 10-minute default:
+                # pages are classified in parallel chunks, but a 40-page PDF is
+                # still several waves of multi-minute Claude calls plus image
+                # rendering. Being killed mid-flight lost the whole upload, so
+                # allow the full run — a job that really is dead is caught by the
+                # heartbeat check in HomeworkPDFStatusView, not by this ceiling.
+                job_timeout=settings.HOMEWORK_PDF_JOB_TIMEOUT,
             )
         except Exception:
             import logging
             logging.getLogger(__name__).exception(
                 'Failed to enqueue homework PDF for session %s', session.pk,
             )
+            # Nothing will be extracted, so the pages charged above were never
+            # spent — hand them back rather than billing a job that never ran.
+            refund_pages(school, quota_pages, unlimited=is_unlimited)
             session.delete()
             messages.error(
                 request,
@@ -1826,6 +1969,111 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
 
         return redirect('homework:pdf_processing', session_id=session.pk)
 
+    def _handle_json_upload(self, request, json_file):
+        """Import an authored JSON/ZIP question file and stage a confirm step.
+
+        Unlike the PDF flow there is no AI extraction or editable preview —
+        the questions are authored, so they are parsed + saved immediately and
+        the teacher only chooses the class(es) and due date on the next page.
+        """
+        from billing.entitlements import get_school_for_user
+        from classroom.upload_services import import_assignment_questions
+        from .models import HomeworkUploadSession
+
+        if not json_file.name.lower().endswith(('.json', '.zip')):
+            messages.error(request, 'Only .json or .zip files are supported.')
+            return redirect('homework:pdf_upload')
+
+        result = import_assignment_questions(json_file, request.user)
+        saved = result.get('saved', [])
+        if not saved:
+            errs = result.get('errors') or ['No questions could be imported from the file.']
+            messages.error(request, 'Could not import questions: ' + ' '.join(errs[:5]))
+            return redirect('homework:pdf_upload')
+
+        school = get_school_for_user(request.user)
+        classroom = None
+        classroom_id = request.POST.get('classroom_id')
+        if classroom_id:
+            try:
+                classroom = ClassRoom.objects.get(id=classroom_id)
+                _check_can_assign_homework(request, classroom)
+            except (ClassRoom.DoesNotExist, Exception):
+                classroom = None
+
+        hw_title = json_file.name.rsplit('.', 1)[0]
+
+        session = HomeworkUploadSession.objects.create(
+            user=request.user,
+            school=school,
+            classroom=classroom,
+            pdf_filename=json_file.name,
+            homework_title=hw_title,
+            status=HomeworkUploadSession.STATUS_DONE,
+            extracted_data={
+                'source': 'json_upload',
+                'subject': result.get('subject'),
+                'saved': saved,
+            },
+        )
+
+        log_event(
+            user=request.user,
+            school=school,
+            category='data_change',
+            action='homework_json_upload',
+            detail={
+                'session_id': session.pk,
+                'filename': json_file.name,
+                'subject': result.get('subject'),
+                'inserted': result.get('inserted'),
+                'updated': result.get('updated'),
+                'question_count': len(saved),
+            },
+            request=request,
+        )
+
+        messages.success(
+            request,
+            f'Imported {len(saved)} question(s). Choose a class and due date to finish.',
+        )
+        return redirect('homework:json_confirm', session_id=session.pk)
+
+
+STALLED_UPLOAD_MESSAGE = (
+    'Processing stopped unexpectedly — the background worker did not report any '
+    'progress for {minutes} minutes (it most likely ran out of memory). '
+    'Please try again, or split the PDF into smaller files.'
+)
+
+
+def _fail_if_stalled(session):
+    """Mark a processing session as errored when its worker has gone silent.
+
+    A work-horse killed by the OOM killer (or a worker box that reboots) never
+    runs its failure handler, so nothing else flips the session out of
+    'processing' — the polling page would spin forever. The task heartbeats as
+    it works, so a heartbeat older than HOMEWORK_PDF_STALL_MINUTES (or no
+    heartbeat at all that long after upload) means the job is gone.
+
+    Returns True when the session was failed by this call.
+    """
+    from .models import HomeworkUploadSession
+
+    if session.status != HomeworkUploadSession.STATUS_PROCESSING:
+        return False
+
+    minutes = settings.HOMEWORK_PDF_STALL_MINUTES
+    last_sign_of_life = session.progress_updated_at or session.created_at
+    if timezone.now() - last_sign_of_life <= timedelta(minutes=minutes):
+        return False
+
+    session.status = HomeworkUploadSession.STATUS_ERROR
+    session.error_message = STALLED_UPLOAD_MESSAGE.format(minutes=minutes)
+    session.progress_message = ''
+    session.save(update_fields=['status', 'error_message', 'progress_message'])
+    return True
+
 
 class HomeworkPDFProcessingView(RoleRequiredMixin, View):
     """Polling page shown while AI extracts questions in the background."""
@@ -1835,16 +2083,31 @@ class HomeworkPDFProcessingView(RoleRequiredMixin, View):
     def get(self, request, session_id):
         from .models import HomeworkUploadSession
         session = get_object_or_404(HomeworkUploadSession, pk=session_id, user=request.user)
+        # Landing straight on a finished/dead session shouldn't start a poll that
+        # can never resolve.
+        _fail_if_stalled(session)
+        if session.status == HomeworkUploadSession.STATUS_DONE:
+            return redirect('homework:pdf_preview', session_id=session.pk)
+        if session.status == HomeworkUploadSession.STATUS_ERROR:
+            return redirect(
+                reverse('homework:pdf_upload')
+                + '?' + urlencode({'error': session.error_message[:200]})
+            )
         return render(request, self.template_name, {'session': session})
 
 
 class HomeworkPDFStatusView(RoleRequiredMixin, View):
-    """HTMX polling endpoint — returns a redirect fragment when processing is done."""
+    """HTMX polling endpoint — live progress, or a redirect once it settles."""
     required_roles = TEACHER_ROLES
+    template_name = 'homework/_partials/upload_progress.html'
 
     def get(self, request, session_id):
         from .models import HomeworkUploadSession
         session = get_object_or_404(HomeworkUploadSession, pk=session_id, user=request.user)
+
+        # No silent forever-spin: a worker that died without running its failure
+        # handler is detected here and the page self-heals into a retry.
+        _fail_if_stalled(session)
 
         if session.status == HomeworkUploadSession.STATUS_DONE:
             # Tell HTMX to navigate to the preview page
@@ -1855,12 +2118,18 @@ class HomeworkPDFStatusView(RoleRequiredMixin, View):
         if session.status == HomeworkUploadSession.STATUS_ERROR:
             response = HttpResponse(status=204)
             response['HX-Redirect'] = (
-                reverse('homework:pdf_upload') + f'?error={session.error_message[:200]}'
+                reverse('homework:pdf_upload')
+                + '?' + urlencode({'error': session.error_message[:200]})
             )
             return response
 
-        # Still processing — return 204 so HTMX keeps polling
-        return HttpResponse(status=204)
+        # Still processing — swap in what the worker is doing right now, so the
+        # teacher can see it is moving rather than staring at a bare spinner.
+        return render(request, self.template_name, {
+            'session': session,
+            'elapsed_minutes': int(
+                (timezone.now() - session.created_at).total_seconds() // 60),
+        })
 
 
 class HomeworkPDFPreviewView(RoleRequiredMixin, View):
@@ -1877,6 +2146,26 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         questions = data.get('questions', [])
 
         from classroom.models import Topic, Level
+        from worksheets.services import (
+            answer_review_warning, backfill_constructions,
+            preview_question_type_choices, question_source_page,
+        )
+
+        # Sessions extracted before drawing questions were routed to the teacher
+        # still hold them as ai_graded and ticked — "Show this information on a
+        # Venn diagram" would import and be marked on prose the student never
+        # wrote. Sweep once on first open (nothing to do for a fresh upload,
+        # which the pipeline already routed) and tell the teacher what moved.
+        routed = backfill_constructions(data)
+        if routed is not None:
+            session.extracted_data = data
+            session.save(update_fields=['extracted_data'])
+            if routed:
+                messages.info(
+                    request,
+                    f'{routed} question(s) ask the student to draw something the app '
+                    'cannot accept an answer for. They are set to teacher-graded and '
+                    'left unticked — tick one to import it for marking by hand.')
         topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
         levels = Level.objects.filter(level_number__lte=12).order_by('level_number')
         classrooms = _assignable_classrooms(request.user)
@@ -1892,11 +2181,35 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             q.setdefault('grading_rubric', '')
             ref = q.get('image_ref')
             q['image_b64'] = session.extracted_images.get(ref) if ref else None
+            # For the "Adjust image" crop modal: open the page this question maps
+            # to (falls back through crop provenance, the ref filename, page_num).
+            q['image_page'] = question_source_page(q)
+            q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
+            # Flag a suspect answer key (explanation disagrees with / second-guesses
+            # the ticked answer) so the teacher checks it before confirming.
+            q['answer_warning'] = answer_review_warning(q)
             # Pre-format the structured-spec JSON for the editable textareas.
             if q.get('plane_spec'):
                 q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)
             if q.get('graph_spec'):
                 q['graph_spec_json'] = json.dumps(q['graph_spec'], indent=2)
+            if q.get('number_line_spec'):
+                q['number_line_spec_json'] = json.dumps(q['number_line_spec'], indent=2)
+            if q.get('table_spec'):
+                q['table_spec_json'] = json.dumps(q['table_spec'], indent=2)
+            if q.get('sketch_spec'):
+                q['sketch_spec_json'] = json.dumps(q['sketch_spec'], indent=2)
+
+        # Pages the extractor deliberately skipped (answer sheet / answer key).
+        # Told to the teacher rather than silently dropped, so "50 questions but
+        # only 43 imported" is never a mystery.
+        from worksheets.services import describe_skipped_pages
+        skipped_pages = describe_skipped_pages(data)
+        # Pages the teacher themselves excluded at upload time — same reasoning.
+        from worksheets.page_selection import describe_page_selection
+        # The paper's own answer key, where it had one: how many answers it
+        # supplied and which questions it disagreed with the AI about.
+        answer_key = data.get('answer_key') or {}
 
         return render(request, self.template_name, {
             'session': session,
@@ -1905,20 +2218,14 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             'topics': topics,
             'levels': levels,
             'classrooms': classrooms,
-            'question_types': [
-                ('multiple_choice', 'Multiple Choice'),
-                ('true_false', 'True / False'),
-                ('short_answer', 'Short Answer'),
-                ('fill_blank', 'Fill in the Blank'),
-                ('calculation', 'Calculation'),
-                ('extended_answer', 'Extended Answer (written)'),
-                ('long_division', 'Long Division'),
-                ('column_operation', 'Column Arithmetic'),
-                ('plot_points', 'Plot Points (Cartesian plane)'),
-                ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
-                ('identify_coords', 'Identify Coordinates (type the point)'),
-                ('read_graph', 'Read a Graph (read off a value)'),
-            ],
+            'skipped_pages': skipped_pages,
+            'page_selection': describe_page_selection(data),
+            'answer_key': answer_key,
+            # Built from the extractor's own type list (plus anything else this
+            # session actually holds) so the dropdown can never be missing the
+            # type a question arrived as — a <select> with no matching option
+            # shows "Multiple Choice" and the POST saves that.
+            'question_types': preview_question_type_choices(questions),
             'validation_types': [
                 ('auto', 'Auto (system checks)'),
                 ('ai_graded', 'AI Graded (Claude evaluates)'),
@@ -1953,6 +2260,8 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         data['strand'] = request.POST.get('strand', data.get('strand', ''))
         data['subject'] = request.POST.get('subject', data.get('subject', 'Mathematics'))
 
+        from worksheets.services import accepted_question_type
+
         original_questions = data.get('questions', [])
 
         def _apply_question_fields(q, idx):
@@ -1960,7 +2269,8 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             prefix = f'q_{idx}_'
             q['include'] = request.POST.get(f'{prefix}include') == 'on'
             q['question_text'] = request.POST.get(f'{prefix}text', q.get('question_text', ''))
-            q['question_type'] = request.POST.get(f'{prefix}type', q.get('question_type', 'short_answer'))
+            q['question_type'] = accepted_question_type(
+                request.POST.get(f'{prefix}type'), q.get('question_type', 'short_answer'))
             q['validation_type'] = request.POST.get(f'{prefix}validation_type', q.get('validation_type', 'auto'))
             q['grading_rubric'] = request.POST.get(f'{prefix}grading_rubric', q.get('grading_rubric', ''))
             q['difficulty'] = int(request.POST.get(f'{prefix}difficulty', q.get('difficulty', 1)))
@@ -2025,6 +2335,64 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
                     except (ValueError, TypeError):
                         pass
 
+            # Measure fields: numeric answer (+ tolerance/unit).
+            #
+            # Read under a `measure_` prefix: read_graph uses the same three
+            # names, and both panels are rendered at once so the type can be
+            # switched without a reload. Without the prefix the POST would
+            # carry two values per name and keep the wrong one.
+            if q['question_type'] == 'measure':
+                for fld in ('numeric_answer', 'answer_tolerance'):
+                    raw = request.POST.get(f'{prefix}measure_{fld}', '').strip()
+                    if raw:
+                        q[fld] = raw
+                unit = request.POST.get(f'{prefix}measure_answer_unit', '').strip()
+                if unit:
+                    q['answer_unit'] = unit
+
+            # Number-line spec — edited as raw JSON in the preview; a parse failure
+            # leaves the prior spec untouched so the import-time validator surfaces it.
+            if q['question_type'] == 'number_line':
+                raw = request.POST.get(f'{prefix}number_line_spec', '').strip()
+                if raw:
+                    try:
+                        q['number_line_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
+            # Table-of-values spec — same contract as the number line: raw JSON,
+            # and a parse failure keeps the prior spec so the import-time
+            # validator is the one that reports it.
+            if q['question_type'] == 'table_of_values':
+                raw = request.POST.get(f'{prefix}table_spec', '').strip()
+                if raw:
+                    try:
+                        q['table_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
+            # Prime factorisation: the one number the answer is computed from.
+            # A non-numeric edit keeps the prior value, so the import-time check
+            # is the one that reports it.
+            if q['question_type'] == 'prime_factorization':
+                raw = request.POST.get(f'{prefix}target_number', '').strip()
+                if raw:
+                    try:
+                        q['target_number'] = int(raw)
+                    except (TypeError, ValueError):
+                        pass
+
+            # Sketch-a-graph spec — same contract again: raw JSON, and a parse
+            # failure keeps the prior spec so the import-time validator is the
+            # one that reports it.
+            if q['question_type'] == 'sketch_graph':
+                raw = request.POST.get(f'{prefix}sketch_spec', '').strip()
+                if raw:
+                    try:
+                        q['sketch_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
             # Handle image replacement / removal
             if request.POST.get(f'{prefix}remove_image') == 'on':
                 q['image_ref'] = None
@@ -2074,6 +2442,73 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         session.save(update_fields=['extracted_data', 'extracted_images', 'homework_title', 'classroom'])
 
         return redirect('homework:pdf_confirm', session_id=session.pk)
+
+
+class HomeworkPDFPageImageView(RoleRequiredMixin, View):
+    """AJAX: full source-page PNG for the 'Adjust image' crop modal."""
+    required_roles = TEACHER_ROLES
+
+    def get(self, request, session_id):
+        from worksheets.image_adjust import page_image_response
+
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(
+            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return page_image_response(session, request)
+
+
+class HomeworkPDFRecropView(RoleRequiredMixin, View):
+    """AJAX: re-render a question image from a teacher-drawn box on the PDF."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, session_id):
+        from worksheets.image_adjust import recrop_response
+
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(
+            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return recrop_response(session, request)
+
+
+class HomeworkPDFReuseImageView(RoleRequiredMixin, View):
+    """AJAX: copy an earlier question's image onto this question (shared figure)."""
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, session_id):
+        from worksheets.image_adjust import reuse_previous_image_response
+
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(
+            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return reuse_previous_image_response(session, request)
+
+
+class HomeworkPDFQuestionPreviewView(RoleRequiredMixin, View):
+    """AJAX: one extracted question rendered as the student will meet it.
+
+    ``promote_blanks=False`` because this flow's saver
+    (``_save_homework_pdf_questions``) does not call ``apply_blank_format`` —
+    a "___" sentence imported here stays one answer box. The preview says so
+    rather than showing the gaps the AI Import path would build.
+    """
+    required_roles = TEACHER_ROLES
+
+    def post(self, request, session_id):
+        from worksheets.question_preview import preview_response
+
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(
+            HomeworkUploadSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return preview_response(
+            request,
+            extracted_data=session.extracted_data,
+            extracted_images=session.extracted_images,
+            promote_blanks=False,
+        )
 
 
 class HomeworkPDFConfirmView(RoleRequiredMixin, View):
@@ -2232,6 +2667,12 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
                 messages.error(request, 'Failed to save questions. Please try again.')
                 return redirect('homework:pdf_preview', session_id=session.pk)
 
+            # Questions the saver could not build (no answer options, a spec it
+            # could not validate) are dropped there. Count them before the
+            # duplicate collapse below, and say so rather than letting the
+            # teacher discover a short homework later.
+            unsaved = len(questions_data) - len(saved_questions)
+
             # Two extracted questions can resolve to the same maths.Question via
             # get_or_create (identical text/topic/level). Drop duplicates so we
             # don't insert two HomeworkQuestion rows with the same content_id,
@@ -2302,6 +2743,14 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
                 request=request,
             )
 
+        if unsaved > 0:
+            messages.warning(
+                request,
+                f'{unsaved} of the {len(questions_data)} included question(s) could not be '
+                'imported — a question with no answer options, or with a layout the app '
+                'could not build, is skipped rather than given to students unanswerable.',
+            )
+
         schedule_note = (
             '' if publish_at is None
             else f' Scheduled to publish on {publish_at.strftime("%d %b %Y %H:%M")}.'
@@ -2325,6 +2774,203 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         return redirect('homework:teacher_monitor')
 
 
+class HomeworkJSONConfirmView(RoleRequiredMixin, View):
+    """Confirm step for an authored JSON/ZIP homework upload.
+
+    The questions are already parsed + saved (refs live in
+    ``session.extracted_data['saved']``); this step only collects the target
+    class(es) and due date, then creates the Homework + HomeworkQuestion rows.
+    Mirrors :class:`HomeworkPDFConfirmView` but skips question saving.
+    """
+    required_roles = TEACHER_ROLES
+    template_name = 'homework/json_confirm.html'
+
+    def _session_or_redirect(self, request, session_id):
+        from .models import HomeworkUploadSession
+        session = get_object_or_404(HomeworkUploadSession, pk=session_id, user=request.user)
+        if session.is_confirmed:
+            messages.info(request, 'This upload has already been submitted.')
+            if session.homework_id:
+                return None, redirect('homework:teacher_detail', homework_id=session.homework_id)
+            return None, redirect('homework:teacher_monitor')
+        return session, None
+
+    def get(self, request, session_id):
+        session, redirect_response = self._session_or_redirect(request, session_id)
+        if redirect_response:
+            return redirect_response
+        saved = session.extracted_data.get('saved', [])
+        return render(request, self.template_name, {
+            'session': session,
+            'question_count': len(saved),
+            'subject': session.extracted_data.get('subject'),
+            'classrooms': _assignable_classrooms(request.user),
+        })
+
+    def post(self, request, session_id):
+        from billing.entitlements import get_school_for_user
+        from django.utils.dateparse import parse_datetime, parse_date
+        from django.utils import timezone as tz
+
+        session, redirect_response = self._session_or_redirect(request, session_id)
+        if redirect_response:
+            return redirect_response
+
+        saved = session.extracted_data.get('saved', [])
+        if not saved:
+            messages.error(request, 'This upload has no questions to assign.')
+            return redirect('homework:pdf_upload')
+
+        hw_title = (
+            request.POST.get('homework_title', '').strip()
+            or session.homework_title or session.pdf_filename
+        )
+
+        # Classroom(s) — required (multi-select with legacy single + session fallback).
+        submitted_ids = request.POST.getlist('classroom_ids')
+        if not submitted_ids:
+            single = request.POST.get('classroom_id', '')
+            if single:
+                submitted_ids = [single]
+        id_set = set()
+        for cid in submitted_ids:
+            try:
+                id_set.add(int(cid))
+            except (TypeError, ValueError):
+                continue
+
+        assignable = _assignable_classrooms(request.user)
+        if id_set:
+            classrooms = list(assignable.filter(id__in=id_set))
+        elif session.classroom and assignable.filter(pk=session.classroom_id).exists():
+            classrooms = [session.classroom]
+        else:
+            classrooms = []
+
+        if not classrooms:
+            messages.error(request, 'Please select at least one classroom.')
+            return redirect('homework:json_confirm', session_id=session.pk)
+
+        due_date_str = request.POST.get('due_date', '')
+        if not due_date_str:
+            messages.error(request, 'Please enter a due date.')
+            return redirect('homework:json_confirm', session_id=session.pk)
+        due_date = parse_datetime(due_date_str)
+        if due_date is None:
+            d = parse_date(due_date_str)
+            if d:
+                from datetime import datetime
+                due_date = datetime.combine(d, datetime.max.time().replace(hour=23, minute=59))
+                due_date = tz.make_aware(due_date)
+        if due_date is None:
+            messages.error(request, 'Invalid due date format.')
+            return redirect('homework:json_confirm', session_id=session.pk)
+        if tz.is_naive(due_date):
+            due_date = tz.make_aware(due_date)
+
+        max_attempts = None
+        max_attempts_str = request.POST.get('max_attempts', '')
+        if max_attempts_str.strip():
+            try:
+                max_attempts = int(max_attempts_str)
+            except ValueError:
+                pass
+
+        publish_at = None
+        publish_at_str = request.POST.get('publish_at', '').strip()
+        if publish_at_str:
+            publish_at = parse_datetime(publish_at_str)
+            if publish_at and tz.is_naive(publish_at):
+                publish_at = tz.make_aware(publish_at)
+            if publish_at is None:
+                messages.error(request, 'Invalid publish date format.')
+                return redirect('homework:json_confirm', session_id=session.pk)
+            if publish_at <= tz.now():
+                messages.error(request, 'Publish date must be in the future. Leave it blank to publish now.')
+                return redirect('homework:json_confirm', session_id=session.pk)
+            if publish_at >= due_date:
+                messages.error(request, 'Publish date must be before the due date.')
+                return redirect('homework:json_confirm', session_id=session.pk)
+
+        school = get_school_for_user(request.user)
+
+        created = []
+        with transaction.atomic():
+            for classroom in classrooms:
+                homework = Homework.objects.create(
+                    classroom=classroom,
+                    created_by=request.user,
+                    title=hw_title,
+                    homework_type='json_upload',
+                    num_questions=len(saved),
+                    due_date=due_date,
+                    max_attempts=max_attempts,
+                    publish_at=publish_at,
+                )
+                # bulk_create bypasses save(), so set subject_slug + content_id
+                # explicitly. Populate the maths FK too so existing joins resolve;
+                # coding rows leave it null and rely on content_id.
+                HomeworkQuestion.objects.bulk_create([
+                    HomeworkQuestion(
+                        homework=homework,
+                        question_id=(ref['content_id'] if ref['subject_slug'] == 'mathematics' else None),
+                        subject_slug=ref['subject_slug'],
+                        content_id=ref['content_id'],
+                        order=i,
+                    )
+                    for i, ref in enumerate(saved, 1)
+                ])
+                created.append((homework, classroom))
+
+            session.is_confirmed = True
+            session.homework = created[0][0]
+            session.save(update_fields=['is_confirmed', 'homework'])
+
+        for homework, classroom in created:
+            if homework.is_published:
+                notify_students_homework_published(homework)
+            log_event(
+                user=request.user,
+                school=school,
+                category='data_change',
+                action='homework_json_created',
+                detail={
+                    'homework_id': homework.id,
+                    'title': hw_title,
+                    'session_id': session.pk,
+                    'classroom_id': classroom.id,
+                    'classroom_name': classroom.name,
+                    'question_count': len(saved),
+                    'due_date': str(due_date),
+                    'publish_at': str(publish_at) if publish_at else None,
+                    'status': homework.status,
+                    'max_attempts': max_attempts,
+                },
+                request=request,
+            )
+
+        schedule_note = (
+            '' if publish_at is None
+            else f' Scheduled to publish on {publish_at.strftime("%d %b %Y %H:%M")}.'
+        )
+        if len(created) == 1:
+            homework, classroom = created[0]
+            messages.success(
+                request,
+                f'Homework "{homework.title}" created with {len(saved)} questions '
+                f'and assigned to {classroom.name}.{schedule_note}',
+            )
+            return redirect('homework:teacher_detail', homework_id=homework.id)
+
+        class_names = ', '.join(classroom.name for _, classroom in created)
+        messages.success(
+            request,
+            f'Homework "{hw_title}" created with {len(saved)} questions and '
+            f'assigned to {len(created)} classes: {class_names}.{schedule_note}',
+        )
+        return redirect('homework:teacher_monitor')
+
+
 def _save_homework_pdf_questions(questions_data, global_data, user, school, session,
                                  save_images=True):
     """
@@ -2338,6 +2984,7 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
     image writes are NOT transactional and would survive the rollback.
     """
     from maths.models import Question as MQ, Answer as MA
+    from worksheets.services import resolve_grading
     from classroom.models import Topic, Level, Subject
     from classroom.views import _get_question_scope
 
@@ -2373,34 +3020,33 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         if not topic:
             continue
 
-        # Determine validation type — downgrade to 'auto' for non-extended types
+        # How this one gets marked — shared with the worksheet and AI PDF
+        # imports so the three paths cannot disagree. The old rule here
+        # ("anything non-extended is auto") silently undid a teacher-graded
+        # drawing question whenever the extractor typed it short_answer.
         q_type = q.get('question_type', 'short_answer')
-        validation_type = q.get('validation_type', 'auto')
-        if q_type != MQ.EXTENDED_ANSWER and validation_type != 'auto':
-            # MCQ/T-F etc. should always be auto
-            validation_type = 'auto'
-        if q_type == MQ.EXTENDED_ANSWER and validation_type == 'auto':
-            # Default extended answers to AI graded
-            validation_type = 'ai_graded'
+        validation_type, grading_rubric = resolve_grading(q)
 
-        grading_rubric = q.get('grading_rubric', '')
+        # Map question_type to model constant. Taken from the model's own
+        # choices rather than a hand-kept dict: the dict this replaced was
+        # missing 'table_of_values', so every extracted table fell through to
+        # short_answer — one text box for a whole chart — and the table_spec
+        # validation below could never run.
+        mapped_type = q_type if q_type in {v for v, _ in MQ.QUESTION_TYPES} else MQ.SHORT_ANSWER
 
-        # Map question_type to model constant
-        type_map = {
-            'multiple_choice': MQ.MULTIPLE_CHOICE,
-            'true_false': MQ.TRUE_FALSE,
-            'short_answer': MQ.SHORT_ANSWER,
-            'fill_blank': MQ.FILL_BLANK,
-            'calculation': MQ.CALCULATION if hasattr(MQ, 'CALCULATION') else MQ.SHORT_ANSWER,
-            'extended_answer': MQ.EXTENDED_ANSWER,
-            'long_division': MQ.LONG_DIVISION,
-            'column_operation': MQ.COLUMN_OPERATION,
-            'plot_points': MQ.PLOT_POINTS,
-            'plot_line': MQ.PLOT_LINE,
-            'identify_coords': MQ.IDENTIFY_COORDS,
-            'read_graph': MQ.READ_GRAPH,
-        }
-        mapped_type = type_map.get(q_type, MQ.SHORT_ANSWER)
+        # A pick-an-option question with no options can never be attempted: the
+        # student is shown the stem and an empty space, and the marker has
+        # nothing to mark. Skip it rather than import a dead question. This is
+        # the backstop for the review dropdown silently rewriting a type it
+        # could not offer into "Multiple Choice".
+        if mapped_type in (MQ.MULTIPLE_CHOICE, MQ.TRUE_FALSE) and not [
+            a for a in (q.get('answers') or []) if (a.get('text') or '').strip()
+        ]:
+            import logging as _skip_log
+            _skip_log.getLogger('homework').warning(
+                'Skipped %s question with no answer options: %r', mapped_type, q_text[:80],
+            )
+            continue
 
         # Long-division: parse dividend/divisor; the answer is computed (not AI-supplied)
         # and the layout is drawn by the app, so any attached image would be noise.
@@ -2414,6 +3060,20 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             if not dividend or not divisor or divisor <= 0:
                 # Can't build a valid long-division question — skip it rather than
                 # import a broken one with no usable answer.
+                continue
+
+        # Prime factorisation: parse the number to factorise. The answer is
+        # computed from it (never AI-supplied) and the app draws the factor
+        # ladder, so any attached image would be noise.
+        target_number = None
+        if mapped_type == MQ.PRIME_FACTORIZATION:
+            try:
+                target_number = int(q.get('target_number'))
+            except (TypeError, ValueError):
+                target_number = None
+            if not target_number or target_number < 2:
+                # Nothing to factorise — the grader needs target_number and
+                # would mark every attempt wrong without it.
                 continue
 
         # Column arithmetic: parse operands/operator; the answer is computed (not
@@ -2444,20 +3104,22 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             except (ValueError, TypeError):
                 continue
 
-        # Read-a-graph: numeric answer (+ tolerance/unit) and an optional clean
-        # graph_spec; keep the graph image when no spec is given.
+        # Read-a-graph / measure: numeric answer (+ tolerance/unit). read_graph may
+        # also carry an optional clean graph_spec (else the graph image is kept);
+        # measure grades the same numeric fields (angle/length/scale reading).
         graph_spec = None
         numeric_answer = None
         answer_tolerance = None
         answer_unit = ''
-        if mapped_type == MQ.READ_GRAPH:
+        if mapped_type in (MQ.READ_GRAPH, MQ.MEASURE):
             from decimal import Decimal, InvalidOperation
             try:
                 numeric_answer = Decimal(str(q.get('numeric_answer')))
             except (InvalidOperation, TypeError, ValueError):
                 numeric_answer = None
             if numeric_answer is None:
-                # No readable value — can't grade; skip rather than import broken.
+                # No readable/measurable value — can't grade; skip rather than
+                # import a broken question that marks every answer wrong.
                 continue
             raw_tol = q.get('answer_tolerance')
             if raw_tol not in (None, ''):
@@ -2466,13 +3128,66 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 except (InvalidOperation, ValueError):
                     answer_tolerance = None
             answer_unit = (q.get('answer_unit') or '')[:10]
-            graph_spec = q.get('graph_spec') or None
-            if graph_spec:
-                from maths.geometry_grading import validate_graph_spec
-                try:
-                    validate_graph_spec(graph_spec)
-                except (ValueError, TypeError):
-                    graph_spec = None  # fall back to the image
+            if mapped_type == MQ.READ_GRAPH:
+                graph_spec = q.get('graph_spec') or None
+                if graph_spec:
+                    from maths.geometry_grading import validate_graph_spec
+                    try:
+                        validate_graph_spec(graph_spec)
+                    except (ValueError, TypeError):
+                        graph_spec = None  # fall back to the image
+
+        # Draw-on-grid / shape-select: validate the structured spec; skip a
+        # malformed one rather than import a question that can never be graded.
+        grid_spec = None
+        if mapped_type == MQ.DRAW_ON_GRID:
+            from maths.geometry_grading import validate_grid_spec
+            grid_spec = q.get('grid_spec')
+            try:
+                validate_grid_spec(grid_spec)
+            except (ValueError, TypeError):
+                continue
+        shape_spec = None
+        if mapped_type == MQ.SHAPE_SELECT:
+            from maths.geometry_grading import validate_shape_spec
+            shape_spec = q.get('shape_spec')
+            try:
+                validate_shape_spec(shape_spec)
+            except (ValueError, TypeError):
+                continue
+
+        # Number-line: validate the scale + target/given spec; skip a malformed one.
+        number_line_spec = None
+        if mapped_type == MQ.NUMBER_LINE:
+            from maths.geometry_grading import validate_number_line_spec
+            number_line_spec = q.get('number_line_spec')
+            try:
+                validate_number_line_spec(number_line_spec)
+            except (ValueError, TypeError):
+                continue
+
+        # Table of values: validate headers/rows; skip a malformed one. Same
+        # contract as the AI import saver so a table imports identically here.
+        table_spec = None
+        if mapped_type == MQ.TABLE_OF_VALUES:
+            from maths.geometry_grading import validate_table_spec
+            table_spec = q.get('table_spec')
+            try:
+                validate_table_spec(table_spec)
+            except (ValueError, TypeError):
+                continue
+
+        # Sketch a graph: validate the plane + the key features it is marked on;
+        # skip a malformed one. Same contract as the AI import saver so a sketch
+        # imports identically here.
+        sketch_spec = None
+        if mapped_type == MQ.SKETCH_GRAPH:
+            from maths.geometry_grading import validate_sketch_spec
+            sketch_spec = q.get('sketch_spec')
+            try:
+                validate_sketch_spec(sketch_spec)
+            except (ValueError, TypeError):
+                continue
 
         # Image-based questions are visually distinct even when they share a
         # generic stem (e.g. 79 "What is the name of this shape?" questions, one
@@ -2490,6 +3205,8 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             and mapped_type not in (
                 MQ.LONG_DIVISION, MQ.COLUMN_OPERATION,
                 MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS,
+                MQ.DRAW_ON_GRID, MQ.SHAPE_SELECT, MQ.NUMBER_LINE,
+                MQ.TABLE_OF_VALUES, MQ.SKETCH_GRAPH, MQ.PRIME_FACTORIZATION,
             )
         )
         # read_graph carries a graph image but its IDENTITY is the numeric answer,
@@ -2517,10 +3234,16 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             'department_id': dept_id,
             'dividend': dividend,
             'divisor': divisor,
+            'target_number': target_number,
             'operands': operands,
             'operator': operator,
             'plane_spec': plane_spec,
             'graph_spec': graph_spec,
+            'grid_spec': grid_spec,
+            'shape_spec': shape_spec,
+            'number_line_spec': number_line_spec,
+            'table_spec': table_spec,
+            'sketch_spec': sketch_spec,
             'numeric_answer': numeric_answer,
             'answer_tolerance': answer_tolerance,
             'answer_unit': answer_unit,
@@ -2588,9 +3311,14 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                     answer_text=str(mq.column_result),
                     is_correct=True,
                 )
-        elif mapped_type in (MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS, MQ.READ_GRAPH):
-            # Graded by the plane_spec set / typed coords / numeric tolerance —
-            # no Answer rows (mirrors measure / draw_on_grid / shape_select).
+        elif mapped_type in (
+            MQ.PLOT_POINTS, MQ.PLOT_LINE, MQ.IDENTIFY_COORDS, MQ.READ_GRAPH,
+            MQ.MEASURE, MQ.DRAW_ON_GRID, MQ.SHAPE_SELECT, MQ.NUMBER_LINE,
+            MQ.TABLE_OF_VALUES,
+        ):
+            # Graded by the structured spec (plane / grid / shapes / number line /
+            # table) or numeric tolerance (measure / read_graph) — never Answer
+            # rows. The model's clean() also forbids answer options on these types.
             pass
         elif mapped_type != MQ.EXTENDED_ANSWER:
             answers_data = [a for a in q.get('answers', []) if a.get('text', '').strip()]
@@ -2701,11 +3429,24 @@ class HomeworkAIGradeView(RoleRequiredMixin, View):
 
         school = get_school_for_user(request.user)
         try:
-            result = grade_extended_answer(answer.question, answer.text_answer, school=school)
+            result = grade_extended_answer(
+                answer.question, answer.text_answer, school=school,
+                student=answer.submission.student)
+            if (result.get('error') or result.get('quota_exceeded')
+                    or result.get('not_entitled')):
+                # No verdict — say so and leave the answer pending rather than
+                # writing a 0 to the student's record under "AI graded".
+                messages.error(
+                    request,
+                    'AI grading could not mark this answer: '
+                    f'{result.get("feedback") or result.get("error")}',
+                )
+                return redirect('homework:pending_review')
             answer.is_correct = result.get('is_correct', False)
             answer.ai_score_fraction = result.get('score_fraction', 0.0)
             answer.ai_feedback = result.get('feedback', '')
-            answer.points_earned = round(answer.question.points * answer.ai_score_fraction, 2)
+            answer.points_earned = round(
+                answer.question.points * credit_for(answer.ai_score_fraction), 2)
             answer.review_status = HomeworkStudentAnswer.REVIEW_AI_DONE
             answer.graded_at = timezone.now()
             answer.save(update_fields=[
@@ -2768,7 +3509,7 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
         teacher_feedback = request.POST.get('teacher_feedback', '').strip()
 
         answer.ai_score_fraction = score_frac
-        answer.is_correct = score_frac >= 0.6
+        answer.is_correct = verdict(score_frac)[0]
         answer.points_earned = round(answer.question.points * score_frac, 2)
         answer.teacher_feedback = teacher_feedback
         answer.review_status = HomeworkStudentAnswer.REVIEW_TEACHER_DONE
@@ -2844,7 +3585,7 @@ class HomeworkGradeAnswerView(RoleRequiredMixin, View):
                     sib_norm = _normalise(sibling.text_answer)
                     if _levenshtein_ratio(normalised, sib_norm) >= 0.85:
                         sibling.ai_score_fraction = score_frac
-                        sibling.is_correct = score_frac >= 0.6
+                        sibling.is_correct = verdict(score_frac)[0]
                         sibling.points_earned = round(
                             (sibling.question.points if sibling.question else 1) * score_frac, 2
                         )

@@ -142,7 +142,7 @@ uses — and they re-run the gate on next login.
   guard, staff/parent/individual exclusions, dry-run, idempotency.
 - `accounts/tests.py::CPP300_CompleteProfileStripeEnforcementTest` — hard-block
   redirect, 100% code free activation, partial-code coupon redirect.
-- `ui_tests/test_cpp300_import_onboarding.py` — two end-to-end browser
+- `ui_tests/classroom/test_cpp300_import_onboarding.py` — two end-to-end browser
   scenarios (published import → email → student login → gate; unpublished import
   → publish → email → student login → gate).
 

@@ -14,6 +14,8 @@
     <h1 class="text-2xl font-display font-bold text-gray-900 mb-1">Upload PDF Homework</h1>
     <p class="text-sm text-gray-500 mb-6">AI will extract all questions automatically. You can review and edit them before saving.</p>
 
+    {% include "billing/_page_quota_meter.html" %}
+
     {% if messages %}
     {% for msg in messages %}
     <div class="mb-4 p-3 rounded-lg text-sm {% if msg.tags == 'error' %}bg-red-50 border border-red-200 text-red-700{% else %}bg-green-50 border border-green-200 text-green-700{% endif %}">
@@ -56,6 +58,11 @@
         </div>
         {% endif %}
 
+        <!-- Pages to extract -->
+        <div class="mb-5">
+          {% include "_partials/page_selection_field.html" with ps_accent="blue-500" %}
+        </div>
+
         <!-- Name-the-shape mode -->
         <div class="mb-5">
           <label class="flex items-start gap-3 p-3 rounded-xl border border-gray-200 hover:border-blue-300 cursor-pointer transition">
@@ -95,6 +102,37 @@
           </svg>
           <p class="text-white text-sm font-medium">Claude is reading your PDF… this may take 10–30 seconds</p>
         </div>
+      </form>
+    </div>
+
+    <!-- Authored JSON / ZIP upload -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mt-6">
+      <h2 class="text-base font-semibold text-gray-900 mb-1">Or upload authored questions (JSON / ZIP)</h2>
+      <p class="text-xs text-gray-500 mb-4">Already have questions in the question-bank format? Upload a
+        <code class="text-gray-600">.json</code> file (or a <code class="text-gray-600">.zip</code> containing
+        <code class="text-gray-600">questions.json</code> plus images) to skip AI extraction and go straight to
+        choosing a class and due date. Works for Mathematics and Coding.</p>
+      <form method="post" enctype="multipart/form-data" class="space-y-4">
+        {% csrf_token %}
+        {% if classrooms %}
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Classroom <span class="text-gray-400 font-normal">(optional — you can set this later)</span>
+          </label>
+          <select name="classroom_id" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">— select classroom —</option>
+            {% for cls in classrooms %}
+            <option value="{{ cls.id }}">{{ cls.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <input type="file" name="json_file" accept=".json,.zip" required
+               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 file:font-semibold hover:file:bg-blue-100 transition" />
+        <button type="submit"
+                class="py-2.5 px-5 bg-gray-800 text-white text-sm font-semibold rounded-xl hover:bg-gray-900 transition">
+          Upload questions
+        </button>
       </form>
     </div>
 

@@ -1,0 +1,575 @@
+{% extends "base.html" %}
+{% load report_text %}
+{% load static %}
+{% block title %}{{ report.label }} — Progress Report{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6" data-testid="period-report">
+
+  {% if preview %}
+    {% comment %}
+      Said plainly, because the rest of the page is deliberately identical to a
+      real report: without this banner a staff member could read a preview,
+      believe the family had it, and never send anything.
+    {% endcomment %}
+    <div class="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4"
+         data-testid="report-preview-banner">
+      <p class="text-sm font-semibold text-amber-900">
+        Preview — this report has not been generated or sent
+      </p>
+      <p class="text-xs text-amber-700 mt-1">
+        Exactly what {{ student.first_name|default:"this student" }} and their
+        parents would see. Nothing is saved by opening this page; use
+        <span class="font-semibold">Generate and send</span> on the preview list
+        when you are ready.
+      </p>
+    </div>
+  {% endif %}
+
+  {# The school's own letterhead, when it has one. Same logo and address the invoices carry. #}
+  {% if letterhead %}
+  <div class="flex items-center gap-4 border-b border-slate-200 pb-4" data-testid="report-letterhead">
+    {% if letterhead.logo %}
+      <img src="{{ letterhead.logo.url }}" alt="{{ letterhead.name }}" class="h-14 w-auto rounded-lg">
+    {% endif %}
+    <div>
+      <p class="font-display text-lg text-gray-900">{{ letterhead.name }}</p>
+      {% if letterhead.department %}<p class="text-xs text-slate-500">{{ letterhead.department }}</p>{% endif %}
+      {% if letterhead.address %}<p class="text-xs text-slate-500">{{ letterhead.address }}</p>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Header -->
+  <div class="flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <a href="{{ back_url }}"
+         class="text-xs text-slate-400 hover:text-slate-600">&larr; {{ back_label }}</a>
+      <h1 class="font-display text-3xl text-gray-800 mt-1">
+        {{ report.get_period_type_display }} Progress Report
+      </h1>
+      <p class="text-slate-500 text-sm mt-1">
+        {% if not is_self %}{{ student.first_name }} {{ student.last_name }} &middot; {% endif %}
+        {{ report.label }} &middot;
+        {{ report.period_start|date:"d M Y" }} – {{ report.period_end|date:"d M Y" }}
+      </p>
+    </div>
+    <a href="{{ pdf_url }}"
+       data-testid="report-pdf-link"
+       class="shrink-0 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+      Download PDF
+    </a>
+  </div>
+
+  {# The report's own reading of where the effort should go. Rules, not prose — see progress.reports.next_steps_section. #}
+  {% if next_steps.items %}
+  <div class="bg-indigo-50 rounded-2xl border border-indigo-100 p-6" data-testid="report-next-steps">
+    <h2 class="font-display text-xl text-gray-800">What's next</h2>
+    <p class="text-xs text-slate-500 mb-4">Based on the figures in this report.</p>
+    <ul class="space-y-2">
+      {% for item in next_steps.items %}
+        <li class="flex items-start gap-2 text-sm text-slate-700">
+          <span class="mt-0.5 shrink-0 text-xs font-semibold {% if item.kind == 'strength' %}text-emerald-600{% elif item.kind == 'focus' %}text-amber-600{% else %}text-indigo-500{% endif %}">
+            {% if item.kind == 'strength' %}Strength{% elif item.kind == 'focus' %}Focus{% elif item.kind == 'next' %}Next{% elif item.kind == 'habit' %}Habit{% else %}Note{% endif %}
+          </span>
+          <span>{{ item.text }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {# Outside the has_activity branch on purpose: a child with no submissions is exactly when the teacher's assessment and comment are the only things left to say. #}
+  {# Teacher's assessment. Rendered only when it exists — an absent section, never a blank one. #}
+  {% if rubric %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
+       data-testid="report-rubric">
+    <h2 class="font-display text-xl text-gray-800">Teacher's assessment</h2>
+    <p class="text-xs text-slate-500 mb-4">Assessed against this school's progress criteria.</p>
+    <div class="flex items-baseline gap-2">
+      {# 'achieved' already counts Confident + Advanced — see _build_student_progress. #}
+      <span class="text-3xl font-bold text-indigo-700">{{ rubric.achieved }}</span>
+      <span class="text-sm text-slate-500">of {{ rubric.total }} criteria at confident or above</span>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Same rule: no comment means no section, and never a blocked report. #}
+  {% if teacher_comment %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
+       data-testid="report-teacher-comment">
+    <h2 class="font-display text-xl text-gray-800">Teacher's comment</h2>
+    <p class="text-slate-700 mt-3">{{ teacher_comment.body|teacher_markup }}</p>
+    <p class="text-[11px] text-slate-400 mt-3">
+      {% if teacher_comment.created_by %}{{ teacher_comment.created_by.get_full_name|default:teacher_comment.created_by.username }} &middot; {% endif %}
+      {{ teacher_comment.updated_at|date:"j M Y" }}
+    </p>
+  </div>
+  {% endif %}
+
+  {% if not report.has_activity %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center space-y-2"
+         data-testid="report-empty">
+      <p class="text-slate-700 font-semibold">No homework was submitted in this period</p>
+      <p class="text-slate-500 text-sm">
+        There is nothing to report yet. Every attempt counts — including the second one.
+      </p>
+    </div>
+  {% else %}
+
+  <!-- Headline figures -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="report-kpis">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="text-3xl font-bold text-indigo-600">{{ totals.overall_avg_pct }}%</p>
+      <p class="text-xs text-slate-400 font-medium mt-1">
+        Overall average
+        <span class="block text-[10px] text-slate-300">across {{ totals.activity_items }} activit{{ totals.activity_items|pluralize:"y,ies" }}</span>
+      </p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="text-3xl font-bold text-slate-600">{{ totals.avg_best_pct }}%</p>
+      <p class="text-xs text-slate-400 font-medium mt-1">
+        Homework average
+        <span class="block text-[10px] text-slate-300">first attempt {{ totals.avg_first_pct }}%</span>
+      </p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="text-3xl font-bold {% if totals.improvement_pct > 0 %}text-emerald-600{% else %}text-slate-400{% endif %}">
+        {{ totals.improvement_pct|stringformat:"+d" }}
+      </p>
+      <p class="text-xs text-slate-400 font-medium mt-1">Points gained by retrying</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+      <p class="text-3xl font-bold text-slate-700">{{ totals.time_minutes }}<span class="text-lg">m</span></p>
+      <p class="text-xs text-slate-400 font-medium mt-1">Time on task</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-center text-sm">
+    <div class="bg-slate-50 rounded-xl border border-slate-200 p-3">
+      <span class="font-bold text-slate-700">{{ totals.completed }}/{{ totals.assigned }}</span>
+      <span class="text-slate-400 block text-xs">homework due, attempted</span>
+    </div>
+    <div class="bg-slate-50 rounded-xl border border-slate-200 p-3">
+      {# A count with no denominator says nothing: three of three and three of ten read the same. #}
+      <span class="font-bold text-slate-700">{{ worksheets.completed }}/{{ worksheets.assigned }}</span>
+      <span class="text-slate-400 block text-xs">worksheets set, completed</span>
+    </div>
+    <div class="bg-slate-50 rounded-xl border border-slate-200 p-3">
+      <span class="font-bold text-slate-700">{{ totals.submissions }}</span>
+      <span class="text-slate-400 block text-xs">total attempts</span>
+    </div>
+    <div class="bg-slate-50 rounded-xl border border-slate-200 p-3">
+      <span class="font-bold text-slate-700">{{ totals.on_time_pct }}%</span>
+      <span class="text-slate-400 block text-xs">handed in on time</span>
+    </div>
+    <div class="bg-slate-50 rounded-xl border border-slate-200 p-3">
+      <span class="font-bold text-slate-700">{{ totals.best_single_pct }}%</span>
+      <span class="text-slate-400 block text-xs">best single score</span>
+    </div>
+  </div>
+
+  <!-- Recognition -->
+  {% if awards %}
+  <div class="bg-gradient-to-br from-amber-50 to-white rounded-2xl border border-amber-200 shadow-sm p-6"
+       data-testid="report-awards">
+    <h2 class="font-display text-xl text-gray-800">Recognition</h2>
+    <p class="text-xs text-slate-500 mb-4">Earned against classmates over this same period.</p>
+    <div class="grid gap-3 sm:grid-cols-2">
+      {% for award in awards %}
+        <div class="bg-white rounded-xl border border-amber-200 p-4">
+          <p class="font-semibold text-amber-700">{{ award.label }}</p>
+          <p class="text-sm text-slate-600 mt-1">{{ award.detail }}</p>
+          {% if award.classroom %}
+            <p class="text-[11px] text-slate-400 mt-1">{{ award.classroom }}</p>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Charts -->
+  <div class="grid gap-6 lg:grid-cols-2">
+    {% if topics %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <h2 class="font-display text-xl text-gray-800">By topic</h2>
+      <p class="text-xs text-slate-500 mb-4">Accuracy per topic, weakest first. Sub-topics are in the table below.</p>
+      <canvas id="topicChart" height="220" data-testid="chart-topics"></canvas>
+    </div>
+    {% endif %}
+
+    {% if attempts.distribution %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <h2 class="font-display text-xl text-gray-800">Effort</h2>
+      <p class="text-xs text-slate-500 mb-4">
+        {{ attempts.repeat_rate_pct }}% of homework was attempted more than once,
+        averaging {{ attempts.avg_attempts }} attempts each.
+      </p>
+      <canvas id="attemptsChart" height="220" data-testid="chart-attempts"></canvas>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if report.trend|length > 1 %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <h2 class="font-display text-xl text-gray-800">Over the period</h2>
+    <p class="text-xs text-slate-500 mb-4">Average score per attempt.</p>
+    <canvas id="trendChart" height="160" data-testid="chart-trend"></canvas>
+  </div>
+  {% endif %}
+
+  <!-- Attempts detail -->
+  {% if attempts.items %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-attempts">
+    <h2 class="font-display text-xl text-gray-800">First attempt vs. best</h2>
+    <p class="text-xs text-slate-500 mb-4">What going back a second time was worth.</p>
+    <canvas id="firstVsBestChart" height="200" data-testid="chart-first-vs-best"></canvas>
+
+    <div class="overflow-x-auto mt-6">
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200">
+            <th class="py-2 pr-4">Homework</th>
+            <th class="py-2 px-2 text-center">Attempts</th>
+            <th class="py-2 px-2 text-center">First</th>
+            <th class="py-2 px-2 text-center">Best</th>
+            <th class="py-2 pl-2 text-center">Gain</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in attempts.items %}
+          <tr class="border-b border-slate-100">
+            <td class="py-2 pr-4 text-slate-700">
+              {{ row.title }}
+              {% if row.classroom %}<span class="block text-[11px] text-slate-400">{{ row.classroom }}</span>{% endif %}
+            </td>
+            <td class="py-2 px-2 text-center text-slate-600">{{ row.attempts }}</td>
+            <td class="py-2 px-2 text-center text-slate-500">{{ row.first_pct }}%</td>
+            <td class="py-2 px-2 text-center font-semibold text-slate-800">{{ row.best_pct }}%</td>
+            <td class="py-2 pl-2 text-center {% if row.gain_pct > 0 %}text-emerald-600 font-semibold{% else %}text-slate-400{% endif %}">
+              {{ row.gain_pct|stringformat:"+d" }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Topic table -->
+  {% if topics %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-topics">
+    <h2 class="font-display text-xl text-gray-800">Topic detail</h2>
+    <p class="text-xs text-slate-500 mt-1">Every sub-topic answered this period.</p>
+    <div class="overflow-x-auto mt-4">
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200">
+            <th class="py-2 pr-4">Topic</th>
+            <th class="py-2 px-2 text-center">Answered</th>
+            <th class="py-2 px-2 text-center">Correct</th>
+            <th class="py-2 pl-2 text-center">Accuracy</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in topics %}
+          <tr class="border-b border-slate-100">
+            <td class="py-2 pr-4 text-slate-700">{{ row.topic }}</td>
+            <td class="py-2 px-2 text-center text-slate-600">{{ row.answered }}</td>
+            <td class="py-2 px-2 text-center text-slate-600">{{ row.correct }}</td>
+            <td class="py-2 pl-2 text-center font-semibold
+                       {% if row.accuracy_pct >= 75 %}text-emerald-600
+                       {% elif row.accuracy_pct >= 50 %}text-amber-600
+                       {% else %}text-red-600{% endif %}">{{ row.accuracy_pct }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Maths quizzes -->
+  {# Practice a student chose to do in the subject's own app, not as homework. #}
+  {% for section in subject_practice.sections %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
+       data-testid="report-subject-practice">
+    <h2 class="font-display text-xl text-gray-800">{{ section.label }}</h2>
+    {# "Averaging 97%" over completion-only work is a finish rate wearing a mark's clothes. Say which it is. #}
+    <p class="text-xs text-slate-500 mb-4">
+      {{ section.items }} attempted over {{ section.attempts }} attempt{{ section.attempts|pluralize }}{% if section.scored_items %},
+      averaging {{ section.avg_best_pct }}% on the {{ section.scored_items }} that carr{{ section.scored_items|pluralize:"ies,y" }} a mark{% else %} &mdash; all completion-based, so there is no average mark{% endif %}.
+    </p>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200">
+            <th class="py-2 pr-4">Topic</th>
+            <th class="py-2 px-2 text-center">Practised</th>
+            <th class="py-2 px-2 text-center">Attempts</th>
+            <th class="py-2 px-2 text-center">Finished</th>
+            <th class="py-2 px-2 text-center">Best</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for topic in section.topics %}
+            <tr class="border-b border-slate-100">
+              <td class="py-2 pr-4 text-slate-700">{{ topic.name }}</td>
+              <td class="py-2 px-2 text-center text-slate-500">{{ topic.items }}</td>
+              <td class="py-2 px-2 text-center text-slate-500">{{ topic.attempts }}</td>
+              {# Finished counts exercises, which are pass/fail. A dash where there are none beats printing 0 of 0. #}
+              <td class="py-2 px-2 text-center text-slate-500">
+                {% if topic.exercises %}{{ topic.finished }} of {{ topic.exercises }}{% else %}&mdash;{% endif %}
+              </td>
+              {# Best is the mark on the problems that carry one. Blank, never 0%, when nothing here was graded. #}
+              <td class="py-2 px-2 text-center font-semibold text-indigo-700">
+                {% if topic.best_pct is not None %}{{ topic.best_pct }}%{% else %}<span class="text-slate-300 font-normal">&mdash;</span>{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {# The per-exercise detail is kept, just not the first thing a reader meets. #}
+    <details class="mt-4 group">
+      <summary class="cursor-pointer text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+        Show all {{ section.items }} exercise{{ section.items|pluralize }}
+      </summary>
+      <div class="overflow-x-auto mt-3">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200">
+              <th class="py-2 pr-4">Exercise</th>
+              <th class="py-2 px-2">Topic</th>
+              <th class="py-2 px-2 text-center">Attempts</th>
+              <th class="py-2 px-2 text-center">First</th>
+              <th class="py-2 px-2 text-center">Best</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in section.rows %}
+              <tr class="border-b border-slate-100">
+                <td class="py-2 pr-4 text-slate-700">{{ row.name }}</td>
+                <td class="py-2 px-2 text-xs text-slate-500">{{ row.topic }}</td>
+                <td class="py-2 px-2 text-center text-slate-500">{{ row.attempts }}</td>
+                {# An exercise is finished or not; printing it as 100% invites reading it as a score. #}
+                {% if row.scored %}
+                  <td class="py-2 px-2 text-center text-slate-500">{{ row.first_pct }}%</td>
+                  <td class="py-2 px-2 text-center font-semibold text-indigo-700">{{ row.best_pct }}%</td>
+                {% else %}
+                  <td class="py-2 px-2 text-center text-slate-300">&mdash;</td>
+                  <td class="py-2 px-2 text-center text-xs {% if row.best_pct %}text-emerald-600{% else %}text-slate-400{% endif %}">{% if row.best_pct %}Finished{% else %}Not finished{% endif %}</td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+  {% endfor %}
+
+  {% if quizzes.items %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-quizzes">
+    <h2 class="font-display text-xl text-gray-800">Maths quizzes</h2>
+    <p class="text-xs text-slate-500 mb-4">
+      {{ quizzes.attempts }} attempt{{ quizzes.attempts|pluralize }} across
+      {{ quizzes.attempted }} topic{{ quizzes.attempted|pluralize }}, averaging
+      {{ quizzes.avg_best_pct }}% at best.
+    </p>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-200">
+            <th class="py-2 pr-4">Topic</th>
+            <th class="py-2 px-2 text-center">Attempts</th>
+            <th class="py-2 px-2 text-center">First</th>
+            <th class="py-2 px-2 text-center">Best</th>
+            <th class="py-2 pl-2 text-center">Gain</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in quizzes.items %}
+          <tr class="border-b border-slate-100">
+            <td class="py-2 pr-4 text-slate-700">{{ row.name }}</td>
+            <td class="py-2 px-2 text-center text-slate-600">{{ row.attempts }}</td>
+            <td class="py-2 px-2 text-center text-slate-500">{{ row.first_pct }}%</td>
+            <td class="py-2 px-2 text-center font-semibold text-slate-800">{{ row.best_pct }}%</td>
+            <td class="py-2 pl-2 text-center {% if row.gain_pct > 0 %}text-emerald-600 font-semibold{% else %}text-slate-400{% endif %}">
+              {{ row.gain_pct|stringformat:"+d" }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Times tables -->
+  {% if times_tables.items %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-times-tables">
+    <h2 class="font-display text-xl text-gray-800">Times tables</h2>
+    <p class="text-xs text-slate-500 mb-4">
+      {{ times_tables.tables }} table{{ times_tables.tables|pluralize }} practised,
+      averaging {{ times_tables.avg_best_pct }}% at best.
+    </p>
+    <div class="flex flex-wrap gap-2">
+      {% for row in times_tables.items %}
+        <div class="rounded-xl border border-slate-200 px-3 py-2 text-center min-w-[5.5rem]">
+          <p class="text-sm font-bold text-slate-800">{{ row.table }}×</p>
+          <p class="text-[11px] text-slate-500">
+            {% if row.multiplication_pct is not None %}× {{ row.multiplication_pct }}%{% endif %}
+            {% if row.division_pct is not None %}<span class="block">÷ {{ row.division_pct }}%</span>{% endif %}
+          </p>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Basic facts -->
+  {% if basic_facts.items %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-basic-facts">
+    <h2 class="font-display text-xl text-gray-800">Basic facts</h2>
+    <p class="text-xs text-slate-500 mb-4">
+      Best result per subtopic, with the level it was reached at.
+    </p>
+    <ul class="divide-y divide-slate-100 text-sm">
+      {% for row in basic_facts.items %}
+        <li class="py-2 flex items-center justify-between">
+          <span class="text-slate-700">{{ row.subtopic }}{% if row.level %} &middot; Level {{ row.level }}{% endif %}</span>
+          <span class="font-semibold text-slate-800">{{ row.best_pct }}%</span>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <!-- Worksheets -->
+  {% if worksheets.items %}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6" data-testid="report-worksheets">
+    <h2 class="font-display text-xl text-gray-800">Worksheets</h2>
+    <p class="text-xs text-slate-500 mb-4">
+      {{ worksheets.completed }} completed, averaging {{ worksheets.average_pct }}%.
+    </p>
+    <ul class="divide-y divide-slate-100 text-sm">
+      {% for row in worksheets.items %}
+        <li class="py-2 flex items-center justify-between">
+          <span class="text-slate-700">{{ row.title }}</span>
+          <span class="text-slate-500">{{ row.score }}/{{ row.total }} &middot; <b>{{ row.pct }}%</b></span>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if report.has_activity %}
+<script id="report-charts-data" type="application/json">{{ charts_json|safe }}</script>
+{% comment %}
+Chart.js is served from our own static files, not a CDN: the report is the one
+page a parent may open on a school network that blocks third-party script hosts,
+and a silently chart-less report reads as "no data".
+{% endcomment %}
+<script src="{% static 'js/chart.min.js' %}"></script>
+<script>
+(function () {
+  // The snapshot is already frozen server-side, so the page reads it straight
+  // out of the document rather than calling an API that could drift from the PDF.
+  var el = document.getElementById('report-charts-data');
+  if (!el || typeof Chart === 'undefined') { return; }
+  var data = JSON.parse(el.textContent);
+
+  var INK = '#1f2937', GRID = '#e5e7eb';
+  var scoreColour = function (pct) {
+    return pct >= 75 ? '#059669' : pct >= 50 ? '#d97706' : '#dc2626';
+  };
+  var percentScale = {
+    y: { beginAtZero: true, max: 100, ticks: { callback: function (v) { return v + '%'; } },
+         grid: { color: GRID } },
+    x: { grid: { display: false } }
+  };
+
+  var topics = document.getElementById('topicChart');
+  if (topics && data.topics.labels.length) {
+    new Chart(topics, {
+      type: 'bar',
+      data: {
+        labels: data.topics.labels,
+        datasets: [{
+          label: 'Accuracy',
+          data: data.topics.values,
+          backgroundColor: data.topics.values.map(scoreColour),
+          borderRadius: 4
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } }, scales: percentScale }
+    });
+  }
+
+  var attempts = document.getElementById('attemptsChart');
+  if (attempts && data.attempts.labels.length) {
+    new Chart(attempts, {
+      type: 'pie',
+      data: {
+        labels: data.attempts.labels,
+        datasets: [{
+          data: data.attempts.values,
+          backgroundColor: ['#c7d2fe', '#818cf8', '#4338ca', '#a5b4fc'],
+          borderColor: '#fff',
+          borderWidth: 2
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    });
+  }
+
+  var trend = document.getElementById('trendChart');
+  if (trend && data.trend.labels.length > 1) {
+    new Chart(trend, {
+      type: 'line',
+      data: {
+        labels: data.trend.labels,
+        datasets: [{
+          label: 'Average score',
+          data: data.trend.values,
+          borderColor: '#4f46e5',
+          backgroundColor: 'rgba(79,70,229,0.12)',
+          fill: true,
+          tension: 0.3
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } }, scales: percentScale }
+    });
+  }
+
+  var firstVsBest = document.getElementById('firstVsBestChart');
+  if (firstVsBest && data.firstVsBest.labels.length) {
+    new Chart(firstVsBest, {
+      type: 'bar',
+      data: {
+        labels: data.firstVsBest.labels,
+        datasets: [
+          { label: 'First attempt', data: data.firstVsBest.first, backgroundColor: '#cbd5e1', borderRadius: 4 },
+          { label: 'Best attempt', data: data.firstVsBest.best, backgroundColor: '#4f46e5', borderRadius: 4 }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: 'bottom', labels: { color: INK } } },
+        scales: percentScale
+      }
+    });
+  }
+})();
+</script>
+{% endif %}
+{% endblock %}

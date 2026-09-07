@@ -1,20 +1,29 @@
-import uuid
 import json
+import logging
 import time
+import uuid
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.utils import timezone
 from django.conf import settings
+from django.db.models import Q
 
 from audit.services import log_event
 from classroom.models import Level as ClassroomLevel, SchoolStudent, Topic as ClassroomTopic
 from maths.models import calculate_points
+# Which times tables each year may practise. This module used to carry its own
+# divergent copy of that mapping, and this was the copy the page actually read.
+from maths.constants import MAX_TIMES_TABLE, times_tables_for_year
+from rewards.models import PointsSource
+from rewards.services import award_points_safe
 from .basic_facts import (
     SUBTOPIC_CONFIG, SUBTOPIC_LABELS, get_display_level,
     generate_questions, check_answer
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _get_student_school(user):
@@ -50,6 +59,150 @@ def _cleanup_stale_quiz_keys(session, prefix):
             pass
     for k in stale:
         del session[k]
+
+
+def _correct_answer_texts(question):
+    """Every ticked answer's text for *question* (non-empty), in stored order.
+
+    Short-answer grading used to look at ``.first()`` only, so a question with
+    more than one accepted answer silently rejected all but one of them
+    (CPP-374). Mirrors the list ``Question.grade_text_answer`` builds.
+    """
+    return [
+        a.answer_text for a in question.answers.filter(is_correct=True)
+        if a.answer_text
+    ]
+
+
+def gradable_for(user, questions_qs):
+    """Filter *questions_qs* down to the questions this quiz can actually mark.
+
+    A quiz gives its verdict the instant the student presses Submit, so it may
+    only serve questions it can grade on the spot. Two kinds it cannot:
+
+    - ``question_type='extended_answer'`` — written prose, no stored answer;
+    - ``validation_type`` of ``ai_graded`` / ``human_graded`` — the author said
+      explicitly that a person or a model must judge this one.
+
+    A quiz gives its verdict the instant the student presses Submit, so it may
+    only serve questions it can mark then and there. What that leaves out
+    depends on the student:
+
+    - ``validation_type='human_graded'`` is hidden from everyone. A teacher has
+      to mark it, and no quiz can wait for that.
+    - AI-graded questions (``extended_answer``, or ``validation_type=
+      'ai_graded'``) are shown to students the quiz can AI-grade: every
+      individual student, and school students whose school buys the AI grading
+      module. For anyone else they are hidden, because the alternative is
+      showing a child a question that will be marked wrong however well they
+      answer it.
+
+    Before this, all of them were served to everyone and then graded by exact
+    match against a stored answer that, by definition, isn't there. 483
+    questions site-wide are in that state, and they are not broken content:
+    they carry the diagram and the marking rubric AI grading needs.
+    """
+    from maths.models import Question
+    from worksheets.grading_service import student_can_be_ai_graded
+
+    # Nobody can be marked on these inside a quiz.
+    hidden = Q(validation_type=Question.VALIDATION_HUMAN)
+
+    if not student_can_be_ai_graded(user):
+        # One definition of "AI-graded", on the model, so this filter and the
+        # money guard in grade_extended_answer can never disagree about which
+        # half of the bank a question is in.
+        hidden |= Question.ai_graded_q()
+
+    return questions_qs.exclude(hidden)
+
+
+def ai_upsell_for(user, hidden_count):
+    """Context for the "you're missing N questions" promotion, or ``{}``.
+
+    Shown only to a student who is BOTH short of questions and able to do
+    something about it — one on Student Basic, the free promotional edition. A
+    school student whose school never bought the module is equally short, and
+    is deliberately shown nothing: pointing a child at a purchase only their
+    school can make is worse than silence.
+
+    Empty dict, not None, so a template can ``{% include %}`` the partial
+    unconditionally.
+    """
+    from worksheets.grading_service import ai_grading_offer
+
+    if hidden_count <= 0:
+        return {}
+    entitled, can_upgrade = ai_grading_offer(user)
+    if entitled or not can_upgrade:
+        return {}
+    return {'ai_upsell': {'hidden_count': hidden_count}}
+
+
+def _log_hidden(user, level_number, topic, shown, total):
+    """Say plainly when a quiz was shortened, and by how much.
+
+    A quiz that quietly shrinks from 25 questions to 6 looks like thin content
+    rather than what it is — questions waiting on a grader.
+    """
+    hidden = total - shown
+    if not hidden:
+        return
+    logger.warning(
+        'Quiz for %s (year %s%s): %s of %s questions hidden because the quiz '
+        'cannot mark them for this student (teacher-graded, or AI-graded '
+        'without the module). %s left.',
+        getattr(user, 'username', user), level_number,
+        f', topic {topic}' if topic else '', hidden, total, shown,
+    )
+
+
+def ai_grade(question, raw, user):
+    """AI-grade a written answer. Returns ``(is_correct, feedback, graded, credit)``.
+
+    ``graded`` is False when the grader could not reach a verdict — the API
+    failed, or the school's monthly quota ran out mid-quiz. Both come back from
+    ``grade_extended_answer`` as ``is_correct: False``, and taking that at face
+    value would mark a child wrong for a billing state or an outage. So the
+    answer is recorded as ungraded instead and dropped from the score's
+    denominator: not right, not wrong, not counted.
+
+    ``credit`` is what the answer is worth, 0.0–1.0. Full marks only at 1.0;
+    from the pass mark up it keeps the share it earned, and the quiz shows the
+    student that score beside an amber "partly correct" rather than a bare ❌,
+    exactly as it already does for a partly-filled fill-in-the-blank sentence;
+    below the pass mark the answer is wrong and earns nothing.
+    """
+    from worksheets.grading_service import credit_for, grade_extended_answer
+
+    school = _get_student_school(user)
+    if not raw:
+        return (False, 'Write your answer in the box so it can be marked.',
+                True, 0.0)
+
+    result = grade_extended_answer(question, raw, school=school, student=user)
+
+    if (result.get('quota_exceeded') or result.get('error')
+            or result.get('not_entitled')):
+        logger.warning(
+            'AI grading unavailable for Q%s (student %s, school %s): %s — '
+            'the answer was left ungraded rather than scored wrong.',
+            question.id, getattr(user, 'username', user),
+            getattr(school, 'name', None),
+            result.get('error')
+            or ('not on this student\'s plan' if result.get('not_entitled')
+                else 'monthly quota reached'),
+        )
+        return False, (
+            'This one could not be marked automatically just now, so it has '
+            'not been counted. Your teacher will look at it.'), False, 0.0
+
+    feedback = result.get('feedback') or ''
+    extra = result.get('what_to_add')
+    if extra and not result.get('is_correct'):
+        feedback = f'{feedback} {extra}'.strip()
+    credit = credit_for(result.get('score_fraction'))
+    return bool(result.get('is_correct')), feedback, True, credit
 
 
 # ── Basic Facts ─────────────────────────────────────────────────────────────
@@ -186,6 +339,12 @@ class BasicFactsQuizView(LoginRequiredMixin, View):
         # Keep only the most recent attempts for this subtopic/level.
         BasicFactsResult.prune_old_attempts(result)
 
+        award_points_safe(
+            request.user, PointsSource.BASIC_FACTS,
+            f'{subtopic}:{level_number}', result.points,
+            label=f'Basic facts — {subtopic} level {level_number}',
+        )
+
         log_event(
             user=request.user,
             school=_get_student_school(request.user),
@@ -253,20 +412,6 @@ class BasicFactsResultsView(LoginRequiredMixin, View):
 
 # ── Times Tables ─────────────────────────────────────────────────────────────
 
-TIMES_TABLES_BY_YEAR = {
-    1: [1],
-    2: [1, 2, 10],
-    3: [1, 2, 3, 4, 5, 10],
-    4: list(range(1, 16)),
-    5: list(range(1, 16)),
-    6: list(range(1, 16)),
-    7: list(range(1, 16)),
-    8: list(range(1, 16)),
-    9: list(range(1, 16)),
-    10: list(range(1, 16)),
-}
-
-
 def _generate_times_tables_questions(table, operation, count=12, shuffle=False):
     import random
     multipliers = list(range(1, count + 1))
@@ -312,11 +457,11 @@ class TimesTablesHomeView(LoginRequiredMixin, View):
             if hub_levels.exists():
                 year = hub_levels.order_by('-level_number').first().level_number
 
-        available_tables = TIMES_TABLES_BY_YEAR.get(year, list(range(1, 16)))
+        available_tables = times_tables_for_year(year)
 
         return render(request, 'quiz/times_tables_select.html', {
             'available_tables': available_tables,
-            'all_tables': range(1, 16),
+            'all_tables': range(1, MAX_TIMES_TABLE + 1),
             'year': year,
         })
 
@@ -325,11 +470,11 @@ class TimesTablesSelectView(LoginRequiredMixin, View):
     def get(self, request, level_number, operation):
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
         year = level_number
-        available = TIMES_TABLES_BY_YEAR.get(year, list(range(1, 16)))
+        available = times_tables_for_year(year)
         return render(request, 'quiz/times_tables_select.html', {
             'level': level, 'operation': operation,
             'available_tables': available,
-            'all_tables': range(1, 16),
+            'all_tables': range(1, MAX_TIMES_TABLE + 1),
             'year': year,
         })
 
@@ -492,6 +637,12 @@ class TimesTablesSubmitView(LoginRequiredMixin, View):
         # Keep only the most recent attempts for this table/operation.
         StudentFinalAnswer.prune_old_attempts(sfa)
 
+        award_points_safe(
+            request.user, PointsSource.TIMES_TABLES,
+            f'{operation}:{table}:{"shuffled" if shuffled else "in-order"}', sfa.points,
+            label=f'{operation.title()} table {table}',
+        )
+
         log_event(
             user=request.user,
             school=_get_student_school(request.user),
@@ -566,9 +717,19 @@ class TopicQuizView(LoginRequiredMixin, View):
         topic = get_object_or_404(ClassroomTopic, id=topic_id)
 
         from maths.models import Question
-        questions_qs = list(Question.objects.filter(
-            topic=topic, level=level
-        ).prefetch_related('answers'))
+        # Global bank only. A plain .filter() here reads every school's private
+        # questions too, so one school's content was being served to every other
+        # school's students — and to students in no school at all. The gradable
+        # filter then drops what this student's quiz cannot mark; both narrow
+        # the same pool, so the hidden-count log counts against the global bank
+        # rather than against questions the student was never entitled to.
+        in_topic = Question.objects.global_only().filter(topic=topic, level=level)
+        questions_qs = list(
+            gradable_for(request.user, in_topic).prefetch_related('answers'))
+        in_topic_total = in_topic.count()
+        _log_hidden(request.user, level_number, topic.id,
+                    len(questions_qs), in_topic_total)
+        upsell = ai_upsell_for(request.user, in_topic_total - len(questions_qs))
 
         if not questions_qs:
             from django.contrib import messages
@@ -609,6 +770,7 @@ class TopicQuizView(LoginRequiredMixin, View):
         rnd.shuffle(first_answers)
 
         return render(request, 'quiz/topic_quiz.html', {
+            **upsell,
             'topic': topic, 'level': level,
             'session_id': session_id,
             'question': first_q,
@@ -651,12 +813,22 @@ class MixedQuizView(LoginRequiredMixin, View):
         # Stratified sample across all topics for this level
         topics = level.topics.all()
         all_questions = []
+        # Counted over the whole pool, not the 5-per-topic sample, so the log
+        # below reports what the level holds rather than what this draw took.
+        pool_total = pool_gradable = 0
         for topic in topics:
-            qs = list(Question.objects.filter(topic=topic, level=level).prefetch_related('answers'))
+            # Global bank only (see TopicQuizView), then drop the ungradable.
+            in_topic = Question.objects.global_only().filter(topic=topic, level=level)
+            gradable = gradable_for(request.user, in_topic)
+            pool_total += in_topic.count()
+            pool_gradable += gradable.count()
+            qs = list(gradable.prefetch_related('answers'))
             rnd.shuffle(qs)
             all_questions.extend(qs[:5])  # max 5 per topic
 
         rnd.shuffle(all_questions)
+        _log_hidden(request.user, level_number, None, pool_gradable, pool_total)
+        upsell = ai_upsell_for(request.user, pool_total - pool_gradable)
 
         if not all_questions:
             from django.contrib import messages
@@ -675,6 +847,7 @@ class MixedQuizView(LoginRequiredMixin, View):
         }
 
         return render(request, 'quiz/mixed_quiz.html', {
+            **upsell,
             'level': level, 'questions': all_questions,
             'session_id': session_id,
             'total': len(all_questions),
@@ -695,6 +868,12 @@ class MixedQuizView(LoginRequiredMixin, View):
         questions = Question.objects.filter(id__in=question_ids).prefetch_related('answers', 'topic')
 
         correct_count = 0
+        # What the paper is worth, as opposed to how many questions were fully
+        # right: a part-graded question (a fill-in-the-blank sentence) adds the
+        # share of its gaps the student filled correctly. See the note on the
+        # topic quiz's session credit.
+        credit_total = 0.0
+        ungraded = 0        # answers no grader could reach a verdict on
         topic_results = {}  # {topic_name: {'correct': 0, 'total': 0}}
         answer_records = []
         review_data = []  # per-question review payload for later viewing
@@ -707,50 +886,99 @@ class MixedQuizView(LoginRequiredMixin, View):
 
             is_correct = False
             student_answer = ''
+            # What the student actually chose/typed, kept for the StudentAnswer
+            # row below — see the note on the topic-quiz save path (CPP-377).
+            selected_answer_obj = None
+            typed_answer = ''
+            # Set only by the part-graded types (fill_blank, table_of_values).
+            partial = None
+            # Set only by an AI-graded answer: the grader's own score, so a
+            # partly-right written answer carries its share of the marks the
+            # same way a partly-filled sentence does.
+            ai_credit = None
             if q.question_type in ('multiple_choice', 'true_false'):
                 answer_id = request.POST.get(f'answer_{q.id}')
                 if answer_id:
                     answer = Answer.objects.filter(id=answer_id, question=q).first()
                     is_correct = bool(answer and answer.is_correct)
                     student_answer = answer.answer_text if answer else ''
-            elif q.answer_format == 'algebra':
+                    selected_answer_obj = answer
+            elif q.answer_format == Question.ANSWER_FORMAT_PATTERN:
+                # "Create your own number pattern" — checked BEFORE the AI
+                # branch, because these are authored as written answers and
+                # would otherwise be sent to Claude even though the maths
+                # decides them outright. The grader reads the pattern the
+                # student built, so the verdict is the same every time.
+                from maths.pattern_grading import grade_pattern
                 raw = request.POST.get(f'text_{q.id}', '').strip()
-                is_correct = q.grade_text_answer(raw)
-                student_answer = raw
+                student_answer = typed_answer = raw
+                is_correct = grade_pattern(q.question_text, raw).is_correct
+            elif (q.question_type == Question.EXTENDED_ANSWER
+                  or q.validation_type == Question.VALIDATION_AI):
+                # Written answer — same AI grader as the topic quiz. One it
+                # could not reach a verdict on is dropped from the total rather
+                # than counted wrong.
+                raw = request.POST.get(f'text_{q.id}', '').strip()
+                student_answer = typed_answer = raw
+                is_correct, _feedback, graded, ai_credit = ai_grade(
+                    q, raw, request.user)
+                if not graded:
+                    ungraded += 1
             else:
-                from quiz.basic_facts import check_answer as _ca
-                from maths.algebra_grading import fold_exponents, fold_inequalities
+                # Every typed answer grades on the model, which routes by
+                # answer_format (text / algebra / equation / set) and by
+                # question_type (a fill-in-the-blank sentence posts one value per
+                # gap as JSON) internally.
                 raw = request.POST.get(f'text_{q.id}', '').strip()
-                student_answer = raw
-                correct_ans = q.answers.filter(is_correct=True).first()
-                if correct_ans:
-                    # Match grade_text_answer: exponent- and inequality-insensitive.
-                    _fold = lambda v: fold_exponents(fold_inequalities(v))
-                    alts = [_fold(a) for a in correct_ans.answer_text.split(',')]
-                    is_correct = _fold(raw) in alts
+                typed_answer = raw
+                # A blanks payload is JSON — unreadable in the review list — so
+                # what is SHOWN back is the readable form; what is STORED on the
+                # StudentAnswer row stays the raw payload it was graded from.
+                student_answer = q.display_text_answer(raw)
+                # A sentence of gaps is several answers: marked gap by gap so a
+                # nearly-right one keeps most of its marks. None for the
+                # single-answer types, which grade as they always have.
+                partial = q.grade_text_answer_parts(raw)
+                is_correct = (partial.is_correct if partial is not None
+                              else q.grade_text_answer(raw))
 
             if is_correct:
                 correct_count += 1
                 topic_results[topic_name]['correct'] += 1
+            if partial is not None:
+                credit_total += partial.fraction
+            elif ai_credit is not None:
+                credit_total += ai_credit
+            else:
+                credit_total += 1.0 if is_correct else 0.0
 
-            correct_ans = q.answers.filter(is_correct=True).first()
-            review_data.append({
+            review_entry = {
                 'id': q.id,
                 'question': q.question_text,
                 'topic': topic_name,
                 'student_answer': student_answer,
-                'correct_answer': correct_ans.answer_text if correct_ans else '',
+                # Every correct row, not just the first — a list answer must not
+                # be shown to the student as only its first value.
+                'correct_answer': q.correct_answer_display(),
                 'is_correct': is_correct,
-            })
+            }
+            if partial is not None:
+                review_entry.update(partial.as_answer_data())
+            review_data.append(review_entry)
 
             answer_records.append(StudentAnswer(
                 student=request.user,
                 question=q,
+                selected_answer=selected_answer_obj,
+                text_answer=typed_answer,
                 is_correct=is_correct,
             ))
 
-        total = len(question_ids) or 1
-        points = calculate_points(correct_count, total, time_taken)
+        # Ungraded answers (AI grading down or out of quota) are not part of
+        # the paper — see ai_grade().
+        total = max(1, len(question_ids) - ungraded)
+        # Scored on credit rather than the count — see credit_total above.
+        points = calculate_points(credit_total, total, time_taken)
 
         from django.db import transaction
         with transaction.atomic():
@@ -769,6 +997,12 @@ class MixedQuizView(LoginRequiredMixin, View):
                 questions_data=review_data,
             )
             StudentFinalAnswer.prune_old_attempts(result)
+
+        award_points_safe(
+            request.user, PointsSource.MATHS_QUIZ,
+            f'mixed:{subject}:level:{level.id if level else 0}', result.points,
+            label=f'Mixed quiz — level {level.level_number if level else "?"}',
+        )
 
         log_event(
             user=request.user,
@@ -828,7 +1062,7 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         if not session_data:
             return JsonResponse({'error': 'Session expired'}, status=400)
 
-        from maths.models import Question, Answer
+        from maths.models import Question, Answer, _split_answer_list
         question_id = data.get('question_id')
         q = get_object_or_404(Question, id=question_id)
         current = session_data['current']
@@ -838,11 +1072,33 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
         is_correct = False
         correct_answer_text = ''
         correct_answer_id = None
+        # Grader-written explanation, for question types where the mark needs
+        # one (see the pattern and AI branches below). Empty for everything else.
+        feedback = ''
+        # Set when no verdict could be reached (AI grading down or out of
+        # quota). Such an answer is dropped from the score rather than counted
+        # against the student.
+        ungraded = False
+        # Set by the part-graded types (a fill-in-the-blank sentence is several
+        # answers, not one), so an answer that is nine tenths right can be
+        # scored and explained as nine tenths right. None = one answer, marked
+        # all or nothing.
+        partial = None
+        # Set by the AI branch: the grader's own 0.0–1.0 score. Shown to the
+        # student and counted in the points, so a written answer that is most
+        # of the way there is not worth the same as a blank one.
+        ai_credit = None
+        # The option the student actually clicked. Persisted on StudentAnswer
+        # below: without it the row records only *that* an answer scored zero,
+        # never *what* was chosen, which makes a "this was marked wrong
+        # unfairly" report impossible to check against the data (CPP-377).
+        selected_answer_obj = None
 
         if q.question_type in ('multiple_choice', 'true_false'):
             answer_id = data.get('answer_id')
             answer = Answer.objects.filter(id=answer_id, question=q).first()
             is_correct = bool(answer and answer.is_correct)
+            selected_answer_obj = answer
             correct_ans = q.answers.filter(is_correct=True).first()
             if correct_ans:
                 correct_answer_text = correct_ans.answer_text
@@ -894,58 +1150,194 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             is_correct = grade_measure(q, raw)
             num = q.numeric_answer.normalize()
             correct_answer_text = f'{num:f}{q.answer_unit or ""}'
-        elif q.answer_format == 'algebra':
+        elif q.question_type == 'number_line' and q.number_line_spec:
+            # Mark a value on / read a value off a number line. Mark mode posts a
+            # JSON {"marks":[...]} in text_answer; read mode posts the typed value.
+            # Graded by the spec (set comparison / numeric tolerance), never an
+            # Answer row — mirrors maths.plugin.grade_answer.
+            from maths.geometry_grading import grade_number_line
+            raw = data.get('text_answer', '')
+            is_correct = grade_number_line(q.number_line_spec, raw)
+            correct_answer_text = ', '.join(
+                str(v) for v in (q.number_line_data or {}).get('target_values', [])
+            )
+        elif q.question_type == Question.FILL_BLANK and q.blank_spec:
+            # A fill-in-the-blank sentence posts one value per gap as JSON in
+            # text_answer, graded gap by gap against blank_spec. It needs its
+            # own branch (rather than the typed fallback below) because its
+            # answers live in the spec, not in Answer rows: the fallback would
+            # log it as a question with no stored answer and try to compare the
+            # JSON payload as a number.
+            raw = data.get('text_answer', '')
+            partial = q.grade_text_answer_parts(raw)
+            if partial is None:
+                # Spec and payload don't line up — no honest per-gap verdict, so
+                # fall back to the all-or-nothing grader.
+                is_correct = q.grade_text_answer(raw)
+            else:
+                is_correct = partial.is_correct
+            correct_answer_text = q.correct_answer_display()
+        elif q.question_type == Question.SKETCH_GRAPH and q.sketch_spec:
+            # "Sketch the graph … showing the vertex, the intercepts and the
+            # axis of symmetry" posts one value per feature as JSON in
+            # text_answer, graded feature by feature against sketch_spec. Its
+            # own branch for the same reason fill_blank has one: the answers
+            # live in the spec, not in Answer rows, so the typed fallback below
+            # would find nothing to match and mark every student wrong.
+            raw = data.get('text_answer', '')
+            partial = q.grade_text_answer_parts(raw)
+            if partial is None:
+                # Spec and payload don't line up — no honest per-feature
+                # verdict, so fall back to the all-or-nothing grader.
+                is_correct = q.grade_text_answer(raw)
+            else:
+                is_correct = partial.is_correct
+            correct_answer_text = q.correct_answer_display()
+        elif q.answer_format in ('algebra', 'equation'):
+            # Algebra (expand & simplify) and equation (algebraic-equivalence)
+            # answers are both graded on the model, which routes by answer_format.
             raw = data.get('text_answer', '').strip()
             is_correct = q.grade_text_answer(raw)
-            correct_ans = q.answers.filter(is_correct=True).first()
-            correct_answer_text = correct_ans.answer_text if correct_ans else ''
-        else:
-            from maths.algebra_grading import fold_exponents, fold_inequalities
+            correct_answer_text = q.correct_answer_display()
+        elif q.answer_format == Question.ANSWER_FORMAT_PATTERN:
+            # "Create your own number pattern" — no stored answer exists, so the
+            # typed numbers are graded against what the question asks for. The
+            # grader also explains itself, and that explanation is the only
+            # useful feedback such a question can give.
+            #
+            # Checked BEFORE the AI branch, not after it. These questions are
+            # authored as written answers, so the branch below used to swallow
+            # every one of them and send it to Claude — which marked a pattern
+            # running the wrong way ✅ Correct above its own feedback saying so.
+            # The arithmetic decides them outright; nothing here needs a model.
+            from maths.pattern_grading import grade_pattern
             raw = data.get('text_answer', '').strip()
-            correct_ans = q.answers.filter(is_correct=True).first()
-            if correct_ans:
-                # Match grade_text_answer: exponent- and inequality-insensitive.
-                _fold = lambda v: fold_exponents(fold_inequalities(v))
-                alts_raw = [a.strip() for a in correct_ans.answer_text.split(',')]
-                alts = [_fold(a) for a in alts_raw]
-                from django.conf import settings
-                tolerance = getattr(settings, 'ANSWER_NUMERIC_TOLERANCE', 0.05)
-                is_correct = _fold(raw) in alts
-                if not is_correct:
-                    try:
-                        is_correct = abs(float(raw) - float(alts_raw[0])) <= tolerance
-                    except ValueError:
-                        pass
-                correct_answer_text = alts_raw[0]
+            grade = grade_pattern(q.question_text, raw)
+            is_correct = grade.is_correct
+            feedback = grade.feedback
+            # There is no "the" answer, so this is a worked example. The client
+            # shows it only when the student got the question wrong.
+            correct_answer_text = q.correct_answer_display()
+        elif (q.question_type == Question.EXTENDED_ANSWER
+              or q.validation_type == Question.VALIDATION_AI):
+            # A written answer, judged by Claude against the question's rubric.
+            # Only reachable when gradable_for() offered the question, so the
+            # student is one the quiz can AI-grade.
+            raw = data.get('text_answer', '').strip()
+            is_correct, feedback, graded, ai_credit = ai_grade(
+                q, raw, request.user)
+            if not graded:
+                ungraded = True
+            correct_answer_text = ''
+        else:
+            raw = data.get('text_answer', '').strip()
+            correct_texts = _correct_answer_texts(q)
+            if not correct_texts:
+                # Nothing to grade against: every student who ever answers this
+                # question scores zero, whatever they type. That is a content
+                # defect, not a student mistake — so say so in the log rather
+                # than letting it fail silently for years. Fix it by adding the
+                # answer, or by setting answer_format='pattern' if the question
+                # asks the student to invent one.
+                logger.warning(
+                    'Question %s (%r) has no stored correct answer — the typed '
+                    'answer %r was scored wrong because there is nothing to '
+                    'match it against.',
+                    q.id, q.question_text[:80], raw[:80],
+                )
+            else:
+                is_correct = q.grade_text_answer(raw)
+                if not is_correct and q.answer_format != Question.ANSWER_FORMAT_SET:
+                    # Numeric answers also grade within a small tolerance.
+                    tolerance = getattr(settings, 'ANSWER_NUMERIC_TOLERANCE', 0.05)
+                    for text in correct_texts:
+                        # Only a single-value answer has a float to compare
+                        # against. Taking the first value of "32, 2" accepted a
+                        # bare "32" — half the answer — which is the same hole
+                        # the comma rule had (CPP-378). Commas are stripped
+                        # rather than split on, so "1,000" == 1000 still grades.
+                        if len(_split_answer_list(text)) > 1:
+                            continue
+                        try:
+                            if abs(float(raw.replace(',', ''))
+                                   - float(text.replace(',', ''))) <= tolerance:
+                                is_correct = True
+                                break
+                        except ValueError:
+                            continue
+                # Every correct row, in full — showing only the first value told
+                # the student the answer was "54" when it is 54 and 63 (CPP-376).
+                correct_answer_text = q.correct_answer_display()
 
-        # Capture the student's submitted answer (as text) for later review.
+        # Capture the student's submitted answer (as text) for later review, and
+        # in the typed/ordered forms the StudentAnswer row stores.
+        ordered_answer_ids = None
+        typed_answer = ''
         if q.question_type in ('multiple_choice', 'true_false'):
-            _sel = Answer.objects.filter(id=data.get('answer_id'), question=q).first()
-            student_answer_text = _sel.answer_text if _sel else ''
+            # Reuses the Answer already fetched by the grader above rather than
+            # re-querying it.
+            student_answer_text = (
+                selected_answer_obj.answer_text if selected_answer_obj else ''
+            )
         elif q.question_type == 'drag_drop':
             _texts = dict(q.answers.values_list('id', 'answer_text'))
+            _raw_ids = data.get('ordered_answer_ids', [])
             student_answer_text = ' -> '.join(
-                str(_texts.get(int(i), i)) for i in data.get('ordered_answer_ids', [])
+                str(_texts.get(int(i), i)) for i in _raw_ids
             )
+            ordered_answer_ids = [int(i) for i in _raw_ids]
         else:
-            student_answer_text = data.get('text_answer', '').strip()
+            typed_answer = data.get('text_answer', '').strip()
+            # A fill-in-the-blank sentence posts its gaps as a JSON payload,
+            # which is unreadable in the review list — so what is SHOWN back is
+            # the readable form ("15, live"); what is STORED on the StudentAnswer
+            # row stays the raw payload it was graded from. Every other answer
+            # passes through unchanged.
+            student_answer_text = q.display_text_answer(typed_answer)
 
         # Update session
+        #
+        # 'correct' counts questions answered fully correctly — what "7 of 10"
+        # on the results page means. 'credit' is what the paper is WORTH: the
+        # same 1 for a right answer and 0 for a wrong one, but the share of its
+        # gaps for a partly-right fill-in-the-blank sentence. Kept apart so
+        # partial credit reaches the points without inflating the count.
+        if partial is not None:
+            credit = partial.fraction
+        elif ai_credit is not None:
+            credit = ai_credit
+        else:
+            credit = 1.0 if is_correct else 0.0
+        if 'credit' not in session_data:
+            # A quiz already in flight when this shipped has no 'credit' key —
+            # seed it from the count so far (before this answer) so its earlier
+            # questions aren't silently dropped from the total.
+            session_data['credit'] = float(session_data['correct'])
         if is_correct:
             session_data['correct'] += 1
+        if not ungraded:
+            session_data['credit'] += credit
+        if ungraded:
+            session_data['ungraded'] = session_data.get('ungraded', 0) + 1
         session_data['current'] = current + 1
         # Record this question for later review, but guard against a replayed or
         # double-clicked POST re-recording a question already answered — that
         # would duplicate rows in the saved questions_data.
         review = session_data.setdefault('review', [])
         if not any(r.get('id') == q.id for r in review):
-            review.append({
+            entry = {
                 'id': q.id,
                 'question': q.question_text,
                 'student_answer': student_answer_text,
                 'correct_answer': correct_answer_text,
                 'is_correct': is_correct,
-            })
+            }
+            if partial is not None:
+                # What the attempt was worth, and which gaps cost the marks —
+                # so the review page can explain a partly-right answer months
+                # later without re-grading it.
+                entry.update(partial.as_answer_data())
+            review.append(entry)
         request.session[session_key] = session_data
 
         # Save individual answer
@@ -956,7 +1348,12 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             student=request.user,
             question=q,
             attempt_id=attempt,
-            defaults={'is_correct': is_correct},
+            defaults={
+                'is_correct': is_correct,
+                'selected_answer': selected_answer_obj,
+                'text_answer': typed_answer,
+                'ordered_answer_ids': ordered_answer_ids,
+            },
         )
 
         is_last = session_data['current'] >= len(questions)
@@ -966,9 +1363,16 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             # Save final result
             start_time = session_data.get('start_time', time.time())
             time_taken = max(1, int(time.time() - start_time))
-            total = len(questions)
+            # Questions nobody could mark are not part of the paper: scoring a
+            # student 7/8 because the grader was down is a mark they did not
+            # lose. max(1, ...) keeps calculate_points from dividing by zero on
+            # the (pathological) all-ungraded quiz.
+            total = max(1, len(questions) - session_data.get('ungraded', 0))
             correct = session_data['correct']
-            points = calculate_points(correct, total, time_taken)
+            # Scored on credit, not the count: a paper with one gap wrong in a
+            # ten-gap chart is 9.9/10 of a paper, not 9/10.
+            points = calculate_points(
+                session_data.get('credit', correct), total, time_taken)
 
             from maths.models import StudentFinalAnswer
             level = ClassroomLevel.objects.filter(level_number=session_data['level_number']).first()
@@ -986,6 +1390,12 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
                 questions_data=session_data.get('review', []),
             )
             StudentFinalAnswer.prune_old_attempts(result)
+            award_points_safe(
+                request.user, PointsSource.MATHS_QUIZ,
+                f'topic:{q.topic_id}:level:{level.id if level else 0}', result.points,
+                label=f'{q.topic.name if q.topic else "Quiz"} — level '
+                      f'{level.level_number if level else "?"}',
+            )
             log_event(
                 user=request.user,
                 school=_get_student_school(request.user),
@@ -1017,10 +1427,25 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             from maths.models import TopicLevelStatistics
             TopicLevelStatistics.recalculate(q.topic, level)
 
+        payload = partial.as_answer_data() if partial is not None else {}
         return JsonResponse({
             'is_correct': is_correct,
             'correct_answer_id': correct_answer_id,
             'correct_answer_text': correct_answer_text,
+            'feedback': feedback,
+            'ungraded': ungraded,
+            # What this answer was worth, 0.0–1.0, and (for a part-graded
+            # sentence) which gaps were wrong — so the page can say "9 of the
+            # 10 blanks are right" and name the tenth instead of a flat
+            # "Incorrect". An AI-graded answer sends its score here too: the
+            # student sees the mark the feedback beside it is describing.
+            'credit': (payload.get('score_fraction') if partial is not None
+                       else ai_credit),
+            'parts_correct': payload.get('parts_correct'),
+            'parts_total': payload.get('parts_total'),
+            'parts_noun': payload.get('parts_noun'),
+            'parts': payload.get('parts'),
+            'what_was_correct': payload.get('what_was_correct'),
             'explanation': q.explanation,
             'is_last_question': is_last,
             'next_url': next_url,

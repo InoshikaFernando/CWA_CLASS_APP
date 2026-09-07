@@ -21,7 +21,12 @@
 
   <!-- Question text (with read-aloud speaker) -->
   <div class="flex items-start gap-2 mb-6">
+    {% comment %}A fill-in-the-blank sentence IS its own widget (the gaps sit inside the
+    text), so it prints the question itself below — printing it here too would show the
+    question twice. The read-aloud button still reads the whole sentence.{% endcomment %}
+    {% if not question.blank_data %}
     <p class="text-gray-800 font-semibold text-lg leading-snug flex-1">{{ question.question_text }}</p>
+    {% else %}<span class="flex-1"></span>{% endif %}
     {% if question.question_text %}
     <button type="button"
             class="tts-btn shrink-0 w-10 h-10 rounded-full bg-accent-light text-accent
@@ -282,6 +287,72 @@
       </button>
     </div>
 
+  {% elif question.question_type == 'fill_blank' and question.blank_data %}
+    {% comment %}
+    Fill in the blanks: the sentence is re-laid-out with an input in each gap.
+    fill_blank.js keeps the hidden text_answer field in sync as JSON
+    {"blanks":[...]}, graded by grade_fill_blank_parts server-side. The Submit button's
+    onclick survives the innerHTML question swap; fill_blank.js re-mounts via the
+    shared maths_mounts.js registry.
+    {% endcomment %}
+    {% include "maths/partials/_fill_blank_tool.html" with q=question field_name='text_answer' %}
+    <button type="button"
+            class="mt-4 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+            onclick="submitFillBlank('{{ session_id }}', {{ question.id }})">
+      Submit
+    </button>
+
+  {% elif question.question_type == 'sketch_graph' and question.sketch_data %}
+    {% comment %}
+    Sketch a graph: the student plots the curve on the plane the app draws and
+    types the key features the stem names (vertex, intercepts, axis of
+    symmetry). sketch_graph.js keeps the hidden text_answer field in sync as
+    JSON {"features":{...},"points":[...]}, graded part by part — the sketch
+    and each feature — by grade_sketch_parts server-side. Without this branch the question would take one whole-answer
+    box that no features payload could match, marking every student wrong. The
+    Submit button's onclick survives the innerHTML question swap;
+    sketch_graph.js re-mounts via the shared maths_mounts.js registry.
+    {% endcomment %}
+    {% include "maths/partials/_sketch_graph_tool.html" with q=question field_name='text_answer' %}
+    <button type="button"
+            class="mt-4 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+            onclick="submitSketchGraph('{{ session_id }}', {{ question.id }})">
+      Submit
+    </button>
+
+  {% elif question.pattern_field_data %}
+    {% comment %}
+    "Create your own number pattern": a box per number the question asks for and
+    a box for the rule, composed by pattern_fields.js into the one line
+    grade_pattern reads. Checked before the plain-box fallback below and before
+    the AI branch in the view, because these questions are authored as written
+    answers — which is how they used to end up being marked by a model instead
+    of by the arithmetic. The Submit button's onclick survives the innerHTML
+    question swap; pattern_fields.js re-mounts via the shared maths_mounts.js
+    registry.
+    {% endcomment %}
+    {% include "maths/partials/_pattern_tool.html" with q=question field_name='text_answer' %}
+    <button type="button"
+            class="mt-4 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+            onclick="submitPattern('{{ session_id }}', {{ question.id }})">
+      Submit
+    </button>
+
+  {% elif question.question_type == 'number_line' and question.number_line_data %}
+    {% comment %}
+    Number line: mark mode overlays tappable ticks on the drawn scale (marks
+    synced to a hidden field by static/js/number_line.js); read mode draws the
+    arrow(s) and takes a typed value. submitNumberLine posts text_answer, graded
+    by grade_number_line server-side. The Submit button's onclick survives the
+    innerHTML question swap; number_line.js re-mounts via its MutationObserver.
+    {% endcomment %}
+    {% include "maths/partials/_number_line_tool.html" with q=question field_name='text_answer' %}
+    <button type="button"
+            class="mt-4 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+            onclick="submitNumberLine('{{ session_id }}', {{ question.id }})">
+      Submit
+    </button>
+
   {% else %}
     <!-- Short answer / calculation (symbol keypad injected by maths_exponent.js) -->
     <div class="flex gap-3">
@@ -298,6 +369,25 @@
       </button>
     </div>
   {% endif %}
+
+  {% comment %}Report a problem with THIS question (CPP-398). Before it, a student
+  who hit a broken question could only reach the global feedback button, which
+  captures the page URL — and a topic quiz page serves dozens of questions, so the
+  report could not be traced back to the one they were looking at.
+
+  The click is handled by a delegated listener in topic_quiz.html's persistent
+  extra_js block, not by hx-* attributes here: this card is swapped in by
+  innerHTML, which HTMX never gets to process, so hx-get would work on the first
+  question of a quiz and silently do nothing on every one after it.{% endcomment %}
+  <div class="mt-6 pt-4 border-t border-gray-100 text-right">
+    <button type="button"
+            data-report-question="{{ question.id }}"
+            data-testid="report-question"
+            class="text-xs text-gray-400 hover:text-danger transition
+                   hover:underline underline-offset-2">
+      ⚑ Report a problem with this question
+    </button>
+  </div>
 
 </div>
 {% endif %}

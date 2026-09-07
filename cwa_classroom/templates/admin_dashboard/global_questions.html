@@ -174,7 +174,7 @@
               <th class="text-left px-4 py-3 font-semibold text-gray-600 w-24">Type</th>
               <th class="text-center px-4 py-3 font-semibold text-gray-600 w-16">Image</th>
               <th class="text-left px-4 py-3 font-semibold text-gray-600">Correct Answer</th>
-              <th class="text-left px-4 py-3 font-semibold text-gray-600 w-20"></th>
+              <th class="text-left px-4 py-3 font-semibold text-gray-600 w-44"></th>
             {% endif %}
           </tr>
         </thead>
@@ -274,6 +274,18 @@
   </div>
 </div>
 
+{% comment %}
+The "Preview as student" modal the editor's button opens. Included with no
+preview_url: this page previews stored questions, so each button carries its own
+endpoint. Deliberately placed AFTER the edit modal — both are z-50, and the
+preview has to land on top of the editor it was opened from.
+{% endcomment %}
+{% comment %} The modal posts, and the listing's own buttons are not inside a form: this
+   is the token that script finds.
+{% endcomment %}
+<div class="hidden">{% csrf_token %}</div>
+{% include "partials/_student_preview_modal.html" %}
+
 <script>
 function openImageModal(url) {
   document.getElementById('image-modal-img').src = url;
@@ -303,15 +315,43 @@ function _openEditModalAt(url) {
 
 function closeEditModal() {
   document.getElementById('edit-modal').classList.add('hidden');
+  // Drop ?edit= so a refresh or Back does not silently reopen the modal the
+  // reader just dismissed.
+  if (window.history.replaceState) {
+    var url = new URL(window.location.href);
+    if (url.searchParams.has('edit')) {
+      url.searchParams.delete('edit');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }
 }
 
-// Listen for successful edit save
+// Deep link: /admin-dashboard/global-questions/?edit=<id> opens that question
+// straight away. The question-health pages link here, and they know a question
+// id but not which filter page it happens to fall on — the modal loads by id
+// over HTMX, so the row does not need to be in the current listing.
+document.addEventListener('DOMContentLoaded', function() {
+  var requested = new URLSearchParams(window.location.search).get('edit');
+  if (requested && /^\d+$/.test(requested)) {
+    openEditModal(requested);
+  }
+});
+
+// Listen for successful edit save.
+// The question editor now answers into the modal (see question_edit_saved.html)
+// and refreshes the listing row out of band, so close on either signal: the
+// "Saved" body, or a row swap from the coding editor which still targets a row.
 document.body.addEventListener('htmx:afterSwap', function(evt) {
-  if (evt.detail.target && evt.detail.target.id) {
-    var id = evt.detail.target.id;
-    if (id.startsWith('question-row-') || id.startsWith('coding-row-')) {
-      closeEditModal();
-    }
+  var target = evt.detail.target;
+  if (!target) { return; }
+  if (target.id === 'edit-modal-content'
+      && target.querySelector('#edit-saved')) {
+    closeEditModal();
+    return;
+  }
+  if (target.id && (target.id.startsWith('question-row-')
+                    || target.id.startsWith('coding-row-'))) {
+    closeEditModal();
   }
 });
 

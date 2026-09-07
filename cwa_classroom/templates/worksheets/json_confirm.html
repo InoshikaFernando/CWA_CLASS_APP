@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Confirm Worksheet — {{ session.worksheet_name }}{% endblock %}
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <div>
+    <h1 class="font-display text-2xl text-primary">Name &amp; Save Worksheet</h1>
+    <p class="text-gray-400 text-sm mt-1">Your questions were imported from the uploaded file. Give the worksheet a name to finish.</p>
+  </div>
+
+  {% if messages %}
+  {% for msg in messages %}
+  <div class="rounded-xl px-4 py-3 text-sm font-medium {% if msg.tags == 'error' %}bg-red-50 text-red-700 border border-red-200{% else %}bg-emerald-50 text-emerald-700 border border-emerald-200{% endif %}">{{ msg }}</div>
+  {% endfor %}
+  {% endif %}
+
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+    <div class="flex justify-between items-center">
+      <span class="text-sm font-semibold text-gray-700">Questions imported</span>
+      <span class="font-display text-2xl text-primary">{{ question_count }}</span>
+    </div>
+    <div class="flex justify-between items-center border-t border-slate-100 pt-4">
+      <span class="text-sm text-gray-400">Subject</span>
+      <span class="text-sm text-gray-600 capitalize">{{ subject|default:"mathematics" }}</span>
+    </div>
+    <div class="flex justify-between items-center border-t border-slate-100 pt-4">
+      <span class="text-sm text-gray-400">Source file</span>
+      <span class="text-xs text-gray-500 font-mono">{{ session.pdf_filename }}</span>
+    </div>
+  </div>
+
+  <form method="post" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+    {% csrf_token %}
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-1.5">Worksheet name <span class="text-red-500">*</span></label>
+      <input type="text" name="worksheet_name" required
+             value="{{ session.worksheet_name|default:session.pdf_filename }}"
+             class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+    </div>
+    <div class="flex gap-3 pt-2">
+      <button type="submit"
+              class="px-7 py-2.5 rounded-xl bg-primary text-white font-semibold shadow-sm hover:bg-primary/90 transition">
+        Save Worksheet
+      </button>
+      <a href="{% url 'worksheets:upload' %}"
+         class="px-5 py-2.5 rounded-xl border border-slate-200 text-sm text-gray-600 hover:bg-slate-50 transition">
+        Cancel
+      </a>
+    </div>
+  </form>
+</div>
+{% endblock %}

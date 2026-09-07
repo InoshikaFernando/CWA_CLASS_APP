@@ -1,0 +1,324 @@
+{
+  "subject": "coding",
+  "language": "javascript",
+  "topic": "loops",
+  "level": "beginner",
+  "exercises": [
+    {
+      "title": "Count to 5",
+      "question_type": "write_code",
+      "instructions": "Use a for loop to print the numbers 1 to 5, each on a new line.",
+      "starter_code": "// Use a for loop\n",
+      "expected_output": "1\n2\n3\n4\n5",
+      "hints": "Use a for loop: for (let i = 1; i <= 5; i++)",
+      "display_order": 1
+    },
+    {
+      "title": "For Loop: Print 1-10",
+      "question_type": "write_code",
+      "instructions": "Use a for loop to print numbers 1 through 10, each on a new line.",
+      "starter_code": "// Use a for loop\nfor (let i = ?; i <= ?; i++) {\n  console.log(?);\n}\n",
+      "expected_output": "1\n2\n3\n4\n5\n6\n7\n8\n9\n10",
+      "hints": "Loop from 1 while i <= 10",
+      "display_order": 2
+    },
+    {
+      "title": "For Loop: Even Numbers",
+      "question_type": "write_code",
+      "instructions": "Use a for loop to print all even numbers from 2 to 10, each on a new line.",
+      "starter_code": "// Use a for loop with a step\nfor (let i = ?; i <= ?; i += ?) {\n  console.log(?);\n}\n",
+      "expected_output": "2\n4\n6\n8\n10",
+      "hints": "Start at 2 and step by 2 with i += 2",
+      "display_order": 3
+    },
+    {
+      "title": "For Loop: Sum 1 to 5",
+      "question_type": "write_code",
+      "instructions": "Use a for loop to calculate the sum of numbers from 1 to 5 and print the result.",
+      "starter_code": "let total = 0;\nfor (let i = ?; i <= ?; i++) {\n  total += ?;\n}\nconsole.log(total);\n",
+      "expected_output": "15",
+      "hints": "Add each i to total inside the loop, then print total after the loop",
+      "display_order": 4
+    },
+    {
+      "title": "Multiply Table",
+      "question_type": "write_code",
+      "instructions": "Print the 5 times table (5*1 through 5*10), each on a new line.\nFormat: 5 x 1 = 5",
+      "starter_code": "// Print 5 times table\n",
+      "expected_output": "5 x 1 = 5\n5 x 2 = 10\n5 x 3 = 15\n5 x 4 = 20\n5 x 5 = 25\n5 x 6 = 30\n5 x 7 = 35\n5 x 8 = 40\n5 x 9 = 45\n5 x 10 = 50",
+      "hints": "Use a for loop with range 1..10 and a template literal.",
+      "display_order": 5
+    },
+    {
+      "title": "For Loop: Multiplication Table",
+      "question_type": "write_code",
+      "instructions": "Print the 3 times table from 3x1 to 3x5 in the format '3 x 1 = 3'.",
+      "starter_code": "for (let i = ?; i <= ?; i++) {\n  console.log(`3 x ${i} = ${?}`);\n}\n",
+      "expected_output": "3 x 1 = 3\n3 x 2 = 6\n3 x 3 = 9\n3 x 4 = 12\n3 x 5 = 15",
+      "hints": "Multiply 3 by i inside the template literal",
+      "display_order": 6
+    },
+    {
+      "title": "While Loop: Countdown from 10",
+      "question_type": "write_code",
+      "instructions": "Use a while loop to count down from 10 to 1.",
+      "starter_code": "let count = 10;\nwhile (count > 0) {\n  // Print count and decrease it\n}\n",
+      "expected_output": "10\n9\n8\n7\n6\n5\n4\n3\n2\n1",
+      "hints": "Print count, then use count-- to decrease it",
+      "display_order": 7
+    },
+    {
+      "title": "While Loop: Double Until 100",
+      "question_type": "write_code",
+      "instructions": "Start with 1 and keep doubling it while it is less than 100. Print each value.",
+      "starter_code": "let num = 1;\nwhile (num < ?) {\n  console.log(?);\n  num = ?;\n}\n",
+      "expected_output": "1\n2\n4\n8\n16\n32\n64",
+      "hints": "Use num = num * 2 to double the value each iteration",
+      "display_order": 8
+    },
+    {
+      "title": "For...of: Loop Through an Array",
+      "question_type": "write_code",
+      "instructions": "Loop through the array of fruits and print each one.",
+      "starter_code": "let fruits = [\"apple\", \"banana\", \"cherry\"];\nfor (let ? of ?) {\n  console.log(?);\n}\n",
+      "expected_output": "apple\nbanana\ncherry",
+      "hints": "Use for (let fruit of fruits) to iterate through each item",
+      "display_order": 9
+    },
+    {
+      "title": "For Loop: Count Vowels",
+      "question_type": "write_code",
+      "instructions": "Count how many vowels (a, e, i, o, u) are in the word 'education' and print the count.",
+      "starter_code": "let word = \"education\";\nlet vowels = \"aeiou\";\nlet count = 0;\nfor (let letter of ?) {\n  if (vowels.includes(?)) {\n    count++;\n  }\n}\nconsole.log(count);\n",
+      "expected_output": "5",
+      "hints": "Loop through each letter of word and check if it's in the vowels string with .includes()",
+      "display_order": 10
+    },
+    {
+      "title": "While Loop: Sum Until 50",
+      "question_type": "write_code",
+      "instructions": "Keep adding numbers starting from 1 until the total reaches or exceeds 50. Print the final total.",
+      "starter_code": "let total = 0;\nlet n = 1;\nwhile (total < ?) {\n  total += ?;\n  n++;\n}\nconsole.log(total);\n",
+      "expected_output": "55",
+      "hints": "1+2+3+...+10 = 55, which is the first sum >= 50",
+      "display_order": 11
+    },
+    {
+      "title": "For Loop: Reverse Countdown",
+      "question_type": "write_code",
+      "instructions": "Use a for loop to print numbers from 5 down to 1.",
+      "starter_code": "for (let i = ?; i >= ?; i--) {\n  console.log(i);\n}\n",
+      "expected_output": "5\n4\n3\n2\n1",
+      "hints": "Start at 5 and decrease with i-- while i >= 1",
+      "display_order": 12
+    },
+    {
+      "title": "Nested Loop: Square Pattern",
+      "question_type": "write_code",
+      "instructions": "Use nested loops to print a 3x3 grid of stars (*).",
+      "starter_code": "for (let i = 0; i < ?; i++) {\n  let row = \"\";\n  for (let j = 0; j < ?; j++) {\n    row += \"*\";\n  }\n  console.log(row);\n}\n",
+      "expected_output": "***\n***\n***",
+      "hints": "Build each row as a string in the inner loop, then console.log the row",
+      "display_order": 13
+    },
+    {
+      "title": "For Loop: Find Maximum",
+      "question_type": "write_code",
+      "instructions": "Find the largest number in the array [4, 7, 2, 9, 5, 1] and print it.",
+      "starter_code": "let numbers = [4, 7, 2, 9, 5, 1];\nlet largest = numbers[0];\nfor (let num of ?) {\n  if (num > ?) {\n    largest = ?;\n  }\n}\nconsole.log(largest);\n",
+      "expected_output": "9",
+      "hints": "Compare each number to largest, and update largest if the current number is bigger",
+      "display_order": 14
+    },
+    {
+      "title": "What is the output of:\nfor (let i = 0; i < 3; i++) {\n  console.log(i);\n}",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 15,
+      "answers": [
+        {
+          "text": "0\n1\n2",
+          "is_correct": true
+        },
+        {
+          "text": "1\n2\n3",
+          "is_correct": false
+        },
+        {
+          "text": "0\n1\n2\n3",
+          "is_correct": false
+        },
+        {
+          "text": "3",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "title": "How many times does this loop run?\nfor (let i = 1; i < 6; i++) {\n  console.log(i);\n}",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 16,
+      "answers": [
+        {
+          "text": "4",
+          "is_correct": false
+        },
+        {
+          "text": "5",
+          "is_correct": true
+        },
+        {
+          "text": "6",
+          "is_correct": false
+        },
+        {
+          "text": "1",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "title": "Which keyword starts a counting loop in JavaScript?",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 17,
+      "answers": [
+        {
+          "text": "loop",
+          "is_correct": false
+        },
+        {
+          "text": "foreach",
+          "is_correct": false
+        },
+        {
+          "text": "for",
+          "is_correct": true
+        },
+        {
+          "text": "iterate",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "title": "The loop `for (let i = 0; i < 5; i++)` sets i to 1, 2, 3, 4, 5.",
+      "question_type": "true_false",
+      "instructions": "",
+      "display_order": 18,
+      "answers": [
+        {
+          "text": "True",
+          "is_correct": false
+        },
+        {
+          "text": "False",
+          "is_correct": true
+        }
+      ]
+    },
+    {
+      "title": "What is the output of:\nlet total = 0;\nfor (const n of [1, 2, 3, 4]) {\n  total += n;\n}\nconsole.log(total);",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 19,
+      "answers": [
+        {
+          "text": "4",
+          "is_correct": false
+        },
+        {
+          "text": "6",
+          "is_correct": false
+        },
+        {
+          "text": "10",
+          "is_correct": true
+        },
+        {
+          "text": "24",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "title": "What values does `for (let i = 2; i < 10; i += 2)` give i?",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 20,
+      "answers": [
+        {
+          "text": "2, 4, 6, 8, 10",
+          "is_correct": false
+        },
+        {
+          "text": "2, 4, 6, 8",
+          "is_correct": true
+        },
+        {
+          "text": "2, 3, 4, 5, 6, 7, 8, 9",
+          "is_correct": false
+        },
+        {
+          "text": "0, 2, 4, 6, 8",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "title": "Fill in the blank so the loop prints each character of the word 'cat' on its own line:\nfor (const letter ___ 'cat') {\n  console.log(letter);\n}",
+      "question_type": "fill_blank",
+      "instructions": "Fill in the blank so the loop prints each character of the word 'cat' on its own line:\nfor (const letter ___ 'cat') {\n  console.log(letter);\n}",
+      "display_order": 21,
+      "correct_short_answer": "of"
+    },
+    {
+      "title": "A for...of loop in JavaScript can iterate over a string character by character.",
+      "question_type": "true_false",
+      "instructions": "",
+      "display_order": 22,
+      "answers": [
+        {
+          "text": "True",
+          "is_correct": true
+        },
+        {
+          "text": "False",
+          "is_correct": false
+        }
+      ]
+    },
+    {
+      "title": "What is the output of:\nfor (let i = 0; i < 3; i++) {\n  if (i === 1) break;\n  console.log(i);\n}",
+      "question_type": "short_answer",
+      "instructions": "What is the output of:\nfor (let i = 0; i < 3; i++) {\n  if (i === 1) break;\n  console.log(i);\n}",
+      "display_order": 23,
+      "correct_short_answer": "0"
+    },
+    {
+      "title": "What is the output of:\nfor (let i = 0; i < 4; i++) {\n  if (i === 2) continue;\n  console.log(i);\n}",
+      "question_type": "multiple_choice",
+      "instructions": "",
+      "display_order": 24,
+      "answers": [
+        {
+          "text": "0\n1\n2\n3",
+          "is_correct": false
+        },
+        {
+          "text": "0\n1\n3",
+          "is_correct": true
+        },
+        {
+          "text": "0\n1",
+          "is_correct": false
+        },
+        {
+          "text": "1\n3",
+          "is_correct": false
+        }
+      ]
+    }
+  ]
+}

@@ -92,6 +92,31 @@ python manage.py grant_free_access            # apply
 python manage.py grant_free_access --dry-run  # preview
 ```
 
+### `student_modules`
+Put individual students on a per-student module, or take them off one. Student
+Basic (the free promotional edition, without the AI-graded questions) is granted
+here or in the Django admin and nowhere else — there is no student-facing route
+onto it.
+```bash
+python manage.py student_modules --list
+python manage.py student_modules --grant basic --user ada --user grace
+python manage.py student_modules --grant basic --file cohort.txt --dry-run
+python manage.py student_modules --grant ai_grading --user ada   # sell it back
+python manage.py student_modules --revoke basic --user ada
+```
+
+### `promo_code_doctor`
+Report whether each Student (Promo) code has actually taken effect for anybody.
+Read-only — it writes nothing, so it is safe against production. Separates a
+counter with no members (never worked for anyone) from members the promo gave
+nothing new to (worked, but was a no-op) from members whose class access exists
+because of it.
+```bash
+python manage.py promo_code_doctor
+python manage.py promo_code_doctor --code FULLACCESS2026
+python manage.py promo_code_doctor --students   # name every redeemer
+```
+
 ### `reset_invoice_counters`
 Reset yearly invoice usage counters (for annual billing cycles).
 ```bash
@@ -105,6 +130,26 @@ Send email warnings to schools/students whose trial expires within N days.
 python manage.py send_trial_expiry_warnings              # default: 3 days
 python manage.py send_trial_expiry_warnings --days 7     # 7 days warning
 python manage.py send_trial_expiry_warnings --dry-run    # preview (don't send)
+```
+
+### `check_unpaid_access`
+Daily paywall watchdog: cross-checks every delinquent subscription (past due /
+cancelled / expired) against the page-hit log and reports any account that
+reached a restricted page while unpaid. `TrialExpiryMiddleware` is the only
+thing stopping that, and a regression in it does not error — the account simply
+keeps working and nobody is billed.
+
+Installed on PROD as `/etc/cron.d/cwa-unpaid-access` (daily 09:00, one-day
+window, logs to `/var/log/cwa/unpaid_access.log`); the same signal is on the Ops
+dashboard's **Subscription access** tile and in
+`/api/health/?deep=1` under `warnings.unpaid_access`. Exits non-zero on a leak so
+a cron wrapper can alert.
+```bash
+python manage.py check_unpaid_access                     # all delinquent users, 7-day window
+python manage.py check_unpaid_access --days 30           # wider window
+python manage.py check_unpaid_access --username Ovindik  # one account
+python manage.py check_unpaid_access --quiet             # print only on a leak
+python manage.py check_unpaid_access --webhook "$FEEDBACK_DISCORD_WEBHOOK"
 ```
 
 ---
@@ -143,10 +188,97 @@ safe to re-run.
 ```bash
 python manage.py publish_scheduled_homework
 ```
-Intended to run as a cron job every ~5 minutes. On the DigitalOcean server (`cwa` user):
+Runs every 5 minutes on both droplets, installed by `deploy/setup-app-prod.sh`
+as `/etc/cron.d/cwa-publish-homework` — you should not need to add it by hand:
 ```cron
-*/5 * * * * cd /home/cwa/CWA_CLASS_APP && /home/cwa/CWA_CLASS_APP/venv/bin/python manage.py publish_scheduled_homework >> /var/log/cwa/publish_scheduled_homework.log 2>&1
+*/5 * * * * cwa cd /home/cwa/CWA_CLASS_APP && venv/bin/python cwa_classroom/manage.py publish_scheduled_homework >> /var/log/cwa/publish_scheduled_homework.log 2>&1
 ```
+Note the path: `manage.py` lives at `cwa_classroom/manage.py`, never at the repo
+root. This entry previously ran `manage.py` from the root, so it failed on every
+tick into its own log — and it had never been installed on production at all,
+which meant no scheduled homework was ever published there.
+
+### `generate_scheduled_questions`
+Turn each due week of a teacher's question schedule (CPP-399) into a homework set.
+A week is "due" once its release time minus the plan's `lead_days` has passed. The
+homework is created with a **future** `publish_at`, so it stays invisible to
+students until `publish_scheduled_homework` publishes it — that gap is the
+teacher's preview window. Idempotent per week: a week that already produced a
+homework is skipped, so a re-run or an overlapping manual run can never give a
+class two sets for the same week.
+
+A week whose planned topics yield no questions creates **nothing** and notifies the
+class's teachers (in-app + email) instead of failing silently.
+
+```bash
+python manage.py generate_scheduled_questions
+python manage.py generate_scheduled_questions --dry-run
+python manage.py generate_scheduled_questions --schedule 12
+python manage.py generate_scheduled_questions --dry-run --as-of 2026-09-07
+```
+
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | Report what would be generated; write nothing |
+| `--schedule <id>` | Limit to one `QuestionSchedule` |
+| `--as-of YYYY-MM-DD` | Treat that date's end as "now" — rehearse a future run |
+
+Runs daily on the DigitalOcean server via the drop-in installed by
+`deploy/setup-app-prod.sh`; use the wrapper (it holds the flock) rather than
+calling `manage.py` directly:
+```cron
+15 2 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_generate_scheduled_questions.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/scheduled_questions.log 2>&1
+```
+
+---
+
+## Progress Reports
+
+### `generate_progress_reports`
+Generate the weekly / monthly / term progress reports for any period that closed
+on the given date, and deliver them: an in-app notification to the student and
+their linked parents, plus — at term end only — an email to the parents. Reports
+key on `(student, period_type, period_start)`, so re-running never duplicates a
+report or re-notifies a family.
+
+**Reports are opt-in and manual by default.** This command serves the classes
+set to **automatic**, and only those whose configured day is today — so it is
+one generic daily entry for the whole install, and no school configures
+anything at the OS level. Classes left on manual wait for a staff member to
+send them from *Preview Reports* (`/progress/reports/preview/`). Configure both
+under *Report Automation* (`/progress/reports/settings/`).
+
+On an install where nobody has configured anything, or on a day no schedule
+lands, this generates nothing and says so — silence is indistinguishable from
+a broken cron.
+
+```bash
+python manage.py generate_progress_reports                  # whatever closed today
+python manage.py generate_progress_reports --period weekly  # the last closed week
+python manage.py generate_progress_reports --date 2026-09-01 --dry-run
+python manage.py generate_progress_reports --force          # recompute existing data
+python manage.py generate_progress_reports --no-notify      # generate, send nothing
+python manage.py generate_progress_reports --school wizards --classroom 42
+python manage.py generate_progress_reports --manual --period weekly   # the manual classes
+```
+
+`--school` (id or slug) and `--classroom` (id) narrow the run, which is how you
+try one class before switching anything on for real:
+
+```bash
+python manage.py generate_progress_reports --period weekly --classroom 42 --dry-run
+```
+
+The command decides for itself which periods closed (weekly on Mondays, monthly
+on the 1st, term the day after a `Term.end_date`), so it runs daily as one line.
+A run on any other day is a legitimate no-op and says so. Installed by
+`deploy/setup-app-prod.sh` as `/etc/cron.d/cwa-progress-reports`:
+
+```cron
+10 6 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_generate_progress_reports.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/progress_reports.log 2>&1
+```
+
+See [`docs/specs/CPP-388_period_progress_reports.md`](docs/specs/CPP-388_period_progress_reports.md).
 
 ---
 
@@ -158,11 +290,99 @@ Backfill score and total_questions on StudentFinalAnswer records where total_que
 python manage.py backfill_final_answer_scores
 ```
 
+### `backfill_partial_credit`
+Give back the marks all-or-nothing grading took off past answers to questions
+that ask for **more than one value** — a fill-in-the-blank sentence, a table of
+values. A money chart with nine of ten cells right used to score zero; grading
+was fixed forward (see `maths/partial_credit.py`), and this re-runs today's
+grader over the payload each answer row already stores and awards the share the
+student earned.
+
+**One direction only** — a stored mark is never lowered, not a row's points and
+not a submission's totals. Where a stored total is higher than its own rows
+justify it is kept and the disagreement is reported.
+
+Covers the two stores that keep both the raw payload and a per-answer points
+field: auto-graded `homework.HomeworkStudentAnswer` and
+`worksheets.WorksheetStudentAnswer` rows. **Quiz attempts are not backfilled**
+— `StudentFinalAnswer` carries its own session id rather than the answers'
+`attempt_id`, so an attempt's total cannot be recomputed from the answers under
+it, and its saved review payload holds only the readable form of the answer.
+The command counts and reports those rather than skipping them silently.
+
+```bash
+python manage.py backfill_partial_credit                       # dry run — report only
+python manage.py backfill_partial_credit --source worksheets   # one store
+python manage.py backfill_partial_credit --student 42
+python manage.py backfill_partial_credit --question 4021
+python manage.py backfill_partial_credit --limit 200           # smoke run
+python manage.py backfill_partial_credit --apply               # actually write
+```
+
+Safe to re-run: an answer already worth what the grader says it is worth is
+left alone, so a second run reports nothing.
+
 ### `consolidate_to_maths`
 Migrate question/progress data from shared quiz and progress apps into the maths app.
 ```bash
 python manage.py consolidate_to_maths            # apply
 python manage.py consolidate_to_maths --dry-run  # preview
+```
+
+### `convert_fill_blanks`
+Turn typed questions whose text carries `___` gaps into real fill-in-the-blank
+questions — the sentence renders with an input in each gap instead of one box for
+the whole thing. The underscores are the identifier. Writes `blank_spec` (the
+accepted answers per gap, derived from the question's existing correct answer
+rows) and sets `question_type='fill_blank'`; the answer rows themselves are left
+alone, so the conversion is reversible and BrainBuzz/exports are unaffected.
+Questions whose answers can't be mapped onto their gaps unambiguously are listed,
+never guessed at.
+
+This is the **backfill**. Questions arriving from now on are converted as they
+are saved — the AI importer, the spreadsheet/ZIP upload and the teacher form all
+route through the same `Question.apply_blank_format` entry point — so this
+should find nothing after its first run.
+```bash
+python manage.py convert_fill_blanks                    # dry run — report only
+python manage.py convert_fill_blanks --min-blanks 2     # only multi-gap sentences
+python manage.py convert_fill_blanks --topic Statistics # one topic subtree
+python manage.py convert_fill_blanks --level 10
+python manage.py convert_fill_blanks --id 4021 --id 4022
+python manage.py convert_fill_blanks --apply            # actually write
+python manage.py convert_fill_blanks --revert --apply   # undo: clear the specs
+```
+
+### `fix_drawing_questions`
+Re-grade bank questions whose answer is a **drawing the app cannot accept** —
+"Draw a tree diagram to illustrate this situation", "Illustrate on a Venn diagram
+the sets A and B", "Show this information on a bar graph". A student has no way to
+draw in the app, so one of these left `ai_graded` hands them a text box and marks
+them wrong however well they drew it on paper. Sets them to `human_graded`, which
+hides them from quizzes and leaves them for a teacher to mark.
+
+Uploads are already handled at their source (`worksheets.services` routes these at
+classification time, and the upload preview sweeps sessions that predate that), so
+this is only for what is already in the bank. It shares the upload path's predicate,
+so the two can't drift apart on what counts as a drawing.
+
+Questions the app *can* take a drawing for are never touched — `number_line`,
+`plot_points`, `draw_on_grid`, `shape_select`, `table_of_values` and the rest all
+render their own answer surface, as do MCQs with real options. Note `fill_blank`
+is **not** exempt: it renders a sentence with an input at each gap, so a table
+question saved under it has lost its table — `table_of_values` is the only type
+that can take one.
+
+Dry run by default, and exits non-zero while anything is outstanding, so a
+scheduled run surfaces drift. Idempotent: `human_graded` questions are excluded
+from the scan, so a rubric a teacher wrote is never re-read.
+```bash
+python manage.py fix_drawing_questions                  # dry run — report only
+python manage.py fix_drawing_questions --apply          # actually write
+python manage.py fix_drawing_questions --topic 75       # one topic
+python manage.py fix_drawing_questions --level 7        # one year
+python manage.py fix_drawing_questions --school 3       # one school's questions
+python manage.py fix_drawing_questions --apply --quiet  # summary only
 ```
 
 ### `generate_puzzles`
@@ -173,6 +393,70 @@ python manage.py generate_puzzles --level 3          # specific level
 python manage.py generate_puzzles --count 50         # how many
 python manage.py generate_puzzles --clear            # remove existing first
 python manage.py generate_puzzles --dry-run          # preview
+```
+
+### `relevel_questions`
+Repair questions stranded at the wrong year, using the year of the **class** each
+was actually assigned to.
+
+Every upload path defaults `year_level` to 1, so a worksheet whose year the
+extractor could not read files its whole batch at Year 1 — where level practice
+(`_get_questions_for_level`, which filters on `level` alone) serves it to real
+Year 1 students. The class a homework went to is set by a human before any AI
+runs, so it is the signal this command trusts.
+
+Prod carries two Level ladders with duplicate names: the curriculum one
+(`level_number` 1–10) that questions are filed against, and the class one
+(300+) that `ClassRoom.levels` points at. The command bridges them, resolving a
+class level by `--map`, then built-in overrides, then a "Year N" reading of its
+display name. Anything it cannot resolve — no homework link, an unrecognised
+class level, or a tie between two years — is reported and left alone, never
+guessed at. Classes above the ladder (VCE GM 1/2 and 3/4) are listed as
+deliberately skipped rather than squashed into Year 10.
+
+One vote per class, not per homework. Soft-deleted homework still counts as
+evidence. Use `list_questions` first to see where a year's questions actually
+sit.
+```bash
+python manage.py relevel_questions --year 1 --school 4 --dry-run   # preview
+python manage.py relevel_questions --year 1 --school 4             # apply
+python manage.py relevel_questions --year 1 --school 4 --map "JS=5"
+python manage.py relevel_questions --year 1 --topic "Indices" --exact-topic
+```
+
+### `topic_doctor`
+Report what is wrong with the topic tree, and fix the two things safely fixable.
+
+Importers disagree about how they create topics. The AI import and the JSON
+upload `get_or_create` a strand and a topic under it; the homework PDF path
+matches on the bare name and, when nothing matches, files the question on
+`Topic.objects.filter(subject=subject).first()` instead of creating anything.
+That first row is a **strand**, and the student year page lists sub-topics only
+— so the question is offered by no topic quiz and surfaces only in level
+practice.
+
+The report surfaces that (`TOP-LEVEL-HOLDS-QUESTIONS`, with the years those
+questions sit at) alongside the findings from `classroom.topic_merge`:
+duplicate names, empty topics, inactive topics still holding questions, parents
+in another subject, and subjects sharing a name.
+
+It deliberately does **not** guess which topics mean the same thing — fuzzy
+matching ("Fraction" ≈ "Fractions") is wrong often enough to be dangerous and a
+merge is not reversible. It states facts; a human picks the survivor.
+
+`--keep`/`--absorb` re-points everything at the survivor (walking
+`_meta.related_objects`, so a topic FK added by a later app is carried too),
+re-parents the absorbed rows' sub-topics, then deletes them.
+`--reparent`/`--under` moves one row — the fix for a parentless topic that
+should sit under a strand; `--under 0` promotes a row to a strand. Both refuse
+anything that would move questions out of their subject or make the tree three
+levels deep, and both honour `--dry-run`.
+```bash
+python manage.py topic_doctor                          # full report (read-only)
+python manage.py topic_doctor --subject mathematics    # one subject
+python manage.py topic_doctor --only TOP-LEVEL-HOLDS-QUESTIONS
+python manage.py topic_doctor --keep 207 --absorb 154 --dry-run
+python manage.py topic_doctor --reparent 70 --under 4 --dry-run
 ```
 
 ---

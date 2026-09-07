@@ -205,8 +205,8 @@
               {% for cls in classes %}
                 <label class="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 cursor-pointer">
                   <input type="checkbox" name="inline_student_class_ids" value="{{ cls.id }}"
-                         class="rounded border-slate-300 text-accent focus:ring-accent">
-                  <span class="text-sm text-gray-800">{{ cls.name }}{% if cls.subject %} <span class="text-gray-400">— {{ cls.subject.name }}</span>{% endif %}</span>
+                         class="shrink-0 rounded border-slate-300 text-accent focus:ring-accent">
+                  {% include "partials/class_picker_option.html" with cls=cls %}
                 </label>
               {% endfor %}
             </div>

@@ -1,8 +1,14 @@
 """
 Auto-publish scheduled homework whose publish time has arrived.
 
-Run via cron every ~5 minutes (see cwa_classroom/MANAGEMENT_COMMANDS.md):
-    */5 * * * * cd /home/cwa/CWA_CLASS_APP && /path/to/venv/bin/python manage.py publish_scheduled_homework
+Installed by deploy/setup-app-prod.sh as /etc/cron.d/cwa-publish-homework,
+running every 5 minutes (see cwa_classroom/MANAGEMENT_COMMANDS.md):
+    */5 * * * * cwa cd /home/cwa/CWA_CLASS_APP && venv/bin/python cwa_classroom/manage.py publish_scheduled_homework
+
+This command is the ONLY thing that sets published_at on a scheduled
+homework, and students gate on published_at — so if the cron is missing,
+every scheduled set is created, stays invisible, and is never sent, with
+nothing erroring anywhere.
 """
 
 from django.core.management.base import BaseCommand

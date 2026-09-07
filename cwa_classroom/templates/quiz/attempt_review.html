@@ -48,9 +48,14 @@
     {% if review %}
     <div class="space-y-3">
       {% for item in review %}
+      {% comment %} A part-graded question (a fill-in-the-blank sentence) can be partly
+         right — it carries a gap-by-gap breakdown, and any gap right earned
+         marks, so it reads amber rather than a flat red cross.
+      {% endcomment %}
+      {% with partly=item.parts_correct %}
       <div class="flex items-start gap-3 p-4 rounded-xl border shadow-sm
-        {% if item.is_correct %}bg-green-50 border-green-200{% else %}bg-red-50 border-red-200{% endif %}">
-        <span class="text-xl flex-shrink-0" aria-hidden="true">{% if item.is_correct %}✅{% else %}❌{% endif %}</span>
+        {% if item.is_correct %}bg-green-50 border-green-200{% elif partly %}bg-amber-50 border-amber-200{% else %}bg-red-50 border-red-200{% endif %}">
+        <span class="text-xl flex-shrink-0" aria-hidden="true">{% if item.is_correct %}✅{% elif partly %}🟡{% else %}❌{% endif %}</span>
         <div class="flex-1 text-sm min-w-0">
           <p class="font-semibold text-gray-800">{{ item.question }}</p>
           {% if item.is_correct %}
@@ -69,9 +74,11 @@
               </strong>
             </p>
             <p class="text-green-700 mt-0.5">Correct: <strong>{{ item.correct_answer }}</strong></p>
+            {% include "maths/partials/_partial_credit.html" with data=item %}
           {% endif %}
         </div>
       </div>
+      {% endwith %}
       {% endfor %}
     </div>
     {% else %}

@@ -1,5 +1,7 @@
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from unittest.mock import patch
+
+from freezegun import freeze_time
 
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
@@ -235,6 +237,14 @@ class TeacherHomeworkCreateTest(HomeworkTestBase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Create Homework')
+
+    def test_the_topic_picker_offers_a_filter_box(self):
+        """A long strand is navigated by typing, not by scrolling it."""
+        url = reverse('homework:teacher_create',
+                      kwargs={'classroom_id': self.classroom.id})
+        resp = self.client.get(url)
+        self.assertContains(resp, 'data-topic-filter')
+        self.assertContains(resp, 'data-topic-tree')
 
     def test_create_homework_success(self):
         url = reverse('homework:teacher_create', kwargs={'classroom_id': self.classroom.id})
@@ -3236,28 +3246,42 @@ class HomeworkLeaderboardTest(HomeworkTestBase):
     def test_defaults_to_last_completed_week_not_current(self):
         # With no week param the board lands on the most recent *completed* week
         # with homework due — never the current week (which may be in progress).
-        from django.utils import timezone
-        now = timezone.now()
-        today = timezone.localdate()
-        # Homework due last week, mid-week (away from week boundaries).
-        last_week_due = (now - timedelta(days=now.weekday() + 7)).replace(
-            hour=12, minute=0, second=0, microsecond=0,
-        ) + timedelta(days=2)
-        hw = Homework.objects.create(
-            classroom=self.classroom, created_by=self.teacher, title='Last Week HW',
-            homework_type='topic', num_questions=5, due_date=last_week_due, max_attempts=3,
-        )
-        HomeworkSubmission.objects.create(
-            homework=hw, student=self.student,
-            attempt_number=1, score=4, total_questions=5, points=80.0,
-        )
-        resp = self.client.get(self.url + f'?classroom={self.classroom.id}')
-        due_local = timezone.localtime(hw.due_date).date()
-        expected_monday = due_local - timedelta(days=due_local.weekday())
-        self.assertEqual(resp.context['week_start'], expected_monday)
-        # Not the current week.
-        current_monday = today - timedelta(days=today.weekday())
-        self.assertNotEqual(resp.context['week_start'], current_monday)
+        #
+        # Time is frozen so the week boundaries are deterministic. This test
+        # used to flake on the CI clock: with TIME_ZONE='Pacific/Auckland'
+        # (UTC+12), a UTC-Sunday afternoon is already Monday in Auckland, which
+        # pulled the shared ``past_homework`` fixture (due "yesterday" = Sunday)
+        # into the last completed week and made *it* the default-week anchor —
+        # the most recent completed homework — instead of this test's homework.
+        # Pinning every relevant due date to a frozen week removes that
+        # dependency on the wall clock.
+        frozen = timezone.make_aware(datetime(2026, 6, 17, 12, 0))  # a Wednesday
+        with freeze_time(frozen):
+            # Park the fixtures' relative-dated homework so only this test's
+            # data drives the default-week selection: ``past_homework`` into the
+            # current (in-progress) week, ``homework`` into the future.
+            Homework.objects.filter(pk=self.past_homework.pk).update(
+                due_date=timezone.make_aware(datetime(2026, 6, 16, 12, 0)),  # current week
+            )
+            Homework.objects.filter(pk=self.homework.pk).update(
+                due_date=timezone.make_aware(datetime(2026, 7, 1, 12, 0)),  # future
+            )
+            # The only homework due in the last completed week.
+            hw = Homework.objects.create(
+                classroom=self.classroom, created_by=self.teacher, title='Last Week HW',
+                homework_type='topic', num_questions=5,
+                due_date=timezone.make_aware(datetime(2026, 6, 10, 12, 0)),  # Wed, prev week
+                max_attempts=3,
+            )
+            HomeworkSubmission.objects.create(
+                homework=hw, student=self.student,
+                attempt_number=1, score=4, total_questions=5, points=80.0,
+            )
+            resp = self.client.get(self.url + f'?classroom={self.classroom.id}')
+
+        self.assertEqual(resp.context['week_start'], date(2026, 6, 8))  # Mon of prev week
+        # Not the current week (Mon 2026-06-15).
+        self.assertNotEqual(resp.context['week_start'], date(2026, 6, 15))
         self.assertIn(self.student, [r['student'] for r in resp.context['ranked_rows']])
 
     def test_dropdown_lists_all_homework_across_weeks(self):
@@ -3371,3 +3395,136 @@ class HomeworkLeaderboardTest(HomeworkTestBase):
             reverse('homework:teacher_monitor') + f'?classroom={self.classroom.id}'
         )
         self.assertContains(resp, reverse('homework:leaderboard'))
+
+
+class HomeworkPreviewTypeFieldsTest(HomeworkTestBase):
+    """Picking a question type must reveal that type's own fields.
+
+    They used to be rendered only when the question ALREADY had that type, so
+    choosing "Column Arithmetic" from the dropdown showed nothing — and saving
+    then failed with "Invalid column_operation (operands=[], operator='')", a
+    fault the page gave the teacher no way to fix.
+    """
+
+    def _session(self, question_type='short_answer', **extra):
+        q = {'question_text': '0.9 + 0.34 =', 'include': True,
+             'question_type': question_type}
+        q.update(extra)
+        return HomeworkUploadSession.objects.create(
+            user=self.teacher, school=self.school, pdf_filename='hw.pdf',
+            status=HomeworkUploadSession.STATUS_DONE,
+            extracted_data={
+                'year_level': 502, 'subject': 'Maths HW Test',
+                'topic': 'Decimals HW', 'questions': [q],
+            },
+            extracted_images={},
+        )
+
+    def _get(self, session):
+        self.client.force_login(self.teacher)
+        return self.client.get(
+            reverse('homework:pdf_preview', kwargs={'session_id': session.pk}))
+
+    def test_the_operand_fields_are_on_the_page_for_a_short_answer_question(self):
+        # Present but hidden — that is what lets the dropdown reveal them
+        # without a reload.
+        resp = self._get(self._session('short_answer'))
+        self.assertContains(resp, 'name="q_0_operands"')
+        self.assertContains(resp, 'name="q_0_operator"')
+        self.assertContains(resp, 'id="column-section-0"')
+
+    def test_they_are_hidden_until_the_type_is_chosen(self):
+        resp = self._get(self._session('short_answer'))
+        html = resp.content.decode()
+        section = html.split('id="column-section-0"', 1)[1][:400]
+        self.assertIn('hidden', section)
+
+    def test_they_are_visible_when_the_question_is_already_column_arithmetic(self):
+        resp = self._get(self._session('column_operation',
+                                       operands=[90, 82], operator='+'))
+        html = resp.content.decode()
+        section = html.split('id="column-section-0"', 1)[1][:400]
+        self.assertNotIn('hidden', section)
+
+    def test_every_structured_type_has_a_toggleable_section(self):
+        resp = self._get(self._session('short_answer'))
+        for name in ('longdiv', 'column', 'plane', 'graph', 'measure',
+                     'numberline'):
+            with self.subTest(name):
+                self.assertContains(resp, f'id="{name}-section-0"')
+
+    def test_the_type_dropdown_drives_the_toggle(self):
+        resp = self._get(self._session('short_answer'))
+        self.assertContains(resp, 'handleTypeChange(0, this.value)')
+        self.assertContains(resp, 'function handleTypeChange')
+
+    def test_the_answers_list_hides_for_a_computed_type(self):
+        # column_operation derives its answer from the operands, so an answers
+        # list would be ignored — inviting input that goes nowhere.
+        resp = self._get(self._session('column_operation',
+                                       operands=[90, 82], operator='+'))
+        html = resp.content.decode()
+        section = html.split('id="answers-row-0"', 1)[1][:200]
+        self.assertIn('hidden', section)
+
+    def test_the_answers_list_shows_for_a_typed_answer(self):
+        resp = self._get(self._session('short_answer'))
+        html = resp.content.decode()
+        section = html.split('id="answers-row-0"', 1)[1][:200]
+        self.assertNotIn('hidden', section)
+
+    def test_no_two_inputs_share_a_name(self):
+        """Rendering every panel at once must not collide field names.
+
+        read_graph and measure both used q_N_numeric_answer. With one panel
+        hidden by the server that was invisible; with both in the DOM the POST
+        carries two values for the name and keeps whichever came first — so
+        typing a Measure answer would silently save the graph section's value.
+        """
+        import re
+        resp = self._get(self._session('short_answer'))
+        names = re.findall(rb'name="(q_0_[^"]+)"', resp.content)
+        duplicates = {n for n in names if names.count(n) > 1}
+        self.assertEqual(set(), duplicates,
+                         f'field names rendered more than once: {duplicates}')
+
+    def test_a_measure_answer_is_saved_from_its_own_field(self):
+        session = self._session('short_answer')
+        self.client.force_login(self.teacher)
+        url = reverse('homework:pdf_preview', kwargs={'session_id': session.pk})
+
+        self.client.post(url, {
+            'q_0_include': 'on',
+            'q_0_text': 'How long is the pencil?',
+            'q_0_type': 'measure',
+            'q_0_measure_numeric_answer': '135',
+            'q_0_measure_answer_unit': 'mm',
+            'q_0_numeric_answer': '130',       # the read_graph field
+            'q_0_difficulty': '1',
+            'q_0_points': '1',
+        })
+
+        session.refresh_from_db()
+        saved = session.extracted_data['questions'][0]
+        self.assertEqual('135', saved['numeric_answer'])
+        self.assertEqual('mm', saved['answer_unit'])
+
+    def test_operands_entered_on_the_page_are_saved(self):
+        session = self._session('short_answer')
+        self.client.force_login(self.teacher)
+        url = reverse('homework:pdf_preview', kwargs={'session_id': session.pk})
+
+        self.client.post(url, {
+            'q_0_include': 'on',
+            'q_0_text': '90 + 82 =',
+            'q_0_type': 'column_operation',
+            'q_0_operands': '90, 82',
+            'q_0_operator': '+',
+            'q_0_difficulty': '1',
+            'q_0_points': '1',
+        })
+
+        session.refresh_from_db()
+        saved = session.extracted_data['questions'][0]
+        self.assertEqual([90, 82], saved['operands'])
+        self.assertEqual('+', saved['operator'])

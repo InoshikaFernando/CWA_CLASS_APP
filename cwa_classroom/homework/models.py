@@ -1,3 +1,5 @@
+from datetime import time as datetime_time
+
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
@@ -31,12 +33,26 @@ class HomeworkUploadSession(models.Model):
         help_text='Stored temporarily while AI extraction runs in the background.',
     )
     homework_title = models.CharField(max_length=200, blank=True)
+    # Print-dialog style spec for which pages to extract ("2-7, 9"). Blank means
+    # every page. Kept as the teacher typed it so the worker re-parses one source
+    # of truth; see worksheets/page_selection.py.
+    page_selection = models.CharField(
+        max_length=200, blank=True,
+        help_text='Pages to extract, like "2-7, 9". Blank extracts every page.',
+    )
     shape_naming = models.BooleanField(
         default=False,
         help_text='Name-the-shape mode: AI generates one "name this shape" question per shape.',
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PROCESSING)
     error_message = models.TextField(blank=True)
+    # Live heartbeat from the background worker: what it is doing right now, and
+    # when it last said so. Shown on the polling page, and — more importantly —
+    # used to detect a dead job: a work-horse killed by OOM/SIGKILL never runs
+    # its failure handler, so without a heartbeat the session would sit in
+    # 'processing' and the page would poll forever.
+    progress_message = models.CharField(max_length=200, blank=True)
+    progress_updated_at = models.DateTimeField(null=True, blank=True)
     extracted_data = models.JSONField(default=dict)
     extracted_images = models.JSONField(default=dict)
     page_count = models.PositiveIntegerField(default=0)
@@ -75,6 +91,7 @@ class Homework(models.Model):
         ('topic', 'Topic Quiz'),
         ('mixed', 'Mixed Quiz'),
         ('pdf_upload', 'PDF Upload'),
+        ('json_upload', 'JSON Upload'),
     ]
 
     # Lifecycle status (derived from publish_at / published_at / due_date).
@@ -569,3 +586,224 @@ class HomeworkDraft(models.Model):
 
     def __str__(self):
         return f'Draft — {self.homework.title} — {self.student.username}'
+
+
+# ---------------------------------------------------------------------------
+# Question automation schedule (CPP-399)
+#
+# A teacher plans, up front, which topics/subtopics a class covers in each week
+# of a year / term / arbitrary block. A nightly command turns each planned week
+# into an ordinary ``Homework`` row scheduled to publish on the class's release
+# day — so students, parents, grading, the monitor, the leaderboard, progress
+# reports and rewards all keep working with no new student-facing surface.
+# ---------------------------------------------------------------------------
+
+class QuestionSchedule(models.Model):
+    """One teaching plan for one class and one subject.
+
+    Scoped per (class, subject) deliberately: a class that does both Maths and
+    Coding runs two schedules, so the two subjects can have different release
+    days, different question counts and different topic plans rather than being
+    forced onto one cadence.
+    """
+
+    SCOPE_YEAR = 'year'
+    SCOPE_TERM = 'term'
+    SCOPE_CUSTOM = 'custom'
+    SCOPE_CHOICES = [
+        (SCOPE_YEAR, 'Academic year'),
+        (SCOPE_TERM, 'Term'),
+        (SCOPE_CUSTOM, 'Custom date range'),
+    ]
+
+    # Monday-first, matching ``datetime.date.weekday()`` so the two never need
+    # translating. ``classroom.ClassRoom.DAY_CHOICES`` is a different, string-
+    # keyed list used for timetabling and is deliberately not reused here.
+    WEEKDAY_CHOICES = [
+        (0, 'Monday'), (1, 'Tuesday'), (2, 'Wednesday'), (3, 'Thursday'),
+        (4, 'Friday'), (5, 'Saturday'), (6, 'Sunday'),
+    ]
+
+    classroom = models.ForeignKey(
+        'classroom.ClassRoom', on_delete=models.CASCADE,
+        related_name='question_schedules',
+    )
+    subject_slug = models.CharField(
+        max_length=50, default='mathematics', db_index=True,
+        help_text=(
+            'Which subject-plugin owns this schedule — drives the topic '
+            'picker and question selection via classroom.subject_registry.'
+        ),
+    )
+    name = models.CharField(max_length=200)
+
+    # --- period -----------------------------------------------------------
+    scope = models.CharField(max_length=10, choices=SCOPE_CHOICES, default=SCOPE_TERM)
+    academic_year = models.ForeignKey(
+        'classroom.AcademicYear', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='question_schedules',
+    )
+    term = models.ForeignKey(
+        'classroom.Term', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='question_schedules',
+    )
+    # Always populated — resolved from the scope on save so the week builder and
+    # every query have one shape to read regardless of how the teacher chose the
+    # period. A term whose dates are later corrected does NOT silently move an
+    # existing schedule; the teacher re-saves it to pick the new dates up.
+    start_date = models.DateField()
+    end_date = models.DateField()
+
+    # --- cadence ----------------------------------------------------------
+    release_weekday = models.PositiveSmallIntegerField(
+        choices=WEEKDAY_CHOICES, default=0,
+        help_text='Day of the week each set goes live.',
+    )
+    release_time = models.TimeField(
+        default=datetime_time(8, 0),
+        help_text='Time of day each set goes live (school local time).',
+    )
+    due_days = models.PositiveSmallIntegerField(
+        default=7,
+        help_text='Due date = release + this many days.',
+    )
+    lead_days = models.PositiveSmallIntegerField(
+        default=3,
+        help_text=(
+            'Build each set this many days before its release, so the teacher '
+            'can preview, edit or delete it before students ever see it.'
+        ),
+    )
+
+    # --- what each set looks like ----------------------------------------
+    num_questions = models.PositiveIntegerField(default=10)
+    question_type = models.CharField(
+        max_length=30, blank=True, default='',
+        help_text='Optional single question type to draw; blank means any type.',
+    )
+    max_attempts = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Leave blank for unlimited attempts.',
+    )
+    avoid_repeat_weeks = models.PositiveSmallIntegerField(
+        default=8,
+        help_text=(
+            'Do not reuse questions this class has already had in the last N '
+            'weeks. 0 disables the check. When the topic bank is too small to '
+            'honour it the set is topped up with repeats rather than coming '
+            'out short.'
+        ),
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Uncheck to pause generation without deleting the plan.',
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='created_question_schedules',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-start_date', 'name']
+        unique_together = ('classroom', 'subject_slug', 'name')
+        indexes = [
+            models.Index(fields=['classroom', 'subject_slug']),
+            models.Index(fields=['is_active', 'start_date']),
+        ]
+
+    def __str__(self):
+        return f'{self.name} — {self.classroom.name} ({self.subject_slug})'
+
+    @property
+    def weeks_planned(self):
+        """Active weeks that carry at least one topic — i.e. will produce a set."""
+        return sum(1 for w in self.weeks.all() if w.is_active and w.topic_ids)
+
+
+class ScheduleWeek(models.Model):
+    """One teaching week of a :class:`QuestionSchedule` — the row a teacher fills.
+
+    ``generated_homework`` is the idempotency key: a week that already points at
+    a homework is never generated again, so a double cron tick, a manual
+    "Generate now" racing the nightly run, or a re-run after a partial failure
+    can never give a class two sets for the same week.
+    """
+
+    STATUS_PENDING = 'pending'
+    STATUS_GENERATED = 'generated'
+    STATUS_SKIPPED = 'skipped'
+    STATUS_NO_CONTENT = 'no_content'
+    STATUS_ERROR = 'error'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_GENERATED, 'Generated'),
+        (STATUS_SKIPPED, 'Skipped'),
+        (STATUS_NO_CONTENT, 'No questions found'),
+        (STATUS_ERROR, 'Error'),
+    ]
+
+    schedule = models.ForeignKey(
+        QuestionSchedule, on_delete=models.CASCADE, related_name='weeks',
+    )
+    week_number = models.PositiveSmallIntegerField()
+    week_start_date = models.DateField(help_text='Monday of this teaching week.')
+    week_end_date = models.DateField(help_text='Sunday of this teaching week.')
+
+    # Plugin topic ids, not an M2M. The subject-plugin contract defines the unit
+    # of selection: homework_topic_tree() hands out leaves whose pk is fed
+    # verbatim to pick_homework_items() and save_homework_topics(). For maths a
+    # leaf is a classroom.Topic pk (subtopics are Topic rows with a parent set);
+    # for coding it is a coding.TopicLevel pk, which Homework.coding_topics
+    # cannot hold without losing the level. A JSON list of plugin ids is the one
+    # shape that round-trips both subjects.
+    topic_ids = models.JSONField(
+        default=list, blank=True,
+        help_text='Plugin topic ids planned for this week.',
+    )
+    # Denormalised names so a plan still reads correctly after a topic is
+    # renamed or removed — the ids alone would render as blanks.
+    topic_labels = models.JSONField(default=list, blank=True)
+
+    num_questions = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Override the schedule's question count for this week only.",
+    )
+    notes = models.TextField(blank=True, default='')
+
+    is_active = models.BooleanField(default=True)
+    skip_reason = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text='Why this week was created inactive (e.g. a school holiday).',
+    )
+
+    generated_homework = models.ForeignKey(
+        Homework, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    generated_at = models.DateTimeField(null=True, blank=True)
+    generation_status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING,
+    )
+    generation_message = models.TextField(blank=True, default='')
+
+    class Meta:
+        ordering = ['week_number']
+        unique_together = ('schedule', 'week_number')
+        indexes = [
+            models.Index(fields=['schedule', 'week_start_date']),
+        ]
+
+    def __str__(self):
+        return f'{self.schedule.name} — week {self.week_number} ({self.week_start_date})'
+
+    @property
+    def effective_num_questions(self):
+        return self.num_questions or self.schedule.num_questions
+
+    @property
+    def is_planned(self):
+        """Whether this week would produce a set: active, and carrying topics."""
+        return bool(self.is_active and self.topic_ids)

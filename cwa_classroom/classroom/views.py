@@ -30,6 +30,65 @@ def _get_user_school_ids(user):
     return list(admin_ids | hoi_ids)
 
 
+def _resolve_class_subject(post_data, department, selected_levels, current=None):
+    """Return ``(subject, error)`` for a class create/edit POST.
+
+    The subject a user picked is the subject we store. It used to be inferred
+    from ``selected_levels.first()``, but ``Level.Meta.ordering`` is
+    ``level_number`` and ``level_number`` is globally unique — Maths owns 1-10
+    while every other subject starts at 300 — so any class holding a maths level
+    was labelled Mathematics whatever it actually taught.
+
+    The posted value is validated against the department's own
+    ``DepartmentSubject`` rows, so a user cannot attach a class to a subject the
+    department does not teach.
+
+    Level-derivation survives only as a fallback for a form submitted without
+    the field (an old page left open), and it now refuses to guess when the
+    levels span more than one subject rather than silently picking the lowest.
+    """
+    from .models import DepartmentSubject
+
+    posted = (post_data.get('subject') or '').strip()
+    if posted:
+        if not posted.isdigit():
+            return None, 'Please select a valid subject.'
+        qs = Subject.objects.filter(id=int(posted))
+        if department is not None:
+            # Scope to what the department actually teaches. Only meaningful
+            # when there IS a department: ClassRoom.department is SET_NULL, so a
+            # class outlives the department it was created in, and scoping a
+            # department-less class against an empty DepartmentSubject set would
+            # reject every subject and make the class impossible to save at all.
+            qs = qs.filter(department_subjects__department=department)
+        subject = qs.first()
+        if subject is None:
+            return None, (
+                'Please select a subject this department teaches.'
+                if department is not None
+                else 'Please select a valid subject.'
+            )
+        return subject, None
+
+    # --- Fallback: no subject field in the POST ---
+    subject_ids = {
+        lv.subject_id for lv in selected_levels if lv.subject_id
+    }
+    if len(subject_ids) > 1:
+        return None, (
+            'These levels belong to different subjects. Pick one subject for '
+            'the class, then choose levels from it.'
+        )
+    if len(subject_ids) == 1:
+        return Subject.objects.filter(pk=subject_ids.pop()).first(), None
+    if current is not None:
+        return current, None
+    first_ds = DepartmentSubject.objects.filter(
+        department=department,
+    ).select_related('subject').first()
+    return (first_ds.subject if first_ds else None), None
+
+
 def _get_billing_classroom_or_404(request, class_id):
     """Fetch an active classroom for a per-student billing edit (fee / billing
     start date), scoped to a school the requesting user actually belongs to.
@@ -55,7 +114,7 @@ from .models import (
     School, SchoolTeacher, SchoolStudent, ClassSession, StudentAttendance,
     TeacherAttendance, Department, DepartmentLevel, DepartmentSubject, Enrollment,
     Invoice, InvoicePayment, InvoiceLineItem, SalarySlip, SalarySlipLineItem,
-    SchoolHoliday, PublicHoliday,
+    SchoolHoliday, PublicHoliday, Location,
 )
 
 logger = logging.getLogger(__name__)
@@ -148,8 +207,11 @@ class HomeView(LoginRequiredMixin, View):
             # Question.topic and Question.level now reference classroom.Topic/Level directly
             from maths.models import Question
             from django.db.models import Count
+            # Global bank only, to match the topic quiz these tiles link into.
+            # Counting school-private questions here lights up a topic whose
+            # quiz then bounces the student back with "no questions available".
             questions_exist = set()
-            for row in (Question.objects
+            for row in (Question.objects.global_only()
                         .values('topic_id', 'level_id')
                         .annotate(cnt=Count('id'))
                         .filter(cnt__gt=0)):
@@ -516,6 +578,24 @@ class StudentDashboardView(LoginRequiredMixin, View):
             coding_progress = _build_coding_progress(request.user)
             has_coding = coding_progress is not None
 
+        # ── "Back to where you were" ──────────────────────────────────────
+        # My Progress is a top-level sidebar destination, so a student who
+        # opens it mid-quiz/lesson needs a one-tap way back. Remember the last
+        # non-progress page they arrived from and offer it as a Back link. We
+        # skip referrers from this page itself, so clicking the in-page filter
+        # tabs never overwrites the real return target.
+        from urllib.parse import urlparse
+        _ref = request.META.get('HTTP_REFERER', '')
+        if _ref:
+            _p = urlparse(_ref)
+            _same_site = (not _p.netloc) or (_p.netloc == request.get_host())
+            _is_progress = 'student-dashboard' in _p.path
+            if _same_site and not _is_progress and 'login' not in _p.path:
+                request.session['progress_back_url'] = (
+                    _p.path + (f'?{_p.query}' if _p.query else '')
+                )
+        progress_back_url = request.session.get('progress_back_url')
+
         # ── Progress report summary card (§12.8) ─────────────────────────────
         # Surface the latest staff-generated report's selected sections.
         from .models import ProgressReport
@@ -526,8 +606,13 @@ class StudentDashboardView(LoginRequiredMixin, View):
         )
         report_overall = None
         if progress_report and progress_report.include_rubric:
+            # Scoped to the report's own school: this card summarises one
+            # specific report, so counting every institute the student attends
+            # would caption it with figures it does not contain.
             from .views_progress import _build_student_progress
-            _, report_overall = _build_student_progress(request.user)
+            _, report_overall = _build_student_progress(
+                request.user, school=progress_report.school,
+            )
 
         return render(request, 'student/dashboard.html', {
             'progress_report': progress_report,
@@ -548,6 +633,8 @@ class StudentDashboardView(LoginRequiredMixin, View):
             'subject_filter': subject_filter,
             'has_coding': has_coding,
             'coding_progress': coding_progress,
+            # Navigation
+            'progress_back_url': progress_back_url,
         })
 
 
@@ -791,10 +878,16 @@ class CreateClassView(RoleRequiredMixin, View):
             return Department.objects.filter(school=school_membership.school, is_active=True).select_related('school')
         return Department.objects.none()
 
+    def _get_locations(self, departments):
+        """Active locations for the schools of the given departments."""
+        school_ids = departments.values_list('school_id', flat=True)
+        return Location.objects.filter(school_id__in=school_ids, is_active=True)
+
     def get(self, request):
         departments = self._get_departments(request.user)
         return render(request, 'teacher/create_class.html', {
             'departments': departments,
+            'locations': self._get_locations(departments),
         })
 
     def post(self, request):
@@ -804,6 +897,8 @@ class CreateClassView(RoleRequiredMixin, View):
         day = request.POST.get('day', '').strip()
         start_time = request.POST.get('start_time', '').strip() or None
         end_time = request.POST.get('end_time', '').strip() or None
+        location_id = request.POST.get('location', '').strip()
+        is_online = request.POST.get('is_online') == 'on'
         description = request.POST.get('description', '').strip()
 
         if not name:
@@ -815,6 +910,13 @@ class CreateClassView(RoleRequiredMixin, View):
         if not department:
             messages.error(request, 'Please select a department.')
             return redirect('create_class')
+
+        # Resolve location (must belong to the department's institute)
+        location = None
+        if location_id:
+            location = Location.objects.filter(
+                id=location_id, school=department.school,
+            ).first()
 
         # Check class limit before creating
         from billing.entitlements import check_class_limit
@@ -836,9 +938,13 @@ class CreateClassView(RoleRequiredMixin, View):
         )
         valid_levels = Level.objects.filter(id__in=mapped_level_ids)
 
-        # Derive subject from the first selected level
-        first_level = valid_levels.select_related('subject').first()
-        subject = first_level.subject if first_level else department.primary_subject
+        # Store the subject the user picked (see _resolve_class_subject).
+        subject, subject_error = _resolve_class_subject(
+            request.POST, department, valid_levels.select_related('subject'),
+        )
+        if subject_error:
+            messages.error(request, subject_error)
+            return redirect('create_class')
 
         with transaction.atomic():
             classroom = ClassRoom.objects.create(
@@ -849,6 +955,8 @@ class CreateClassView(RoleRequiredMixin, View):
                 day=day,
                 start_time=start_time,
                 end_time=end_time,
+                location=location,
+                is_online=is_online,
                 description=description,
                 created_by=request.user,
             )
@@ -935,13 +1043,45 @@ class ClassDetailView(RoleRequiredMixin, View):
             classroom=classroom, is_active=True,
         ).values_list('student_id', flat=True)
 
+        # Candidate classes to move a student into: other active classes in the
+        # same school this user manages. The move view re-validates scope, so
+        # this only shapes the dropdown. Only school classes offer a move.
+        move_target_classes = []
+        if classroom.school_id:
+            if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+                target_qs = ClassRoom.objects.filter(school_id=classroom.school_id, is_active=True)
+            elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+                target_qs = ClassRoom.objects.filter(
+                    Q(department__head=user) | Q(teachers=user),
+                    school_id=classroom.school_id, is_active=True,
+                ).distinct()
+            else:
+                target_qs = ClassRoom.objects.filter(
+                    school_id=classroom.school_id, is_active=True, teachers=user,
+                )
+            move_target_classes = list(
+                target_qs.exclude(id=classroom.id)
+                .select_related('location')
+                .order_by('name', 'start_time')
+            )
+
         # Bulk "Resend Welcome" is available to admin/HoI and the class's teachers.
         can_resend_welcome = bool(classroom.school_id)
+
+        # Deep link into the existing invoice generator, pre-scoped to this class.
+        # Gate on the same roles the generator itself requires so teachers don't
+        # see a link that would 403 (INVOICING_ROLES in views_invoicing.py).
+        can_generate_invoices = (
+            user.has_role(Role.INSTITUTE_OWNER)
+            or user.has_role(Role.HEAD_OF_INSTITUTE)
+            or user.has_role(Role.ACCOUNTANT)
+        )
 
         return render(request, 'teacher/class_detail.html', {
             'classroom': classroom,
             'students': CustomUser.objects.filter(id__in=active_student_ids),
             'can_resend_welcome': can_resend_welcome,
+            'can_generate_invoices': can_generate_invoices,
             'teachers': classroom.teachers.all(),
             'sessions': sessions,
             'todays_session': todays_session,
@@ -950,6 +1090,7 @@ class ClassDetailView(RoleRequiredMixin, View):
             'class_effective_fee': class_effective_fee,
             'can_edit_fee': can_edit_fee,
             'effective_currency': classroom.get_effective_currency(),
+            'move_target_classes': move_target_classes,
         })
 
 
@@ -1047,6 +1188,9 @@ class EditClassView(RoleRequiredMixin, View):
             parent_fee, fee_source = None, ''
 
         back_url = request.GET.get('next', '')
+        locations = Location.objects.none()
+        if classroom.school_id:
+            locations = Location.objects.filter(school=classroom.school, is_active=True)
         return render(request, 'teacher/edit_class.html', {
             'classroom': classroom,
             'subject_groups': subject_groups,
@@ -1057,6 +1201,7 @@ class EditClassView(RoleRequiredMixin, View):
             'fee_source': fee_source,
             'can_edit_fee': can_edit_fee,
             'effective_currency': classroom.get_effective_currency(),
+            'locations': locations,
         })
 
     def post(self, request, class_id):
@@ -1066,6 +1211,8 @@ class EditClassView(RoleRequiredMixin, View):
         day = request.POST.get('day', '').strip()
         start_time = request.POST.get('start_time', '').strip() or None
         end_time = request.POST.get('end_time', '').strip() or None
+        location_id = request.POST.get('location', '').strip()
+        is_online = request.POST.get('is_online') == 'on'
         description = request.POST.get('description', '').strip()
         next_url = request.POST.get('next', '').strip()
 
@@ -1082,6 +1229,14 @@ class EditClassView(RoleRequiredMixin, View):
         classroom.day = day
         classroom.start_time = start_time
         classroom.end_time = end_time
+        classroom.is_online = is_online
+        # Location must belong to this class's institute; blank clears it.
+        if location_id and classroom.school_id:
+            classroom.location = Location.objects.filter(
+                id=location_id, school=classroom.school,
+            ).first()
+        else:
+            classroom.location = None
         classroom.description = description
 
         # Fee override (HoI / Accountant only)
@@ -1102,11 +1257,18 @@ class EditClassView(RoleRequiredMixin, View):
             else:
                 classroom.fee_override = None
 
-        # Derive subject from selected levels
+        # Store the subject the user picked (see _resolve_class_subject).
         selected_levels = Level.objects.filter(id__in=level_ids)
-        first_level = selected_levels.first()
-        if first_level and first_level.subject:
-            classroom.subject = first_level.subject
+        subject, subject_error = _resolve_class_subject(
+            request.POST, classroom.department,
+            selected_levels.select_related('subject'),
+            current=classroom.subject,
+        )
+        if subject_error:
+            messages.error(request, subject_error)
+            return redirect('edit_class', class_id=class_id)
+        if subject is not None:
+            classroom.subject = subject
 
         classroom.save()
         classroom.levels.set(selected_levels)
@@ -2862,6 +3024,69 @@ def _parse_measure_post(request):
     return numeric_answer, tolerance, unit, None
 
 
+def _sync_blank_spec(question, request):
+    """Keep a question's fill-in-the-blank shape in step with what was saved.
+
+    Called after the answers are written on both the create and the edit path,
+    because the per-gap answers are derived FROM them. A question whose text
+    carries "___" gaps becomes a fill-in-the-blank sentence whatever type was
+    picked — a teacher who writes gaps into a short answer meant a
+    fill-in-the-blank question — and one that no longer has gaps, or is no
+    longer a typed question, has its spec cleared rather than left describing a
+    sentence that has changed underneath it.
+
+    All of that decision lives in ``Question.apply_blank_format``, shared with
+    the AI importer, the spreadsheet upload and the ``convert_fill_blanks``
+    command, so a question comes out the same shape however it was created.
+    Everything here is the teacher-facing half: saving, and saying what
+    happened.
+    """
+    changed, reason = question.apply_blank_format()
+    if changed:
+        question.save(update_fields=['question_type', 'blank_spec'])
+
+    if reason:
+        # It saved and it works — it just shows one answer box rather than a gap
+        # per blank. Told plainly, because the alternative is a teacher who
+        # marked up a sentence and cannot see why the gaps did not appear.
+        messages.warning(request, (
+            f'Saved, but the blanks could not be filled in from the answers, so '
+            f'this question shows one answer box instead of a gap per blank — '
+            f'{reason}. Give one answer per blank, or a single answer listing '
+            f'them in order separated by ";" (for example "15; live").'
+        ))
+
+
+def _parse_number_line_post(request):
+    """Pull and validate the ``number_line_spec`` JSON for a number_line question.
+
+    Returns ``(spec, error)``. For a non-number_line question ``spec`` is None and
+    ``error`` is None (so switching type away clears the field). For a number_line
+    question the pasted JSON must parse and pass ``validate_number_line_spec``;
+    ``error`` is a user-facing string otherwise. Kept beside ``_parse_measure_post``
+    because ``Model.objects.create()`` bypasses ``clean()``, so the spec must be
+    validated here or a broken number line would save and grade every answer wrong.
+    """
+    import json
+    from maths.geometry_grading import validate_number_line_spec
+
+    if request.POST.get('question_type') != 'number_line':
+        return None, None
+
+    raw = (request.POST.get('number_line_spec') or '').strip()
+    if not raw:
+        return None, 'Number-line questions need a number_line_spec.'
+    try:
+        spec = json.loads(raw)
+    except (ValueError, TypeError):
+        return None, 'number_line_spec is not valid JSON.'
+    try:
+        validate_number_line_spec(spec)
+    except (ValueError, TypeError) as exc:
+        return None, f'Invalid number_line_spec: {exc}'
+    return spec, None
+
+
 class AddQuestionView(RoleRequiredMixin, View):
     """Create a question. Works both standalone (/create-question/) and with pre-selected level (/level/<int>/add-question/)."""
     required_roles = [
@@ -2965,6 +3190,11 @@ class AddQuestionView(RoleRequiredMixin, View):
             messages.error(request, measure_err)
             return render(request, 'teacher/question_form.html', self._build_context(request, level))
 
+        number_line_spec, nl_err = _parse_number_line_post(request)
+        if nl_err:
+            messages.error(request, nl_err)
+            return render(request, 'teacher/question_form.html', self._build_context(request, level))
+
         # Auto-link topic to level
         if not classroom_topic.levels.filter(pk=level.pk).exists():
             classroom_topic.levels.add(level)
@@ -2987,6 +3217,7 @@ class AddQuestionView(RoleRequiredMixin, View):
                 numeric_answer=numeric_answer,
                 answer_tolerance=answer_tolerance,
                 answer_unit=answer_unit,
+                number_line_spec=number_line_spec,
             )
             # Dynamic answers — support up to 20
             for i in range(1, 21):
@@ -2999,6 +3230,8 @@ class AddQuestionView(RoleRequiredMixin, View):
                         is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
                         order=int(request.POST.get(f'answer_order_{i}', i)),
                     )
+            # Derived from the answers just written, so it must come after them.
+            _sync_blank_spec(question, request)
         log_event(
             user=request.user,
             school=School.objects.filter(id=school_id).first() if school_id else None,
@@ -3035,6 +3268,7 @@ class EditQuestionView(RoleRequiredMixin, View):
                 })
             else:
                 answer_data.append({'text': '', 'is_correct': False})
+        import json as _json
         return render(request, 'teacher/question_form.html', {
             'question': question, 'level': question.level,
             'topics': Topic.objects.filter(is_active=True).order_by('name'),
@@ -3042,6 +3276,9 @@ class EditQuestionView(RoleRequiredMixin, View):
             'difficulty_choices': MathsQuestion.DIFFICULTY_CHOICES,
             'is_global': question.school is None,
             'answer_data': answer_data,
+            'number_line_spec_json': (
+                _json.dumps(question.number_line_spec) if question.number_line_spec else ''
+            ),
         })
 
     def post(self, request, question_id):
@@ -3053,6 +3290,10 @@ class EditQuestionView(RoleRequiredMixin, View):
         numeric_answer, answer_tolerance, answer_unit, measure_err = _parse_measure_post(request)
         if measure_err:
             messages.error(request, measure_err)
+            return redirect('edit_question', question_id=question.id)
+        number_line_spec, nl_err = _parse_number_line_post(request)
+        if nl_err:
+            messages.error(request, nl_err)
             return redirect('edit_question', question_id=question.id)
         classroom_topic = get_object_or_404(Topic, id=request.POST.get('topic'))
         question.topic = classroom_topic
@@ -3067,6 +3308,7 @@ class EditQuestionView(RoleRequiredMixin, View):
         question.numeric_answer = numeric_answer
         question.answer_tolerance = answer_tolerance
         question.answer_unit = answer_unit
+        question.number_line_spec = number_line_spec
         with transaction.atomic():
             question.save()
             question.answers.all().delete()
@@ -3078,6 +3320,8 @@ class EditQuestionView(RoleRequiredMixin, View):
                         is_correct=request.POST.get(f'answer_correct_{i}') == 'true',
                         order=int(request.POST.get(f'answer_order_{i}', i)),
                     )
+            # Derived from the answers just written, so it must come after them.
+            _sync_blank_spec(question, request)
         log_event(
             user=request.user,
             school=question.school,
@@ -3116,7 +3360,27 @@ class DeleteQuestionView(RoleRequiredMixin, View):
             request=request,
         )
         messages.success(request, 'Question deleted.')
-        return redirect('question_list', level_number=level_number)
+        return redirect(_safe_next(request) or
+                        reverse('question_list', kwargs={'level_number': level_number}))
+
+
+def _safe_next(request):
+    """A caller-supplied return URL, but only if it points back at this site.
+
+    Callers that list questions (e.g. the question-health check page) want the
+    user returned to their filtered list rather than dumped on the level page.
+    Validated rather than trusted: an unchecked ``next`` is an open redirect.
+    """
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    target = request.POST.get('next') or request.GET.get('next')
+    if not target:
+        return None
+    if url_has_allowed_host_and_scheme(
+            target, allowed_hosts={request.get_host()},
+            require_https=request.is_secure()):
+        return target
+    return None
 
 
 class HoDOverviewView(RoleRequiredMixin, View):
@@ -3778,6 +4042,36 @@ class HoDManageClassesView(RoleRequiredMixin, View):
         for st in SchoolTeacher.objects.filter(school_id__in=school_ids, is_active=True):
             specialty_map[st.teacher_id] = st.specialty
 
+        # The tiles now show the venue (location) and levels, so pull those in
+        # eagerly to avoid a per-card query. ``school`` and ``location`` are both
+        # joined so the per-location tile border colour (CPP-373) costs no extra
+        # query.
+        classes = classes.select_related('school', 'location').prefetch_related('levels')
+
+        # Ordering (name / level / date-time). Sort by the class schedule for
+        # "date/time" — the day + start time shown on each tile — mapping the
+        # weekday choice to an index so Monday sorts before Tuesday (and blank
+        # days sort last).
+        from django.db.models import Case, When, Value, IntegerField, Min
+        sort = request.GET.get('sort', 'name')
+        if sort == 'level':
+            classes = classes.annotate(
+                _min_level=Min('levels__level_number'),
+            ).order_by('_min_level', 'name')
+        elif sort == 'schedule':
+            _day_order = Case(
+                *[When(day=value, then=Value(idx))
+                  for idx, (value, _label) in enumerate(ClassRoom.DAY_CHOICES)],
+                default=Value(len(ClassRoom.DAY_CHOICES)),
+                output_field=IntegerField(),
+            )
+            classes = classes.annotate(_day_order=_day_order).order_by(
+                '_day_order', 'start_time', 'name',
+            )
+        else:
+            sort = 'name'
+            classes = classes.order_by('name')
+
         paginator = Paginator(classes, 25)
         page = paginator.get_page(request.GET.get('page'))
 
@@ -3800,6 +4094,7 @@ class HoDManageClassesView(RoleRequiredMixin, View):
             'unassigned_classes': unassigned_classes,
             'specialty_map': specialty_map,
             'deleted_classes': deleted_classes,
+            'selected_sort': sort,
         })
 
 
@@ -4552,9 +4847,15 @@ class ClassStudentRemoveView(RoleRequiredMixin, View):
         ).select_related('student').first()
 
         if cs:
+            from django.utils import timezone
             name = cs.student.get_full_name() or cs.student.username
+            # Taking a student out of a single class (while they remain in the
+            # school) is treated as a class change, not a revocation: we stamp
+            # ``moved_at`` so they keep this class's homework. Only removal from
+            # the whole school (SchoolStudentRemoveView) revokes homework access.
             cs.is_active = False
-            cs.save(update_fields=['is_active'])
+            cs.moved_at = timezone.now()
+            cs.save(update_fields=['is_active', 'moved_at'])
             # Mark enrollment as removed so the student can re-request later
             Enrollment.objects.filter(
                 classroom=classroom, student_id=student_id, status='approved',
@@ -4565,9 +4866,115 @@ class ClassStudentRemoveView(RoleRequiredMixin, View):
                 detail={'class_id': classroom.id, 'class_name': classroom.name, 'student_id': student_id, 'student_name': name},
                 request=request,
             )
-            messages.success(request, f'{name} has been removed from {classroom.name}.')
+            messages.success(
+                request,
+                f'{name} has been removed from {classroom.name}. '
+                f'They keep access to its homework while they remain in the school.',
+            )
         else:
             messages.warning(request, 'Student not found in this class.')
+        return redirect('class_detail', class_id=class_id)
+
+
+class ClassStudentMoveView(RoleRequiredMixin, View):
+    """Move a student from one class to another, keeping their old homework.
+
+    Unlike :class:`ClassStudentRemoveView` (a plain removal that revokes
+    everything), a move deactivates the source enrolment but stamps
+    ``moved_at``/``moved_to`` on it, so the student retains access to the source
+    class's homework while gaining an active enrolment in the target class.
+    Source and target must belong to the same school. The teacher/admin scope
+    mirrors the remove view, and the target class is re-validated against the
+    same scope so a move can never reach a class outside the user's remit.
+    """
+    required_roles = [
+        Role.ADMIN, Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+        Role.HEAD_OF_DEPARTMENT,
+        Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
+    ]
+
+    def _resolve_class(self, request, class_id):
+        """Resolve a class the requesting user may manage, or raise Http404."""
+        from django.db.models import Q
+        user = request.user
+        if user.has_role(Role.ADMIN) or user.has_role(Role.HEAD_OF_INSTITUTE) or user.has_role(Role.INSTITUTE_OWNER):
+            return get_object_or_404(ClassRoom, id=class_id, school__admin=user)
+        elif user.has_role(Role.HEAD_OF_DEPARTMENT):
+            classroom = ClassRoom.objects.filter(
+                Q(department__head=user) | Q(teachers=user),
+                id=class_id,
+            ).distinct().first()
+            if not classroom:
+                raise Http404
+            return classroom
+        return get_object_or_404(ClassRoom, id=class_id, teachers=user)
+
+    def post(self, request, class_id, student_id):
+        from django.utils import timezone
+        source = self._resolve_class(request, class_id)
+
+        target_id = request.POST.get('target_class_id')
+        if not target_id or not str(target_id).isdigit() or int(target_id) == source.id:
+            messages.error(request, 'Please choose a different class to move the student to.')
+            return redirect('class_detail', class_id=class_id)
+
+        target = self._resolve_class(request, int(target_id))
+
+        # A move stays within one school — a cross-school transfer would leave
+        # the SchoolStudent link and billing inconsistent, so block it.
+        if target.school_id != source.school_id:
+            messages.error(request, 'You can only move a student to a class in the same school.')
+            return redirect('class_detail', class_id=class_id)
+
+        source_cs = ClassStudent.objects.filter(
+            classroom=source, student_id=student_id, is_active=True,
+        ).select_related('student').first()
+        if not source_cs:
+            messages.warning(request, 'Student not found in this class.')
+            return redirect('class_detail', class_id=class_id)
+
+        student = source_cs.student
+        name = student.get_full_name() or student.username
+
+        with transaction.atomic():
+            # Activate (or create) the target enrolment. Clear any stale move
+            # markers so an active member is never treated as "moved out".
+            target_cs, _ = ClassStudent.objects.get_or_create(
+                classroom=target, student=student,
+            )
+            if not target_cs.is_active or target_cs.moved_at is not None:
+                target_cs.is_active = True
+                target_cs.moved_at = None
+                target_cs.save(update_fields=['is_active', 'moved_at'])
+
+            # Deactivate the source enrolment but retain homework access.
+            source_cs.is_active = False
+            source_cs.moved_at = timezone.now()
+            source_cs.save(update_fields=['is_active', 'moved_at'])
+
+            # Retire the source enrolment request so the student can re-request
+            # the old class later if they ever want back in.
+            Enrollment.objects.filter(
+                classroom=source, student=student, status='approved',
+            ).update(status='removed')
+
+        log_event(
+            user=request.user, school=source.school, category='data_change',
+            action='class_student_moved',
+            detail={
+                'student_id': student.id, 'student_name': name,
+                'from_class_id': source.id, 'from_class_name': source.name,
+                'to_class_id': target.id, 'to_class_name': target.name,
+                'homework_access_retained': True,
+            },
+            request=request,
+        )
+
+        messages.success(
+            request,
+            f'{name} moved to {target.name}. They keep access to '
+            f'{source.name} homework.',
+        )
         return redirect('class_detail', class_id=class_id)
 
 
@@ -4631,9 +5038,12 @@ class HoDCreateClassView(RoleRequiredMixin, View):
     def get(self, request):
         departments = self._get_departments(request.user)
         selected_dept = request.GET.get('department', '')
+        school_ids = departments.values_list('school_id', flat=True)
+        locations = Location.objects.filter(school_id__in=school_ids, is_active=True)
         return render(request, 'hod/create_class.html', {
             'departments': departments,
             'selected_dept': selected_dept,
+            'locations': locations,
         })
 
     def post(self, request):
@@ -4643,6 +5053,8 @@ class HoDCreateClassView(RoleRequiredMixin, View):
         day = request.POST.get('day', '').strip()
         start_time = request.POST.get('start_time', '').strip() or None
         end_time = request.POST.get('end_time', '').strip() or None
+        location_id = request.POST.get('location', '').strip()
+        is_online = request.POST.get('is_online') == 'on'
         description = request.POST.get('description', '').strip()
 
         if not name:
@@ -4655,6 +5067,13 @@ class HoDCreateClassView(RoleRequiredMixin, View):
         if not department:
             messages.error(request, 'Please select a valid department.')
             return redirect('hod_create_class')
+
+        # Resolve location (must belong to the department's institute)
+        location = None
+        if location_id:
+            location = Location.objects.filter(
+                id=location_id, school=department.school,
+            ).first()
 
         # Check class limit before creating
         from billing.entitlements import check_class_limit
@@ -4676,9 +5095,13 @@ class HoDCreateClassView(RoleRequiredMixin, View):
         ) if level_ids else set()
         valid_levels = Level.objects.filter(id__in=mapped_level_ids)
 
-        # Derive subject from selected levels
-        first_level = valid_levels.select_related('subject').first()
-        subject = first_level.subject if first_level else department.primary_subject
+        # Store the subject the user picked (see _resolve_class_subject).
+        subject, subject_error = _resolve_class_subject(
+            request.POST, department, valid_levels.select_related('subject'),
+        )
+        if subject_error:
+            messages.error(request, subject_error)
+            return redirect('hod_create_class')
 
         with transaction.atomic():
             classroom = ClassRoom.objects.create(
@@ -4689,6 +5112,8 @@ class HoDCreateClassView(RoleRequiredMixin, View):
                 day=day,
                 start_time=start_time,
                 end_time=end_time,
+                location=location,
+                is_online=is_online,
                 description=description,
                 created_by=request.user,
             )
@@ -4893,6 +5318,51 @@ class PublicHomeView(View):
 # Hub helpers — question availability checks
 # ---------------------------------------------------------------------------
 
+def _subject_question_filter(subject_ids, prefix=''):
+    """``Q`` matching questions that belong to any of *subject_ids*.
+
+    A question's subject is its **topic's** subject. ``Question.level`` is a
+    year / difficulty band that happens to carry a ``subject`` FK, and that FK
+    was NULL on Years 1-9 for most of this app's life — so joining through the
+    level counted almost nothing and the hub reported 4-of-5 where the truth was
+    4-of-205. Topic is the correct join and is populated by every upload path.
+
+    A question with no topic keeps the level join as its only remaining signal.
+    The two branches are mutually exclusive (``topic`` is either set or NULL),
+    so callers may sum per-branch counts without double-counting a row.
+
+    *prefix* reaches the question from a related model, e.g. ``'question__'``
+    from ``StudentAnswer``.
+    """
+    from django.db.models import Q as DQ
+
+    return (
+        DQ(**{f'{prefix}topic__subject_id__in': subject_ids})
+        | DQ(**{
+            f'{prefix}topic__isnull': True,
+            f'{prefix}level__subject_id__in': subject_ids,
+        })
+    )
+
+
+def _effective_subject_expr(prefix=''):
+    """Expression yielding the subject id a question counts against.
+
+    The mirror of :func:`_subject_question_filter` for grouping: the topic's
+    subject where there is a topic, else the level's. Doing it as one CASE keeps
+    the hub's per-subject rollups to a single query, which the N+1 guards in
+    ``test_hub_progress`` / ``test_hub_question_gates`` pin.
+    """
+    from django.db.models import Case, F, IntegerField, When
+
+    return Case(
+        When(**{f'{prefix}topic__isnull': False},
+             then=F(f'{prefix}topic__subject_id')),
+        default=F(f'{prefix}level__subject_id'),
+        output_field=IntegerField(),
+    )
+
+
 def _subject_has_questions(subj, school=None):
     """
     Return True if maths questions exist for *subj* that students can access.
@@ -4910,7 +5380,7 @@ def _subject_has_questions(subj, school=None):
     if subj.global_subject_id:
         subject_ids.append(subj.global_subject_id)
 
-    qs = Question.objects.filter(level__subject_id__in=subject_ids)
+    qs = Question.objects.filter(_subject_question_filter(subject_ids))
     if school is not None:
         return qs.filter(DQ(school__isnull=True) | DQ(school=school)).exists()
     return qs.filter(school__isnull=True).exists()
@@ -4932,8 +5402,9 @@ def _annotate_apps_with_questions(apps):
     if subject_ids:
         has_q_ids = set(
             Question.objects
-            .filter(level__subject_id__in=subject_ids, school__isnull=True)
-            .values_list('level__subject_id', flat=True)
+            .filter(_subject_question_filter(subject_ids), school__isnull=True)
+            .annotate(subject_bucket=_effective_subject_expr())
+            .values_list('subject_bucket', flat=True)
             .distinct()
         )
     else:
@@ -4976,7 +5447,7 @@ def _compute_subject_progress(user, subject_ids, school=None):
 
     total = (
         Question.objects
-        .filter(DQ(level__subject_id__in=subject_ids) & q_school_filter)
+        .filter(_subject_question_filter(subject_ids) & q_school_filter)
         .values('id').distinct().count()
     )
 
@@ -4987,7 +5458,7 @@ def _compute_subject_progress(user, subject_ids, school=None):
         StudentAnswer.objects
         .filter(
             DQ(student=user) &
-            DQ(question__level__subject_id__in=subject_ids) &
+            _subject_question_filter(subject_ids, prefix='question__') &
             DQ(is_correct=True) &
             ans_school_filter,
         )
@@ -5018,23 +5489,25 @@ def _annotate_apps_with_progress(apps, user):
         # Total global questions per subject
         totals = dict(
             Question.objects
-            .filter(level__subject_id__in=subject_ids, school__isnull=True)
-            .values('level__subject_id')
+            .filter(_subject_question_filter(subject_ids), school__isnull=True)
+            .annotate(subject_bucket=_effective_subject_expr())
+            .values('subject_bucket')
             .annotate(cnt=Count('id', distinct=True))
-            .values_list('level__subject_id', 'cnt')
+            .values_list('subject_bucket', 'cnt')
         )
         # Correctly answered global questions per subject
         completed_map = dict(
             StudentAnswer.objects
             .filter(
+                _subject_question_filter(subject_ids, prefix='question__'),
                 student=user,
-                question__level__subject_id__in=subject_ids,
                 question__school__isnull=True,
                 is_correct=True,
             )
-            .values('question__level__subject_id')
+            .annotate(subject_bucket=_effective_subject_expr(prefix='question__'))
+            .values('subject_bucket')
             .annotate(cnt=Count('question_id', distinct=True))
-            .values_list('question__level__subject_id', 'cnt')
+            .values_list('subject_bucket', 'cnt')
         )
     else:
         totals = {}
@@ -5238,12 +5711,22 @@ class SubjectsHubView(LoginRequiredMixin, View):
             .count()
         ) if enrolled_class_ids else 0
 
+        # ── Global leaderboard standing ──
+        # The board stays on the page all day; the pop-up opens once per local
+        # day, on the student's first hub load. should_show_leaderboard_popup()
+        # marks it shown as it answers, so a refresh does not re-open it.
+        from rewards.services import get_standings, should_show_daily_popup
+        standings = get_standings(user)
+        show_leaderboard_popup = should_show_daily_popup(user, _today)
+
         # Common hub context
         hub_extra = {
             'upcoming_classes': upcoming_classes,
             'class_attendance': class_attendance,
             'billing_summary': billing_summary,
             'pending_homework_count': pending_homework_count,
+            'standings': standings,
+            'show_leaderboard_popup': show_leaderboard_popup,
         }
 
         is_school_student = user.has_role(Role.STUDENT)
@@ -5337,10 +5820,15 @@ class SubjectsHubView(LoginRequiredMixin, View):
                                 covered_app_ids.add(matching_app.id)
 
                             # Determine link:
-                            #   • matching app with external_url → link only when questions exist
-                            #   • no external_url (session-based subject) → non-clickable (link=None)
+                            #   • matching app with external_url → always clickable; the
+                            #     linked app (e.g. /maths/, /coding/) manages its own
+                            #     "no content yet" state. This matches how GLOBAL cards
+                            #     behave (_annotate_apps_with_questions), so a subject like
+                            #     Coding stays clickable once it's mapped to a department
+                            #     (which moves it from a global card to a school card).
+                            #   • no external_url (session-based subject) → non-clickable.
                             if matching_app and matching_app.external_url:
-                                link = matching_app.external_url if _subject_has_questions(subj, school) else None
+                                link = matching_app.external_url
                             else:
                                 link = None
 
@@ -5385,7 +5873,6 @@ class SubjectsHubView(LoginRequiredMixin, View):
                     'school_sections': school_sections,
                     'global_subjects': global_subjects,
                     'is_school_student': True,
-                    'hide_sidebar': True,
                     'student_id_code': student_id_code,
                     **hub_extra,
                 })
@@ -5405,7 +5892,6 @@ class SubjectsHubView(LoginRequiredMixin, View):
         subjects = global_subjects
 
         return render(request, 'hub/home.html', {
-            'hide_sidebar': True,
             'greeting_tod': greeting_tod,
             'time_daily': time_daily,
             'time_weekly': time_weekly,

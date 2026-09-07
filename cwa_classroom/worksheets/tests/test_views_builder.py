@@ -6,7 +6,10 @@ Run with:
     pytest worksheets/tests/test_views_builder.py -v
 """
 import json
+import re
+from pathlib import Path
 
+from django.conf import settings
 from django.test import TestCase
 from django.urls import reverse
 
@@ -582,3 +585,178 @@ class TestBuilderPreviewView(BuilderTestBase):
     def test_preview_invalid_subject_slug_returns_404(self):
         resp = self.client.get(self._preview_url(subject_slug='science'))
         self.assertEqual(resp.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# WorksheetBuilderPreviewView — the live coding window
+# ---------------------------------------------------------------------------
+
+class TestBuilderPreviewCodingWindow(BuilderTestBase):
+    """Previewing a coding exercise opens the editor-and-console window.
+
+    A teacher building a coding worksheet used to see the starter code as a
+    dead <pre>: no way to run the exercise and check it still produces the
+    expected output before putting it in front of a class. The preview now
+    renders the same window students get, wired to a teacher-only runner.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from coding.models import CodingExercise, CodingLanguage, CodingTopic, TopicLevel
+
+        python = CodingLanguage.objects.create(
+            name='Python', slug=CodingLanguage.PYTHON, order=1, is_active=True,
+        )
+        scratch = CodingLanguage.objects.create(
+            name='Scratch', slug=CodingLanguage.SCRATCH, order=2, is_active=True,
+        )
+
+        def _exercise(language, slug, **kwargs):
+            topic = CodingTopic.objects.create(
+                language=language, name=slug.title(), slug=slug, order=1, is_active=True,
+            )
+            level, _ = TopicLevel.get_or_create_for(topic, TopicLevel.BEGINNER)
+            return CodingExercise.objects.create(
+                topic_level=level, description='Do the thing.', is_active=True, **kwargs,
+            )
+
+        cls.coding_exercise = _exercise(
+            python, 'variables',
+            title='Print a greeting',
+            starter_code='name = "world"\n',
+            expected_output='hello world',
+            solution_code='print("hello world")\n',
+        )
+        cls.quiz_exercise = _exercise(
+            python, 'quiz-topic',
+            title='Which is a list?',
+            question_type=CodingExercise.MULTIPLE_CHOICE,
+        )
+        cls.scratch_exercise = _exercise(
+            scratch, 'blocks', title='Move the cat', starter_code='(blocks)',
+        )
+
+    def _preview(self, exercise):
+        return self.client.get(reverse('worksheets:builder_preview', kwargs={
+            'subject_slug': 'coding', 'content_id': exercise.pk,
+        }))
+
+    def test_write_code_exercise_renders_the_window(self):
+        resp = self._preview(self.coding_exercise)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context['has_code_window'])
+        content = resp.content.decode()
+        self.assertIn('data-code-window', content)
+        self.assertIn('cw-editor', content)
+        self.assertIn('cw-stdout', content)
+
+    def test_window_runs_against_the_teacher_endpoint(self):
+        """Not api_run_code — that one is student-gated and scores submissions."""
+        resp = self._preview(self.coding_exercise)
+        self.assertEqual(
+            resp.context['cw_run_url'], reverse('coding:api_preview_run'),
+        )
+
+    def test_window_is_seeded_with_the_starter_code(self):
+        resp = self._preview(self.coding_exercise)
+        self.assertEqual(resp.context['cw_starter'], 'name = "world"\n')
+        self.assertEqual(resp.context['cw_expected_output'], 'hello world')
+
+    def test_solution_is_offered_for_one_click_verification(self):
+        resp = self._preview(self.coding_exercise)
+        self.assertEqual(resp.context['cw_extra_code'], 'print("hello world")\n')
+        self.assertIn('cw-load', resp.content.decode())
+
+    def test_window_ids_are_unique_per_exercise(self):
+        """Several previews can be open in one page session; ids must not clash."""
+        first = self._preview(self.coding_exercise).context['cw_id']
+        second = self._preview(self.quiz_exercise).context.get('cw_id')
+        self.assertEqual(first, f'preview-{self.coding_exercise.pk}')
+        self.assertIsNone(second)
+
+    def test_quiz_exercise_keeps_the_static_preview(self):
+        """Multiple choice has no code to run — an editor would be wrong."""
+        resp = self._preview(self.quiz_exercise)
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn('has_code_window', resp.context.flatten())
+        self.assertNotIn('data-code-window', resp.content.decode())
+
+    def test_scratch_exercise_keeps_the_static_preview(self):
+        resp = self._preview(self.scratch_exercise)
+        self.assertEqual(resp.status_code, 200)
+        content = resp.content.decode()
+        self.assertNotIn('data-code-window', content)
+        # …and still shows what the exercise carries.
+        self.assertIn('(blocks)', content)
+
+    def test_maths_preview_is_unchanged(self):
+        """The window is coding-only; a maths question keeps its narrow card."""
+        resp = self.client.get(reverse('worksheets:builder_preview', kwargs={
+            'subject_slug': 'mathematics', 'content_id': self.q_global.pk,
+        }))
+        content = resp.content.decode()
+        self.assertNotIn('data-code-window', content)
+        self.assertIn('max-w-lg', content)
+
+    def test_no_template_comment_leaks_into_the_page(self):
+        """Django's {# … #} is single-line only.
+
+        A multi-line one does not comment anything out — it renders as a
+        paragraph of prose in the middle of the preview, which is exactly how
+        this shipped the first time.
+        """
+        for exercise in (self.coding_exercise, self.quiz_exercise, self.scratch_exercise):
+            content = self._preview(exercise).content.decode()
+            for leak in ('{#', '#}', '{%'):
+                self.assertNotIn(
+                    leak, content,
+                    f'unrendered template syntax {leak!r} in the preview of '
+                    f'{exercise.title!r}',
+                )
+
+    def test_student_cannot_open_the_coding_preview(self):
+        self.client.force_login(self.student)
+        resp = self._preview(self.coding_exercise)
+        self.assertIn(resp.status_code, [302, 403])
+
+
+# ---------------------------------------------------------------------------
+# WorksheetBuilderView — assets
+# ---------------------------------------------------------------------------
+
+class TestBuilderAssetsAreSelfHosted(BuilderTestBase):
+    """The builder must not depend on a third-party CDN to function.
+
+    SortableJS used to be loaded from cdn.jsdelivr.net, and ``Sortable.create``
+    runs at the top of the page's IIFE — so any failure to fetch it (blocked
+    network, CDN outage) threw before a single handler was bound and the whole
+    builder went dead: no adding questions, no search, no save, no error the
+    teacher could see. The library is vendored in static/js/ like htmx, Alpine
+    and Tailwind already are; this keeps it that way.
+    """
+
+    SCRIPT_SRC_RE = re.compile(rb'<script[^>]+src=["\']([^"\']+)["\']')
+
+    def test_builder_page_loads_no_external_scripts(self):
+        resp = self.client.get(reverse('worksheets:builder'))
+        self.assertEqual(resp.status_code, 200)
+        external = [
+            src.decode() for src in self.SCRIPT_SRC_RE.findall(resp.content)
+            if src.startswith((b'http://', b'https://', b'//'))
+        ]
+        self.assertEqual(
+            external, [],
+            'The worksheet builder must serve its JS from static/, not a CDN: '
+            + ', '.join(external),
+        )
+
+    def test_builder_page_loads_sortable_from_static(self):
+        resp = self.client.get(reverse('worksheets:builder'))
+        self.assertIn(b'js/sortable.min.js', resp.content)
+
+    def test_vendored_sortable_file_exists_and_is_the_library(self):
+        path = Path(settings.BASE_DIR) / 'static' / 'js' / 'sortable.min.js'
+        self.assertTrue(path.exists(), f'missing vendored library: {path}')
+        head = path.read_text(encoding='utf-8')[:200]
+        self.assertIn('Sortable', head)

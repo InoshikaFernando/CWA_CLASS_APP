@@ -1,0 +1,86 @@
+{% comment %}
+The body of the "Preview as student" modal, re-rendered on every check.
+
+Everything below the notes is the REAL student take partial — not a lookalike —
+so the widgets a teacher tries here are the ones a child will meet: the
+Cartesian plane, the number line, the table, the long-division bracket, the
+protractor, the gaps in a sentence. Rendered by
+worksheets.question_preview.preview_response inside a transaction that is rolled
+back, so the question on this page exists only for as long as it takes to draw
+it.
+
+Context: question, ctx (the take partial's own), notes, result, auto_marked,
+question_number, total_questions, preview_index, not_importable.
+{% endcomment %}
+
+<div class="p-5 space-y-4" data-preview-index="{{ preview_index }}">
+
+  {% if not_importable %}
+  <div class="rounded-xl border border-red-200 bg-red-50 p-4">
+    <p class="text-sm font-semibold text-red-800 mb-1">This question would not reach the student</p>
+    <p class="text-sm text-red-700">{{ not_importable }}</p>
+  </div>
+  {% else %}
+
+  {% if notes %}
+  <div class="space-y-1.5">
+    {% for note in notes %}
+    <p class="text-xs rounded-lg px-3 py-2 border
+      {% if note.level == 'warn' %}bg-amber-50 border-amber-200 text-amber-800
+      {% else %}bg-slate-50 border-slate-200 text-slate-600{% endif %}">
+      {% if note.level == 'warn' %}⚠ {% endif %}{{ note.text }}
+    </p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% comment %}
+  A div, not a form: the student page posts every question at once, and a nested
+  form here would let Enter submit the review form underneath. The trial answer
+  is collected by the modal script from whatever input the take partial rendered.
+  {% endcomment %}
+  <div class="rounded-xl border border-gray-200 p-4" data-preview-stage
+       data-answer-mode="{% if question.question_type == 'multiple_choice' or question.question_type == 'true_false' %}choice{% else %}value{% endif %}">
+    {% include "homework/partials/_maths_take_item.html" %}
+  </div>
+
+  {% if auto_marked %}
+  <div class="flex items-center gap-3">
+    <button type="button" data-preview-check
+            class="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition">
+      Mark my answer
+    </button>
+    <p class="text-xs text-gray-400">Answer it the way a student would — this is marked by the same checker they get.</p>
+  </div>
+  {% endif %}
+
+  {% if result %}
+  {% comment %} A part-graded question (fill-in-the-blank, table of values) can be marked
+     partly right, and then it is worth a fraction of a point — so "Marked
+     wrong" would misdescribe both the mark and the score beside it.
+  {% endcomment %}
+  {% with partly=result.answer_data.parts_correct %}
+  <div data-preview-result="{% if result.is_correct %}correct{% else %}wrong{% endif %}"
+       class="rounded-xl border p-4 {% if result.is_correct %}bg-green-50 border-green-200{% elif partly %}bg-amber-50 border-amber-200{% else %}bg-red-50 border-red-200{% endif %}">
+    <p class="text-sm font-semibold {% if result.is_correct %}text-green-800{% elif partly %}text-amber-800{% else %}text-red-800{% endif %}">
+      {% if result.is_correct %}✓ Marked correct{% elif partly %}◐ Marked partly correct{% else %}✗ Marked wrong{% endif %}
+      <span class="font-normal">— {{ result.points_earned }} point{{ result.points_earned|pluralize }}</span>
+    </p>
+    {% if result.given %}
+    <p class="text-xs mt-1 {% if result.is_correct %}text-green-700{% else %}text-red-700{% endif %}">
+      You answered: <span class="font-medium">{{ result.given }}</span>
+    </p>
+    {% endif %}
+    {% if not result.is_correct and result.correct_answer %}
+    <p class="text-xs mt-1 text-gray-600">The student is shown: <span class="font-medium">{{ result.correct_answer }}</span></p>
+    {% endif %}
+    {% include "maths/partials/_partial_credit.html" with data=result.answer_data earned=result.points_earned possible=question.points %}
+    {% if question.explanation %}
+    <p class="text-xs mt-2 text-gray-600"><span class="font-medium">Explanation they see:</span> {{ question.explanation }}</p>
+    {% endif %}
+  </div>
+  {% endwith %}
+  {% endif %}
+
+  {% endif %}
+</div>

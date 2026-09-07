@@ -85,17 +85,25 @@ class ResendWebhookView(View):
     def _verify(request, secret):
         """Verify the Svix signature and return the parsed payload, or None.
 
-        Falls back to a plain JSON parse only when the ``svix`` package is not
-        installed (keeps local/dev usable) — production must have it.
+        The payload is parsed from the body here rather than taken from
+        ``verify()``'s return value, because that return value is not stable
+        across svix majors: 1.x returns the decoded payload, 2.x verifies only
+        and returns None. Reading it as the payload made every valid webhook
+        look unsigned — a 400 on real, correctly-signed traffic, which stopped
+        EmailLog delivery statuses updating until the deploy that installed
+        svix 2.0 was noticed. Verification is what svix is for; decoding JSON
+        is not, so we do that part ourselves.
         """
         try:
             from svix.webhooks import Webhook, WebhookVerificationError
         except ImportError:  # pragma: no cover - svix is a prod dependency
-            logger.error('svix is not installed; cannot verify Resend webhook signature.')
-            try:
-                return json.loads(request.body.decode('utf-8'))
-            except (ValueError, UnicodeDecodeError):
-                return None
+            # Refuse rather than accept an unverified webhook. The old fallback
+            # parsed the body and carried on, which meant an environment
+            # missing svix accepted ANY unsigned POST to this endpoint — and it
+            # hid the 2.0 breakage from local test runs, because a machine
+            # without svix never exercised verification at all.
+            logger.error('svix is not installed; refusing the Resend webhook.')
+            return None
 
         # Svix needs the raw body plus the svix-* headers.
         headers = {
@@ -104,7 +112,13 @@ class ResendWebhookView(View):
             'svix-signature': request.headers.get('Svix-Signature', ''),
         }
         try:
-            return Webhook(secret).verify(request.body, headers)
+            Webhook(secret).verify(request.body, headers)
         except WebhookVerificationError:
             logger.warning('Resend webhook signature verification failed.')
+            return None
+
+        try:
+            return json.loads(request.body.decode('utf-8'))
+        except (ValueError, UnicodeDecodeError):
+            logger.warning('Resend webhook body was not valid JSON.')
             return None

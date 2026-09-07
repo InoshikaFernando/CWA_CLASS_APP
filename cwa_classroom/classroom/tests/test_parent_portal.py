@@ -132,7 +132,7 @@ class ParentPortalTestBase(TestCase):
             name='Can add fractions', status='approved',
         )
         cls.progress_record = ProgressRecord.objects.create(
-            student=cls.student, criteria=cls.criteria,
+            student=cls.student, criteria=cls.criteria, classroom=cls.classroom,
             status='advanced', recorded_by=cls.admin_user,
         )
 

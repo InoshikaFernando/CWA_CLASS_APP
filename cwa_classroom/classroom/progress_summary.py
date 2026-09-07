@@ -180,20 +180,25 @@ def _maths_topics(student):
 
 
 def _maths_basic_facts(student):
-    """Best % per Basic-Facts subtopic (across levels)."""
+    """Best result per Basic-Facts subtopic, with the level it was achieved at.
+
+    Per subtopic we keep the highest score %, tie-broken by the highest level — so
+    "Addition · L7 100%" means their best Addition score (100%) was at level 7
+    (their most advanced 100%).
+    """
     from maths.models import BasicFactsResult
 
     labels = {'PlaceValue': 'Place Value'}
-    best = {}  # subtopic -> (points, pct)
+    best = {}  # subtopic -> (pct, level_number)
     for r in BasicFactsResult.objects.filter(student=student).values(
-        'subtopic', 'score', 'total_points', 'points',
+        'subtopic', 'level_number', 'score', 'total_points',
     ):
         pct = _pct(r['score'], r['total_points'])
         cur = best.get(r['subtopic'])
-        if cur is None or r['points'] > cur[0]:
-            best[r['subtopic']] = (r['points'], pct)
+        if cur is None or (pct, r['level_number']) > cur:
+            best[r['subtopic']] = (pct, r['level_number'])
     return [
-        {'subtopic': labels.get(st, st), 'best_pct': v[1]}
+        {'subtopic': labels.get(st, st), 'level': v[1], 'best_pct': v[0]}
         for st, v in sorted(best.items())
     ]
 
