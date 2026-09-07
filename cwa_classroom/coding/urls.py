@@ -48,6 +48,10 @@ urlpatterns = [
     # Run free-form playground code (online compilers)
     path('api/playground-run/', views.api_playground_run, name='api_playground_run'),
 
+    # Run code from a teacher-facing preview (worksheet builder, exercise
+    # preview). Teacher-gated and records nothing — see api_preview_run.
+    path('api/preview-run/', views.api_preview_run, name='api_preview_run'),
+
     # Submit against test cases (problem solving)
     path('api/submit/<int:problem_id>/', views.api_submit_problem, name='api_submit_problem'),
 

@@ -553,6 +553,50 @@ class TestAllLanguagesExerciseDetail(TestCase):
         resp = self.client.get(_detail_url('scratch', self.exercises['scratch'].id))
         self.assertIsNone(resp.context['language'].piston_language)
 
+    # ── The shared coding window, per language ──────────────────────────────
+    #
+    # The page renders coding/partials/_code_window.html as two halves: the
+    # console beside the exercise text, the editor opposite it. Scratch is the
+    # exception on the editor side — its blocks are a Blockly workspace, not a
+    # textarea — but its generated Python still runs, so it keeps the console.
+
+    def test_python_exercise_renders_editor_and_console(self):
+        resp = self.client.get(_detail_url('python', self.exercises['python'].id))
+        content = resp.content.decode()
+        self.assertIn('id="cw-editor"', content)
+        self.assertIn('id="cw-output"', content)
+
+    def test_scratch_exercise_keeps_blockly_and_gets_the_console(self):
+        resp = self.client.get(_detail_url('scratch', self.exercises['scratch'].id))
+        content = resp.content.decode()
+        self.assertIn('blocklyDiv', content, 'Scratch must keep its block workspace')
+        self.assertNotIn('id="cw-editor"', content, 'blocks are not a text editor')
+        self.assertIn('id="cw-output"', content, 'generated Python still runs')
+
+    def test_browser_language_swaps_the_console_for_a_preview(self):
+        resp = self.client.get(_detail_url('html', self.exercises['html'].id))
+        content = resp.content.decode()
+        self.assertIn('id="cw-preview-output"', content)
+        self.assertNotIn('id="cw-stdout-output"', content)
+
+    def test_no_page_loads_codemirror_from_a_cdn(self):
+        """Every language's page must serve its editor from static/."""
+        for slug in ('python', 'javascript', 'html', 'css', 'scratch'):
+            content = self.client.get(
+                _detail_url(slug, self.exercises[slug].id)).content.decode()
+            self.assertNotIn(
+                'cdnjs.cloudflare.com/ajax/libs/codemirror', content,
+                f'{slug} exercise page still fetches CodeMirror from a CDN',
+            )
+
+    def test_no_template_comment_leaks_into_the_page(self):
+        """Django's {# … #} is single-line; a multi-line one renders as text."""
+        for slug in ('python', 'html', 'scratch'):
+            content = self.client.get(
+                _detail_url(slug, self.exercises[slug].id)).content.decode()
+            for leak in ('{#', '#}', '{%'):
+                self.assertNotIn(leak, content, f'{slug}: unrendered {leak!r}')
+
 
 # ===========================================================================
 # 9. Exercise level progression: Beginner → Intermediate → Advanced

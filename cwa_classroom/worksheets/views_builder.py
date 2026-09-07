@@ -25,6 +25,7 @@ from classroom.models import Level, Subject, Topic
 from classroom.views import RoleRequiredMixin
 from django.views import View
 
+from coding.code_window import window_context_for_exercise
 from coding.models import CodingExercise, CodingLanguage, CodingTopic as CodingTopicModel
 from maths.models import Answer, Question
 from worksheets.models import Worksheet, WorksheetQuestion
@@ -474,12 +475,28 @@ class WorksheetBuilderPreviewView(RoleRequiredMixin, View):
             )
             if exercise.school_id is not None and exercise.school_id != school.pk:
                 raise Http404
-            return render(request, 'worksheets/partials/_builder_question_preview.html', {
+            # A write-code exercise previews in the live coding window —
+            # editor beside console, the same one students get — so the
+            # teacher can run it and confirm it still produces the expected
+            # output BEFORE it goes onto a worksheet. Runs post to
+            # coding:api_preview_run, which records nothing against anyone.
+            context = {
                 'is_coding': True,
                 'exercise': exercise,
                 'subject_slug': 'coding',
                 'content_id': content_id,
-            })
+            }
+            window = window_context_for_exercise(
+                exercise, reverse('coding:api_preview_run'),
+            )
+            if window is not None:
+                context['has_code_window'] = True
+                context.update(window)
+                context['cw_id'] = f'preview-{content_id}'
+                context['cw_extra_code'] = exercise.solution_code
+            return render(
+                request, 'worksheets/partials/_builder_question_preview.html', context,
+            )
 
         question = get_object_or_404(
             Question.objects.select_related('topic', 'level'),
