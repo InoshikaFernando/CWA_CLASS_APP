@@ -304,11 +304,11 @@
 
   {% elif question.question_type == 'sketch_graph' and question.sketch_data %}
     {% comment %}
-    Sketch a graph: the app draws the blank plane and the student types the key
-    features the stem names (vertex, intercepts, axis of symmetry).
-    sketch_graph.js keeps the hidden text_answer field in sync as JSON
-    {"features":{...}}, graded feature by feature by grade_sketch_parts
-    server-side. Without this branch the question would take one whole-answer
+    Sketch a graph: the student plots the curve on the plane the app draws and
+    types the key features the stem names (vertex, intercepts, axis of
+    symmetry). sketch_graph.js keeps the hidden text_answer field in sync as
+    JSON {"features":{...},"points":[...]}, graded part by part — the sketch
+    and each feature — by grade_sketch_parts server-side. Without this branch the question would take one whole-answer
     box that no features payload could match, marking every student wrong. The
     Submit button's onclick survives the innerHTML question swap;
     sketch_graph.js re-mounts via the shared maths_mounts.js registry.
@@ -369,6 +369,25 @@
       </button>
     </div>
   {% endif %}
+
+  {% comment %}Report a problem with THIS question (CPP-398). Before it, a student
+  who hit a broken question could only reach the global feedback button, which
+  captures the page URL — and a topic quiz page serves dozens of questions, so the
+  report could not be traced back to the one they were looking at.
+
+  The click is handled by a delegated listener in topic_quiz.html's persistent
+  extra_js block, not by hx-* attributes here: this card is swapped in by
+  innerHTML, which HTMX never gets to process, so hx-get would work on the first
+  question of a quiz and silently do nothing on every one after it.{% endcomment %}
+  <div class="mt-6 pt-4 border-t border-gray-100 text-right">
+    <button type="button"
+            data-report-question="{{ question.id }}"
+            data-testid="report-question"
+            class="text-xs text-gray-400 hover:text-danger transition
+                   hover:underline underline-offset-2">
+      ⚑ Report a problem with this question
+    </button>
+  </div>
 
 </div>
 {% endif %}

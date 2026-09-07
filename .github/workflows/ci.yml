@@ -444,6 +444,13 @@ jobs:
               # longer or shorter for the wrong students.
               - 'cwa_classroom/billing/**'
               - 'cwa_classroom/templates/billing/**'
+              # The question card carries "Report a problem with this question"
+              # (CPP-398), which opens the feedback modal and writes a report
+              # row. The modal, its launcher and the submit view all live in
+              # feedback/, so a change there can break reporting from the quiz
+              # without touching a single file under quiz/.
+              - 'cwa_classroom/feedback/**'
+              - 'cwa_classroom/templates/feedback/**'
             # Question/content import: /upload-questions/ (classroom views),
             # the PDF import pipeline (ai_import), and the homework + worksheet
             # upload forms that share the page-range field.

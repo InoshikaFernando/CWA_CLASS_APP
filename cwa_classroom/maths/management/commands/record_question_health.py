@@ -18,8 +18,10 @@ from collections import Counter
 from django.core.management.base import BaseCommand
 
 from maths.answer_verification import (
-    verify_question, verify_typed_answer_question)
+    Issue, verify_question, verify_question_figure,
+    verify_typed_answer_question)
 from maths.management.commands.verify_question_answers import ADVISORY_CODES
+from maths.question_review import USER_REPORTED, ReviewState, report_detail
 
 
 def _parent_topic_name(question):
@@ -82,16 +84,39 @@ class Command(BaseCommand):
         verified = 0
         blocking = 0
         advisory = 0
+        cleared_total = 0
         codes = Counter()
         flagged = []
         max_flagged = options['max_flagged']
 
+        # Reports and human verdicts, loaded once for the whole run (CPP-398).
+        # Both tables only grow when a person clicks something, so they stay
+        # small next to the bank and cost two queries rather than two per row.
+        state = ReviewState()
+
         for question in questions.iterator(chunk_size=200):
             choice_total += 1
             issues, was_verified = verify_question(question)
+            # The figure check applies to every type: a question whose picture
+            # never reaches the page cannot be answered however well-formed its
+            # options are (CPP-406).
+            issues = issues + verify_question_figure(question)
             if was_verified:
                 verified += 1
+            reports = state.open_reports(question)
+            if reports:
+                # A question somebody objected to is unhealthy even when every
+                # deterministic check passes it — the verifier having nothing
+                # to say is exactly when the complaint is worth reading.
+                issues = list(issues) + [
+                    Issue(USER_REPORTED, report_detail(reports))]
             if not issues:
+                continue
+            if state.is_cleared(question):
+                # A person looked and passed it. Counted so the run says how
+                # much it is not reporting and on whose authority, rather than
+                # letting a suppressed question read as a sound one.
+                cleared_total += 1
                 continue
 
             issue_codes = [issue.code for issue in issues]
@@ -126,12 +151,22 @@ class Command(BaseCommand):
         typed_total = 0
         for question in typed.iterator(chunk_size=200):
             typed_total += 1
-            issues = verify_typed_answer_question(question)
+            issues = (verify_typed_answer_question(question)
+                      + verify_question_figure(question))
+            reports = state.open_reports(question)
+            if reports:
+                issues = list(issues) + [
+                    Issue(USER_REPORTED, report_detail(reports))]
             if not issues:
+                continue
+            if state.is_cleared(question):
+                cleared_total += 1
                 continue
             issue_codes = [issue.code for issue in issues]
             codes.update(issue_codes)
-            # Neither typed code is advisory: each one mismarks a student.
+            # None of these codes is advisory: the typed ones mismark a
+            # student, a missing figure costs them the mark outright, and a
+            # user report is somebody saying it already did.
             blocking += 1
             if len(flagged) < max_flagged:
                 flagged.append({
@@ -156,6 +191,7 @@ class Command(BaseCommand):
             unverifiable=choice_total - verified,
             questions_blocking=blocking,
             questions_advisory=advisory,
+            questions_cleared=cleared_total,
             issue_counts=dict(codes),
             flagged_questions=flagged,
         )
@@ -168,6 +204,10 @@ class Command(BaseCommand):
             f'{blocking} blocking, {advisory} advisory, '
             f'{snapshot.health_percent}% healthy, '
             f'{snapshot.coverage_percent}% machine-verified')
+        if cleared_total:
+            self.stdout.write(
+                f'  {cleared_total} flagged question(s) not counted — reviewed '
+                f'and marked correct by a person')
         if blocking + advisory > len(flagged):
             # Say so rather than let a truncated list read as the whole story.
             self.stdout.write(self.style.WARNING(

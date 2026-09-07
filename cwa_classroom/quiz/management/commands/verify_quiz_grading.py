@@ -34,6 +34,7 @@ Usage:
     python manage.py verify_quiz_grading --level 7
     python manage.py verify_quiz_grading --limit 200      # smoke run
     python manage.py verify_quiz_grading --quiet
+    python manage.py verify_quiz_grading --progress-seconds 0   # no heartbeat
 """
 import json
 import sys
@@ -87,6 +88,9 @@ class Command(BaseCommand):
         parser.add_argument('--limit', type=int, default=None,
                             help='Stop after N questions (smoke run).')
         parser.add_argument('--quiet', action='store_true')
+        parser.add_argument(
+            '--progress-seconds', type=float, default=30.0,
+            help='Print a progress line at most this often (0 = never).')
 
     # -- submission helpers ------------------------------------------------
     def _session_for(self, client, question):
@@ -241,6 +245,18 @@ class Command(BaseCommand):
         unsupported = Counter()
         failures = []
 
+        # A clean bank means this sweep prints NOTHING between its first line
+        # and its summary — ~20k questions, tens of minutes of silence. Run
+        # from CI over SSH that is not merely unhelpful: the runner network
+        # drops a TCP flow that has carried no bytes for four minutes, which
+        # killed every weekly run before it ever reported. So the sweep says
+        # where it is at, on a clock rather than a question count — the point
+        # is that no gap is long, and a slow database makes a count-based
+        # heartbeat slow too.
+        progress_seconds = options['progress_seconds']
+        started = time.monotonic()
+        last_beat = started
+
         # Everything this sweep writes is rolled back — but the rollback is
         # scoped to ONE QUESTION AT A TIME, not the whole run.
         #
@@ -308,6 +324,14 @@ class Command(BaseCommand):
                     transaction.set_rollback(True)
 
                 checked += 1
+                now = time.monotonic()
+                if progress_seconds and now - last_beat >= progress_seconds:
+                    last_beat = now
+                    self.stdout.write(
+                        f'  … {checked} answered, {failed} mismarking, '
+                        f'{(now - started) / 60:.1f} min elapsed')
+                    self.stdout.flush()
+
                 if problems:
                     # A question whose every problem is a refused request has
                     # not been shown to mismark anything.
@@ -326,6 +350,7 @@ class Command(BaseCommand):
                             f'{question.question_text[:65]}')
                         for problem in problems:
                             self.stdout.write(f'      {problem}')
+                        self.stdout.flush()
         except Exception as exc:                       # noqa: BLE001
             self.stderr.write(self.style.ERROR(f'Sweep aborted: {exc!r}'))
             raise

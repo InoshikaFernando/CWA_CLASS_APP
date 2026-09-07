@@ -663,13 +663,13 @@ static/js/table_of_values.js; graded server-side by numeric tolerance
 
 {% elif q.question_type == 'sketch_graph' and q.sketch_data %}
 {% comment %}
-Sketch a graph: the app draws the blank plane the worksheet printed and the
-student types the key features the stem names (vertex, intercepts, axis of
-symmetry) — a hand-drawn curve is not something this app can take, but the
-features are exactly what such a question is marked on. The boxes serialise to
-JSON in answer_<id> via static/js/sketch_graph.js; graded feature by feature
-server-side (grade_sketch_parts), so three of four earns three quarters. The
-correct values are never emitted into the page.
+Sketch a graph: the app draws the plane the worksheet printed, the student
+plots the curve on it (points, joined into a curve — a freehand stroke is not
+something this app can take) and types the key features the stem names (vertex,
+intercepts, axis of symmetry). Both serialise to JSON in answer_<id> via
+static/js/sketch_graph.js; graded part by part server-side
+(grade_sketch_parts), the sketch and each feature alike, so four of five earns
+four fifths. The correct values are never emitted into the page.
 {% endcomment %}
 {% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_sketch_graph_tool.html" with q=q field_name='answer_'|add:sid %}{% endwith %}
 

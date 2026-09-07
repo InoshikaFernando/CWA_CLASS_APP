@@ -714,13 +714,24 @@ class HandlePaymentEventsTest(StripeTestBase):
         from billing.webhook_handlers import handle_payment_failed
         handle_payment_failed(event_data)
 
-        mock_log.assert_called_once()
-        call_kwargs = mock_log.call_args[1]
+        # Two events now, not one. This invoice resolves to no local
+        # subscription, so nobody can be emailed — and that second fact is
+        # recorded rather than left in a log line. It used to be a bare
+        # logger.warning, which is how 41 failed payments on production
+        # notified nobody without anyone noticing.
+        actions = [c[1]['action'] for c in mock_log.call_args_list]
+        self.assertIn('payment_failed', actions)
+        self.assertIn('payment_failed_unreachable', actions)
+
+        call_kwargs = next(c[1] for c in mock_log.call_args_list
+                           if c[1]['action'] == 'payment_failed')
         self.assertEqual(call_kwargs['category'], 'billing')
-        self.assertEqual(call_kwargs['action'], 'payment_failed')
         self.assertEqual(call_kwargs['result'], 'blocked')
         self.assertEqual(call_kwargs['detail']['amount_cents'], 9900)
         self.assertEqual(call_kwargs['detail']['stripe_customer_id'], 'cus_fail_123')
+        # The old top-level key still resolves — this fixture uses it.
+        self.assertEqual(call_kwargs['detail']['stripe_subscription_id'],
+                         'sub_pay_fail')
 
 
 # ===========================================================================

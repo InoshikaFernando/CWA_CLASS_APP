@@ -1032,11 +1032,12 @@ Rules:
    y = x² + x - 2 showing the coordinates of the vertex, x-axis and y-axis intercepts and
    equation of the axis of symmetry", "Sketch the parabola y = x² - 3x - 4 on the axes
    provided showing clearly: the y-intercept, the x-intercepts, the vertex" — use
-   "sketch_graph" and fill sketch_spec. The curve itself is not what such a question is
-   marked on; the NAMED FEATURES are, and the student types those. So:
+   "sketch_graph" and fill sketch_spec. The student plots the curve on the plane the app
+   draws and types the NAMED FEATURES; both are marked. So:
    - equation = the function exactly as printed. bounds = the axis range of the grid on the
      sheet (integers), widened if needed so every feature below sits inside it.
-   - curve = the coefficients of the EXPANDED form, so the app can draw the answer:
+   - curve = the coefficients of the EXPANDED form. ALWAYS give it: it is what the sketch
+     the student draws is marked against, and what the app draws the answer with.
      y = 2(x+1)² - 4 is {"type": "quadratic", "a": 2, "b": 4, "c": -2};
      y = -(x-3)(x+1) is {"type": "quadratic", "a": -1, "b": 2, "c": 3}.
    - features = ONLY what this question asks for, in its order. Work each one out from the
