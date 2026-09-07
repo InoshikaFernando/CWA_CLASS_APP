@@ -1299,3 +1299,39 @@ def test_every_sellable_module_slug_is_enforced_somewhere():
         'a school that pays for them gets nothing:\n  '
         + '\n  '.join(unenforced)
         + '\nGate the feature the slug is meant to sell, or drop the slug.')
+
+
+# ---------------------------------------------------------------------------
+# SSH keepalives
+# ---------------------------------------------------------------------------
+# Every workflow that reaches a droplet does it over one long-lived ssh, and a
+# GitHub runner's network drops a TCP flow that has carried no bytes for four
+# minutes. The weekly question audit is the worked example: its behavioural
+# sweep prints nothing while it answers ~20k questions, so all three of its
+# runs died at 4m20s with `client_loop: send disconnect: Broken pipe` and exit
+# 255 — reported as a failed audit, though nothing had been audited. The same
+# gap in a deploy step (migrate, collectstatic) abandons a half-finished
+# deploy. ServerAliveInterval is what stops it, and it is invisible when
+# missing, so it is asserted here rather than left to review.
+_SSH_KEEPALIVE_OPTS = ('ServerAliveInterval', 'ServerAliveCountMax')
+
+
+@pytest.mark.parametrize('path', _workflow_files(), ids=lambda p: p.name)
+def test_every_ssh_call_keeps_its_connection_alive(path):
+    text = path.read_text(encoding='utf-8')
+    # `ssh-keyscan` is a different program and needs no keepalive.
+    ssh_lines = [line for line in text.splitlines()
+                 if re.search(r'(?<![-\w])ssh\s', line)
+                 and 'ssh-keyscan' not in line]
+    if not ssh_lines:
+        return
+    for option in _SSH_KEEPALIVE_OPTS:
+        assert option in text, (
+            f'{path.name} runs ssh but never sets {option}. A connection that '
+            f'goes quiet for four minutes is dropped by the runner network, '
+            f'and the step fails with exit 255 having proved nothing.')
+    for line in ssh_lines:
+        assert '$SSH_OPTS' in line or 'ServerAliveInterval' in line, (
+            f'{path.name}: this ssh call carries no keepalive options:\n'
+            f'  {line.strip()}\n'
+            f'Pass $SSH_OPTS (defined in the workflow env:) to it.')
