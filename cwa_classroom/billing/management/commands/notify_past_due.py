@@ -53,7 +53,7 @@ class Command(BaseCommand):
     def handle(self, *args, **opts):
         from audit.models import AuditLog
         from audit.services import log_event
-        from billing.email_utils import _parent_emails, notify_payment_failed
+        from billing.email_utils import _parent_emails, notify_past_due_backlog
         from billing.models import Subscription
 
         send = opts['send']
@@ -99,12 +99,11 @@ class Command(BaseCommand):
                 sent += 1
                 continue
 
-            price = float(sub.package.price) if sub.package and sub.package.price else 0.0
-            pct = sub.discount_percent_snapshot or 0
-            notify_payment_failed(user=user, detail={
-                'amount_cents': int(round(price * (100 - pct))),
-                'currency': 'nzd',
-            })
+            # No amount is quoted. The figure would have to carry a currency,
+            # and this app serves schools in more than one — a New Zealand sum
+            # shown to a Melbourne family is worse than no sum at all. Stripe's
+            # own portal shows what is owed, in the currency it will charge.
+            notify_past_due_backlog(user, since=sub.updated_at)
             # Written AFTER the send, so a crash mid-send leaves the student
             # un-marked and a re-run picks them up rather than skipping someone
             # who was never actually written to.
