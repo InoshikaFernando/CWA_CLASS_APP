@@ -8,6 +8,13 @@ vendored now, so the block path can finally be driven for real.
 Scratch is the one exercise language with no text editor. Its blocks generate
 Python, which is what runs — so the page keeps the shared window's console
 (cw_panes="console") and drives it with runWith().
+
+Nothing here waits on "networkidle", deliberately. Two of these tests did, and
+timed out in CI while passing locally — on a page that makes ~58 requests once
+Blockly and its media are counted, that wait is a coin toss. The tests that
+mounted Blockly and ran code through it passed in the same CI job, so the page
+was fine and only the wait was not. Each test now waits for the thing it is
+about to assert on, which is both faster and deterministic.
 """
 
 from __future__ import annotations
@@ -53,11 +60,10 @@ class TestScratchExercise:
         self, page: Page, live_server, student_user, scratch_exercise,
     ):
         """The vendored Blockly loads and injects a workspace."""
-        do_login(page, live_server.url, scratch_exercise and student_user)
+        do_login(page, live_server.url, student_user)
         page.goto(_url(live_server, scratch_exercise))
-        page.wait_for_load_state("networkidle")
 
-        expect(page.locator("#blocklyDiv .blocklySvg")).to_be_visible(timeout=10000)
+        expect(page.locator("#blocklyDiv .blocklySvg")).to_be_visible(timeout=15000)
         assert page.evaluate("typeof Blockly !== 'undefined'"), "Blockly did not load"
 
     @pytest.mark.django_db(transaction=True)
@@ -75,8 +81,10 @@ class TestScratchExercise:
 
         do_login(page, live_server.url, student_user)
         page.goto(_url(live_server, scratch_exercise))
-        page.wait_for_load_state("networkidle")
-        expect(page.locator("#blocklyDiv .blocklySvg")).to_be_visible(timeout=10000)
+        # The workspace being on screen means Blockly has injected and asked
+        # for whatever media it wants — which is the point at which a request
+        # to the demo host would have gone out.
+        expect(page.locator("#blocklyDiv .blocklySvg")).to_be_visible(timeout=15000)
 
         assert not remote, f"Blockly fetched media from the demo host: {remote}"
 
@@ -86,9 +94,10 @@ class TestScratchExercise:
     ):
         do_login(page, live_server.url, student_user)
         page.goto(_url(live_server, scratch_exercise))
-        page.wait_for_load_state("networkidle")
 
-        expect(page.locator("#cw-output .cw-stdout")).to_be_visible()
+        # Wait on the console FIRST: to_have_count(0) would pass against a
+        # page that had not finished loading, which proves nothing.
+        expect(page.locator("#cw-output .cw-stdout")).to_be_visible(timeout=15000)
         expect(page.locator("#cw-editor")).to_have_count(0)
 
     @pytest.mark.django_db(transaction=True)
@@ -108,8 +117,7 @@ class TestScratchExercise:
                              "exercise_has_expected": True, "exercise_score": 100})))
 
         page.goto(_url(live_server, scratch_exercise))
-        page.wait_for_load_state("networkidle")
-        expect(page.locator("#blocklyDiv .blocklySvg")).to_be_visible(timeout=10000)
+        expect(page.locator("#blocklyDiv .blocklySvg")).to_be_visible(timeout=15000)
 
         # Drop a print("hello") block into the workspace.
         page.evaluate("""
