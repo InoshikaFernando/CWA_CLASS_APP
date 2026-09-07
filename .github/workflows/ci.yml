@@ -429,6 +429,8 @@ jobs:
               - 'cwa_classroom/templates/progress/**'
             ui_quiz:
               - 'cwa_classroom/ui_tests/quiz/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/brainbuzz/**'
               - 'cwa_classroom/classroom/**'
               - 'cwa_classroom/maths/**'
               - 'cwa_classroom/quiz/**'
@@ -500,6 +502,10 @@ jobs:
               - 'cwa_classroom/accounts/**'
               - 'cwa_classroom/classroom/**'
               - 'cwa_classroom/languages/**'
+              # The worksheet builder's question picker takes a
+              # ?subject=languages filter, so a change under worksheets/ can
+              # break that cross-app entry point without touching languages/.
+              - 'cwa_classroom/worksheets/**'
 
       # ---- Has the release PR's tree actually passed on `test`? -------------
       #
