@@ -19,6 +19,14 @@ db.sqlite3-journal
 # Uploaded media files
 **/media/
 
+# …but a vendored library's media/ is not an upload. Blockly fetches its
+# toolbox icons and sounds from static/vendor/blockly/media/ at runtime, and
+# the rule above swallowed all 19 of them: `git add -A` skipped them in
+# silence, and CI caught a media path pointing at files that do not exist on
+# the server — every icon a 404, which is worse than the CDN it replaced.
+!cwa_classroom/static/vendor/**/media/
+!cwa_classroom/static/vendor/**/media/**
+
 # Database dumps
 *.sql
 sql/
