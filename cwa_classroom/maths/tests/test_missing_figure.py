@@ -230,6 +230,54 @@ class FigureWordingTests(TestCase):
             with self.subTest(text):
                 self.assertEqual(verify_question_figure(self._choice(text)), [])
 
+    def test_a_printed_sequence_is_not_a_missing_figure(self):
+        """The stem prints the pattern, so nothing is missing from the page.
+
+        166 of the weekly audit's 248 flags were MISSING-FIGURE and most were
+        this: "pattern" is a figure word, but a number-pattern question puts
+        the sequence in its own text. Nearly all of Year 1-4 Number Patterns
+        and Skip Counting was flagged for a picture it never wanted, which
+        buries the questions that really are unanswerable.
+        """
+        for text in (
+                'Look at the pattern 0, 2, 4, 6, 8. Complete the sentence: '
+                'This pattern is going up by ______.',
+                'Work out the number pattern rule and complete the pattern: '
+                '65, __, 75, 80',
+                'Continue the pattern of counting by 5s: 55, 60, 65, 70, ___',
+                'What is the missing letter in the pattern: B, F, J, ____, '
+                'R, V, Z?',
+                'What is the missing term in the pattern: Q, 9, Q, 9, Q, 9, '
+                '____, 9, Q, 9?'):
+            with self.subTest(text):
+                self.assertEqual(verify_question_figure(self._choice(text)), [])
+
+    def test_a_pattern_with_nothing_printed_is_still_flagged(self):
+        """The exemption is for a sequence on the page, not for the word."""
+        for text in ('Continue the pattern.',
+                     'Draw the next step of this pattern.',
+                     'Complete the pattern shown below: 2, 4, 6, ___'):
+            with self.subTest(text):
+                self.assertEqual(
+                    [i.code for i in verify_question_figure(self._choice(text))],
+                    [MISSING_FIGURE])
+
+    def test_a_second_figure_word_is_not_excused_by_the_sequence(self):
+        """Only the pattern reference is answered by a printed sequence."""
+        q = self._choice('Copy the pattern in the diagram: 1, 2, 3, ___')
+        self.assertEqual([i.code for i in verify_question_figure(q)],
+                         [MISSING_FIGURE])
+
+    def test_an_option_list_is_not_a_sequence(self):
+        """"A, B, C, D" is a list of pictures to choose between.
+
+        Bare letters with no number and no blank are what a multiple choice
+        looks like, so they must not excuse the missing picture.
+        """
+        q = self._choice('Which of these shapes is a kite? A, B, C, D')
+        self.assertEqual([i.code for i in verify_question_figure(q)],
+                         [MISSING_FIGURE])
+
     def test_scaffolding_types_are_exempt(self):
         # "the grid" here is the column-arithmetic layout, transcribed into
         # the structured fields — never a picture.

@@ -165,3 +165,56 @@ class HostHeaderTests(TestCase):
         self.assertIn('Nothing was graded', message)
         # The operator is told what to change, not just that it broke.
         self.assertIn('ALLOWED_HOSTS', message)
+
+
+class ProgressHeartbeatTests(TestCase):
+    """The sweep must keep talking while it works.
+
+    On a clean bank it printed nothing at all between its first line and its
+    summary — tens of minutes of silence. Over the weekly job's SSH connection
+    that was fatal rather than merely quiet: a TCP flow out of a GitHub runner
+    carrying no bytes for four minutes is dropped by the runner network, so
+    every one of the first three weekly runs died at 4m20s with
+    ``client_loop: send disconnect: Broken pipe`` and the sweep never once
+    reported. The heartbeat is what keeps that connection alive.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        cls.level = Level.objects.create(level_number=988, display_name='Beat')
+        cls.topic = Topic.objects.create(
+            subject=cls.subject, name='Beat Fractions',
+            slug='beat-fractions', is_active=True,
+        )
+        cls.topic.levels.add(cls.level)
+        question = Question.objects.create(
+            question_text='Calculate: 9/10 - 3/5',
+            question_type=Question.MULTIPLE_CHOICE,
+            topic=cls.topic, level=cls.level,
+        )
+        for order, (text, correct) in enumerate(
+                [('3/10', True), ('1/2', False)]):
+            Answer.objects.create(question=question, answer_text=text,
+                                  is_correct=correct, order=order)
+
+    def _sweep(self, **kwargs):
+        out = StringIO()
+        call_command('verify_quiz_grading', '--level', 988, stdout=out, **kwargs)
+        return out.getvalue()
+
+    def test_it_reports_progress_while_it_runs(self):
+        # Any interval this short beats on every question.
+        output = self._sweep(progress_seconds=0.000001)
+        # 'min elapsed', not 'answered': the summary says "Answered via the
+        # real endpoint" whether or not a heartbeat ever fired.
+        self.assertIn('min elapsed', output,
+                      'the sweep ran silently — the SSH connection carrying it '
+                      'is dropped after four idle minutes')
+
+    def test_the_heartbeat_can_be_turned_off(self):
+        output = self._sweep(progress_seconds=0)
+        self.assertNotIn('min elapsed', output)
