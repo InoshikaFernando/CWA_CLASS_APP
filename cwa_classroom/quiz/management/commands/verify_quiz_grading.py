@@ -51,6 +51,17 @@ from django.urls import reverse
 
 from maths.answer_values import parse_answer_value
 
+# The throwaway account. The username was always unique per run but the email
+# was a constant, and email is UNIQUE on the user table — so the moment one run
+# failed to delete its account, every later run died on insert before grading a
+# single question. That is not hypothetical: the three weekly runs killed by a
+# dropped SSH connection never reached the `finally` that deletes the account,
+# and the first run that got through the connection died on their leftovers.
+# Both halves are fixed here — a unique email per run, and a sweep of any
+# account a previous run left behind.
+SWEEP_USERNAME_PREFIX = 'quiz-grading-sweep-'
+SWEEP_EMAIL_DOMAIN = '@example.invalid'
+
 CHOICE_TYPES = ('multiple_choice', 'true_false')
 # Typed answers graded against the stored Answer rows.
 TEXT_TYPES = (
@@ -269,11 +280,28 @@ class Command(BaseCommand):
         # live database.
         user = None
         try:
+            # Anything a previous run left behind. A sweep can always be killed
+            # mid-flight — a dropped connection, a job timeout, a reboot — and
+            # its `finally` does not run, so self-healing is the only way this
+            # command survives its own interruption. These accounts are
+            # synthetic: nothing but this command creates the name/email pair,
+            # and every one of them is dead weight by the time we are here.
+            stale = User.objects.filter(
+                username__startswith=SWEEP_USERNAME_PREFIX,
+                email__endswith=SWEEP_EMAIL_DOMAIN)
+            stale_count = stale.count()
+            if stale_count:
+                stale.delete()
+                self.stdout.write(self.style.WARNING(
+                    f'Removed {stale_count} account(s) left behind by an '
+                    f'interrupted sweep'))
+
+            suffix = uuid.uuid4().hex[:8]
             password = uuid.uuid4().hex
             with transaction.atomic():
                 user = User.objects.create_user(
-                    username=f'quiz-grading-sweep-{uuid.uuid4().hex[:8]}',
-                    email='quiz-grading-sweep@example.invalid',
+                    username=f'{SWEEP_USERNAME_PREFIX}{suffix}',
+                    email=f'{SWEEP_USERNAME_PREFIX}{suffix}{SWEEP_EMAIL_DOMAIN}',
                     password=password,
                 )
             host = _allowed_host()

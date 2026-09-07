@@ -1,6 +1,15 @@
 {% extends "base.html" %}
 {% load static %}
 {% block title %}Worksheet Builder{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+{% comment %}CodeMirror + the shared coding window, for the live preview of a
+coding exercise. Loaded once here rather than by the htmx-swapped partial,
+which would re-fetch the library on every preview.{% endcomment %}
+{% include "coding/partials/_code_window_head.html" %}
+{% endblock %}
+
 {% block content %}
 <style>
   /* Loading skeleton collapses to zero height when idle so it doesn't leave a
@@ -242,7 +251,7 @@
 <div id="preview-modal"
      class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
      onclick="if(event.target===this)this.classList.add('hidden')">
-  <div id="preview-modal-content" class="w-full max-w-lg max-h-[85vh] overflow-y-auto mx-4">
+  <div id="preview-modal-content" class="w-full max-h-[85vh] overflow-y-auto mx-4">
   </div>
 </div>
 
@@ -520,6 +529,12 @@ function switchMobileTab(tab) {
         }
       }
       document.getElementById('preview-modal').classList.remove('hidden');
+      // A coding preview mounts its editor while the modal is still hidden,
+      // where CodeMirror measures zero height and renders an empty box. Now
+      // that the modal is on screen, let it measure again.
+      if (window.CodeWindow) {
+        window.CodeWindow.refreshAll(document.getElementById('preview-modal-content'));
+      }
     });
   });
 
