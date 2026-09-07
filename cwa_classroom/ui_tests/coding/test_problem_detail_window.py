@@ -9,6 +9,16 @@ own Reset/Submit toolbar, and the window's Ctrl-Enter reaches it as
 
 Piston is unreachable in CI, so the submit endpoint is stubbed where a verdict
 is needed; the code-reaches-the-server test reads the outgoing request instead.
+
+Nothing here waits on "networkidle" before an expect(). c54a0cd took that wait
+out of the Scratch tests after two CI timeouts and left these files alone,
+"worth revisiting if they ever flake"; test_verdict_is_rendered_from_the_response
+then timed out at 30s on a release run whose tree had passed this same group
+twenty minutes earlier. These pages mount CodeMirror and the vendored editor
+assets, so "no request for 500ms" is a coin toss on a slow runner — and the
+expect() that followed was already waiting for the editor, which is the thing
+each test actually needs. The waits that remain are the ones doing real work:
+before a bare assert, before an action, or at the tail of a helper.
 """
 
 from __future__ import annotations
@@ -57,7 +67,6 @@ class TestProblemDetailWindow:
     ):
         do_login(page, live_server.url, student_user)
         page.goto(_url(live_server, coding_problem))
-        page.wait_for_load_state("networkidle")
 
         editor = page.locator("#cw-problem .CodeMirror")
         expect(editor).to_be_visible(timeout=5000)
@@ -70,7 +79,6 @@ class TestProblemDetailWindow:
         """A problem is graded on test cases — a stdout pane would mislead."""
         do_login(page, live_server.url, student_user)
         page.goto(_url(live_server, coding_problem))
-        page.wait_for_load_state("networkidle")
         expect(page.locator("#cw-problem .CodeMirror")).to_be_visible(timeout=5000)
 
         expect(page.locator("#cw-problem .cw-stdout")).to_have_count(0)
@@ -85,7 +93,6 @@ class TestProblemDetailWindow:
         """Test cases supply the input here — a stdin box would go nowhere."""
         do_login(page, live_server.url, student_user)
         page.goto(_url(live_server, coding_problem))
-        page.wait_for_load_state("networkidle")
         expect(page.locator("#cw-problem .CodeMirror")).to_be_visible(timeout=5000)
         expect(page.locator(".cw-stdin")).to_have_count(0)
 
@@ -96,7 +103,6 @@ class TestProblemDetailWindow:
         """The whole point of the migration: getCode() reads the shared window."""
         do_login(page, live_server.url, student_user)
         page.goto(_url(live_server, coding_problem))
-        page.wait_for_load_state("networkidle")
 
         editor = page.locator("#cw-problem .CodeMirror")
         expect(editor).to_be_visible(timeout=5000)
@@ -119,7 +125,6 @@ class TestProblemDetailWindow:
         """The window's run shortcut is wired to this page's Submit."""
         do_login(page, live_server.url, student_user)
         page.goto(_url(live_server, coding_problem))
-        page.wait_for_load_state("networkidle")
 
         editor = page.locator("#cw-problem .CodeMirror")
         expect(editor).to_be_visible(timeout=5000)
@@ -144,7 +149,6 @@ class TestProblemDetailWindow:
                 "points_earned": 10, "score": 100,
             })))
         page.goto(_url(live_server, coding_problem))
-        page.wait_for_load_state("networkidle")
         expect(page.locator("#cw-problem .CodeMirror")).to_be_visible(timeout=5000)
 
         page.locator("#pd-submit-btn").click()
@@ -157,7 +161,6 @@ class TestProblemDetailWindow:
         do_login(page, live_server.url, student_user)
         page.on("dialog", lambda dialog: dialog.accept())
         page.goto(_url(live_server, coding_problem))
-        page.wait_for_load_state("networkidle")
 
         editor = page.locator("#cw-problem .CodeMirror")
         expect(editor).to_be_visible(timeout=5000)

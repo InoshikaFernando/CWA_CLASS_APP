@@ -8,6 +8,16 @@ goes in the head, the JS just before </body> so it runs against parsed markup.
 
 Everything here happens in the browser — this playground never calls the
 server, which is the other thing worth pinning down.
+
+Nothing here waits on "networkidle" before an expect(). c54a0cd took that wait
+out of the Scratch tests after two CI timeouts and left these files alone,
+"worth revisiting if they ever flake"; test_verdict_is_rendered_from_the_response
+then timed out at 30s on a release run whose tree had passed this same group
+twenty minutes earlier. These pages mount CodeMirror and the vendored editor
+assets, so "no request for 500ms" is a coin toss on a slow runner — and the
+expect() that followed was already waiting for the editor, which is the thing
+each test actually needs. The waits that remain are the ones doing real work:
+before a bare assert, before an action, or at the tail of a helper.
 """
 
 from __future__ import annotations
@@ -24,7 +34,6 @@ PLAYGROUND = "/coding/playground/html-css/"
 def _open(page: Page, live_server, user):
     do_login(page, live_server.url, user)
     page.goto(f"{live_server.url}{PLAYGROUND}")
-    page.wait_for_load_state("networkidle")
     expect(page.locator("[data-code-window] .CodeMirror").first).to_be_visible(timeout=5000)
 
 
