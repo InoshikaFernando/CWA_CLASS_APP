@@ -296,3 +296,102 @@ class PastDuePanelTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, 'past-due-panel')
+
+
+class PaymentDelayHealthTests(TestCase):
+    """The ops health page's side of the same question.
+
+    The leak tile asks whether anyone is getting in without paying. This one
+    asks whether anyone is locked out without being told, which is the failure
+    that actually happened: 41 payment failures, nobody emailed, and a count
+    on a dashboard that read as handled.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.package = Package.objects.create(
+            name='Health Monthly', price=19.90, stripe_price_id='price_health')
+
+    def _past_due(self, name, email='p@example.test', since=None):
+        user = CustomUser.objects.create_user(name, email, 'TestPass123!')
+        sub = Subscription.objects.create(
+            user=user, package=self.package,
+            status=Subscription.STATUS_PAST_DUE)
+        if since:
+            Subscription.objects.filter(pk=sub.pk).update(updated_at=since)
+        return user
+
+    def _health(self):
+        from billing.subscription_health import get_payment_delay_health
+        return get_payment_delay_health()
+
+    def test_no_failed_payments_is_ok(self):
+        health = self._health()
+
+        self.assertEqual(health['status'], 'ok')
+        self.assertEqual(health['count'], 0)
+        self.assertEqual(health['reasons'], [])
+
+    def test_an_untold_family_is_a_warning_not_silence(self):
+        self._past_due('pdh_untold')
+
+        health = self._health()
+
+        self.assertEqual(health['status'], 'warning')
+        self.assertEqual((health['count'], health['untold']), (1, 1))
+
+    def test_a_notified_family_does_not_count_as_untold(self):
+        user = self._past_due('pdh_told')
+        AuditLog.objects.create(
+            user=user, category='billing', result='success',
+            action='payment_failed_notice_sent')
+
+        health = self._health()
+
+        self.assertEqual(health['status'], 'ok')
+        self.assertEqual((health['count'], health['untold']), (1, 0))
+
+    def test_a_week_of_silence_is_critical_not_a_warning(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        self._past_due(
+            'pdh_stale', since=timezone.now() - timedelta(days=9))
+
+        health = self._health()
+
+        self.assertEqual(health['status'], 'critical')
+        self.assertEqual(health['oldest_untold_days'], 9)
+
+    def test_a_family_with_no_address_is_critical_and_counted_apart(self):
+        """Untold is a backlog; unreachable is a dead end.
+
+        Running notify_past_due clears the first and cannot touch the second,
+        so folding them into one number would leave someone permanently
+        locked out behind a tile that says the work is done.
+        """
+        CustomUser.objects.create_user('pdh_nomail', None, 'TestPass123!')
+        Subscription.objects.create(
+            user=CustomUser.objects.get(username='pdh_nomail'),
+            package=self.package, status=Subscription.STATUS_PAST_DUE)
+
+        health = self._health()
+
+        self.assertEqual(health['status'], 'critical')
+        self.assertEqual((health['untold'], health['unreachable']), (0, 1))
+
+    def test_the_automatic_notice_records_that_it_was_sent(self):
+        """Otherwise the tile is red forever and stops meaning anything.
+
+        notify_payment_failed is the forward-going path; only the one-off
+        backlog command used to write the marker. A working notifier whose
+        sends leave no trace looks identical to the outage this tile exists
+        to catch.
+        """
+        from billing.email_utils import notify_payment_failed
+        user = self._past_due('pdh_auto', email='auto@example.test')
+        mail.outbox = []
+
+        notify_payment_failed(user=user, detail={'amount': '19.90'})
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(self._health()['untold'], 0)

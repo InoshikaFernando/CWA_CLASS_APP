@@ -84,17 +84,34 @@ def notify_payment_failed(school=None, user=None, detail=None):
             logger.exception('Could not record unreachable payment failure')
         return
 
+    sent_to = list(dict.fromkeys(recipients))
     try:
         send_mail(
             subject=f'[{SITE_NAME}] Payment failed — action required',
             message=render_to_string('emails/payment_failed.txt', context),
             from_email=DEFAULT_FROM,
-            recipient_list=list(dict.fromkeys(recipients)),
+            recipient_list=sent_to,
             html_message=render_to_string('emails/payment_failed.html', context),
             fail_silently=True,
         )
     except Exception:
         logger.exception('Failed to send payment failure email to %s', recipients)
+        return
+
+    # Record the send, not just the failure to send. The dashboard panel and
+    # the ops health tile both read "has this family been told" from this
+    # event; without it every automated notice would look like silence and the
+    # tile would sit red forever, which is the same as no tile at all.
+    if user is not None:
+        try:
+            from audit.services import log_event
+            log_event(
+                user=user, school=school, category='billing',
+                action='payment_failed_notice_sent', result='success',
+                detail={**detail, 'recipients': sent_to, 'why': 'automatic'},
+            )
+        except Exception:
+            logger.exception('Could not record payment failure notice')
 
 
 def notify_past_due_backlog(user, since=None):

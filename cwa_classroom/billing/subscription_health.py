@@ -45,6 +45,11 @@ DEFAULT_LOOKBACK_DAYS = 7
 # an emergency.
 ACTIVE_LEAK_HOURS = 24
 
+# A failed payment nobody has been told about for this long is no longer a
+# delay, it is a lockout: the family has had a week of "why is this not
+# working" with nothing explaining it, and every day after is churn we chose.
+UNTOLD_CRITICAL_DAYS = 7
+
 # Cap on the per-user detail rows. The count is always exact; only the listing
 # is trimmed, so a pathological number of delinquent accounts cannot turn one
 # dashboard render into hundreds of queries.
@@ -187,3 +192,124 @@ def _humanise(minutes):
     if minutes < 60 * 48:
         return f'{minutes / 60:.1f} hours'
     return f'{minutes / 1440:.1f} days'
+
+
+# ---------------------------------------------------------------------------
+# Payment delays — a failed payment is only half the story; the other half is
+# whether anybody told the family.
+# ---------------------------------------------------------------------------
+
+def get_payment_delay_health(country='', now=None):
+    """Return a dict describing failed student payments and who knows about them.
+
+    A past_due count on its own is the number you can act on least. The state
+    that matters is whether the family has been told: one that has been emailed
+    is waiting on a card, one that has not is waiting on us — and for 41
+    payment failures on production, all of them were waiting on us while the
+    dashboard showed a tidy count that looked handled.
+
+    Lives here rather than in the admin view because three places need the same
+    answer — the billing dashboard's panel, the ops health page, and the deep
+    health endpoint — and three derivations of "notified" would eventually
+    disagree about it.
+
+    Keys:
+        status        'ok' | 'warning' | 'critical'
+        reasons       list[str] — why it is not ok (empty when ok)
+        count         int  — subscriptions currently past_due
+        untold        int  — of those, reachable but never emailed about it
+        unreachable   int  — of those, with no address for student or parent
+        oldest_untold_days  int | None — age of the oldest untold delay
+        rows          list[dict] — username, name, since, emails, reachable,
+                      notified; oldest delay first
+    """
+    from audit.models import AuditLog
+    from classroom.models import ParentStudent
+
+    from .models import Subscription
+
+    now = now or timezone.now()
+
+    qs = (Subscription.objects
+          .filter(status=Subscription.STATUS_PAST_DUE)
+          .select_related('user')
+          .order_by('updated_at'))
+    if country:
+        qs = qs.filter(user__country__iexact=country)
+
+    subs = list(qs)
+    user_ids = [s.user_id for s in subs]
+
+    parents = {}
+    for link in (ParentStudent.objects
+                 .filter(student_id__in=user_ids, is_active=True)
+                 .select_related('parent')):
+        if link.parent and link.parent.email:
+            parents.setdefault(link.student_id, []).append(link.parent.email)
+
+    # Told since THIS lapse, not ever: a student who failed, paid, and failed
+    # again is owed another notice, and showing the old one as current would
+    # hide that.
+    told = {}
+    for ev in AuditLog.objects.filter(
+            user_id__in=user_ids,
+            action__in=('payment_failed_notice_sent',
+                        'payment_failed_unreachable')).order_by('created_at'):
+        told.setdefault(ev.user_id, []).append(ev)
+
+    rows = []
+    for sub in subs:
+        emails = ([sub.user.email] if sub.user.email else [])
+        emails += [e for e in parents.get(sub.user_id, []) if e not in emails]
+        notified = any(
+            ev.action == 'payment_failed_notice_sent'
+            and ev.created_at >= sub.updated_at
+            for ev in told.get(sub.user_id, []))
+        rows.append({
+            'username': sub.user.username,
+            'name': sub.user.get_full_name() or sub.user.username,
+            'since': sub.updated_at,
+            'emails': emails,
+            'reachable': bool(emails),
+            'notified': notified,
+        })
+
+    untold_rows = [r for r in rows if not r['notified'] and r['reachable']]
+    unreachable = [r for r in rows if not r['reachable']]
+
+    oldest_untold_days = None
+    if untold_rows:
+        oldest = min(r['since'] for r in untold_rows)
+        oldest_untold_days = max(0, (now - oldest).days)
+
+    reasons = []
+    status = STATUS_OK
+    if unreachable:
+        status = STATUS_CRITICAL
+        reasons.append(
+            f'{len(unreachable)} past-due account(s) have no address for the '
+            f'student or a parent — they cannot be told at all'
+        )
+    if untold_rows:
+        stale = (oldest_untold_days is not None
+                 and oldest_untold_days >= UNTOLD_CRITICAL_DAYS)
+        status = STATUS_CRITICAL if stale else max(status, STATUS_WARNING,
+                                                   key=_severity)
+        reasons.append(
+            f'{len(untold_rows)} past-due account(s) have never been emailed '
+            f'about it; the oldest has been waiting {oldest_untold_days} day(s)'
+        )
+
+    return {
+        'status': status,
+        'reasons': reasons,
+        'count': len(rows),
+        'untold': len(untold_rows),
+        'unreachable': len(unreachable),
+        'oldest_untold_days': oldest_untold_days,
+        'rows': rows,
+    }
+
+
+def _severity(status):
+    return {STATUS_OK: 0, STATUS_WARNING: 1, STATUS_CRITICAL: 2}.get(status, 0)
