@@ -32,9 +32,13 @@ class TestUploadQuestionsAccess:
     def test_unauthenticated_redirects_to_login(
         self, page: Page, live_server
     ):
+        """Waits for the redirect, not for "networkidle".
+
+        Same 30s timeout as the homework twin of this test, on a page whose
+        only assertion is about the URL. See that test for the reasoning.
+        """
         page.goto(f"{live_server.url}/upload-questions/")
-        page.wait_for_load_state("networkidle")
-        assert "/accounts/login" in page.url
+        expect(page).to_have_url(re.compile(r"/accounts/login"))
 
     @pytest.mark.django_db(transaction=True)
     def test_student_is_blocked(
