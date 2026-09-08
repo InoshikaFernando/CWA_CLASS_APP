@@ -1167,6 +1167,310 @@ class DiscountCodeCaseInsensitivityTest(TestCase):
         self.assertTrue(self.user.profile_completed)
 
 
+class StudentGateMoneyCorrectnessTest(TestCase):
+    """What the student is actually charged at the gate.
+
+    Two failures matter equally and in opposite directions: charging someone
+    who owes nothing, and letting through free someone who owes money. Every
+    test here asserts one of those, on the exact boundary.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.url = reverse('complete_profile')
+        self.user = CustomUser.objects.create_user(
+            'moneystud', 'money@test.com', 'pass1234',
+            must_change_password=True, profile_completed=False,
+        )
+        role, _ = Role.objects.get_or_create(
+            name=Role.STUDENT, defaults={'display_name': 'Student'},
+        )
+        from accounts.models import UserRole
+        UserRole.objects.create(user=self.user, role=role)
+        self.client.force_login(self.user)
+
+    def _pkg(self, price, stripe_price_id='price_money'):
+        from decimal import Decimal
+        return Package.objects.create(
+            name=f'Pkg {price}', class_limit=1, price=Decimal(str(price)),
+            stripe_price_id=stripe_price_id if Decimal(str(price)) > 0 else '',
+            is_default=True, is_active=True, order=1,
+        )
+
+    def _post(self, **extra):
+        data = {
+            'new_password': 'newpass1234', 'confirm_password': 'newpass1234',
+            'first_name': 'Money', 'last_name': 'Student',
+        }
+        data.update(extra)
+        return self.client.post(self.url, data)
+
+    # ── Undercharging: nobody who owes money gets in free ────────────────
+
+    @patch('billing.stripe_service.create_student_checkout_session')
+    def test_one_cent_package_is_not_free(self, mock_stripe):
+        """The boundary. $0.01 is a paid plan and must reach checkout."""
+        self._pkg('0.01')
+        mock_stripe.return_value = MagicMock(url='https://checkout.stripe.com/x')
+        resp = self._post()
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('stripe.com', resp.url)
+        self.assertFalse(Subscription.objects.filter(user=self.user).exists())
+
+    @patch('billing.stripe_service.create_student_checkout_session')
+    def test_paid_package_with_no_code_is_charged(self, mock_stripe):
+        self._pkg('19.90')
+        mock_stripe.return_value = MagicMock(url='https://checkout.stripe.com/x')
+        resp = self._post()
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('stripe.com', resp.url)
+        # Not activated until Stripe confirms.
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.profile_completed)
+
+    @patch('billing.stripe_service.create_student_checkout_session')
+    def test_partial_code_does_not_activate_for_free(self, mock_stripe):
+        """75% off still owes 25% — it must go to Stripe, not activate."""
+        self._pkg('19.90')
+        DiscountCode.objects.create(
+            code='SEVENTYFIVE', discount_percent=75, is_active=True,
+            stripe_coupon_id='coupon_75',
+        )
+        mock_stripe.return_value = MagicMock(url='https://checkout.stripe.com/x')
+        resp = self._post(discount_code='SEVENTYFIVE')
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('stripe.com', resp.url)
+        sub = Subscription.objects.get(user=self.user)
+        self.assertNotEqual(sub.status, Subscription.STATUS_ACTIVE)
+
+    @patch('billing.stripe_service.create_student_checkout_session')
+    def test_expired_full_code_does_not_activate_for_free(self, mock_stripe):
+        """An invalid 100% code must be refused, not honoured."""
+        from django.utils import timezone
+        from datetime import timedelta
+        self._pkg('19.90')
+        DiscountCode.objects.create(
+            code='DEADFREE', discount_percent=100, is_active=True,
+            expires_at=timezone.now() - timedelta(days=1),
+        )
+        resp = self._post(discount_code='DEADFREE')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'expired or reached its usage limit')
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.profile_completed)
+        self.assertFalse(Subscription.objects.filter(user=self.user).exists())
+        mock_stripe.assert_not_called()
+
+    # ── Overcharging: nobody who owes nothing is charged ─────────────────
+
+    @patch('billing.stripe_service.create_student_checkout_session')
+    def test_full_code_never_reaches_stripe(self, mock_stripe):
+        """A 100% code owes nothing — Stripe must not be called at all."""
+        self._pkg('19.90')
+        DiscountCode.objects.create(
+            code='ALLFREE', discount_percent=100, is_active=True,
+        )
+        resp = self._post(discount_code='ALLFREE')
+        self.assertEqual(resp.status_code, 302)
+        self.assertNotIn('stripe.com', resp.url)
+        mock_stripe.assert_not_called()
+        self.assertEqual(
+            Subscription.objects.get(user=self.user).status,
+            Subscription.STATUS_ACTIVE,
+        )
+
+    @patch('billing.stripe_service.create_student_checkout_session')
+    def test_free_package_never_reaches_stripe(self, mock_stripe):
+        self._pkg('0')
+        resp = self._post()
+        self.assertEqual(resp.status_code, 302)
+        mock_stripe.assert_not_called()
+
+    @patch('billing.stripe_service.create_student_checkout_session')
+    def test_partial_code_forwards_its_coupon_so_only_the_balance_is_charged(
+            self, mock_stripe):
+        """The discount must actually reach Stripe, or they pay full price."""
+        self._pkg('19.90')
+        DiscountCode.objects.create(
+            code='SEVENTYFIVE', discount_percent=75, is_active=True,
+            stripe_coupon_id='coupon_75',
+        )
+        mock_stripe.return_value = MagicMock(url='https://checkout.stripe.com/x')
+        self._post(discount_code='SEVENTYFIVE')
+        _, kwargs = mock_stripe.call_args
+        self.assertEqual(kwargs.get('stripe_coupon_id'), 'coupon_75')
+
+    @patch('billing.stripe_service.create_student_checkout_session')
+    def test_partial_code_without_a_coupon_refuses_rather_than_charging_full(
+            self, mock_stripe):
+        """The overcharge guard: no coupon id means no silent full-price bill."""
+        self._pkg('19.90')
+        DiscountCode.objects.create(
+            code='UNSYNCED75', discount_percent=75, is_active=True,
+            stripe_coupon_id='',
+        )
+        resp = self._post(discount_code='UNSYNCED75')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'could not be applied to the payment')
+        mock_stripe.assert_not_called()
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.profile_completed)
+
+    # ── The code ledger stays truthful ───────────────────────────────────
+
+    def test_free_plan_with_no_code_burns_no_uses(self):
+        self._pkg('0')
+        code = DiscountCode.objects.create(
+            code='UNUSED', discount_percent=100, is_active=True, max_uses=1,
+        )
+        self._post()
+        code.refresh_from_db()
+        self.assertEqual(code.uses, 0)
+
+    def test_free_plan_does_not_consume_a_partial_code(self):
+        """The plan was free anyway — the code discounted nothing."""
+        self._pkg('0')
+        code = DiscountCode.objects.create(
+            code='PARTIAL50', discount_percent=50, is_active=True, max_uses=1,
+        )
+        self._post(discount_code='PARTIAL50')
+        code.refresh_from_db()
+        self.assertEqual(code.uses, 0)
+        sub = Subscription.objects.get(user=self.user)
+        self.assertIsNone(sub.discount_code)
+        self.assertIsNone(sub.discount_percent_snapshot)
+
+    def test_full_code_on_a_paid_plan_burns_exactly_one_use(self):
+        self._pkg('19.90')
+        code = DiscountCode.objects.create(
+            code='ALLFREE', discount_percent=100, is_active=True, max_uses=2,
+        )
+        self._post(discount_code='ALLFREE')
+        code.refresh_from_db()
+        self.assertEqual(code.uses, 1)
+        sub = Subscription.objects.get(user=self.user)
+        self.assertEqual(sub.discount_code, code)
+        self.assertEqual(sub.discount_percent_snapshot, 100)
+
+
+class DiscountCodeWithSymbolsTest(TestCase):
+    """Codes containing symbols, and the wildcard hazard `iexact` introduces.
+
+    ``code__iexact`` compiles to ``LIKE`` on MySQL and SQLite, where ``_``
+    matches any one character and ``%`` any run of them. Django escapes both,
+    so they stay literal — but nothing in the app says so, and swapping an
+    exact match for a pattern match is exactly the change that would let a
+    student type ``MHM_7_`` and redeem a code that was never theirs. These pin
+    that shut.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        Package.objects.create(
+            name='Wizard Monthly', class_limit=1, price=19.90,
+            stripe_price_id='price_symbol_test', is_default=True,
+            is_active=True, order=1,
+        )
+        self.user = CustomUser.objects.create_user(
+            'symstud', 'symstud@test.com', 'pass1234',
+            must_change_password=True, profile_completed=False,
+        )
+        role, _ = Role.objects.get_or_create(
+            name=Role.STUDENT, defaults={'display_name': 'Student'},
+        )
+        from accounts.models import UserRole
+        UserRole.objects.create(user=self.user, role=role)
+        self.client.force_login(self.user)
+
+    def _redeem(self, typed):
+        return self.client.post(reverse('complete_profile'), {
+            'new_password': 'newpass1234',
+            'confirm_password': 'newpass1234',
+            'first_name': 'Sym',
+            'last_name': 'Student',
+            'discount_code': typed,
+        })
+
+    def test_codes_with_symbols_redeem(self):
+        for raw in ('MHM-75', 'MHM.75', 'MHM+75', 'SAVE!50', 'MHM_75', 'SAVE%50'):
+            with self.subTest(code=raw):
+                DiscountCode.objects.all().delete()
+                Subscription.objects.all().delete()
+                CustomUser.objects.filter(pk=self.user.pk).update(
+                    profile_completed=False, must_change_password=True)
+                code = DiscountCode.objects.create(
+                    code=raw, discount_percent=100, is_active=True,
+                )
+                resp = self._redeem(raw)
+                self.assertEqual(resp.status_code, 302)
+                self.assertEqual(
+                    Subscription.objects.get(user=self.user).discount_code, code,
+                )
+
+    def test_underscore_is_literal_not_a_single_char_wildcard(self):
+        """``MHM_75`` must match only ``MHM_75`` — never ``MHMX75``."""
+        underscore = DiscountCode.objects.create(
+            code='MHM_75', discount_percent=100, is_active=True,
+        )
+        DiscountCode.objects.create(
+            code='MHMX75', discount_percent=50, is_active=True,
+        )
+        resp = self._redeem('MHM_75')
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(
+            Subscription.objects.get(user=self.user).discount_code, underscore,
+        )
+
+    def test_percent_is_literal_not_a_multi_char_wildcard(self):
+        pct = DiscountCode.objects.create(
+            code='SAVE%50', discount_percent=100, is_active=True,
+        )
+        DiscountCode.objects.create(
+            code='SAVEXX50', discount_percent=50, is_active=True,
+        )
+        resp = self._redeem('SAVE%50')
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(
+            Subscription.objects.get(user=self.user).discount_code, pct,
+        )
+
+    def test_a_typed_wildcard_cannot_redeem_someone_elses_code(self):
+        """The security half: patterns must not match real codes."""
+        DiscountCode.objects.create(
+            code='MHM975', discount_percent=100, is_active=True,
+        )
+        for pattern in ('MHM_75', 'MHM%', '%', '_____'):
+            with self.subTest(pattern=pattern):
+                CustomUser.objects.filter(pk=self.user.pk).update(
+                    profile_completed=False)
+                resp = self._redeem(pattern)
+                self.assertEqual(resp.status_code, 200)
+                self.assertContains(resp, 'Discount code not found')
+                self.assertFalse(Subscription.objects.filter(
+                    user=self.user).exists())
+
+    def test_symbol_code_round_trips_from_the_welcome_email(self):
+        from classroom.models import School
+        from classroom.views_password_admin import _resolve_school_discount
+
+        DiscountCode.objects.create(
+            code='mhm-ebc_75%', discount_percent=100, is_active=True,
+        )
+        admin = CustomUser.objects.create_user('symadmin', 'sa@test.com', 'x')
+        school = School.objects.create(
+            name='MHM', slug='mhm-sym', admin=admin,
+            subscription_discount_code='MHM-EBC_75%',
+        )
+        emailed, percent = _resolve_school_discount(school)
+        self.assertEqual(emailed, 'mhm-ebc_75%')
+        self.assertEqual(percent, 100)
+
+        resp = self._redeem(emailed)
+        self.assertEqual(resp.status_code, 302)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.profile_completed)
+
+
 class DiscountCodeUniquenessIsCaseInsensitiveTest(TestCase):
     """Two codes differing only in case would make the ambiguity permanent.
 

@@ -1039,10 +1039,20 @@ class CompleteProfileView(LoginRequiredMixin, View):
                 is_free = package.is_free or bool(
                     discount_obj and discount_obj.is_fully_free)
                 if is_free:
-                    # Nothing to charge — activate immediately, no Stripe needed
-                    if discount_obj:
-                        discount_obj.uses += 1
-                        discount_obj.save(update_fields=['uses'])
+                    # Nothing to charge — activate immediately, no Stripe needed.
+                    #
+                    # A code counts as *redeemed* only if it is what made this
+                    # free. On a free plan a partial code discounts nothing, so
+                    # consuming it would burn one of its ``max_uses`` and record
+                    # a discount that was never applied.
+                    redeemed = (
+                        discount_obj
+                        if discount_obj and discount_obj.is_fully_free
+                        else None
+                    )
+                    if redeemed:
+                        redeemed.uses += 1
+                        redeemed.save(update_fields=['uses'])
                     sub, _ = Subscription.objects.get_or_create(
                         user=user,
                         defaults={
@@ -1054,14 +1064,14 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     # can show/clear it without inferring from Stripe state.
                     sub.package = package
                     sub.status = Subscription.STATUS_ACTIVE
-                    sub.discount_code = discount_obj
+                    sub.discount_code = redeemed
                     # Only a code actually redeemed is a discount. A student on
                     # a free plan who typed none holds no code, and the HoI
                     # discount list (classroom/views_admin.py) reads this field
                     # to decide who is discounted — writing 100 here would
                     # report a code they never had.
-                    if discount_obj:
-                        sub.discount_percent_snapshot = discount_obj.discount_percent
+                    if redeemed:
+                        sub.discount_percent_snapshot = redeemed.discount_percent
                     sub.save()
                     # A code the owner flagged as a Student Basic promotion
                     # puts the student on that tier. Read off the subscription,
@@ -1076,6 +1086,31 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     user.save(update_fields=['package', 'profile_completed'])
                     messages.success(request, 'Profile completed! Free access activated.')
                     return redirect('subjects_hub')
+                elif (discount_obj and not discount_obj.is_fully_free
+                        and not discount_obj.stripe_coupon_id):
+                    # A partial code carries its discount into Stripe as a
+                    # coupon id, and nothing in this app ever creates one — it
+                    # is pasted in by hand, which is why the code list shows a
+                    # "synced" badge. With it missing the checkout below would
+                    # be built with no discount at all: the student is charged
+                    # the FULL price while the subscription records the percent
+                    # they were promised. Overcharging silently is the worst
+                    # outcome available here, so refuse and say so. The owner
+                    # fixes it by putting the coupon id on the code.
+                    logger.error(
+                        'Discount code %s is %s%% off but has no stripe_coupon_id '
+                        '— refusing to charge user %s full price',
+                        discount_obj.code, discount_obj.discount_percent, user.id,
+                    )
+                    messages.error(
+                        request,
+                        f'Your discount code "{discount_obj.code}" could not be '
+                        'applied to the payment, so we have not charged you. '
+                        'Please contact support — do not pay the full price.',
+                    )
+                    return render(request, 'accounts/complete_profile.html', {
+                        'student_package': package,
+                    })
                 elif package.stripe_price_id:
                     # Redirect to Stripe — profile_completed is set True by the success view
                     # (and idempotently by the webhook handler)
