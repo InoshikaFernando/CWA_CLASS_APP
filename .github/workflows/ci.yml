@@ -779,6 +779,15 @@ jobs:
         working-directory: cwa_classroom
         run: pytest tests_templates.py -q --tb=short
 
+      # And again: scripts/ belongs to no app. Both of its silent failure modes
+      # need a test — a credential written into a committed file, and a
+      # prod->test restore that leaves the test site holding LIVE Stripe price
+      # ids, which reads as "contact support" to a tester and as nothing at all
+      # to CI.
+      - name: Check the ops scripts
+        working-directory: cwa_classroom
+        run: pytest tests_ops_scripts.py -q --tb=short
+
   # A release PR (test -> main) merges `test` into `main` unchanged, so its tree
   # is normally byte-identical to the one the full matrix just ran on `test`.
   # Re-running every suite over it proved nothing and cost a second full matrix
