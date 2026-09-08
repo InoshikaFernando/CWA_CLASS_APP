@@ -714,7 +714,7 @@ class DiscountCodeCreateView(SuperuserRequiredMixin, View):
 
         if not code:
             errors['code'] = 'Code is required.'
-        elif InstituteDiscountCode.objects.filter(code=code).exists():
+        elif InstituteDiscountCode.objects.filter(code__iexact=code).exists():
             errors['code'] = 'This code already exists.'
 
         try:
@@ -1659,9 +1659,9 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
             errors['code'] = 'Code is required.'
         else:
             # Check uniqueness across all 3 models
-            if (InstituteDiscountCode.objects.filter(code=code).exists()
-                    or PromoCode.objects.filter(code=code).exists()
-                    or DiscountCode.objects.filter(code=code).exists()):
+            if (InstituteDiscountCode.objects.filter(code__iexact=code).exists()
+                    or PromoCode.objects.filter(code__iexact=code).exists()
+                    or DiscountCode.objects.filter(code__iexact=code).exists()):
                 errors['code'] = 'This code already exists.'
 
         # Validate discount percent

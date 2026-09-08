@@ -88,7 +88,7 @@ def _create_account_from_pending(pending, stripe_subscription_id=''):
         code = None
         if data.get('discount_code'):
             code = DiscountCode.objects.filter(
-                code=data['discount_code']).first()
+                code__iexact=data['discount_code']).first()
         sub = Subscription.objects.create(
             user=user,
             package=package,
@@ -201,10 +201,10 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
         discount = None
         promo = None
         try:
-            discount = DiscountCode.objects.get(code=code_str)
+            discount = DiscountCode.objects.get(code__iexact=code_str)
         except DiscountCode.DoesNotExist:
             try:
-                promo = PromoCode.objects.get(code=code_str)
+                promo = PromoCode.objects.get(code__iexact=code_str)
             except PromoCode.DoesNotExist:
                 return JsonResponse({'error': 'Invalid promotion code.'}, status=400)
 

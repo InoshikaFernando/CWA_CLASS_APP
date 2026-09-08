@@ -1074,6 +1074,128 @@ class CompleteProfileFreePackageTest(TestCase):
         self.assertFalse(self.user.profile_completed)
 
 
+class DiscountCodeCaseInsensitivityTest(TestCase):
+    """A code must redeem in whatever case it is stored in.
+
+    The welcome email resolves the school's code with ``code__iexact`` and sends
+    the row's own spelling; the redemption gate matched exactly, against input
+    it had already ``.upper()``ed. So a code stored lower- or mixed-case could
+    be emailed to a student and then rejected as "not found" — the student
+    typing exactly what they were sent, and the school seeing a live code.
+    Every code in circulation happens to be upper-case, which is why this never
+    showed up: it needs a code created outside the settings form (which
+    canonicalises) to bite.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.code = DiscountCode.objects.create(
+            code='mhmebc75', discount_percent=100, is_active=True,
+        )
+        self.pkg = Package.objects.create(
+            name='Wizard Monthly', class_limit=1, price=19.90,
+            stripe_price_id='price_case_test', is_default=True,
+            is_active=True, order=1,
+        )
+        self.user = CustomUser.objects.create_user(
+            'casestud', 'casestud@test.com', 'pass1234',
+            must_change_password=True, profile_completed=False,
+        )
+        role, _ = Role.objects.get_or_create(
+            name=Role.STUDENT, defaults={'display_name': 'Student'},
+        )
+        from accounts.models import UserRole
+        UserRole.objects.create(user=self.user, role=role)
+        self.client.force_login(self.user)
+
+    def _redeem(self, typed):
+        return self.client.post(reverse('complete_profile'), {
+            'new_password': 'newpass1234',
+            'confirm_password': 'newpass1234',
+            'first_name': 'Case',
+            'last_name': 'Student',
+            'discount_code': typed,
+        })
+
+    def test_lowercase_stored_code_redeems_when_typed_uppercase(self):
+        """What the student is emailed is what they type — it must work."""
+        resp = self._redeem('MHMEBC75')
+        self.assertEqual(resp.status_code, 302)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.profile_completed)
+        self.assertEqual(
+            Subscription.objects.get(user=self.user).discount_code, self.code,
+        )
+
+    def test_lowercase_stored_code_redeems_when_typed_lowercase(self):
+        resp = self._redeem('mhmebc75')
+        self.assertEqual(resp.status_code, 302)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.profile_completed)
+
+    def test_mixed_case_typing_still_redeems(self):
+        resp = self._redeem('MhMeBc75')
+        self.assertEqual(resp.status_code, 302)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.profile_completed)
+
+    def test_genuinely_unknown_code_is_still_rejected(self):
+        """Case-insensitive must not become match-anything."""
+        resp = self._redeem('NOSUCHCODE')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Discount code not found')
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.profile_completed)
+
+    def test_emailed_code_round_trips_from_school_settings_to_redemption(self):
+        """End to end: what _resolve_school_discount emails must redeem."""
+        from classroom.models import School
+        from classroom.views_password_admin import _resolve_school_discount
+
+        admin = CustomUser.objects.create_user('caseadmin', 'ca@test.com', 'x')
+        school = School.objects.create(
+            name='MHM', slug='mhm-case', admin=admin,
+            subscription_discount_code='MHMEBC75',   # canonicalised by settings
+        )
+        emailed_code, percent = _resolve_school_discount(school)
+        self.assertEqual(emailed_code, 'mhmebc75')   # the row's own spelling
+        self.assertEqual(percent, 100)
+
+        resp = self._redeem(emailed_code)
+        self.assertEqual(resp.status_code, 302)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.profile_completed)
+
+
+class DiscountCodeUniquenessIsCaseInsensitiveTest(TestCase):
+    """Two codes differing only in case would make the ambiguity permanent.
+
+    The admin coupon form checked uniqueness with an exact match, so ``mhm75``
+    and ``MHM75`` could both exist as separate rows — after which no
+    case-insensitive lookup can say which one a student meant.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        admin = CustomUser.objects.create_superuser(
+            'dupadmin', 'dup@test.com', 'pass1234',
+        )
+        self.client.force_login(admin)
+
+    def test_existing_code_blocks_a_differently_cased_duplicate(self):
+        """The form upper-cases input, so the collision is with a stored
+        lower-case row — exactly the rows that create the case problem."""
+        DiscountCode.objects.create(
+            code='mhm75', discount_percent=75, is_active=True,
+        )
+        resp = self.client.post(reverse('billing_admin_coupon_create'), {
+            'target_type': 'student', 'code': 'mhm75',
+            'discount_percent': '50', 'duration': 'forever',
+        })
+        self.assertContains(resp, 'This code already exists')
+        self.assertEqual(DiscountCode.objects.filter(code__iexact='mhm75').count(), 1)
+
+
 class CompleteProfileViaPasswordResetTest(TestCase):
     """Onboarding through a password-reset link must reach the same payment gate.
 

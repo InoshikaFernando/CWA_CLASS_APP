@@ -451,8 +451,8 @@ def codes_on_subscription(subscription):
         codes.append(subscription.discount_code)
     slug = (subscription.promo_code_used or '').strip()
     if slug:
-        codes.append(PromoCode.objects.filter(code=slug).first()
-                     or DiscountCode.objects.filter(code=slug).first())
+        codes.append(PromoCode.objects.filter(code__iexact=slug).first()
+                     or DiscountCode.objects.filter(code__iexact=slug).first())
     return [code for code in codes if code is not None]
 
 

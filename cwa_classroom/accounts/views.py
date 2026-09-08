@@ -522,7 +522,7 @@ class IndividualStudentRegisterView(View):
         # Validate discount code if provided
         discount = None
         if discount_code_str:
-            discount = DiscountCode.objects.filter(code=discount_code_str).first()
+            discount = DiscountCode.objects.filter(code__iexact=discount_code_str).first()
             if not discount:
                 ctx['errors'] = ['Discount code not found. Please check and try again.']
                 return render(request, 'accounts/register_individual_student.html', ctx)
@@ -566,7 +566,11 @@ class IndividualStudentRegisterView(View):
                         'date_of_birth': date_of_birth, 'phone': phone,
                         'street_address': street_address, 'city': city,
                         'postal_code': postal_code, 'country': country,
-                        'discount_code': discount_code_str or None,
+                        # The code as *stored*, not as typed. This row is read
+                        # back after payment to attach the code to the new
+                        # subscription — and the tier (Student Basic) is
+                        # resolved from it — so it has to name the real row.
+                        'discount_code': discount.code if discount else None,
                     },
                 )
                 return redirect(stripe_session.url)
@@ -962,7 +966,7 @@ class CompleteProfileView(LoginRequiredMixin, View):
         from billing.models import DiscountCode
         discount_obj = None
         if discount_code_str:
-            discount_obj = DiscountCode.objects.filter(code=discount_code_str).first()
+            discount_obj = DiscountCode.objects.filter(code__iexact=discount_code_str).first()
             if not discount_obj:
                 errors.append('Discount code not found. Please check and try again.')
             elif not discount_obj.is_valid():
