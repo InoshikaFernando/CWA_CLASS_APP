@@ -60,6 +60,7 @@
 </head>
 
 <body class="{% if is_parent %}bg-slate-50{% elif is_student or is_individual_student %}bg-emerald-50{% else %}bg-slate-50{% endif %} font-body text-gray-700 antialiased">
+  {% include "partials/_impersonation_banner.html" %}
 
   <!-- ── Topbar ─────────────────────────────────────────────── -->
   {% include "partials/topbar.html" %}
@@ -71,31 +72,7 @@
     <aside id="sidebar"
            class="hidden md:flex flex-col w-64 {% block sidebar_bg %}{% if is_parent %}bg-slate-900{% elif is_student or is_individual_student %}bg-emerald-700{% else %}bg-primary{% endif %}{% endblock %} fixed top-16 bottom-0 left-0 z-30 overflow-y-auto">
       {% block sidebar %}
-        {% if is_admin_user %}
-          {% include "partials/sidebar_admin.html" %}
-        {% elif is_institute_owner %}
-          {% include "partials/sidebar_hoi.html" %}
-        {% elif is_hoi %}
-          {% include "partials/sidebar_hoi.html" %}
-        {% elif is_hod %}
-          {% include "partials/sidebar_hod.html" %}
-        {% elif is_senior_teacher %}
-          {% include "partials/sidebar_senior_teacher.html" %}
-        {% elif is_teacher or is_junior_teacher %}
-          {% include "partials/sidebar_teacher.html" %}
-        {% elif is_parent %}
-          {% include "partials/sidebar_parent.html" %}
-        {% elif is_student or is_individual_student %}
-          {% if subject_sidebar == 'coding' %}
-            {% include "partials/sidebar_coding.html" %}
-          {% else %}
-            {% include "partials/sidebar_student.html" %}
-          {% endif %}
-        {% elif is_parent %}
-          {% include "partials/sidebar_parent.html" %}
-        {% elif is_accountant %}
-          {% include "partials/sidebar_accountant.html" %}
-        {% endif %}
+        {% include "partials/_sidebar_for_role.html" %}
       {% endblock %}
     </aside>
     {% endif %}
@@ -132,6 +109,9 @@
   </div>
 
   {% if request.user.is_authenticated %}
+  {% load billing_tags %}
+  {% ai_grading_login_alert %}
+
   {% include "help/partials/help_widget.html" %}
   {% include "feedback/_partials/feedback_launcher.html" %}
   {% endif %}

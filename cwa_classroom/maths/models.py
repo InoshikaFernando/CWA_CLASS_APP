@@ -16,6 +16,78 @@ from django.utils import timezone
 QUESTION_IMAGE_PATH_RE = re.compile(r'^questions/year[0-9]+/[a-zA-Z0-9_-]+/.+')
 
 
+# What each question type draws for ITSELF, keyed to the render property the
+# take templates read. When that property comes back empty the type puts no
+# picture on the page, so an uploaded image is the only thing the student has to
+# look at — which is what ``Question.renders_a_figure`` below reports.
+#
+# A type absent from here never generates a figure at all (a multiple-choice
+# question, a short answer): for those an image is the only possible visual.
+FIGURE_RENDER_PROPERTIES = {
+    'measure': 'measure_figure_svg',
+    'read_graph': 'graph_data',
+    'draw_on_grid': 'draw_on_grid_data',
+    'shape_select': 'shape_select_data',
+    'plot_points': 'plane_data',
+    'plot_line': 'plane_data',
+    'identify_coords': 'plane_data',
+    'number_line': 'number_line_data',
+    'table_of_values': 'table_data',
+    'sketch_graph': 'sketch_data',
+}
+
+
+# A "list every value" answer ("54, 63" / "54 and 63" / "54; 63") split into
+# its values. A comma that groups digits ("1,000", "12,345,678") is part of the
+# number, not a separator, so it is protected before the split — otherwise
+# "1,000" would read as the two values 1 and 000.
+_DIGIT_GROUP_COMMA_RE = re.compile(r'(?<=\d),(?=\d{3}\b)')
+_ANSWER_LIST_SEP_RE = re.compile(r'\s*(?:,|;|\band\b)\s*', re.IGNORECASE)
+_GROUP_COMMA_SENTINEL = '\x00'
+_PLAIN_NUMBER_RE = re.compile(r'^-?\d+(?:\.\d+)?$')
+# One value of a numeric list, with any bracket it was written inside:
+# "(3", "11)", "-2.5)". Used to compare such a list value-by-value.
+_LIST_VALUE_BRACKETS = '()[]'
+
+# Width, in characters, of a fill-in-the-blank input. Sized from the longest
+# accepted answer and clamped: narrow enough that a one-digit gap reads as a
+# gap in the sentence, wide enough that a phrase is not typed through a
+# keyhole.
+_BLANK_MIN_SIZE = 4
+_BLANK_MAX_SIZE = 20
+
+
+def _split_answer_list(value):
+    """Split a list-style answer into its values, preserving digit grouping.
+
+    >>> _split_answer_list('54, 63')
+    ['54', '63']
+    >>> _split_answer_list('54 and 63')
+    ['54', '63']
+    >>> _split_answer_list('1,000')
+    ['1,000']
+    >>> _split_answer_list('54 63')
+    ['54', '63']
+    >>> _split_answer_list('nine dollars fifty three cents')
+    ['nine dollars fifty three cents']
+    """
+    protected = _DIGIT_GROUP_COMMA_RE.sub(_GROUP_COMMA_SENTINEL, value)
+    parts = [
+        part.replace(_GROUP_COMMA_SENTINEL, ',').strip()
+        for part in _ANSWER_LIST_SEP_RE.split(protected)
+        if part.strip()
+    ]
+    # A student may separate the values with nothing but a space ("54 63").
+    # Space is only a separator when every token is a plain number, so word
+    # answers ("nine dollars fifty three cents") and mixed numbers ("2 1/4")
+    # stay whole — their words must not be treated as reorderable values.
+    if len(parts) == 1:
+        tokens = parts[0].split()
+        if len(tokens) > 1 and all(_PLAIN_NUMBER_RE.match(t) for t in tokens):
+            return tokens
+    return parts
+
+
 def generate_class_code():
     """Retained for historical migration compatibility — not used by any model."""
     return uuid.uuid4().hex[:8]
@@ -56,6 +128,9 @@ class Question(models.Model):
     PLOT_LINE = 'plot_line'
     IDENTIFY_COORDS = 'identify_coords'
     READ_GRAPH = 'read_graph'
+    NUMBER_LINE = 'number_line'
+    TABLE_OF_VALUES = 'table_of_values'
+    SKETCH_GRAPH = 'sketch_graph'
 
     QUESTION_TYPES = [
         ('multiple_choice', 'Multiple Choice'),
@@ -74,6 +149,9 @@ class Question(models.Model):
         ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
         ('identify_coords', 'Identify Coordinates (type the point)'),
         ('read_graph', 'Read a Graph (read off a value)'),
+        ('number_line', 'Number Line (mark or read a value)'),
+        ('table_of_values', 'Table of Values (fill in the x/y table)'),
+        ('sketch_graph', 'Sketch a Graph (state vertex / intercepts / axis of symmetry)'),
     ]
 
     # Validation mode — how student answers are graded
@@ -135,17 +213,32 @@ class Question(models.Model):
     # How a typed (short_answer / calculation) answer is matched.
     ANSWER_FORMAT_TEXT = 'text'
     ANSWER_FORMAT_ALGEBRA = 'algebra'
+    ANSWER_FORMAT_EQUATION = 'equation'
+    ANSWER_FORMAT_SET = 'set'
+    ANSWER_FORMAT_PATTERN = 'pattern'
     ANSWER_FORMAT_CHOICES = [
         ('text', 'Text — exact match (case/space-insensitive)'),
         ('algebra', 'Algebra — simplified polynomial (e.g. expand & simplify)'),
+        ('equation', 'Equation — algebraic equivalence (accepts vertex / factored / expanded form)'),
+        ('set', 'Set — list every value, any order (e.g. "what are the multiples of 9 between 50 and 70?")'),
+        ('pattern', 'Pattern — student invents their own number pattern (no stored answer)'),
     ]
     answer_format = models.CharField(
         max_length=10, choices=ANSWER_FORMAT_CHOICES, default='text',
         help_text=(
             'For short_answer / calculation questions. "Algebra" grades the answer as a '
             'fully simplified, expanded polynomial — e.g. (2x+3)(x-5) must be entered as '
-            '"2x^2 - 7x - 15". Term order and spacing are ignored, but un-combined like '
-            'terms and un-expanded brackets are marked wrong even when algebraically equal.'
+            '"2x^2 - 7x - 15". "Equation" grades by algebraic equivalence — for '
+            '"write the equation" questions any spelling of the same curve is accepted '
+            '(y=2(x-1)^2-2 == y=2x^2-4x). Term order and spacing are always ignored. '
+            '"Set" is for "list every value" questions — store the values as one '
+            'comma-separated answer ("54, 63"); the student must give them all, in any '
+            'order. Leave as "Text" when the order of the values is part of the answer '
+            '(e.g. "write these numbers in order"). "Pattern" is for "create your own '
+            'number pattern" questions, which have no single right answer and so store '
+            'no Answer row at all: the typed numbers are graded against what the '
+            'question asks for (same step each time, right operation, right count). '
+            'Without it such a question marks every student wrong.'
         ),
     )
 
@@ -205,8 +298,13 @@ class Question(models.Model):
     # plot_line) or typed-string parsing (identify_coords). Schema validation
     # lives in Question.clean() (validate_plane_spec). Shape:
     #   {"bounds": {"xmin", "xmax", "ymin", "ymax"}, "mode": "points"|"segments",
-    #    "given_points": [[x,y], ...], "target": {"points"|"segments": [...]},
+    #    "given_points": [[x,y], [x,y,"A"], ...], "target": {"points"|"segments": [...]},
     #    "allow_extra": bool}
+    # given_points are drawn for the student to READ; a third element names the
+    # point ("A"), which a question phrased in terms of A and B needs to be
+    # answerable at all. For identify_coords they must not repeat target.points
+    # unless the question really is "write the coordinates of this plotted dot" —
+    # otherwise the drawing gives the answer away.
     plane_spec = models.JSONField(
         null=True, blank=True,
         help_text="plot_points / plot_line / identify_coords only. Signed coordinate plane (set-comparison graded).",
@@ -224,6 +322,78 @@ class Question(models.Model):
         help_text="read_graph only. Render-only line-graph (axes/series); answer uses the measure numeric fields.",
     )
 
+    # Number-line question data: a single JSON document describing the scale
+    # (min/max/step), the interaction mode, and the correct target set. Two modes:
+    #   - "mark": the app draws the blank scale and the student taps tick positions
+    #     to place marker(s); graded by set comparison against target.
+    #   - "read": the app draws marker(s) at given positions (an arrow on the line)
+    #     and the student types the value(s); graded numerically within tolerance.
+    # All positions are numbers on the line's own scale (not pixels), so the figure
+    # is scale-independent. Schema validation lives in Question.clean().
+    #   {"min": -3, "max": 7, "step": 1, "mode": "mark"|"read",
+    #    "target": [numbers], "given": [numbers], "tolerance": 0}
+    number_line_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="number_line only. Scale + mode + correct target set (mark: set-comparison; read: numeric tolerance).",
+    )
+
+    # Table-of-values question data: a table of headers + rows where each cell is
+    # either a shown value the student reads (``given``, e.g. the x column) or a
+    # blank the student fills (``answer``, e.g. the y column computed from a rule).
+    # Graded all-or-nothing by numeric tolerance (every answer cell must match).
+    # Schema validation lives in Question.clean() (validate_table_spec). Shape:
+    #   {"headers": ["x", "y"],
+    #    "rows": [[{"given": "-3"}, {"answer": "7"}], ...],
+    #    "tolerance": 0}
+    table_spec = models.JSONField(
+        null=True, blank=True,
+        help_text="table_of_values only. Headers + rows of given/answer cells (numeric-tolerance graded).",
+    )
+
+    # Sketch-a-graph question data: the blank plane the worksheet printed, the
+    # key features the stem asks the student to show (vertex, intercepts, axis
+    # of symmetry) with the value each is marked against, and — optionally — the
+    # curve's coefficients so the result page can draw the sketch that was
+    # wanted. Feature values are decimals, not grid indices: the vertex of
+    # y = x² + x − 2 is (−0.5, −2.25). Graded feature by feature within a
+    # tolerance (partial credit). Schema validation lives in Question.clean()
+    # (validate_sketch_spec). Shape:
+    #   {"equation": "y = x^2 + x - 2",
+    #    "bounds": {"xmin": -6, "xmax": 6, "ymin": -4, "ymax": 8},
+    #    "curve": {"type": "quadratic", "a": 1, "b": 1, "c": -2},
+    #    "features": [{"kind": "vertex", "points": [[-0.5, -2.25]]},
+    #                 {"kind": "x_intercept", "points": [[-2, 0], [1, 0]]},
+    #                 {"kind": "y_intercept", "points": [[0, -2]]},
+    #                 {"kind": "axis_of_symmetry", "value": -0.5}],
+    #    "tolerance": 0.01}
+    sketch_spec = models.JSONField(
+        null=True, blank=True,
+        help_text=(
+            "sketch_graph only. The plane to draw plus the key features "
+            "(vertex / intercepts / axis of symmetry) the answer is marked "
+            "against, feature by feature."
+        ),
+    )
+
+    # Fill-in-the-blank question data: the accepted answers for each blank, in
+    # the order the blanks appear in question_text. The blanks themselves are
+    # marked IN the text as runs of underscores ("... to the age of ___."), so
+    # the sentence stays readable everywhere it is printed and the spec only
+    # carries what is missing from it. Graded all-or-nothing, every blank folded
+    # like a short answer (maths.blank_grading.grade_fill_blank). Schema
+    # validation lives in Question.clean() (validate_blank_spec), which also
+    # cross-checks the count against the text. Shape:
+    #   {"blanks": [{"answers": ["15"]}, {"answers": ["live", "survive"]}]}
+    # Null on a fill_blank question is the legacy shape — one plain text box for
+    # the whole answer — which still works and still grades.
+    blank_spec = models.JSONField(
+        null=True, blank=True,
+        help_text=(
+            'fill_blank only. Accepted answers per blank, positional. Mark each '
+            'blank in the question text with "___".'
+        ),
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -235,6 +405,75 @@ class Question(models.Model):
         """True if this question requires AI or human grading (not instant auto-check)."""
         return self.validation_type in (self.VALIDATION_AI, self.VALIDATION_HUMAN)
 
+    # ------------------------------------------------------------------
+    # AI-graded or not — one definition, in one place
+    # ------------------------------------------------------------------
+    #
+    # A question costs a model call to mark when it is either an
+    # ``extended_answer`` (written prose, no stored answer to match against) or
+    # explicitly marked ``validation_type='ai_graded'``. That pair of conditions
+    # is what separates the bank into the two halves the product is sold as:
+    # the AI-graded questions, and everything the app can mark for itself.
+    #
+    # It used to be written out by hand wherever it was needed — as a ``Q`` in
+    # ``quiz.views.gradable_for``, as an ``if`` elsewhere — so the two halves
+    # could drift apart and a question could be hidden from a quiz while still
+    # being sent to the grader. Both forms now come from here.
+
+    @classmethod
+    def ai_graded_q(cls):
+        """The ``Q`` that selects the AI-graded half of the bank."""
+        return (models.Q(question_type=cls.EXTENDED_ANSWER)
+                | models.Q(validation_type=cls.VALIDATION_AI))
+
+    @property
+    def is_ai_graded(self):
+        """True if marking this question needs a model call.
+
+        The row-level twin of :meth:`ai_graded_q` — the same rule, so a
+        question filtered out of a queryset can never be one this returns
+        ``False`` for.
+        """
+        return (self.question_type == self.EXTENDED_ANSWER
+                or self.validation_type == self.VALIDATION_AI)
+
+    def grade_text_answer_parts(self, text_answer):
+        """Grade a multi-part typed answer part by part, or return ``None``.
+
+        A fill-in-the-blank sentence and a table of values ask for several
+        values, so marking them all-or-nothing throws away most of what the
+        student showed: nine of ten money-chart cells right scored zero and the
+        feedback could not say which cell was wrong. This returns a
+        :class:`~maths.partial_credit.PartialGrade` for those types — one part
+        per gap/cell, each with what was typed, what was wanted and whether it
+        matched — so a surface can award ``points × fraction`` and name every
+        wrong part.
+
+        ``None`` means "not part-graded": a single-answer question type, or a
+        multi-part one whose spec or payload could not be lined up (see the
+        ``*_parts`` graders). Callers fall back to the boolean
+        :meth:`grade_text_answer`, which is what they did before partial credit
+        existed, so ``None`` is always safe.
+
+        Routed here, beside :meth:`grade_text_answer`, so the quiz, the
+        worksheet and the homework surfaces award identical credit for
+        identical work rather than each deciding for itself.
+        """
+        if self.question_type == self.FILL_BLANK and self.blank_spec:
+            from maths.blank_grading import grade_fill_blank_parts
+            return grade_fill_blank_parts(
+                self.blank_spec, text_answer, self.answer_format)
+
+        if self.question_type == self.TABLE_OF_VALUES and self.table_spec:
+            from maths.geometry_grading import grade_table_parts
+            return grade_table_parts(self.table_spec, text_answer)
+
+        if self.question_type == self.SKETCH_GRAPH and self.sketch_spec:
+            from maths.geometry_grading import grade_sketch_parts
+            return grade_sketch_parts(self.sketch_spec, text_answer)
+
+        return None
+
     def grade_text_answer(self, text_answer):
         """Grade a typed short_answer / calculation answer against the stored
         correct answers (the Answer rows with is_correct=True).
@@ -244,12 +483,36 @@ class Question(models.Model):
           - 'algebra' → simplified-polynomial match (see maths.algebra_grading);
                         any of the correct answers may be the canonical form, and
                         each may itself list ``|`` separated acceptable forms.
+          - 'pattern' → the student invents the answer, so it is graded against
+                        the question's requirements (see maths.pattern_grading).
 
         Centralised here so every delivery surface (worksheets, the maths plugin)
         grades identically. Returns a bool.
         """
         if not text_answer:
             return False
+
+        # A fill-in-the-blank sentence posts one value per blank as JSON, not a
+        # single answer, and its accepted answers live in blank_spec rather than
+        # in Answer rows — so it must come before the no-stored-answer guard
+        # below. Routing it here (rather than in each view) is what makes the
+        # quiz, worksheet and homework surfaces grade it identically; a
+        # fill_blank question with no spec falls through to the plain text
+        # matching it has always used.
+        if self.question_type == self.FILL_BLANK and self.blank_spec:
+            from maths.blank_grading import grade_fill_blank
+            # answer_format goes with it, so a converted algebra question keeps
+            # grading by algebraic equivalence rather than string equality.
+            return grade_fill_blank(
+                self.blank_spec, text_answer, self.answer_format)
+
+        # A "create your own pattern" question stores no correct answer — there
+        # isn't one — so this MUST come before the no-stored-answer guard below,
+        # which would otherwise mark every answer wrong.
+        if self.answer_format == self.ANSWER_FORMAT_PATTERN:
+            from maths.pattern_grading import grade_pattern
+            return grade_pattern(self.question_text, text_answer).is_correct
+
         correct = [
             a.answer_text for a in self.answers.filter(is_correct=True)
             if a.answer_text
@@ -261,40 +524,283 @@ class Question(models.Model):
             from maths.algebra_grading import is_algebraic_answer_correct
             return any(is_algebraic_answer_correct(text_answer, c) for c in correct)
 
-        # Exact match, but exponent- and inequality-insensitive so the x² button
-        # is usable on ordinary maths answers (cm^2 == cm² == cm2) and a typed
-        # inequality matches however the student spells the operator
-        # (x ≥ 2 == x>=2 == x=>2). See fold_exponents / fold_inequalities.
-        from maths.algebra_grading import fold_exponents, fold_inequalities
+        if self.answer_format == self.ANSWER_FORMAT_EQUATION:
+            # "Write the equation" — accept any algebraically equivalent form
+            # (vertex / factored / expanded) of the same curve.
+            from maths.algebra_grading import is_equation_answer_correct
+            return any(is_equation_answer_correct(text_answer, c) for c in correct)
 
-        def _fold(value):
-            # Make word-form answers tolerant of hyphenation and the filler
-            # word "and" so a single stored answer matches every natural
-            # phrasing, e.g. "nine dollars fifty-three cents" ==
-            # "nine dollars and fifty three cents". Run before fold_exponents
-            # collapses whitespace so "and" is still a separable word.
-            # Only hyphens *between letters* fold to a space — a leading "-"
-            # on a negative number stays significant ("-5" must not match "5").
-            value = re.sub(r'(?<=[A-Za-z])-(?=[A-Za-z])', ' ', value)
-            value = re.sub(r'\band\b', ' ', value, flags=re.IGNORECASE)
-            # Commas are insignificant for short answers: a digit-grouping or
-            # list comma should not change the match ("1,000" == "1000",
-            # "red, green" == "red green"). fold_exponents then strips all
-            # whitespace, so spacing around the comma is irrelevant too.
-            value = value.replace(',', '')
-            # Multiplication marks are interchangeable so a stored "3 × 10^4"
-            # matches whichever sign the student reaches for. The dedicated
-            # symbols (× ✕ ✖ · ∙ ⋅) are *always* multiplication, so fold them
-            # to "*" everywhere. A bare "x" or "*" only counts as a times sign
-            # when it sits *between two numbers* ("3x10^4", "3 * 10^4"), so an
-            # ordinary word answer ("box", "six") is left untouched. Mirrors the
-            # [x×*] split already used for prime_factorization in maths.plugin.
-            value = re.sub(r'[×✕✖·∙⋅]', '*', value)
-            value = re.sub(r'(?<=\d)\s*[x*]\s*(?=\d)', '*', value)
-            return fold_exponents(fold_inequalities(value))
+        # Exact match, but exponent-, inequality- and degree-insensitive so the
+        # keypad buttons are usable on ordinary maths answers: the x² button
+        # (cm^2 == cm² == cm2), a typed inequality however the student spells the
+        # operator (x ≥ 2 == x>=2 == x=>2), and the ° button so an angle grades
+        # the same with or without it (50 == 50°), and the ÷ button so a
+        # quotient grades the same typed either way (n ÷ 4 == n/4). All of it
+        # lives in maths.algebra_grading.fold_answer, which one blank of a
+        # fill-in-the-blank sentence is folded by too, so a gap in a sentence is
+        # graded exactly as forgivingly as a whole answer.
+        from maths.algebra_grading import (
+            fold_answer as _fold,
+            is_reordered_expression_correct,
+            option_label_set,
+        )
+
+        def _positional_values(value):
+            """The ordered values when *value* is a list of plain numbers.
+
+            None for anything else — a word list ("red, green"), an assignment
+            list ("x = 4, y = 2") — which keeps those on the whitespace-and-
+            comma-insensitive comparison above.
+
+            Needed because that comparison deletes the comma, which loses where
+            one value ends and the next begins: "(3,11)" and "(31,1)" both fold
+            to "(311)", so a transposed coordinate graded as correct (CPP-378).
+            Comparing value-by-value keeps the boundary. Brackets are stripped
+            per value, so "(3,11)" also accepts the bare "3,11" a student types
+            without them — which is how several coordinate questions are already
+            authored, with a paren-less second Answer row.
+            """
+            parts = _split_answer_list(value)
+            if len(parts) < 2:
+                return None
+            values = []
+            for part in parts:
+                part = _fold(part).strip(_LIST_VALUE_BRACKETS)
+                if not _PLAIN_NUMBER_RE.match(part):
+                    return None
+                values.append(part)
+            return values
 
         user = _fold(text_answer)
-        return any(user == _fold(c) for c in correct)
+        user_values = _positional_values(text_answer)
+        for c in correct:
+            # Two numeric lists are compared value-by-value; anything else
+            # falls through to the flat comparison, so a student who types the
+            # answer as one blob still grades exactly as before.
+            if user_values is not None:
+                stored_values = _positional_values(c)
+                if stored_values is not None:
+                    if user_values == stored_values:
+                        return True
+                    continue
+            if user == _fold(c):
+                return True
+
+        # "Write an expression for the total cost" is authored as a plain text
+        # answer, so a literal match marked "110 + 12p" wrong against a stored
+        # "12p + 110" — the same expression with its terms commuted. Compare the
+        # two as polynomials when both are written as a simple expression; the
+        # student's answer is still graded strictly, so un-combined like terms
+        # and un-expanded brackets stay wrong (see is_reordered_expression_correct).
+        if any(is_reordered_expression_correct(text_answer, c) for c in correct):
+            return True
+
+        # "Work out the number pattern rule and complete the pattern: 30, ___,
+        # 60, 75, ___, ___. What is the rule?" asks for two things and stores
+        # one — its answer rows are "+15", "add 15", "+ 15". A student who did
+        # exactly what the question asked, and typed the missing numbers beside
+        # the rule, matched none of them and was marked wrong under a correct
+        # answer that already said add 15. The answer is checked against the
+        # sequence printed in the QUESTION rather than against the stored
+        # string, so the extra numbers have to BE the missing ones — see
+        # maths.pattern_grading.completes_printed_pattern.
+        from maths.pattern_grading import completes_printed_pattern
+        if completes_printed_pattern(self.question_text, correct, text_answer):
+            return True
+
+        # A "list every value" answer is a *set*: the student must give every
+        # value, but the order they list them in must not decide the mark —
+        # "63, 54" is the same answer as "54, 63" (CPP-376). The fold above
+        # concatenates a list into one string ("5463"), which only matches the
+        # stored order, so the values are compared as a set instead.
+        #
+        # This is opt-in per question (answer_format='set') rather than inferred
+        # from the presence of a comma, because a comma-separated answer is not
+        # always a set — "write these numbers in order" stores "3, 5, 7" and
+        # must stay order-sensitive (CPP-374).
+        if self.answer_format == self.ANSWER_FORMAT_SET:
+            user_values = sorted(_fold(p) for p in _split_answer_list(text_answer))
+            for c in correct:
+                if user_values == sorted(_fold(p) for p in _split_answer_list(c)):
+                    return True
+            # Content that entered one value per Answer row rather than one
+            # comma-separated row: the required set is every ticked row.
+            if len(correct) > 1:
+                return user_values == sorted(_fold(c) for c in correct)
+            return False
+
+        # "Select all that apply" questions are authored as a typed answer that
+        # lists the option labels ("D and E"). The student picks the same options
+        # but types them in their own order / with their own separator ("E,D"),
+        # so those are compared as a set of labels rather than as a string
+        # (CPP-374). option_label_set returns None for anything that isn't a
+        # list of single letters, which keeps ordered answers order-sensitive.
+        user_labels = option_label_set(text_answer)
+        if user_labels is None:
+            return False
+        return any(user_labels == option_label_set(c) for c in correct)
+
+    def rebuild_blank_spec(self, *, positional_rows=True):
+        """Derive this question's ``blank_spec`` from its text + Answer rows.
+
+        Returns ``(applied, reason)``. ``applied`` is True when a spec was built
+        and assigned to ``self.blank_spec`` (the caller saves); False leaves the
+        field untouched and ``reason`` says, in words a person can act on, what
+        stopped it — an unmappable question is reported, never guessed at, because
+        a blank filled from the wrong value marks a correct student wrong and
+        nobody would know.
+
+        The one place the derivation happens, so the AI importer, the teacher
+        form and the ``convert_fill_blanks`` command all build the same spec from
+        the same question. Mapping rules live in
+        :func:`maths.blank_grading.derive_blank_spec`.
+
+        Non-destructive: the Answer rows are left exactly as they are. They are
+        still what BrainBuzz snapshots and what an export carries, and keeping
+        them is what makes a conversion reversible — clearing ``blank_spec``
+        returns the question to its single-box form with its answer intact.
+        """
+        from maths.blank_grading import derive_blank_spec
+
+        correct = [
+            a.answer_text for a in self.answers.filter(is_correct=True).order_by('order', 'id')
+            if a.answer_text
+        ]
+        spec, reason = derive_blank_spec(
+            self.question_text, correct, positional_rows=positional_rows)
+        if spec is None:
+            return False, reason
+        self.blank_spec = spec
+        return True, ''
+
+    # Types whose answer is typed into a box, and so could instead be typed into
+    # the gaps of a sentence. A choice question whose stem happens to contain a
+    # gap is still a question you pick an option for, and an extended answer is
+    # prose a person or a rubric judges — neither is ever promoted.
+    BLANK_PROMOTABLE_TYPES = ('short_answer', 'calculation', 'fill_blank')
+
+    def apply_blank_format(self, *, positional_rows=True):
+        """Make this a fill-in-the-blank question if its text has gaps.
+
+        The single entry point every path that writes a question calls — the AI
+        importer, the spreadsheet/ZIP upload, the teacher form and the
+        ``convert_fill_blanks`` command — so a question with "___" in it comes
+        out the same shape no matter how it arrived. Call it AFTER the answer
+        rows are written: the spec is derived from them.
+
+        Returns ``(changed, reason)``. ``changed`` says whether this question
+        was modified (the caller saves); ``reason`` is set only when the
+        question HAS gaps and could not be built into a spec, so a caller can
+        report it. The two silent outcomes — not a typed question, or no gaps —
+        return no reason, because neither is a problem to tell anyone about.
+
+        Also the repair path: a question whose gaps or answers were edited out
+        from under its spec has the stale spec cleared, rather than keeping one
+        that no longer describes the sentence.
+
+        ``positional_rows`` is passed through to
+        :func:`~maths.blank_grading.derive_blank_spec`. It stays True here — the
+        paths that call this saved rows against the documented convention (one
+        value per gap, in order) — and ``convert_fill_blanks`` passes False for
+        legacy content, where N rows are no evidence of one row per gap.
+        """
+        from maths.blank_grading import count_blanks
+
+        if self.question_type not in self.BLANK_PROMOTABLE_TYPES:
+            # A spec here would never be read, so it is a leftover from a type
+            # switch rather than a stored preference.
+            if self.blank_spec is not None:
+                self.blank_spec = None
+                return True, ''
+            return False, ''
+
+        if not count_blanks(self.question_text):
+            if self.blank_spec is not None:
+                self.blank_spec = None
+                return True, ''
+            return False, ''
+
+        previous = self.blank_spec
+        applied, reason = self.rebuild_blank_spec(positional_rows=positional_rows)
+        if applied:
+            was = self.question_type
+            self.question_type = self.FILL_BLANK
+            return (self.blank_spec != previous or was != self.FILL_BLANK), ''
+
+        # Gaps, but nothing that maps onto them. The question stays a working
+        # single box; any spec that no longer describes it is dropped, because a
+        # stale spec grades against the wrong gaps.
+        if previous is not None:
+            self.blank_spec = None
+            return True, reason
+        return False, reason
+
+    def display_text_answer(self, text_answer):
+        """A stored typed answer as it should be *shown* back to a student.
+
+        The multi-box answers differ from what was stored: they post one value
+        per gap/feature as JSON, which is unreadable in a review list, so
+        ``{"blanks":["15","live"]}`` is shown as ``"15, live"`` and
+        ``{"features":{"vertex":"(-0.5, -2.25)"}}`` as
+        ``"Vertex (turning point): (-0.5, -2.25)"``. Every other
+        answer is returned unchanged, so a review payload can be built by
+        calling this on whatever the student typed without first asking what
+        type the question was.
+        """
+        if self.question_type == self.FILL_BLANK and self.blank_spec:
+            from maths.blank_grading import describe_blank_answer
+            return describe_blank_answer(text_answer)
+        if self.question_type == self.SKETCH_GRAPH and self.sketch_spec:
+            from maths.geometry_grading import describe_sketch_answer
+            return describe_sketch_answer(text_answer, self.sketch_spec)
+        return text_answer
+
+    def correct_answer_display(self):
+        """The correct answer as it should be *shown* to a student.
+
+        Every correct Answer row, not just the first — a question whose answer
+        is a list of values may store one value per row, and showing only
+        ``.first()`` tells the student "54" when the answer is "54 and 63"
+        (CPP-376). Separate rows are alternatives, so they are joined with
+        " or "; a single row is shown verbatim, commas and all. A "create your
+        own pattern" question has no stored answer at all, so a worked example
+        of what the question asked for stands in. Returns '' when there is
+        neither.
+        """
+        # A fill-in-the-blank sentence keeps its answers in blank_spec, one set
+        # per gap, so reading the Answer rows would show the student nothing (or,
+        # on a converted question, the pre-conversion row rather than the gaps).
+        if self.question_type == self.FILL_BLANK and self.blank_spec:
+            from maths.blank_grading import describe_blank_spec
+            shown = describe_blank_spec(self.blank_spec)
+            if shown:
+                return shown
+
+        # A sketch's answers live in sketch_spec, one per feature, for the same
+        # reason — reading the Answer rows would show the student nothing at all.
+        if self.question_type == self.SKETCH_GRAPH and self.sketch_spec:
+            from maths.geometry_grading import describe_sketch_spec
+            shown = describe_sketch_spec(self.sketch_spec)
+            if shown:
+                return shown
+
+        texts = [
+            a.answer_text.strip()
+            for a in self.answers.filter(is_correct=True)
+            if a.answer_text and a.answer_text.strip()
+        ]
+        if texts:
+            return ' or '.join(texts)
+
+        # "Create your own pattern" questions have no stored answer because
+        # there is no single right one. Showing the student a blank where the
+        # answer should be says nothing, so show a worked example of the thing
+        # the question asked for instead.
+        if self.answer_format == self.ANSWER_FORMAT_PATTERN:
+            from maths.pattern_grading import example_answer, parse_pattern_request
+            request = parse_pattern_request(self.question_text)
+            return f'Any pattern that fits — for example {example_answer(request)}'
+        return ''
 
     class Meta:
         ordering = ['level', 'difficulty', 'created_at']
@@ -417,6 +923,91 @@ class Question(models.Model):
                         'and must not have answer options.'
                     )
                 })
+
+        # Number-line questions are graded by set comparison of the marked
+        # positions (mark mode) or by numeric tolerance on the typed value
+        # (read mode) — both need a valid number_line_spec, never answer options.
+        if self.question_type == self.NUMBER_LINE:
+            if not self.number_line_spec:
+                raise ValidationError({
+                    'number_line_spec': 'Number-line questions require a number_line_spec.'
+                })
+            from maths.geometry_grading import validate_number_line_spec
+            try:
+                validate_number_line_spec(self.number_line_spec)
+            except ValueError as exc:
+                raise ValidationError({'number_line_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Number-line questions are graded by the marked/typed '
+                        'values and must not have answer options.'
+                    )
+                })
+
+        # Table-of-values questions are graded by numeric tolerance on the filled
+        # cells (the correct values live in the spec), never answer options.
+        if self.question_type == self.TABLE_OF_VALUES:
+            if not self.table_spec:
+                raise ValidationError({
+                    'table_spec': 'Table-of-values questions require a table_spec.'
+                })
+            from maths.geometry_grading import validate_table_spec
+            try:
+                validate_table_spec(self.table_spec)
+            except ValueError as exc:
+                raise ValidationError({'table_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Table-of-values questions are graded by the filled cells '
+                        'and must not have answer options.'
+                    )
+                })
+
+        # Sketch-a-graph questions are graded on the FEATURES the stem names —
+        # the vertex, the intercepts, the axis of symmetry — each typed into its
+        # own box and marked within a tolerance. The values live in the spec, so
+        # never answer options.
+        if self.question_type == self.SKETCH_GRAPH:
+            if not self.sketch_spec:
+                raise ValidationError({
+                    'sketch_spec': 'Sketch-a-graph questions require a sketch_spec.'
+                })
+            from maths.geometry_grading import validate_sketch_spec
+            try:
+                validate_sketch_spec(self.sketch_spec)
+            except ValueError as exc:
+                raise ValidationError({'sketch_spec': str(exc)})
+            if self.pk and self.answers.exists():
+                raise ValidationError({
+                    'question_type': (
+                        'Sketch-a-graph questions are graded by the typed key '
+                        'features and must not have answer options.'
+                    )
+                })
+
+        # Fill-in-the-blank questions are graded from blank_spec — one set of
+        # accepted answers per blank, positional. The spec is optional (a
+        # fill_blank with none is the legacy single-box shape), but a spec that
+        # IS set must line up with the underscores in the question text: a
+        # count mismatch mis-grades every attempt, silently.
+        if self.question_type == self.FILL_BLANK and self.blank_spec:
+            from maths.blank_grading import validate_blank_spec
+            try:
+                validate_blank_spec(self.blank_spec, self.question_text)
+            except ValueError as exc:
+                raise ValidationError({'blank_spec': str(exc)})
+
+        # A blank_spec on any other type would never be read — the grader routes
+        # on question_type — so it is a mis-set field, not a stored preference.
+        if self.blank_spec and self.question_type != self.FILL_BLANK:
+            raise ValidationError({
+                'blank_spec': (
+                    'blank_spec only applies to fill_blank questions. This one '
+                    f'is {self.question_type!r}.'
+                )
+            })
 
     @property
     def long_division_step_count(self):
@@ -590,17 +1181,33 @@ class Question(models.Model):
                 {'gx': x, 'gy': y, 'px': px(x), 'py': py(y)}
                 for y in range(ymin, ymax + 1) for x in range(xmin, xmax + 1)
             ]
+        # Given points may be named ([x, y, "A"]) — the label is drawn beside the
+        # dot so a question that talks about "the line AB" is readable. A
+        # malformed entry is skipped rather than raised on: clean() rejects one
+        # at the source, and a render helper must not 500 a whole homework page.
+        from maths.geometry_grading import given_point_parts
         given = []
         for p in (self.plane_spec.get('given_points') or []):
-            if (isinstance(p, (list, tuple)) and len(p) == 2
-                    and all(isinstance(c, int) and not isinstance(c, bool) for c in p)):
-                given.append({'gx': p[0], 'gy': p[1], 'px': px(p[0]), 'py': py(p[1])})
+            try:
+                gx, gy, label = given_point_parts(p)
+            except ValueError:
+                continue
+            if not all(isinstance(c, int) and not isinstance(c, bool)
+                       for c in (gx, gy)):
+                continue
+            given.append({'gx': gx, 'gy': gy, 'px': px(gx), 'py': py(gy),
+                          'label': label,
+                          # Nudge the label clear of the dot and of the axes.
+                          'lx': px(gx) + 8, 'ly': py(gy) - 8})
         return {
             'svg': cartesian_plane_svg(self.plane_spec, pad=pad, step=step),
             'width': width, 'height': height, 'pad': pad, 'step': step,
             'xmin': xmin, 'xmax': xmax, 'ymin': ymin, 'ymax': ymax,
             'mode': self.plane_spec.get('mode') or 'points',
             'dots': dots, 'given': given, 'interactive': interactive,
+            # Opt-in: render a smooth curve through the plotted points (plot_points
+            # only — a "join the dots into a parabola" visual aid; grading unchanged).
+            'curve': bool(self.plane_spec.get('curve')),
         }
 
     @property
@@ -619,6 +1226,296 @@ class Question(models.Model):
         if not svg:
             return None
         return {'svg': svg}
+
+    @property
+    def number_line_data(self):
+        """SVG-ready render data for a number_line question, or None.
+
+        Maps the ``number_line_spec`` (values on the line's own scale) to pixel
+        coordinates the take-item template draws: the axis backdrop SVG (line,
+        ticks, labels, and — in read mode — the given arrows), the tappable tick
+        positions (mark mode) each carrying its value for the click-to-mark JS,
+        and the canvas size. Returns None when there's nothing renderable, so
+        templates guard with a single check. Mirrors ``plane_data`` — render data
+        on the model, no per-view plumbing.
+        """
+        if self.question_type != self.NUMBER_LINE or not self.number_line_spec:
+            return None
+        from maths.geometry_grading import number_line_ticks, _num_key
+        from maths.svg_geometry import number_line_svg
+        ticks = number_line_ticks(self.number_line_spec)
+        if ticks is None:
+            return None
+        spec = self.number_line_spec
+        pad, tick_px = 28, 44
+        top = 34  # baseline y for the number line
+
+        def px(i):
+            return pad + i * tick_px
+
+        width = pad * 2 + (len(ticks) - 1) * tick_px
+        height = 78
+        mode = spec.get('mode') or 'mark'
+        # Tappable tick positions (mark mode only — read mode is answered by typing).
+        dots = []
+        if mode == 'mark':
+            dots = [{'value': v, 'px': px(i), 'py': top}
+                    for i, v in enumerate(ticks)]
+        # Index by the canonical tick key so a spec value stored as 6.0 still maps
+        # to the tick at 6 (same normalisation validate_number_line_spec uses).
+        index_of = {_num_key(v): i for i, v in enumerate(ticks)}
+        # Values already marked with an arrow (read mode reads these).
+        given = [{'value': v, 'px': px(index_of[_num_key(v)]), 'py': top}
+                 for v in (spec.get('given') or []) if _num_key(v) in index_of]
+        # Correct answer marks — shown on the teacher answer-key (worksheets).
+        targets = spec.get('target')
+        if targets is None:
+            targets = spec.get('given') or []
+        answer = [{'value': v, 'px': px(index_of[_num_key(v)]), 'py': top}
+                  for v in targets if _num_key(v) in index_of]
+        return {
+            'svg': number_line_svg(self.number_line_spec, pad=pad, tick_px=tick_px, top=top),
+            'width': width, 'height': height, 'pad': pad, 'tick_px': tick_px, 'top': top,
+            'mode': mode, 'dots': dots, 'given': given, 'answer': answer,
+            'target_values': [t['value'] for t in answer],
+            'tolerance': spec.get('tolerance') or 0,
+        }
+
+    @property
+    def table_data(self):
+        """Render-ready data for a table_of_values question, or None.
+
+        Maps ``table_spec`` to the rows the take-item template draws: each cell is
+        either a shown value (``given``) or a blank input carrying its ``r,c`` key
+        for the serialise-to-JSON JS. The ``answer`` value is kept on blank cells
+        so the worksheets answer-key surface can show the correct value — the
+        student take template renders only the empty input and never prints it.
+        Returns None when there's nothing renderable, so templates guard with a
+        single check. Mirrors ``plane_data`` / ``number_line_data`` — render data
+        on the model, no per-view plumbing.
+        """
+        if self.question_type != self.TABLE_OF_VALUES or not self.table_spec:
+            return None
+        from maths.geometry_grading import _table_cell_kind
+        headers = self.table_spec.get('headers')
+        rows = self.table_spec.get('rows')
+        if not isinstance(headers, list) or not isinstance(rows, list):
+            return None
+        out_rows = []
+        for r, row in enumerate(rows):
+            if not isinstance(row, list):
+                return None
+            out_cells = []
+            for c, cell in enumerate(row):
+                kind = _table_cell_kind(cell)
+                if kind is None:
+                    return None
+                role, value = kind
+                if role == 'given':
+                    out_cells.append({'given': True, 'value': value})
+                else:
+                    out_cells.append({'given': False, 'rc': f'{r},{c}', 'answer': value})
+            out_rows.append(out_cells)
+        return {'headers': headers, 'rows': out_rows}
+
+    @property
+    def sketch_data(self):
+        """Render-ready data for a sketch_graph question, or None.
+
+        Two halves, and only one of them is ever shown to a student mid-attempt:
+
+        * ``svg`` / ``width`` / ``height`` — the BLANK plane the worksheet
+          printed, so the pupil has the same axes to work the sketch out on.
+        * ``dots`` (with ``pad`` / ``step`` / ``xmin`` / ``ymax``) — the lattice
+          points of that plane, tappable, so the sketch the stem asks for can
+          actually be drawn: the student plots points and the widget joins them
+          into a curve. Empty when the question cannot be sketched (no curve to
+          mark a drawing against, or too few of its points inside the plane),
+          which leaves the plane exactly as it was — paper to work on.
+        * ``features`` — one box per feature the stem asks for, each with the
+          label it is called by and a placeholder showing the form to type. The
+          correct value is deliberately NOT here; it lives in the spec and never
+          reaches the take page.
+        * ``answer_svg`` / ``answer_features`` — the curve, the axis of symmetry
+          and the labelled key points: the sketch that was wanted. Feedback
+          only. The take template must not render them, exactly as ``table_data``
+          keeps its answers off the student's screen.
+
+        Returns None when there's nothing renderable, so templates guard with a
+        single check. Mirrors ``plane_data`` / ``table_data`` — render data on
+        the model, no per-view plumbing.
+        """
+        if self.question_type != self.SKETCH_GRAPH or not self.sketch_spec:
+            return None
+        from maths.geometry_grading import (
+            SKETCH_FEATURE_LABELS, _plane_bounds, sketch_curve,
+            sketch_drawing_part, sketch_feature_expected,
+        )
+        from maths.svg_geometry import cartesian_plane_svg, sketch_answer_svg
+
+        bounds = _plane_bounds(self.sketch_spec)
+        if bounds is None:
+            return None
+        xmin, xmax, ymin, ymax = bounds
+        pad, step = 28, 32
+        width = pad * 2 + (xmax - xmin) * step
+        height = pad * 2 + (ymax - ymin) * step
+
+        def px(x):
+            return pad + (x - xmin) * step
+
+        def py(y):
+            # y grows upward on a Cartesian plane, downward in SVG.
+            return pad + (ymax - y) * step
+
+        # The plane is only made tappable when a drawn sketch can be marked —
+        # the same test the grader applies, asked once here so the widget never
+        # invites a student to plot points that could not count.
+        curve = sketch_curve(self.sketch_spec)
+        drawable = sketch_drawing_part(self.sketch_spec, [], curve) is not None
+        dots = [
+            {'gx': x, 'gy': y, 'px': px(x), 'py': py(y)}
+            for y in range(ymin, ymax + 1) for x in range(xmin, xmax + 1)
+        ] if drawable else []
+
+        features, answer_features = [], []
+        for feature in (self.sketch_spec.get('features') or []):
+            if not isinstance(feature, dict):
+                continue
+            kind = feature.get('kind')
+            if kind not in SKETCH_FEATURE_LABELS:
+                continue
+            label = SKETCH_FEATURE_LABELS[kind]
+            if kind == 'axis_of_symmetry':
+                placeholder, hint = 'x = 2', 'Write the equation, e.g. x = 2.'
+            elif kind == 'x_intercept':
+                placeholder = '(-2, 0), (1, 0)'
+                hint = 'Give every intercept, separated by a comma.'
+            else:
+                placeholder, hint = '(0, -2)', 'Write the coordinates as (x, y).'
+            features.append({'kind': kind, 'label': label,
+                             'placeholder': placeholder, 'hint': hint})
+            answer_features.append({'kind': kind, 'label': label,
+                                    'expected': sketch_feature_expected(feature)})
+
+        if not features:
+            return None
+        return {
+            'equation': (self.sketch_spec.get('equation') or '').strip(),
+            'svg': cartesian_plane_svg(self.sketch_spec, pad=pad, step=step),
+            'answer_svg': sketch_answer_svg(self.sketch_spec, pad=pad, step=step),
+            'width': width, 'height': height,
+            'pad': pad, 'step': step, 'xmin': xmin, 'ymax': ymax,
+            'dots': dots, 'drawable': drawable,
+            'features': features, 'answer_features': answer_features,
+        }
+
+    @property
+    def renders_a_figure(self):
+        """Does a student taking this question see a picture of any kind?
+
+        True for an uploaded image or video, and for the types that draw their
+        own figure once the spec behind it is set — the angle a ``measure``
+        question generates from ``numeric_answer``, the plane a ``plot_points``
+        question draws from ``plane_spec``, and so on. Reads the same render
+        properties the take templates read, so "is there anything on the page
+        to look at" is answered once here rather than re-derived per template
+        and per audit (``maths.answer_verification.verify_question_figure``).
+
+        False does NOT mean the question is broken: most questions need no
+        figure. It means an image is the only visual this question could have,
+        and it has none — which IS a fault when the stem points at a figure or
+        the type is one whose answer is read off one (CPP-406).
+        """
+        if self.image or self.video:
+            return True
+        prop = FIGURE_RENDER_PROPERTIES.get(self.question_type)
+        return bool(getattr(self, prop)) if prop else False
+
+    @property
+    def blank_data(self):
+        """Render-ready data for a fill_blank question, or None.
+
+        Interleaves the literal text around the blanks with the blanks
+        themselves, so a template can lay the sentence back out with an input
+        sitting in each gap::
+
+            {'count': 2,
+             'parts': [{'text': 'Out of 100 000 births, ... to the age of '},
+                       {'index': 0, 'size': 4, 'answer': '15'},
+                       {'text': '. From that age, ... expected to '},
+                       {'index': 1, 'size': 8, 'answer': 'live or survive'},
+                       {'text': ' for another 67.0 years.'}]}
+
+        Each part has exactly one of ``text`` (literal) or ``index`` (a blank).
+        ``size`` is the input's width in characters, from the longest accepted
+        answer, so a one-digit gap isn't a full-width box and a wordy one still
+        fits. ``answer`` is kept on blank parts so the worksheets answer-key
+        surface can print the correct value — the student take template renders
+        only the empty input and never prints it, exactly as ``table_data``
+        does.
+
+        Returns None when there's nothing renderable (no spec, or a spec out of
+        step with the text), so templates guard with a single check and fall
+        back to the plain single-box input rather than rendering a broken
+        sentence. Mirrors ``table_data`` / ``number_line_data`` — render data on
+        the model, no per-view plumbing.
+        """
+        if self.question_type != self.FILL_BLANK or not self.blank_spec:
+            return None
+        from maths.blank_grading import blank_answers, split_on_blanks
+
+        answers = blank_answers(self.blank_spec)
+        if not answers:
+            return None
+        segments = split_on_blanks(self.question_text)
+        # A spec that no longer matches its sentence cannot be laid out — some
+        # gap would have no input, or some input no gap. clean() rejects that,
+        # but content edited around the validator must degrade to the plain box
+        # rather than render a sentence that is missing an answer.
+        if len(segments) != len(answers) + 1:
+            return None
+
+        parts = []
+        for i, segment in enumerate(segments):
+            if segment:
+                parts.append({'text': segment})
+            if i < len(answers):
+                longest = max(len(a) for a in answers[i])
+                parts.append({
+                    'index': i,
+                    'size': max(_BLANK_MIN_SIZE, min(longest, _BLANK_MAX_SIZE)),
+                    'answer': ' or '.join(answers[i]),
+                })
+        return {'count': len(answers), 'parts': parts}
+
+    @property
+    def pattern_field_data(self):
+        """Render-ready boxes for a "create your own pattern" question, or None.
+
+            {'count': 6, 'indexes': [0, 1, 2, 3, 4, 5],
+             'needs_rule': True, 'fixed': True}
+
+        One box per number the question asks for, plus a box for the rule —
+        the shape of the answer, which a single text box left the student to
+        guess at. What they compose is the same sentence a student would have
+        typed, so nothing downstream of the widget has to know it exists.
+
+        None for every other question, so a template guards with one check and
+        falls back to the plain box. Mirrors ``blank_data`` / ``table_data``:
+        render data on the model, no per-view plumbing.
+        """
+        if self.answer_format != self.ANSWER_FORMAT_PATTERN:
+            return None
+        from maths.pattern_grading import pattern_fields
+
+        fields = pattern_fields(self.question_text)
+        return {
+            'count': fields.count,
+            'indexes': fields.indexes,
+            'needs_rule': fields.needs_rule,
+            'fixed': fields.fixed,
+        }
 
     @property
     def prime_factorization_rows(self):
@@ -1125,3 +2022,297 @@ class StudentFinalAnswer(models.Model):
         """Keep only the most recent attempts for ``instance``'s series."""
         from classroom.attempt_retention import prune_to_last_n
         return prune_to_last_n(cls, cls.attempt_series_filter(instance))
+
+
+class QuestionHealthSnapshot(models.Model):
+    """A point-in-time measurement of how sound the question bank is.
+
+    Written by ``manage.py record_question_health`` (cron) and read by the
+    super-admin dashboard, mirroring the OpsSnapshot → ops dashboard pattern.
+
+    Snapshots exist so question health can be seen as a *trend*: a single audit
+    run tells you today's count, but only a series tells you whether editing is
+    outpacing breakage. Rows are small and written at most daily, so they are
+    kept rather than pruned.
+
+    "Blocking" issues can mark a student wrong for correct work (CPP-377);
+    "advisory" ones cannot, and are tracked separately so a presentation nit
+    never dilutes the headline number.
+    """
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    # Scope of this run — blank means the whole bank.
+    level_number = models.PositiveSmallIntegerField(null=True, blank=True)
+    topic = models.ForeignKey(
+        'classroom.Topic', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='health_snapshots',
+    )
+
+    # Population
+    total_questions = models.PositiveIntegerField(default=0)
+    choice_questions = models.PositiveIntegerField(default=0)
+    typed_questions = models.PositiveIntegerField(
+        default=0,
+        help_text='Short-answer / calculation questions scanned (CPP-378). '
+                  'Previously unmeasured, so health read better than it was.')
+
+    # Coverage — how much of the bank the audit could actually judge.
+    arithmetic_verified = models.PositiveIntegerField(
+        default=0, help_text='Questions whose own maths was evaluated and checked.')
+    unverifiable = models.PositiveIntegerField(
+        default=0, help_text='Word problems etc. that need a human.')
+
+    # Findings
+    questions_blocking = models.PositiveIntegerField(
+        default=0, help_text='Questions with an issue that can mismark a student.')
+    questions_advisory = models.PositiveIntegerField(
+        default=0, help_text='Questions with only non-mismarking issues.')
+    questions_cleared = models.PositiveIntegerField(
+        default=0,
+        help_text='Flagged questions a person reviewed and marked correct, so '
+                  'left out of the counts above (CPP-398). Recorded rather '
+                  'than merely subtracted: a suppressed question that vanishes '
+                  'without a number is how a clean-looking bank hides work.')
+
+    # Per-code counts, so the dashboard can show what is actually wrong.
+    # Keyed by the issue codes in maths.answer_verification.
+    issue_counts = models.JSONField(
+        default=dict, blank=True,
+        help_text="e.g. {'EQUIVALENT-OPTION': 14, 'WRONG-ANSWER-KEY': 2}")
+
+    # Enough detail to jump straight to the offending questions.
+    flagged_questions = models.JSONField(
+        default=list, blank=True,
+        help_text="[{'id': 6017, 'codes': ['EQUIVALENT-OPTION'], 'text': '...'}]")
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'question health snapshot'
+
+    def __str__(self):
+        return f'{self.created_at:%Y-%m-%d %H:%M} — {self.questions_blocking} blocking'
+
+    @property
+    def health_percent(self):
+        """Share of *audited* questions with no blocking issue, 0-100.
+
+        Audited means choice + typed: questions_blocking counts both since
+        CPP-378, so dividing by the choice count alone reported a bank with two
+        broken typed answers and no choice questions as 100% healthy.
+        """
+        audited = self.choice_questions + self.typed_questions
+        if not audited:
+            return 100
+        sound = max(0, audited - self.questions_blocking)
+        return round(sound / audited * 100, 1)
+
+    @property
+    def coverage_percent(self):
+        """Share of choice questions whose maths could be machine-checked.
+
+        Deliberately separate from health: a 100% healthy bank that could only
+        be verified 16% deep is not the same claim, and collapsing the two
+        would overstate what is actually known.
+        """
+        if not self.choice_questions:
+            return 0
+        return round(self.arithmetic_verified / self.choice_questions * 100, 1)
+
+    @property
+    def status(self):
+        if self.questions_blocking:
+            return 'crit'
+        if self.questions_advisory:
+            return 'warn'
+        return 'ok'
+
+
+class QuestionAIReview(models.Model):
+    """One semantic review of one question by an independent model (CPP-380).
+
+    The deterministic audits prove things about the data — a distractor equal to
+    the answer, an answer key that fails its own arithmetic. They cannot judge
+    whether a question is *sensible*: ambiguous wording, an answer that does not
+    follow from the stem, information missing from a word problem.
+
+    This is the record of a model having looked. It is deliberately a *review*,
+    not a verdict on truth: two models agreeing is a second opinion, and the
+    row exists to route a human's attention, never to bless content. Nothing in
+    this app edits question text on the strength of it.
+
+    The row is the single source of truth for review state — there is no
+    denormalised flag on Question to drift out of sync. ``question_updated_at``
+    snapshots the content version reviewed, so an edit after review makes the
+    review stale rather than silently vouching for text nobody checked.
+    """
+
+    VERDICT_OK = 'ok'
+    VERDICT_FLAGGED = 'flagged'
+    VERDICT_ERROR = 'error'
+    VERDICT_CHOICES = [
+        (VERDICT_OK, 'Reviewed — no objection'),
+        (VERDICT_FLAGGED, 'Flagged for human review'),
+        (VERDICT_ERROR, 'Review failed'),
+    ]
+
+    question = models.ForeignKey(
+        Question, on_delete=models.CASCADE, related_name='ai_reviews')
+    reviewed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    verdict = models.CharField(max_length=10, choices=VERDICT_CHOICES)
+    reason = models.TextField(
+        blank=True, default='',
+        help_text='Short human-readable explanation, shown to whoever triages.')
+
+    # Which content version this review applies to. Compared against
+    # Question.updated_at to detect a review made stale by a later edit.
+    question_updated_at = models.DateTimeField(null=True, blank=True)
+
+    # Two-tier review: a cheap model looks at everything, and only what it
+    # doubts is escalated. Recorded so the escalation rate — the thing that
+    # actually drives cost — is measurable after the fact.
+    first_pass_model = models.CharField(max_length=100, blank=True, default='')
+    adjudicator_model = models.CharField(max_length=100, blank=True, default='')
+    escalated = models.BooleanField(default=False)
+
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    # Null when the model's rate is not configured — tokens are always known,
+    # cost is not, and guessing it would make the budget ceiling a lie.
+    cost_usd = models.DecimalField(
+        max_digits=10, decimal_places=6, null=True, blank=True)
+
+    class Meta:
+        ordering = ['-reviewed_at']
+        indexes = [models.Index(fields=['question', '-reviewed_at'])]
+        verbose_name = 'question AI review'
+
+    def __str__(self):
+        return f'Q{self.question_id} — {self.get_verdict_display()}'
+
+    @property
+    def is_stale(self):
+        """True if the question was edited after this review was made."""
+        if not self.question_updated_at or not self.question.updated_at:
+            return False
+        return self.question.updated_at > self.question_updated_at
+
+
+class QuestionReport(models.Model):
+    """A person said this specific question is wrong (CPP-398).
+
+    The global feedback button captures a description and the page URL, which
+    for a quiz page names a topic serving dozens of questions. CPP-398 — "the
+    answer in a quality answer was 23 or 23 pencils but why" against a Year 7
+    topic quiz — could not be traced to the question it was about, so the
+    report went to Jira and the question stayed live.
+
+    This row is the missing link: the question the reporter was actually
+    looking at. It is deliberately a *report*, not a verdict — it records that
+    somebody objected, never that they were right. What settles it is a
+    QuestionReview below.
+
+    The ``feedback`` link keeps the conversation (description, screenshots,
+    Jira key) where it already lives rather than copying it here; ``note`` is
+    a denormalised copy of what was written so the report still reads on its
+    own if the feedback item is later removed.
+    """
+
+    question = models.ForeignKey(
+        Question, on_delete=models.CASCADE, related_name='reports')
+    # Tenant context for reporting, matching feedback.Feedback. Null for users
+    # with no school — an individual student, which is who raised CPP-398.
+    school = models.ForeignKey(
+        'classroom.School', on_delete=models.CASCADE,
+        null=True, blank=True, db_index=True,
+        related_name='question_reports')
+    # SET_NULL rather than CASCADE: the report is evidence about the question
+    # bank, and deleting a student's account must not quietly repair the bank
+    # by taking their complaints with it.
+    reported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='question_reports')
+    feedback = models.ForeignKey(
+        'feedback.Feedback', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='question_reports',
+        help_text='The feedback item this came in on, for the description, '
+                  'screenshots and Jira key.')
+    note = models.TextField(
+        blank=True, default='',
+        help_text='What the reporter wrote, copied so the report stands alone.')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['question', '-created_at'])]
+        verbose_name = 'question report'
+
+    def __str__(self):
+        return f'Q{self.question_id} reported {self.created_at:%Y-%m-%d}'
+
+
+class QuestionReview(models.Model):
+    """A person looked at a question and gave a verdict (CPP-398).
+
+    The deterministic audits are blunt by design: EQUIVALENT-OPTION fires on
+    distractors equal as text but not as intent, WRONG-ANSWER-KEY on a question
+    whose arithmetic the evaluator reads differently from a person. Before this
+    row a super-admin who checked such a question and found it sound had only
+    two exits — edit it needlessly or delete it — so the same false positives
+    were re-read on every run, and a list nobody can shrink is a list nobody
+    reads.
+
+    "Reviewed and correct" is therefore a first-class verdict, and it
+    suppresses the question from every unhealthy surface. That is a strong
+    claim, so it is deliberately narrow:
+
+    * ``question_updated_at`` snapshots the content version reviewed, exactly
+      as QuestionAIReview does. An edit afterwards makes the clearance stale
+      rather than letting it vouch for text nobody checked.
+    * Only the LATEST review counts, whatever its verdict — an old 'correct'
+      never outranks a newer 'broken'.
+    * A report filed AFTER the review re-opens the question: a second
+      independent complaint is new evidence, not the one already judged.
+
+    Those three rules live in ``maths.question_review``, not here, because the
+    dashboards need them answered for a thousand questions at a time.
+    """
+
+    VERDICT_CORRECT = 'correct'
+    VERDICT_BROKEN = 'broken'
+    VERDICT_CHOICES = [
+        (VERDICT_CORRECT, 'Reviewed and correct'),
+        (VERDICT_BROKEN, 'Reviewed — needs fixing'),
+    ]
+
+    question = models.ForeignKey(
+        Question, on_delete=models.CASCADE, related_name='human_reviews')
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='question_reviews')
+    reviewed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    verdict = models.CharField(max_length=10, choices=VERDICT_CHOICES)
+    note = models.TextField(
+        blank=True, default='',
+        help_text='Why, in the reviewer\'s words. Shown next to the verdict.')
+
+    # Compared against Question.updated_at to detect a review made stale by a
+    # later edit. Null only for rows whose question had no timestamp.
+    question_updated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-reviewed_at']
+        indexes = [models.Index(fields=['question', '-reviewed_at'])]
+        verbose_name = 'question review'
+
+    def __str__(self):
+        return f'Q{self.question_id} — {self.get_verdict_display()}'
+
+    @property
+    def is_stale(self):
+        """True if the question was edited after this review was made."""
+        if not self.question_updated_at or not self.question.updated_at:
+            return False
+        return self.question.updated_at > self.question_updated_at

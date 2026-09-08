@@ -1,11 +1,21 @@
 """Unit tests for crop_figure_boxes — cropping drawn figures from page screenshots."""
 import base64
 import io
+import os
+from unittest import mock
 
 from django.test import SimpleTestCase
 from PIL import Image
 
 from ai_import.services import crop_figure_boxes
+
+
+def _two_pages():
+    """Two blank page screenshots (pages 1 and 2), like extract_pdf_content emits."""
+    return {'pages': [
+        {'page_num': 1, 'screenshot': _screenshot_b64(width=200, height=100)},
+        {'page_num': 2, 'screenshot': _screenshot_b64(width=200, height=100)},
+    ]}
 
 
 def _screenshot_b64(width=200, height=100, colour=(255, 255, 255)):
@@ -31,9 +41,11 @@ class CropFigureBoxesTests(SimpleTestCase):
         ref = q['image_ref']
         self.assertIn(ref, crops)
         self.assertTrue(ref.endswith('.png'))
-        # Transient locator fields must not survive onto the question.
+        # The transient % box locator is cleared, but the page + normalised box
+        # are kept as crop provenance for the "Adjust image" re-crop tool.
         self.assertNotIn('image_box', q)
-        self.assertNotIn('image_page', q)
+        self.assertEqual(q['image_page'], 1)
+        self.assertEqual(q['image_bbox_frac'], [0.0, 0.0, 0.5, 1.0])
         # The crop is the left half: 100x100.
         img = Image.open(io.BytesIO(base64.b64decode(crops[ref])))
         self.assertEqual(img.size, (100, 100))
@@ -66,6 +78,46 @@ class CropFigureBoxesTests(SimpleTestCase):
         crops = crop_figure_boxes(_extracted(), {'questions': [q]})
         self.assertEqual(crops, {})
         self.assertNotIn('image_ref', q)
+
+    def test_cross_page_crop_is_dropped(self):
+        # The reported bug: a page-6 "the table shows…" question whose box points at
+        # a chart two pages back. A drawn figure lives on the question's own page,
+        # so a cross-page box is a wrong-page grab and must not be cropped in.
+        q = {'question_text': 'The table shows the highest temperature...',
+             'source_page': 1, 'image_page': 2,
+             'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+
+        crops = crop_figure_boxes(_two_pages(), {'questions': [q]})
+
+        self.assertEqual(crops, {})
+        self.assertNotIn('image_ref', q)   # no wrong figure attached
+
+    def test_same_page_crop_still_made(self):
+        # image_page == source_page → a legitimate crop, unaffected by the guard.
+        q = {'question_text': 'Q', 'source_page': 1, 'image_page': 1,
+             'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+
+        crops = crop_figure_boxes(_two_pages(), {'questions': [q]})
+
+        self.assertIn(q['image_ref'], crops)
+        self.assertTrue(q['image_ref'].startswith('page1_'))
+
+    def test_missing_source_page_does_not_drop(self):
+        # No source_page (older data) → can't judge cross-page → keep the crop.
+        q = {'image_page': 2, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+
+        crops = crop_figure_boxes(_two_pages(), {'questions': [q]})
+
+        self.assertIn(q['image_ref'], crops)
+
+    def test_cross_page_drop_can_be_disabled(self):
+        q = {'source_page': 1, 'image_page': 2,
+             'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+
+        with mock.patch.dict(os.environ, {'AI_IMPORT_DROP_CROSS_PAGE_CROPS': '0'}):
+            crops = crop_figure_boxes(_two_pages(), {'questions': [q]})
+
+        self.assertIn(q.get('image_ref'), crops)   # guard off → crop still made
 
     def test_missing_box_or_page_is_noop(self):
         q = {'question_text': 'no visual'}
@@ -194,3 +246,82 @@ class PdfReRenderTests(SimpleTestCase):
         size_pdf = Image.open(io.BytesIO(base64.b64decode(crops_pdf[q_pdf['image_ref']]))).size
 
         self.assertGreater(size_pdf[0] * size_pdf[1], size_ss[0] * size_ss[1])
+
+
+class SharedImageGroupTests(SimpleTestCase):
+    """Group questions that share one visual reuse the previous question's image
+    instead of producing a duplicate crop."""
+
+    def test_flagged_question_reuses_previous_crop(self):
+        q1 = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+        q2 = {'shares_image_with_previous': True}  # no box of its own
+        crops = crop_figure_boxes(
+            _extracted(width=200, height=100), {'questions': [q1, q2]})
+
+        # One crop produced, shared by both questions.
+        self.assertEqual(len(crops), 1)
+        self.assertEqual(q1['image_ref'], q2['image_ref'])
+        self.assertEqual(q2['image_page'], 1)
+        self.assertEqual(q2['image_bbox_frac'], q1['image_bbox_frac'])
+        # The transient flag is never persisted.
+        self.assertNotIn('shares_image_with_previous', q2)
+
+    def test_flag_chains_across_a_whole_group(self):
+        q1 = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+        q2 = {'shares_image_with_previous': True}
+        q3 = {'shares_image_with_previous': True}
+        crops = crop_figure_boxes(
+            _extracted(width=200, height=100), {'questions': [q1, q2, q3]})
+
+        self.assertEqual(len(crops), 1)
+        self.assertEqual(q1['image_ref'], q2['image_ref'])
+        self.assertEqual(q2['image_ref'], q3['image_ref'])
+
+    def test_flag_with_no_previous_image_is_ignored(self):
+        # First question has no image; a following flagged question has nothing to
+        # carry over and gets no image (rather than crashing).
+        q1 = {'question_text': 'no visual'}
+        q2 = {'shares_image_with_previous': True}
+        crops = crop_figure_boxes(_extracted(), {'questions': [q1, q2]})
+        self.assertEqual(crops, {})
+        self.assertNotIn('image_ref', q2)
+
+    def test_no_image_question_breaks_the_group(self):
+        # A gap question with no image resets "previous" — a later flagged
+        # question does not reach back to an earlier figure.
+        q1 = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+        q2 = {'question_text': 'unrelated, no visual'}
+        q3 = {'shares_image_with_previous': True}
+        crops = crop_figure_boxes(
+            _extracted(width=200, height=100), {'questions': [q1, q2, q3]})
+        self.assertEqual(len(crops), 1)
+        self.assertIn('image_ref', q1)
+        self.assertNotIn('image_ref', q3)
+
+    def test_near_identical_box_reuses_without_flag(self):
+        # The model re-boxed the same shared figure on the next question but forgot
+        # the flag — the near-identical box is detected and reused (one crop).
+        q1 = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+        q2 = {'image_page': 1, 'image_box': {'x1': 1, 'y1': 0, 'x2': 49, 'y2': 100}}
+        crops = crop_figure_boxes(
+            _extracted(width=200, height=100), {'questions': [q1, q2]})
+        self.assertEqual(len(crops), 1)
+        self.assertEqual(q1['image_ref'], q2['image_ref'])
+
+    def test_distinct_boxes_are_not_merged(self):
+        # Two questions with clearly different figures (left half vs right half)
+        # each get their own crop — the reuse net must not merge them.
+        q1 = {'image_page': 1, 'image_box': {'x1': 0, 'y1': 0, 'x2': 50, 'y2': 100}}
+        q2 = {'image_page': 1, 'image_box': {'x1': 50, 'y1': 0, 'x2': 100, 'y2': 100}}
+        crops = crop_figure_boxes(
+            _extracted(width=200, height=100), {'questions': [q1, q2]})
+        self.assertEqual(len(crops), 2)
+        self.assertNotEqual(q1['image_ref'], q2['image_ref'])
+
+    def test_flag_reuses_embedded_ref(self):
+        # The shared visual is an embedded image; the group carries the ref over.
+        q1 = {'image_ref': 'page1_img1.png'}
+        q2 = {'shares_image_with_previous': True}
+        crops = crop_figure_boxes(_extracted(), {'questions': [q1, q2]})
+        self.assertEqual(crops, {})
+        self.assertEqual(q2['image_ref'], 'page1_img1.png')

@@ -48,7 +48,7 @@ def send_staff_welcome_email(
         'school': school,
         'department': department,
         'login_url': login_url,
-        'site_name': getattr(settings, 'SITE_NAME', 'Classroom'),
+        'site_name': getattr(settings, 'SITE_NAME', 'Wizards Learning Hub'),
         'email_logo_url': _get_email_logo_url(school, department),
     }
 

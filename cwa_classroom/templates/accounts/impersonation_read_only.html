@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Read-only{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div class="bg-white rounded-2xl border border-amber-200 shadow-sm p-8 space-y-4">
+    <h1 class="font-display text-2xl text-primary">That action is read-only right now</h1>
+    <p class="text-gray-600">
+      You are viewing the site as
+      <strong>{{ target_user.get_full_name|default:target_user.username }}</strong>,
+      so nothing can be submitted, saved, paid or deleted on their behalf.
+    </p>
+    <p class="text-sm text-gray-400">Blocked request: <span class="font-mono">{{ blocked_path }}</span></p>
+    <div class="flex items-center gap-3 pt-2">
+      <form method="post" action="{% url 'impersonation_stop' %}">
+        {% csrf_token %}
+        <button type="submit"
+                class="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-dark transition">
+          Stop viewing as this user
+        </button>
+      </form>
+      <a href="javascript:history.back()"
+         class="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-slate-50 transition">
+        Go back
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}

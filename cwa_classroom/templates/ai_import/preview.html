@@ -13,6 +13,8 @@
     </div>
   </div>
 
+  {% include "_partials/page_selection_notice.html" %}
+
   <form method="post" class="space-y-6">
     {% csrf_token %}
 
@@ -121,7 +123,17 @@
             {% if q.image_ref %}
             <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-700">{{ q.image_ref }}</span>
             {% endif %}
-            <svg :class="expanded ? 'rotate-0' : '-rotate-90'" class="w-4 h-4 ml-auto text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            {% if q.needs_review %}
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700"
+                  title="{{ q.review_reason|default:'The system could not determine this answer with confidence — please double-check it.' }}">⚠ Review</span>
+            {% endif %}
+            <button type="button" data-preview-open="{{ forloop.counter0 }}" @click.stop
+                    class="ml-auto px-2 py-0.5 rounded-full border border-blue-200 text-[10px] font-bold text-blue-600 hover:bg-blue-50 whitespace-nowrap"
+                    style="pointer-events:auto"
+                    title="See this question, and try answering it, exactly as a student will">
+              👁 Preview as student
+            </button>
+            <svg :class="expanded ? 'rotate-0' : '-rotate-90'" class="w-4 h-4 text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
             </svg>
           </div>
@@ -188,13 +200,26 @@
               </div>
               <div>
                 <label class="block text-xs font-semibold text-gray-500 mb-1">Image</label>
-                <select name="q_{{ forloop.counter0 }}_image_ref"
+                <select name="q_{{ forloop.counter0 }}_image_ref" id="img-ref-{{ forloop.counter0 }}"
                         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm image-ref-select">
                   <option value="none">No Image</option>
                   {% for img in image_list %}
                   <option value="{{ img.ref }}" {% if q.image_ref == img.ref %}selected{% endif %}>{{ img.name }}</option>
                   {% endfor %}
                 </select>
+                <button type="button" class="mt-1 text-xs text-indigo-600 hover:underline font-medium"
+                        data-adjust="{{ forloop.counter0 }}" data-page="{{ q.image_page }}"
+                        data-frac="{{ q.image_bbox_frac_json }}">✥ Adjust / crop from page</button>
+                {% if not forloop.first %}
+                <button type="button" onclick="reuseLastImage({{ forloop.counter0 }})"
+                        class="mt-1 ml-3 text-xs text-teal-600 hover:underline font-medium reuse-last-image-btn"
+                        data-reuse="{{ forloop.counter0 }}"
+                        title="Assign the same image as the nearest previous question that has one">⧉ Same image as previous</button>
+                {% endif %}
+                <div id="img-wrap-{{ forloop.counter0 }}" class="hidden mt-1">
+                  <img id="img-preview-{{ forloop.counter0 }}" alt="Crop preview"
+                       class="max-h-40 rounded border border-gray-200 object-contain bg-white">
+                </div>
               </div>
             </div>
 
@@ -240,6 +265,17 @@
               <p class="md:col-span-2 text-[10px] text-indigo-400">The answer is calculated automatically from the dividend and divisor — no need to enter it below.</p>
             </div>
 
+            <!-- Prime factorisation -->
+            <div id="primefactor-section-{{ forloop.counter0 }}"
+                 class="bg-indigo-50 rounded-lg p-3 {% if q.question_type != 'prime_factorization' %}hidden{% endif %}">
+              <label class="block text-[10px] font-semibold text-indigo-500 mb-1">Number to factorise</label>
+              <input type="text" name="q_{{ forloop.counter0 }}_target_number"
+                     value="{% if q.target_number %}{{ q.target_number }}{% endif %}"
+                     placeholder="e.g. 60"
+                     class="w-full rounded border border-indigo-200 px-2 py-1.5 text-sm font-mono" />
+              <p class="text-[10px] text-indigo-400 mt-1">The app draws the factor ladder and works the answer out from this number — no need to enter answers below.</p>
+            </div>
+
             <!-- Cartesian plane (plot_points / plot_line / identify_coords) -->
             <div id="plane-section-{{ forloop.counter0 }}"
                  class="bg-sky-50 rounded-lg p-3 {% if q.question_type != 'plot_points' and q.question_type != 'plot_line' and q.question_type != 'identify_coords' %}hidden{% endif %}">
@@ -281,9 +317,55 @@
               </div>
             </div>
 
+            <!-- Measure (angle / scale / ruler) -->
+            <div id="measure-section-{{ forloop.counter0 }}"
+                 class="bg-sky-50 rounded-lg p-3 grid grid-cols-1 md:grid-cols-3 gap-3 {% if q.question_type != 'measure' %}hidden{% endif %}">
+              <div>
+                <label class="block text-[10px] font-semibold text-sky-600 mb-1">Correct value</label>
+                <input type="text" name="q_{{ forloop.counter0 }}_numeric_answer"
+                       value="{% if q.numeric_answer is not None %}{{ q.numeric_answer }}{% endif %}" placeholder="e.g. 135"
+                       class="w-full rounded border border-sky-200 px-2 py-1.5 text-sm font-mono" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-sky-600 mb-1">Tolerance (±)</label>
+                <input type="text" name="q_{{ forloop.counter0 }}_answer_tolerance"
+                       value="{% if q.answer_tolerance is not None %}{{ q.answer_tolerance }}{% endif %}" placeholder="e.g. 2"
+                       class="w-full rounded border border-sky-200 px-2 py-1.5 text-sm font-mono" />
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-sky-600 mb-1">Unit</label>
+                <input type="text" name="q_{{ forloop.counter0 }}_answer_unit"
+                       value="{{ q.answer_unit|default:'' }}" placeholder="e.g. °"
+                       class="w-full rounded border border-sky-200 px-2 py-1.5 text-sm" />
+              </div>
+            </div>
+
+            <!-- Number line (number_line) -->
+            <div id="number-line-section-{{ forloop.counter0 }}"
+                 class="bg-sky-50 rounded-lg p-3 {% if q.question_type != 'number_line' %}hidden{% endif %}">
+              <label class="block text-[10px] font-semibold text-sky-600 mb-1">Number-line spec (JSON)</label>
+              <textarea name="q_{{ forloop.counter0 }}_number_line_spec" rows="3"
+                        placeholder='{"min":-3,"max":7,"step":1,"mode":"mark","target":[2]}'
+                        class="w-full rounded border border-sky-200 px-2 py-1.5 text-xs font-mono">{% if q.number_line_spec %}{{ q.number_line_spec_json }}{% endif %}</textarea>
+              <p class="text-[10px] text-sky-500 mt-1">mode "mark" (student taps ticks to mark target) or "read" (arrow drawn at given, student types it). Every target/given value must land on a tick. Graded from this — no answers below.</p>
+            </div>
+
+            <!-- Sketch a graph (sketch_graph) -->
+            <div id="sketch-section-{{ forloop.counter0 }}"
+                 class="bg-sky-50 rounded-lg p-3 {% if q.question_type != 'sketch_graph' %}hidden{% endif %}">
+              <label class="block text-[10px] font-semibold text-sky-600 mb-1">Sketch spec (JSON)</label>
+              <textarea name="q_{{ forloop.counter0 }}_sketch_spec" rows="5"
+                        placeholder='{"equation":"y = x^2 + x - 2","bounds":{"xmin":-6,"xmax":6,"ymin":-4,"ymax":8},"curve":{"type":"quadratic","a":1,"b":1,"c":-2},"features":[{"kind":"vertex","points":[[-0.5,-2.25]]},{"kind":"axis_of_symmetry","value":-0.5}]}'
+                        class="w-full rounded border border-sky-200 px-2 py-1.5 text-xs font-mono">{% if q.sketch_spec %}{{ q.sketch_spec_json }}{% endif %}</textarea>
+              <p class="text-[10px] text-sky-500 mt-1">The app draws the blank plane and takes one box per feature the question names — vertex, x/y intercepts, axis of symmetry. Graded from this — no answers below.</p>
+            </div>
+
             <!-- Answers -->
-            <div id="answers-section-{{ forloop.counter0 }}" {% if q.question_type == 'column_operation' or q.question_type == 'long_division' or q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' or q.question_type == 'read_graph' %}class="hidden"{% endif %}>
+            <div id="answers-section-{{ forloop.counter0 }}" {% if q.question_type == 'column_operation' or q.question_type == 'long_division' or q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' or q.question_type == 'read_graph' or q.question_type == 'measure' or q.question_type == 'number_line' or q.question_type == 'sketch_graph' or q.question_type == 'prime_factorization' %}class="hidden"{% endif %}>
               <label class="block text-xs font-semibold text-gray-500 mb-1">Answers</label>
+              {% if q.answer_warning %}
+              <p class="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">⚠ {{ q.answer_warning }}</p>
+              {% endif %}
               <div class="space-y-2 answers-container" data-idx="{{ forloop.counter0 }}">
                 {% for ans in q.answers %}
                 <div class="flex items-center gap-2 answer-row">
@@ -324,6 +406,10 @@
          class="px-6 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-600 font-semibold hover:bg-gray-50 transition shadow-sm">
         Cancel
       </a>
+      <button type="button" data-preview-all
+              class="px-6 py-2.5 rounded-xl border border-blue-200 bg-white text-blue-600 font-semibold hover:bg-blue-50 transition shadow-sm">
+        👁 Preview all as student
+      </button>
       <button type="submit"
               class="px-6 py-2.5 rounded-xl bg-primary text-white font-semibold shadow-sm hover:bg-primary/90 transition">
         Save & Continue
@@ -396,6 +482,32 @@ function removeImage(btn, ref) {
   });
 }
 
+// --- Reuse Last Image ---
+// Assign this question the image already chosen on the nearest earlier question
+// that has one — the manual counterpart to the extractor's automatic
+// "shares_image_with_previous" carry-over, for when a shared figure was missed.
+function reuseLastImage(qIdx) {
+  var target = document.getElementById('img-ref-' + qIdx);
+  if (!target) return;
+  for (var i = qIdx - 1; i >= 0; i--) {
+    var prev = document.getElementById('img-ref-' + i);
+    if (prev && prev.value && prev.value !== 'none') {
+      target.value = prev.value;
+      // Fire change so any dependent UI (e.g. crop preview) can react.
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+  }
+  // Nothing earlier carried an image — give brief, non-blocking feedback.
+  var btn = document.querySelector('.reuse-last-image-btn[data-reuse="' + qIdx + '"]');
+  if (btn && !btn.dataset.flashing) {
+    var orig = btn.textContent;
+    btn.dataset.flashing = '1';
+    btn.textContent = 'No earlier image to reuse';
+    setTimeout(function () { btn.textContent = orig; delete btn.dataset.flashing; }, 1500);
+  }
+}
+
 // --- Select / Deselect All ---
 function toggleAllQuestions(checked) {
   document.querySelectorAll('.question-include-cb').forEach(function(cb) {
@@ -433,8 +545,12 @@ function handleTypeChange(qIdx, newType) {
   var longdivSection = document.getElementById('longdiv-section-' + qIdx);
   var planeSection = document.getElementById('plane-section-' + qIdx);
   var graphSection = document.getElementById('graph-section-' + qIdx);
+  var measureSection = document.getElementById('measure-section-' + qIdx);
+  var numberLineSection = document.getElementById('number-line-section-' + qIdx);
+  var sketchSection = document.getElementById('sketch-section-' + qIdx);
+  var primeFactorSection = document.getElementById('primefactor-section-' + qIdx);
   var planeTypes = ['plot_points', 'plot_line', 'identify_coords'];
-  var noAnswerTypes = ['column_operation', 'long_division', 'plot_points', 'plot_line', 'identify_coords', 'read_graph'];
+  var noAnswerTypes = ['column_operation', 'long_division', 'plot_points', 'plot_line', 'identify_coords', 'read_graph', 'measure', 'number_line', 'sketch_graph', 'prime_factorization'];
 
   // These types compute/derive their own answers — show the structured-field
   // editor for the active one, hide the answers list.
@@ -442,6 +558,10 @@ function handleTypeChange(qIdx, newType) {
   if (longdivSection) longdivSection.classList.toggle('hidden', newType !== 'long_division');
   if (planeSection) planeSection.classList.toggle('hidden', planeTypes.indexOf(newType) === -1);
   if (graphSection) graphSection.classList.toggle('hidden', newType !== 'read_graph');
+  if (measureSection) measureSection.classList.toggle('hidden', newType !== 'measure');
+  if (numberLineSection) numberLineSection.classList.toggle('hidden', newType !== 'number_line');
+  if (sketchSection) sketchSection.classList.toggle('hidden', newType !== 'sketch_graph');
+  if (primeFactorSection) primeFactorSection.classList.toggle('hidden', newType !== 'prime_factorization');
   if (noAnswerTypes.indexOf(newType) !== -1) {
     section.classList.add('hidden');
     return;
@@ -487,4 +607,11 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 </script>
+
+{% url 'ai_import:pdf_page_image' session.pk as adj_page_url %}
+{% url 'ai_import:pdf_recrop' session.pk as adj_recrop_url %}
+{% include 'partials/_adjust_image_modal.html' with page_url=adj_page_url recrop_url=adj_recrop_url %}
+
+{% url 'ai_import:question_preview' session.pk as student_preview_url %}
+{% include 'partials/_student_preview_modal.html' with preview_url=student_preview_url %}
 {% endblock %}

@@ -67,14 +67,6 @@
         <p class="text-xs text-blue-600 font-semibold uppercase tracking-wide">Study the shape</p>
       </div>
 
-      {# Writing animation #}
-      <div class="text-center">
-        <div class="inline-block rounded-2xl border-4 border-emerald-200 shadow-lg mb-2 overflow-hidden bg-white">
-          <canvas id="guide-anim" style="display:block;"></canvas>
-        </div>
-        <p class="text-xs text-emerald-600 font-semibold uppercase tracking-wide">Watch how it's written</p>
-      </div>
-
     </div>
   </div>
 
@@ -114,6 +106,7 @@
          data-lines="{{ canvas_config.lines }}"
          data-guide-char="{{ guide_char }}"
          data-font-family="{{ font_family }}"
+         data-script-type="{{ language.script_type }}"
          data-submit-url="{% url 'languages:exercise_detail' exercise_id=exercise.id %}"
          data-csrf="{{ csrf_token }}">
       <canvas id="drawing-layer"

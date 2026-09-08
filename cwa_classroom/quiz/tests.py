@@ -666,20 +666,204 @@ class TestTopicQuizMeasureGrading(TestCase):
         self.assertIn('measure-figure', html)          # generated angle figure
         self.assertIn('id="text-answer-input"', html)  # numeric box for the reading
 
-    def test_topic_question_partial_renders_ruler_for_length(self):
-        """A length-unit measure question gets a ruler instead of a protractor."""
+    def _render_topic_question(self):
         from django.template.loader import render_to_string
 
-        self.q.answer_unit = 'cm'
-        self.q.save(update_fields=['answer_unit'])
-        html = render_to_string('quiz/partials/topic_question.html', {
+        return render_to_string('quiz/partials/topic_question.html', {
             'question': self.q,
             'answers': [],
             'session_id': 'abc',
             'question_number': 1,
             'total_questions': 2,
         })
-        self.assertIn('data-measure-tool="ruler"', html)
+
+    def test_topic_question_partial_renders_ruler_for_length(self):
+        """A length-unit measure question gets a ruler instead of a protractor.
+
+        Only angles are generated true-to-scale, so a length question needs an
+        uploaded figure before there is anything to lay a ruler over.
+        """
+        self.q.answer_unit = 'cm'
+        self.q.image = 'questions/year7/measurement/line.png'
+        self.q.save(update_fields=['answer_unit', 'image'])
+
+        self.assertIn('data-measure-tool="ruler"', self._render_topic_question())
+
+    def test_length_measure_with_no_figure_says_so(self):
+        """CPP-406: a ruler over empty space is not a question.
+
+        A length measure generates no figure of its own, so without an image
+        the stage rendered blank under a hint telling the child to drag an
+        instrument across it. Say what is wrong instead.
+        """
+        self.q.answer_unit = 'cm'
+        self.q.save(update_fields=['answer_unit'])
+
+        html = self._render_topic_question()
+
+        self.assertIn('missing the figure', html)
+        self.assertNotIn('data-measure-tool', html)
+        self.assertIn('id="text-answer-input"', html)   # the box still renders
+
+
+class TestTopicQuizShortAnswerGrading(TestCase):
+    """SubmitTopicAnswerView grades typed short answers (CPP-374).
+
+    Two regressions guarded here:
+
+    - A "select all that apply" question is authored as a typed answer listing
+      the option labels ("D and E"). The student types the same labels in their
+      own order ("E,D") and must be marked correct.
+    - Only the FIRST ticked answer used to be consulted, so a question with
+      several accepted answers rejected all but one of them.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = School.objects.create(name='Short Answer School')
+        cls.student = User.objects.create_user(
+            username='sastudent', password='pass1234', email='sa@test.com',
+        )
+        SchoolStudent.objects.create(
+            school=cls.school, student=cls.student, is_active=True,
+        )
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        cls.level = Level.objects.create(level_number=7, display_name='Year 7')
+        cls.topic = Topic.objects.create(
+            subject=cls.subject, name='Multiples', slug='multiples',
+            is_active=True,
+        )
+        cls.topic.levels.add(cls.level)
+
+        # "Which of these are multiples of 3?" — the correct selection is two
+        # options, stored as one typed answer.
+        cls.multi = Question.objects.create(
+            question_text='Which of these are multiples of 3? (A-E)',
+            question_type='short_answer',
+            topic=cls.topic, level=cls.level,
+        )
+        Answer.objects.create(
+            question=cls.multi, answer_text='D and E', is_correct=True,
+        )
+
+        # A question whose second ticked row is the one the student types.
+        cls.alts = Question.objects.create(
+            question_text='Write 2.25 as a fraction.',
+            question_type='short_answer',
+            topic=cls.topic, level=cls.level,
+        )
+        Answer.objects.create(question=cls.alts, answer_text='9/4', is_correct=True)
+        Answer.objects.create(question=cls.alts, answer_text='2 1/4', is_correct=True)
+        Answer.objects.create(question=cls.alts, answer_text='4/9', is_correct=False)
+
+        # "Write an expression for the total cost" — a plain typed answer whose
+        # terms the student may legitimately write in either order.
+        cls.expression = Question.objects.create(
+            question_text=(
+                'A banquet costs $110 room rental plus $12 per person. Write an '
+                'expression for the cost for p people.'
+            ),
+            question_type='short_answer',
+            topic=cls.topic, level=cls.level,
+        )
+        Answer.objects.create(
+            question=cls.expression, answer_text='12p + 110', is_correct=True,
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='sastudent', password='pass1234')
+
+    def _submit(self, question, text_answer):
+        """Inject a topic-quiz session and POST one typed answer.
+
+        Two questions in the list so this submission is never 'last' — keeps the
+        quiz-completion machinery out of the way.
+        """
+        session_id = str(uuid.uuid4())
+        session = self.client.session
+        session[f'tq_{session_id}'] = {
+            'current': 0,
+            'questions': [{'id': question.id}, {'id': question.id}],
+            'correct': 0,
+            'start_time': time.time(),
+            'level_number': 7,
+            'subject': 'mathematics',
+        }
+        session.save()
+        resp = self.client.post(
+            reverse('api_submit_topic_answer'),
+            data=json.dumps({
+                'session_id': session_id,
+                'question_id': question.id,
+                'text_answer': text_answer,
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()
+
+    def test_option_labels_accepted_in_any_order(self):
+        for ans in ['D and E', 'E,D', 'E, D', 'e d', 'E and D']:
+            self.assertTrue(self._submit(self.multi, ans)['is_correct'], ans)
+
+    def test_partial_or_wrong_selection_still_incorrect(self):
+        for ans in ['D', 'D, F', 'A and B', 'D, E, F']:
+            self.assertFalse(self._submit(self.multi, ans)['is_correct'], ans)
+
+    def test_every_ticked_answer_is_accepted(self):
+        # Both rows are correct answers — not just the first.
+        self.assertTrue(self._submit(self.alts, '9/4')['is_correct'])
+        self.assertTrue(self._submit(self.alts, '2 1/4')['is_correct'])
+        self.assertFalse(self._submit(self.alts, '4/9')['is_correct'])
+
+    def test_expression_accepted_in_either_term_order(self):
+        # "110+12p" is the stored "12p + 110" with its terms commuted — the
+        # literal match marked it wrong.
+        for ans in ['12p + 110', '110 + 12p', '110+12p']:
+            self.assertTrue(self._submit(self.expression, ans)['is_correct'], ans)
+
+    def test_a_different_expression_is_still_incorrect(self):
+        for ans in ['110 + 11p', '12p - 110', '110 + 12', '6p + 6p + 110']:
+            self.assertFalse(self._submit(self.expression, ans)['is_correct'], ans)
+
+    def test_correct_answer_text_still_reported(self):
+        data = self._submit(self.multi, 'A')
+        self.assertEqual(data['correct_answer_text'], 'D and E')
+
+    def _submit_mixed(self, text_answer, question=None):
+        """POST the whole-page mixed quiz (MixedQuizView.post) — the second
+        grading path, which had its own copy of the comparison."""
+        question = question or self.multi
+        session_id = str(uuid.uuid4())
+        session = self.client.session
+        session[f'mq_{session_id}'] = {
+            'level_number': 7,
+            'question_ids': [question.id],
+            'start_time': time.time(),
+        }
+        session.save()
+        resp = self.client.post(
+            reverse('mixed_quiz', kwargs={
+                'subject': 'mathematics', 'level_number': 7,
+            }),
+            data={'session_id': session_id, f'text_{question.id}': text_answer},
+        )
+        self.assertIn(resp.status_code, (200, 302))
+        return StudentFinalAnswer.objects.filter(student=self.student).latest('id')
+
+    def test_mixed_quiz_grades_labels_in_any_order(self):
+        self.assertEqual(self._submit_mixed('E,D').score, 1)
+
+    def test_mixed_quiz_still_rejects_a_wrong_selection(self):
+        self.assertEqual(self._submit_mixed('A and B').score, 0)
+
+    def test_mixed_quiz_accepts_either_term_order(self):
+        self.assertEqual(self._submit_mixed('110 + 12p', self.expression).score, 1)
+        self.assertEqual(self._submit_mixed('110 + 11p', self.expression).score, 0)
 
 
 class TimesTablesSelectViewTest(TestCase):
@@ -712,13 +896,264 @@ class TimesTablesSelectViewTest(TestCase):
         self.assertEqual(resp.status_code, 200)
 
     def test_select_view_context_has_all_tables(self):
+        """Every tile the picker can draw, derived from the curriculum.
+
+        Asserted against MAX_TIMES_TABLE rather than a literal: a hard-coded
+        ceiling above the scheme puts a tile on the page that no year can
+        unlock, and one below it hides a table a senior year is entitled to.
+        """
+        from maths.constants import MAX_TIMES_TABLE
+
         url = reverse('multiplication_select', kwargs={'level_number': 4})
         resp = self.client.get(url)
         self.assertIn('all_tables', resp.context)
-        self.assertEqual(list(resp.context['all_tables']), list(range(1, 16)))
+        self.assertEqual(list(resp.context['all_tables']),
+                         list(range(1, MAX_TIMES_TABLE + 1)))
+        self.assertGreater(len(list(resp.context['all_tables'])), 0)
+
+    def test_the_unlocked_tables_are_the_ones_that_year_is_entitled_to(self):
+        """The picker used to read a second copy of the mapping that had
+        drifted from the one in maths.constants — Year 4 was 1-10 in one and
+        1-15 in the other, and this page read the wrong one."""
+        from maths.constants import times_tables_for_year
+
+        url = reverse('multiplication_select', kwargs={'level_number': 4})
+        resp = self.client.get(url)
+        self.assertEqual(list(resp.context['available_tables']),
+                         list(times_tables_for_year(4)))
 
     def test_select_view_context_has_year(self):
         url = reverse('multiplication_select', kwargs={'level_number': 4})
         resp = self.client.get(url)
         self.assertIn('year', resp.context)
         self.assertEqual(resp.context['year'], 4)
+
+
+class SetAnswerQuizGradingTests(TestCase):
+    """CPP-376 — "What are the multiples of 9 between 50 and 70?" (54 and 63).
+
+    The topic quiz split the correct answer row on commas and treated the
+    pieces as alternatives, so it marked the *full* answer wrong, accepted
+    *half* of it, and told the student the answer was "54". Questions whose
+    answer is a list of values now carry answer_format='set' and grade on the
+    model; the feedback shows every correct row either way.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.student = User.objects.create_user(
+            username='liststudent', password='pass1234', email='ls@test.com',
+        )
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        cls.level = Level.objects.create(level_number=6, display_name='Year 6')
+        cls.topic = Topic.objects.create(
+            subject=cls.subject, name='Multiples', slug='multiples', is_active=True,
+        )
+        cls.topic.levels.add(cls.level)
+        cls.question = Question.objects.create(
+            question_text='What are the multiples of 9 between 50 and 70?',
+            question_type='short_answer',
+            answer_format=Question.ANSWER_FORMAT_SET,
+            topic=cls.topic,
+            level=cls.level,
+        )
+        Answer.objects.create(
+            question=cls.question, answer_text='54, 63', is_correct=True, order=1,
+        )
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='liststudent', password='pass1234')
+
+    def _submit(self, text_answer):
+        """Run the quiz far enough to POST one typed answer; return the JSON."""
+        self.client.get(reverse('topic_quiz', kwargs={
+            'subject': 'mathematics',
+            'level_number': self.level.level_number,
+            'topic_id': self.topic.id,
+        }))
+        session = self.client.session
+        key = next(k for k in session.keys()
+                   if k.startswith('tq_') and not k.startswith('tq_result_'))
+        resp = self.client.post(
+            reverse('api_submit_topic_answer'),
+            data=json.dumps({
+                'session_id': key[3:],
+                'question_id': self.question.id,
+                'text_answer': text_answer,
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()
+
+    def test_full_list_answer_is_marked_correct(self):
+        for ans in ['54, 63', '63, 54', '54 and 63', '54 63']:
+            self.assertTrue(self._submit(ans)['is_correct'], ans)
+
+    def test_half_the_list_is_marked_wrong(self):
+        # The old comma-splitting accepted this — listing one of the two
+        # multiples is not the answer to "what ARE the multiples".
+        self.assertFalse(self._submit('54')['is_correct'])
+        self.assertFalse(self._submit('63')['is_correct'])
+
+    def test_feedback_shows_the_whole_answer(self):
+        # The reported symptom: the student was told the answer was "54".
+        self.assertEqual(self._submit('54')['correct_answer_text'], '54, 63')
+
+    def test_every_correct_row_is_honoured(self):
+        # Content that stored one value per row must grade and display the same.
+        q = Question.objects.create(
+            question_text='Which multiples of 9 lie between 50 and 70?',
+            question_type='short_answer',
+            answer_format=Question.ANSWER_FORMAT_SET,
+            topic=self.topic, level=self.level,
+        )
+        Answer.objects.create(question=q, answer_text='54', is_correct=True, order=1)
+        Answer.objects.create(question=q, answer_text='63', is_correct=True, order=2)
+        self.client.get(reverse('topic_quiz', kwargs={
+            'subject': 'mathematics',
+            'level_number': self.level.level_number,
+            'topic_id': self.topic.id,
+        }))
+        session = self.client.session
+        key = next(k for k in session.keys()
+                   if k.startswith('tq_') and not k.startswith('tq_result_'))
+        resp = self.client.post(
+            reverse('api_submit_topic_answer'),
+            data=json.dumps({
+                'session_id': key[3:], 'question_id': q.id,
+                'text_answer': '63 and 54',
+            }),
+            content_type='application/json',
+        )
+        payload = resp.json()
+        self.assertTrue(payload['is_correct'])
+        self.assertEqual(payload['correct_answer_text'], '54 or 63')
+
+    def test_numeric_tolerance_still_applies(self):
+        # A single numeric answer keeps its near-miss tolerance.
+        q = Question.objects.create(
+            question_text='What is 1 divided by 2?',
+            question_type='calculation', answer_format='text',
+            topic=self.topic, level=self.level,
+        )
+        Answer.objects.create(question=q, answer_text='0.5', is_correct=True, order=1)
+        self.client.get(reverse('topic_quiz', kwargs={
+            'subject': 'mathematics',
+            'level_number': self.level.level_number,
+            'topic_id': self.topic.id,
+        }))
+        session = self.client.session
+        key = next(k for k in session.keys()
+                   if k.startswith('tq_') and not k.startswith('tq_result_'))
+        resp = self.client.post(
+            reverse('api_submit_topic_answer'),
+            data=json.dumps({
+                'session_id': key[3:], 'question_id': q.id, 'text_answer': '0.50',
+            }),
+            content_type='application/json',
+        )
+        self.assertTrue(resp.json()['is_correct'])
+
+
+class TestTopicQuizDivisionNotationGrading(TestCase):
+    """Grading "Write an algebraic expression for a number divided by 4."
+
+    The stored answer is ``n ÷ 4`` and the question's own explanation offers
+    both spellings ("n ÷ 4 or n/4"), but a student typing ``n/4`` was marked
+    incorrect because the grader compared the two strings literally. Both
+    spellings are the same answer and both must be accepted — whichever way
+    round the stored answer is written.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.school = School.objects.create(name='Division Notation School')
+        cls.student = User.objects.create_user(
+            username='dnstudent', password='pass1234', email='dn@test.com',
+        )
+        SchoolStudent.objects.create(
+            school=cls.school, student=cls.student, is_active=True,
+        )
+        cls.subject, _ = Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True},
+        )
+        cls.level = Level.objects.create(level_number=7, display_name='Year 7')
+        cls.topic = Topic.objects.create(
+            subject=cls.subject, name='Algebra and Factorisation',
+            slug='algebra-and-factorisation', is_active=True,
+        )
+        cls.topic.levels.add(cls.level)
+
+        cls.obelus = cls._question('n ÷ 4')   # stored with the ÷ button
+        cls.slash = cls._question('n/4')      # stored with a slash
+
+    @classmethod
+    def _question(cls, correct_text, answer_format='text'):
+        q = Question.objects.create(
+            question_text='Write an algebraic expression for a number divided by 4.',
+            question_type='short_answer', answer_format=answer_format,
+            topic=cls.topic, level=cls.level,
+        )
+        Answer.objects.create(question=q, answer_text=correct_text, is_correct=True)
+        return q
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='dnstudent', password='pass1234')
+
+    def _submit(self, question, text_answer):
+        session_id = str(uuid.uuid4())
+        session = self.client.session
+        session[f'tq_{session_id}'] = {
+            'current': 0,
+            'questions': [{'id': question.id}, {'id': question.id}],
+            'correct': 0,
+            'start_time': time.time(),
+            'level_number': 7,
+            'subject': 'mathematics',
+        }
+        session.save()
+        resp = self.client.post(
+            reverse('api_submit_topic_answer'),
+            data=json.dumps({
+                'session_id': session_id,
+                'question_id': question.id,
+                'text_answer': text_answer,
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()
+
+    def test_slash_accepted_for_a_stored_obelus(self):
+        for ans in ['n/4', 'n / 4', 'N/4', 'n ÷ 4']:
+            self.assertTrue(self._submit(self.obelus, ans)['is_correct'], ans)
+
+    def test_obelus_accepted_for_a_stored_slash(self):
+        for ans in ['n ÷ 4', 'n÷4', 'n/4']:
+            self.assertTrue(self._submit(self.slash, ans)['is_correct'], ans)
+
+    def test_a_different_expression_is_still_incorrect(self):
+        # Folding the operator must not make "4 divided by n" the same answer,
+        # nor accept the wrong divisor.
+        for ans in ['4/n', '4 ÷ n', 'n/5', 'n', '4n']:
+            self.assertFalse(self._submit(self.obelus, ans)['is_correct'], ans)
+
+    def test_algebra_format_accepts_both_spellings_too(self):
+        # The same question authored as answer_format='algebra' routes through
+        # the polynomial grader, which had no notion of division at all.
+        q = self._question('n ÷ 4', answer_format='algebra')
+        for ans in ['n/4', 'n ÷ 4', '0.25n']:
+            self.assertTrue(self._submit(q, ans)['is_correct'], ans)
+        for ans in ['4/n', 'n/5', '4n']:
+            self.assertFalse(self._submit(q, ans)['is_correct'], ans)
+
+    def test_correct_answer_text_is_shown_as_authored(self):
+        data = self._submit(self.obelus, 'wrong')
+        self.assertEqual(data['correct_answer_text'], 'n ÷ 4')

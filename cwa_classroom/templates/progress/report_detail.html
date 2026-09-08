@@ -78,8 +78,8 @@
             </div>
             <div class="divide-y divide-slate-50">
               {% for record in group.records %}
-                <div class="flex items-center justify-between px-4 py-2.5">
-                  <p class="text-sm text-gray-700">{{ record.criteria.name }}</p>
+                <div class="flex items-center justify-between px-4 py-2.5 {% if record.is_child %}pl-9 bg-slate-50/40{% endif %}">
+                  <p class="text-sm {% if record.is_child %}text-gray-600{% else %}font-semibold text-gray-900{% endif %}">{% if record.is_child %}<span class="text-gray-300 mr-1.5">&#8627;</span>{% endif %}{{ record.criteria.name }}</p>
                   <span class="text-xs font-medium px-2.5 py-1 rounded-full {{ record.status|progress_badge_classes }}">
                     {{ record.get_status_display }}
                   </span>

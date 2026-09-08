@@ -1,0 +1,96 @@
+{% comment %}
+The head-of-institute AI grading warning, shown on login from 75% and again at
+each higher rung. Rendered by {% ai_grading_login_alert %} (billing_tags), which
+returns `alert` as None when there is nothing to say — below 75%, no metered
+tier, or the viewer is not a head of institute.
+
+Acknowledging is a fire-and-forget POST rather than a page action: the modal
+must not come back on every navigation, but a head who never clicks anything
+should still see it, so the session flag is only written once the modal has
+actually rendered in front of them.
+{% endcomment %}
+{% if alert %}
+<div id="ai-grading-alert-modal"
+     class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4"
+     role="dialog" aria-modal="true" aria-labelledby="ai-grading-alert-title">
+  <div class="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
+    <div class="px-6 py-4 {% if alert.stopped %}bg-red-600{% else %}bg-amber-500{% endif %}">
+      <h2 id="ai-grading-alert-title" class="text-lg font-semibold text-white">
+        {% if alert.stopped %}AI grading has paused{% else %}AI grading — {{ alert.percent }}% used{% endif %}
+      </h2>
+    </div>
+
+    <div class="px-6 py-5 space-y-3">
+      <p class="text-sm text-gray-700">
+        You have used <strong>{{ alert.used }}/{{ alert.limit }}</strong> AI-graded answers
+        from this month's limit at <strong>{{ alert.school.name }}</strong>.
+      </p>
+
+      {% if alert.stopped %}
+      <p class="text-sm text-gray-600">
+        AI-graded questions are no longer being offered to your students. They will come back
+        when the allowance resets next month, or as soon as you move up a plan. Teachers can
+        still mark these answers themselves in the meantime.
+      </p>
+      {% else %}
+      <p class="text-sm text-gray-600">
+        {{ alert.remaining }} answer{{ alert.remaining|pluralize }} left. When the allowance runs
+        out, AI-graded questions stop being offered to your students until it resets next month.
+      </p>
+      {% endif %}
+
+      {% if alert.next_tier_name %}
+      <div class="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3">
+        <p class="text-[11px] uppercase tracking-wide text-slate-500 mb-1">Next plan up</p>
+        <p class="text-sm text-gray-800">
+          <strong>{{ alert.next_tier_name }}</strong>
+          {% if alert.next_tier_answers %}— {{ alert.next_tier_answers }} answers a month{% else %}— unlimited answers{% endif %}
+          {% if alert.next_tier_price %}<span class="text-gray-500">· ${{ alert.next_tier_price }}/mo</span>{% endif %}
+        </p>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
+      <button type="button" data-ai-grading-alert-dismiss
+              class="text-sm text-gray-500 hover:text-gray-700 font-medium px-4 py-2">
+        Not now
+      </button>
+      {% if alert.next_tier_name %}
+      <a href="{% url 'institute_subscription_dashboard' %}"
+         class="text-sm bg-primary hover:bg-primary-dark text-white font-semibold rounded-lg px-4 py-2 transition">
+        View plans
+      </a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var modal = document.getElementById('ai-grading-alert-modal');
+    if (!modal) return;
+
+    // Acknowledge as soon as it is on screen, so navigating away without
+    // clicking doesn't make it reappear on the next page.
+    try {
+      var token = document.querySelector('meta[name="csrf-token"]');
+      fetch('{% url "ai_grading_alert_ack" %}', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': token ? token.getAttribute('content') : '',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ token: '{{ alert.token|escapejs }}' }),
+      });
+    } catch (e) { /* acknowledging is best-effort — never block the page */ }
+
+    modal.querySelectorAll('[data-ai-grading-alert-dismiss]').forEach(function (el) {
+      el.addEventListener('click', function () { modal.remove(); });
+    });
+    modal.addEventListener('click', function (event) {
+      if (event.target === modal) modal.remove();
+    });
+  })();
+</script>
+{% endif %}

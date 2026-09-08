@@ -29,7 +29,25 @@
         <p class="text-xs text-gray-400 font-semibold">Images</p>
       </div>
       {% endif %}
+      {% if result.blanks_built %}
+      <div class="text-center">
+        <p class="font-display text-3xl text-blue-600">{{ result.blanks_built }}</p>
+        <p class="text-xs text-gray-400 font-semibold">Fill-in-the-blank</p>
+      </div>
+      {% endif %}
     </div>
+
+    {% comment %}Not failures — these questions imported fine, they just kept the plain
+    single-answer box rather than becoming a fill-in-the-blank sentence. Shown so the
+    teacher can fix the stored answer and re-import instead of wondering why.{% endcomment %}
+    {% if result.warnings %}
+    <div class="bg-amber-50 rounded-xl p-4 space-y-1 mt-3">
+      <p class="text-sm font-semibold text-amber-700 mb-1">Imported, but not as fill-in-the-blank</p>
+      {% for warn in result.warnings %}
+      <p class="text-sm text-amber-700 font-mono">{{ warn }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
 
     {% if result.errors %}
     <div class="bg-red-50 rounded-xl p-4 space-y-1 mt-3">

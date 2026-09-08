@@ -29,8 +29,102 @@ Mounted at `/coding/` (namespace `coding`).
 - `/coding/<lang>/exercise/<id>/` — exercise detail
 - `/coding/<lang>/problems/`, `/coding/<lang>/problems/<id>/` — problem set & detail
 - `/coding/api/run/` — run code (output only)
+- `/coding/api/preview-run/` — run code from a teacher-facing preview
 - `/coding/api/submit/<problem_id>/` — submit & test
 - `/coding/api/update-time-log/` — time tracking
+
+## Who can reach what
+
+Everything above is student-only: `student_required` redirects teachers, heads
+and owners to `home` so elevated roles never accumulate `CodingTimeLog` or
+submission rows.
+
+`teacher_required` is its mirror, and `api/preview-run/` is the endpoint that
+wears it: a teacher building a coding worksheet needs to *run* an exercise to
+check it still produces its expected output, and must do so without landing in
+anybody's progress data. It writes nothing — no submission, no time log, no
+auto-completion — and rejects the browser-sandbox languages rather than
+returning empty output for them.
+
+The playgrounds (`/coding/playground/…`) are `login_required` only: free-form
+compilers for everyone, tied to no exercise. Three of them:
+
+- **Python** and **JavaScript** — run through Piston into the console.
+- **HTML / CSS / JS** — three panes (`index.html`, `style.css`, `script.js`)
+  assembled in the browser into one page: the stylesheet before `</head>`, the
+  script before `</body>` so it runs against parsed markup rather than finding
+  an empty document. Nothing here reaches the server.
+
+Its URL slug is still `html-css` although the name says JS — the slug is in the
+URL and renaming it would break every bookmark for the sake of cosmetics.
+
+## The shared coding window
+
+The editor-beside-console component every coding page renders:
+
+| File | Role |
+|------|------|
+| `templates/coding/partials/_code_window.html` | markup; parameters in its header comment |
+| `templates/coding/partials/_code_window_head.html` | CodeMirror (vendored), styles — include **once** per page |
+| `static/js/code_window.js` | mounts and drives every window on the page |
+| `coding/code_window.py` | maps a `CodingExercise` onto the partial's parameters |
+
+It is scoped to its root element rather than to document ids, so one page can
+host several windows, and it mounts itself after an htmx swap. A window swapped
+into a container that is still hidden needs `CodeWindow.refreshAll()` once the
+container is visible — CodeMirror measures itself on mount and otherwise draws
+a zero-height box.
+
+`_exercise_code_window.html` is the wrapper for an exercise sitting inside an
+answer form: pass it the dict from `CodingPlugin.take_item_context()` and it
+forwards everything. Console mode, `mark_complete` false, and a
+`code_<content_id>` textarea so the code posts with the form.
+
+Every coding page renders it, and no coding page loads anything from a CDN. A
+test fails the build if a `src`/`href` pointing at `http(s)://` appears in any
+`templates/coding/` file.
+
+Everything these pages need is vendored under `static/vendor/`:
+
+| Library | Used by |
+|---|---|
+| CodeMirror 5.65.16 | the shared window, every page |
+| Blockly 9.3.3 (+ `media/`) | Scratch exercises and problems |
+| highlight.js 11.9.0 | code samples in exercise descriptions |
+
+Blockly's `media/` matters and is easy to miss: unset, `Blockly.inject` fetches
+its icons and sounds from `blockly-demo.appspot.com`, and when that fails the
+workspace still works — only the icons quietly stop drawing. Both pages pin
+`media:` at the vendored copy, and a test checks they do.
+
+A page can take one half only, via `cw_panes`:
+
+| Page | Panes | Why |
+|------|-------|-----|
+| compilers, homework, worksheet session, builder preview | both | editor and console together |
+| exercise detail | `console` + `editor`, as two windows | the exercise text belongs beside the output, so the halves sit in different columns |
+| exercise detail (Scratch) | `console` only | blocks are a Blockly workspace, but the generated Python still runs |
+| problem detail | `editor` only | graded on test cases, so it reports verdicts rather than stdout |
+
+With `cw_external_run` the window's Run and Ctrl-Enter dispatch
+`code-window:run` instead of posting, and every run dispatches
+`code-window:result` with the response. That is the seam the exercise page uses
+for its score card and mark-complete state machine, and the problem page for
+submitting against test cases — neither needs the window to know what an
+exercise is. `runWith(code, extra)` runs code the page supplies, which is how
+Scratch gets its generated Python (and its blocks XML) to the console.
+
+**Reading a run's verdict.** `api_run_code` also enforces an exercise's
+`required_code_patterns`, so where the response carries `exercise_score` the
+window reports the server's answer, never its own comparison — otherwise it
+would tell a student "matches" on a run the server is about to reject for using
+the wrong approach.
+
+**Forms.** CodeMirror writes back to its textarea only on a native submit. A
+page that posts over htmx or serialises the form itself (autosave) must go
+through `CodeWindow.syncAll()`; the window installs an `htmx:configRequest`
+hook that also writes the fresh code into the outgoing parameters, because
+htmx has already read the form by the time that event fires.
 
 ## Integration
 

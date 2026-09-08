@@ -1,0 +1,228 @@
+name: Weekly Question Audit
+
+# Answers every question in the test database the way a student would and fails
+# if any of them mismarks correct work (CPP-377).
+#
+# Runs against the TEST site, never production: it uses the test droplet's own
+# checkout and environment. The sweep itself writes nothing — it runs inside a
+# transaction that is rolled back — but pointing it at test keeps that promise
+# belt-and-braces.
+#
+# Reuses the same secrets as deploy-test.yml:
+#   TEST_DEPLOY_HOST     — test server IP / hostname
+#   TEST_DEPLOY_SSH_KEY  — private key authorised for the deploy user on test
+#   TEST_DEPLOY_USER     — (optional) SSH user, default: cwa
+#   TEST_DEPLOY_PATH     — (optional) repo path, default: /home/cwa/CWA_CLASS_APP_TEST
+#   DEPLOY_ALERT_WEBHOOK — (optional) chat webhook for failure alerts
+#
+# Until TEST_DEPLOY_HOST is set the audit no-ops rather than failing every week.
+#
+# SSH_OPTS carries keepalives, and they are load-bearing rather than tidy-up.
+# The behavioural sweep answers ~20k questions and, on a clean bank, prints
+# NOTHING while it does — and a TCP flow out of a GitHub runner that carries no
+# bytes for four minutes is dropped by the runner network's NAT. Every one of
+# the first three weekly runs therefore died at 4m20s with
+# `client_loop: send disconnect: Broken pipe` and exit 255: the sweep has never
+# once reported. ServerAliveInterval keeps the flow warm; the command's own
+# progress heartbeat (and `python -u`) keeps real output flowing too.
+
+on:
+  schedule:
+    # 19:00 UTC Sunday = 07:00 Monday NZST — a fresh report waiting on Monday
+    # morning, after the weekend release has landed on test.
+    - cron: '0 19 * * 0'
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: 'Restrict to a single Topic id (blank = every question)'
+        required: false
+        default: ''
+
+concurrency:
+  group: weekly-question-audit
+  cancel-in-progress: false
+
+# Shared by every ssh in this file. ServerAliveInterval is the fix for the
+# broken-pipe deaths described above: 30s keepalives with 10 misses tolerated
+# keep a silent connection alive through the runner's 4-minute NAT idle timeout
+# while still giving up after five minutes of a droplet that has really gone.
+env:
+  SSH_OPTS: >-
+    -o IdentitiesOnly=yes
+    -o BatchMode=yes
+    -o ConnectTimeout=30
+    -o ServerAliveInterval=30
+    -o ServerAliveCountMax=10
+
+jobs:
+  audit:
+    name: Audit every question on the test site
+    runs-on: ubuntu-latest
+    # The sweep drives ~45k graded submissions through the real view stack and
+    # has never yet run to the end, so this is a ceiling, not a measurement.
+    timeout-minutes: 60
+    outputs:
+      configured: ${{ steps.gate.outputs.configured }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        id: gate
+        env:
+          TEST_DEPLOY_HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+        run: |
+          if [ -z "$TEST_DEPLOY_HOST" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::TEST_DEPLOY_HOST not set — skipping the weekly question audit."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run the audit over SSH
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          TEST_DEPLOY_HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+          TEST_DEPLOY_USER: ${{ secrets.TEST_DEPLOY_USER }}
+          TEST_DEPLOY_SSH_KEY: ${{ secrets.TEST_DEPLOY_SSH_KEY }}
+          TEST_DEPLOY_PATH: ${{ secrets.TEST_DEPLOY_PATH }}
+          TOPIC_FILTER: ${{ github.event.inputs.topic }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$TEST_DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$TEST_DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          REPO="${TEST_DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP_TEST}"
+          FILTER=""
+          if [ -n "$TOPIC_FILTER" ]; then
+            FILTER="--topic $TOPIC_FILTER"
+          fi
+
+          # Two passes. The static audit is cheap and explains WHY a question is
+          # broken; the behavioural sweep proves whether a student is actually
+          # mismarked. Both must pass, so `set -e` is deliberately relaxed for
+          # the first one — we want the second to run and report even if the
+          # first has already found something.
+          #
+          # `python -u` so the remote report streams instead of sitting in an
+          # 8KB pipe buffer: the run log should show progress as it happens,
+          # and a channel that carries bytes is a channel nothing reaps.
+          STATUS=0
+          ssh $SSH_OPTS -i ~/.ssh/deploy_key \
+            "${TEST_DEPLOY_USER:-cwa}@${TEST_DEPLOY_HOST}" \
+            "set -uo pipefail
+             cd ${REPO}
+             STATIC=0
+             echo '=== 1. Stored-answer audit ==='
+             ./venv/bin/python -u cwa_classroom/manage.py verify_question_answers ${FILTER} || STATIC=1
+             echo
+             echo '=== 2. Behavioural sweep (answers every question) ==='
+             BEHAVIOURAL=0
+             ./venv/bin/python -u cwa_classroom/manage.py verify_quiz_grading ${FILTER} || BEHAVIOURAL=1
+             echo
+             if [ \$STATIC -ne 0 ] || [ \$BEHAVIOURAL -ne 0 ]; then
+               echo \"AUDIT FAILED (static=\$STATIC behavioural=\$BEHAVIOURAL)\"
+               exit 1
+             fi
+             echo 'AUDIT PASSED'" || STATUS=$?
+
+          # 255 is ssh's own "the connection failed", never our remote script,
+          # which exits 0 or 1. Saying so is the difference between "a question
+          # mismarks a student" and "we still do not know" — the audit reporting
+          # a content fault it never observed is the one outcome worse than red.
+          if [ "$STATUS" -eq 255 ]; then
+            echo "::error::SSH to the test droplet failed (exit 255) — the audit did not finish and its result is UNKNOWN. This is a transport failure, not a question fault."
+          fi
+          exit "$STATUS"
+
+  content-sweep:
+    name: Browser sweep — every level and topic
+    needs: audit
+    if: always() && needs.audit.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check sweep credentials
+        id: creds
+        env:
+          SWEEP_USERNAME: ${{ secrets.SWEEP_USERNAME }}
+        run: |
+          if [ -z "$SWEEP_USERNAME" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SWEEP_USERNAME/SWEEP_PASSWORD not set — skipping the browser sweep. Create the account on the TEST droplet with 'manage.py create_sweep_account --username sweepbot' and store the credentials as repository secrets."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Collect the level/topic targets from the test database
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          TEST_DEPLOY_HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+          TEST_DEPLOY_USER: ${{ secrets.TEST_DEPLOY_USER }}
+          TEST_DEPLOY_SSH_KEY: ${{ secrets.TEST_DEPLOY_SSH_KEY }}
+          TEST_DEPLOY_PATH: ${{ secrets.TEST_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$TEST_DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$TEST_DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          REPO="${TEST_DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP_TEST}"
+          # A student only ever sees their own level, so the quiz pages cannot
+          # be discovered by crawling — the database supplies the target list.
+          ssh $SSH_OPTS -i ~/.ssh/deploy_key \
+            "${TEST_DEPLOY_USER:-cwa}@${TEST_DEPLOY_HOST}" \
+            "cd ${REPO} && ./venv/bin/python cwa_classroom/manage.py list_quiz_targets" \
+            > targets.json
+          python -c "import json;d=json.load(open('targets.json'));print(f'{len(d)} level/topic quizzes to sweep')"
+
+      - name: Install Playwright + Chromium
+        if: steps.creds.outputs.configured == 'true'
+        run: |
+          pip install -r cwa_classroom/requirements-test.txt
+          playwright install --with-deps chromium
+
+      - name: Sweep every level and topic
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          QUIZ_TARGETS_FILE: ${{ github.workspace }}/targets.json
+          SWEEP_USERNAME: ${{ secrets.SWEEP_USERNAME }}
+          SWEEP_PASSWORD: ${{ secrets.SWEEP_PASSWORD }}
+          SWEEP_QUESTIONS_PER_TOPIC: "3"
+          TEST_SMOKE_URL: ${{ secrets.TEST_SMOKE_URL }}
+        working-directory: cwa_classroom
+        run: |
+          URL="${TEST_SMOKE_URL:-https://test.wizardslearninghub.co.nz}"
+          # -n 0: one browser, one session — the sweep walks targets in order
+          # and collects every finding rather than stopping at the first.
+          pytest ui_tests/live/test_content_sweep.py -m live -n 0 -v --tb=short \
+            --live-url "$URL"
+
+  notify-failure:
+    name: Alert on failed audit
+    needs: [audit, content-sweep]
+    if: failure() && needs.audit.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5   # instant
+    steps:
+      - name: Post failure to webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.DEPLOY_ALERT_WEBHOOK }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "::notice::DEPLOY_ALERT_WEBHOOK not set — skipping chat alert (GitHub still emails the run owner)."
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          # Named neutrally on purpose: this job fires for a failed static audit,
+          # a failed sweep, AND a dropped SSH connection. Only the run says which.
+          MSG="📚 CWA weekly question audit FAILED — see the run for whether it is a question fault or the audit itself. ${RUN_URL}"
+          printf '{"text": %s, "content": %s}' "$(jq -Rn --arg m "$MSG" '$m')" "$(jq -Rn --arg m "$MSG" '$m')" \
+            | curl -sS -X POST -H 'Content-Type: application/json' -d @- "$WEBHOOK_URL"

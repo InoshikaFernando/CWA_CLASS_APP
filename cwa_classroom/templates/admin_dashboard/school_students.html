@@ -39,6 +39,13 @@
         <p class="text-gray-500 mt-1">{{ school.name }}</p>
       </div>
       <div class="flex items-center gap-2">
+        <a href="{% url 'admin_school_students_recent' school.id %}"
+           class="inline-flex items-center gap-2 px-4 py-2.5 text-gray-700 font-semibold bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition shadow-sm">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          Recently Added
+        </a>
         <a href="{% url 'admin_school_students_export_csv' school.id %}"
            class="inline-flex items-center gap-2 px-4 py-2.5 text-gray-700 font-semibold bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition shadow-sm">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -68,7 +75,8 @@
         </div>
         <div>
           <p class="text-2xl font-bold text-gray-900">{{ total_count }}</p>
-          <p class="text-sm text-gray-500">Total Students</p>
+          {# The count follows the filters, so it must not keep saying "Total". #}
+          <p class="text-sm text-gray-500">{% if subscribed_only %}Subscribed Students{% else %}Total Students{% endif %}</p>
         </div>
       </div>
     </div>
@@ -189,8 +197,8 @@
             {% for cls in add_student_classes %}
               <label class="flex items-center gap-3 px-4 py-2 hover:bg-slate-50 cursor-pointer">
                 <input type="checkbox" name="class_ids" value="{{ cls.id }}"
-                       class="rounded border-slate-300 text-accent focus:ring-accent">
-                <span class="text-sm text-gray-800">{{ cls.name }}{% if cls.subject %} <span class="text-gray-400">— {{ cls.subject.name }}</span>{% endif %}</span>
+                       class="shrink-0 rounded border-slate-300 text-accent focus:ring-accent">
+                {% include "partials/class_picker_option.html" with cls=cls %}
               </label>
             {% endfor %}
           </div>
@@ -303,21 +311,38 @@
     </div>
   </div>
 
-  <!-- Section heading + Show Inactive toggle -->
+  <!-- Section heading + filters (Subscribed only / Show Inactive) -->
   <div class="flex items-center justify-between mb-4">
     <h2 class="text-lg font-semibold text-gray-900">All Students</h2>
-    <a href="{% url 'admin_school_students' school.id %}{% if not show_inactive %}?show_inactive=1{% endif %}"
-       class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition
-         {% if show_inactive %}bg-amber-100 text-amber-700 hover:bg-amber-200{% else %}text-gray-500 hover:text-gray-700 hover:bg-gray-100{% endif %}">
-      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
-      </svg>
-      {% if show_inactive %}Showing All{% else %}Show Inactive{% endif %}
-    </a>
+    <div class="flex items-center gap-2">
+      {% comment %}
+        Subscribed = the student's own subscription is active or trialing.
+        A school-wide plan does not make every one of its students "subscribed",
+        so this narrows to the ones actually paying/trialing themselves.
+      {% endcomment %}
+      <a href="{% url 'admin_school_students' school.id %}{{ toggle_subscribed_url }}"
+         data-testid="subscribed-filter"
+         title="{% if subscribed_only %}Showing only students with an active or trialing subscription{% else %}Show only students with an active or trialing subscription{% endif %}"
+         class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition
+           {% if subscribed_only %}bg-emerald-100 text-emerald-700 hover:bg-emerald-200{% else %}text-gray-500 hover:text-gray-700 hover:bg-gray-100{% endif %}">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+        </svg>
+        Subscribed only
+      </a>
+      <a href="{% url 'admin_school_students' school.id %}{{ toggle_inactive_url }}"
+         class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition
+           {% if show_inactive %}bg-amber-100 text-amber-700 hover:bg-amber-200{% else %}text-gray-500 hover:text-gray-700 hover:bg-gray-100{% endif %}">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+        </svg>
+        {% if show_inactive %}Showing All{% else %}Show Inactive{% endif %}
+      </a>
+    </div>
   </div>
 
-  {% if total_count or q %}
+  {% if total_count or q or subscribed_only %}
     <div>
       {# Live-search — fires as the user types, no Enter needed. HTMX swaps the list panel. #}
       <div class="flex flex-col sm:flex-row gap-3 mb-6">
@@ -332,11 +357,16 @@
                  hx-trigger="input changed delay:300ms, search"
                  hx-target="#students-panel"
                  hx-swap="innerHTML"
-                 hx-include="#current-order-by{% if show_inactive %}, #show-inactive-flag{% endif %}"
+                 hx-include="#current-order-by{% if show_inactive %}, #show-inactive-flag{% endif %}{% if subscribed_only %}, #subscribed-flag{% endif %}"
                  hx-push-url="true"
                  class="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent transition">
         </div>
         {% if show_inactive %}<input type="hidden" name="show_inactive" value="1" id="show-inactive-flag">{% endif %}
+        {% comment %}
+          Carries the subscribed filter into every HTMX search — the panel is
+          swapped, this form is not, so the flag survives each keystroke.
+        {% endcomment %}
+        {% if subscribed_only %}<input type="hidden" name="subscribed" value="1" id="subscribed-flag">{% endif %}
       </div>
 
       {# Live-swap target — HTMX replaces this on every search / sort change. #}

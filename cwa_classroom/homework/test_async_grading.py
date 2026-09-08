@@ -109,3 +109,83 @@ class GradeSubmissionTaskTests(GradingTestBase):
         grade_submission_answers(submission.pk, None)
         called_school = mock_grade.call_args[0][1]
         self.assertIsNone(called_school)
+
+
+class GradePendingAnswersFailureTests(GradingTestBase):
+    """A failure is not a verdict — the answer stays pending for the teacher.
+
+    ``grade_extended_answer`` returns ``is_correct: False, score 0.0`` when it
+    could not grade at all (the API failed, the quota ran out, the question's
+    diagram could not be loaded). Writing that to the student's record as
+    "AI graded" marks a child wrong for something nobody marked, and hides the
+    failure from the teacher's review screen.
+    """
+
+    def _submission_with_question(self):
+        from classroom.models import Level, Subject, Topic
+        from maths.models import Question
+        subject = Subject.objects.get_or_create(
+            slug='mathematics', school=None, defaults={'name': 'Mathematics'})[0]
+        level = Level.objects.get_or_create(
+            level_number=7, defaults={'display_name': 'Year 7'})[0]
+        topic = Topic.objects.get_or_create(
+            name='Angles HW', subject=subject,
+            defaults={'slug': 'angles-hw', 'is_active': True})[0]
+        question = Question.objects.create(
+            question_text='Find angle x and explain.',
+            question_type='extended_answer', topic=topic, level=level,
+        )
+        submission = HomeworkSubmission.objects.create(
+            homework=self.homework, student=self.student,
+            attempt_number=HomeworkSubmission.get_next_attempt_number(
+                self.homework, self.student),
+        )
+        answer = HomeworkStudentAnswer.objects.create(
+            submission=submission, content_id=question.pk, question=question,
+            review_status=HomeworkStudentAnswer.REVIEW_PENDING_AI,
+            text_answer='x is 40 degrees.',
+        )
+        return submission, answer
+
+    @patch('worksheets.grading_service.grade_extended_answer')
+    def test_ungradable_answer_stays_pending_with_the_reason(self, mock_grade):
+        from homework.views import grade_pending_answers
+        mock_grade.return_value = {
+            'is_correct': False,
+            'is_partial': False,
+            'score_fraction': 0.0,
+            'feedback': ("This question's diagram could not be loaded, so the "
+                         'answer was not marked automatically.'),
+            'cache_hit': False,
+            'error': 'diagram unavailable: could not read diagram "x.png"',
+        }
+        submission, answer = self._submission_with_question()
+
+        grade_pending_answers(submission, self.school)
+
+        answer.refresh_from_db()
+        self.assertEqual(answer.review_status,
+                         HomeworkStudentAnswer.REVIEW_PENDING_AI)
+        self.assertIn('diagram', answer.ai_feedback)
+        self.assertEqual(answer.points_earned, 0)
+        self.assertIsNone(answer.graded_at)
+
+    @patch('worksheets.grading_service.grade_extended_answer')
+    def test_a_real_verdict_still_grades(self, mock_grade):
+        from homework.views import grade_pending_answers
+        mock_grade.return_value = {
+            'is_correct': True,
+            'is_partial': False,
+            'score_fraction': 1.0,
+            'feedback': 'Correct.',
+            'cache_hit': False,
+        }
+        submission, answer = self._submission_with_question()
+
+        grade_pending_answers(submission, self.school)
+
+        answer.refresh_from_db()
+        self.assertEqual(answer.review_status,
+                         HomeworkStudentAnswer.REVIEW_AI_DONE)
+        self.assertTrue(answer.is_correct)
+        self.assertIsNotNone(answer.graded_at)

@@ -40,6 +40,7 @@ def process_worksheet_pdf(session_id):
             output = extract_and_classify_worksheet(
                 session.pdf_file, existing_topics, existing_levels,
                 shape_naming=session.shape_naming,
+                page_selection=session.page_selection,
             )
         finally:
             session.pdf_file.close()
@@ -65,6 +66,21 @@ def process_worksheet_pdf(session_id):
             pages=output['page_count'],
             usage=result.get('usage', {}),
         )
+
+        # The second-opinion verifier (CPP-384) is a different vendor at a
+        # different rate, so it gets its own row — kept out of the Claude usage
+        # above, but tagged with THIS path's source so the dashboard still shows
+        # what worksheets cost rather than merging it into ai_import.
+        verification = result.get('verification') or {}
+        if verification.get('input_tokens') or verification.get('output_tokens'):
+            record_ai_usage(
+                school=session.school,
+                provider=AIUsageLog.PROVIDER_OPENAI,
+                source=AIUsageLog.SOURCE_WORKSHEET,
+                session_id=session.pk,
+                pages=output['page_count'],
+                usage=verification,
+            )
 
         logger.info(
             'Worksheet session=%s processed: %s pages, %s questions',

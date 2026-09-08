@@ -16,6 +16,7 @@ Required env vars for production / test deploys:
 import importlib.util
 import os
 import sys
+from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -24,10 +25,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env', override=True)
 
 # ---------------------------------------------------------------------------
-# App Version  (SemVer — bump manually on each release)
+# App Version  (SemVer — bump with scripts/bump_version.py on each release)
 # ---------------------------------------------------------------------------
-APP_VERSION       = '1.16.2'         # MAJOR.MINOR.PATCH
-APP_VERSION_DATE  = '2026-06-28'     # ISO date of this release
+# Re-exported from its own module, NOT declared here. Every feature branch has
+# to bump the version before its PR merges, and every file in this package is
+# watched by ci.yml's `shared` filter — the one that runs every suite in the
+# repo. Keeping the constant here meant every PR ran the full matrix and the
+# path filtering never narrowed anything. See cwa_classroom/version.py.
+from .version import APP_VERSION, APP_VERSION_DATE  # noqa: F401
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 
@@ -43,6 +48,11 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost',
     'http://127.0.0.1',
 ]
+
+# Recover from a stale CSRF token (login page left open in another tab, or
+# restored by the back button) instead of dead-ending on Django's bare
+# "CSRF verification failed" page — see cwa_classroom.views.csrf_failure.
+CSRF_FAILURE_VIEW = 'cwa_classroom.views.csrf_failure'
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +72,11 @@ INSTALLED_APPS = [
     'django_htmx',
     'django_rq',
     'storages',
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
+    'corsheaders',
+    'drf_spectacular',
 
     # Project apps
     'accounts',
@@ -71,6 +86,8 @@ INSTALLED_APPS = [
     'progress',
     'audit',
     'usage',
+    'ops',
+    'api',
 
     # Subject apps
     'maths',
@@ -109,6 +126,9 @@ INSTALLED_APPS = [
 
     # WhatsApp parent notifications (CPP-XXX) — inert until configured
     'whatsapp',
+
+    # Cross-subject student points + global leaderboard
+    'rewards',
 ]
 
 # ---------------------------------------------------------------------------
@@ -142,15 +162,61 @@ FEEDBACK_DISCORD_WEBHOOK = os.environ.get('FEEDBACK_DISCORD_WEBHOOK', '')
 # ---------------------------------------------------------------------------
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
+# Admin/billing keys — separate credentials from the inference keys above, and
+# more sensitive: they read organisation spend. Used to fetch what each vendor
+# actually billed instead of estimating cost from a rate that goes stale
+# (CPP-383). Absent by default; the sync no-ops without them.
+ANTHROPIC_ADMIN_API_KEY = os.environ.get('ANTHROPIC_ADMIN_API_KEY', '')
+OPENAI_ADMIN_API_KEY = os.environ.get('OPENAI_ADMIN_API_KEY', '')
+
 # Claude pricing (USD per 1M tokens) used to estimate per-upload AI cost in the
-# usage ledger. Defaults match Claude Opus 4.8 list price — the model both AI
-# pipelines actually run (AI_IMPORT_MODEL / WORKSHEET_MODEL). Override via env
-# when the model or list price changes. (Was $3/$15 Sonnet 4, which understated
-# true cost ~1.67x while the pipelines ran on Opus.)
+# usage ledger. Defaults match the Claude Opus list price ($5/$25) — the model
+# both AI pipelines actually run (AI_IMPORT_MODEL / WORKSHEET_MODEL default to
+# Opus 5, same list price as Opus 4.8). Override via env when the model or list
+# price changes. (Was $3/$15 Sonnet 4, which understated true cost ~1.67x while
+# the pipelines ran on Opus.)
 CLAUDE_INPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_INPUT_COST_PER_MTOK', '5.0'))
 CLAUDE_OUTPUT_COST_PER_MTOK = float(
     os.environ.get('CLAUDE_OUTPUT_COST_PER_MTOK', '25.0'))
+
+# Homework PDF upload (teacher uploads a worksheet → AI extracts the questions).
+# HOMEWORK_PDF_JOB_TIMEOUT bounds the RQ work-horse: a long worksheet is several
+# waves of multi-minute Claude calls plus image rendering, so the 10-minute
+# queue default killed big uploads mid-flight. HOMEWORK_PDF_STALL_MINUTES is how
+# long the upload page waits for a heartbeat from that worker before declaring
+# the job dead — an OOM-killed work-horse never runs its failure handler, so
+# without this the page polls a 'processing' session forever.
+HOMEWORK_PDF_JOB_TIMEOUT = int(os.environ.get('HOMEWORK_PDF_JOB_TIMEOUT', '2700'))
+HOMEWORK_PDF_STALL_MINUTES = int(os.environ.get('HOMEWORK_PDF_STALL_MINUTES', '10'))
+
+# ---------------------------------------------------------------------------
+# AI / OpenAI (second-opinion answer verification for AI Import)
+# ---------------------------------------------------------------------------
+# When set, the AI-import pipeline runs a GPT "verifier" pass after Claude
+# classification: GPT independently re-examines each question against its
+# source-page screenshot — validating the question_type Claude assigned, the
+# answer, and whether the transcription matches the page — and any disagreement
+# is flagged needs_review for the teacher to check. Empty key leaves the verifier
+# off and imports run Claude-only, exactly as before. Tune the model with
+# AI_IMPORT_VERIFY_MODEL (must support vision — default gpt-4o), disable
+# explicitly with AI_IMPORT_VERIFY_ENABLED=0, and set AI_IMPORT_VERIFY_VISION=0
+# to force a cheaper text-only pass (no page images, transcription check skipped).
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+
+# OpenAI list pricing, USD per 1M tokens, for the AI usage/cost ledger. No
+# default is baked in on purpose: an unset rate makes taskqueue.services raise
+# rather than price GPT tokens at Claude's rate, which is how OpenAI spend
+# stayed invisible on the finance dashboard (CPP-382). Set both to the current
+# published rates for the model in AI_IMPORT_VERIFY_MODEL.
+OPENAI_INPUT_COST_PER_MTOK = (
+    float(os.environ['OPENAI_INPUT_COST_PER_MTOK'])
+    if os.environ.get('OPENAI_INPUT_COST_PER_MTOK') else None
+)
+OPENAI_OUTPUT_COST_PER_MTOK = (
+    float(os.environ['OPENAI_OUTPUT_COST_PER_MTOK'])
+    if os.environ.get('OPENAI_OUTPUT_COST_PER_MTOK') else None
+)
 
 # USD->NZD conversion used by the income-vs-expense dashboard to convert
 # USD-billed costs (Anthropic AI grading) into the dashboard's base currency
@@ -169,6 +235,47 @@ FX_RATE_API_URL = os.environ.get(
 # pulls real monthly invoices (so droplet/DB/Spaces addons are captured with no
 # manual update). Inert when empty — dev/test stay no-op.
 DIGITALOCEAN_API_TOKEN = os.environ.get('DIGITALOCEAN_API_TOKEN', '')
+
+# GitHub billing. sync_vendor_charges reads the enhanced billing usage report
+# and books what GitHub actually charged — Actions minutes above all (the CI
+# matrix is the cost driver; see CLAUDE.md on the spending limit that once
+# stopped a production deploy), plus anything else on the bill: Packages, LFS,
+# Copilot.
+#
+# BOTH SETTINGS BELOW ARE OPTIONAL OVERRIDES. By default the sync uses the
+# GitHub credentials this project already has: AI_DASHBOARD_GITHUB_TOKEN, and
+# the owner half of AI_DASHBOARD_GITHUB_REPO as the account being billed.
+# Set these only when billing needs its own credential or sits on a different
+# account. Reading billing is a different permission from writing an issue, so
+# the dashboard token may be refused — GitHub answers 403 with a message naming
+# what is missing, and the sync logs that message verbatim rather than guessing
+# at the fix. Inert when no token or no account can be resolved, so dev/test
+# stay no-op.
+GITHUB_BILLING_TOKEN = os.environ.get('GITHUB_BILLING_TOKEN', '')
+GITHUB_BILLING_ACCOUNT = os.environ.get('GITHUB_BILLING_ACCOUNT', '')
+# 'user' or 'org' — a user's bill and an organisation's live at different API
+# paths, so this must match the account above.
+GITHUB_BILLING_ACCOUNT_TYPE = os.environ.get(
+    'GITHUB_BILLING_ACCOUNT_TYPE', 'user')
+
+# Chat webhook (Discord/Slack) for critical droplet-health alerts, posted by the
+# record_ops_metrics command when the box first enters a critical state. Reuses
+# the same secret the retired ops-dashboard Action used. Inert when empty.
+OPS_ALERT_WEBHOOK = os.environ.get('DEPLOY_ALERT_WEBHOOK', '')
+
+# Managed-DB (DigitalOcean DBaaS) metrics for the Ops dashboard. DO exposes DB
+# metrics only as a Prometheus scrape at https://<host>:9273/metrics behind
+# basic auth — NOT the /v2/monitoring REST API. The basic-auth creds are
+# long-lived per cluster: fetch them ONCE with a write-scoped token
+#   curl -H "Authorization: Bearer <write-token>" \
+#        https://api.digitalocean.com/v2/databases/metrics/credentials
+# then store user/password here. The recurring scrape needs only these creds and
+# the droplet added to the DB's Trusted Sources — no API token. Feature is inert
+# unless both user and password are set, so dev/test/local never call out.
+DO_DB_METRICS_HOST = os.environ.get('DO_DB_METRICS_HOST', os.environ.get('DB_HOST', ''))
+DO_DB_METRICS_PORT = int(os.environ.get('DO_DB_METRICS_PORT', '9273'))
+DO_DB_METRICS_USER = os.environ.get('DO_DB_METRICS_USER', '')
+DO_DB_METRICS_PASSWORD = os.environ.get('DO_DB_METRICS_PASSWORD', '')
 
 # Live AI usage dashboard — after each AI call the worker rewrites a pinned
 # GitHub issue with the latest usage/cost. Best-effort: stays disabled (no-op)
@@ -225,6 +332,10 @@ QUALITY_MAX_PENALTY = float(os.environ.get('QUALITY_MAX_PENALTY', '0.30'))
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Must sit above CommonMiddleware so the CORS preflight (OPTIONS) is
+    # answered before anything can redirect it. Only /api/ is opened up —
+    # see CORS_URLS_REGEX below; the htmx web app stays same-origin.
+    'corsheaders.middleware.CorsMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'cwa_classroom.middleware.MathsRoomRedirectMiddleware',    # mathsroom → /maths/ redirect
     'cwa_classroom.middleware.SubdomainURLRoutingMiddleware',  # subdomain → urlconf routing
@@ -235,11 +346,28 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_htmx.middleware.HtmxMiddleware',
+    # Super-admin "view as": swaps request.user for the impersonated user.
+    # Position is load-bearing — after AuthenticationMiddleware (there must be
+    # a real logged-in super admin to verify), after MessageMiddleware (it
+    # reports why a stale session was dropped) and after HtmxMiddleware (it
+    # answers an HTMX write with a bare 403 rather than a whole page), but
+    # before everything below, so the trial wall, the block screen, the
+    # profile gate and usage tracking all see the impersonated user.
+    'accounts.impersonation.ImpersonationMiddleware',
     'cwa_classroom.middleware.TrialExpiryMiddleware',
     'cwa_classroom.middleware.AccountBlockMiddleware',
     'cwa_classroom.middleware.ProfileCompletionMiddleware',
     'usage.middleware.UsageTrackingMiddleware',  # last: records final page-view status
 ]
+
+# Slow-query diagnostics: wrap the request early (near the top of MIDDLEWARE) so
+# it counts queries from every downstream layer, not just the view.
+MIDDLEWARE.insert(1, 'cwa_classroom.middleware.SlowQueryLoggingMiddleware')
+
+# Thresholds for SlowQueryLoggingMiddleware. Env-overridable so they can be tuned
+# on the server without a deploy. SLOW_QUERY_MS <= 0 disables the middleware.
+SLOW_QUERY_MS = int(os.environ.get('SLOW_QUERY_MS', '500'))
+QUERY_COUNT_WARN = int(os.environ.get('QUERY_COUNT_WARN', '50'))
 
 AUTHENTICATION_BACKENDS = [
     'accounts.backends.EmailOrUsernameBackend',
@@ -285,10 +413,15 @@ WSGI_APPLICATION = 'cwa_classroom.wsgi.application'
 _DB_ENGINE = os.environ.get('DB_ENGINE', 'mysql')
 
 if _DB_ENGINE == 'sqlite':
+    # SQLITE_NAME points the file somewhere other than the usual db.sqlite3 —
+    # used by throwaway databases (e.g. scripts/demo_fill_blanks.sh) so a demo
+    # or an experiment cannot overwrite the dev database sitting next to it.
+    # Deliberately NOT DB_NAME: that is already set to the MySQL database name
+    # in most environments, and reusing it would silently redirect the file.
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'NAME': BASE_DIR / os.environ.get('SQLITE_NAME', 'db.sqlite3'),
             # Live-server tests (Playwright UI suite) run the dev server in a
             # thread that writes to the same SQLite file as the test, so writers
             # contend. Wait up to 30s for the lock instead of erroring at
@@ -660,7 +793,16 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Public landing page / Subject hub
 # ---------------------------------------------------------------------------
 
-SITE_NAME = os.environ.get('SITE_NAME', 'Classroom')
+# 'Classroom' was a placeholder that outlived its welcome: production ran for
+# months with SITE_NAME unset, so every transactional email signed off as "The
+# Classroom Team" from an address at wizardslearninghub.co.nz. The tell that
+# nobody meant this is billing/email_utils.py, which reads
+# getattr(settings, 'SITE_NAME', 'Wizards Learning Hub') — someone wrote the
+# real name as a fallback that settings then made unreachable.
+#
+# Only email code and the templates under templates/email*/ read this. It is
+# not the public site title, despite the heading above.
+SITE_NAME = os.environ.get('SITE_NAME', 'Wizards Learning Hub')
 SITE_DESCRIPTION = 'A comprehensive educational platform for students ages 6-12.'
 # Auto-derive from ALLOWED_HOSTS when SITE_URL env var is not set:
 #   local  → http://localhost:8000
@@ -726,9 +868,21 @@ if _log_dir_exists:
         'level': 'WARNING',
         'delay': True,
     }
+    # Slow queries / N+1 warnings live in their own file so they can be tailed
+    # and analysed without wading through the general app log.
+    _handlers['slow_query_file'] = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': str(LOG_DIR / 'slow-queries.log'),
+        'maxBytes': 10 * 1024 * 1024,  # 10 MB
+        'backupCount': 3,
+        'formatter': 'verbose',
+        'level': 'WARNING',
+        'delay': True,
+    }
 
 _err_handlers  = ['console'] + (['error_file'] if _log_dir_exists else [])
 _app_handlers  = ['console'] + (['app_file', 'error_file'] if _log_dir_exists else [])
+_slow_handlers = ['console'] + (['slow_query_file'] if _log_dir_exists else [])
 
 LOGGING = {
     'version': 1,
@@ -763,5 +917,133 @@ LOGGING = {
         # INFO so successful logins (which clear the rate-limit counter) are
         # visible alongside the WARNING-level failures and lockouts.
         'accounts':   {'handlers': _app_handlers, 'level': 'INFO', 'propagate': False},
+        # Slow-query / N+1 diagnostics (SlowQueryLoggingMiddleware) → own file.
+        'slow_queries': {'handlers': _slow_handlers, 'level': 'WARNING', 'propagate': False},
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# JSON API  (/api/v1/ — the contract the mobile app is built against)
+# ---------------------------------------------------------------------------
+# The web app is server-rendered htmx and keeps using session cookies. The API
+# is additive: it authenticates a phone with a JWT bearer token and shares the
+# SAME service functions as the web views, so a rule fixed in one place is
+# fixed for both. See api/README.md.
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        # Bearer token first — this is how the mobile app authenticates.
+        # The subclass also applies the blocked / expired / incomplete-profile
+        # walls, which plain middleware cannot reach for a session-less
+        # request. See api/authentication.py for why it sits at this layer.
+        'api.authentication.WalledJWTAuthentication',
+        # Session auth is kept so the existing htmx front-end can call the
+        # same endpoints from a logged-in browser without a second login.
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    # Closed by default. An endpoint that should be public has to say so, which
+    # means a new view cannot leak data by forgetting a permission class.
+    # Account standing (blocked / expired / unfinished profile) is enforced
+    # ahead of DRF by cwa_classroom.middleware, which answers an /api/ caller
+    # with a coded 403 rather than a redirect.
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'api.pagination.StandardPagination',
+    'PAGE_SIZE': 25,
+    'DEFAULT_FILTER_BACKENDS': [
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+    # One error shape for every failure — see api.exceptions.exception_handler.
+    'EXCEPTION_HANDLER': 'api.exceptions.api_exception_handler',
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.URLPathVersioning',
+    'DEFAULT_VERSION': 'v1',
+    'ALLOWED_VERSIONS': ['v1'],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        # Login is the one unauthenticated write endpoint, so it is the one
+        # worth rate-limiting by default — credential stuffing against a
+        # school roster is the realistic attack.
+        'auth': os.environ.get('API_THROTTLE_AUTH', '10/min'),
+        'burst': os.environ.get('API_THROTTLE_BURST', '60/min'),
+        'sustained': os.environ.get('API_THROTTLE_SUSTAINED', '2000/day'),
+    },
+    # JSON only in production. The browsable API is a debugging convenience and
+    # renders arbitrary model data into HTML, so it stays off the deployed site.
+    'DEFAULT_RENDERER_CLASSES': (
+        ['rest_framework.renderers.JSONRenderer',
+         'rest_framework.renderers.BrowsableAPIRenderer']
+        if DEBUG else
+        ['rest_framework.renderers.JSONRenderer']
+    ),
+}
+
+SIMPLE_JWT = {
+    # Short access token, long refresh: a stolen access token expires on its
+    # own, and a logout can revoke the refresh token via the blacklist.
+    'ACCESS_TOKEN_LIFETIME': timedelta(
+        minutes=int(os.environ.get('API_ACCESS_TOKEN_MINUTES', '30'))),
+    'REFRESH_TOKEN_LIFETIME': timedelta(
+        days=int(os.environ.get('API_REFRESH_TOKEN_DAYS', '30'))),
+    # Rotation + blacklist means a refresh token is single-use: replaying an
+    # old one after it has been exchanged is rejected rather than accepted.
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': os.environ.get('API_JWT_SIGNING_KEY', SECRET_KEY),
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    'TOKEN_OBTAIN_SERIALIZER': 'api.serializers.TokenObtainPairSerializer',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'CWA Classroom API',
+    'DESCRIPTION': (
+        'JSON API for the Wizards Learning Hub mobile app.\n\n'
+        'All endpoints are role-scoped: a student sees only their own data, a '
+        'parent only their linked children, a teacher only the classes they '
+        'teach, and institute staff only their own school.'
+    ),
+    'VERSION': APP_VERSION,
+    'SERVE_INCLUDE_SCHEMA': False,
+    'SCHEMA_PATH_PREFIX': '/api/v1',
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SORT_OPERATIONS': True,
+    # Several models have a `status` / `period_type` field with different
+    # choices. Left alone the generator invents names like `Status223Enum`,
+    # where the number is derived from the schema and shifts whenever an
+    # unrelated model changes — churning the generated mobile client with
+    # renames that mean nothing. Naming them pins that down.
+    'ENUM_NAME_OVERRIDES': {
+        'AttendanceStatusEnum': 'classroom.models.StudentAttendance.STATUS_CHOICES',
+        'SessionStatusEnum': 'classroom.models.ClassSession.STATUS_CHOICES',
+        'InvoiceStatusEnum': 'classroom.models.Invoice.STATUS_CHOICES',
+        'InvoicePeriodTypeEnum': 'classroom.models.Invoice.PERIOD_TYPE_CHOICES',
+        'PaymentStatusEnum': 'classroom.models.InvoicePayment.STATUS_CHOICES',
+        'PaymentMethodEnum': 'classroom.models.InvoicePayment.PAYMENT_METHOD_CHOICES',
+        'FeedbackStatusEnum': 'feedback.models.Feedback.STATUS_CHOICES',
+        'FeedbackCategoryEnum': 'feedback.models.Feedback.CATEGORY_CHOICES',
+        'ReportPeriodTypeEnum': 'progress.models.PeriodReport.PERIOD_CHOICES',
+        'HomeworkTypeEnum': 'homework.models.Homework.HOMEWORK_TYPE_CHOICES',
+    },
+}
+
+# CORS — the mobile app itself is not a browser and sends no Origin, so this
+# exists for the web/PWA client and for local development against the API.
+# Deliberately NOT CORS_ALLOW_ALL_ORIGINS: an allow-all API with cookie auth
+# enabled is a cross-site read of every logged-in user's data.
+CORS_ALLOWED_ORIGINS = [
+    o.strip() for o in os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',')
+    if o.strip()
+]
+CORS_ALLOW_CREDENTIALS = True
+# Confine CORS to the API. Without this the header would be added to the
+# server-rendered pages too, which have no reason to be readable cross-origin.
+CORS_URLS_REGEX = r'^/api/.*$'

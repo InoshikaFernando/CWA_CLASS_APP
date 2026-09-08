@@ -1,17 +1,30 @@
 """
-Unit tests for CPP-311: IoU-based handwriting grading.
+Unit tests for CPP-311: handwriting grading view logic (persistence,
+clamping, star thresholds, best-score-on-retry) — decoupled from the
+scoring algorithm itself, which is now server-side and covered separately
+in test_cpp392_scoring_metric.py.
+
+CPP-392 replaced the raw pixel-IoU metric and made the server authoritative:
+it recomputes the score from the posted ink image via languages.scoring
+rather than trusting a client-submitted number. These tests mock
+scoring.compute_score() to inject a controlled score so they can keep
+testing the view's persistence/clamping/threshold logic in isolation.
 
 Tests:
-  test_star_thresholds               — _stars_from_score pure function coverage
-  test_score_persisted               — score field written to DB
-  test_best_score_kept_on_retry      — second attempt (higher) overwrites
-  test_lower_score_not_overwritten   — second attempt (lower) leaves DB unchanged
-  test_score_below_50_not_correct    — score=30 → is_correct=False, points=0
-  test_score_50_is_correct           — boundary: score=50 → is_correct=True
-  test_response_includes_stars       — score=72 → response stars==2
-  test_response_includes_best_score  — second POST returns best_score from DB
+  test_star_thresholds                        — _stars_from_score pure function coverage
+  test_score_persisted                        — score field written to DB
+  test_best_score_kept_on_retry                — second attempt (higher) overwrites
+  test_lower_score_not_overwritten             — second attempt (lower) leaves DB unchanged
+  test_score_below_50_not_correct              — score=30 → is_correct=False, points=0
+  test_score_50_is_correct                     — boundary: score=50 → is_correct=True
+  test_response_includes_stars                 — score=72 → response stars==2
+  test_response_includes_best_score            — second POST returns best_score from DB
+  test_client_score_field_is_ignored_even_when_extreme_{high,low}
+                                                — a posted 'score' field can't override
+                                                  the server-computed score (CPP-392)
 """
 import json
+from unittest.mock import patch
 
 import pytest
 from django.test import Client
@@ -75,8 +88,25 @@ def _make_exercise(suffix='311'):
 
 
 def _post_score(client, url, score):
+    """POST a submission that the (mocked) scorer reports as `score`.
+
+    CPP-392 made the server authoritative: it recomputes the score from the
+    posted ink image rather than trusting a client-submitted number, so
+    these tests — which are about the *view's* persistence/clamping/
+    threshold logic, not the scoring algorithm (see
+    test_cpp392_scoring_metric.py for that) — mock the scorer instead of
+    posting a 'score' field, which the view no longer reads.
+    """
     stroke = json.dumps({'version': '5.3.1', 'objects': [{'type': 'path'}]})
-    return client.post(url, data={'stroke_data': stroke, 'score': str(score)})
+    score = max(0.0, min(100.0, float(score)))
+    reason = (
+        'excellent_match' if score >= 85 else
+        'close_match' if score >= 70 else
+        'needs_practice' if score >= 50 else
+        'shape_mismatch'
+    )
+    with patch('languages.views.scoring.compute_score', return_value=(score, reason)):
+        return client.post(url, data={'stroke_data': stroke, 'ink_image': 'dummy'})
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +307,10 @@ class TestResponseIncludesBestScore:
         assert data['best_score'] == pytest.approx(80.0)
 
     @pytest.mark.django_db
-    def test_score_clamped_to_100(self):
+    def test_client_score_field_is_ignored_even_when_extreme_high(self):
+        """CPP-392: the server recomputes the score from the ink image and
+        never reads a client-submitted 'score' field — a malicious/broken
+        client posting an out-of-range value can't influence what's stored."""
         student, pwd = _make_student('stu_clamp_311i')
         exercise = _make_exercise('311i')
 
@@ -286,13 +319,15 @@ class TestResponseIncludesBestScore:
         url = reverse('languages:exercise_detail', kwargs={'exercise_id': exercise.pk})
 
         stroke = json.dumps({'version': '5.3.1', 'objects': [{'type': 'path'}]})
-        resp = client.post(url, data={'stroke_data': stroke, 'score': '999'})
+        with patch('languages.views.scoring.compute_score', return_value=(42.0, 'needs_practice')):
+            resp = client.post(url, data={'stroke_data': stroke, 'ink_image': 'dummy', 'score': '999'})
         data = resp.json()
 
-        assert data['score'] == pytest.approx(100.0)
+        assert data['score'] == pytest.approx(42.0), \
+            "client-posted 'score': '999' must not override the server-computed score"
 
     @pytest.mark.django_db
-    def test_score_clamped_to_0(self):
+    def test_client_score_field_is_ignored_even_when_extreme_low(self):
         student, pwd = _make_student('stu_clamp0_311j')
         exercise = _make_exercise('311j')
 
@@ -301,8 +336,10 @@ class TestResponseIncludesBestScore:
         url = reverse('languages:exercise_detail', kwargs={'exercise_id': exercise.pk})
 
         stroke = json.dumps({'version': '5.3.1', 'objects': [{'type': 'path'}]})
-        resp = client.post(url, data={'stroke_data': stroke, 'score': '-50'})
+        with patch('languages.views.scoring.compute_score', return_value=(10.0, 'shape_mismatch')):
+            resp = client.post(url, data={'stroke_data': stroke, 'ink_image': 'dummy', 'score': '-50'})
         data = resp.json()
 
-        assert data['score'] == pytest.approx(0.0)
+        assert data['score'] == pytest.approx(10.0), \
+            "client-posted 'score': '-50' must not override the server-computed score"
         assert data['is_correct'] is False

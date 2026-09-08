@@ -118,3 +118,70 @@ class ResendWebhookTest(TestCase):
     def test_get_not_allowed(self):
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 405)
+
+
+class SvixReturnValueTests(TestCase):
+    """The payload must not come from ``Webhook.verify()``'s return value.
+
+    svix 1.x returns the decoded payload from verify(); 2.x verifies only and
+    returns None. The view used to return that value straight through, so under
+    2.x every correctly-signed webhook read as unsigned and got a 400 — real
+    Resend traffic dropped, EmailLog statuses frozen, and nothing in the logs
+    but "signature verification failed" on signatures that were in fact valid.
+
+    Because requirements.txt allowed any 1.x-or-later, a deploy that changed no
+    code at all was enough to trigger it.
+
+    This pins the behaviour independently of which svix is installed.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.url = reverse('resend_webhook')
+        self.log = EmailLog.objects.create(
+            recipient_email='pupil@example.com', subject='Report',
+            notification_type='invoice', status='sent',
+            provider_message_id='msg_svix',
+        )
+
+    @override_settings(RESEND_WEBHOOK_SECRET=_SECRET)
+    def test_a_verify_that_returns_none_still_delivers_the_event(self):
+        from unittest.mock import patch
+
+        payload = {'type': 'email.delivered', 'data': {'email_id': 'msg_svix'}}
+        body = json.dumps(payload).encode()
+        ts = str(int(time.time()))
+
+        # Exactly what svix 2.x does: verify passes, returns nothing.
+        with patch('svix.webhooks.Webhook.verify', return_value=None):
+            resp = self.client.post(
+                self.url, data=body, content_type='application/json',
+                HTTP_SVIX_ID='evt_svix', HTTP_SVIX_TIMESTAMP=ts,
+                HTTP_SVIX_SIGNATURE=_sign(_SECRET, 'evt_svix', ts, body),
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.log.refresh_from_db()
+        self.assertEqual(self.log.status, 'delivered')
+
+    @override_settings(RESEND_WEBHOOK_SECRET=_SECRET)
+    def test_a_failed_verification_is_still_rejected(self):
+        # The mirror: relaxing the return-value check must not have relaxed the
+        # signature check with it.
+        from unittest.mock import patch
+
+        from svix.webhooks import WebhookVerificationError
+
+        body = json.dumps({'type': 'email.delivered',
+                           'data': {'email_id': 'msg_svix'}}).encode()
+        with patch('svix.webhooks.Webhook.verify',
+                   side_effect=WebhookVerificationError('bad')):
+            resp = self.client.post(
+                self.url, data=body, content_type='application/json',
+                HTTP_SVIX_ID='evt_svix', HTTP_SVIX_TIMESTAMP='1',
+                HTTP_SVIX_SIGNATURE='v1,nope',
+            )
+
+        self.assertEqual(resp.status_code, 400)
+        self.log.refresh_from_db()
+        self.assertEqual(self.log.status, 'sent')

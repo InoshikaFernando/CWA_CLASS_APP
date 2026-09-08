@@ -5,12 +5,15 @@ from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
-from django.contrib.auth import login, update_session_auth_hash
+from django.contrib.auth import login, logout as auth_logout, update_session_auth_hash
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
-from django.contrib.auth.views import LoginView, PasswordResetView
+from django.contrib.auth.views import LoginView, LogoutView, PasswordResetView
 from django.db import transaction
+from django.views.decorators.csrf import csrf_exempt
+from django.views.generic import TemplateView
 
+from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 
 from .models import CustomUser, Role, UserRole, PendingRegistration
@@ -135,6 +138,36 @@ class AuditLoginView(LoginView):
         return super().form_invalid(form)
 
 
+@method_decorator(csrf_exempt, name='dispatch')
+class CsrfExemptLogoutView(LogoutView):
+    """Log out without a CSRF check, so a stale token can't trap a user in a session.
+
+    ``csrf_exempt(LogoutView.as_view())`` — the original CPP-36 fix — looks like
+    it does this but doesn't: Django decorates ``LogoutView.post`` itself with
+    ``csrf_protect``, so the exemption only skipped ``CsrfViewMiddleware`` and
+    the view went on to reject the request on its own. Overriding ``post`` is
+    what actually drops that inner decorator.
+
+    Tokens go stale routinely: signing in rotates the CSRF secret, so a page
+    left open in another tab (or restored by the back button) still carries the
+    previous one and its Log Out button 403s. Exempting logout is safe — the
+    worst a forged request can do is sign someone out.
+    """
+
+    def post(self, request, *args, **kwargs):
+        auth_logout(request)
+        redirect_to = self.get_success_url()
+        if redirect_to != request.get_full_path():
+            return redirect(redirect_to)
+        # Nothing to redirect to — render the "logged out" page instead.
+        # (TemplateView, not super(), whose ``get`` is the csrf_protect-ed post.)
+        return TemplateView.get(self, request, *args, **kwargs)
+
+    # Django 4.2 still routes GET here (deprecated upstream) and a couple of
+    # templates link to logout with a plain <a href>, so keep both verbs.
+    get = post
+
+
 class SwitchRoleView(LoginRequiredMixin, View):
     """POST-only view to switch the user's active role."""
 
@@ -153,21 +186,8 @@ class SwitchRoleView(LoginRequiredMixin, View):
         )
 
         # Redirect to the appropriate dashboard for the new role
-        dashboard_map = {
-            Role.PARENT: 'parent_dashboard',
-            Role.ADMIN: 'admin_dashboard',
-            Role.INSTITUTE_OWNER: 'admin_dashboard',
-            Role.HEAD_OF_INSTITUTE: 'admin_dashboard',
-            Role.HEAD_OF_DEPARTMENT: 'hod_overview',
-            Role.SENIOR_TEACHER: 'teacher_dashboard',
-            Role.TEACHER: 'teacher_dashboard',
-            Role.JUNIOR_TEACHER: 'teacher_dashboard',
-            Role.STUDENT: 'subjects_hub',
-            Role.INDIVIDUAL_STUDENT: 'subjects_hub',
-            Role.ACCOUNTANT: 'invoice_list',
-        }
-        target = dashboard_map.get(role, 'home')
-        return redirect(target)
+        from .dashboards import dashboard_for_role
+        return redirect(dashboard_for_role(role))
 
 
 class DiagnosticPasswordResetView(PasswordResetView):
@@ -592,7 +612,17 @@ class IndividualStudentRegisterView(View):
                     discount.save(update_fields=['uses'])
                     sub.status = Subscription.STATUS_ACTIVE
                     sub.trial_end = None
-                    sub.save(update_fields=['status', 'trial_end'])
+                    # Record WHICH code let them in. Only `uses` was bumped
+                    # before, so the subscription itself did not know it was on
+                    # a promotion — and neither the tier below nor anyone asking
+                    # later could tell.
+                    sub.discount_code = discount
+                    sub.save(update_fields=['status', 'trial_end',
+                                            'discount_code'])
+
+                if discount:
+                    from billing.entitlements import sync_student_modules
+                    sync_student_modules(sub)
 
             login(request, user, backend='accounts.backends.EmailOrUsernameBackend')
 
@@ -1065,6 +1095,14 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     sub.discount_code = discount_obj
                     sub.discount_percent_snapshot = 100
                     sub.save()
+                    # A code the owner flagged as a Student Basic promotion
+                    # puts the student on that tier. Read off the subscription,
+                    # so this branch and the pay-the-remainder branch below —
+                    # which is activated later, by the Stripe webhook — resolve
+                    # the tier the same way. Off on every code unless the owner
+                    # ticked it.
+                    from billing.entitlements import sync_student_modules
+                    sync_student_modules(sub)
                     user.package = package
                     user.profile_completed = True
                     user.save(update_fields=['package', 'profile_completed'])

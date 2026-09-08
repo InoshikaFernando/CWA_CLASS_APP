@@ -1,0 +1,34 @@
+{% comment %}
+Summary of the paper's own answer key being applied to the extracted questions.
+Shown so the teacher knows the answers came from the paper rather than the AI —
+and, where the two disagreed, which questions to check.
+
+Context: answer_key — the summary dict from worksheets.answer_key.apply_answer_key().
+{% endcomment %}
+{% if answer_key.rows_found %}
+<div class="mb-4 p-3 rounded-lg text-sm bg-emerald-50 border border-emerald-200 text-emerald-900">
+  Used the answer key on page{{ answer_key.pages|pluralize }}
+  {% for page in answer_key.pages %}{{ page }}{% if not forloop.last %}, {% endif %}{% endfor %}:
+  {{ answer_key.applied }} of {{ answer_key.rows_found }} answer{{ answer_key.rows_found|pluralize }}
+  applied to the questions.
+  {% if answer_key.corrected %}
+    <strong>{{ answer_key.corrected }}</strong> disagreed with the AI's answer — the key won, and
+    {{ answer_key.corrected|pluralize:"that question is,those questions are" }} marked
+    <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">⚠ Review</span>
+    so you can check the key's letter matches the option text.
+  {% endif %}
+  {% if answer_key.explanation_only %}
+    {{ answer_key.explanation_only }} written-answer question{{ answer_key.explanation_only|pluralize }}
+    took the key's working as an explanation only.
+  {% endif %}
+  {% if answer_key.unmatched_rows %}
+    No question matched answer{{ answer_key.unmatched_rows|pluralize }}
+    {% for number in answer_key.unmatched_rows %}{{ number }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+  {% endif %}
+  {% if answer_key.questions_without_number %}
+    {{ answer_key.questions_without_number }} question{{ answer_key.questions_without_number|pluralize }}
+    had no number on the paper, so the key could not be matched to
+    {{ answer_key.questions_without_number|pluralize:"it,them" }}.
+  {% endif %}
+</div>
+{% endif %}

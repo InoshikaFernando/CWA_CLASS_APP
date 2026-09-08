@@ -1,4 +1,5 @@
 import json
+import logging
 import unicodedata
 from decimal import Decimal
 
@@ -8,14 +9,18 @@ from django.db.models import Case, IntegerField, Prefetch, When
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
 from accounts.decorators import student_required
+from . import scoring
 from .models import (
     Language, LanguageAnswer, LanguageExercise,
     LanguageProgress, LanguageStudentAnswer, LanguageTopicLevel,
 )
-from .utils import get_canvas_config, get_font_info, get_tts_lang_code
+from .utils import get_canvas_config, get_font_info, get_letter_writing_font_info, get_tts_lang_code
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -35,16 +40,21 @@ def _recalculate_progress(student, topic_level):
     if total == 0:
         return False
 
-    answers = {
-        a.exercise_id: a.score
-        for a in LanguageStudentAnswer.objects.filter(
+    answers = list(
+        LanguageStudentAnswer.objects.filter(
             student=student, exercise__in=exercises
-        ).only('exercise_id', 'score')
-    }
+        ).only('exercise_id', 'score', 'is_correct')
+    )
 
-    scores = list(answers.values())
+    scores = [a.score for a in answers]
     best_score_avg = round(sum(scores) / len(scores), 1) if scores else 0.0
-    exercises_completed = sum(1 for s in scores if s >= 80.0)
+    # Count against the same is_correct each exercise type already computed
+    # at submission time (e.g. score >= 50 for handwriting, exact match for
+    # MCQ/spelling), not a second, stricter score >= 80 re-check — that
+    # mismatch let a student go 100% green (every exercise showing as
+    # correct on the dashboard) while still failing to unlock the next
+    # level, because most handwriting attempts land in the 50-79% band.
+    exercises_completed = sum(1 for a in answers if a.is_correct)
 
     is_beginner = topic_level.level_choice == LanguageTopicLevel.BEGINNER
     mastery = best_score_avg >= 80.0 and (exercises_completed / total) >= 0.8
@@ -168,7 +178,13 @@ _LEVEL_SORT = Case(
 
 @login_required
 @student_required
+@never_cache
 def languages_index(request):
+    # Progress badges (correct/attempted) are computed fresh on every
+    # request. Without an explicit no-store, the browser's back/forward
+    # navigation is allowed to reuse the last cached response for this
+    # page — so completing an exercise and hitting its Back button showed
+    # the pre-attempt badges until a manual refresh forced a real request.
     levels_qs = LanguageTopicLevel.objects.annotate(
         _sort=_LEVEL_SORT
     ).order_by('_sort').prefetch_related('exercises')
@@ -298,7 +314,7 @@ def exercise_detail(request, exercise_id):
 
 def _letter_writing(request, exercise, language):
     config = get_canvas_config(language.script_type)
-    font_query, font_family = get_font_info(language.script_type)
+    font_query, font_family = get_letter_writing_font_info(language.script_type)
 
     if request.method == 'POST':
         raw = request.POST.get('stroke_data', '{}')
@@ -310,14 +326,25 @@ def _letter_writing(request, exercise, language):
             stroke_data = {}
 
         has_strokes = bool(stroke_data.get('objects'))
-        raw_score = request.POST.get('score')
-        if raw_score is not None and has_strokes:
-            try:
-                score = max(0.0, min(100.0, float(raw_score)))
-            except (ValueError, TypeError):
-                score = 0.0
+
+        if not has_strokes:
+            score, reason = 0.0, 'no_ink'
         else:
-            score = 100.0 if has_strokes else 0.0
+            target_char = exercise.prompt[0] if exercise.prompt else '?'
+            ink_image = request.POST.get('ink_image', '')
+            try:
+                score, reason = scoring.compute_score(
+                    ink_image, target_char, language.script_type, config,
+                )
+            except scoring.ScoringError as exc:
+                logger.error(
+                    'Letter-writing scoring failed for exercise %s (student %s): %s',
+                    exercise.pk, request.user.pk, exc,
+                )
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Could not score your drawing — please try again.',
+                }, status=422)
 
         is_correct = score >= 50.0
         stars = _stars_from_score(score)
@@ -345,6 +372,7 @@ def _letter_writing(request, exercise, language):
             'success': True,
             'score': round(score, 1),
             'stars': stars,
+            'reason': reason,
             'best_score': round(obj.score, 1),
             'points_earned': str(obj.points_earned),
             'is_correct': obj.is_correct,

@@ -1,0 +1,14 @@
+{% load progress_extras %}
+{% with current=row|setting_value:field %}
+<div class="flex gap-3 text-xs text-slate-600">
+  <label class="inline-flex items-center gap-1">
+    <input type="radio" name="{{ field }}" value="on" {% if current == True %}checked{% endif %}> On
+  </label>
+  <label class="inline-flex items-center gap-1">
+    <input type="radio" name="{{ field }}" value="off" {% if current == False %}checked{% endif %}> Off
+  </label>
+  <label class="inline-flex items-center gap-1">
+    <input type="radio" name="{{ field }}" value="inherit" {% if current == None %}checked{% endif %}> Inherit
+  </label>
+</div>
+{% endwith %}

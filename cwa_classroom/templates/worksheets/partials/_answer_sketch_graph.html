@@ -1,0 +1,12 @@
+{% comment %}
+Worksheet sketch-a-graph answer: the shared sketch widget. The student plots
+the curve on the plane the app draws and types the key features the question
+names; both serialise to text_answer as
+{"features":{"vertex":"(-0.5, -2.25)"},"points":[[-2,0]]} via
+static/js/sketch_graph.js, graded part by part server-side by
+grade_sketch_parts.
+Context: question
+{% endcomment %}
+<div>
+  {% include "maths/partials/_sketch_graph_tool.html" with q=question field_name='text_answer' %}
+</div>

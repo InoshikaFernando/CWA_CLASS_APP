@@ -16,6 +16,7 @@
 {% endblock %}
 
 {% block content %}
+{% include "billing/_ai_grading_promo.html" %}
 <form method="post" id="mixed-form">
   {% csrf_token %}
   <input type="hidden" name="session_id" value="{{ session_id }}" />
@@ -34,7 +35,11 @@
           {% if q.image %}
             <img src="{{ q.image.url }}" class="rounded-xl mb-3 max-h-40 object-contain" alt="" />
           {% endif %}
+          {% comment %}A fill-in-the-blank sentence prints itself below, with an input in
+          each gap — printing it here too would show the question twice.{% endcomment %}
+          {% if not q.blank_data %}
           <p class="font-semibold text-gray-800">{{ q.question_text }}</p>
+          {% endif %}
         </div>
       </div>
 
@@ -47,6 +52,34 @@
           </label>
           {% endfor %}
         </div>
+      {% elif q.blank_data %}
+        {% comment %}
+        Fill in the blanks: the sentence is re-laid-out with an input in each gap.
+        The typed values serialise to JSON in text_<id> via static/js/fill_blank.js,
+        graded gap by gap by grade_fill_blank_parts server-side. Without this branch the
+        sentence would take one whole-answer box that no blanks payload could match,
+        marking every student wrong.
+        {% endcomment %}
+        {% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_fill_blank_tool.html" with q=q field_name='text_'|add:sid %}{% endwith %}
+      {% elif q.sketch_data %}
+        {% comment %}
+        Sketch a graph: a plane the student plots the curve on, plus a box per
+        key feature the stem names. Both serialise to JSON in text_<id> via
+        static/js/sketch_graph.js, graded part by part — the sketch and each
+        feature — by grade_sketch_parts server-side. Without this branch the question would
+        take one whole-answer box that no features payload could match, marking
+        every student wrong.
+        {% endcomment %}
+        {% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_sketch_graph_tool.html" with q=q field_name='text_'|add:sid %}{% endwith %}
+      {% elif q.pattern_field_data %}
+        {% comment %}
+        "Create your own number pattern": a box per number and a box for the
+        rule, composed by static/js/pattern_fields.js into the one line
+        grade_pattern reads and posted as text_<id>. Same widget the topic quiz
+        shows — a paper that mixes the two must not ask the same question in two
+        different shapes.
+        {% endcomment %}
+        {% with sid=q.id|stringformat:'s' %}{% include "maths/partials/_pattern_tool.html" with q=q field_name='text_'|add:sid %}{% endwith %}
       {% else %}
         {% if q.question_type == 'column_operation' and q.column_inline %}
         <p class="font-mono text-2xl font-bold text-gray-800 mb-2">{{ q.column_inline }} =</p>
@@ -84,8 +117,22 @@
   const total = {{ total }};
   function updateCount() {
     const radios = document.querySelectorAll('input[type=radio]:checked').length;
-    const texts = [...document.querySelectorAll('input[type=text]')].filter(i => i.value.trim()).length;
-    document.getElementById('count').textContent = (radios + texts) + ' / ' + total + ' answered';
+    // One count per QUESTION, not per input: a fill-in-the-blank sentence has an
+    // input per gap and a "create your own pattern" question a box per number,
+    // so counting them all would report one question as several. Their boxes
+    // are excluded here and each widget is counted once, as soon as any of its
+    // boxes has been filled.
+    const boxed = '[data-fb-input], [data-pat-number], [data-pat-rule]';
+    const texts = [...document.querySelectorAll('input[type=text]')]
+      .filter(i => !i.matches(boxed) && i.value.trim()).length;
+    const filled = (stage, selector) =>
+      [...stage.querySelectorAll(selector)].some(i => i.value.trim());
+    const sentences = [...document.querySelectorAll('[data-fb-stage]')]
+      .filter(s => filled(s, '[data-fb-input]')).length;
+    const patterns = [...document.querySelectorAll('[data-pat-stage]')]
+      .filter(s => filled(s, '[data-pat-number], [data-pat-rule]')).length;
+    document.getElementById('count').textContent =
+      (radios + texts + sentences + patterns) + ' / ' + total + ' answered';
   }
   document.querySelectorAll('input').forEach(i => i.addEventListener('change', updateCount));
   document.querySelectorAll('input[type=text]').forEach(i => i.addEventListener('input', updateCount));

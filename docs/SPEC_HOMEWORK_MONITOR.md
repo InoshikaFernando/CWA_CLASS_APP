@@ -43,6 +43,6 @@ classes never appear.
 - Unit: `homework/tests.py::TeacherHomeworkMonitorAllFilterTest` — All option
   present, cross-class aggregation, per-class narrowing, class badge, invalid /
   non-numeric id fallback, back-link target, other-teacher isolation.
-- UI: `ui_tests/test_homework_monitor_all.py` — All option rendered, both
+- UI: `ui_tests/homework/test_homework_monitor_all.py` — All option rendered, both
   classes' homework shown under All, class badge, and the detail back button
   landing on the All view.

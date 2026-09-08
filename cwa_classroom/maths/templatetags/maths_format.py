@@ -40,3 +40,77 @@ def exponents(value):
     return _EXPONENT_RE.sub(
         lambda m: m.group(1).translate(_SUPERSCRIPT), str(value),
     )
+
+
+# Display tiers for AI-graded (extended-answer) maths questions.  These decide
+# only how an answer is *labelled* on the result / feedback pages — they never
+# touch scoring.  The counted score (``is_correct`` and ``points_earned``) is
+# still set by the grader and left as-is, so a 0.85 answer keeps its points in
+# the tally while displaying as "Partially correct".
+CREDIT_FULL_MARK = 1.0    # a full-marks score shows the green "Correct" tick
+# >= this (but below full) shows amber "Partially correct". It is the grader's
+# own pass mark, so a review page and the quiz that produced the score cannot
+# disagree about which band an answer fell in.
+from worksheets.grading_service import PASS_MARK as CREDIT_PARTIAL_FLOOR  # noqa: E402
+
+
+@register.filter
+def blank_answer(value):
+    """Render a fill-in-the-blank answer payload as readable text.
+
+    A fill-in-the-blank sentence posts one value per gap as JSON
+    (``{"blanks":["15","live"]}``), so a review page that printed the stored
+    text verbatim showed the student their own answer as raw JSON. This turns it
+    back into ``"15, live"``, with an unfilled gap shown as "—".
+
+    Display-only, and safe to apply to any typed answer: anything that is not a
+    blanks payload is returned unchanged, so a review template can pipe every
+    answer through it without first asking what type the question was.
+
+    >>> blank_answer('{"blanks": ["15", "live"]}')
+    '15, live'
+    >>> blank_answer('42')
+    '42'
+    """
+    if not value:
+        return value
+    from maths.blank_grading import describe_blank_answer
+    return describe_blank_answer(value)
+
+
+@register.filter
+def credit_state(answer):
+    """Return ``'correct'``, ``'partial'`` or ``'wrong'`` for how to *display* an answer.
+
+    Three kinds of answer, in the order they are checked:
+
+    * **Part-graded** — a fill-in-the-blank sentence or a table of values,
+      marked one gap at a time (``answer_data.parts``, written by
+      ``maths.partial_credit``). Full marks only when every gap is right, and
+      *partial* whenever at least one is: those gaps earned real points, so
+      showing the answer as flat "wrong" would contradict the score on the same
+      page. There is no 0.5 floor here — the fraction isn't a grader's opinion,
+      it is a count of gaps.
+    * **AI-graded** — carries an ``ai_score_fraction`` (0.0–1.0): fully correct
+      only at full marks, partially correct from the pass mark up to that, wrong below,
+      because a low-confidence AI score is not evidence of partial understanding
+      the way a right gap is.
+    * **Everything else** (MCQ, exact-match, not yet graded) falls back to the
+      stored ``is_correct`` boolean and is never "partial".
+    """
+    data = getattr(answer, 'answer_data', None)
+    if isinstance(data, dict) and data.get('parts'):
+        total = data.get('parts_total') or 0
+        correct = data.get('parts_correct') or 0
+        if total and correct >= total:
+            return 'correct'
+        return 'partial' if correct else 'wrong'
+
+    frac = getattr(answer, 'ai_score_fraction', None)
+    if frac is None:
+        return 'correct' if getattr(answer, 'is_correct', False) else 'wrong'
+    if frac >= CREDIT_FULL_MARK:
+        return 'correct'
+    if frac >= CREDIT_PARTIAL_FLOOR:
+        return 'partial'
+    return 'wrong'

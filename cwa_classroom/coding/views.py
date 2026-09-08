@@ -1,3 +1,5 @@
+from functools import wraps
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
@@ -11,6 +13,8 @@ import logging
 from accounts.decorators import student_required
 from audit.services import log_event
 from classroom.models import SchoolStudent
+from rewards.models import PointsSource
+from rewards.services import POINTS_PER_UNIT, award_points_safe
 
 from .models import (
     CodingLanguage,
@@ -26,6 +30,29 @@ from .scoring import evaluate_submission, score_submission
 
 logger = logging.getLogger(__name__)
 
+
+def teacher_required(view_func):
+    """Decorator: allow only staff-side roles — teachers and above.
+
+    The mirror image of :func:`student_required`. Teachers are locked out of
+    the student coding pages so they cannot accumulate submissions and time
+    logs; that block also left them with no way to *try* an exercise they are
+    about to set. Views wearing this decorator give them the coding window
+    without any of the student bookkeeping.
+    """
+    @wraps(view_func)
+    def _wrapped(request, *args, **kwargs):
+        allowed_flags = (
+            'is_any_teacher',
+            'is_head_of_institute',
+            'is_head_of_department',
+            'is_institute_owner',
+            'is_admin_user',
+        )
+        if not any(getattr(request.user, flag, False) for flag in allowed_flags):
+            return redirect('home')
+        return view_func(request, *args, **kwargs)
+    return _wrapped
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +347,11 @@ def exercise_detail(request, lang_slug, exercise_id):
                 stderr_received='',
                 is_completed=correct,
             )
+            if correct:
+                award_points_safe(
+                    request.user, PointsSource.CODING_EXERCISE, str(exercise.id),
+                    POINTS_PER_UNIT, label=f'Coding exercise — {exercise.title}',
+                )
             log_event(
                 user=request.user,
                 school=_get_student_school(request.user),
@@ -355,6 +387,10 @@ def exercise_detail(request, lang_slug, exercise_id):
         )
         server_blocks_xml = latest or ''
 
+    from django.urls import reverse
+
+    from .code_window import editor_params_for_language
+
     return render(request, 'coding/exercise_detail.html', {
         'language': language,
         'exercise': exercise,
@@ -363,6 +399,14 @@ def exercise_detail(request, lang_slug, exercise_id):
         'is_quiz': is_quiz,
         'quiz_feedback': quiz_feedback,
         'subject_sidebar': 'coding',
+        # Editor mode/filename and the run endpoint for the shared coding
+        # window. A DOM exercise edits a page, not a script, whatever language
+        # it is filed under.
+        'run_url': reverse('coding:api_run_code'),
+        **editor_params_for_language(
+            language,
+            browser_sandbox=language.uses_browser_sandbox or exercise.uses_browser_sandbox,
+        ),
     })
 
 
@@ -455,6 +499,8 @@ def problem_detail(request, lang_slug, problem_id):
     # Latest submission for display (if any)
     latest = StudentProblemSubmission.get_best_result(request.user, problem)
 
+    from .code_window import editor_params_for_language
+
     return render(request, 'coding/problem_detail.html', {
         'language': language,
         'problem': problem,
@@ -463,6 +509,8 @@ def problem_detail(request, lang_slug, problem_id):
         'has_solved': has_solved,
         'latest_submission': latest,
         'subject_sidebar': 'coding',
+        # Editor mode/filename for the shared coding window.
+        **editor_params_for_language(language),
     })
 
 
@@ -725,6 +773,10 @@ def _save_exercise_submission(user, exercise_id, language, code, stdout, stderr,
         submission.save(update_fields=['code_submitted', 'output_received', 'stderr_received', 'blocks_xml', 'is_completed'])
 
     if completed:
+        award_points_safe(
+            user, PointsSource.CODING_EXERCISE, str(exercise.id),
+            POINTS_PER_UNIT, label=f'Coding exercise — {exercise.title}',
+        )
         log_event(
             user=user,
             school=_get_student_school(user),
@@ -828,6 +880,10 @@ def api_submit_problem(request, problem_id):
                     test_results=[{'blocks_xml': blocks_xml}] if blocks_xml else [],
                     points=100.0,
                     time_taken_seconds=time_taken,
+                )
+                award_points_safe(
+                    request.user, PointsSource.CODING_PROBLEM, str(problem.id),
+                    100.0, label=f'Coding problem — {problem.title}',
                 )
                 is_new_best = best_previous < 100.0
                 return JsonResponse({
@@ -961,6 +1017,11 @@ def api_submit_problem(request, problem_id):
             test_results=test_results_store,
             points=best_points,          # leaderboard always uses best-of
             time_taken_seconds=time_taken,
+        )
+
+        award_points_safe(
+            request.user, PointsSource.CODING_PROBLEM, str(problem.id),
+            best_points, label=f'Coding problem — {problem.title}',
         )
 
         log_event(
@@ -1175,23 +1236,34 @@ PLAYGROUNDS = {
         'filename': 'main.js',
         'starter': 'console.log("Hello, world!");\n',
     },
+    # The slug stays 'html-css' though the name now says JS too: it is in the
+    # URL, and renaming it would break every bookmark and shared link to this
+    # playground for the sake of cosmetics.
     'html-css': {
-        'name': 'HTML / CSS',
+        'name': 'HTML / CSS / JS',
         'tagline': 'Build a web page with a live preview.',
         'mode': 'preview',
         'piston_language': None,
         'cm_mode': 'htmlmixed',
         'filename': 'index.html',
+        'show_js': True,
         'starter_html': (
             '<!DOCTYPE html>\n<html>\n<head>\n  <title>My Page</title>\n'
             '</head>\n<body>\n  <h1>Hello, world!</h1>\n'
-            '  <p>Edit the HTML and CSS, then press Run.</p>\n'
+            '  <p>Edit the HTML, CSS and JS, then press Run.</p>\n'
+            '  <button id="greet">Say hello</button>\n'
             '</body>\n</html>\n'
         ),
         'starter_css': (
             'body {\n  font-family: system-ui, sans-serif;\n'
             '  margin: 2rem;\n  color: #1a1a18;\n}\n\n'
             'h1 {\n  color: #1D9E75;\n}\n'
+        ),
+        'starter_js': (
+            "document.getElementById('greet').addEventListener('click', "
+            "function () {\n"
+            "  alert('Hello from JavaScript!');\n"
+            "});\n"
         ),
     },
 }
@@ -1251,3 +1323,54 @@ def api_playground_run(request):
     from .execution import run_code
     result = run_code(cfg['piston_language'], code, stdin)
     return JsonResponse(result)
+
+
+@login_required
+@teacher_required
+@require_POST
+def api_preview_run(request):
+    """Run code from a teacher-facing preview.  POST /coding/api/preview-run/
+
+    Request JSON:  { language, code, stdin (optional) }
+    Response JSON: { stdout, stderr, exit_code, run_time_seconds, error? }
+
+    Deliberately write-only-nothing: no StudentExerciseSubmission, no
+    CodingTimeLog, no auto-completion. A teacher checking that an exercise
+    still produces its expected output must not land in the student's
+    progress data — which is exactly why ``student_required`` keeps them off
+    ``api_run_code``.
+
+    ``language`` is a CodingLanguage slug (python, javascript). Browser-sandbox
+    languages (HTML, CSS) and Scratch never reach Piston, so they are rejected
+    here rather than silently returning empty output.
+    """
+    import json
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    # The shared coding window posts `language`; accept `language_slug` too so
+    # this endpoint reads the same as api_run_code for anyone switching between
+    # them.
+    lang_slug = (body.get('language') or body.get('language_slug') or '').strip()
+    code = body.get('code') or ''
+    stdin = body.get('stdin', '')
+
+    if not lang_slug:
+        return JsonResponse({'error': 'language is required'}, status=400)
+    if not code.strip():
+        return JsonResponse({'error': 'code is required'}, status=400)
+
+    language = CodingLanguage.objects.filter(slug=lang_slug, is_active=True).first()
+    if language is None:
+        return JsonResponse({'error': 'Unknown language'}, status=400)
+
+    if language.uses_browser_sandbox or language.uses_scratch_vm:
+        return JsonResponse({
+            'error': f'{language.name} runs in the browser — open the exercise '
+                     'preview to see it.',
+        }, status=400)
+
+    from .execution import run_code
+    return JsonResponse(run_code(language.piston_language, code, stdin))

@@ -26,9 +26,12 @@ GTTS_LANG_MAP = {
     'si': 'si',   # Sinhala
     'ta': 'ta',   # Tamil
     'en': 'en',   # English
+    'fr': 'fr',   # French
     'hi': 'hi',   # Hindi
     'ar': 'ar',   # Arabic
     'zh': 'zh',   # Chinese
+    'ja': 'ja',   # Japanese
+    'ko': 'ko',   # Korean
 }
 
 

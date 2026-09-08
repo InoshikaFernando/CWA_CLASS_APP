@@ -13,6 +13,7 @@ Tests:
   test_letter_writing_still_works     — regression: CPP-311 view still dispatches correctly
 """
 import json
+from unittest.mock import patch
 
 import pytest
 from django.test import Client
@@ -369,7 +370,10 @@ class TestLetterWritingRegression:
         assert b'drawing-layer' in resp_get.content
 
         stroke = json.dumps({'version': '5.3.1', 'objects': [{'type': 'path'}]})
-        resp_post = client.post(url, data={'stroke_data': stroke, 'score': '75'})
+        # CPP-392: score is server-computed from ink_image — mock the scorer,
+        # this regression test is about the view still working, not the algorithm.
+        with patch('languages.views.scoring.compute_score', return_value=(75.0, 'close_match')):
+            resp_post = client.post(url, data={'stroke_data': stroke, 'ink_image': 'dummy'})
         assert resp_post.status_code == 200
         data = resp_post.json()
         assert data['success'] is True

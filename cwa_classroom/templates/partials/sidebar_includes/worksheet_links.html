@@ -1,0 +1,32 @@
+{% comment %}
+Worksheet links, shared by every staff sidebar that has them (teacher, senior
+teacher, HOD, HOI). The four sidebars carried byte-identical copies of the
+Worksheets entry; they include this instead so a change lands in all of them.
+
+Worksheet Builder used to have no navigation of its own: the only way in was
+the "Build from Question Bank" button on the Worksheets page, so a teacher who
+did not already know the page existed could not find it from the sidebar.
+
+Both entries are shown to the same roles the builder itself accepts
+(worksheets.views_builder.BUILDER_ROLES).
+{% endcomment %}
+
+<!-- Worksheets -->
+<a href="{% url 'worksheets:list' %}"
+   class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+          {% if 'worksheets' in request.path and 'builder' not in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+  <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>
+  </svg>
+  <span>Worksheets</span>
+</a>
+
+<!-- Worksheet Builder -->
+<a href="{% url 'worksheets:builder' %}"
+   class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+          {% if 'worksheets/builder' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+  <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.73-.665 1.208-.766a4.5 4.5 0 004.884-6.42l-3.032 3.031-2.12-2.121 3.03-3.032a4.5 4.5 0 00-6.42 4.884c.1.478-.18.891-.565 1.208L11.42 15.17z"/>
+  </svg>
+  <span>Worksheet Builder</span>
+</a>

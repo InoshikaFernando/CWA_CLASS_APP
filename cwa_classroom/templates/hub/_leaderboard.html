@@ -1,0 +1,85 @@
+{% comment %}
+Student leaderboards — one tab per scope (their school, then everyone), each
+with a podium, the student's own place, and a line of encouragement. Rendered
+twice on the hub: inline as a card that stays on the page, and inside the
+once-a-day pop-up.
+
+Both copies are on the page at once, so every id here is namespaced with
+`prefix` (passed by the includer) — two elements sharing an id would make the
+pop-up's tabs drive the card's panels.
+
+The school tab comes first: a field a student can realistically climb beats one
+where the honest answer is "you are 400th". An individual student belongs to no
+school and gets the system-wide board alone, with no tab strip at all.
+
+The place badges are numerals in gold/silver/bronze discs rather than the 🥇🥈🥉
+emoji: a device without a full emoji font falls all three back to one identical
+glyph, which makes the podium unreadable — and a numeral is what a screen reader
+should say anyway.
+
+Context: `standings` (list of rewards.services.Standing), `prefix` (str).
+{% endcomment %}
+<div class="space-y-2" data-leaderboard="{{ prefix }}">
+
+  {% if standings|length > 1 %}
+  <div role="tablist" aria-label="Leaderboard scope"
+       class="inline-flex rounded-xl bg-white/70 p-0.5 gap-0.5 w-full">
+    {% for standing in standings %}
+    <button type="button" role="tab"
+            id="{{ prefix }}-tab-{{ standing.scope }}"
+            data-tab-target="{{ prefix }}-panel-{{ standing.scope }}"
+            aria-controls="{{ prefix }}-panel-{{ standing.scope }}"
+            aria-selected="{% if forloop.first %}true{% else %}false{% endif %}"
+            class="flex-1 min-w-0 truncate px-3 py-1.5 rounded-lg text-xs font-bold transition
+                   {% if forloop.first %}bg-amber-500 text-white shadow-sm{% else %}text-amber-800 hover:bg-white{% endif %}">
+      {{ standing.scope_label }}
+    </button>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% for standing in standings %}
+  <div role="tabpanel" id="{{ prefix }}-panel-{{ standing.scope }}"
+       aria-labelledby="{{ prefix }}-tab-{{ standing.scope }}"
+       class="space-y-2 {% if not forloop.first %}hidden{% endif %}">
+
+    {% if standing.board_size %}
+    <p class="text-xs text-amber-700/70 -mt-0.5">
+      {{ standing.board_size }} student{{ standing.board_size|pluralize }} on this board
+    </p>
+    {% endif %}
+
+    <ol class="space-y-1.5">
+      {% for row in standing.podium %}
+      <li class="flex items-center gap-2.5 rounded-xl px-3 py-2
+                 {% if row.is_me %}bg-amber-100 ring-1 ring-amber-300{% else %}bg-white/70{% endif %}">
+        <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold
+                     text-white flex-shrink-0 tabular-nums shadow-sm
+                     {% if row.rank == 1 %}bg-amber-400
+                     {% elif row.rank == 2 %}bg-slate-400
+                     {% else %}bg-orange-400{% endif %}">{{ row.rank }}</span>
+        <span class="flex-1 min-w-0 truncate text-sm font-semibold text-gray-800">
+          {{ row.name }}{% if row.is_me %} <span class="text-amber-700 font-bold">(you)</span>{% endif %}
+        </span>
+        <span class="text-sm font-bold text-gray-500 tabular-nums flex-shrink-0">{{ row.points|floatformat:0 }}</span>
+      </li>
+      {% endfor %}
+    </ol>
+
+    {% comment %}
+    A student already named on the podium does not need their rank repeated —
+    `show_own_rank` is false for the top three.
+    {% endcomment %}
+    {% if standing.show_own_rank %}
+    <div class="flex items-center gap-2.5 rounded-xl bg-amber-100 ring-1 ring-amber-300 px-3 py-2">
+      <span class="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center
+                   text-xs font-bold text-white flex-shrink-0 tabular-nums shadow-sm">{{ standing.rank }}</span>
+      <span class="flex-1 min-w-0 truncate text-sm font-semibold text-gray-800">Your rank</span>
+      <span class="text-sm font-bold text-gray-500 tabular-nums flex-shrink-0">{{ standing.total_points|floatformat:0 }}</span>
+    </div>
+    {% endif %}
+
+    <p class="text-xs font-medium text-gray-600 pt-0.5">{{ standing.message }}</p>
+  </div>
+  {% endfor %}
+</div>

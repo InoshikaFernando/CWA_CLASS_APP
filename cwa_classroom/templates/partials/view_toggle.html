@@ -1,0 +1,90 @@
+{% comment %}
+Reusable list / grid view toggle for class listings.
+
+Usage:
+  {% include "partials/view_toggle.html" with container_id="my-classes" storage_key="cwa-view:teacher-classes" %}
+
+Params:
+  container_id  (required) – id of the element wrapping the cards. That element
+                             must also carry `data-cwa-container` and start with
+                             either `cwa-grid` or `cwa-list`.
+  storage_key   (required) – localStorage key used to remember the choice.
+  default_view  (optional) – "grid" (default) or "list". Used only when nothing
+                             is stored yet; keep it in sync with the class the
+                             container is rendered with server-side.
+
+The container switches between a responsive tile grid (`cwa-grid`) and a single
+column of full-width rows (`cwa-list`). Cards tagged `cwa-card--split` lay their
+`.cwa-card-main` / `.cwa-card-aside` children out horizontally in list view.
+{% endcomment %}
+<div class="cwa-view-toggle inline-flex items-center gap-1 bg-slate-100 rounded-xl p-1"
+     role="group" aria-label="View mode"
+     data-view-toggle="{{ container_id }}"
+     data-storage-key="{{ storage_key }}"
+     data-default-view="{{ default_view|default:'grid' }}">
+  <button type="button" data-view-btn="grid" aria-label="Grid view" title="Grid view"
+          class="cwa-view-btn inline-flex items-center justify-center w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600 transition">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/>
+    </svg>
+  </button>
+  <button type="button" data-view-btn="list" aria-label="List view" title="List view"
+          class="cwa-view-btn inline-flex items-center justify-center w-8 h-8 rounded-lg text-gray-400 hover:text-gray-600 transition">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
+    </svg>
+  </button>
+</div>
+
+{% comment %} Shared styles + behaviour. Safe to appear once per page. {% endcomment %}
+<style>
+  [data-cwa-container].cwa-grid { display: grid; gap: 1rem; grid-template-columns: repeat(1, minmax(0, 1fr)); }
+  @media (min-width: 640px)  { [data-cwa-container].cwa-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  [data-cwa-container].cwa-list { display: flex; flex-direction: column; gap: 0.75rem; }
+  @media (min-width: 640px) {
+    [data-cwa-container].cwa-list .cwa-card--split { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; }
+    [data-cwa-container].cwa-list .cwa-card--split .cwa-card-main  { flex: 1 1 auto; min-width: 0; }
+    [data-cwa-container].cwa-list .cwa-card--split .cwa-card-aside { flex: 0 0 auto; margin-top: 0; }
+  }
+  .cwa-view-btn.is-active { background: #fff; color: #111827; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); }
+</style>
+<script>
+  (function () {
+    function initToggle(toggle) {
+      var containerId = toggle.getAttribute('data-view-toggle');
+      var container = document.getElementById(containerId);
+      if (!container) return;
+      var key = toggle.getAttribute('data-storage-key') || ('cwa-view:' + containerId);
+      var def = toggle.getAttribute('data-default-view') || 'grid';
+      var btns = toggle.querySelectorAll('[data-view-btn]');
+
+      function apply(view) {
+        view = (view === 'list') ? 'list' : 'grid';
+        container.classList.remove('cwa-grid', 'cwa-list');
+        container.classList.add(view === 'list' ? 'cwa-list' : 'cwa-grid');
+        btns.forEach(function (b) {
+          b.classList.toggle('is-active', b.getAttribute('data-view-btn') === view);
+        });
+        try { localStorage.setItem(key, view); } catch (e) {}
+      }
+
+      var saved = null;
+      try { saved = localStorage.getItem(key); } catch (e) {}
+      apply(saved === 'list' || saved === 'grid' ? saved : def);
+
+      btns.forEach(function (b) {
+        b.addEventListener('click', function () { apply(b.getAttribute('data-view-btn')); });
+      });
+    }
+
+    function initAll() {
+      document.querySelectorAll('[data-view-toggle]').forEach(initToggle);
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initAll);
+    } else {
+      initAll();
+    }
+  })();
+</script>

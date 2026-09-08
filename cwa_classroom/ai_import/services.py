@@ -3,12 +3,15 @@ AI Import services: PDF extraction (PyMuPDF) and AI classification (Claude API).
 """
 import base64
 import json
+import logging
 import os
 import re
 import tempfile
 
 from django.conf import settings
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -21,6 +24,51 @@ from django.utils import timezone
 # PDFs that embed full-page scans and trims wasted input tokens. Tune via
 # AI_IMPORT_MAX_IMAGE_DIM.
 MAX_EMBEDDED_IMAGE_DIM = int(os.environ.get('AI_IMPORT_MAX_IMAGE_DIM', '1568'))
+
+# A photographic / painted illustration (a clip-art header, a scanned photo, a
+# decorative drawing) is continuous-tone: it fills its frame edge-to-edge with
+# many subtly-different colours and almost no pure-white background. A maths
+# figure — a line diagram, chart, number line, geometry drawing — is the
+# opposite: it sits on white with a handful of flat colours. These two knobs
+# separate the former from the latter so a decorative illustration is never
+# attached in place of a question's real diagram. Tune via env if needed.
+PHOTO_MAX_WHITE_FRACTION = float(os.environ.get('AI_IMPORT_PHOTO_MAX_WHITE', '0.55'))
+PHOTO_MIN_DISTINCT_COLOURS = int(os.environ.get('AI_IMPORT_PHOTO_MIN_COLOURS', '180'))
+
+
+def _looks_photographic(img_bytes):
+    """Best-effort guess: is this embedded image a decorative photo/illustration
+    rather than a maths line-figure?
+
+    Line diagrams, charts and geometry drawings sit on a white page with a few
+    flat colours; a photographic or painted illustration fills the frame with
+    continuous tone and little pure white. We downsample to a tiny thumbnail and
+    flag an image as photographic only when it is BOTH light on white AND rich in
+    distinct colours — so a colourful bar chart (flat fills on white) or a shaded
+    diagram (few colours) is spared, while a full-bleed illustration is caught.
+
+    Returns False on any decode error (never fatal — an unknown image is treated
+    as a normal figure, exactly as before this check existed).
+    """
+    try:
+        import io
+
+        from PIL import Image
+
+        im = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+        im = im.resize((64, 64))
+        px = list(im.getdata())
+        if not px:
+            return False
+        white = sum(1 for r, g, b in px if r >= 235 and g >= 235 and b >= 235)
+        white_fraction = white / len(px)
+        # Quantise to 4 bits/channel so near-identical tones collapse together;
+        # a continuous-tone photo still leaves hundreds of buckets, flat art a few.
+        distinct = len({(r >> 4, g >> 4, b >> 4) for r, g, b in px})
+        return (white_fraction < PHOTO_MAX_WHITE_FRACTION
+                and distinct >= PHOTO_MIN_DISTINCT_COLOURS)
+    except Exception:
+        return False
 
 
 def _downscale_embedded_image(img_bytes, ext):
@@ -61,10 +109,25 @@ def _page_figure_regions(page):
         pw, ph = page.rect.width, page.rect.height
         if pw <= 0 or ph <= 0:
             return []
+        page_area = pw * ph
+        # A near-full-page rectangle is a page border / background panel, not a
+        # figure. Left in the input it BRIDGES otherwise-separate diagrams, so
+        # cluster_drawings merges the whole page into one blob that the >80% filter
+        # below then discards — losing every figure on the page (a grid of labelled
+        # triangles came back with zero regions). Drop those border strokes first,
+        # then cluster only the real content. On a page with no such border this is
+        # a no-op (content == all drawings), so existing pages are unaffected.
+        content = [
+            d for d in page.get_drawings()
+            if d.get('rect') is not None
+            and (d['rect'].width * d['rect'].height) / page_area <= 0.80
+        ]
+        clusters = (page.cluster_drawings(drawings=content)
+                    if content else page.cluster_drawings())
         regions = []
-        for r in page.cluster_drawings():
+        for r in clusters:
             w, h = r.width, r.height
-            area_frac = (w * h) / (pw * ph)
+            area_frac = (w * h) / page_area
             if area_frac > 0.80:
                 continue  # page border / full-page decoration, not a figure
             if (w / pw) < 0.02 and (h / ph) < 0.02:
@@ -76,6 +139,89 @@ def _page_figure_regions(page):
         return regions
     except Exception:
         return []
+
+def _embedded_image_bbox_pct(page, xref):
+    """Bounding box (percent of page) of an embedded image's placement(s).
+
+    The classifier's hardest failure mode is a page holding several near-identical
+    figures (e.g. a 2x2 grid of angle diagrams): given only bare refs it guesses
+    which embedded image goes with which question and often picks the wrong one.
+    Surfacing each image's position lets it map a question to the figure sitting at
+    the matching spot on the page instead. Returns ``[x0, y0, x1, y1]`` in percent
+    (the union when an image is placed more than once), or ``None`` when PyMuPDF
+    can't locate the image — best-effort, never fatal.
+    """
+    try:
+        pw, ph = page.rect.width, page.rect.height
+        if pw <= 0 or ph <= 0:
+            return None
+        rects = page.get_image_rects(xref)
+        if not rects:
+            return None
+        x0 = min(r.x0 for r in rects)
+        y0 = min(r.y0 for r in rects)
+        x1 = max(r.x1 for r in rects)
+        y1 = max(r.y1 for r in rects)
+        return [
+            round(x0 / pw * 100, 1), round(y0 / ph * 100, 1),
+            round(x1 / pw * 100, 1), round(y1 / ph * 100, 1),
+        ]
+    except Exception:
+        return None
+
+
+def _position_hint(cx, cy):
+    """Human-readable region of a page for a centre point (cx, cy) in percent.
+
+    Turns raw coordinates into an anchor the classifier can line up against a
+    question's own position, e.g. "top-left", "bottom-right", "centre".
+    """
+    vert = 'top' if cy < 45 else ('bottom' if cy > 55 else 'middle')
+    horiz = 'left' if cx < 45 else ('right' if cx > 55 else 'centre')
+    if vert == 'middle' and horiz == 'centre':
+        return 'centre'
+    if vert == 'middle':
+        return horiz
+    if horiz == 'centre':
+        return vert
+    return f'{vert}-{horiz}'
+
+
+def _embedded_image_label(ref, page_num, bbox_pct, photo_like=False):
+    """Build the descriptive text block that accompanies an embedded image.
+
+    Without position the model can only tell look-alike figures apart by guessing;
+    with it, it can map each question to the image in the matching region. Small
+    images are flagged as probable decorative markers (angle arcs, right-angle
+    squares), and continuous-tone photos / illustrations are flagged as probable
+    decoration, so the model doesn't attach one in place of the real diagram.
+    """
+    photo_note = (
+        "; looks like a photo / decorative illustration, not a maths line-figure - "
+        "do NOT attach unless the question genuinely depends on interpreting a "
+        "photograph or picture"
+    )
+    if not bbox_pct:
+        label = f"[Embedded image: {ref}"
+        if photo_like:
+            label += photo_note
+        return label + "]"
+    x0, y0, x1, y1 = bbox_pct
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    w, h = x1 - x0, y1 - y0
+    label = (
+        f"[Embedded image: {ref} — on page {page_num} at "
+        f"x {x0:.0f}-{x1:.0f}%, y {y0:.0f}-{y1:.0f}% "
+        f"({_position_hint(cx, cy)}; {w:.0f}%x{h:.0f}% of the page)"
+    )
+    if w < 12 and h < 8:
+        label += "; small - likely a decorative marker (arc / right-angle), not a full figure"
+    elif w >= 85 and h >= 85:
+        label += "; covers the whole page - a scanned page / background, not a single question's figure"
+    elif photo_like:
+        label += photo_note
+    return label + "]"
+
 
 def get_pdf_page_count(pdf_file):
     """Cheaply count pages in a PDF without rendering screenshots.
@@ -95,31 +241,44 @@ def get_pdf_page_count(pdf_file):
     return count
 
 
-def extract_pdf_content(pdf_file):
+def extract_pdf_content(pdf_file, page_selection=None):
     """
     Extract text and images from a PDF file using PyMuPDF.
 
     Args:
         pdf_file: Django UploadedFile or file-like object
+        page_selection: the teacher's print-dialog style page spec ("2-7, 9");
+            blank/None extracts every page. See ``worksheets/page_selection.py``.
+            Only the selected pages are read at all, so skipping a cover sheet or
+            a marking scheme costs no screenshots and no AI tokens. Page numbers
+            stay ABSOLUTE, keeping image refs and bboxes valid on a partial run.
 
     Returns:
         {
             'pages': [
                 {'page_num': int, 'text': str, 'images': [{'ref': str, 'base64': str, 'ext': str}]}
             ],
-            'page_count': int,
+            'page_count': int,        # pages actually extracted (what gets billed)
+            'total_page_count': int,  # pages in the PDF
+            'page_selection': {...},  # what was read / left out, for the preview
             'all_text': str,  # concatenated text for AI
         }
     """
     import fitz  # PyMuPDF
 
+    from worksheets.page_selection import parse_page_selection, selection_summary
+
     pdf_bytes = pdf_file.read()
     doc = fitz.open(stream=pdf_bytes, filetype='pdf')
+
+    total_pages = len(doc)
+    selected = parse_page_selection(page_selection, total_pages)
+    summary = selection_summary(page_selection, selected, total_pages)
 
     pages = []
     all_text_parts = []
 
-    for page_num in range(len(doc)):
+    for page_num in (p - 1 for p in selected):
         page = doc[page_num]
         text = page.get_text('text')
         all_text_parts.append(text)
@@ -138,6 +297,14 @@ def extract_pdf_content(pdf_file):
                     'ref': ref,
                     'base64': base64.b64encode(img_bytes).decode('utf-8'),
                     'ext': ext,
+                    # Where this image sits on the page — lets the classifier map a
+                    # question to the figure in the matching region instead of
+                    # guessing between look-alike diagrams. May be None.
+                    'bbox_pct': _embedded_image_bbox_pct(page, xref),
+                    # Whether it looks like a decorative photo/illustration rather
+                    # than a maths line-figure — surfaced to the model so it isn't
+                    # attached in place of a question's real diagram.
+                    'photo_like': _looks_photographic(img_bytes),
                 })
 
         # Render the full page as a screenshot (captures tables, charts, diagrams).
@@ -164,6 +331,8 @@ def extract_pdf_content(pdf_file):
     return {
         'pages': pages,
         'page_count': len(pages),
+        'total_page_count': total_pages,
+        'page_selection': summary,
         'all_text': '\n\n--- Page Break ---\n\n'.join(all_text_parts),
     }
 
@@ -198,16 +367,23 @@ Your task:
    as text (see IMAGE NECESSITY below). When a visual IS needed, attach it in ONE of two ways:
    a. If the visual IS one of the embedded images listed in the input (e.g. "page1_img1.png"),
       set image_ref to that reference and leave image_page/image_box null. Only use embedded
-      image refs — never full-page screenshots.
+      image refs — never full-page screenshots. Pick the RIGHT ref by POSITION (see
+      MATCHING THE RIGHT IMAGE below), not by how the figure looks.
    b. If the visual is DRAWN into the page and has no embedded image reference (most shapes,
       geometry figures and number lines are like this), leave image_ref null and instead set
       image_page to the page it is on and image_box to its bounding box as percentages of that
-      page (see the image_box field description). Box the figure tightly.
+      page (see the image_box field description). Box THIS question's own figure tightly —
+      never a neighbouring question's figure, the question text, or the answer options.
    Do NOT invent or reuse an embedded image_ref that does not actually depict this question's
    visual — if no embedded image matches but a visual is genuinely needed, use approach (b).
    If a question has no visual, leave image_ref, image_page, and image_box all null.
 4. Do NOT embed table/chart data as text in the question — keep question_text concise and
    reference the image instead when the question depends on a visual.
+5. Set source_page on EVERY question to the 1-based page number it appears on (the page whose
+   screenshot shows it). This is separate from image_page — source_page is always the question's
+   own page and is required even for text-only questions that carry no figure, while image_page
+   is only for a drawn figure's bounding box. The answer verifier uses it to pull up the right
+   page, and the review editor opens the crop tool on it.
 
 IMAGE NECESSITY (important — most questions need NO image):
 - Set image_ref to null whenever the question can be fully understood and answered from text alone
@@ -220,6 +396,67 @@ IMAGE NECESSITY (important — most questions need NO image):
 - If a graphic only shows HOW to lay out the working (long-division "bus stop" bracket, stacked
   column arithmetic), transcribe it into the structured fields/text below and set image_ref to null.
 - When unsure, prefer NO image. A wrongly-attached image is worse than none.
+- BUT when the question TEXT itself explicitly points at a figure it depends on — "the diagram
+  shows…", "the plan of…", "this shape", "the shape below", "the graph/table/spinner shown",
+  "use the diagram", or any answer that cannot be worked out without seeing it (e.g. "find the area
+  of this shape", "what is the shaded angle shown") — you MUST attach that figure: an embedded
+  image_ref if one matches, otherwise image_page + image_box for the drawn figure. Do NOT leave such
+  a question imageless. This is the ONE case where you must not default to null: the "prefer NO
+  image" rule above is for questions whose text does NOT reference a figure. If the referenced
+  figure is drawn into the page (an L-shaped plan, a shape on a grid, a spinner, a number line,
+  a data TABLE), box it with image_page + image_box even though it has no embedded image_ref.
+  The referenced figure is ALWAYS on the SAME page as the question — set image_page to the
+  question's own page (its source_page) and box the figure THERE. NEVER box or attach a figure
+  from a different page; if you cannot find the referenced figure on the question's own page,
+  leave the question with no image rather than grabbing a figure from elsewhere.
+- A page that is a GRID or ROW of small labelled diagrams — e.g. right-angled triangles labelled
+  a, b, c, … each drawn with its own side lengths and angles, or a set of shapes/graphs one per
+  part — is MANY separate questions, one per diagram, NOT one question. For EACH labelled diagram
+  create its own question and attach THAT diagram with image_page + image_box (box just the one
+  diagram and its labels, excluding the neighbours). These bare geometry prompts ("Find x", "Find
+  the angle θ", "Find all unknown sides and angles") are unanswerable without their triangle, so
+  the figure is mandatory — never emit such a question with no image because the page held a whole
+  grid of them. The triangles are drawn as vector lines (no embedded image_ref), so you must box
+  them with image_page + image_box.
+
+MATCHING THE RIGHT IMAGE TO EACH QUESTION (important — this is the #1 cause of wrong figures):
+- Every embedded image is listed with its POSITION on the page: its x/y bounding box in
+  percentages plus a region hint like "top-left" or "bottom-right", and its size.
+- When a page holds several similar-looking figures (a 2x2 grid of angle diagrams, a row of
+  shapes, etc.) do NOT decide which is which from appearance — the diagrams look alike and you
+  WILL mismatch them. Map by POSITION: a question's figure sits in the same region of the page
+  as that question's number and text, almost always directly below or beside it.
+- So: locate where the question's own text/number is on the page, then attach the embedded image
+  whose box is in that same region. Question 1 (top-left) → the top-left image; question 4
+  (bottom-right) → the bottom-right image; and so on.
+- Never attach a figure whose region does not match the question's region. Each distinct figure
+  belongs to exactly one question — EXCEPT for a group of consecutive questions that genuinely share
+  ONE visual (see GROUP QUESTIONS SHARING ONE IMAGE below).
+- Ignore images flagged "small — likely a decorative marker" (angle arcs / right-angle squares)
+  and any flagged "covers the whole page" (a scanned page or poster background) when choosing a
+  question's figure — neither is that question's diagram. Pick the main figure for the region.
+- An image flagged "looks like a photo / decorative illustration" is almost never a maths
+  question's figure (it is clip-art, a header picture, or a decorative drawing). Do NOT attach it
+  in place of a real diagram — if the question needs a diagram that is DRAWN into the page (a
+  shape, geometry figure, number line, angle-turn figure), use approach (b) with image_page +
+  image_box instead. Attach a photo-flagged image ONLY when the question genuinely depends on
+  interpreting that photograph / picture.
+- If two candidate images share a region, prefer the larger one (the full diagram) and the one
+  directly adjacent to the question text.
+
+GROUP QUESTIONS SHARING ONE IMAGE (important):
+- Sometimes several CONSECUTIVE questions all refer to the SAME single visual — e.g. a heading like
+  "Use the diagram below to answer questions 3–6", or a graph/table/figure followed by several
+  questions about it. Treat these as an image group.
+- Attach the shared visual to the FIRST question of the group only, the normal way (image_ref if it
+  is an embedded image, otherwise image_page + image_box). That first question must have
+  shares_image_with_previous null/false.
+- For every FOLLOWING question in the same group, set shares_image_with_previous to true and leave
+  image_ref, image_page and image_box all null — the shared image is carried over from the previous
+  question automatically. Do NOT re-box or re-reference the same figure on each question.
+- This applies ONLY to a consecutive run of questions on the SAME visual. Do NOT set
+  shares_image_with_previous for scattered questions that merely happen to look alike or sit near
+  similar figures — only for a true shared-image group.
 
 SPLIT MULTI-PART QUESTIONS (important):
 - When a single question contains multiple sub-parts labelled a), b), c) (or i, ii, iii / 1, 2, 3),
@@ -234,6 +471,14 @@ SPLIT MULTI-PART QUESTIONS (important):
 - Match each sub-part to its own answer. Never produce an answer like "a) 5y b) 4xy c) 14pq".
 - Only keep parts together when they genuinely cannot be answered independently (e.g. part b
   explicitly depends on the result of part a); in that rare case, note the dependency in the text.
+
+QUESTION NUMBERING (important):
+- question_text is the QUESTION ONLY. Do NOT copy the worksheet's question number or section
+  label into it. Strip any leading enumeration such as "Question 5", "Question 5 e)", "Q154",
+  "5.", "5)", "a)", "(iii)", "PART C:", "Section B", or "Exercise 3:" — start question_text at
+  the first word of the actual question.
+- Keep the shared instruction/stem (see SPLIT MULTI-PART) — remove only the numbering/label,
+  never the wording a student needs to answer.
 
 QUESTION TYPE RULES (important):
 - If a problem is presented VERTICALLY / STACKED — numbers written one above another with an
@@ -261,7 +506,13 @@ QUESTION TYPE RULES (important):
 - If the correct answer contains TEXT or WORDS (e.g. "Day 3 had the most sales", "True", "Red"),
   use question_type "multiple_choice" and generate 3-4 plausible wrong answers alongside the correct one.
 - For true/false questions, use "true_false" type.
-- For fill-in-the-blank, use "fill_blank" type.
+- For fill-in-the-blank, use "fill_blank" type. Mark EVERY gap in question_text with three
+  underscores "___" — that is how the app finds the gaps and lays an input into each one — and
+  keep the rest of the sentence exactly as printed. Give the answers as ONE answer entry whose
+  text lists the gaps in order separated by "; " (e.g. "15; live"), or as one answer entry per
+  gap in gap order. Where a gap accepts more than one wording, separate the alternatives with
+  "|" inside that gap's value (e.g. "15; live|survive"). A sentence with several gaps must NOT
+  be typed "short_answer" — one box for a whole sentence cannot be graded.
 - If the question shows a BLANK Cartesian plane (numbered x/y axes, four quadrants) and asks the
   student to PLOT given coordinates, use "plot_points". Put the visible axis range in
   plane_spec.bounds, set mode "points", and put the coordinates to plot in plane_spec.target.points
@@ -269,14 +520,63 @@ QUESTION TYPE RULES (important):
 - If it asks the student to PLOT points AND JOIN them into a line/shape, use "plot_line": mode
   "segments" and plane_spec.target.segments as a list of {"x1","y1","x2","y2"} for the joined line
   (consecutive points). Do NOT generate answers.
-- If a point (or points) is ALREADY PLOTTED on the plane and the student must WRITE the coordinates,
-  use "identify_coords": mode "points", put the plotted point(s) in BOTH plane_spec.given_points
-  (so they are drawn) and plane_spec.target.points (the answer). Do NOT generate answers.
+- If the student must WRITE coordinates rather than plot them, use "identify_coords": mode "points",
+  plane_spec.target.points = the coordinates the student must write (the ANSWER). plane_spec.given_points
+  is what is DRAWN on the plane for them to read, and the two are NOT always the same:
+  * "Write down the co-ordinates of the point P shown" — P is both drawn and the answer, so it goes in
+    given_points AND target.points.
+  * "A is (2,2), B is (8,2), C is (5,8). D is the mid point of AB. Write down the co-ordinates of D" —
+    the answer D is DERIVED. Put A, B and C in given_points and D in target.points ONLY.
+    Never put a derived answer in given_points: drawing it hands the child the answer.
+  NAME the given points whenever the question does, as [x, y, "A"] — a question about "the line AB"
+  cannot be read off a grid of unlabelled dots. Do NOT generate answers.
 - If the question shows a PRE-DRAWN line graph (e.g. distance-vs-time) and asks the student to READ a
   value off it, use "read_graph". Set numeric_answer to the value to read, answer_tolerance to a
   sensible ± band, and answer_unit to the axis unit. Keep the graph image (set image_page/image_box
   so the original graph is attached). Only add graph_spec if you can read the plotted series points
   confidently; otherwise omit it. Do NOT generate answers.
+- If the student must MEASURE a drawn figure and write the value — read an ANGLE with a protractor, a
+  length with a ruler, or a value off a marked scale/dial — use "measure". Set numeric_answer to the
+  true value, answer_tolerance to a sensible ± band (e.g. 2 for an angle), and answer_unit to the unit
+  ("°" for angles, "cm"/"mm" for lengths). For an ANGLE the app draws a true-to-scale figure, so do NOT
+  attach an image; for a length/scale the pupil measures the picture, so keep it. Do NOT generate answers.
+- If the question shows a SET of 2D shapes — a row, grid or scatter — and asks the student to
+  find, colour, tick or circle every shape of ONE kind ("Colour all the triangles", "Tick each
+  rectangle"), use "shape_select" and set shape_target_type to that kind (triangle, circle,
+  square, rectangle, ellipse or rhombus). Attach the picture (image_page/image_box) around the
+  WHOLE set of shapes — every shape the question covers. Do NOT describe the shapes, their
+  positions or their outlines: the app TRACES them from the picture you box. Do NOT generate
+  answers. NOT this type: "name this shape" (one shape — multiple choice), "how many triangles
+  are there?" (a count — short answer), or "draw a triangle".
+- If the question asks the student to break a number into its PRIME FACTORS — "write 60 as a
+  product of its prime factors", "find the prime factorisation of 84", a factor tree or ladder
+  drawn around a starting number — use "prime_factorization" and set target_number to the number
+  being factorised. Set question_text to the instruction ("Write 60 as a product of its prime
+  factors"). The app draws the ladder, so do NOT attach an image, and the answer is computed from
+  target_number — do NOT generate answers. NOT this type: "list the factors of 24" (every factor,
+  not just the primes), "is 17 prime?", or "find the HCF of 24 and 60".
+- If the question gives an EQUATION and asks the student to SKETCH/DRAW its graph AND to show
+  named features of it — "Sketch the graph of y = x² + x - 2 showing the coordinates of the vertex,
+  x-axis and y-axis intercepts and equation of the axis of symmetry", "Sketch the parabola
+  y = x² - 3x - 4 on the axes provided showing clearly: the y-intercept, the x-intercepts, the
+  vertex" — use "sketch_graph" and fill sketch_spec. The student plots the curve on the plane the
+  app draws and types the NAMED FEATURES; both are marked. equation = the function as printed;
+  bounds = the axis range of the grid on the sheet, widened if needed so every feature fits;
+  curve = the EXPANDED coefficients, ALWAYS given — they are what the sketch the student draws is
+  marked against (y = 2(x+1)² - 4 is a=2, b=4, c=-2; y = -(x-3)(x+1) is
+  a=-1, b=2, c=3); features = ONLY what the question asks for, in its order, each worked out from
+  the equation and CHECKED — vertex (-b/2a and the y there), x_intercept (every root of y = 0;
+  omit the feature if there are none), y_intercept (x = 0), axis_of_symmetry (the vertex's x).
+  Values are decimals, not grid squares. The app draws the plane, so do NOT attach an image.
+  Do NOT generate answers. A bare "sketch the graph" with no features named is NOT this type —
+  there is nothing to type, so leave it as a teacher-graded drawing.
+- If the question shows (or asks the student to draw/use) a horizontal NUMBER LINE and the task is to
+  MARK a value on it or READ the value an arrow points to, use "number_line" and fill number_line_spec.
+  Set min/max to the scale's end values and step to the tick interval (usually 1). Use mode "mark" when
+  the student must place/mark value(s) ("mark 5 on the number line", "draw a number line from -3 to 7
+  and show 2") — put the value(s) in target. Use mode "read" when an arrow is already drawn and the
+  student reads its value — put the marked position(s) in given. Every target/given value must land on a
+  tick. The app draws the line, so do NOT attach an image. Do NOT generate answers.
 
 ANSWER BLANK FORMATTING (important):
 - When a question is an equation where the student fills in a missing value, ALWAYS represent
@@ -290,6 +590,26 @@ ANSWER BLANK FORMATTING (important):
 
 For difficulty, use: 1 (Easy), 2 (Medium), 3 (Hard)
 
+ANGLE-RELATIONSHIP QUESTIONS — DO NOT NAME THE PAIR YOURSELF (important):
+When a figure shows two parallel lines cut by a transversal and asks you to LABEL a marked
+pair of angles (corresponding, alternate interior / alt. int., alternate exterior / alt. ext.,
+or consecutive interior / co-interior), you are UNRELIABLE at naming it directly — so DON'T.
+Instead PERCEIVE the geometry and let the app compute the answer:
+- Keep question_type "multiple_choice" and still list the options shown (all four standard
+  labels when present). You do NOT need to tick the correct one — the app derives it from the
+  spec below and overrides is_correct.
+- Fill angle_relationship_spec (see its schema): the TWO parallel lines, the SINGLE transversal,
+  and the printed position of each marked angle's letter (x, y, ...), all as page-percentage
+  [x, y] coordinates.
+- Read those positions CAREFULLY off the figure — the whole answer hinges on whether each letter
+  sits BETWEEN the two lines (interior) or OUTSIDE them (exterior), and on which SIDE of the
+  transversal it lies. Do not approximate loosely; a letter above the top line or below the
+  bottom line is exterior.
+- If the figure has MORE THAN ONE transversal, or the two marked angles are not on the same
+  transversal cutting the same pair of parallel lines, the standard labels do NOT apply: leave
+  angle_relationship_spec null, set needs_review=true with a short review_reason, and do not
+  force a label.
+
 ACCURACY — VERIFY EVERY ANSWER BEFORE RETURNING IT:
 Do NOT guess answers. Re-derive each answer from the numbers and figures actually
 shown in the question, then check it.
@@ -301,6 +621,11 @@ shown in the question, then check it.
   recompute until it is.
 - The explanation must describe the SAME numbers as the answer. Never let the answer and
   the explanation disagree with each other or with the figure.
+- The explanation must be CLEAN and FINAL: do your working silently and write only the
+  verified conclusion. Never leave scratch work, self-corrections, or "wait, let me redo
+  this" notes in it. For multiple choice, the option you mark is_correct MUST be the exact
+  option the explanation concludes is right — if the explanation ends up favouring a
+  different option, change which option is ticked, not the explanation.
 - If you cannot determine the correct answer with confidence, leave the answer text empty
   rather than inventing one.
 
@@ -340,7 +665,7 @@ CLASSIFICATION_TOOL = {
                         "question_text": {"type": "string"},
                         "question_type": {
                             "type": "string",
-                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division", "plot_points", "plot_line", "identify_coords", "read_graph"],
+                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division", "plot_points", "plot_line", "identify_coords", "read_graph", "measure", "number_line", "sketch_graph", "prime_factorization", "shape_select"],
                         },
                         "plane_spec": {
                             "type": "object",
@@ -349,7 +674,9 @@ CLASSIFICATION_TOOL = {
                                 "plane. bounds = the visible axis range; mode 'points' for plotting/identifying "
                                 "dots, 'segments' for a line/shape to join; target = the correct answer "
                                 "(points OR segments) in SIGNED integer coords; given_points = points already "
-                                "drawn on the plane (used by identify_coords so the student reads them)."
+                                "drawn on the plane for the student to read — [x, y], or [x, y, \"A\"] to "
+                                "NAME the point when the question does. A DERIVED answer (a mid point, an "
+                                "intersection) belongs in target only, never in given_points."
                             ),
                             "properties": {
                                 "bounds": {
@@ -360,7 +687,9 @@ CLASSIFICATION_TOOL = {
                                     },
                                 },
                                 "mode": {"type": "string", "enum": ["points", "segments"]},
-                                "given_points": {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}},
+                                # [x, y] or [x, y, "A"] — mixed item types, so the schema
+                                # cannot pin one. Constrained by validate_plane_spec instead.
+                                "given_points": {"type": "array", "items": {"type": "array"}},
                                 "target": {"type": "object"},
                             },
                         },
@@ -373,17 +702,109 @@ CLASSIFICATION_TOOL = {
                                 "it and the original graph image is kept instead."
                             ),
                         },
+                        "number_line_spec": {
+                            "type": "object",
+                            "description": (
+                                "For number_line only — a horizontal number line. min/max = the "
+                                "scale's end values; step = the tick interval (default 1); mode 'mark' "
+                                "(app draws the blank scale, student marks value(s)) or 'read' (app "
+                                "draws marker arrow(s) at 'given' positions, student types the value(s)); "
+                                "target = correct value(s) to mark/read (each landing on a tick); given = "
+                                "value(s) already marked with an arrow (read mode). The app draws the line."
+                            ),
+                        },
+                        "shape_target_type": {
+                            "type": "string",
+                            "enum": ["triangle", "circle", "square", "rectangle",
+                                     "ellipse", "rhombus"],
+                            "description": (
+                                "For shape_select only: WHICH kind of shape the question asks "
+                                "the student to find/colour. Give only this — never the shapes' "
+                                "positions or outlines; the app traces those from the picture."
+                            ),
+                        },
+                        "target_number": {
+                            "type": "integer",
+                            "description": (
+                                "For prime_factorization only: the number to break into its "
+                                "prime factors, e.g. 60. The app draws the factor ladder and "
+                                "computes the answer itself."
+                            ),
+                        },
+                        "sketch_spec": {
+                            "type": "object",
+                            "description": (
+                                "For sketch_graph only — a 'sketch the graph showing the vertex / "
+                                "intercepts / axis of symmetry' question. equation = the function as "
+                                "printed (\"y = x^2 + x - 2\"); bounds = the integer axis range of the "
+                                "grid printed on the sheet {xmin, xmax, ymin, ymax}, wide enough to "
+                                "contain every feature; curve = the EXPANDED coefficients — always "
+                                "give them, they are what the sketch the student draws is marked "
+                                "against — {\"type\": \"quadratic\", \"a\", \"b\", \"c\"} or "
+                                "{\"type\": \"linear\", \"m\", \"c\"}; features = ONLY the features this "
+                                "question asks the student to show, in its order — "
+                                "{\"kind\": \"vertex\", \"points\": [[x, y]]}, "
+                                "{\"kind\": \"x_intercept\", \"points\": [[x, 0], ...]}, "
+                                "{\"kind\": \"y_intercept\", \"points\": [[0, y]]}, "
+                                "{\"kind\": \"axis_of_symmetry\", \"value\": x}. Coordinates are DECIMALS: "
+                                "the vertex of y = x^2 + x - 2 is (-0.5, -2.25). The app draws the plane."
+                            ),
+                        },
+                        "angle_relationship_spec": {
+                            "type": "object",
+                            "description": (
+                                "For 'label the marked pair of angles' questions ONLY (corresponding / "
+                                "alternate interior / alternate exterior / consecutive interior). Do NOT "
+                                "name the pair yourself — the app computes the correct option from this "
+                                "geometry and overrides is_correct. Coordinates are page percentages "
+                                "[x, y] (0-100, origin top-left). lines = the TWO parallel lines, each "
+                                "{p1, p2}; transversal = the SINGLE crossing line {p1, p2}; angles = the "
+                                "two MARKED angles, each {label, pos} where pos is where that angle's "
+                                "letter is printed. Leave null (and set needs_review) when the figure has "
+                                "more than one transversal or the two marked angles are not on the same "
+                                "transversal cutting the same pair of lines."
+                            ),
+                            "properties": {
+                                "lines": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "p1": {"type": "array", "items": {"type": "number"}},
+                                            "p2": {"type": "array", "items": {"type": "number"}},
+                                        },
+                                    },
+                                },
+                                "transversal": {
+                                    "type": "object",
+                                    "properties": {
+                                        "p1": {"type": "array", "items": {"type": "number"}},
+                                        "p2": {"type": "array", "items": {"type": "number"}},
+                                    },
+                                },
+                                "angles": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {"type": "string"},
+                                            "pos": {"type": "array", "items": {"type": "number"}},
+                                        },
+                                    },
+                                },
+                            },
+                        },
                         "numeric_answer": {
                             "type": "number",
-                            "description": "For read_graph only: the value the student should read off the graph.",
+                            "description": "For read_graph and measure: the value to read off / measure (e.g. 135 for a 135° angle).",
                         },
                         "answer_tolerance": {
                             "type": "number",
-                            "description": "For read_graph only: accepted ± band around numeric_answer (e.g. 5). Omit for exact.",
+                            "description": "For read_graph and measure: accepted ± band around numeric_answer (e.g. 2). Omit for exact.",
                         },
                         "answer_unit": {
                             "type": "string",
-                            "description": "For read_graph only: unit shown after the answer box, e.g. 'km', 'min', '°'.",
+                            "description": "For read_graph and measure: unit shown after the answer box, e.g. '°', 'cm', 'km', 'min'.",
                         },
                         "operands": {
                             "type": "array",
@@ -403,9 +824,51 @@ CLASSIFICATION_TOOL = {
                             "type": "integer",
                             "description": "For long_division only: the number dividing (outside/left of the bar), e.g. 47.",
                         },
+                        "validation_type": {
+                            "type": "string",
+                            "enum": ["auto", "human_graded"],
+                            "description": (
+                                "How this answer is marked. auto = the system checks it (the "
+                                "default, and right for nearly everything). human_graded = a "
+                                "teacher marks it on paper, REQUIRED when the answer is a DRAWING "
+                                "the app cannot accept: draw a tree or Venn diagram, illustrate "
+                                "sets on a Venn diagram, represent data in a pie chart or bar "
+                                "graph, sketch a curve, a compass construction, a shaded region. "
+                                "A student cannot draw anything here, so do not invent a typed "
+                                "answer for one of these — mark it human_graded and describe the "
+                                "expected drawing in grading_rubric. Number lines, Cartesian "
+                                "plots, long division and column sums are the exception: the app "
+                                "draws those answer surfaces, so keep them auto."
+                            ),
+                        },
+                        "grading_rubric": {
+                            "type": "string",
+                            "description": (
+                                "For human_graded only: what the finished drawing must show, so "
+                                "the teacher can mark it. Leave empty otherwise."
+                            ),
+                        },
                         "difficulty": {"type": "integer", "enum": [1, 2, 3]},
                         "points": {"type": "integer", "default": 1},
                         "explanation": {"type": "string", "description": "Brief explanation of the answer"},
+                        "needs_review": {
+                            "type": "boolean",
+                            "description": (
+                                "Set true when this question's answer could NOT be determined with "
+                                "confidence and a teacher should double-check it before use — e.g. an "
+                                "angle-relationship figure with multiple transversals, an unreadable or "
+                                "ambiguous diagram, or a pair with no standard name. Prefer flagging over "
+                                "guessing."
+                            ),
+                        },
+                        "review_reason": {
+                            "type": "string",
+                            "description": "When needs_review is true, one short sentence on what is uncertain.",
+                        },
+                        "source_page": {
+                            "type": "integer",
+                            "description": "1-based page number on which this question appears (the page whose screenshot shows it). Set this for EVERY question — it lets the answer verifier pull up the exact page.",
+                        },
                         "image_ref": {
                             "type": "string",
                             "description": "Reference to an EMBEDDED image (e.g. page1_img1.png) listed in the input. Set only when the question's visual is one of those embedded images. Null otherwise.",
@@ -423,6 +886,21 @@ CLASSIFICATION_TOOL = {
                                 "x2": {"type": "number"},
                                 "y2": {"type": "number"},
                             },
+                        },
+                        "shares_image_with_previous": {
+                            "type": "boolean",
+                            "description": (
+                                "Set true ONLY when this question belongs to a GROUP that shares ONE "
+                                "visual with the question IMMEDIATELY BEFORE it — e.g. 'Use the diagram "
+                                "below to answer questions 3–6', or several sub-questions hanging off a "
+                                "single shared graph/table/figure. When true, leave image_ref, image_page "
+                                "and image_box all null: the shared image is carried over from the "
+                                "previous question automatically. The FIRST question in the group still "
+                                "carries the image normally (image_ref OR image_page+image_box) and must "
+                                "have shares_image_with_previous false/null. Only use this for a "
+                                "consecutive run of questions on the SAME shared visual — never for "
+                                "unrelated questions that merely happen to look similar."
+                            ),
                         },
                         "year_level": {
                             "type": "integer",
@@ -452,7 +930,7 @@ CLASSIFICATION_TOOL = {
                             },
                         },
                     },
-                    "required": ["question_text", "question_type", "difficulty", "answers"],
+                    "required": ["question_text", "question_type", "difficulty", "answers", "source_page"],
                 },
             },
         },
@@ -480,6 +958,65 @@ def _normalize_answer_blank(question_text):
         # Keep any leading whitespace, insert the blank, then a space before the "=".
         return _LEADING_EQUALS_RE.sub(r'\1______ =', question_text, count=1)
     return question_text
+
+
+# Leading "question number" / section labels the model sometimes copies verbatim
+# from a worksheet into question_text, e.g. "Question 5 e)", "Q154", "PART C:",
+# "Section B", "5)", "a)", "(iii)". These are enumeration, not part of the actual
+# question. The trailing (?=\s|$) after each label prevents clobbering real words
+# that merely start the same way ("No cars…", "Problems arise…", "A cat…").
+_QUESTION_LABEL_RE = re.compile(
+    r"""
+    ^\s*
+    (?:
+        # Abbreviations clamped onto a number: Q7, Q154, No. 5, #5, Prob 3
+        (?:q|qn|no|prob)\.?\s*\#?\s*\d+
+        (?:\s*[a-z]\s*[.)])?          # optional sub-part e.g. " e)"
+        \s*[.):\-]?                   # optional trailing punctuation
+      |
+        # Full word + separator + standalone identifier: Question 5, PART C:, Section B:
+        (?:question|part|section|exercise|problem)
+        [\s.:\#\-]+
+        (?:
+            \d+ (?:\s*[a-z]\s*[.)])?  # number, optional " e)" sub-part
+          | [a-z] \s* [.):]           # a single letter must end in . ) or : so a
+                                      # following article ("Problem: A train") is safe
+        )
+        \s*[.):\-]?                   # optional trailing punctuation
+      |
+        \d{1,3}\s*[.):]              # bare number label: 5. 5) 5:
+      |
+        \(\s*[a-z0-9]{1,4}\s*\)      # bracketed label: (a) (iii) (5)
+      |
+        [a-z]\s*\)                   # single-letter label: a)
+    )
+    (?=\s|$)
+    \s*
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _strip_question_label(question_text):
+    """Remove a leading question-number / section label from question_text.
+
+    Worksheets prefix questions with enumeration ("Question 5 e)", "Q154",
+    "PART C:", "5)", "a)") that the model sometimes copies into question_text.
+    That prefix is not part of the question itself, so drop it. Conservative and
+    idempotent: only a recognised leading label is removed, and if stripping would
+    empty the text the original is kept.
+    """
+    if not question_text:
+        return question_text
+    text = question_text
+    # A question may carry more than one stacked label ("5. a) ..."). Strip a few,
+    # but stop as soon as nothing matches or the text would be emptied.
+    for _ in range(3):
+        stripped = _QUESTION_LABEL_RE.sub('', text, count=1)
+        if stripped == text or not stripped.strip():
+            break
+        text = stripped
+    return text if text.strip() else question_text
 
 
 def _classify_page_batch(client, system_prompt, pages, total_page_count):
@@ -533,7 +1070,9 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
             })
             content_blocks.append({
                 "type": "text",
-                "text": f"[Embedded image: {img['ref']}]",
+                "text": _embedded_image_label(
+                    img['ref'], page['page_num'], img.get('bbox_pct'),
+                    img.get('photo_like', False)),
             })
 
     content_blocks.append({
@@ -545,13 +1084,13 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
     # read timeout (anthropic.APITimeoutError). get_final_message() returns the
     # same Message a non-streaming create() would.
     #
-    # Default to Opus (far stronger arithmetic — it reliably solves the
-    # missing-digit / worked-solution questions that Sonnet 4 guessed wrong) with
-    # adaptive thinking so it works each computation out before answering. Override
-    # the model via AI_IMPORT_MODEL (must be a model that supports adaptive
-    # thinking — Opus/Sonnet 4.6+).
+    # Default to Opus (far stronger arithmetic and vision — it reliably solves the
+    # missing-digit / worked-solution questions that Sonnet 4 guessed wrong, and
+    # reads diagrams more reliably) with adaptive thinking so it works each
+    # computation out before answering. Override the model via AI_IMPORT_MODEL
+    # (must be a model that supports adaptive thinking — Opus/Sonnet 4.6+).
     with client.messages.stream(
-        model=os.environ.get('AI_IMPORT_MODEL', 'claude-opus-4-8'),
+        model=os.environ.get('AI_IMPORT_MODEL', 'claude-opus-5'),
         # Generous cap so a question-dense / multi-page PDF doesn't get its
         # extracted-question list truncated (override via AI_IMPORT_MAX_TOKENS).
         max_tokens=int(os.environ.get('AI_IMPORT_MAX_TOKENS', '32000')),
@@ -580,6 +1119,14 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
                     pass
 
     if not result:
+        # A safety refusal (stop_reason "refusal") returns no tool_use and no
+        # parseable text — surface it clearly instead of the generic message so a
+        # blocked document is distinguishable from a parse failure.
+        if getattr(response, 'stop_reason', None) == 'refusal':
+            raise ValueError(
+                "The AI declined to process this document (content safety). "
+                "Please review the PDF and try again."
+            )
         raise ValueError("AI did not return structured question data. Please try again.")
 
     result['usage'] = {
@@ -588,6 +1135,66 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
         'total_tokens': response.usage.input_tokens + response.usage.output_tokens,
     }
     return result
+
+
+def _apply_computed_angle_answer(q):
+    """Derive an angle-relationship question's correct option from its geometry.
+
+    For "label the marked pair of angles" questions the model fills
+    ``angle_relationship_spec`` (line/transversal/label positions) but does NOT
+    name the pair — naming proved unreliable. Here we compute the label
+    deterministically, tick the matching multiple-choice option (overriding the
+    model's is_correct guesses), and rewrite the explanation so it can never
+    contradict the answer.
+
+    Anything the geometry can't resolve — a malformed spec, an ambiguous mark, a
+    multi-transversal figure the model flagged, or a pair with no standard name —
+    sets ``needs_review`` so the teacher checks it in preview rather than a wrong
+    answer being saved silently. Mutates ``q`` in place; no-op when there is no
+    spec.
+    """
+    spec = q.get('angle_relationship_spec')
+    if not spec:
+        return
+
+    from maths.angle_relationship import (
+        build_explanation, canonical_label, classify_angle_pair,
+    )
+
+    try:
+        result = classify_angle_pair(spec)
+    except ValueError as exc:
+        q['needs_review'] = True
+        q['review_reason'] = f'angle diagram could not be read: {exc}'
+        return
+
+    if result['needs_review']:
+        q['needs_review'] = True
+        q['review_reason'] = result['reason']
+        return
+
+    label = result['label']
+    answers = q.get('answers') or []
+    matched = False
+    for ans in answers:
+        is_match = canonical_label(ans.get('text')) == label
+        ans['is_correct'] = is_match
+        matched = matched or is_match
+
+    if not matched:
+        # The computed answer isn't among the extracted options — add it rather
+        # than lose it, and flag so the teacher can fix the option list.
+        answers.append({'text': label, 'is_correct': True})
+        q['answers'] = answers
+        q['needs_review'] = True
+        q['review_reason'] = (
+            f'computed answer "{label}" was not among the extracted options; '
+            'added it — please verify the options.'
+        )
+
+    explanation = build_explanation(result)
+    if explanation:
+        q['explanation'] = explanation
 
 
 def classify_questions(extracted_content, existing_topics, existing_levels):
@@ -618,7 +1225,10 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
     system_prompt = _build_classification_prompt(existing_topics, existing_levels)
 
     pages = extracted_content.get('pages', [])
-    total = extracted_content.get('page_count', len(pages))
+    # Page labels are absolute, so quote the PDF's real length even when only
+    # some of its pages were selected for extraction.
+    total = (extracted_content.get('total_page_count')
+             or extracted_content.get('page_count', len(pages)))
     chunk_size = max(1, int(os.environ.get('AI_IMPORT_PAGE_CHUNK', '20')))
     batches = [pages[i:i + chunk_size] for i in range(0, len(pages), chunk_size)]
 
@@ -649,15 +1259,66 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
     if merged is None:
         raise ValueError("AI did not return structured question data. Please try again.")
 
-    # Safety net for ANSWER BLANK FORMATTING: ensure a missing left operand renders as a blank.
+    # Safety nets: strip any leading question-number/section label the model copied
+    # in, then ensure a missing left operand renders as a blank. Then, for
+    # angle-relationship figures, DERIVE the correct option from the model's
+    # perceived geometry instead of trusting the label it guessed.
     for q in merged.get('questions', []):
-        q['question_text'] = _normalize_answer_blank(q.get('question_text', ''))
+        q['question_text'] = _normalize_answer_blank(
+            _strip_question_label(q.get('question_text', ''))
+        )
+        _apply_computed_angle_answer(q)
 
     merged['usage'] = {
         'input_tokens': in_tok,
         'output_tokens': out_tok,
         'total_tokens': in_tok + out_tok,
     }
+
+    # Second opinion: an independent GPT verifier re-examines each question
+    # against its source-page screenshot — validating Claude's classification and
+    # answer and checking the transcription — and flags disagreements
+    # needs_review for the teacher. Best-effort and self-gating: a no-op when
+    # OPENAI_API_KEY isn't configured, and it never fails the import. Kept out of
+    # merged['usage'] (the Claude token ledger) because GPT is priced
+    # separately; reported under merged['verification'], from where
+    # ai_import.tasks records it as its own OpenAI row in the usage ledger so it
+    # reaches the finance dashboard (CPP-382).
+    page_images = {
+        p['page_num']: p['screenshot']
+        for p in pages
+        if p.get('page_num') is not None and p.get('screenshot')
+    }
+    from .verification import verify_answers, flag_visual_comparisons
+
+    # Deterministic guard first (no API): "which figure is larger / are they
+    # equal" questions are routed to review unconditionally. Both Claude and the
+    # GPT verifier read these coarse figures the same wrong way, so they agree on
+    # a wrong answer and the disagreement-based verifier below never catches it.
+    # Running this first also means those questions are already flagged, so the
+    # paid GPT pass skips them.
+    comparison_flags = flag_visual_comparisons(merged.get('questions', []))
+
+    # Questions whose answer is a DRAWING the app can't take — "draw a tree
+    # diagram", "illustrate on a Venn diagram". Shared with the worksheet and
+    # homework PDF uploads so all three imports agree on what a student can
+    # actually answer; without it these arrived here as auto-graded questions
+    # with an invented answer, marking a child wrong for not typing a picture.
+    from worksheets.services import route_constructions_to_teacher
+    routed = route_constructions_to_teacher(merged.get('questions'))
+    if routed:
+        logger.info(
+            '%s question(s) re-routed to human_graded: they ask the student to '
+            'draw something the app has no answer surface for.', routed)
+
+    verification = verify_answers(merged.get('questions', []), page_images=page_images)
+    if verification is not None:
+        verification['comparison_flags'] = comparison_flags
+        merged['verification'] = verification
+    elif comparison_flags:
+        # Verifier disabled (no OpenAI key) but the deterministic guard still ran.
+        merged['verification'] = {'comparison_flags': comparison_flags}
+
     return merged
 
 
@@ -732,16 +1393,42 @@ def _boxes_overlap(a, b):
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
+def _box_area(b):
+    return max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+
+
+def _overlap_area(a, b):
+    """Area of the intersection of two [x1, y1, x2, y2] boxes (0 if disjoint)."""
+    ox = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    oy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    return ox * oy
+
+
 def _snap_box_to_figures(box, regions):
     """Refine an AI figure box to the actual drawn-figure bounds.
 
     `box` and `regions` entries are [x1, y1, x2, y2] in percent of the page.
-    Returns the padded union of the drawing clusters that overlap `box` — this
-    both expands a too-tight box to include the whole figure and shrinks a
-    too-loose one back off neighbouring text. If no cluster overlaps, returns
+    Returns the padded union of the drawing clusters the box is genuinely aligned
+    with — this both expands a too-tight box to include the whole figure and
+    shrinks a too-loose one back off neighbouring text. If nothing aligns, returns
     `box` unchanged (the model's box is then the only signal we have).
+
+    A region is only unioned in when the box mostly covers it, or it mostly covers
+    the box. A region the box merely CLIPS at the edge — typically a neighbouring
+    question's figure in a 2x2 grid when the model drew a slightly-too-wide box —
+    is left out, so a crop never swallows the question next door.
     """
-    overlapping = [r for r in regions if _boxes_overlap(box, r)]
+    box_area = _box_area(box) or 1.0
+    overlapping = []
+    for r in regions:
+        ov = _overlap_area(box, r)
+        if ov <= 0:
+            continue
+        # Aligned when the smaller of {box, region} is at least half-covered by the
+        # overlap: box-inside-figure (too tight) and figure-inside-box (too loose /
+        # fragment) both pass; an edge-clipped neighbour does not.
+        if ov / (min(_box_area(r), box_area) or 1.0) >= 0.5:
+            overlapping.append(r)
     if not overlapping:
         return box
     pad = FIGURE_CROP_PAD_PCT
@@ -756,10 +1443,7 @@ def _snap_box_to_figures(box, regions):
     # (e.g. a number line into separate ticks), the overlapping pieces can be far
     # smaller than the real figure. If snapping would collapse the crop to a
     # sliver of the model's box, the detection is unreliable — trust the box.
-    def _area(b):
-        return max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
-
-    if _area(snapped) < 0.20 * _area(box):
+    if _box_area(snapped) < 0.20 * box_area:
         return box
     return snapped
 
@@ -810,97 +1494,261 @@ def crop_figure_boxes(extracted_content, result, pdf_bytes=None):
 
 
 def _crop_figure_boxes_inner(result, pages, crops, decoded, doc, Image, io):
+    # Track the image assigned to the immediately-preceding question so a group of
+    # consecutive questions that share ONE visual (e.g. "use the diagram below to
+    # answer questions 3–6") reuses that image instead of re-cropping it. prev_image
+    # is reset to None the moment a question ends up with no image, so "previous"
+    # only ever means the question directly before this one — never a scattered
+    # earlier figure.
+    prev_image = None
     for idx, q in enumerate(result.get('questions', []), 1):
-        # An embedded image already covers this question — prefer it (raster
-        # fidelity beats a screenshot crop).
-        if q.get('image_ref'):
-            q.pop('image_page', None)
+        shares = bool(q.pop('shares_image_with_previous', False))
+
+        # Explicit group signal, or an unflagged question that boxed essentially the
+        # same region as the previous question's crop (a shared figure the model
+        # re-boxed instead of flagging) → reuse the previous image verbatim.
+        if prev_image is not None and (
+                shares or _reuses_prev_figure(q, prev_image)):
             q.pop('image_box', None)
+            q.pop('image_page', None)
+            q['image_ref'] = prev_image['ref']
+            if prev_image.get('page') is not None:
+                q['image_page'] = prev_image['page']
+            if prev_image.get('bbox_frac') is not None:
+                q['image_bbox_frac'] = prev_image['bbox_frac']
+            # prev_image is unchanged so the whole group keeps sharing it.
             continue
 
-        box = q.get('image_box')
-        page_num = q.get('image_page')
-        # Clear the transient box fields regardless of outcome so they never
-        # get persisted on the session / shown in the editor.
-        q.pop('image_box', None)
-        q.pop('image_page', None)
-        if not box or not page_num:
-            continue
+        _assign_figure_to_question(q, idx, pages, crops, decoded, doc, Image, io)
 
-        try:
-            page = pages.get(int(page_num))
-            x1, y1 = float(box['x1']), float(box['y1'])
-            x2, y2 = float(box['x2']), float(box['y2'])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if not page or not page.get('screenshot'):
-            continue
-
-        # Normalise corner order and clamp to the page.
-        lo_x, hi_x = sorted((x1, x2))
-        lo_y, hi_y = sorted((y1, y2))
-        lo_x, hi_x = max(0.0, lo_x), min(100.0, hi_x)
-        lo_y, hi_y = max(0.0, lo_y), min(100.0, hi_y)
-
-        # Snap to the actual drawn-figure bounds when we detected vector clusters
-        # on the page — corrects boxes that clip the figure or grab adjacent text.
-        regions = page.get('figure_regions') or []
-        overlapping = [r for r in regions
-                       if _boxes_overlap([lo_x, lo_y, hi_x, hi_y], r)]
-        if overlapping:
-            lo_x, lo_y, hi_x, hi_y = _snap_box_to_figures(
-                [lo_x, lo_y, hi_x, hi_y], regions)
-        elif not page.get('images'):
-            # No detected figure cluster overlaps the box and there's no embedded
-            # raster image. The box may still cover a real figure that was filtered
-            # out of figure_regions (e.g. a page-sized diagram >80% area), so when
-            # the PDF is available confirm against the page's actual drawings and
-            # drop only when there is genuinely nothing drawn there (the model
-            # pointed at plain text — the "totally irrelevant image" failure mode).
-            has_drawing = _box_has_drawing(doc, int(page_num),
-                                           [lo_x, lo_y, hi_x, hi_y])
-            if has_drawing is False:
-                continue            # confirmed: no figure here → spurious text crop
-            if has_drawing is None and regions:
-                # No PDF to check; fall back to the cluster heuristic — figures
-                # exist on the page but none overlap the box → treat as spurious.
-                continue
-            # else: a real drawing (incl. large filtered figures) or unknown
-            # without regions → keep cropping.
-
-        if hi_x - lo_x < 1 or hi_y - lo_y < 1:
-            continue  # degenerate / empty box
-
-        img_bytes = None
-        # Prefer a crisp re-render straight from the PDF vectors at high DPI;
-        # falls back to cropping the 150-DPI screenshot when the PDF isn't
-        # available or the render fails.
-        if doc is not None:
-            img_bytes = _render_pdf_region(doc, int(page_num),
-                                           [lo_x, lo_y, hi_x, hi_y])
-        if img_bytes is None:
-            try:
-                img = decoded.get(int(page_num))
-                if img is None:
-                    img = Image.open(io.BytesIO(base64.b64decode(page['screenshot'])))
-                    decoded[int(page_num)] = img
-                w, h = img.size
-                crop = img.crop((
-                    int(lo_x / 100 * w), int(lo_y / 100 * h),
-                    int(hi_x / 100 * w), int(hi_y / 100 * h),
-                ))
-                buf = io.BytesIO()
-                crop.save(buf, format='PNG')
-                img_bytes = buf.getvalue()
-            except Exception:
-                # A bad box / unreadable screenshot shouldn't sink the whole import.
-                continue
-
-        ref = f'page{int(page_num)}_figure{idx}.png'
-        crops[ref] = base64.b64encode(img_bytes).decode('utf-8')
-        q['image_ref'] = ref
+        if q.get('image_ref'):
+            prev_image = {
+                'ref': q['image_ref'],
+                'page': q.get('image_page'),
+                'bbox_frac': q.get('image_bbox_frac'),
+            }
+        else:
+            # No image on this question breaks the run — a following
+            # shares_image_with_previous has nothing to carry over.
+            prev_image = None
 
     return crops
+
+
+def _reuses_prev_figure(q, prev_image):
+    """Safety net for group images the model boxed on every question instead of
+    setting shares_image_with_previous.
+
+    Returns True only when this question's drawn box sits on the same page as the
+    previous question's crop AND overlaps it almost completely (IoU ≥ 0.7) — a
+    strong signal it is the SAME shared figure, not a different figure that merely
+    sits nearby. Embedded-image refs and cross-page boxes never match here.
+    """
+    if not prev_image.get('bbox_frac') or prev_image.get('page') is None:
+        return False
+    box = q.get('image_box')
+    page_num = q.get('image_page')
+    if not box or page_num is None:
+        return False
+    try:
+        if int(page_num) != int(prev_image['page']):
+            return False
+        cur = [float(box['x1']) / 100, float(box['y1']) / 100,
+               float(box['x2']) / 100, float(box['y2']) / 100]
+    except (KeyError, TypeError, ValueError):
+        return False
+    return _frac_box_iou(cur, prev_image['bbox_frac']) >= 0.7
+
+
+def _frac_box_iou(a, b):
+    """Intersection-over-union of two [x1, y1, x2, y2] boxes (any shared unit)."""
+    ax1, ay1 = min(a[0], a[2]), min(a[1], a[3])
+    ax2, ay2 = max(a[0], a[2]), max(a[1], a[3])
+    bx1, by1 = min(b[0], b[2]), min(b[1], b[3])
+    bx2, by2 = max(b[0], b[2]), max(b[1], b[3])
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0.0, ix2 - ix1), max(0.0, iy2 - iy1)
+    inter = iw * ih
+    if inter <= 0:
+        return 0.0
+    union = (ax2 - ax1) * (ay2 - ay1) + (bx2 - bx1) * (by2 - by1) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _expand_box_for_clipped_labels(doc, page_num, box_pct,
+                                   max_grow=6.0, min_inside=0.35):
+    """Grow a crop box just enough to include text labels it clips at the edge.
+
+    A figure crop that slices through an axis number or a shape's side label loses
+    information the question needs. Using the PDF's own text layout, any word that
+    overlaps the box but is not fully inside it — and is *mostly* inside (at least
+    ``min_inside`` of its area), i.e. a label the box clips rather than a
+    neighbour's word merely touching the edge — is unioned into the box. Growth is
+    capped at ``max_grow`` percent per side, so a run of adjacent text can never
+    balloon the crop into the next question. ``box_pct`` and the return value are
+    ``[lo_x, lo_y, hi_x, hi_y]`` in percent of the page. Best-effort: returns the
+    box unchanged on any failure or when the PDF isn't available.
+    """
+    if doc is None:
+        return box_pct
+    try:
+        page = doc[int(page_num) - 1]
+        pw, ph = page.rect.width, page.rect.height
+        if pw <= 0 or ph <= 0:
+            return box_pct
+        lo_x, lo_y, hi_x, hi_y = box_pct
+        # Box and the maximum grown envelope, in absolute (point) coordinates.
+        bx0, by0, bx1, by1 = (lo_x / 100 * pw, lo_y / 100 * ph,
+                              hi_x / 100 * pw, hi_y / 100 * ph)
+        gx0 = max(0.0, lo_x - max_grow) / 100 * pw
+        gy0 = max(0.0, lo_y - max_grow) / 100 * ph
+        gx1 = min(100.0, hi_x + max_grow) / 100 * pw
+        gy1 = min(100.0, hi_y + max_grow) / 100 * ph
+        nx0, ny0, nx1, ny1 = bx0, by0, bx1, by1
+        for word in page.get_text('words'):
+            wx0, wy0, wx1, wy1 = word[0], word[1], word[2], word[3]
+            wa = max(0.0, wx1 - wx0) * max(0.0, wy1 - wy0)
+            if wa <= 0:
+                continue
+            inter = (max(0.0, min(bx1, wx1) - max(bx0, wx0))
+                     * max(0.0, min(by1, wy1) - max(by0, wy0)))
+            if inter <= 0:
+                continue                     # word doesn't touch the box
+            if inter >= wa - 1e-6:
+                continue                     # already fully inside
+            if inter / wa < min_inside:
+                continue                     # sliver only → a neighbour's word
+            # A clipped label: union it in, clamped to the grown envelope.
+            nx0 = min(nx0, max(wx0, gx0))
+            ny0 = min(ny0, max(wy0, gy0))
+            nx1 = max(nx1, min(wx1, gx1))
+            ny1 = max(ny1, min(wy1, gy1))
+        return [nx0 / pw * 100, ny0 / ph * 100, nx1 / pw * 100, ny1 / ph * 100]
+    except Exception:
+        return box_pct
+
+
+def _assign_figure_to_question(q, idx, pages, crops, decoded, doc, Image, io):
+    """Resolve one question's own figure: keep an embedded image_ref, or crop the
+    drawn image_box into a new image. Mutates ``q`` in place; ``crops`` gains any
+    new crop. No-op when the question needs no figure."""
+    # An embedded image already covers this question — prefer it (raster
+    # fidelity beats a screenshot crop).
+    if q.get('image_ref'):
+        q.pop('image_page', None)
+        q.pop('image_box', None)
+        return
+
+    box = q.get('image_box')
+    page_num = q.get('image_page')
+    # Clear the transient box fields regardless of outcome so they never
+    # get persisted on the session / shown in the editor.
+    q.pop('image_box', None)
+    q.pop('image_page', None)
+    if not box or not page_num:
+        return
+
+    # A drawn figure lives on the question's OWN page. A box pointing at a
+    # different page is a wrong-page grab — e.g. a neighbouring question's chart on
+    # another page cropped onto this one (a "table shows…" question ending up with
+    # a bar chart from two pages back). Refuse it so a wrong figure is never
+    # cropped in; the missing-figure guard then surfaces the question if it needs
+    # one. Same-page crops are unaffected. Toggle off with
+    # AI_IMPORT_DROP_CROSS_PAGE_CROPS=0.
+    if os.environ.get('AI_IMPORT_DROP_CROSS_PAGE_CROPS', '1') != '0':
+        source_page = q.get('source_page')
+        try:
+            if source_page is not None and int(page_num) != int(source_page):
+                return
+        except (TypeError, ValueError):
+            pass
+
+    try:
+        page = pages.get(int(page_num))
+        x1, y1 = float(box['x1']), float(box['y1'])
+        x2, y2 = float(box['x2']), float(box['y2'])
+    except (KeyError, TypeError, ValueError):
+        return
+    if not page or not page.get('screenshot'):
+        return
+
+    # Normalise corner order and clamp to the page.
+    lo_x, hi_x = sorted((x1, x2))
+    lo_y, hi_y = sorted((y1, y2))
+    lo_x, hi_x = max(0.0, lo_x), min(100.0, hi_x)
+    lo_y, hi_y = max(0.0, lo_y), min(100.0, hi_y)
+
+    # Snap to the actual drawn-figure bounds when we detected vector clusters
+    # on the page — corrects boxes that clip the figure or grab adjacent text.
+    regions = page.get('figure_regions') or []
+    overlapping = [r for r in regions
+                   if _boxes_overlap([lo_x, lo_y, hi_x, hi_y], r)]
+    if overlapping:
+        lo_x, lo_y, hi_x, hi_y = _snap_box_to_figures(
+            [lo_x, lo_y, hi_x, hi_y], regions)
+    elif not page.get('images'):
+        # No detected figure cluster overlaps the box and there's no embedded
+        # raster image. The box may still cover a real figure that was filtered
+        # out of figure_regions (e.g. a page-sized diagram >80% area), so when
+        # the PDF is available confirm against the page's actual drawings and
+        # drop only when there is genuinely nothing drawn there (the model
+        # pointed at plain text — the "totally irrelevant image" failure mode).
+        has_drawing = _box_has_drawing(doc, int(page_num),
+                                       [lo_x, lo_y, hi_x, hi_y])
+        if has_drawing is False:
+            return              # confirmed: no figure here → spurious text crop
+        if has_drawing is None and regions:
+            # No PDF to check; fall back to the cluster heuristic — figures
+            # exist on the page but none overlap the box → treat as spurious.
+            return
+        # else: a real drawing (incl. large filtered figures) or unknown
+        # without regions → keep cropping.
+
+    # Grow the box to swallow any text label it CLIPS at the edge — an axis number,
+    # a shape's side length ("23.9 km"), a graph key — so the crop keeps ALL of the
+    # figure's information with no half-cut labels. Bounded per side so a run of
+    # text can't balloon the crop into the neighbouring question. Toggle off with
+    # AI_IMPORT_CROP_INCLUDE_LABELS=0.
+    if doc is not None and os.environ.get('AI_IMPORT_CROP_INCLUDE_LABELS', '1') != '0':
+        lo_x, lo_y, hi_x, hi_y = _expand_box_for_clipped_labels(
+            doc, int(page_num), [lo_x, lo_y, hi_x, hi_y])
+
+    if hi_x - lo_x < 1 or hi_y - lo_y < 1:
+        return  # degenerate / empty box
+
+    img_bytes = None
+    # Prefer a crisp re-render straight from the PDF vectors at high DPI;
+    # falls back to cropping the 150-DPI screenshot when the PDF isn't
+    # available or the render fails.
+    if doc is not None:
+        img_bytes = _render_pdf_region(doc, int(page_num),
+                                       [lo_x, lo_y, hi_x, hi_y])
+    if img_bytes is None:
+        try:
+            img = decoded.get(int(page_num))
+            if img is None:
+                img = Image.open(io.BytesIO(base64.b64decode(page['screenshot'])))
+                decoded[int(page_num)] = img
+            w, h = img.size
+            crop = img.crop((
+                int(lo_x / 100 * w), int(lo_y / 100 * h),
+                int(hi_x / 100 * w), int(hi_y / 100 * h),
+            ))
+            buf = io.BytesIO()
+            crop.save(buf, format='PNG')
+            img_bytes = buf.getvalue()
+        except Exception:
+            # A bad box / unreadable screenshot shouldn't sink the whole import.
+            return
+
+    ref = f'page{int(page_num)}_figure{idx}.png'
+    crops[ref] = base64.b64encode(img_bytes).decode('utf-8')
+    q['image_ref'] = ref
+    # Crop provenance for the "Adjust image" editor (box was in % of page).
+    q['image_page'] = int(page_num)
+    q['image_bbox_frac'] = [round(lo_x / 100, 4), round(lo_y / 100, 4),
+                            round(hi_x / 100, 4), round(hi_y / 100, 4)]
 
 
 # ---------------------------------------------------------------------------
@@ -949,6 +1797,17 @@ def _compute_long_division_answer(dividend, divisor):
         return None
     quotient, remainder = divmod(dividend, divisor)
     return str(quotient) if remainder == 0 else f"{quotient} r {remainder}"
+
+
+def _compute_prime_factorization_answer(target_number):
+    """Canonical answer for a prime-factorisation question, e.g. "2 x 2 x 3 x 5".
+
+    Stored as the question's one Answer row so a result page has something to
+    show — grading itself reads ``target_number``, never this row. Returns None
+    when there is nothing to factorise.
+    """
+    from maths.factorization import prime_factorization_answer
+    return prime_factorization_answer(target_number) or None
 
 
 def _resolve_image_ref(image_ref, extracted_images):
@@ -1037,6 +1896,7 @@ def save_questions_from_session(session, user, overrides=None):
     from classroom.models import Subject, Topic, Level, School
     from classroom.views import _get_question_scope
     from maths.models import Question as MathsQuestion, Answer as MathsAnswer
+    from worksheets.services import resolve_grading
 
     data = overrides if overrides else session.extracted_data
     questions_data = data.get('questions', [])
@@ -1051,7 +1911,12 @@ def save_questions_from_session(session, user, overrides=None):
     updated = 0
     failed = 0
     images_saved = 0
+    # Questions turned into fill-in-the-blank sentences, and the ones that carry
+    # blanks but could not be — reported separately from errors: nothing failed,
+    # they simply came in as a single box and stayed one.
+    blanks_built = 0
     errors = []
+    warnings = []
 
     for idx, q in enumerate(questions_data, 1):
         # Skip if not included (from preview form)
@@ -1073,6 +1938,12 @@ def save_questions_from_session(session, user, overrides=None):
             continue
 
         q_type = q.get('question_type', 'short_answer')
+        # How this one gets marked — the same decision the homework saver makes,
+        # so an import cannot land teacher-graded on one path and auto on
+        # another. Without this the field was never written at all and every
+        # question fell to the model default, auto: a "draw a Venn diagram"
+        # question was handed to a student to type an answer to.
+        validation_type, grading_rubric = resolve_grading(q)
         difficulty = q.get('difficulty', 1)
         points = q.get('points', 1)
         explanation = q.get('explanation', '')
@@ -1084,7 +1955,8 @@ def save_questions_from_session(session, user, overrides=None):
         # Self-rendering types draw their own layout from structured fields, so any
         # attached worksheet graphic (division bracket, column grid, blank plane) is
         # just noise. read_graph is the exception — it KEEPS its graph image.
-        if q_type in ('column_operation', 'long_division', 'plot_points', 'plot_line', 'identify_coords'):
+        if q_type in ('column_operation', 'long_division', 'plot_points', 'plot_line',
+                      'identify_coords', 'draw_on_grid', 'shape_select', 'number_line'):
             image_ref = None
 
         # Long-division fields (bus-stop layout)
@@ -1142,20 +2014,21 @@ def save_questions_from_session(session, user, overrides=None):
                 failed += 1
                 continue
 
-        # Read-a-graph fields: numeric answer (+ tolerance/unit) and an optional
-        # clean graph_spec; the original graph image is kept when no spec is given.
+        # Read-a-graph / measure fields: numeric answer (+ tolerance/unit).
+        # read_graph may also carry an optional clean graph_spec (else the graph
+        # image is kept); measure grades the same numeric fields (angle/length).
         graph_spec = None
         numeric_answer = None
         answer_tolerance = None
         answer_unit = ''
-        if q_type == 'read_graph':
+        if q_type in ('read_graph', 'measure'):
             from decimal import Decimal, InvalidOperation
             try:
                 numeric_answer = Decimal(str(q.get('numeric_answer')))
             except (InvalidOperation, TypeError, ValueError):
                 numeric_answer = None
             if numeric_answer is None:
-                errors.append(f'Q{idx}: read_graph needs a numeric_answer')
+                errors.append(f'Q{idx}: {q_type} needs a numeric_answer')
                 failed += 1
                 continue
             raw_tol = q.get('answer_tolerance')
@@ -1165,13 +2038,92 @@ def save_questions_from_session(session, user, overrides=None):
                 except (InvalidOperation, ValueError):
                     answer_tolerance = None
             answer_unit = (q.get('answer_unit') or '')[:10]
-            graph_spec = q.get('graph_spec') or None
-            if graph_spec:
-                from maths.geometry_grading import validate_graph_spec
-                try:
-                    validate_graph_spec(graph_spec)
-                except (ValueError, TypeError):
-                    graph_spec = None  # fall back to the image; don't fail the import
+            if q_type == 'read_graph':
+                graph_spec = q.get('graph_spec') or None
+                if graph_spec:
+                    from maths.geometry_grading import validate_graph_spec
+                    try:
+                        validate_graph_spec(graph_spec)
+                    except (ValueError, TypeError):
+                        graph_spec = None  # fall back to the image; don't fail the import
+
+        # Prime factorisation: the number the answer is computed from. Without
+        # it the grader marks every attempt wrong, so report and skip.
+        target_number = None
+        if q_type == 'prime_factorization':
+            try:
+                target_number = int(q.get('target_number'))
+            except (TypeError, ValueError):
+                target_number = None
+            if not target_number or target_number < 2:
+                errors.append(f'Q{idx}: prime_factorization needs a target_number of 2 or more')
+                failed += 1
+                continue
+
+        # Draw-on-grid / shape-select / number-line / table-of-values /
+        # sketch-a-graph: validate the structured spec; skip a malformed one
+        # rather than import a question that can't be graded.
+        grid_spec = None
+        shape_spec = None
+        number_line_spec = None
+        table_spec = None
+        sketch_spec = None
+        if q_type == 'draw_on_grid':
+            from maths.geometry_grading import validate_grid_spec
+            grid_spec = q.get('grid_spec')
+            try:
+                validate_grid_spec(grid_spec)
+            except (ValueError, TypeError) as exc:
+                errors.append(f'Q{idx}: Invalid grid_spec ({exc})')
+                failed += 1
+                continue
+        elif q_type == 'shape_select':
+            from maths.geometry_grading import validate_shape_spec
+            shape_spec = q.get('shape_spec')
+            try:
+                validate_shape_spec(shape_spec)
+            except (ValueError, TypeError) as exc:
+                errors.append(f'Q{idx}: Invalid shape_spec ({exc})')
+                failed += 1
+                continue
+        elif q_type == 'number_line':
+            from maths.geometry_grading import validate_number_line_spec
+            number_line_spec = q.get('number_line_spec')
+            try:
+                validate_number_line_spec(number_line_spec)
+            except (ValueError, TypeError) as exc:
+                errors.append(f'Q{idx}: Invalid number_line_spec ({exc})')
+                failed += 1
+                continue
+        elif q_type == 'table_of_values':
+            from maths.geometry_grading import validate_table_spec
+            table_spec = q.get('table_spec')
+            try:
+                validate_table_spec(table_spec)
+            except (ValueError, TypeError) as exc:
+                errors.append(f'Q{idx}: Invalid table_spec ({exc})')
+                failed += 1
+                continue
+        elif q_type == 'sketch_graph':
+            from maths.geometry_grading import validate_sketch_spec
+            sketch_spec = q.get('sketch_spec')
+            try:
+                validate_sketch_spec(sketch_spec)
+            except (ValueError, TypeError) as exc:
+                errors.append(f'Q{idx}: Invalid sketch_spec ({exc})')
+                failed += 1
+                continue
+
+        # A pick-an-option question with no options can never be attempted: the
+        # student sees the stem and an empty space. Report it rather than import
+        # a dead question — this is what a type the review dropdown could not
+        # offer looked like after the browser fell back to "Multiple Choice".
+        if q_type in ('multiple_choice', 'true_false') and not [
+            a for a in answers_data if (a.get('text') or '').strip()
+        ]:
+            errors.append(f'Q{idx}: {q_type} has no answer options — nothing to pick from')
+            failed += 1
+            continue
 
         try:
             with transaction.atomic():
@@ -1186,6 +2138,8 @@ def save_questions_from_session(session, user, overrides=None):
                 if existing:
                     # Update
                     existing.question_type = q_type
+                    existing.validation_type = validation_type
+                    existing.grading_rubric = grading_rubric
                     existing.difficulty = difficulty
                     existing.points = points
                     existing.explanation = explanation
@@ -1193,8 +2147,14 @@ def save_questions_from_session(session, user, overrides=None):
                     existing.operator = operator
                     existing.dividend = dividend
                     existing.divisor = divisor
+                    existing.target_number = target_number
                     existing.plane_spec = plane_spec
                     existing.graph_spec = graph_spec
+                    existing.grid_spec = grid_spec
+                    existing.shape_spec = shape_spec
+                    existing.number_line_spec = number_line_spec
+                    existing.table_spec = table_spec
+                    existing.sketch_spec = sketch_spec
                     existing.numeric_answer = numeric_answer
                     existing.answer_tolerance = answer_tolerance
                     existing.answer_unit = answer_unit
@@ -1209,11 +2169,17 @@ def save_questions_from_session(session, user, overrides=None):
                         school_id=school_id, department_id=dept_id,
                         classroom_id=classroom_id,
                         question_text=q_text, question_type=q_type,
+                        validation_type=validation_type,
+                        grading_rubric=grading_rubric,
                         difficulty=difficulty, points=points,
                         explanation=explanation,
                         operands=operands, operator=operator,
                         dividend=dividend, divisor=divisor,
+                        target_number=target_number,
                         plane_spec=plane_spec, graph_spec=graph_spec,
+                        grid_spec=grid_spec, shape_spec=shape_spec,
+                        number_line_spec=number_line_spec,
+                        table_spec=table_spec, sketch_spec=sketch_spec,
                         numeric_answer=numeric_answer,
                         answer_tolerance=answer_tolerance, answer_unit=answer_unit,
                     )
@@ -1252,9 +2218,22 @@ def save_questions_from_session(session, user, overrides=None):
                         is_correct=True,
                         order=1,
                     )
-                elif q_type in ('plot_points', 'plot_line', 'identify_coords', 'read_graph'):
-                    # Graded by the plane_spec set / typed coords / numeric tolerance —
-                    # no Answer rows (mirrors measure / draw_on_grid / shape_select).
+                elif q_type == 'prime_factorization':
+                    # Answer is computed from target_number — ignore AI arithmetic.
+                    pf_answer = _compute_prime_factorization_answer(target_number)
+                    MathsAnswer.objects.create(
+                        question=question,
+                        answer_text=pf_answer or '',
+                        is_correct=True,
+                        order=1,
+                    )
+                elif q_type in ('plot_points', 'plot_line', 'identify_coords', 'read_graph',
+                                'measure', 'draw_on_grid', 'shape_select', 'number_line',
+                                'table_of_values', 'sketch_graph'):
+                    # Graded by the structured spec (plane / grid / shapes / number
+                    # line / table) or numeric tolerance (measure / read_graph) —
+                    # never Answer rows. The model's clean() also forbids answer
+                    # options here.
                     pass
                 else:
                     for a_idx, ans in enumerate(answers_data):
@@ -1264,6 +2243,25 @@ def save_questions_from_session(session, user, overrides=None):
                             is_correct=ans.get('is_correct', False),
                             order=a_idx + 1,
                         )
+
+                # Fill in the blanks: a question whose text carries "___" gaps
+                # becomes a sentence with an input in each gap instead of one
+                # box for the whole thing. Detected here rather than trusted
+                # from the extractor's question_type, because a two-gap sentence
+                # routinely comes back typed short_answer. Runs after the Answer
+                # rows are written — the spec is derived FROM them — and leaves
+                # them in place.
+                changed, reason = question.apply_blank_format()
+                if changed:
+                    question.save(update_fields=['question_type', 'blank_spec'])
+                    if question.question_type == MathsQuestion.FILL_BLANK:
+                        blanks_built += 1
+                if reason:
+                    # Left as a working single box. Said out loud rather than
+                    # swallowed, so the teacher can fix the answer and re-import.
+                    warnings.append(
+                        f'Q{idx}: has blanks but stayed a single box — {reason}'
+                    )
 
         except Exception as e:
             errors.append(f'Q{idx}: {str(e)}')
@@ -1278,5 +2276,7 @@ def save_questions_from_session(session, user, overrides=None):
         'updated': updated,
         'failed': failed,
         'errors': errors,
+        'warnings': warnings,
         'images_saved': images_saved,
+        'blanks_built': blanks_built,
     }

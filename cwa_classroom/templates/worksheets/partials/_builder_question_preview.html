@@ -1,6 +1,10 @@
 {% load maths_format %}
 {# CPP-285: Question detail preview for the builder modal. #}
-<div class="relative bg-white rounded-2xl border border-slate-200 shadow-lg max-w-lg mx-auto p-6 space-y-4">
+{% comment %}The card carries its own width: a maths question reads fine in a
+narrow column, but a coding exercise opens the split editor/console window and
+needs the room.{% endcomment %}
+<div class="relative bg-white rounded-2xl border border-slate-200 shadow-lg mx-auto p-6 space-y-4
+            {% if has_code_window %}max-w-4xl{% else %}max-w-lg{% endif %}">
 
   <!-- Close button -->
   <button type="button"
@@ -56,8 +60,20 @@
 
   <!-- Title + description -->
   <h3 class="text-base font-semibold text-gray-800">{{ exercise.title }}</h3>
-  <p class="text-sm text-gray-600 whitespace-pre-line">{{ exercise.description }}</p>
+  <p class="text-sm text-gray-600 whitespace-pre-wrap">{{ exercise.description }}</p>
 
+  {% if has_code_window %}
+  {% comment %}── Live coding window ──
+  The same editor-and-console the student will see, wired to
+  coding:api_preview_run — so a teacher can run the exercise here and confirm
+  it still matches its expected output before adding it to a worksheet.
+  "Load solution" drops the reference solution in to check that in one click.
+  Nothing run here is recorded against anyone.{% endcomment %}
+  {% include "coding/partials/_code_window.html" with cw_id=cw_id cw_mode=cw_mode cw_language=cw_language cw_lang_label=cw_lang_label cw_cm_mode=cw_cm_mode cw_filename=cw_filename cw_starter=cw_starter cw_starter_html=cw_starter_html cw_starter_css=cw_starter_css cw_run_url=cw_run_url cw_expected_output=cw_expected_output cw_extra_code=cw_extra_code cw_title="Try it" cw_height="320px" cw_hide_stdin=True %}
+
+  {% else %}
+  {% comment %}Scratch and the quiz-style exercises have no code to run — show
+  what the exercise carries, as before.{% endcomment %}
   {% if exercise.starter_code %}
   <div>
     <p class="text-xs font-medium text-gray-500 mb-1">Starter Code</p>
@@ -70,6 +86,7 @@
     <p class="text-xs font-medium text-gray-500 mb-1">Expected Output</p>
     <pre class="bg-emerald-50 rounded-lg p-3 text-xs text-emerald-800 overflow-x-auto border border-emerald-200">{{ exercise.expected_output }}</pre>
   </div>
+  {% endif %}
   {% endif %}
 
   {% if exercise.hints %}

@@ -14,6 +14,10 @@ from accounts.models import Role
 from billing.entitlements import get_school_for_user, has_module, has_module_any_school, check_ai_import_quota
 from classroom.views import RoleRequiredMixin, _get_question_scope
 
+from worksheets.services import (
+    answer_review_warning, preview_question_type_choices, question_source_page,
+)
+
 from .models import AIImportSession, AIImportUsage
 
 
@@ -132,6 +136,7 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                 from classroom.models import ClassRoom
                 classrooms = ClassRoom.objects.filter(id__in=classroom_ids, is_active=True)
 
+        from billing.page_quota import quota_status
         return render(request, 'ai_import/upload.html', {
             'tier': tier_name,
             'remaining_pages': remaining,
@@ -139,6 +144,9 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
             'pages_used': used,
             'usage_percent': round((used / limit * 100) if limit else 0),
             'classrooms': classrooms,
+            'page_quota': quota_status(
+                school, unlimited=request.user.is_superuser,
+            ),
         })
 
     def post(self, request):
@@ -153,30 +161,41 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
             messages.error(request, 'Only PDF files are supported.')
             return redirect('ai_import:upload')
 
-        # Check usage limit (superusers have unlimited)
-        if request.user.is_superuser:
-            remaining, limit, used = (999999, 999999, 0)
-        else:
-            remaining, limit, used = _get_remaining_pages(school) if school else (0, 0, 0)
+        # Which pages to extract ("2-7, 9"; blank = all). Validated before the
+        # quota check so a bad range is an immediate form error, and so an upload
+        # that skips a cover sheet or a marking scheme is only charged for the
+        # pages it actually reads.
+        from worksheets.page_selection import (
+            PageSelectionError, clean_upload_selection,
+        )
+        try:
+            page_selection, selected_pages, _total = clean_upload_selection(
+                request.POST.get('page_selection'), pdf_file,
+            )
+        except PageSelectionError as exc:
+            messages.error(request, str(exc))
+            return redirect('ai_import:upload')
 
         try:
-            # Step 1: Cheap page count for the quota check (no rendering).
+            # Step 1: Cheap page count for the quota check (no rendering). Only
+            # the selected pages are extracted, so only those are charged.
             from .services import get_pdf_page_count
-            page_count = get_pdf_page_count(pdf_file)
+            page_count = (len(selected_pages) if selected_pages is not None
+                          else get_pdf_page_count(pdf_file))
 
-            if page_count > remaining:
-                if remaining == 0:
-                    messages.error(
-                        request,
-                        f'You’ve used all {limit} pages in your monthly quota. '
-                        f'Please upgrade your plan or wait until next month.',
-                    )
-                else:
-                    messages.error(
-                        request,
-                        f'This PDF has {page_count} pages but you only have {remaining} pages remaining this month. '
-                        f'Please upgrade your plan or upload a smaller file.',
-                    )
+            # The monthly allowance is shared with homework and worksheet
+            # uploads and charged at upload, not at confirm: the classification
+            # job below spends the money whether or not the teacher ever
+            # reaches the confirm step. See billing/page_quota.py.
+            from billing.page_quota import (
+                check_page_budget, consume_pages, refund_pages,
+            )
+            is_unlimited = request.user.is_superuser
+            allowed, quota_message, _quota = check_page_budget(
+                school, page_count, unlimited=is_unlimited,
+            )
+            if not allowed:
+                messages.error(request, quota_message)
                 return redirect('ai_import:upload')
 
             # Step 2: Persist the upload + create a PROCESSING session.
@@ -190,10 +209,15 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                 school=school,
                 pdf_filename=pdf_file.name,
                 pdf_file=pdf_file,
+                page_selection=page_selection,
                 page_count=page_count,
                 extracted_data=pre_data,
                 status=AIImportSession.STATUS_PROCESSING,
             )
+
+            # Charge now, not when the worker finishes: two uploads landing
+            # together would otherwise both pass the check above and overshoot.
+            consume_pages(school, page_count, unlimited=is_unlimited)
 
             # Step 3: Enqueue background classification (default queue). If the
             # queue is unavailable, don't leave an orphaned PROCESSING session.
@@ -213,6 +237,9 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                 logging.getLogger(__name__).exception(
                     'Failed to enqueue AI import for session %s', session.pk,
                 )
+                # Nothing will be classified, so the pages charged above were
+                # never spent — hand them back.
+                refund_pages(school, page_count, unlimited=is_unlimited)
                 session.delete()
                 messages.error(
                     request,
@@ -291,6 +318,22 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
             return redirect('ai_import:upload')
         data = session.extracted_data
 
+        # Sessions classified before drawing questions were routed to the teacher
+        # still hold them as auto-graded with an invented answer. Sweep once on
+        # first open — the same sweep the worksheet and homework previews run —
+        # and say what moved rather than re-grading silently.
+        from worksheets.services import backfill_constructions
+        routed = backfill_constructions(data)
+        if routed is not None:
+            session.extracted_data = data
+            session.save(update_fields=['extracted_data'])
+            if routed:
+                messages.info(
+                    request,
+                    f'{routed} question(s) ask the student to draw something the app '
+                    'cannot accept an answer for. They are set to teacher-graded and '
+                    'left unticked — tick one to import it for marking by hand.')
+
         # Get available topics and levels for override dropdowns
         from classroom.models import Topic, Level
         topics = Topic.objects.filter(subject__slug='mathematics').order_by('name')
@@ -317,6 +360,19 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                 q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)
             if q.get('graph_spec'):
                 q['graph_spec_json'] = json.dumps(q['graph_spec'], indent=2)
+            if q.get('number_line_spec'):
+                q['number_line_spec_json'] = json.dumps(q['number_line_spec'], indent=2)
+            if q.get('sketch_spec'):
+                q['sketch_spec_json'] = json.dumps(q['sketch_spec'], indent=2)
+            # For the "Adjust image" crop modal: open the page this question maps
+            # to (falls back through crop provenance, the ref filename, source_page).
+            q['image_page'] = question_source_page(q)
+            q['image_bbox_frac_json'] = json.dumps(q.get('image_bbox_frac') or None)
+            # Flag a suspect answer key (explanation disagrees with / second-guesses
+            # the ticked answer) so the teacher checks it before confirming.
+            q['answer_warning'] = answer_review_warning(q)
+
+        from worksheets.page_selection import describe_page_selection
 
         return render(request, 'ai_import/preview.html', {
             'session': session,
@@ -324,22 +380,14 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
             'questions': questions,
             'topics': topics,
             'levels': levels,
+            # Pages the teacher chose not to extract — stated, not silently absent.
+            'page_selection': describe_page_selection(data),
             'image_list': image_list,
             'image_refs_json': json.dumps([img['ref'] for img in image_list]),
-            'question_types': [
-                ('multiple_choice', 'Multiple Choice'),
-                ('true_false', 'True / False'),
-                ('short_answer', 'Short Answer'),
-                ('fill_blank', 'Fill in the Blank'),
-                ('calculation', 'Calculation'),
-                ('column_operation', 'Column Arithmetic'),
-                ('long_division', 'Long Division'),
-                ('extended_answer', 'Extended Answer (written)'),
-                ('plot_points', 'Plot Points (Cartesian plane)'),
-                ('plot_line', 'Plot a Line / Shape (Cartesian plane)'),
-                ('identify_coords', 'Identify Coordinates (type the point)'),
-                ('read_graph', 'Read a Graph (read off a value)'),
-            ],
+            # Shared with the worksheet/homework previews, and widened with any
+            # type this session actually holds, so the dropdown always contains
+            # the question's own type — see preview_question_type_choices.
+            'question_types': preview_question_type_choices(questions),
         })
 
     def post(self, request, session_id):
@@ -434,6 +482,49 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
                     except (ValueError, TypeError):
                         pass
 
+            # Measure fields: numeric answer (+ tolerance/unit).
+            if q['question_type'] == 'measure':
+                for fld in ('numeric_answer', 'answer_tolerance'):
+                    raw = request.POST.get(f'{prefix}{fld}', '').strip()
+                    if raw:
+                        q[fld] = raw
+                unit = request.POST.get(f'{prefix}answer_unit', '').strip()
+                if unit:
+                    q['answer_unit'] = unit
+
+            # Number-line spec — edited as raw JSON in the preview; a parse
+            # failure leaves the prior spec untouched so the import-time validator
+            # surfaces the issue.
+            if q['question_type'] == 'number_line':
+                raw = request.POST.get(f'{prefix}number_line_spec', '').strip()
+                if raw:
+                    try:
+                        q['number_line_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
+            # Prime factorisation: the one number the answer is computed from.
+            # A non-numeric edit keeps the prior value, so the import-time check
+            # reports it rather than this silently storing nothing.
+            if q['question_type'] == 'prime_factorization':
+                raw = request.POST.get(f'{prefix}target_number', '').strip()
+                if raw:
+                    try:
+                        q['target_number'] = int(raw)
+                    except (TypeError, ValueError):
+                        pass
+
+            # Sketch-a-graph spec — same contract as the number line: raw JSON,
+            # and a parse failure keeps the prior spec so the import-time
+            # validator is the one that reports it.
+            if q['question_type'] == 'sketch_graph':
+                raw = request.POST.get(f'{prefix}sketch_spec', '').strip()
+                if raw:
+                    try:
+                        q['sketch_spec'] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        pass
+
             # Dynamic answers — collect all answer fields
             answers = []
             for a_idx in range(20):  # support up to 20 answers
@@ -453,13 +544,62 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
         return redirect('ai_import:confirm', session_id=session.pk)
 
 
+_IMPORT_ROLES = [
+    Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
+    Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
+    Role.TEACHER, Role.JUNIOR_TEACHER,
+]
+
+
+class PageImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+    """AJAX: full source-page PNG for the 'Adjust image' crop modal."""
+    required_roles = _IMPORT_ROLES
+
+    def get(self, request, session_id):
+        from worksheets.image_adjust import page_image_response
+        session = get_object_or_404(
+            AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return page_image_response(session, request)
+
+
+class RecropView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+    """AJAX: re-render a question image from a teacher-drawn box on the PDF."""
+    required_roles = _IMPORT_ROLES
+
+    def post(self, request, session_id):
+        from worksheets.image_adjust import recrop_response
+        session = get_object_or_404(
+            AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return recrop_response(session, request)
+
+
+class QuestionPreviewView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+    """AJAX: one extracted question rendered as the student will meet it.
+
+    ``promote_blanks=True`` — ``save_questions_from_session`` calls
+    ``apply_blank_format``, so a "___" sentence imported from here really does
+    become a sentence with a box in each gap.
+    """
+    required_roles = _IMPORT_ROLES
+
+    def post(self, request, session_id):
+        from worksheets.question_preview import preview_response
+        session = get_object_or_404(
+            AIImportSession, pk=session_id, user=request.user, is_confirmed=False,
+        )
+        return preview_response(
+            request,
+            extracted_data=session.extracted_data,
+            extracted_images=session.extracted_images,
+            promote_blanks=True,
+        )
+
+
 class UploadImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
     """AJAX endpoint: upload an image to the session's image gallery."""
-    required_roles = [
-        Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
-        Role.HEAD_OF_DEPARTMENT, Role.SENIOR_TEACHER,
-        Role.TEACHER, Role.JUNIOR_TEACHER,
-    ]
+    required_roles = _IMPORT_ROLES
 
     def post(self, request, session_id):
         import base64
@@ -547,12 +687,17 @@ class ConfirmImportView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
 
         result = save_questions_from_session(session, request.user, session.extracted_data)
 
-        # Record usage
+        # Record token usage only. The pages were charged at upload (see
+        # UploadPDFView.post) because the classification job spends them there
+        # — charging again here would bill the same PDF twice, and charging
+        # ONLY here is what let an uploaded-but-never-confirmed import run for
+        # free while homework and worksheets went unmetered entirely.
         if school:
+            from django.db.models import F
             usage = _get_usage_for_school(school)
-            usage.pages_processed += session.page_count
-            usage.tokens_used += session.tokens_used
-            usage.save(update_fields=['pages_processed', 'tokens_used'])
+            AIImportUsage.objects.filter(pk=usage.pk).update(
+                tokens_used=F('tokens_used') + (session.tokens_used or 0),
+            )
 
         # Audit log
         log_event(
@@ -566,6 +711,7 @@ class ConfirmImportView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
                 'updated': result['updated'],
                 'failed': result['failed'],
                 'images_saved': result['images_saved'],
+                'blanks_built': result['blanks_built'],
             },
             request=request,
         )

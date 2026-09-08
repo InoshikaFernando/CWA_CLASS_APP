@@ -189,6 +189,13 @@ class TestNormalizeShortAnswer(TestCase):
         assert normalize_short_answer("C++") == "c++"
         assert normalize_short_answer("C#") == "c#"
 
+    def test_division_spellings_fold_together(self):
+        """"n ÷ 4" and "n/4" are the same answer written two ways."""
+        assert normalize_short_answer("n ÷ 4") == normalize_short_answer("n/4")
+        assert normalize_short_answer("n ÷ 4") == "n/4"
+        # Folding the operator must not make the reversed quotient equal.
+        assert normalize_short_answer("n ÷ 4") != normalize_short_answer("4 ÷ n")
+
     def test_superscript_and_caret_fold_together(self):
         """Unicode superscript, caret and ** notation fold to one form."""
         assert normalize_short_answer("3 × 10²") == normalize_short_answer("3 × 10^2")
@@ -286,6 +293,20 @@ class TestShortAnswerMatching(TestCase):
         assert is_short_answer_correct("1,000", "1000") is True
         assert is_short_answer_correct("1000", "1,000") is True
         assert is_short_answer_correct("red, green", "red green") is True
+
+    def test_option_labels_match_in_any_order(self):
+        """A "select all that apply" answer lists option labels, so the same
+        labels in any order are the same answer (CPP-374)."""
+        assert is_short_answer_correct("E,D", "D and E") is True
+        assert is_short_answer_correct("E D", "D and E") is True
+        assert is_short_answer_correct("d and e", "D and E") is True
+        # A partial or wrong selection is still wrong.
+        assert is_short_answer_correct("D", "D and E") is False
+        assert is_short_answer_correct("D,F", "D and E") is False
+
+    def test_option_label_match_does_not_reorder_words(self):
+        """Bounded to single letters, so worded answers keep their order."""
+        assert is_short_answer_correct("green red", "red green") is False
 
     def test_case_sensitive_flag(self):
         """case_sensitive=True enforces exact case."""

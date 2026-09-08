@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Locations — {{ school.name }}{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto">
+
+  <div class="mb-8">
+    <a href="javascript:history.back()" class="text-accent hover:text-accent-dark text-sm font-medium transition">&larr; Back</a>
+    <h1 class="text-2xl font-display font-bold text-gray-900 mt-2">Locations</h1>
+    <p class="text-gray-500 mt-1">Manage the venues where {{ school.name }}'s classes are held. These are separate from the institute's own address. The address is optional, and a location can be marked as online.</p>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="mb-4 p-4 rounded-xl text-sm font-medium
+        {% if message.tags == 'success' %}bg-emerald-50 text-emerald-700 border border-emerald-200
+        {% elif message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
+        {% elif message.tags == 'warning' %}bg-amber-50 text-amber-700 border border-amber-200
+        {% else %}bg-blue-50 text-blue-700 border border-blue-200{% endif %}">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  <!-- Add New Location -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 mb-5">Add New Location</h2>
+    <form method="post" class="space-y-4" x-data="{ useColor: false }">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="create">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+        <input type="text" name="name" required placeholder="e.g. Main Campus, Room 3, Online"
+               class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Address <span class="text-gray-400 font-normal">(optional)</span></label>
+        <textarea name="address" rows="2" placeholder="Street address of this location"
+                  class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-accent focus:border-accent transition resize-none"></textarea>
+      </div>
+      <div>
+        <label class="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" name="use_color" x-model="useColor"
+                 class="w-4 h-4 rounded border-slate-300 text-accent focus:ring-accent">
+          <span class="text-sm font-medium text-gray-700">Colour-code this location</span>
+        </label>
+        <div x-show="useColor" x-cloak class="flex items-center gap-3 mt-2">
+          <input type="color" name="color" value="#4f46e5"
+                 class="h-10 w-16 p-1 border border-slate-300 rounded-lg cursor-pointer bg-white">
+          <span class="text-xs text-gray-400">Tints this location's class tiles on the Classes page.</span>
+        </div>
+      </div>
+      <label class="flex items-center gap-2 cursor-pointer select-none">
+        <input type="checkbox" name="is_online"
+               class="w-4 h-4 rounded border-slate-300 text-accent focus:ring-accent">
+        <span class="text-sm font-medium text-gray-700">Online location</span>
+      </label>
+      <div class="flex justify-end pt-2">
+        <button type="submit"
+                class="px-6 py-2.5 bg-accent text-white font-semibold rounded-xl hover:bg-blue-600 transition shadow-sm">
+          Add Location
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Existing Locations -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+    <div class="px-6 py-5 border-b border-slate-100">
+      <h2 class="text-lg font-semibold text-gray-900">Locations ({{ locations|length }})</h2>
+    </div>
+    {% if locations %}
+      <div class="divide-y divide-slate-100">
+        {% for location in locations %}
+          <div class="px-6 py-4" x-data="{ editing: false }">
+            <!-- Display Mode -->
+            <div x-show="!editing" class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  {% if location.color %}
+                    <span class="inline-block w-3.5 h-3.5 rounded-full border border-slate-300 shrink-0"
+                          style="background-color: {{ location.color }};"
+                          title="Tile colour {{ location.color }}"></span>
+                  {% endif %}
+                  <p class="font-medium text-gray-900">{{ location.name }}</p>
+                  {% if location.is_online %}
+                    <span class="inline-flex items-center gap-1 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full">Online</span>
+                  {% endif %}
+                </div>
+                {% if location.address %}
+                  <p class="text-sm text-gray-500 mt-0.5 whitespace-pre-line">{{ location.address }}</p>
+                {% else %}
+                  <p class="text-sm text-gray-400 mt-0.5">No address</p>
+                {% endif %}
+              </div>
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <button @click="editing = true"
+                        class="px-3 py-1.5 text-accent hover:bg-blue-50 text-sm font-medium rounded-lg transition">
+                  Edit
+                </button>
+                <form method="post" class="inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="location_id" value="{{ location.id }}">
+                  <button type="submit"
+                          class="inline-flex items-center px-3 py-1.5 text-red-600 hover:bg-red-50 text-sm font-medium rounded-lg transition"
+                          onclick="return confirm('Delete location &quot;{{ location.name }}&quot;? Classes using it will have their location cleared.')">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/>
+                    </svg>
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            <!-- Edit Mode -->
+            <div x-show="editing" x-cloak>
+              <form method="post" class="space-y-4" x-data="{ useColor: {% if location.color %}true{% else %}false{% endif %} }">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="edit">
+                <input type="hidden" name="location_id" value="{{ location.id }}">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                  <input type="text" name="name" value="{{ location.name }}"
+                         class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent focus:border-accent transition">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Address <span class="text-gray-400 font-normal">(optional)</span></label>
+                  <textarea name="address" rows="2"
+                            class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent focus:border-accent transition resize-none">{{ location.address }}</textarea>
+                </div>
+                <div>
+                  <label class="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" name="use_color" x-model="useColor"
+                           class="w-4 h-4 rounded border-slate-300 text-accent focus:ring-accent">
+                    <span class="text-sm font-medium text-gray-700">Colour-code this location</span>
+                  </label>
+                  <div x-show="useColor" x-cloak class="flex items-center gap-3 mt-2">
+                    <input type="color" name="color" value="{{ location.color|default:'#4f46e5' }}"
+                           class="h-10 w-16 p-1 border border-slate-300 rounded-lg cursor-pointer bg-white">
+                    <span class="text-xs text-gray-400">Tints this location's class tiles on the Classes page.</span>
+                  </div>
+                </div>
+                <label class="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" name="is_online" {% if location.is_online %}checked{% endif %}
+                         class="w-4 h-4 rounded border-slate-300 text-accent focus:ring-accent">
+                  <span class="text-sm font-medium text-gray-700">Online location</span>
+                </label>
+                <div class="flex items-center gap-2 pt-2">
+                  <button type="submit"
+                          class="px-4 py-2 bg-accent text-white text-sm font-medium rounded-lg hover:bg-blue-600 transition">
+                    Save
+                  </button>
+                  <button type="button" @click="editing = false"
+                          class="px-4 py-2 text-gray-600 hover:bg-gray-100 text-sm font-medium rounded-lg transition">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-sm text-gray-400 text-center py-8">No locations yet. Add one above.</p>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

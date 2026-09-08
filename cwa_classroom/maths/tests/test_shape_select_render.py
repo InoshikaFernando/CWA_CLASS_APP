@@ -3,7 +3,7 @@
 Covers the ``shape_select_data`` model property, the pure ``shape_select_svg``
 builder, and the homework take-item partial branch (tappable SVG shapes +
 hidden JSON input). The tap-to-colour interaction itself is covered by the
-Playwright test in ui_tests/test_shape_select.py. Mirrors
+Playwright test in ui_tests/maths/test_shape_select.py. Mirrors
 test_draw_on_grid_render.py.
 """
 from django.template.loader import render_to_string

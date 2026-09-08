@@ -53,16 +53,31 @@ class AIUsageLog(models.Model):
     """One row per AI classification run — the cost/usage ledger.
 
     Records pages processed, input/output tokens and the estimated USD cost of
-    each Claude classification, tagged by which feature triggered it. Lets us
-    compute real $/page and margin per source instead of guessing.
+    each AI call, tagged by which provider billed it and which feature triggered
+    it. Lets us compute real $/page and margin per source instead of guessing.
+
+    ``provider`` exists because the ledger used to assume every row was Claude
+    and priced it at Claude's rate. OpenAI spend — the ai_import second-opinion
+    verifier — was therefore invisible to the expense dashboard entirely
+    (CPP-382). Rows created before that fix are Anthropic, which is why the
+    migration backfills them so.
     """
+
+    PROVIDER_ANTHROPIC = 'anthropic'
+    PROVIDER_OPENAI = 'openai'
+    PROVIDER_CHOICES = [
+        (PROVIDER_ANTHROPIC, 'Anthropic (Claude)'),
+        (PROVIDER_OPENAI, 'OpenAI (GPT)'),
+    ]
     SOURCE_WORKSHEET = 'worksheet'
     SOURCE_AI_IMPORT = 'ai_import'
     SOURCE_HOMEWORK = 'homework'
+    SOURCE_QUESTION_REVIEW = 'question_review'
     SOURCE_CHOICES = [
         (SOURCE_WORKSHEET, 'Worksheet'),
         (SOURCE_AI_IMPORT, 'AI Import'),
         (SOURCE_HOMEWORK, 'Homework PDF'),
+        (SOURCE_QUESTION_REVIEW, 'Question review'),
     ]
 
     school = models.ForeignKey(
@@ -71,6 +86,11 @@ class AIUsageLog(models.Model):
         related_name='ai_usage_logs',
         null=True, blank=True,
         db_index=True,
+    )
+    provider = models.CharField(
+        max_length=20, choices=PROVIDER_CHOICES,
+        default=PROVIDER_ANTHROPIC, db_index=True,
+        help_text='Which vendor billed this call. Drives the rate used.',
     )
     source = models.CharField(
         max_length=20, choices=SOURCE_CHOICES, db_index=True,
@@ -91,7 +111,8 @@ class AIUsageLog(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f'{self.source} — {self.pages}p — ${self.est_cost_usd}'
+        return (f'{self.provider}/{self.source} — {self.pages}p '
+                f'— ${self.est_cost_usd}')
 
     @property
     def total_tokens(self):

@@ -68,5 +68,5 @@ the student**, anchored on `ClassStudent.joined_at`:
 
 - Unit (`homework/tests.py`): `HomeworkOverdueModelTest`, `LateJoinerOverdueTest`,
   plus updated take/detail/list assertions.
-- UI (`ui_tests/test_homework.py`): `TestOverdueHomeworkUI` — overdue badge +
+- UI (`ui_tests/homework/test_homework.py`): `TestOverdueHomeworkUI` — overdue badge +
   action, take page opens, late joiner not flagged, teacher "Overdue Submission".

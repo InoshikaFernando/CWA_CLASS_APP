@@ -1,5 +1,15 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Worksheet Builder{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+{% comment %}CodeMirror + the shared coding window, for the live preview of a
+coding exercise. Loaded once here rather than by the htmx-swapped partial,
+which would re-fetch the library on every preview.{% endcomment %}
+{% include "coding/partials/_code_window_head.html" %}
+{% endblock %}
+
 {% block content %}
 <style>
   /* Loading skeleton collapses to zero height when idle so it doesn't leave a
@@ -242,12 +252,17 @@
 <div id="preview-modal"
      class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
      onclick="if(event.target===this)this.classList.add('hidden')">
-  <div id="preview-modal-content" class="w-full max-w-lg max-h-[85vh] overflow-y-auto mx-4">
+  <div id="preview-modal-content" class="w-full max-h-[85vh] overflow-y-auto mx-4">
   </div>
 </div>
 
-<!-- SortableJS v1.15.2 -->
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<!-- SortableJS v1.15.2, served from our own static files. It used to come from
+     a CDN, and when that fetch failed the whole builder died: Sortable.create()
+     below runs at the top of the IIFE, so a missing library threw before a
+     single click handler was bound and NOTHING on the page worked — no adding
+     questions, no search, no save. Vendored like htmx/Alpine/Tailwind already
+     are, so the builder owns its own dependencies. -->
+<script src="{% static 'js/sortable.min.js' %}"></script>
 
 <script>
 // ─── Mobile tab switching (global — called from onclick) ────────────────
@@ -291,13 +306,23 @@ function switchMobileTab(tab) {
   var questionsJson  = document.getElementById('questions-json');
   function getLevelSelect() { return document.getElementById('sidebar-level'); }
   // ─── SortableJS ───────────────────────────────────────────────────────────
-  Sortable.create(sidebarList, {
-    handle: '.drag-handle',
-    animation: 150,
-    onEnd: function () {
-      rebuildQuestionsFromDOM();
-    }
-  });
+  // Drag-to-reorder is an enhancement, not the page. If the library is missing
+  // for any reason, log it and carry on binding the handlers below — selecting,
+  // filtering and saving must keep working — rather than throwing here and
+  // leaving a page that looks fine and responds to nothing.
+  var dragEnabled = typeof window.Sortable === 'function';
+  if (dragEnabled) {
+    Sortable.create(sidebarList, {
+      handle: '.drag-handle',
+      animation: 150,
+      onEnd: function () {
+        rebuildQuestionsFromDOM();
+      }
+    });
+  } else {
+    console.error('Worksheet builder: Sortable.js did not load — questions can ' +
+                  'still be selected and saved, but not dragged to reorder.');
+  }
 
   // Keep sidebar-level-id hidden input in sync with sidebar level select (event delegation for OOB)
   document.addEventListener('change', function (e) {
@@ -414,7 +439,8 @@ function switchMobileTab(tab) {
       li.className = 'flex items-start gap-2 bg-slate-50 rounded-xl p-3 border border-slate-200';
       li.dataset.contentId = q.content_id;
       li.innerHTML =
-        '<span class="drag-handle mt-0.5 cursor-grab text-gray-300 hover:text-gray-500 shrink-0" title="Drag to reorder">' +
+        '<span class="drag-handle mt-0.5 ' + (dragEnabled ? 'cursor-grab' : 'cursor-default') + ' text-gray-300 hover:text-gray-500 shrink-0"' +
+             ' title="' + (dragEnabled ? 'Drag to reorder' : 'Reordering unavailable') + '">' +
           '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/></svg>' +
         '</span>' +
         '<div class="flex-1 min-w-0">' +
@@ -504,6 +530,12 @@ function switchMobileTab(tab) {
         }
       }
       document.getElementById('preview-modal').classList.remove('hidden');
+      // A coding preview mounts its editor while the modal is still hidden,
+      // where CodeMirror measures zero height and renders an empty box. Now
+      // that the modal is on screen, let it measure again.
+      if (window.CodeWindow) {
+        window.CodeWindow.refreshAll(document.getElementById('preview-modal-content'));
+      }
     });
   });
 

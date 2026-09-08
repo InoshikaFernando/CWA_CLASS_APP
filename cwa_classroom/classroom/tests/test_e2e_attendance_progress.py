@@ -563,8 +563,8 @@ class ProgressRecordingTest(_BaseAttendanceProgressTest):
         from classroom.models import ProgressReportComment
         ProgressReportComment.objects.create(
             student=self.student_user, school=self.school,
-            subject=self.classroom.subject, body='Prior note.',
-            created_by=self.teacher_user,
+            subject=self.classroom.subject, classroom=self.classroom,
+            body='Prior note.', created_by=self.teacher_user,
         )
         self.client.force_login(self.teacher_user)
         sess = self.client.session
@@ -791,6 +791,33 @@ class RubricRatingTest(_BaseAttendanceProgressTest):
         self.assertEqual(overall['in_progress'], 1)   # developing
         self.assertEqual(overall['not_started'], 1)
 
+    def test_records_grouped_under_parent_criteria(self):
+        """In a report group, each sub-criterion follows its parent (is_child)."""
+        from classroom.views_progress import _build_student_progress
+
+        def crit(name, order, parent=None):
+            return ProgressCriteria.objects.create(
+                school=self.school, subject=self.subject, level=self.level,
+                name=name, order=order, parent=parent, status='approved',
+                created_by=self.teacher_user, approved_by=self.teacher_user,
+            )
+        focus = crit('Focus', 0)
+        c1 = crit('Pays attention', 0, parent=focus)
+        c2 = crit('Stays on task', 1, parent=focus)
+        solving = crit('Problem Solving', 1)
+        for c in (focus, c1, c2, solving):
+            ProgressRecord.objects.create(
+                student=self.student_user, criteria=c, status='confident',
+                recorded_by=self.teacher_user,
+            )
+        grouped, _ = _build_student_progress(self.student_user)
+        recs = grouped[0]['records']
+        self.assertEqual(
+            [r.criteria.name for r in recs],
+            ['Focus', 'Pays attention', 'Stays on task', 'Problem Solving'],
+        )
+        self.assertEqual([r.is_child for r in recs], [False, True, True, False])
+
 
 # ---------------------------------------------------------------------------
 # 8. ReportBuilderTest  (per-class report builder + dashboard card — §12.8)
@@ -860,3 +887,263 @@ class ReportBuilderTest(_BaseAttendanceProgressTest):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'My Progress Summary')
         self.assertEqual(resp.context['progress_report'].include_homework, True)
+
+
+# ---------------------------------------------------------------------------
+# 8. ReportFilterDeptScopeTest  (department-scoped Subject/Class filter, v2)
+# ---------------------------------------------------------------------------
+
+class ReportFilterDeptScopeTest(_BaseAttendanceProgressTest):
+    """Subject list scoped to the chosen department; Class list scoped to the
+    department only; a stale cross-department subject is ignored."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from classroom.models import DepartmentSubject
+        # IT department with a Coding class (subject linked AND a class) + a student.
+        cls.it_dept = Department.objects.create(
+            name='Information Technology', slug='it', school=cls.school,
+            head=cls.admin_user, is_active=True,
+        )
+        cls.coding = Subject.objects.create(name='Coding', slug='coding', is_active=True)
+        DepartmentSubject.objects.create(department=cls.it_dept, subject=cls.coding)
+        cls.coding_class = _create_classroom(cls.school, cls.it_dept, cls.coding, 'Web Prog')
+        ClassStudent.objects.create(
+            classroom=cls.coding_class, student=cls.student_user, is_active=True,
+        )
+        # Science department whose subject comes ONLY from a class (no DepartmentSubject).
+        cls.sci_dept = Department.objects.create(
+            name='Science', slug='science', school=cls.school,
+            head=cls.admin_user, is_active=True,
+        )
+        cls.physics = Subject.objects.create(name='Physics', slug='physics', is_active=True)
+        _create_classroom(cls.school, cls.sci_dept, cls.physics, 'Physics 1')
+
+    def _login(self):
+        self.client.force_login(self.admin_user)  # Head of Institute
+        s = self.client.session
+        s['current_school_id'] = self.school.id
+        s.save()
+
+    def _url(self, **params):
+        from urllib.parse import urlencode
+        return f'{reverse("student_progress_report")}?{urlencode(params)}'
+
+    def test_subjects_scoped_to_department_via_mapping(self):
+        self._login()
+        names = [s.name for s in self.client.get(
+            self._url(department=self.it_dept.id)).context['subjects']]
+        self.assertIn('Coding', names)
+        self.assertNotIn('Mathematics', names)
+
+    def test_subjects_scoped_via_class_subject_without_mapping(self):
+        self._login()
+        names = [s.name for s in self.client.get(
+            self._url(department=self.sci_dept.id)).context['subjects']]
+        self.assertIn('Physics', names)
+
+    def test_class_dropdown_scoped_to_department_not_subject(self):
+        # Even with a subject selected, the IT class is still listed (dept-only scope).
+        self._login()
+        resp = self.client.get(self._url(department=self.it_dept.id, subject=self.coding.id))
+        class_names = [c.name for c in resp.context['classes']]
+        self.assertIn('Web Prog', class_names)
+
+    def test_stale_cross_department_subject_is_ignored(self):
+        # Maths (from another dept) selected under IT → ignored, students still shown.
+        self._login()
+        resp = self.client.get(
+            self._url(department=self.it_dept.id, subject=self.subject.id),  # Mathematics
+        )
+        self.assertEqual(resp.context['filter_subject'], '')  # cleared
+        student_ids = [d['student'].id for d in resp.context['student_data']]
+        self.assertIn(self.student_user.id, student_ids)
+
+    def test_all_departments_shows_every_mapped_subject(self):
+        # 'All Departments' lists the union of every accessible subject — Maths
+        # (base) AND Coding (mapped to IT) — not just subjects that have a class.
+        self._login()
+        names = [s.name for s in self.client.get(
+            reverse('student_progress_report')).context['subjects']]
+        self.assertIn('Mathematics', names)
+        self.assertIn('Coding', names)
+
+    def test_mapped_subject_without_any_class_still_shows(self):
+        # A subject mapped to a department but not yet on any class still appears —
+        # both under 'All Departments' and under that department.
+        from classroom.models import DepartmentSubject
+        robotics = Subject.objects.create(name='Robotics', slug='robotics', is_active=True)
+        DepartmentSubject.objects.create(department=self.it_dept, subject=robotics)
+        self._login()
+        all_names = [s.name for s in self.client.get(
+            reverse('student_progress_report')).context['subjects']]
+        self.assertIn('Robotics', all_names)
+        it_names = [s.name for s in self.client.get(
+            self._url(department=self.it_dept.id)).context['subjects']]
+        self.assertIn('Robotics', it_names)
+
+
+# ---------------------------------------------------------------------------
+# 9. ProgressPerClassTest  (progress tracked independently per class — §12.10)
+# ---------------------------------------------------------------------------
+
+class ProgressPerClassTest(_BaseAttendanceProgressTest):
+    """A student in two classes has independent progress; reports scope to a
+    class; the reassign command moves legacy class-less records."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        # A second class (same subject/level) the student is also in.
+        cls.classroom2 = _create_classroom(cls.school, cls.department, cls.subject, 'Maths 202')
+        cls.classroom2.levels.add(cls.level)
+        ClassTeacher.objects.create(classroom=cls.classroom2, teacher=cls.teacher_user)
+        ClassStudent.objects.create(classroom=cls.classroom2, student=cls.student_user, is_active=True)
+        cls.crit = ProgressCriteria.objects.create(
+            school=cls.school, subject=cls.subject, level=cls.level,
+            name='Adds fractions', status='approved',
+            created_by=cls.teacher_user, approved_by=cls.teacher_user,
+        )
+
+    def _login(self):
+        self.client.force_login(self.teacher_user)
+        s = self.client.session
+        s['current_school_id'] = self.school.id
+        s.save()
+
+    def test_recording_is_independent_per_class(self):
+        self._login()
+        # Record 'advanced' in class 1, 'developing' in class 2 — same criterion.
+        self.client.post(reverse('record_progress', kwargs={'class_id': self.classroom.id}),
+                         {f'status_{self.student_user.id}_{self.crit.id}': 'advanced'})
+        self.client.post(reverse('record_progress', kwargs={'class_id': self.classroom2.id}),
+                         {f'status_{self.student_user.id}_{self.crit.id}': 'developing'})
+        r1 = ProgressRecord.objects.get(student=self.student_user, criteria=self.crit, classroom=self.classroom)
+        r2 = ProgressRecord.objects.get(student=self.student_user, criteria=self.crit, classroom=self.classroom2)
+        self.assertEqual(r1.status, 'advanced')
+        self.assertEqual(r2.status, 'developing')
+
+    def test_record_page_shows_only_this_class_status(self):
+        """The record-progress GET must pre-fill each student's status from THIS
+        class's records only — a status recorded in another class must not bleed
+        onto this class's page (which would otherwise get saved back on submit)."""
+        self._login()
+        # 'advanced' recorded in class 1 (higher id = would win a cross-class Max).
+        ProgressRecord.objects.create(student=self.student_user, criteria=self.crit,
+                                      classroom=self.classroom, status='advanced',
+                                      recorded_by=self.teacher_user)
+        # class 2 has no record yet → its page must show 'not_started'.
+        resp = self.client.get(reverse('record_progress', kwargs={'class_id': self.classroom2.id}))
+        rows = resp.context['student_rows']
+        statuses = {
+            cs['criteria'].id: cs['current_status']
+            for row in rows if row['student'].id == self.student_user.id
+            for cs in row['criteria_statuses']
+        }
+        self.assertEqual(statuses[self.crit.id], 'not_started')
+
+    def test_legacy_classless_record_still_shows_on_record_page(self):
+        """A record from before per-class tracking (classroom=None) must still
+        prefill on a class record page — otherwise old progress looks 'cleared'."""
+        self._login()
+        ProgressRecord.objects.create(student=self.student_user, criteria=self.crit,
+                                      classroom=None, status='confident',
+                                      recorded_by=self.teacher_user)
+        resp = self.client.get(reverse('record_progress', kwargs={'class_id': self.classroom.id}))
+        row = next(r for r in resp.context['student_rows']
+                   if r['student'].id == self.student_user.id)
+        statuses = {cs['criteria'].id: cs['current_status'] for cs in row['criteria_statuses']}
+        self.assertEqual(statuses[self.crit.id], 'confident')
+
+    def test_legacy_classless_comment_does_not_bleed_across_classes(self):
+        """A class-less legacy comment must NOT prefill on a class record page:
+        it has no single home, so showing it would bleed onto every class sharing
+        the subject. Comments are strictly per-class (§12.10) — unlike records,
+        which do fall back."""
+        self._login()
+        from classroom.models import ProgressReportComment
+        ProgressReportComment.objects.create(
+            student=self.student_user, school=self.school,
+            subject=self.classroom.subject, classroom=None,
+            body='Legacy note.', created_by=self.teacher_user,
+        )
+        for cls in (self.classroom, self.classroom2):
+            resp = self.client.get(reverse('record_progress', kwargs={'class_id': cls.id}))
+            row = next(r for r in resp.context['student_rows']
+                       if r['student'].id == self.student_user.id)
+            self.assertEqual(row['comment'], '')
+
+    def test_legacy_classless_comment_shows_for_single_class_student(self):
+        """A class-less legacy comment MUST still prefill for a student who is in
+        only one class of this subject — it can't bleed (they have one class), so
+        removing it would wrongly wipe every pre-per-class comment."""
+        self._login()
+        from classroom.models import ProgressReportComment, ClassStudent
+        # A student in ONLY self.classroom (not classroom2).
+        solo = _create_user('solo_student', first_name='Sam', last_name='Solo')
+        SchoolStudent.objects.create(school=self.school, student=solo)
+        ClassStudent.objects.create(classroom=self.classroom, student=solo, is_active=True)
+        ProgressReportComment.objects.create(
+            student=solo, school=self.school,
+            subject=self.classroom.subject, classroom=None,
+            body='Legacy solo note.', created_by=self.teacher_user,
+        )
+        resp = self.client.get(reverse('record_progress', kwargs={'class_id': self.classroom.id}))
+        row = next(r for r in resp.context['student_rows'] if r['student'].id == solo.id)
+        self.assertEqual(row['comment'], 'Legacy solo note.')
+
+    def test_comment_is_independent_per_class(self):
+        """A general comment recorded in one class must not appear on — or be
+        overwritten by — the other class's record page (both classes share the
+        same subject, §12.10)."""
+        self._login()
+        from classroom.models import ProgressReportComment
+        # Save a comment via class 1's record page.
+        self.client.post(
+            reverse('record_progress', kwargs={'class_id': self.classroom.id}),
+            {f'comment_{self.student_user.id}': 'Great focus on Tuesday.'},
+        )
+        # Class 2's record page must show a blank comment for this student.
+        resp = self.client.get(reverse('record_progress', kwargs={'class_id': self.classroom2.id}))
+        row = next(r for r in resp.context['student_rows']
+                   if r['student'].id == self.student_user.id)
+        self.assertEqual(row['comment'], '')
+        # Saving a different comment in class 2 leaves class 1's untouched.
+        self.client.post(
+            reverse('record_progress', kwargs={'class_id': self.classroom2.id}),
+            {f'comment_{self.student_user.id}': 'Different note for Wednesday.'},
+        )
+        bodies = {
+            c.classroom_id: c.body
+            for c in ProgressReportComment.objects.filter(student=self.student_user)
+        }
+        self.assertEqual(bodies[self.classroom.id], 'Great focus on Tuesday.')
+        self.assertEqual(bodies[self.classroom2.id], 'Different note for Wednesday.')
+
+    def test_student_page_sections_per_class(self):
+        from classroom.views_progress import _build_student_progress_by_class
+        ProgressRecord.objects.create(student=self.student_user, criteria=self.crit,
+                                      classroom=self.classroom, status='advanced',
+                                      recorded_by=self.teacher_user)
+        ProgressRecord.objects.create(student=self.student_user, criteria=self.crit,
+                                      classroom=self.classroom2, status='not_started',
+                                      recorded_by=self.teacher_user)
+        sections = _build_student_progress_by_class(self.student_user)
+        by_class = {s['classroom'].id: s['overall'] for s in sections if s['classroom']}
+        self.assertEqual(by_class[self.classroom.id]['achieved'], 1)      # advanced
+        self.assertEqual(by_class[self.classroom2.id]['achieved'], 0)     # not_started
+
+    def test_reassign_command_moves_legacy_records(self):
+        from django.core.management import call_command
+        # A legacy class-less record.
+        ProgressRecord.objects.create(student=self.student_user, criteria=self.crit,
+                                      classroom=None, status='confident',
+                                      recorded_by=self.teacher_user)
+        call_command('reassign_progress_records', '--student', str(self.student_user.id),
+                     '--classroom', str(self.classroom.id))
+        self.assertFalse(
+            ProgressRecord.objects.filter(student=self.student_user, classroom__isnull=True).exists()
+        )
+        moved = ProgressRecord.objects.get(student=self.student_user, criteria=self.crit)
+        self.assertEqual(moved.classroom, self.classroom)

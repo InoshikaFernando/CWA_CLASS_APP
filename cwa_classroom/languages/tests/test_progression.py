@@ -8,6 +8,12 @@ TestStageStaysLockedBelow80  — below 80% avg → stays locked
 TestCompletedAtSetOnMastery  — completed_at populated on mastery
 TestRetryUpdatesProgress     — re-attempt with better score recalculates correctly
 TestBestScoreAvgComputation  — avg is across exercises, not answer count
+TestCompletionUsesIsCorrectNotScore80 — regression: handwriting's own
+    is_correct bar (score >= 50, set by _letter_writing()) is what counts
+    toward "completed", not a second, stricter score >= 80 re-check —
+    previously a student could see every exercise marked correct on the
+    dashboard yet never unlock the next level, because most handwriting
+    attempts land in the 50-79% band.
 """
 
 import pytest
@@ -205,3 +211,51 @@ class TestBestScoreAvgComputation:
         assert p.best_score_avg == pytest.approx(85.0, abs=0.1)
         # exercises_completed (score>=80): 3
         assert p.exercises_completed == 3
+
+
+@pytest.mark.django_db
+class TestCompletionUsesIsCorrectNotScore80:
+    def test_all_correct_handwriting_in_the_50_79_band_still_unlocks(self):
+        """Reproduces the real bug: handwriting exercises where every score
+        lands in 50-79% (each is_correct=True per _letter_writing()'s own
+        score >= 50 bar, so every tile shows a green check on the
+        dashboard) average out to >= 80%, so mastery should be achieved —
+        it wasn't, because exercises_completed used to re-derive "done"
+        from score >= 80 instead of trusting is_correct.
+        """
+        student = _make_student('prog_hw_316')
+        _, _, beg, inter = _make_lang()
+
+        exercises = []
+        for i in range(10):
+            ex = LanguageExercise.objects.create(
+                topic_level=beg,
+                exercise_type=LanguageExercise.LETTER_WRITING,
+                prompt=f'letter_{i}',
+                points=1,
+                is_active=True,
+            )
+            exercises.append(ex)
+
+        # 5 exercises at 100%, 5 at 76% -> avg 88%, but every single one is
+        # is_correct (>= 50%) per the real handwriting-scoring threshold.
+        scores = [100.0] * 5 + [76.0] * 5
+        for ex, score in zip(exercises, scores):
+            is_correct = score >= 50.0  # mirrors _letter_writing()'s own bar
+            LanguageStudentAnswer.objects.create(
+                student=student, exercise=ex,
+                score=score, is_correct=is_correct,
+                points_earned=ex.points if is_correct else 0,
+            )
+
+        _recalculate_progress(student, beg)
+
+        beg_p = LanguageProgress.objects.get(student=student, topic_level=beg)
+        assert beg_p.best_score_avg == pytest.approx(88.0, abs=0.1)
+        assert beg_p.exercises_completed == 10, (
+            'every exercise was is_correct=True and should count as completed'
+        )
+        assert beg_p.completed_at is not None, 'mastery should be achieved'
+
+        inter_p = LanguageProgress.objects.get(student=student, topic_level=inter)
+        assert inter_p.is_unlocked is True

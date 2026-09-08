@@ -13,11 +13,16 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from worksheets.grading_service import (
     _parse_cache_feedback,
     _normalise,
     _call_claude_grade,
+    credit_for,
     grade_extended_answer,
+    reconcile_score,
+    verdict,
 )
 
 
@@ -89,7 +94,9 @@ class TestCacheRoundTrip:
         normalised = 'gravity pulls objects together'
         result = {
             'is_correct': False,
-            'score_fraction': 0.3,
+            # In the partly-correct band (0.75–0.99): the answer keeps its
+            # share of the marks without being called correct.
+            'score_fraction': 0.8,
             'feedback': 'Partially correct.',
             'what_was_correct': 'Mentioned attraction correctly.',
             'what_to_add': 'Add mass and distance relationship.',
@@ -99,7 +106,7 @@ class TestCacheRoundTrip:
         cached = _lookup_cache(q.pk, normalised, threshold=0.85)
         assert cached is not None
         assert cached['is_correct'] is False
-        assert cached['score_fraction'] == pytest.approx(0.3)
+        assert cached['score_fraction'] == pytest.approx(0.8)
         assert cached['feedback'] == 'Partially correct.'
         assert cached['what_was_correct'] == 'Mentioned attraction correctly.'
         assert cached['what_to_add'] == 'Add mass and distance relationship.'
@@ -125,11 +132,26 @@ class TestCacheRoundTrip:
         assert cached['what_to_add'] == ''
         assert cached['is_partial'] is False
 
-    def test_lookup_returns_is_partial_true_for_score_0_3(self):
-        """Cache hit at score 0.3 returns is_partial=True."""
+    def test_lookup_returns_is_partial_true_inside_the_band(self):
+        """Cache hit at a score in the partly-correct band returns is_partial."""
         from worksheets.grading_service import _store_cache, _lookup_cache
         q = self._make_question()
         normalised = 'partial answer text'
+        _store_cache(q.pk, normalised, {
+            'is_correct': False,
+            'score_fraction': 0.8,
+            'feedback': 'Some credit.',
+            'what_was_correct': '',
+            'what_to_add': '',
+        })
+        cached = _lookup_cache(q.pk, normalised)
+        assert cached['is_partial'] is True
+
+    def test_lookup_below_the_pass_mark_is_neither_correct_nor_partial(self):
+        """0.3 is wrong: no green tick, no amber, no marks."""
+        from worksheets.grading_service import _store_cache, _lookup_cache
+        q = self._make_question()
+        normalised = 'not much of an answer'
         _store_cache(q.pk, normalised, {
             'is_correct': False,
             'score_fraction': 0.3,
@@ -138,6 +160,27 @@ class TestCacheRoundTrip:
             'what_to_add': '',
         })
         cached = _lookup_cache(q.pk, normalised)
+        assert cached['is_correct'] is False
+        assert cached['is_partial'] is False
+
+    def test_lookup_ignores_a_verdict_cached_under_the_old_pass_mark(self):
+        """An entry stored as correct at 0.8 comes back partly correct.
+
+        A cache hit never re-grades, so a verdict written when 0.6 was a pass
+        would otherwise outlive the change forever.
+        """
+        from worksheets.grading_service import _store_cache, _lookup_cache
+        q = self._make_question()
+        normalised = 'graded before the bands changed'
+        _store_cache(q.pk, normalised, {
+            'is_correct': True,
+            'score_fraction': 0.8,
+            'feedback': 'Good.',
+            'what_was_correct': '',
+            'what_to_add': '',
+        })
+        cached = _lookup_cache(q.pk, normalised)
+        assert cached['is_correct'] is False
         assert cached['is_partial'] is True
 
     def test_lookup_returns_is_partial_false_for_score_1_0(self):
@@ -182,7 +225,7 @@ class TestGradeExtendedAnswer:
         JSON parsing."""
         thinking_block = MagicMock(type='thinking')   # no usable .text
         text_block = MagicMock(type='text', text=json.dumps({
-            'score_fraction': 0.95,
+            'score_fraction': 1.0,
             'is_correct': True,
             'what_was_correct': 'Everything.',
             'what_to_add': 'Nothing.',
@@ -196,10 +239,28 @@ class TestGradeExtendedAnswer:
         q = self._make_question()
         result = _call_claude_grade(q, 'A full and correct answer.', 'a full and correct answer.')
 
-        assert result['score_fraction'] == 0.95
+        assert result['score_fraction'] == 1.0
         assert result['is_correct'] is True
         assert result['feedback'] == 'Excellent and complete.'
         assert 'error' not in result  # parsing succeeded, did not hit the except path
+
+    @patch('anthropic.Anthropic')
+    def test_call_claude_grade_refusal_hands_off_to_teacher(self, mock_anthropic):
+        """A content-safety refusal (stop_reason == 'refusal') must NOT be scored —
+        it falls through to the teacher-review fallback rather than fabricating a
+        grade from empty content."""
+        resp = MagicMock(stop_reason='refusal')
+        resp.content = []
+        resp.usage = MagicMock(input_tokens=10, output_tokens=0)
+        mock_anthropic.return_value.messages.create.return_value = resp
+
+        q = self._make_question()
+        result = _call_claude_grade(q, 'answer', 'answer')
+
+        assert result['is_correct'] is False
+        assert result['score_fraction'] == 0.0
+        assert 'teacher' in result['feedback'].lower()
+        assert 'error' in result  # took the fallback path, did not score empty output
 
     @patch('anthropic.Anthropic')
     def test_call_claude_grade_tolerates_prose_before_json(self, mock_anthropic):
@@ -208,7 +269,7 @@ class TestGradeExtendedAnswer:
         text_block = MagicMock(type='text', text=(
             "Let me work through this. The answer covers all key points.\n"
             + json.dumps({
-                'score_fraction': 0.3,
+                'score_fraction': 0.8,
                 'is_correct': False,
                 'what_was_correct': 'Partial.',
                 'what_to_add': 'More detail.',
@@ -223,7 +284,7 @@ class TestGradeExtendedAnswer:
         q = self._make_question()
         result = _call_claude_grade(q, 'partial answer', 'partial answer')
 
-        assert result['score_fraction'] == 0.3
+        assert result['score_fraction'] == 0.8
         assert result['is_partial'] is True
         assert 'error' not in result
 
@@ -271,7 +332,7 @@ class TestGradeExtendedAnswer:
         mock_claude.return_value = {
             'is_correct': False,
             'is_partial': True,
-            'score_fraction': 0.3,
+            'score_fraction': 0.8,
             'feedback': 'Partially correct.',
             'what_was_correct': 'Some correct.',
             'what_to_add': 'Add more.',
@@ -302,3 +363,148 @@ class TestGradeExtendedAnswer:
 
         assert result['quota_exceeded'] is True
         assert result['is_correct'] is False
+
+
+class ScoreBandTests(SimpleTestCase):
+    """The three bands a score falls into — worksheets.grading_service.
+
+    Full marks is the only "correct". 0.75 up to it is partly correct and
+    keeps its share of the marks; below that the answer is wrong and earns
+    nothing. Every surface reads ``verdict``/``credit_for``, so the student's
+    tick, the points and the teacher's screen cannot disagree.
+    """
+
+    def test_only_full_marks_is_correct(self):
+        self.assertEqual(verdict(1.0), (True, False))
+
+    def test_a_float_that_should_be_full_marks_is_full_marks(self):
+        # 3/3 and 0.1 + 0.9 are 1.0 to a child and must not miss by a bit.
+        self.assertTrue(verdict(0.1 + 0.9)[0])
+        self.assertTrue(verdict(3 / 3)[0])
+
+    def test_the_top_of_the_partial_band_is_not_correct(self):
+        self.assertEqual(verdict(0.99), (False, True))
+
+    def test_the_pass_mark_itself_is_partly_correct(self):
+        self.assertEqual(verdict(0.75), (False, True))
+
+    def test_just_below_the_pass_mark_is_wrong(self):
+        self.assertEqual(verdict(0.74), (False, False))
+
+    def test_a_wrong_answer_earns_nothing(self):
+        self.assertEqual(credit_for(0.74), 0.0)
+        self.assertEqual(credit_for(0.3), 0.0)
+        self.assertEqual(credit_for(0.0), 0.0)
+
+    def test_a_partly_correct_answer_keeps_its_share(self):
+        self.assertEqual(credit_for(0.75), 0.75)
+        self.assertEqual(credit_for(0.9), 0.9)
+
+    def test_full_marks_is_worth_the_whole_question(self):
+        self.assertEqual(credit_for(1.0), 1.0)
+
+    def test_a_missing_or_out_of_range_score_is_handled(self):
+        self.assertEqual(credit_for(None), 0.0)
+        self.assertEqual(credit_for(1.4), 1.0)
+        self.assertEqual(credit_for(-2), 0.0)
+        self.assertEqual(verdict(None), (False, False))
+
+
+class ReconcileScoreTests(SimpleTestCase):
+    """When the mark and the words beside it disagree — worksheets.grading_service.
+
+    The defect these pin, reported from the test site. A Year 4 question asks
+    for a SUBTRACTION pattern; the student wrote 5, 8, 11, 14, 17, 20 — an
+    addition pattern, with no rule — and the quiz said ✅ **Correct!** above
+    feedback explaining why it was not:
+
+        "Your sequence is neat and consistent, but it increases by 3
+         (addition) instead of decreasing, and you did not write down the
+         rule. Reverse the order and state a rule like 'subtract 3 each time'
+         for full marks."
+
+    The check meant to catch a mark contradicting its feedback is what caused
+    it. "full marks" counted as praise — while the prompt asks Claude to name
+    what is missing *for full marks*, so the phrase belongs to exactly the
+    feedback that means the opposite — and no negative signal matched "did not"
+    or "instead of". So a failing score was raised to 0.85 and passed.
+    """
+
+    REPORTED = (
+        "Your sequence is neat and consistent, but it increases by 3 "
+        "(addition) instead of decreasing, and you did not write down the "
+        "rule. Reverse the order and state a rule like 'subtract 3 each time' "
+        "for full marks."
+    )
+
+    def test_the_reported_feedback_never_raises_a_failing_score(self):
+        for scored in (0.0, 0.3, 0.5):
+            score, _ = reconcile_score(scored, self.REPORTED,
+                                       'Reverse the order and state the rule.')
+            self.assertEqual(score, scored)
+            self.assertLess(score, 0.6, 'this answer must not read as correct')
+
+    def test_for_full_marks_is_not_praise(self):
+        # The phrase on its own, in feedback that is otherwise plainly about
+        # what is missing.
+        score, _ = reconcile_score(
+            0.3, 'Add the units for full marks.', 'The units')
+        self.assertEqual(score, 0.3)
+
+    def test_a_score_is_raised_only_when_nothing_is_left_to_add(self):
+        praise = 'Excellent work — mathematically complete.'
+        raised, note = reconcile_score(0.5, praise, 'Nothing')
+        # Full marks, not a near miss: praise with nothing left to add
+        # describes an answer with nothing wrong with it, and 0.85 would show
+        # the student an amber "partly correct" those words do not support.
+        self.assertEqual(raised, 1.0)
+        self.assertIn('raised', note)
+
+        # Same words, but Claude also named something missing: the answer is
+        # not complete, whatever the prose sounds like.
+        kept, note = reconcile_score(0.5, praise, 'Show the working')
+        self.assertEqual(kept, 0.5)
+        self.assertEqual(note, '')
+
+    def test_nothing_to_add_is_recognised_however_it_is_written(self):
+        for nothing in ('Nothing', 'nothing.', 'None', 'N/A', '', '  '):
+            score, _ = reconcile_score(
+                0.5, 'Perfect, fully correct.', nothing)
+            self.assertEqual(score, 1.0, nothing)
+
+    # ── the downward half, which two substrings had disabled ─────────────
+
+    def test_incorrect_is_negative_not_positive(self):
+        # "incorrect" contains "correct", so a substring test read it as
+        # praise — and the drop below could never fire on the plainest way of
+        # saying an answer is wrong.
+        score, note = reconcile_score(
+            0.8, 'This is incorrect — the method does not work.', 'Start again')
+        self.assertEqual(score, 0.35)
+        self.assertIn('dropped', note)
+
+    def test_invalid_is_negative_not_positive(self):
+        score, _ = reconcile_score(0.9, 'The reasoning is invalid.', 'A method')
+        self.assertEqual(score, 0.35)
+
+    # ── and what it must leave alone ─────────────────────────────────────
+
+    def test_an_honest_partial_score_is_untouched(self):
+        for scored, feedback, add in (
+            (0.8, 'Mostly right, with one small omission.', 'The units'),
+            (0.3, 'Some right ideas but key steps are missing.', 'The working'),
+            (1.0, 'Perfect, fully correct.', 'Nothing'),
+        ):
+            score, note = reconcile_score(scored, feedback, add)
+            self.assertEqual(score, scored, feedback)
+
+    def test_mixed_words_are_left_to_the_score(self):
+        # Praise and criticism together is the ordinary shape of feedback on a
+        # partly-right answer; neither half is evidence the number is wrong.
+        score, note = reconcile_score(
+            0.55, 'Correct method, but the final line is wrong.', 'The last step')
+        self.assertEqual(score, 0.55)
+        self.assertEqual(note, '')
+
+    def test_empty_feedback_changes_nothing(self):
+        self.assertEqual(reconcile_score(0.42, '', ''), (0.42, ''))

@@ -3,19 +3,21 @@
 Renders one maths answer-review block on the homework result page.
 Receives ``ctx`` with key: ans (HomeworkStudentAnswer, question prefetched).
 
-States:
-  is_correct              → green tick
-  is_partial (ai_score_fraction 0.1–0.59) → amber warning — shows ai_feedback
-  otherwise               → red cross — shows correct answer / explanation
+States (see the ``credit_state`` filter — AI-graded answers are tiered by
+``ai_score_fraction``, part-graded ones by how many gaps were right; other
+answers fall back to ``is_correct``):
+  correct  → green tick
+  partial  → amber warning — shows ai_feedback and/or the gap-by-gap breakdown
+  wrong    → red cross — shows correct answer / explanation
 {% endcomment %}
-{% with ans=ctx.ans q=ctx.ans.question %}
+{% with ans=ctx.ans q=ctx.ans.question state=ctx.ans|credit_state %}
 <div class="flex items-start gap-3">
   <div class="flex-shrink-0 mt-0.5">
-    {% if ans.is_correct %}
+    {% if state == 'correct' %}
     <svg class="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
     </svg>
-    {% elif ans.ai_score_fraction and ans.ai_score_fraction >= 0.1 and ans.ai_score_fraction < 0.6 %}
+    {% elif state == 'partial' %}
     <svg class="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
     </svg>
@@ -30,39 +32,67 @@ States:
 
     {% if ans.selected_answer %}
       <p class="text-xs text-gray-500">Your answer:
-        <span class="font-medium {% if ans.is_correct %}text-green-700{% elif ans.ai_score_fraction and ans.ai_score_fraction >= 0.1 and ans.ai_score_fraction < 0.6 %}text-amber-600{% else %}text-red-600{% endif %}">
+        <span class="font-medium {% if state == 'correct' %}text-green-700{% elif state == 'partial' %}text-amber-600{% else %}text-red-600{% endif %}">
           {{ ans.selected_answer.answer_text|exponents }}
         </span>
       </p>
     {% elif ans.text_answer %}
       <p class="text-xs text-gray-500">Your answer:
-        <span class="font-medium {% if ans.is_correct %}text-green-700{% elif ans.ai_score_fraction and ans.ai_score_fraction >= 0.1 and ans.ai_score_fraction < 0.6 %}text-amber-600{% else %}text-red-600{% endif %}">
-          {{ ans.text_answer|exponents }}
+        <span class="font-medium {% if state == 'correct' %}text-green-700{% elif state == 'partial' %}text-amber-600{% else %}text-red-600{% endif %}">
+          {{ ans.text_answer|blank_answer|exponents }}
         </span>
       </p>
     {% else %}
       <p class="text-xs text-gray-400 italic">No answer given</p>
     {% endif %}
 
-    {% if ans.is_correct %}
+    {% if state == 'correct' %}
       {# nothing extra needed for correct #}
-    {% elif ans.ai_score_fraction and ans.ai_score_fraction >= 0.1 and ans.ai_score_fraction < 0.6 %}
-      {# Partial credit — show AI feedback #}
-      <p class="text-xs font-medium text-amber-600 mt-1">Partially correct</p>
-      {% if ans.ai_feedback %}
-      <p class="text-xs text-amber-700 mt-0.5">{{ ans.ai_feedback }}</p>
-      {% endif %}
     {% else %}
-      {# Wrong — show correct answer and/or explanation #}
+      {% comment %} Not full marks — partial or wrong. Both need the same two things: the
+         answer it should have been, and the reason this one fell short. A
+         partly-right answer is NOT excused the correct answer just because its
+         breakdown names the gaps: the student still deserves to read the whole
+         thing.
+      {% endcomment %}
+      {% if state == 'partial' %}
+      <p class="text-xs font-medium text-amber-600 mt-1">Partially correct</p>
+      {% endif %}
+      {% comment %}correct_answer_display reads a fill-in-the-blank question's answers
+      from its blank_spec (the Answer rows hold the pre-conversion answer, or nothing),
+      and every other question's from its ticked rows.{% endcomment %}
+      {% if q.blank_data or q.sketch_data %}
+      {% comment %}A fill-in-the-blank sentence and a sketch both keep their answers in
+      their spec rather than in Answer rows, so the loop below would print nothing at
+      all — the student would be told they were wrong and never shown right.{% endcomment %}
+      <p class="text-xs text-green-700 mt-1">Correct answer: <span class="font-medium">{{ q.correct_answer_display|exponents }}</span></p>
+      {% else %}
       {% with correct=q.answers.all %}
       {% for a in correct %}{% if a.is_correct %}
       <p class="text-xs text-green-700 mt-1">Correct answer: <span class="font-medium">{{ a.answer_text|exponents }}</span></p>
       {% endif %}{% endfor %}
       {% endwith %}
+      {% endif %}
       {% if ans.ai_feedback %}
-      <p class="text-xs text-red-600 mt-1">{{ ans.ai_feedback }}</p>
+      <p class="text-xs mt-1 {% if state == 'partial' %}text-amber-700{% else %}text-red-600{% endif %}">{{ ans.ai_feedback }}</p>
       {% elif q.explanation %}
       <p class="text-xs text-gray-400 mt-1 italic">{{ q.explanation|exponents }}</p>
+      {% endif %}
+      {% comment %} The gap-by-gap breakdown, whether they got none right or nine: which
+         gap was wrong is the part a student can act on.
+      {% endcomment %}
+      {% include "maths/partials/_partial_credit.html" with data=ans.answer_data earned=ans.points_earned possible=q.points %}
+      {% comment %} The sketch that was wanted: the curve, its axis of symmetry and a
+         labelled dot at every key feature. Only ever rendered here, after marking —
+         the take page draws the same plane blank.
+      {% endcomment %}
+      {% if q.sketch_data.answer_svg %}
+      <svg viewBox="0 0 {{ q.sketch_data.width }} {{ q.sketch_data.height }}"
+           class="mt-2 border border-gray-200 rounded-lg bg-white max-w-full"
+           style="width:100%;max-width:{{ q.sketch_data.width }}px;height:auto"
+           role="img" aria-label="The graph this question asked for">
+        {{ q.sketch_data.answer_svg|safe }}
+      </svg>
       {% endif %}
     {% endif %}
 

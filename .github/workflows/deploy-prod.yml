@@ -35,10 +35,23 @@ concurrency:
   group: deploy-prod
   cancel-in-progress: false      # never interrupt an in-flight deploy
 
+# A deploy step is silent for minutes at a time (migrate, collectstatic), and a
+# GitHub runner's NAT drops a TCP flow that carries no bytes for four minutes —
+# which killed every run of the weekly audit. Here it would abandon a deploy
+# mid-migration and report it as failed. SSH_OPTS keeps the connection warm.
+env:
+  SSH_OPTS: >-
+    -o IdentitiesOnly=yes
+    -o BatchMode=yes
+    -o ConnectTimeout=30
+    -o ServerAliveInterval=30
+    -o ServerAliveCountMax=10
+
 jobs:
   deploy:
     name: Deploy main to production
     runs-on: ubuntu-latest
+    timeout-minutes: 30   # ~5min
     outputs:
       configured: ${{ steps.gate.outputs.configured }}
     steps:
@@ -67,7 +80,7 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes \
+          ssh $SSH_OPTS -i ~/.ssh/deploy_key \
             "${DEPLOY_USER:-cwa}@${DEPLOY_HOST}" \
             "cd ${DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP} && DEPLOY_BRANCH=main SERVICE=cwa-gunicorn WORKER=cwa-rqworker-prod ENV_FILE=/etc/cwa/cwa.env HEALTH_SOCKET=/run/cwa/gunicorn.sock bash scripts/deploy.sh"
           # Runs in the PROD checkout: resets to origin/main, migrates, collects
@@ -79,6 +92,7 @@ jobs:
     needs: deploy
     if: needs.deploy.outputs.configured == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10   # ~1min
     steps:
       - uses: actions/checkout@v4
 
@@ -105,6 +119,7 @@ jobs:
     needs: [deploy, smoke]
     if: failure()
     runs-on: ubuntu-latest
+    timeout-minutes: 5   # instant
     steps:
       - name: Post failure to webhook
         env:

@@ -87,6 +87,7 @@ urlpatterns = [
     path('', include('classroom.urls')),
     path('maths/', include('number_puzzles.urls')),
     path('', include('progress.urls')),
+    path('', include('progress.report_urls', namespace='progress')),
     path('', include('quiz.subject_urls')),  # /<subject>/level/<n>/topic/<id>/quiz/ etc.
 
     # --- Homework ---
@@ -100,6 +101,12 @@ urlpatterns = [
 
     # --- Usage analytics ---
     path('', include('usage.urls')),
+
+    # --- Ops (droplet health) ---
+    path('', include('ops.urls')),
+
+    # Question-bank health dashboard (superuser) — /admin-dashboard/question-health/
+    path('', include('maths.urls_admin')),
 
     # --- Subject apps ---
     path('brainbuzz/', include('brainbuzz.urls', namespace='brainbuzz')),
@@ -115,7 +122,11 @@ urlpatterns = [
     # Health / version check (no auth required)
     path('api/health/', health_check, name='api_health'),
 
+    # OpenAPI schema + browsable docs (the mobile client is generated from this)
+    path('api/', include('api.urls_schema')),
+
     # v1 versioned endpoints (new canonical paths)
+    path('api/v1/', include('api.urls')),
     path('api/v1/', include('quiz.api_urls')),
     path('api/v1/', include('progress.api_urls')),
 

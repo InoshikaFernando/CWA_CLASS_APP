@@ -163,6 +163,11 @@
           <a href="{% url 'profile' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-primary-light transition">
             My Profile
           </a>
+          {% if request.user.is_superuser and not request.is_impersonating %}
+          <a href="{% url 'impersonation_picker' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-primary-light transition">
+            View as User
+          </a>
+          {% endif %}
           {% if is_individual_student %}
           <a href="{% url 'change_package' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-primary-light transition">
             Billing
@@ -199,27 +204,7 @@
     </button>
   </div>
   <nav class="p-4">
-    {% if is_admin_user %}
-      {% include "partials/sidebar_admin.html" %}
-    {% elif is_institute_owner %}
-      {% include "partials/sidebar_hoi.html" %}
-    {% elif is_hoi %}
-      {% include "partials/sidebar_hoi.html" %}
-    {% elif is_hod %}
-      {% include "partials/sidebar_hod.html" %}
-    {% elif is_senior_teacher %}
-      {% include "partials/sidebar_senior_teacher.html" %}
-    {% elif is_teacher or is_junior_teacher %}
-      {% include "partials/sidebar_teacher.html" %}
-    {% elif is_parent %}
-      {% include "partials/sidebar_parent.html" %}
-    {% elif is_student or is_individual_student %}
-      {% include "partials/sidebar_student.html" %}
-    {% elif is_parent %}
-      {% include "partials/sidebar_parent.html" %}
-    {% elif is_accountant %}
-      {% include "partials/sidebar_accountant.html" %}
-    {% endif %}
+    {% include "partials/_sidebar_for_role.html" %}
   </nav>
 </div>
 
