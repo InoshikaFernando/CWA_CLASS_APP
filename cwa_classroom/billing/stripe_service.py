@@ -548,6 +548,53 @@ def _build_stripe_coupon_kwargs(code_obj):
     return kwargs
 
 
+def ensure_stripe_coupon(code_obj):
+    """Give a partial discount code the Stripe coupon its checkout needs.
+
+    Returns ``(synced, error)``. Never raises — the caller decides how loudly
+    to fail, and every caller must say something: a partial code with no
+    coupon id is silently ignored by Stripe Checkout, so the student pays the
+    FULL price while the subscription records the discount they were promised.
+    Reporting "created" for a code in that state is how an overcharge gets set
+    up months before anyone redeems it.
+
+    A 100%-off code needs no coupon — it never reaches Stripe at all — so it is
+    reported as synced. Works for both ``DiscountCode`` and
+    ``InstituteDiscountCode``; the fields it reads are common to both.
+    """
+    if getattr(code_obj, 'is_fully_free', False):
+        return True, None
+    if code_obj.stripe_coupon_id:
+        return True, None
+    if not _stripe_configured():
+        return False, 'Stripe is not configured on this server (no STRIPE_SECRET_KEY).'
+    try:
+        _ensure_stripe_key()
+        kwargs = _build_stripe_coupon_kwargs(code_obj)
+        kwargs['metadata']['discount_code_id'] = code_obj.id
+        coupon = stripe.Coupon.create(**kwargs)
+    except Exception as e:  # noqa: BLE001 — reported to the caller, not swallowed
+        logger.exception(
+            'Stripe coupon creation failed for code %s (%s%% off)',
+            getattr(code_obj, 'code', code_obj),
+            getattr(code_obj, 'discount_percent', '?'),
+        )
+        return False, str(e)
+
+    code_obj.stripe_coupon_id = coupon.id
+    code_obj.save(update_fields=['stripe_coupon_id'])
+    return True, None
+
+
+#: What to tell an admin whose code was saved without a working coupon.
+UNSYNCED_COUPON_WARNING = (
+    'Discount code "{code}" was saved, but its Stripe coupon could NOT be '
+    'created ({error}). Students cannot check out with this code until it is '
+    'synced — they would otherwise be charged the full price. Re-save the code '
+    'once Stripe is reachable, or run "manage.py sync_stripe_coupons".'
+)
+
+
 def sync_discount_to_stripe(discount_code):
     """
     Create a Stripe Coupon for an InstituteDiscountCode.
