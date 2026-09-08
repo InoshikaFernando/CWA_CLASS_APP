@@ -24,6 +24,7 @@ from billing.subscription_health import (
     get_payment_delay_health, get_unpaid_access_health)
 from classroom.email_health import get_email_queue_health
 
+from .log_reader import DEFAULT_FILE, LEVELS, LOG_FILES, read_log
 from .models import OpsSnapshot
 from .reporting import (
     get_ops_series, WINDOWS, DEFAULT_WINDOW, STALE_AFTER_MINUTES,
@@ -98,4 +99,42 @@ class OpsDashboardView(SuperuserRequiredMixin, View):
             'window_options': [
                 {'key': k, 'label': v['label']} for k, v in WINDOWS.items()
             ],
+        })
+
+
+class ErrorLogView(SuperuserRequiredMixin, View):
+    """The application log, readable without an SSH session.
+
+    Stripe told us exactly what was wrong with a student's checkout — "The
+    price specified is inactive" — and that sentence lived only in
+    /var/log/cwa/django-error.log. It took a shell on the droplet and a grep to
+    find, two weeks after the student gave up. The ops tiles answer "is
+    something broken"; this answers "what did it actually say".
+
+    Superuser only, and deliberately: logs carry email addresses, usernames and
+    request paths.
+    """
+
+    MAX_LIMIT = 500
+
+    def get(self, request):
+        key = request.GET.get('file', DEFAULT_FILE)
+        level = request.GET.get('level', '')
+        search = request.GET.get('q', '')
+        try:
+            limit = min(int(request.GET.get('limit', 200)), self.MAX_LIMIT)
+        except (TypeError, ValueError):
+            limit = 200
+
+        entries, meta = read_log(key=key, level=level, search=search, limit=limit)
+
+        return render(request, 'admin_dashboard/ops/error_log.html', {
+            'entries': entries,
+            'meta': meta,
+            'files': LOG_FILES,
+            'levels': LEVELS,
+            'selected_file': meta['key'],
+            'selected_level': (level or '').upper(),
+            'search': search,
+            'limit': limit,
         })

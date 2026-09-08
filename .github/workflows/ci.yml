@@ -383,6 +383,12 @@ jobs:
             ui_navigation:
               - 'cwa_classroom/ui_tests/navigation/**'
               - 'cwa_classroom/accounts/**'
+              # The group drives the ops application-log page and the admin
+              # sidebar that reaches it. Without these an ops-only change would
+              # leave these tests green by never running them.
+              - 'cwa_classroom/ops/**'
+              - 'cwa_classroom/templates/admin_dashboard/ops/**'
+              - 'cwa_classroom/templates/partials/sidebar_admin.html'
               - 'cwa_classroom/rewards/**'
               - 'cwa_classroom/ai_import/**'
               - 'cwa_classroom/billing/**'
