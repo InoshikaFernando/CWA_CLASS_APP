@@ -235,3 +235,41 @@ class PendingRegistration(models.Model):
 
     def __str__(self):
         return f'PendingRegistration({self.email}, completed={self.completed})'
+
+
+class PendingInstituteRegistration(models.Model):
+    """Holds an institute's registration while it waits for card details.
+
+    The institute signup used to create the user, the school and a 14-day
+    trialing SchoolSubscription *before* redirecting to Stripe. Closing the
+    Stripe tab therefore left a fully working school with no card on file — the
+    app never required one, and only the trial expiry two weeks later stopped
+    them.
+
+    This is the same answer the individual-student signup already uses
+    (``PendingRegistration``): hold the details here, create nothing, and build
+    the account only once Stripe confirms the card. The trial still runs 14
+    days and Stripe charges nothing until it ends, so cancelling inside the
+    trial costs the institute nothing.
+
+    Rows are keyed on the Stripe checkout session, so a webhook and a browser
+    redirect arriving together converge on one account rather than two.
+    """
+    stripe_session_id = models.CharField(max_length=200, unique=True)
+    email = models.EmailField()
+    username = models.CharField(max_length=150)
+    password_hash = models.CharField(max_length=200)
+    center_name = models.CharField(max_length=200)
+    plan_id = models.IntegerField()
+    #: abn, phone, street_address, city, state_region, postal_code, country,
+    #: discount_code — everything the form collected that is not above.
+    data = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return (f'PendingInstituteRegistration({self.center_name}, '
+                f'completed={self.completed})')

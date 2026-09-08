@@ -827,19 +827,35 @@ class InstituteCheckoutView(LoginRequiredMixin, View):
             return redirect('institute_plan_select')
 
 
-class InstituteCheckoutSuccessView(LoginRequiredMixin, View):
+class InstituteCheckoutSuccessView(View):
     """Success page after Stripe Checkout for institute subscription.
 
-    Stripe redirects here with ?session_id=... after payment. We verify
-    the session with Stripe and activate the subscription immediately,
-    so the user doesn't depend on the webhook arriving first.
+    Stripe redirects here with ?session_id=... after payment. The session is
+    verified with Stripe and the subscription activated straight away, so the
+    outcome never depends on the webhook arriving first.
+
+    Deliberately NOT login-required. A new institute has no account at this
+    point — that is the whole change: nothing is created until Stripe confirms
+    the card, so this page is where a brand-new signup lands, still anonymous,
+    and it builds the account and signs them in. An existing school upgrading a
+    plan arrives here logged in and takes the branch below.
     """
 
     def get(self, request):
+        session_id = request.GET.get('session_id', '')
+
+        # A signup that has not been built yet: no user, no school, nothing.
+        if session_id:
+            created = self._activate_pending_signup(request, session_id)
+            if created:
+                return created
+
+        if not request.user.is_authenticated:
+            return redirect('login')
+
         school = get_school_for_user(request.user)
         sub = get_school_subscription(school) if school else None
 
-        session_id = request.GET.get('session_id', '')
         if session_id and sub and sub.status != SchoolSubscription.STATUS_ACTIVE:
             self._activate_from_session(session_id, sub)
             sub.refresh_from_db()
@@ -848,6 +864,84 @@ class InstituteCheckoutSuccessView(LoginRequiredMixin, View):
             'school': school,
             'subscription': sub,
         })
+
+    def _activate_pending_signup(self, request, session_id):
+        """Build and sign in a brand-new institute, or return None.
+
+        The webhook usually wins this race; when it does, ``completed`` is
+        already True and this finds nothing to do — but the person still needs
+        signing in, so the account is looked up and used either way. Running
+        both paths must never produce two schools, which is why activation is
+        idempotent rather than guarded by a flag checked here.
+        """
+        from django.contrib.auth import login as auth_login
+
+        from accounts.institute_registration import activate_pending_institute
+        from accounts.models import PendingInstituteRegistration
+
+        pending = PendingInstituteRegistration.objects.filter(
+            stripe_session_id=session_id).first()
+        if not pending:
+            return None
+
+        trial_end, stripe_sub_id, stripe_customer_id = self._session_facts(session_id)
+        user, school, sub = activate_pending_institute(
+            pending,
+            stripe_subscription_id=stripe_sub_id,
+            stripe_customer_id=stripe_customer_id,
+            trial_end=trial_end,
+        )
+        if not user:
+            messages.error(
+                request,
+                'Your payment details were saved but we could not finish '
+                'setting up your school. Please contact support — you have not '
+                'been charged.',
+            )
+            return redirect('register_teacher_center')
+
+        if not request.user.is_authenticated:
+            auth_login(request, user,
+                       backend='accounts.backends.EmailOrUsernameBackend')
+
+        log_event(
+            user=user, school=school, category='auth',
+            action='hoi_registered',
+            detail={'center_name': school.name if school else None,
+                    'via': 'stripe_checkout', 'session_id': session_id},
+            request=request,
+        )
+        try:
+            from notifications.services import send_welcome_notification
+            send_welcome_notification(user, school=school)
+        except Exception:
+            logger.exception('Failed to send welcome email for HoI user %s', user.pk)
+
+        return render(request, 'billing/institute_checkout_success.html', {
+            'school': school,
+            'subscription': sub,
+        })
+
+    @staticmethod
+    def _session_facts(session_id):
+        """``(trial_end, subscription_id, customer_id)`` for a checkout session.
+
+        Read from Stripe rather than assumed: Stripe owns the date it bills on,
+        and a locally computed "now + 14 days" would drift from it.
+        """
+        from billing.webhook_handlers import _stripe_trial_end
+        try:
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            session = stripe.checkout.Session.retrieve(session_id)
+            sub_id = session.get('subscription') if isinstance(session, dict) \
+                else getattr(session, 'subscription', '')
+            cus_id = session.get('customer') if isinstance(session, dict) \
+                else getattr(session, 'customer', '')
+            return _stripe_trial_end(sub_id or ''), sub_id or '', cus_id or ''
+        except Exception:  # noqa: BLE001 — never lose an account to a lookup
+            logger.warning('Could not read checkout session %s', session_id,
+                           exc_info=True)
+            return None, '', ''
 
     @staticmethod
     def _activate_from_session(session_id, sub):

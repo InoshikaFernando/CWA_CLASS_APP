@@ -279,6 +279,52 @@ def create_pending_registration_checkout_session(email, package, request, stripe
     return stripe.checkout.Session.create(**session_kwargs)
 
 
+def create_pending_institute_checkout_session(email, plan, request,
+                                             trial_period_days=14,
+                                             stripe_coupon_id=None):
+    """Checkout for an institute whose account does not exist yet.
+
+    The card is collected now; Stripe charges nothing until the trial ends, and
+    a subscription cancelled inside the trial is never invoiced. So this asks
+    for a card up front without asking for money up front — which is the whole
+    point of gating account creation on it.
+
+    ``payment_method_collection='always'`` is set explicitly rather than left to
+    Stripe's default: the default for a trialling subscription has moved before,
+    and an account created without a card on file is exactly the bug this
+    replaces.
+    """
+    _ensure_stripe_key()
+
+    sub_metadata = {
+        'type': 'pending_institute_registration',
+        'plan_id': plan.id,
+    }
+    session_kwargs = dict(
+        customer_email=email,
+        mode='subscription',
+        line_items=[{'price': plan.stripe_price_id, 'quantity': 1}],
+        success_url=request.build_absolute_uri(
+            reverse('institute_checkout_success')
+        ) + '?session_id={CHECKOUT_SESSION_ID}',
+        cancel_url=request.build_absolute_uri(
+            reverse('register_teacher_center')
+        ),
+        metadata=dict(sub_metadata),
+        subscription_data={
+            'metadata': dict(sub_metadata),
+            'trial_period_days': trial_period_days,
+        },
+        billing_address_collection='required',
+        payment_method_types=['card'],
+        payment_method_collection='always',
+    )
+    if stripe_coupon_id:
+        session_kwargs['discounts'] = [{'coupon': stripe_coupon_id}]
+
+    return stripe.checkout.Session.create(**session_kwargs)
+
+
 def create_student_checkout_session(user, package, request, stripe_coupon_id=None):
     """
     Create a Stripe Checkout Session for a school student subscription.

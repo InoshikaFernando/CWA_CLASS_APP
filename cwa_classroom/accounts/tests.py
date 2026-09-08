@@ -12,6 +12,7 @@ from billing.models import (
     InstitutePlan, InstituteDiscountCode, DiscountCode, Package,
     SchoolSubscription, Subscription,
 )
+from accounts.tests_institute_helpers import register_and_pay, register_institute
 
 
 class InstituteRegistrationTest(TestCase):
@@ -65,7 +66,7 @@ class InstituteRegistrationTest(TestCase):
     # ── POST success ─────────────────────────────────────────
 
     def test_register_creates_user_school_subscription(self):
-        resp = self.client.post(self.url, {
+        resp = register_and_pay(self.client, self.url, {
             'center_name': 'Test School',
             'username': 'newadmin',
             'email': 'admin@test.com',
@@ -90,7 +91,7 @@ class InstituteRegistrationTest(TestCase):
         self.assertTrue(sub.has_used_trial)
 
     def test_register_with_silver_plan(self):
-        self.client.post(self.url, {
+        register_and_pay(self.client, self.url, {
             'center_name': 'Silver School',
             'username': 'silveradmin',
             'email': 'silver@test.com',
@@ -351,7 +352,7 @@ class InstituteDiscountCodeTest(TestCase):
         self.assertEqual(sub.discount_code, self.free_code)
 
     def test_partial_discount_still_trials(self):
-        resp = self.client.post(self.url, self._reg_data('HALF50', 'half'))
+        resp = register_and_pay(self.client, self.url, self._reg_data('HALF50', 'half'))
         self.assertEqual(resp.status_code, 302)
         from classroom.models import School
         school = School.objects.get(name='School half')
@@ -377,7 +378,7 @@ class InstituteDiscountCodeTest(TestCase):
         self.assertContains(resp, 'expired')
 
     def test_no_code_still_works(self):
-        resp = self.client.post(self.url, self._reg_data('', 'nocode'))
+        resp = register_and_pay(self.client, self.url, self._reg_data('', 'nocode'))
         self.assertEqual(resp.status_code, 302)
         from classroom.models import School
         school = School.objects.get(name='School nocode')
@@ -522,7 +523,7 @@ class StripeTrialRegistrationTest(TestCase):
 
     def test_has_used_trial_set_on_registration(self):
         """has_used_trial should be True after registering with a trial plan."""
-        self.client.post(self.url, {
+        register_and_pay(self.client, self.url, {
             'center_name': 'Trial School',
             'username': 'trialuser',
             'email': 'trial@test.com',
@@ -602,7 +603,7 @@ class TermsAcceptanceInstituteTest(TestCase):
         self.assertContains(resp, 'Terms and Conditions')
 
     def test_succeeds_with_accept_terms(self):
-        resp = self.client.post(self.url, self._base_data(accept=True))
+        resp = register_and_pay(self.client, self.url, self._base_data(accept=True))
         self.assertEqual(resp.status_code, 302)
         user = CustomUser.objects.get(username='termsuser')
         self.assertIsNotNone(user.terms_accepted_at)
@@ -748,22 +749,36 @@ class CPP300_InstituteStripeEnforcementTest(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(CustomUser.objects.filter(username='user300free').exists())
 
-    def test_paid_plan_with_stripe_id_proceeds(self):
-        """Paid plan with valid stripe_price_id should proceed (Stripe may fail in test but account is created)."""
-        resp = self.client.post(self.url, self._reg_data(self.plan_with_stripe, 'ok'))
-        # Account should be created (Stripe redirect will fail in test, but account was already committed)
-        self.assertEqual(resp.status_code, 302)
-        self.assertTrue(CustomUser.objects.filter(username='user300ok').exists())
+    def test_paid_plan_with_stripe_id_goes_to_checkout_first(self):
+        """A paid plan hands off to Stripe, and creates nothing on the way.
 
-    def test_stripe_exception_logs_warning_not_silent(self):
-        """When Stripe checkout fails, a warning message is set (not silently swallowed)."""
-        resp = self.client.post(self.url, self._reg_data(self.plan_with_stripe, 'warn'))
+        This test used to assert the opposite — "account was already committed"
+        before the Stripe redirect — which is precisely the bug: closing the
+        checkout tab left a working school with no card on file until the trial
+        expired a fortnight later.
+        """
+        resp, _session_id = register_institute(
+            self.client, self.url, self._reg_data(self.plan_with_stripe, 'ok'))
         self.assertEqual(resp.status_code, 302)
-        # Follow the redirect to check messages
-        resp2 = self.client.get(resp.url)
-        # The Stripe call will fail in test (no Stripe configured), so a warning should appear
-        # Account should still exist since it was created before the Stripe redirect
-        self.assertTrue(CustomUser.objects.filter(username='user300warn').exists())
+        self.assertIn('checkout.stripe.com', resp.url)
+        self.assertFalse(CustomUser.objects.filter(username='user300ok').exists())
+
+    def test_paid_plan_account_appears_once_the_card_is_accepted(self):
+        resp = register_and_pay(
+            self.client, self.url, self._reg_data(self.plan_with_stripe, 'ok2'))
+        self.assertEqual(resp.status_code, 302)
+        user = CustomUser.objects.get(username='user300ok2')
+        self.assertTrue(user.has_role(Role.HEAD_OF_INSTITUTE))
+
+    def test_stripe_exception_creates_nothing_and_says_so(self):
+        """A failed checkout must not leave a half-made institute behind."""
+        with patch('billing.stripe_service.create_pending_institute_checkout_session',
+                   side_effect=Exception('Stripe is down')):
+            resp = self.client.post(
+                self.url, self._reg_data(self.plan_with_stripe, 'warn'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'No account was created')
+        self.assertFalse(CustomUser.objects.filter(username='user300warn').exists())
 
 
 class CPP300_IndividualStudentStripeEnforcementTest(TestCase):
