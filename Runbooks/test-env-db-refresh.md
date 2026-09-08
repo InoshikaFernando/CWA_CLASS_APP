@@ -11,10 +11,11 @@ passwords, no carried-over sessions. The supporting scripts live in
 > real users and destroy their data. Double-check the target DB name before
 > every destructive step.
 
-> 🔑 **Credentials never live in this runbook.** The scripts read DB host/user/
-> password from environment variables (`DB_HOST`, `DB_USER`, `DB_PASS`,
-> `SRC_DB`, `DST_DB`, …). Set them in your shell (or a sourced, git-ignored
-> env file) — do not paste real passwords into commits, tickets, or chat.
+> 🔑 **Credentials never live in this runbook, or in the scripts.** Flow A reads
+> every DB credential out of the systemd env files already on the droplet
+> (`/etc/cwa/cwa.env` for prod, `/etc/cwa/cwa-test.env` for test) — there is
+> nothing to export and nothing to paste. Flow B reads `DB_*` from your shell.
+> Do not put real passwords into commits, tickets, or chat.
 
 ---
 
@@ -28,120 +29,97 @@ The two supported flows:
 
 | Flow | Scripts | Runs where |
 |------|---------|------------|
-| **Refresh the shared test DB** (same MySQL server as prod) | `restore_prod_to_test.sh` → `sanitise_test_db.sh` | On the DB host (e.g. a PythonAnywhere/SSH console) |
+| **Refresh the shared test DB** (same managed MySQL as prod) | `restore_prod_to_test.sh` (migrates + sanitises + re-points Stripe itself) | On the DigitalOcean droplet, as the `cwa` user |
+| **Refresh the dev DB** | `restore_prod_to_dev.sh` | On the droplet, as the `cwa` user |
 | **Refresh your local DB from a `.sql` backup** | `prepare_local_db.sh <backup.sql>` | Your workstation (local MySQL) |
 
 ---
 
 ## Prerequisites
 
-- `mysql` + `mysqldump` clients available on the box you run from.
-- Network reach to the source (prod) and destination (test/local) MySQL.
-- The repo checked out; commands run from the **repo root** (the scripts expect
-  `manage.py` at `cwa_classroom/manage.py`).
-- The destination's Django env points at the destination DB — for the shared
-  test DB that's `cwa_classroom/settings_test.py`
-  (`--settings=cwa_classroom.settings_test`); locally it's your `.env`.
-- Credentials exported as env vars (see the box above). Confirm them with a
-  dry run before doing anything destructive.
+- **Flow A runs on the droplet**, not your workstation: only the droplet can
+  reach the private managed-MySQL host and read `/etc/cwa/*.env`.
+- `mysql` + `mysqldump` clients on that box (already there — the app uses MySQL).
+- The test checkout at `/home/cwa/CWA_CLASS_APP_TEST` with its own virtualenv.
+- The test environment on **`sk_test_` Stripe keys**. The script aborts on a
+  live key rather than handing a tester a site that charges real cards.
+- Flow B only: `DB_*` exported in your shell for your local MySQL.
 
 ---
 
 ## Flow A — Refresh the shared test database
 
-This copies prod into a **separate test schema on the same MySQL server**, then
-sanitises it. No SSH-into-prod required; it's pure SQL between two schemas.
+This copies prod into the **test schema on the same managed MySQL server**, then
+migrates, sanitises, and re-points Stripe. It is one command; the steps below
+describe what that command does and how to read its output.
 
-### A.1 Dry-run the copy first
-
-```bash
-# Export creds for the source + destination (NOT committed):
-export DB_HOST=<mysql-host> DB_PORT=3306 DB_USER=<user> DB_PASS=<password>
-export SRC_DB='<prod_schema>'        # e.g. avinesh$cwa_classroom
-export DST_DB='<test_schema>'        # e.g. avinesh$cwa_classroom_test
-
-bash scripts/restore_prod_to_test.sh --dry-run
-```
-
-The dry run prints the source/target/host and what it *would* do without
-touching anything. **Read the `Source`/`Target` lines and confirm `Target` is
-the test schema, never prod.**
-
-### A.2 Run the copy
+### A.1 Dry-run first
 
 ```bash
-bash scripts/restore_prod_to_test.sh
+sudo -u cwa bash scripts/restore_prod_to_test.sh --dry-run
 ```
 
-What it does (`scripts/restore_prod_to_test.sh`):
+The dry run prints the resolved source/target and stops. **Read the `Source`/
+`Target` lines and confirm `Target` is the test schema, never prod.** The script
+also refuses outright if the target DB name does not contain `test`, if source
+and target are the same database, or if the test env still holds an `sk_live_`
+Stripe key.
 
-1. Verifies the **source** DB is reachable.
-2. Creates the **destination** schema if missing, else drops + recreates it.
-3. `mysqldump`s the source (`--single-transaction --routines --triggers
-   --set-gtid-purged=OFF`) to a temp file.
-4. Drops + recreates the destination, restores the dump, deletes the temp file.
-
-At the end the destination is a byte-for-byte copy of prod — **including real
-emails, phones, and password hashes.** It is **not yet safe.** Do not let anyone
-log in until A.3 + A.4 complete.
-
-### A.3 Apply migrations against the test schema
-
-The dump is at prod's migration state; bring it to the current code's state:
+### A.2 Run it
 
 ```bash
-cd cwa_classroom
-python manage.py migrate --settings=cwa_classroom.settings_test
-# Apply any prod data fixes the app expects:
-python ../scripts/run_all_prod_fixes.py --settings=cwa_classroom.settings_test
+sudo -u cwa bash scripts/restore_prod_to_test.sh
 ```
 
-### A.4 Sanitise (mandatory before anyone touches it)
+What it does, in order:
+
+1. Reads prod + test DB credentials from `/etc/cwa/cwa.env` and
+   `/etc/cwa/cwa-test.env`. Nothing is hardcoded and nothing is exported.
+2. Runs the guards above.
+3. `mysqldump`s prod (`--single-transaction --no-tablespaces --routines
+   --triggers --set-gtid-purged=OFF`) to a temp file.
+4. Drops + recreates the test schema, restores the dump, deletes the temp file.
+   **At this instant the test DB holds real emails and real password hashes.**
+   Nobody may log in until step 6 has run.
+5. `manage.py migrate` against the test env — the dump is at prod's migration
+   state, the code may be ahead.
+6. **Sanitises** via `scripts/sanitize_test_db.py`: every password →
+   `Password1!`, every email → `user<id>@test.local`, all Stripe identifiers
+   blanked, email log **and the pending email queue** dropped, pending passwords
+   and invite tokens cleared, sessions cleared.
+7. **Re-points Stripe**: `sync_stripe_prices --create-missing` links or mints
+   test-mode prices for every Package / InstitutePlan / ModuleProduct, then
+   `sync_stripe_coupons` recreates the discount coupons in test mode.
+8. **Verifies, and fails loudly.** It counts unscrubbed user emails (must be 0)
+   and runs `check_stripe_prices --fresh`. A non-zero exit from either means the
+   environment is not fit to hand over — read the listed rows and fix them.
+
+### A.3 Why step 7 is not optional
+
+A prod dump carries prod's **live** Stripe price ids. Restored onto a test site
+running `sk_test_` keys, every one of them is an object the test key cannot see;
+Stripe answers *"No such price"* and the app shows its generic *"contact
+support"*. Nothing turns red — the test site simply stops taking payments, and
+you find out from a tester's screenshot. That is precisely what happened in
+September 2026 after a prod→test copy, and it is why the script now ends on
+`check_stripe_prices` as a hard gate rather than a suggestion.
+
+Blanking the ids is not enough on its own either: a Package with an empty
+`stripe_price_id` fails checkout just as surely as one with a live id. Steps 6
+and 7 only work as a pair.
+
+### A.4 Verify by hand if you want a second opinion
 
 ```bash
-# Same DB_* / DST_DB env as A.1 must still be exported.
-bash scripts/sanitise_test_db.sh
+cd /home/cwa/CWA_CLASS_APP_TEST/cwa_classroom
+set -a; source /etc/cwa/cwa-test.env; set +a
+../venv/bin/python manage.py check_stripe_prices --fresh
+../venv/bin/python smoke_test.py https://test.wizardslearninghub.co.nz
 ```
 
-What it does (`scripts/sanitise_test_db.sh`):
-
-1. **Scrambles PII** — rewrites every email/phone across
-   `accounts_customuser`, `accounts_pendingregistration`, `classroom_guardian`,
-   `classroom_parentinvite`, `classroom_contactmessage`, `classroom_school`,
-   `classroom_department`, `classroom_emaillog` to
-   `<id>+test@example.com` and blanks phones.
-2. **Resets every password** to `Password1!` (Django `set_password`).
-3. **Clears `django_session`** so no prod login carries over.
-
-> **Keep the scrub list current.** If a new model gains an email/phone column,
-> add it to `sanitise_test_db.sh`. The script embeds the discovery query —
-> re-run it after a schema change to catch new PII columns:
-> ```sql
-> SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
->  WHERE TABLE_SCHEMA = DATABASE()
->    AND (COLUMN_NAME LIKE '%email%' OR COLUMN_NAME LIKE '%phone%');
-> ```
-> A new PII column that isn't scrubbed is a **leak**, not a cosmetic gap.
-
-### A.5 Verify sanitisation
-
-```bash
-mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASS" "$DST_DB" -e "
-  SELECT COUNT(*) AS unscrubbed_emails
-    FROM accounts_customuser
-   WHERE email NOT LIKE '%+test@example.com';"
-# Expect: 0
-```
-
-Then smoke the test site:
-
-```bash
-cd cwa_classroom && python smoke_test.py https://<test-host>   # logs in as user1@test.local / Password1!
-```
-
-Any non-zero `unscrubbed_emails`, or a login that fails with `Password1!`, means
-the sanitise step didn't fully run — **stop and re-run A.4** before handing the
-environment to anyone.
+Log in as `user<id>@test.local` / `Password1!`. A login that fails with that
+password, or a non-zero `check_stripe_prices`, means the run did not finish —
+re-run A.2 rather than patching around it.
 
 ---
 
@@ -187,12 +165,14 @@ Log in with any user's email and `Password1!`. From here you can drive the
 After **either** flow, all of the following must hold before the environment is
 considered safe:
 
-- ✅ No email anywhere resolves to a real person (`+test@example.com` /
-  `wlhtestmails+...@gmail.com` only).
+- ✅ No email anywhere resolves to a real person — `user<id>@test.local` after
+  Flow A, `wlhtestmails+<username>@gmail.com` after Flow B.
 - ✅ Every password is `Password1!`.
 - ✅ Sessions cleared — no prod login is active.
-- ✅ Stripe/payment identifiers are dev/test, not live (Flow B does this; for
-  Flow A confirm the test env's `STRIPE_*` env points at test keys).
+- ✅ Stripe/payment identifiers are dev/test, not live — and **chargeable**.
+  Both flows blank the live ids; Flow A then re-points them at test-mode objects
+  and proves it with `check_stripe_prices`. "No live ids" is only half the
+  invariant: a test site that cannot take a test payment is also broken.
 - ✅ Outgoing email is pointed at a sink or a test mailbox, so sanitised users
   can't trigger real mail. **Never** run `send_*` management commands (e.g.
   `send_trial_expiry_warnings`) against a freshly-restored env until you've
@@ -209,22 +189,26 @@ it before proceeding.
 |---------|-------|-----|
 | `Cannot connect to source DB` | Wrong `DB_*` / `SRC_DB` | Re-export creds; verify with `mysql ... -e "SELECT 1"` |
 | `mysqldump: Couldn't execute 'FLUSH TABLES'` | Insufficient privileges on managed MySQL | The script already uses `--single-transaction --no-tablespaces`; ensure the user has `SELECT, LOCK TABLES, SHOW VIEW` |
-| `Unknown database` on restore | Schema name has a `$` and wasn't escaped | The scripts escape it (`avinesh\$cwa_classroom`); export `SRC_DB`/`DST_DB` with the literal `$`, quoted in single quotes |
-| Migrations fail after restore | Prod schema older than code | That's expected — A.3 migrates forward. A genuine failure is a migration bug; fix it, don't skip |
-| Login fails with `Password1!` after restore | Sanitise step skipped/failed | Re-run `sanitise_test_db.sh` (A.4) and verify A.5 |
-| Real emails still present | New PII column not in the scrub list | Add the table/column to `sanitise_test_db.sh`, re-run |
+| `ABORT: test DB name '…' does not contain 'test'` | `DB_NAME` in `/etc/cwa/cwa-test.env` points somewhere else | Do **not** loosen the guard. Fix the env file |
+| `ABORT: … holds a LIVE Stripe secret key` | Test env has `sk_live_` | Put `sk_test_` keys in `/etc/cwa/cwa-test.env` before restoring |
+| Migrations fail after restore | Prod schema older than code | Expected direction; the script migrates forward. A genuine failure is a migration bug — fix it, don't skip |
+| Login fails with `Password1!` after restore | The run died before the sanitise step | Re-run the script. Never hand the environment over in this state |
+| `FAILED: N user email(s) are still real addresses` | Sanitiser did not complete | Re-run the script; if it repeats, a new PII column needs adding to `scripts/sanitize_test_db.py` |
+| `check_stripe_prices` exits non-zero at the end | Prices could not be linked or minted in test mode | Read the per-row `→` remedy it prints; the same data is on the ops dashboard |
 
 ---
 
 ## Legacy / migration note
 
-The Flow-A scripts (`restore_prod_to_test.sh`, `sanitise_test_db.sh`) target the
-**PythonAnywhere** MySQL host, and `scripts/migrate_db_pa_to_do.sh` exists to
-move data from PythonAnywhere to the DigitalOcean Managed MySQL. As the app
-completes its move to the Droplet (see `docs/MIGRATION_PLAN.md` and
-`production-deployment.md` § 6), point `DB_HOST`/`SRC_DB`/`DST_DB` at the
-DigitalOcean instance instead — the sanitise logic is host-agnostic and applies
-unchanged.
+Flow A used to target the **PythonAnywhere** MySQL host and carried its
+credentials as literal shell defaults. Both sites moved to DigitalOcean
+Droplets with managed MySQL (`scripts/migrate_db_pa_to_do.sh` did the move), so
+`restore_prod_to_test.sh` now reads `/etc/cwa/*.env` like the deploy does, and
+the old `sanitise_test_db.sh` is gone — `scripts/sanitize_test_db.py` did
+everything it did and more, and the script now calls it directly.
+
+Any older ticket or note telling you to export `DB_HOST`/`SRC_DB`/`DST_DB` for
+Flow A, or to run `sanitise_test_db.sh` afterwards, is stale.
 
 ---
 
@@ -233,5 +217,6 @@ unchanged.
 - [`production-deployment.md`](production-deployment.md) — prod host + release flow
 - [`ui-smoketest.md`](ui-smoketest.md) — exercise the refreshed environment
 - [`scripts/restore_prod_to_test.sh`](../scripts/restore_prod_to_test.sh),
-  [`scripts/sanitise_test_db.sh`](../scripts/sanitise_test_db.sh),
+  [`scripts/restore_prod_to_dev.sh`](../scripts/restore_prod_to_dev.sh),
+  [`scripts/sanitize_test_db.py`](../scripts/sanitize_test_db.py),
   [`scripts/prepare_local_db.sh`](../scripts/prepare_local_db.sh)

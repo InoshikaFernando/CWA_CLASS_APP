@@ -233,6 +233,72 @@ class StripePriceHealthTest(TestCase):
         self.assertEqual(len(broken), 1)
         self.assertIn('Archived in Stripe', broken[0]['problem'])
 
+    @override_settings(STRIPE_CURRENCY='usd')
+    @patch('stripe.Price.retrieve')
+    def test_modules_are_checked_too(self, mock_retrieve):
+        """A green tick must cover everything purchasable, not just plans.
+
+        On the test site three AI Grading modules had no usable price while this
+        check reported all healthy — the exact "means less than it looks"
+        failure the page exists to prevent.
+        """
+        from billing.models import ModuleProduct
+        mock_retrieve.return_value = {'active': False, 'currency': 'usd'}
+        ModuleProduct.objects.create(
+            module='ai_grading_starter', name='AI Grading - Starter',
+            price=Decimal('10.00'), stripe_price_id='price_module',
+            is_active=True,
+        )
+        kinds = {b['kind'] for b in get_stripe_price_health(use_cache=False)['broken']}
+        self.assertIn('Module', kinds)
+
+    @override_settings(STRIPE_CURRENCY='usd')
+    @patch('stripe.Price.retrieve')
+    def test_a_module_with_no_price_id_is_reported(self, mock_retrieve):
+        from billing.models import ModuleProduct
+        mock_retrieve.return_value = {'active': True, 'currency': 'usd'}
+        ModuleProduct.objects.create(
+            module='ai_grading_pro', name='AI Grading - Professional',
+            price=Decimal('20.00'), stripe_price_id='', is_active=True,
+        )
+        broken = get_stripe_price_health(use_cache=False)['broken']
+        self.assertEqual([b['label'] for b in broken],
+                         ['AI Grading - Professional'])
+
+    # ── Each problem carries its own remedy ──────────────────────────────
+
+    @override_settings(STRIPE_CURRENCY='usd')
+    @patch('stripe.Price.retrieve')
+    def test_a_wrong_currency_price_is_not_told_to_reactivate(self, mock_retrieve):
+        """It is already active. Sending someone to re-activate it wastes
+        twenty minutes looking for a fault that is not there."""
+        mock_retrieve.return_value = {'active': True, 'currency': 'nzd'}
+        fix = get_stripe_price_health(use_cache=False)['broken'][0]['fix']
+        self.assertNotIn('activate', fix.lower())
+        self.assertIn('STRIPE_CURRENCY', fix)
+
+    @override_settings(STRIPE_CURRENCY='usd')
+    @patch('stripe.Price.retrieve')
+    def test_an_archived_price_is_told_to_reactivate(self, mock_retrieve):
+        mock_retrieve.return_value = {'active': False, 'currency': 'usd'}
+        fix = get_stripe_price_health(use_cache=False)['broken'][0]['fix']
+        self.assertIn('e-activate', fix)
+
+    @override_settings(STRIPE_CURRENCY='usd')
+    @patch('stripe.Price.retrieve', side_effect=Exception('No such price'))
+    def test_a_rejected_price_mentions_account_and_mode(self, _mock):
+        """A live-mode id restored into a test environment fails this way."""
+        fix = get_stripe_price_health(use_cache=False)['broken'][0]['fix']
+        self.assertIn('mode', fix.lower())
+
+    @override_settings(STRIPE_CURRENCY='usd')
+    @patch('stripe.Price.retrieve')
+    def test_a_missing_price_id_points_at_the_sync_command(self, mock_retrieve):
+        Package.objects.filter(pk=self.pkg.pk).update(stripe_price_id='')
+        fix = get_stripe_price_health(use_cache=False)['broken'][0]['fix']
+        self.assertIn('sync_stripe_prices', fix)
+        mock_retrieve.assert_not_called()
+
     @override_settings(STRIPE_SECRET_KEY='')
     @patch('stripe.Price.retrieve')
     def test_unconfigured_stripe_reports_unknown_not_ok(self, mock_retrieve):
@@ -269,6 +335,20 @@ class CheckStripePricesCommandTest(TestCase):
         out = StringIO()
         call_command('check_stripe_prices', '--fresh', stdout=out, stderr=StringIO())
         self.assertIn('are active', out.getvalue())
+
+    @override_settings(STRIPE_CURRENCY='usd')
+    @patch('stripe.Price.retrieve')
+    def test_each_problem_prints_its_own_remedy(self, mock_retrieve):
+        mock_retrieve.return_value = {'active': True, 'currency': 'nzd'}
+        err = StringIO()
+        with self.assertRaises(SystemExit):
+            call_command('check_stripe_prices', '--fresh',
+                         stdout=StringIO(), stderr=err)
+        out = err.getvalue()
+        self.assertIn('STRIPE_CURRENCY', out)
+        # The old one-size footer said this, and it was wrong here.
+        self.assertNotIn('re-activate the price in the Stripe dashboard, or '
+                         'point the plan at an active price id', out)
 
     @patch('stripe.Price.retrieve')
     def test_archived_price_exits_non_zero(self, mock_retrieve):
