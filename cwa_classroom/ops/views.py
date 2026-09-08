@@ -18,6 +18,8 @@ from django.views import View
 # Single source of truth for the superuser gate (same as the usage dashboard).
 from billing.views_admin import SuperuserRequiredMixin
 
+from billing.stripe_health import (
+    get_checkout_failure_health, get_stripe_price_health)
 from billing.subscription_health import (
     get_payment_delay_health, get_unpaid_access_health)
 from classroom.email_health import get_email_queue_health
@@ -69,7 +71,17 @@ class OpsDashboardView(SuperuserRequiredMixin, View):
         # nothing about whether it had been acted on.
         payment_delays = get_payment_delay_health()
 
+        # A student who cannot pay at all. The two tiles are the same failure
+        # seen from either end: `checkout_failures` is who already hit it,
+        # `stripe_prices` is the misconfiguration waiting for the next person.
+        # Both exist because an archived Stripe price took two weeks and an SSH
+        # session to find, while the student saw only "contact support".
+        checkout_failures = get_checkout_failure_health()
+        stripe_prices = get_stripe_price_health()
+
         return render(request, 'admin_dashboard/ops/dashboard.html', {
+            'checkout_failures': checkout_failures,
+            'stripe_prices': stripe_prices,
             'latest': latest,
             'email_queue': email_queue,
             'unpaid_access': unpaid_access,

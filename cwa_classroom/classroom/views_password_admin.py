@@ -275,13 +275,22 @@ class AdminPasswordResetView(RoleRequiredMixin, View):
 def _resolve_school_discount(school):
     """Return ``(code, percent)`` for the school's configured, currently-active
     subscription discount code, or ``(None, None)`` if unset / invalid.
+
+    Validity is ``is_valid()``, not ``is_active`` alone: a code can also be past
+    its ``expires_at`` or have burned through ``max_uses``, and the gate that
+    receives it checks all three. Emailing a code the gate will reject hands the
+    student a credential that fails on use — the one thing worse than sending
+    none, since they have no way to tell the difference.
+
+    Returns the *stored* code, not the school's configured spelling, so what is
+    emailed matches the row it came from.
     """
     code = (getattr(school, 'subscription_discount_code', '') or '').strip()
     if not code:
         return None, None
     from billing.models import DiscountCode
-    dc = DiscountCode.objects.filter(code__iexact=code, is_active=True).first()
-    if not dc:
+    dc = DiscountCode.objects.filter(code__iexact=code).first()
+    if not dc or not dc.is_valid():
         return None, None
     return dc.code, dc.discount_percent
 
