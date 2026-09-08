@@ -374,9 +374,12 @@ class RegistrationSubscriptionTest(TestCase):
         _ensure_plans_exist()
 
     def test_teacher_center_registration_creates_subscription(self):
+        from accounts.tests_institute_helpers import register_and_pay
         client = Client()
         basic_plan = InstitutePlan.objects.get(slug='basic')
-        response = client.post(reverse('register_teacher_center'), {
+        # A paid plan now hands off to Stripe first; the subscription exists
+        # once the card is accepted.
+        response = register_and_pay(client, reverse('register_teacher_center'), {
             'username': 'newschool',
             'email': 'new@school.com',
             'password': 'TestPass123!',

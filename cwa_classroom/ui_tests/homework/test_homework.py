@@ -361,10 +361,20 @@ class TestHomeworkAccessControlUI:
 
     @pytest.mark.django_db(transaction=True)
     def test_unauthenticated_redirect(self, page: Page, live_server):
-        """Unauthenticated user redirected to login from homework list."""
+        """Unauthenticated user redirected to login from homework list.
+
+        Waits for the redirect rather than for "networkidle": the claim here
+        is about the URL, and settling the login page's network is neither
+        necessary for that nor reliable on a CI runner — this timed out at 30s
+        while passing locally, the same way the Scratch tests did in c54a0cd.
+
+        expect().to_have_url() rather than wait_for_url(): goto() has already
+        followed the redirect by the time it returns, so waiting for a further
+        navigation just hangs for the full timeout. This polls the URL the
+        page is actually on, and retries, so it is robust either way.
+        """
         page.goto(f"{live_server.url}/homework/")
-        page.wait_for_load_state("networkidle")
-        assert "/accounts/login" in page.url
+        expect(page).to_have_url(re.compile(r"/accounts/login"))
 
     @pytest.mark.django_db(transaction=True)
     def test_student_cannot_access_teacher_create(

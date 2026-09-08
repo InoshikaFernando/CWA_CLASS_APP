@@ -500,7 +500,37 @@ class CodingExercisePlugin(SubjectPlugin):
             'is_write_code': ex.question_type == CodingExercise.WRITE_CODE,
             'is_choice': is_choice,
             'answers': list(ex.answers.order_by('order')) if is_choice else [],
+            # Parameters for the shared coding window (see
+            # coding/partials/_exercise_code_window.html). Built here so the
+            # homework take page and the worksheet session — the two callers
+            # of this method — render the identical editor and console rather
+            # than each hand-rolling one, as they used to.
+            'code_window': self._code_window_context(ex),
         }
+
+    @staticmethod
+    def _code_window_context(exercise):
+        """Code-window parameters for an exercise inside an answer form.
+
+        Console mode, because the surrounding form posts a single
+        ``code_<content_id>`` field and a live preview would need two editors.
+        Runs go to ``api_run_code`` with ``mark_complete`` left false: a Run on
+        these pages is feedback, and the grade belongs to the page's own submit
+        step.
+        """
+        from django.urls import reverse
+
+        from coding.code_window import CONSOLE, window_context_for_exercise
+
+        window = window_context_for_exercise(
+            exercise, reverse('coding:api_run_code'), mode=CONSOLE,
+        )
+        if window is None:
+            return None
+        window['cw_id'] = f'exercise-{exercise.pk}'
+        window['cw_exercise_id'] = exercise.pk
+        window['cw_textarea_name'] = f'code_{exercise.pk}'
+        return window
 
     def grade_answer(self, content_id, post_data):
         """Grade one coding exercise according to its ``question_type``.

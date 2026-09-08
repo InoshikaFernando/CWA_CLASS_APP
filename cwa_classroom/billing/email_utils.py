@@ -84,17 +84,91 @@ def notify_payment_failed(school=None, user=None, detail=None):
             logger.exception('Could not record unreachable payment failure')
         return
 
+    sent_to = list(dict.fromkeys(recipients))
     try:
         send_mail(
             subject=f'[{SITE_NAME}] Payment failed — action required',
             message=render_to_string('emails/payment_failed.txt', context),
             from_email=DEFAULT_FROM,
-            recipient_list=list(dict.fromkeys(recipients)),
+            recipient_list=sent_to,
             html_message=render_to_string('emails/payment_failed.html', context),
             fail_silently=True,
         )
     except Exception:
         logger.exception('Failed to send payment failure email to %s', recipients)
+        return
+
+    # Record the send, not just the failure to send. The dashboard panel and
+    # the ops health tile both read "has this family been told" from this
+    # event; without it every automated notice would look like silence and the
+    # tile would sit red forever, which is the same as no tile at all.
+    if user is not None:
+        try:
+            from audit.services import log_event
+            log_event(
+                user=user, school=school, category='billing',
+                action='payment_failed_notice_sent', result='success',
+                detail={**detail, 'recipients': sent_to, 'why': 'automatic'},
+            )
+        except Exception:
+            logger.exception('Could not record payment failure notice')
+
+
+def notify_past_due_backlog(user, since=None):
+    """The catching-up notice, for a failure nobody was told about at the time.
+
+    Separate from ``notify_payment_failed`` because the two arrive in different
+    worlds and the automated one is right for its own job:
+
+    * It says "to avoid any interruption to your service". By the time this
+      message goes out the interruption has already happened, in one case for
+      nearly a month, so that sentence reads as either stale or oblivious.
+    * It greets ``{{ name }}``, which is the STUDENT's name — and the recipient
+      list includes the parents, so a parent with two children past due would
+      receive two red cards, one opening "Hi Randula" and one "Hi Hansi", both
+      in the same inbox. This one greets nobody by name and names the student
+      in the body instead, which is true for every recipient.
+    * It says "log in" without saying WHOSE account. The billing portal reads
+      ``request.user.subscription``, so a parent signing in to their own
+      account gets "No billing account found" and a dead end. The subscription
+      belongs to the student, and the message now says so.
+
+    It does not apologise for the delay. Payment is the family's to keep up
+    with, and an apology in the opening line reads as an offer to waive the
+    charge rather than a request to settle it.
+    """
+    from classroom.email_service import _get_email_logo_url
+    from django.conf import settings
+
+    recipients = ([user.email] if user.email else [])
+    recipients += [e for e in _parent_emails(user) if e not in recipients]
+    if not recipients:
+        logger.warning('No recipient for past-due backlog notice')
+        return []
+
+    full = user.get_full_name() or user.username
+    context = {
+        'site_name': SITE_NAME,
+        'site_url': getattr(settings, 'SITE_URL', ''),
+        'student_name': full,
+        # "Randula can still sign in" reads better than the full name repeated.
+        'first_name': user.first_name or full,
+        'since': since,
+        'email_logo_url': _get_email_logo_url(None),
+    }
+    try:
+        send_mail(
+            subject=f'[{SITE_NAME}] {full}\u2019s account is paused \u2014 payment needs updating',
+            message=render_to_string('emails/payment_past_due_notice.txt', context),
+            from_email=DEFAULT_FROM,
+            recipient_list=list(dict.fromkeys(recipients)),
+            html_message=render_to_string('emails/payment_past_due_notice.html', context),
+            fail_silently=True,
+        )
+    except Exception:
+        logger.exception('Failed to send past-due backlog notice to %s', recipients)
+        return []
+    return list(dict.fromkeys(recipients))
 
 
 def notify_subscription_cancelled(school=None, user=None):

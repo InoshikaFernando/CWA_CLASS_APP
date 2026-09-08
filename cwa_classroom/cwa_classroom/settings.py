@@ -776,7 +776,16 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Public landing page / Subject hub
 # ---------------------------------------------------------------------------
 
-SITE_NAME = os.environ.get('SITE_NAME', 'Classroom')
+# 'Classroom' was a placeholder that outlived its welcome: production ran for
+# months with SITE_NAME unset, so every transactional email signed off as "The
+# Classroom Team" from an address at wizardslearninghub.co.nz. The tell that
+# nobody meant this is billing/email_utils.py, which reads
+# getattr(settings, 'SITE_NAME', 'Wizards Learning Hub') — someone wrote the
+# real name as a fallback that settings then made unreachable.
+#
+# Only email code and the templates under templates/email*/ read this. It is
+# not the public site title, despite the heading above.
+SITE_NAME = os.environ.get('SITE_NAME', 'Wizards Learning Hub')
 SITE_DESCRIPTION = 'A comprehensive educational platform for students ages 6-12.'
 # Auto-derive from ALLOWED_HOSTS when SITE_URL env var is not set:
 #   local  → http://localhost:8000

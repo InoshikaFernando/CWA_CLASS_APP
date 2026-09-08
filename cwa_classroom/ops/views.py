@@ -18,9 +18,13 @@ from django.views import View
 # Single source of truth for the superuser gate (same as the usage dashboard).
 from billing.views_admin import SuperuserRequiredMixin
 
-from billing.subscription_health import get_unpaid_access_health
+from billing.stripe_health import (
+    get_checkout_failure_health, get_stripe_price_health)
+from billing.subscription_health import (
+    get_payment_delay_health, get_unpaid_access_health)
 from classroom.email_health import get_email_queue_health
 
+from .log_reader import DEFAULT_FILE, LEVELS, LOG_FILES, read_log
 from .models import OpsSnapshot
 from .reporting import (
     get_ops_series, WINDOWS, DEFAULT_WINDOW, STALE_AFTER_MINUTES,
@@ -61,10 +65,28 @@ class OpsDashboardView(SuperuserRequiredMixin, View):
         # visible without reading a Discord channel.
         unpaid_access = get_unpaid_access_health()
 
+        # The other half of the same wall. The leak tile answers "is
+        # anyone getting in without paying"; this one answers "is anyone
+        # locked out without being told why", which is how six families
+        # sat past due for weeks with a dashboard that showed a count and
+        # nothing about whether it had been acted on.
+        payment_delays = get_payment_delay_health()
+
+        # A student who cannot pay at all. The two tiles are the same failure
+        # seen from either end: `checkout_failures` is who already hit it,
+        # `stripe_prices` is the misconfiguration waiting for the next person.
+        # Both exist because an archived Stripe price took two weeks and an SSH
+        # session to find, while the student saw only "contact support".
+        checkout_failures = get_checkout_failure_health()
+        stripe_prices = get_stripe_price_health()
+
         return render(request, 'admin_dashboard/ops/dashboard.html', {
+            'checkout_failures': checkout_failures,
+            'stripe_prices': stripe_prices,
             'latest': latest,
             'email_queue': email_queue,
             'unpaid_access': unpaid_access,
+            'payment_delays': payment_delays,
             'latest_stale': latest_stale,
             'stale_after_min': STALE_AFTER_MINUTES,
             'chart_data': series,
@@ -77,4 +99,42 @@ class OpsDashboardView(SuperuserRequiredMixin, View):
             'window_options': [
                 {'key': k, 'label': v['label']} for k, v in WINDOWS.items()
             ],
+        })
+
+
+class ErrorLogView(SuperuserRequiredMixin, View):
+    """The application log, readable without an SSH session.
+
+    Stripe told us exactly what was wrong with a student's checkout — "The
+    price specified is inactive" — and that sentence lived only in
+    /var/log/cwa/django-error.log. It took a shell on the droplet and a grep to
+    find, two weeks after the student gave up. The ops tiles answer "is
+    something broken"; this answers "what did it actually say".
+
+    Superuser only, and deliberately: logs carry email addresses, usernames and
+    request paths.
+    """
+
+    MAX_LIMIT = 500
+
+    def get(self, request):
+        key = request.GET.get('file', DEFAULT_FILE)
+        level = request.GET.get('level', '')
+        search = request.GET.get('q', '')
+        try:
+            limit = min(int(request.GET.get('limit', 200)), self.MAX_LIMIT)
+        except (TypeError, ValueError):
+            limit = 200
+
+        entries, meta = read_log(key=key, level=level, search=search, limit=limit)
+
+        return render(request, 'admin_dashboard/ops/error_log.html', {
+            'entries': entries,
+            'meta': meta,
+            'files': LOG_FILES,
+            'levels': LEVELS,
+            'selected_file': meta['key'],
+            'selected_level': (level or '').upper(),
+            'search': search,
+            'limit': limit,
         })

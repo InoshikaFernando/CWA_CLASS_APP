@@ -243,6 +243,21 @@ def _make_plan(page: Page, live_server, term, name, num_questions):
     page.wait_for_load_state('domcontentloaded')
 
 
+def _expand_topic_groups(week):
+    """Open the picker's strand accordions — they start shut.
+
+    A teacher clicks the strand header to open it, so the tests do the same
+    rather than driving the ``<details>`` from script. Groups already open
+    (a lone strand, or one holding a selection) are left alone: clicking
+    their summary would shut them.
+    """
+    summaries = week.locator('details[data-topic-group] > summary')
+    for i in range(summaries.count()):
+        summary = summaries.nth(i)
+        if summary.evaluate('el => !el.parentElement.open'):
+            summary.click()
+
+
 @pytest.mark.django_db
 def test_ticking_a_topic_selects_all_its_subtopics(
     page: Page, live_server, teacher_user, classroom, topic, questions,
@@ -256,6 +271,7 @@ def test_ticking_a_topic_selects_all_its_subtopics(
     schedule = QuestionSchedule.objects.get(name='Cascade plan')
 
     week = page.locator('#week-1')
+    _expand_topic_groups(week)
     parent_box = week.locator(
         f'input[name="topic_ids"][value="{topic_tree["parent"].id}"]').first
     sub_boxes = [
@@ -296,6 +312,7 @@ def test_unticking_one_subtopic_leaves_the_topic_half_selected(
     _make_plan(page, live_server, term, 'Half plan', 6)
 
     week = page.locator('#week-1')
+    _expand_topic_groups(week)
     parent_box = week.locator(
         f'input[name="topic_ids"][value="{topic_tree["parent"].id}"]').first
 
@@ -320,6 +337,7 @@ def test_a_topic_shows_the_count_for_its_whole_subtree(
     _make_plan(page, live_server, term, 'Count plan', 6)
 
     week = page.locator('#week-1')
+    _expand_topic_groups(week)
     parent_label = week.locator(
         f'input[name="topic_ids"][value="{topic_tree["parent"].id}"]',
     ).first.locator('xpath=..')
@@ -331,3 +349,112 @@ def test_a_topic_shows_the_count_for_its_whole_subtree(
         week.locator(
             f'input[name="topic_ids"][value="{topic_tree["parent"].id}"]').first,
     ).to_have_attribute('data-total', '3')
+
+
+@pytest.mark.django_db
+def test_topic_groups_start_shut_and_reopen_on_a_planned_week(
+    page: Page, live_server, teacher_user, classroom, topic, questions,
+    topic_tree, term,
+):
+    """The complaint this answers: one alphabetical wall of sub-topics.
+
+    With more than one strand the picker opens on the strand names alone. A
+    group is shut, not hidden: it carries an "n selected" badge as soon as
+    something inside is ticked, and comes back open on the next visit so a
+    planned week never hides its own selection.
+    """
+    _open_planner(page, live_server, teacher_user, classroom)
+    _make_plan(page, live_server, term, 'Accordion plan', 6)
+
+    week = page.locator('#week-1')
+    sub_box = week.locator(
+        f'input[name="topic_ids"][value="{topic_tree["subs"][0].id}"]').first
+    expect(sub_box).to_be_hidden()
+
+    _expand_topic_groups(week)
+    expect(sub_box).to_be_visible()
+
+    week.locator(
+        f'input[name="topic_ids"][value="{topic_tree["parent"].id}"]',
+    ).first.check()
+    badge = week.locator(
+        'details[data-topic-group] > summary [data-group-selected]').first
+    expect(badge).to_contain_text('selected')
+
+    week.locator('button[type="submit"]', has_text='Save week').click()
+    page.wait_for_load_state('domcontentloaded')
+
+    planned = page.locator('#week-1').locator(
+        f'details[data-topic-group]:has(input[value="{topic_tree["subs"][0].id}"])',
+    ).first
+    assert planned.evaluate('el => el.open') is True
+
+
+@pytest.mark.django_db
+def test_filtering_narrows_the_topic_tree_without_losing_ticks(
+    page: Page, live_server, teacher_user, classroom, topic, questions,
+    topic_tree, term,
+):
+    """Type-to-filter: collapsing strands does not shorten the strand you are in.
+
+    The filter is a view, not an edit — the checked box it hides still posts,
+    which is the one thing that would make a filter box worse than none.
+    """
+    from homework.models import QuestionSchedule
+
+    _open_planner(page, live_server, teacher_user, classroom)
+    _make_plan(page, live_server, term, 'Filter plan', 6)
+    schedule = QuestionSchedule.objects.get(name='Filter plan')
+
+    week = page.locator('#week-1')
+    _expand_topic_groups(week)
+    wanted = topic_tree['subs'][0]                  # 'Multiplication (2x)'
+    wanted_box = week.locator(
+        f'input[name="topic_ids"][value="{wanted.id}"]').first
+    other = week.locator(f'input[name="topic_ids"][value="{topic.id}"]').first
+    expect(other).to_be_visible()
+
+    # A match keeps its own row and drops every other, headings included.
+    week.locator('[data-topic-filter]').fill('(2x)')
+    expect(wanted_box).to_be_visible()
+    expect(other).to_be_hidden()
+
+    # Tick the match, then filter to something that matches nothing: the tick
+    # survives both the hiding and the save.
+    wanted_box.check()
+    week.locator('[data-topic-filter]').fill('nothing at all matches this')
+    expect(week.locator('[data-topic-filter-empty]')).to_be_visible()
+    week.locator('button[type="submit"]', has_text='Save week').click()
+    page.wait_for_load_state('domcontentloaded')
+    assert schedule.weeks.get(week_number=1).topic_ids == [wanted.id]
+
+    # And clearing the box puts the tree back as it was.
+    week = page.locator('#week-1')
+    week.locator('summary', has_text='Topics').first.click()
+    _expand_topic_groups(week)
+    other = week.locator(f'input[name="topic_ids"][value="{topic.id}"]').first
+    filter_box = week.locator('[data-topic-filter]')
+    filter_box.fill('(2x)')
+    expect(other).to_be_hidden()
+    filter_box.fill('')
+    expect(other).to_be_visible()
+
+
+@pytest.mark.django_db
+def test_filtering_on_a_strand_name_hands_over_the_whole_group(
+    page: Page, live_server, teacher_user, classroom, topic, questions,
+    topic_tree, term,
+):
+    """Typing a main topic should give you the main topic, not one row of it."""
+    _open_planner(page, live_server, teacher_user, classroom)
+    _make_plan(page, live_server, term, 'Strand filter plan', 6)
+
+    week = page.locator('#week-1')
+    _expand_topic_groups(week)
+    week.locator('[data-topic-filter]').fill(topic_tree['strand'].name)
+
+    for sub in topic_tree['subs']:
+        expect(week.locator(
+            f'input[name="topic_ids"][value="{sub.id}"]').first).to_be_visible()
+    expect(week.locator(
+        f'input[name="topic_ids"][value="{topic.id}"]').first).to_be_hidden()

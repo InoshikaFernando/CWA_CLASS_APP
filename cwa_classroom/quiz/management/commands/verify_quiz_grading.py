@@ -34,6 +34,7 @@ Usage:
     python manage.py verify_quiz_grading --level 7
     python manage.py verify_quiz_grading --limit 200      # smoke run
     python manage.py verify_quiz_grading --quiet
+    python manage.py verify_quiz_grading --progress-seconds 0   # no heartbeat
 """
 import json
 import sys
@@ -49,6 +50,17 @@ from django.test import Client
 from django.urls import reverse
 
 from maths.answer_values import parse_answer_value
+
+# The throwaway account. The username was always unique per run but the email
+# was a constant, and email is UNIQUE on the user table — so the moment one run
+# failed to delete its account, every later run died on insert before grading a
+# single question. That is not hypothetical: the three weekly runs killed by a
+# dropped SSH connection never reached the `finally` that deletes the account,
+# and the first run that got through the connection died on their leftovers.
+# Both halves are fixed here — a unique email per run, and a sweep of any
+# account a previous run left behind.
+SWEEP_USERNAME_PREFIX = 'quiz-grading-sweep-'
+SWEEP_EMAIL_DOMAIN = '@example.invalid'
 
 CHOICE_TYPES = ('multiple_choice', 'true_false')
 # Typed answers graded against the stored Answer rows.
@@ -87,6 +99,9 @@ class Command(BaseCommand):
         parser.add_argument('--limit', type=int, default=None,
                             help='Stop after N questions (smoke run).')
         parser.add_argument('--quiet', action='store_true')
+        parser.add_argument(
+            '--progress-seconds', type=float, default=30.0,
+            help='Print a progress line at most this often (0 = never).')
 
     # -- submission helpers ------------------------------------------------
     def _session_for(self, client, question):
@@ -241,6 +256,18 @@ class Command(BaseCommand):
         unsupported = Counter()
         failures = []
 
+        # A clean bank means this sweep prints NOTHING between its first line
+        # and its summary — ~20k questions, tens of minutes of silence. Run
+        # from CI over SSH that is not merely unhelpful: the runner network
+        # drops a TCP flow that has carried no bytes for four minutes, which
+        # killed every weekly run before it ever reported. So the sweep says
+        # where it is at, on a clock rather than a question count — the point
+        # is that no gap is long, and a slow database makes a count-based
+        # heartbeat slow too.
+        progress_seconds = options['progress_seconds']
+        started = time.monotonic()
+        last_beat = started
+
         # Everything this sweep writes is rolled back — but the rollback is
         # scoped to ONE QUESTION AT A TIME, not the whole run.
         #
@@ -253,11 +280,28 @@ class Command(BaseCommand):
         # live database.
         user = None
         try:
+            # Anything a previous run left behind. A sweep can always be killed
+            # mid-flight — a dropped connection, a job timeout, a reboot — and
+            # its `finally` does not run, so self-healing is the only way this
+            # command survives its own interruption. These accounts are
+            # synthetic: nothing but this command creates the name/email pair,
+            # and every one of them is dead weight by the time we are here.
+            stale = User.objects.filter(
+                username__startswith=SWEEP_USERNAME_PREFIX,
+                email__endswith=SWEEP_EMAIL_DOMAIN)
+            stale_count = stale.count()
+            if stale_count:
+                stale.delete()
+                self.stdout.write(self.style.WARNING(
+                    f'Removed {stale_count} account(s) left behind by an '
+                    f'interrupted sweep'))
+
+            suffix = uuid.uuid4().hex[:8]
             password = uuid.uuid4().hex
             with transaction.atomic():
                 user = User.objects.create_user(
-                    username=f'quiz-grading-sweep-{uuid.uuid4().hex[:8]}',
-                    email='quiz-grading-sweep@example.invalid',
+                    username=f'{SWEEP_USERNAME_PREFIX}{suffix}',
+                    email=f'{SWEEP_USERNAME_PREFIX}{suffix}{SWEEP_EMAIL_DOMAIN}',
                     password=password,
                 )
             host = _allowed_host()
@@ -308,6 +352,14 @@ class Command(BaseCommand):
                     transaction.set_rollback(True)
 
                 checked += 1
+                now = time.monotonic()
+                if progress_seconds and now - last_beat >= progress_seconds:
+                    last_beat = now
+                    self.stdout.write(
+                        f'  … {checked} answered, {failed} mismarking, '
+                        f'{(now - started) / 60:.1f} min elapsed')
+                    self.stdout.flush()
+
                 if problems:
                     # A question whose every problem is a refused request has
                     # not been shown to mismark anything.
@@ -326,6 +378,7 @@ class Command(BaseCommand):
                             f'{question.question_text[:65]}')
                         for problem in problems:
                             self.stdout.write(f'      {problem}')
+                        self.stdout.flush()
         except Exception as exc:                       # noqa: BLE001
             self.stderr.write(self.style.ERROR(f'Sweep aborted: {exc!r}'))
             raise

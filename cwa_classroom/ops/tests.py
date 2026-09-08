@@ -401,3 +401,46 @@ class OpsDashboardUnpaidAccessTests(TestCase):
         resp = self.client.get(reverse('ops_admin_dashboard'))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'No delinquent subscriptions to check')
+
+
+class PaymentDelayTileTests(TestCase):
+    """The ops page carries the "locked out and not told" count.
+
+    The unpaid-access tiles next to it watch the paywall letting people in.
+    This one watches it locking people out silently, which is the half that
+    went unnoticed for weeks: nothing errors, the family just stops coming
+    back.
+    """
+
+    def setUp(self):
+        self.super = User.objects.create_superuser(
+            username='pdboss', email='pdboss@example.local', password='Pass123!')
+        self.client.login(username='pdboss', password='Pass123!')
+
+    def _past_due(self, username, email):
+        from billing.models import Package, Subscription
+        package, _ = Package.objects.get_or_create(
+            name='Ops Monthly',
+            defaults={'price': 19.90, 'stripe_price_id': 'price_ops'})
+        user = User.objects.create_user(username, email, 'Pass123!')
+        Subscription.objects.create(
+            user=user, package=package, status=Subscription.STATUS_PAST_DUE)
+        return user
+
+    def test_the_tile_is_present_and_quiet_with_nothing_outstanding(self):
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+
+        self.assertContains(resp, 'Payment delays')
+        self.assertEqual(resp.context['payment_delays']['status'], 'ok')
+        self.assertContains(resp, 'no failed payments')
+
+    def test_an_untold_family_shows_on_the_tile(self):
+        self._past_due('pd_ops', 'pd_ops@example.local')
+
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+
+        health = resp.context['payment_delays']
+        self.assertEqual((health['count'], health['untold']), (1, 1))
+        self.assertContains(resp, '1 not told')
+        # The page has to say what to do about it, or the number is trivia.
+        self.assertContains(resp, 'notify_past_due --send')

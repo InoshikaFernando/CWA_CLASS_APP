@@ -537,12 +537,14 @@ sudo chown cwa:cwa /etc/cwa/cwa.env && sudo chmod 600 /etc/cwa/cwa.env
 
 ## 6. Legacy: PythonAnywhere
 
-The app previously ran on PythonAnywhere (`*.pythonanywhere.com`). Migration to
-the DigitalOcean Droplet is tracked in `docs/MIGRATION_PLAN.md`; the
-prod→test DB-copy scripts (`scripts/restore_prod_to_test.sh`,
-`scripts/migrate_db_pa_to_do.sh`) still reference the PythonAnywhere MySQL host.
-Treat PythonAnywhere as the **legacy** path — new deploys go to the Droplet via
-this runbook. See `test-env-db-refresh.md` for the DB-side of the migration.
+The app previously ran on PythonAnywhere (`*.pythonanywhere.com`). The move to
+the DigitalOcean Droplet is tracked in `docs/MIGRATION_PLAN.md` and is done:
+`scripts/migrate_db_pa_to_do.sh` is the one-off that carried the data across and
+is the only script still naming the PythonAnywhere host. The prod→test and
+prod→dev copies (`scripts/restore_prod_to_test.sh`,
+`scripts/restore_prod_to_dev.sh`) read their credentials from `/etc/cwa/*.env`
+on the droplet, like the deploy does. Any instruction you find telling you to
+run either against PythonAnywhere is stale. See `test-env-db-refresh.md`.
 
 ---
 

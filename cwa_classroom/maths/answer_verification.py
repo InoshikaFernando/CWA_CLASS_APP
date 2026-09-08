@@ -679,6 +679,31 @@ LABEL_REFERENCE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "pattern" is the one noun in FIGURE_REFERENCE_RE that a question routinely
+# points at while printing the thing itself: "Look at the pattern 0, 2, 4, 6, 8"
+# and "complete the pattern: 65, __, 75" need no picture — the sequence IS on
+# the page. Left unhandled that single word produced most of the audit's 166
+# MISSING-FIGURE flags, nearly all of Year 1-4 Number Patterns and Skip
+# Counting, which is how a blocking check becomes noise nobody reads.
+#
+# A sequence counts as printed when three or more comma-separated terms appear
+# in the stem — numbers, single letters, blanks, an ellipsis — and at least one
+# of them is a number or a blank. That last requirement is what keeps "Which of
+# these shapes is a kite? A, B, C, D" flagged: a run of bare letters is an
+# option list, not a sequence.
+_SEQUENCE_TERM = r'(?:-?\d+(?:\.\d+)?|[A-Za-z]|_+|\.{3}|…)'
+INLINE_SEQUENCE_RE = re.compile(
+    rf'{_SEQUENCE_TERM}(?:\s*,\s*{_SEQUENCE_TERM}){{2,}}')
+_SEQUENCE_HAS_A_TERM_RE = re.compile(r'[\d_]')
+PATTERN_NOUN_RE = re.compile(r'\bpattern\b', re.IGNORECASE)
+
+
+def shows_its_own_sequence(text):
+    """True when the stem prints a sequence rather than pointing at one."""
+    return any(_SEQUENCE_HAS_A_TERM_RE.search(match.group(0))
+               for match in INLINE_SEQUENCE_RE.finditer(text or ''))
+
+
 # Types whose "grid" / "bracket" visual is scaffolding transcribed into the
 # structured fields (never attached as a figure), so a figure reference in their
 # text is not a missing image.
@@ -712,7 +737,9 @@ def verify_question_figure(question):
 
     WORDING  the stem points at a figure ("this shape", "the diagram below",
              "measure X") that was never attached — typically a PDF import
-             whose crop was skipped.
+             whose crop was skipped. Except where the stem prints the thing
+             itself: "the pattern 0, 2, 4, 6, 8" points at nothing absent (see
+             ``shows_its_own_sequence``).
 
     Blocking, not advisory: a question nobody can answer costs the student the
     mark just as surely as a wrong answer key does.
@@ -757,7 +784,12 @@ def verify_question_figure(question):
         return issues
 
     text = question.question_text or ''
-    if FIGURE_REFERENCE_RE.search(text) or LABEL_REFERENCE_RE.search(text):
+    references = [m.group(0) for m in FIGURE_REFERENCE_RE.finditer(text)]
+    if shows_its_own_sequence(text):
+        # ...but only the sequence reference is answered by that. "the pattern
+        # shown below" still points at a picture, and so does a second noun.
+        references = [r for r in references if not PATTERN_NOUN_RE.search(r)]
+    if references or LABEL_REFERENCE_RE.search(text):
         issues.append(Issue(
             MISSING_FIGURE,
             'the question points at a figure ("this shape" / "the diagram" / '

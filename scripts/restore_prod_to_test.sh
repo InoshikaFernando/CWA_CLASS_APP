@@ -1,133 +1,167 @@
 #!/usr/bin/env bash
-# restore_prod_to_test.sh
-# -----------------------
-# Copies the production PythonAnywhere database into the test database
-# on the same MySQL server (no SSH required — run this from a
-# PythonAnywhere Bash console or scheduled task).
+# restore_prod_to_test.sh  (DigitalOcean)
+# ---------------------------------------
+# Copies the PRODUCTION database into the TEST database on the same managed
+# MySQL server, then migrates, sanitizes, and re-points Stripe — leaving a
+# test site that is safe to log into AND able to take a test-mode payment.
 #
-# Usage:
-#   bash restore_prod_to_test.sh
+# Run ON the droplet (it reads DB creds from the env files in /etc/cwa/):
+#   sudo -u cwa bash scripts/restore_prod_to_test.sh            # full run
+#   sudo -u cwa bash scripts/restore_prod_to_test.sh --dry-run  # preview only
 #
-# Add --dry-run to see what would happen without changing anything.
+# Safety:
+#   * Reads every credential from the systemd env files. Nothing is hardcoded.
+#   * Refuses to run unless the DEST DB name contains "test".
+#   * Refuses to run if the test env still holds a LIVE Stripe key.
+#   * Only ever DROPs the test DB, never prod.
+#
+# Why the Stripe steps at the end are not optional
+# ------------------------------------------------
+# A prod dump carries prod's LIVE Stripe price ids (price_… minted with
+# sk_live_). Restored onto test — which runs sk_test_ keys — every one of them
+# is a live object the test key cannot see, so Stripe answers "No such price"
+# and the student gets the app's generic "contact support". Nothing goes red;
+# the test site just quietly stops taking payments. That is exactly what
+# happened in September 2026 and it cost an intern a day.
+#
+# So: sanitize blanks the ids, sync_stripe_prices mints/links test-mode ones,
+# and check_stripe_prices is a HARD GATE — a non-zero exit here means the test
+# site cannot be paid on, and you want to know that now rather than from a
+# tester's screenshot.
+set -euo pipefail
 
-# ── Config ────────────────────────────────────────────────────────────────────
-DB_HOST="${DB_HOST:-avinesh.mysql.pythonanywhere-services.com}"
-DB_PORT="${DB_PORT:-3306}"
-DB_USER="${DB_USER:-avinesh}"
-DB_PASS="${DB_PASS:-wenuskala!1}"
-
-SRC_DB="${SRC_DB:-avinesh\$cwa_classroom}"       # production
-DST_DB="${DST_DB:-avinesh\$cwa_classroom_test}"  # test
-
-DUMP_FILE="/tmp/prod_to_test_$(date +%Y%m%d_%H%M%S).sql"
-# ─────────────────────────────────────────────────────────────────────────────
+PROD_ENV="${PROD_ENV:-/etc/cwa/cwa.env}"
+TEST_ENV="${TEST_ENV:-/etc/cwa/cwa-test.env}"
+TEST_APP_DIR="${TEST_APP_DIR:-/home/cwa/CWA_CLASS_APP_TEST}"
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 DRY_RUN=false
-if [[ "${1}" == "--dry-run" ]]; then
-    DRY_RUN=true
-    echo "[DRY RUN] No changes will be made to the database."
-fi
+[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true && echo "[DRY RUN] no changes will be written"
 
-MYSQL_OPTS="-h ${DB_HOST} -P ${DB_PORT} -u ${DB_USER} -p${DB_PASS}"
+# ── Pull a KEY=value out of a systemd EnvironmentFile (no sourcing) ───────────
+envget() { grep -E "^${2}=" "${1}" | tail -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
 
-echo ""
-echo "Source : ${SRC_DB}"
-echo "Target : ${DST_DB}"
-echo "Host   : ${DB_HOST}:${DB_PORT}"
-echo ""
+for f in "$PROD_ENV" "$TEST_ENV"; do
+    [[ -r "$f" ]] || { echo "ABORT: cannot read env file '${f}'."; exit 1; }
+done
 
-# ── Step 1: verify source DB is reachable ────────────────────────────────────
-echo "==> Checking source DB..."
-mysql ${MYSQL_OPTS} -e "SELECT 1;" "${SRC_DB}" > /dev/null 2>&1
-if [[ $? -ne 0 ]]; then
-    echo "ERROR: Cannot connect to source DB '${SRC_DB}'. Check credentials."
+SRC_NAME="$(envget "$PROD_ENV" DB_NAME)"
+SRC_HOST="$(envget "$PROD_ENV" DB_HOST)"
+SRC_PORT="$(envget "$PROD_ENV" DB_PORT)"
+SRC_USER="$(envget "$PROD_ENV" DB_USER)"
+SRC_PASS="$(envget "$PROD_ENV" DB_PASSWORD)"
+
+DST_NAME="$(envget "$TEST_ENV" DB_NAME)"
+DST_HOST="$(envget "$TEST_ENV" DB_HOST)"
+DST_PORT="$(envget "$TEST_ENV" DB_PORT)"
+DST_USER="$(envget "$TEST_ENV" DB_USER)"
+DST_PASS="$(envget "$TEST_ENV" DB_PASSWORD)"
+
+echo "Source (prod): ${SRC_USER}@${SRC_HOST}:${SRC_PORT}/${SRC_NAME}"
+echo "Target (test): ${DST_USER}@${DST_HOST}:${DST_PORT}/${DST_NAME}"
+
+# ── Guard: never touch a non-test database ───────────────────────────────────
+if [[ -z "${DST_NAME}" || -z "${SRC_NAME}" ]]; then
+    echo "ABORT: DB_NAME missing from one of the env files."
     exit 1
 fi
-echo "    OK"
-
-# ── Step 2: verify (or create) destination DB ────────────────────────────────
-echo "==> Checking destination DB..."
-DB_EXISTS=$(mysql ${MYSQL_OPTS} -sse \
-    "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='${DST_DB}';" 2>/dev/null)
-
-if [[ -z "$DB_EXISTS" ]]; then
-    echo "    Destination DB '${DST_DB}' does not exist — will create it."
-    if [[ "$DRY_RUN" == false ]]; then
-        mysql ${MYSQL_OPTS} -e \
-            "CREATE DATABASE \`${DST_DB}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null
-        if [[ $? -ne 0 ]]; then
-            echo "ERROR: Could not create database '${DST_DB}'."
-            exit 1
-        fi
-    fi
-else
-    echo "    Destination DB exists — will drop and recreate."
+if [[ "${DST_NAME,,}" != *test* ]]; then
+    echo "ABORT: test DB name '${DST_NAME}' does not contain 'test'. Refusing to drop it."
+    exit 1
+fi
+if [[ "${DST_NAME}" == "${SRC_NAME}" && "${DST_HOST}" == "${SRC_HOST}" ]]; then
+    echo "ABORT: source and target are the same database."
+    exit 1
 fi
 
-# ── Step 3: dump source ──────────────────────────────────────────────────────
-echo "==> Dumping '${SRC_DB}' -> ${DUMP_FILE} ..."
-if [[ "$DRY_RUN" == false ]]; then
-    mysqldump ${MYSQL_OPTS} \
-        --single-transaction \
-        --no-tablespaces \
-        --routines \
-        --triggers \
-        --set-gtid-purged=OFF \
-        "${SRC_DB}" > "${DUMP_FILE}"
-    if [[ $? -ne 0 ]]; then
-        echo "ERROR: mysqldump failed."
-        rm -f "${DUMP_FILE}"
+# ── Guard: a live Stripe key on test would charge real cards ─────────────────
+# Worth an abort rather than a warning: the whole point of the steps below is
+# to hand the test site working payments, and doing that against sk_live_ means
+# a tester clicking "Subscribe" bills someone's real card.
+TEST_STRIPE_KEY="$(envget "$TEST_ENV" STRIPE_SECRET_KEY)"
+if [[ "${TEST_STRIPE_KEY}" == sk_live_* ]]; then
+    echo "ABORT: ${TEST_ENV} holds a LIVE Stripe secret key (sk_live_…)."
+    echo "       Point the test environment at sk_test_ keys before restoring."
+    exit 1
+fi
+if [[ -z "${TEST_STRIPE_KEY}" ]]; then
+    echo "WARNING: no STRIPE_SECRET_KEY in ${TEST_ENV} — the Stripe re-point"
+    echo "         steps will be skipped and the test site will not take payments."
+fi
+
+DUMP_FILE="/tmp/prod_to_test_$(date +%Y%m%d_%H%M%S).sql"
+
+if [[ "$DRY_RUN" == true ]]; then
+    echo "[DRY RUN] Would: dump ${SRC_NAME} -> ${DUMP_FILE}, DROP+CREATE ${DST_NAME},"
+    echo "[DRY RUN]        restore, migrate, sanitize, re-point Stripe, verify."
+    exit 0
+fi
+
+echo "==> Dumping prod -> ${DUMP_FILE}"
+mysqldump -h "$SRC_HOST" -P "$SRC_PORT" -u "$SRC_USER" -p"$SRC_PASS" \
+    --single-transaction --no-tablespaces --routines --triggers \
+    --set-gtid-purged=OFF "$SRC_NAME" > "$DUMP_FILE"
+echo "    $(du -sh "$DUMP_FILE" | cut -f1)"
+
+echo "==> Recreating test DB ${DST_NAME}"
+mysql -h "$DST_HOST" -P "$DST_PORT" -u "$DST_USER" -p"$DST_PASS" \
+    -e "DROP DATABASE IF EXISTS \`${DST_NAME}\`;
+        CREATE DATABASE \`${DST_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+echo "==> Restoring dump into ${DST_NAME}"
+mysql -h "$DST_HOST" -P "$DST_PORT" -u "$DST_USER" -p"$DST_PASS" "$DST_NAME" < "$DUMP_FILE"
+rm -f "$DUMP_FILE"
+
+# From here on the DB holds real emails and real password hashes. Nobody may
+# log in until the sanitize step below has run.
+cd "${TEST_APP_DIR}/cwa_classroom"
+set -a; source "$TEST_ENV"; set +a
+PY="${TEST_APP_DIR}/venv/bin/python"
+
+echo "==> Migrating test (using test env)"
+"$PY" manage.py migrate --noinput
+
+echo "==> Sanitizing test (passwords/emails/Stripe ids/sessions)"
+"$PY" manage.py shell < "${SCRIPTS_DIR}/sanitize_test_db.py"
+
+# ── Re-point Stripe at test-mode objects ─────────────────────────────────────
+# sanitize_test_db.py blanked every stripe_price_id; without this the packages
+# have no price at all and checkout fails just as surely as with a live id.
+if [[ -n "${TEST_STRIPE_KEY}" ]]; then
+    echo "==> Linking/creating test-mode Stripe prices"
+    "$PY" manage.py sync_stripe_prices --create-missing
+
+    echo "==> Syncing discount codes to test-mode Stripe coupons"
+    "$PY" manage.py sync_stripe_coupons
+fi
+
+# ── Verify: sanitisation ─────────────────────────────────────────────────────
+echo "==> Verifying sanitisation"
+UNSCRUBBED="$(mysql -h "$DST_HOST" -P "$DST_PORT" -u "$DST_USER" -p"$DST_PASS" \
+    -sse "SELECT COUNT(*) FROM accounts_customuser
+           WHERE email <> '' AND email NOT LIKE '%@test.local';" "$DST_NAME")"
+if [[ "${UNSCRUBBED}" != "0" ]]; then
+    echo "FAILED: ${UNSCRUBBED} user email(s) are still real addresses."
+    echo "        The sanitize step did not complete. Do not hand this"
+    echo "        environment to anyone — re-run the sanitizer and re-check."
+    exit 1
+fi
+echo "    OK — no real email addresses remain."
+
+# ── Verify: payments actually work ───────────────────────────────────────────
+# The hard gate. Non-zero exit = the test site cannot be paid on.
+if [[ -n "${TEST_STRIPE_KEY}" ]]; then
+    echo "==> Verifying every configured Stripe price is chargeable"
+    if ! "$PY" manage.py check_stripe_prices --fresh; then
+        echo ""
+        echo "FAILED: the restored test DB has Stripe prices that cannot be charged."
+        echo "        Students on those plans will see 'contact support'."
+        echo "        Fix the rows listed above before handing this to a tester."
         exit 1
     fi
-    DUMP_SIZE=$(du -sh "${DUMP_FILE}" | cut -f1)
-    echo "    Dump complete (${DUMP_SIZE})"
-else
-    echo "    [DRY RUN] Would dump '${SRC_DB}' to ${DUMP_FILE}"
-fi
-
-# ── Step 4: drop and recreate destination ────────────────────────────────────
-echo "==> Recreating '${DST_DB}'..."
-if [[ "$DRY_RUN" == false ]]; then
-    mysql ${MYSQL_OPTS} -e \
-        "DROP DATABASE IF EXISTS \`${DST_DB}\`;
-         CREATE DATABASE \`${DST_DB}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-    if [[ $? -ne 0 ]]; then
-        echo "ERROR: Could not recreate '${DST_DB}'."
-        rm -f "${DUMP_FILE}"
-        exit 1
-    fi
-    echo "    OK"
-else
-    echo "    [DRY RUN] Would DROP + CREATE '${DST_DB}'"
-fi
-
-# ── Step 5: restore dump into destination ────────────────────────────────────
-echo "==> Restoring dump into '${DST_DB}'..."
-if [[ "$DRY_RUN" == false ]]; then
-    mysql ${MYSQL_OPTS} "${DST_DB}" < "${DUMP_FILE}"
-    if [[ $? -ne 0 ]]; then
-        echo "ERROR: Restore failed."
-        rm -f "${DUMP_FILE}"
-        exit 1
-    fi
-    echo "    OK"
-else
-    echo "    [DRY RUN] Would restore ${DUMP_FILE} into '${DST_DB}'"
-fi
-
-# ── Cleanup ──────────────────────────────────────────────────────────────────
-if [[ "$DRY_RUN" == false ]]; then
-    rm -f "${DUMP_FILE}"
 fi
 
 echo ""
-if [[ "$DRY_RUN" == true ]]; then
-    echo "[DRY RUN] Done — no changes were made."
-else
-    echo "Done — '${DST_DB}' is now a copy of '${SRC_DB}'."
-    echo ""
-    echo "Next steps (on PythonAnywhere, in your test virtualenv):"
-    echo "  cd ~/cwa_classroom"
-    echo "  python manage.py migrate --settings=cwa_classroom.settings_test"
-    echo "  python ../scripts/run_all_prod_fixes.py --settings=cwa_classroom.settings_test"
-fi
+echo "Done — ${DST_NAME} is a sanitized, payable copy of prod."
+echo "  Log in as user<id>@test.local / Password1!"
+echo "  Smoke it:  cd ${TEST_APP_DIR}/cwa_classroom && \"$PY\" smoke_test.py https://test.wizardslearninghub.co.nz"
