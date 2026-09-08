@@ -426,10 +426,15 @@ class TeacherCenterRegisterView(View):
                         stripe_coupon_id=stripe_coupon,
                     )
                     return redirect(session.url)
-                except Exception:
+                except Exception as exc:
                     logger.exception(
                         'Stripe checkout session creation failed for institute %s (plan %s)',
                         school.id, plan.id,
+                    )
+                    from billing.stripe_health import record_checkout_failure
+                    record_checkout_failure(
+                        exc, user=user, school=school, plan=plan, request=request,
+                        flow='institute_registration',
                     )
                     messages.warning(
                         request,
@@ -576,6 +581,11 @@ class IndividualStudentRegisterView(View):
                 return redirect(stripe_session.url)
             except Exception as exc:
                 logger.exception('Failed to create pending registration Stripe session')
+                from billing.stripe_health import record_checkout_failure
+                record_checkout_failure(
+                    exc, package=package, request=request,
+                    flow='individual_student_registration',
+                )
                 ctx['errors'] = ['Unable to start payment. Please try again.']
                 return render(request, 'accounts/register_individual_student.html', ctx)
 
@@ -1136,6 +1146,14 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     except Exception as e:
                         logger.error(
                             'Stripe checkout session creation failed for user %s: %s', user.id, e
+                        )
+                        # Also record it where a super admin can see it. The
+                        # log line alone hid an archived Stripe price for two
+                        # weeks while a student retried eleven times.
+                        from billing.stripe_health import record_checkout_failure
+                        record_checkout_failure(
+                            e, user=user, package=package, request=request,
+                            flow='school_student_complete_profile',
                         )
                         messages.error(request, 'Could not redirect to payment page. Please try again or contact support.')
                         return render(request, 'accounts/complete_profile.html', {

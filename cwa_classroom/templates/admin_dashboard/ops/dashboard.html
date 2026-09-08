@@ -154,6 +154,83 @@
       </div>
     </div>
 
+    {% comment %}
+      Two views of "a student could not pay at all". The left tile is the
+      record — real people who hit a failed checkout. The right one is the
+      cause, checked ahead of them: a Stripe price we hold that is archived or
+      gone. An archived price on the default package broke every school
+      student's payment page and was invisible in the app for two weeks.
+    {% endcomment %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if checkout_failures.status == 'critical' %}border-red-500/40{% elif checkout_failures.status == 'warning' %}border-amber-500/40{% else %}border-slate-700{% endif %}"
+           data-testid="checkout-failures-tile">
+        <p class="text-sm text-slate-400">Failed checkouts ({{ checkout_failures.days }}d)</p>
+        <p class="text-2xl font-bold mt-1 {% if checkout_failures.status == 'critical' %}text-red-400{% elif checkout_failures.status == 'warning' %}text-amber-400{% else %}text-slate-100{% endif %}">{{ checkout_failures.count }}</p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if checkout_failures.count %}
+            {{ checkout_failures.users }} student{{ checkout_failures.users|pluralize }} could not pay
+          {% else %}
+            everyone reached the card page
+          {% endif %}
+        </p>
+      </div>
+
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if stripe_prices.status == 'critical' %}border-red-500/40{% elif stripe_prices.status == 'unknown' %}border-slate-600{% else %}border-slate-700{% endif %}"
+           data-testid="stripe-prices-tile">
+        <p class="text-sm text-slate-400">Stripe prices</p>
+        <p class="text-2xl font-bold mt-1 {% if stripe_prices.status == 'critical' %}text-red-400{% else %}text-slate-100{% endif %}">
+          {% if stripe_prices.status == 'unknown' %}&mdash;{% else %}{{ stripe_prices.broken|length }}{% endif %}
+        </p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if stripe_prices.skipped %}{{ stripe_prices.skipped }}
+          {% elif stripe_prices.broken %}unusable &mdash; {{ stripe_prices.checked }} checked OK
+          {% else %}all {{ stripe_prices.checked }} price{{ stripe_prices.checked|pluralize }} active{% endif %}
+        </p>
+      </div>
+    </div>
+
+    {% if stripe_prices.broken %}
+    <div class="mt-4 px-4 py-3 rounded-xl text-sm bg-red-500/10 border border-red-500/30 text-red-300"
+         data-testid="stripe-prices-broken">
+      {% for b in stripe_prices.broken %}
+        <div><strong>{{ b.kind }} &ldquo;{{ b.label }}&rdquo;</strong>
+          {% if b.price_id %}<code class="text-red-200">{{ b.price_id }}</code>{% endif %}
+          &mdash; {{ b.problem }}</div>
+      {% endfor %}
+      <p class="text-slate-400 mt-2">Fix in the Stripe dashboard (re-activate the price),
+        or point the plan at an active price id.</p>
+    </div>
+    {% endif %}
+
+    {% if checkout_failures.rows %}
+    <div class="mt-4 bg-slate-800 rounded-2xl border border-slate-700 overflow-x-auto"
+         data-testid="checkout-failures-table">
+      <table class="w-full text-sm">
+        <thead class="text-slate-400 border-b border-slate-700">
+          <tr>
+            <th class="text-left font-medium px-4 py-2">When</th>
+            <th class="text-left font-medium px-4 py-2">Student</th>
+            <th class="text-left font-medium px-4 py-2">Plan</th>
+            <th class="text-left font-medium px-4 py-2">What Stripe said</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in checkout_failures.rows %}
+          <tr class="border-b border-slate-700/50 last:border-0">
+            <td class="px-4 py-2 text-slate-400 whitespace-nowrap">{{ row.when|date:"D d M, H:i" }}</td>
+            <td class="px-4 py-2 text-slate-200">{{ row.name }} <span class="text-slate-500">({{ row.username }})</span></td>
+            <td class="px-4 py-2 text-slate-400">{{ row.package }}</td>
+            <td class="px-4 py-2 text-red-300">{{ row.error }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if checkout_failures.truncated %}
+      <p class="text-xs text-slate-500 px-4 py-2">Showing the most recent {{ checkout_failures.rows|length }} of {{ checkout_failures.count }}.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
     {% if payment_delays.reasons %}
     <div class="mt-4 px-4 py-3 rounded-xl text-sm {% if payment_delays.status == 'critical' %}bg-red-500/10 border border-red-500/30 text-red-300{% else %}bg-amber-500/10 border border-amber-500/30 text-amber-300{% endif %}">
       {% for reason in payment_delays.reasons %}{{ reason }}{% if not forloop.last %}; {% endif %}{% endfor %}.

@@ -147,6 +147,11 @@ class CheckoutView(LoginRequiredMixin, View):
                 'Checkout session creation failed for user %s, package %s: %s',
                 request.user.id, package.id, e,
             )
+            from .stripe_health import record_checkout_failure
+            record_checkout_failure(
+                e, user=request.user, package=package, request=request,
+                flow='checkout_view',
+            )
             messages.error(
                 request,
                 'Could not start checkout. Please try again, or contact support if it persists.',
