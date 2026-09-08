@@ -23,6 +23,53 @@ def _ensure_stripe_key():
 # Customers
 # ---------------------------------------------------------------------------
 
+def _find_existing_stripe_customer(email, metadata_key, metadata_value):
+    """Return a Stripe customer we already made for this owner, or None.
+
+    Asked before minting a new one, because the local row we would normally
+    persist the id to does not always exist yet. A school student has no
+    ``Subscription`` until checkout succeeds, so every failed attempt used to
+    create a fresh Stripe customer and throw the id away — one student retrying
+    a broken checkout eleven times left eleven customers behind.
+
+    That is not just clutter. A customer is currency-locked once it has a
+    subscription, so duplicates are how one person ends up with two currencies
+    attached to their name and the next checkout dies on "You cannot combine
+    currencies on a single customer".
+
+    Matched on ``metadata`` among customers sharing the email, which is an
+    immediately-consistent lookup — unlike ``Customer.search``, whose index lags
+    by about a minute and would still duplicate on a fast retry. Oldest match
+    wins so repeated attempts converge on one customer instead of walking
+    forward through new ones.
+
+    Never raises: if the lookup fails the caller creates a customer, which is
+    exactly the old behaviour. A monitoring nicety must not block a payment.
+    """
+    if not email:
+        return None
+    try:
+        found = stripe.Customer.list(email=email, limit=100)
+    except Exception:  # noqa: BLE001 — fall back to creating, never block checkout
+        logger.exception('Stripe customer lookup failed for %s', email)
+        return None
+
+    matches = [
+        c for c in (found.get('data') or [])
+        if str((c.get('metadata') or {}).get(metadata_key)) == str(metadata_value)
+    ]
+    if not matches:
+        return None
+    matches.sort(key=lambda c: c.get('created') or 0)
+    if len(matches) > 1:
+        logger.warning(
+            'Stripe has %s customers for %s=%s (%s) — reusing the oldest, %s. '
+            'Run "manage.py dedupe_stripe_customers" to clean up.',
+            len(matches), metadata_key, metadata_value, email, matches[0]['id'],
+        )
+    return matches[0]['id']
+
+
 def get_or_create_customer(user=None, school=None):
     """
     Get or create a Stripe Customer.
@@ -40,19 +87,24 @@ def get_or_create_customer(user=None, school=None):
         if sub and sub.stripe_customer_id:
             return sub.stripe_customer_id
 
-        customer = stripe.Customer.create(
-            email=school.admin.email if school.admin else '',
-            name=school.name,
-            metadata={
-                'school_id': school.id,
-                'school_name': school.name,
-                'type': 'institute',
-            },
-        )
+        admin_email = school.admin.email if school.admin else ''
+        customer_id = _find_existing_stripe_customer(
+            admin_email, 'school_id', school.id)
+        if customer_id is None:
+            customer = stripe.Customer.create(
+                email=admin_email,
+                name=school.name,
+                metadata={
+                    'school_id': school.id,
+                    'school_name': school.name,
+                    'type': 'institute',
+                },
+            )
+            customer_id = customer.id
         if sub:
-            sub.stripe_customer_id = customer.id
+            sub.stripe_customer_id = customer_id
             sub.save(update_fields=['stripe_customer_id'])
-        return customer.id
+        return customer_id
 
     if user:
         from billing.models import Subscription
@@ -64,19 +116,25 @@ def get_or_create_customer(user=None, school=None):
         if sub and sub.stripe_customer_id:
             return sub.stripe_customer_id
 
-        customer = stripe.Customer.create(
-            email=user.email,
-            name=user.get_full_name() or user.username,
-            metadata={
-                'user_id': user.id,
-                'username': user.username,
-                'type': 'individual',
-            },
-        )
+        # No local record of a customer — but there may still be one in Stripe
+        # from an earlier attempt that had nowhere to persist the id.
+        customer_id = _find_existing_stripe_customer(
+            user.email, 'user_id', user.id)
+        if customer_id is None:
+            customer = stripe.Customer.create(
+                email=user.email,
+                name=user.get_full_name() or user.username,
+                metadata={
+                    'user_id': user.id,
+                    'username': user.username,
+                    'type': 'individual',
+                },
+            )
+            customer_id = customer.id
         if sub:
-            sub.stripe_customer_id = customer.id
+            sub.stripe_customer_id = customer_id
             sub.save(update_fields=['stripe_customer_id'])
-        return customer.id
+        return customer_id
 
     raise ValueError('Must provide either user or school')
 
