@@ -206,6 +206,33 @@ class StripePriceHealthTest(TestCase):
         kinds = {b['kind'] for b in get_stripe_price_health(use_cache=False)['broken']}
         self.assertEqual(kinds, {'Package', 'InstitutePlan'})
 
+    @override_settings(STRIPE_CURRENCY='usd')
+    @patch('stripe.Price.retrieve')
+    def test_wrong_currency_is_flagged(self, mock_retrieve):
+        """All payments are in USD. A stray NZD price charges the wrong amount
+        and then currency-locks that customer — both silent."""
+        mock_retrieve.return_value = {'active': True, 'currency': 'nzd'}
+        health = get_stripe_price_health(use_cache=False)
+        self.assertEqual(health['status'], 'critical')
+        problem = health['broken'][0]['problem']
+        self.assertIn('NZD', problem)
+        self.assertIn('USD', problem)
+
+    @override_settings(STRIPE_CURRENCY='usd')
+    @patch('stripe.Price.retrieve')
+    def test_matching_currency_is_clean(self, mock_retrieve):
+        mock_retrieve.return_value = {'active': True, 'currency': 'usd'}
+        self.assertEqual(get_stripe_price_health(use_cache=False)['status'], 'ok')
+
+    @override_settings(STRIPE_CURRENCY='usd')
+    @patch('stripe.Price.retrieve')
+    def test_archived_price_is_reported_once_not_twice(self, mock_retrieve):
+        """An archived NZD price is one problem to fix, not two lines."""
+        mock_retrieve.return_value = {'active': False, 'currency': 'nzd'}
+        broken = get_stripe_price_health(use_cache=False)['broken']
+        self.assertEqual(len(broken), 1)
+        self.assertIn('Archived in Stripe', broken[0]['problem'])
+
     @override_settings(STRIPE_SECRET_KEY='')
     @patch('stripe.Price.retrieve')
     def test_unconfigured_stripe_reports_unknown_not_ok(self, mock_retrieve):

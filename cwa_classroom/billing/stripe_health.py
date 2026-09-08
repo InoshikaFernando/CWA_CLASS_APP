@@ -21,6 +21,7 @@ Two answers live here, and they are deliberately different questions:
 import logging
 from datetime import timedelta
 
+from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
@@ -213,6 +214,24 @@ def _compute_price_health():
                 'kind': kind, 'label': label, 'id': obj_id, 'price_id': price_id,
                 'problem': 'Archived in Stripe — checkout fails with '
                            '"The price specified is inactive".',
+            })
+            continue
+
+        # Every price must be in the one currency the app bills in. A stray
+        # one does not fail at checkout — it succeeds and charges the wrong
+        # amount, then locks that customer to the wrong currency, so the next
+        # checkout for them dies on "You cannot combine currencies on a single
+        # customer". Both halves are silent until someone reads a Stripe
+        # invoice, which is why this is checked rather than remembered.
+        want = (getattr(settings, 'STRIPE_CURRENCY', 'usd') or 'usd').lower()
+        got = (price.get('currency') or '').lower()
+        if got and got != want:
+            broken.append({
+                'kind': kind, 'label': label, 'id': obj_id, 'price_id': price_id,
+                'problem': f'Priced in {got.upper()} but the app bills in '
+                           f'{want.upper()} — students on it are charged the '
+                           f'wrong currency and their Stripe customer is then '
+                           f'locked to {got.upper()}.',
             })
 
     reasons = []
