@@ -1023,9 +1023,19 @@ class CompleteProfileView(LoginRequiredMixin, View):
 
             package = self._get_student_package()
             if package:
-                is_free = discount_obj and discount_obj.is_fully_free
+                # Two different things mean "nothing to charge", and this gate
+                # used to test only the second: ``package.is_free`` is a plan
+                # that costs nothing, ``discount_obj.is_fully_free`` a code that
+                # takes the whole price off. A free package legitimately has no
+                # stripe_price_id (Package.clean only demands one above $0), so
+                # reading the code alone dropped every student on a free plan
+                # who typed no code into the "contact support" branch below —
+                # the free plan was reachable only by naming a code, which is
+                # only ever delivered by the welcome email.
+                is_free = package.is_free or bool(
+                    discount_obj and discount_obj.is_fully_free)
                 if is_free:
-                    # 100% free code — activate immediately, no Stripe needed
+                    # Nothing to charge — activate immediately, no Stripe needed
                     if discount_obj:
                         discount_obj.uses += 1
                         discount_obj.save(update_fields=['uses'])
@@ -1041,7 +1051,13 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     sub.package = package
                     sub.status = Subscription.STATUS_ACTIVE
                     sub.discount_code = discount_obj
-                    sub.discount_percent_snapshot = 100
+                    # Only a code actually redeemed is a discount. A student on
+                    # a free plan who typed none holds no code, and the HoI
+                    # discount list (classroom/views_admin.py) reads this field
+                    # to decide who is discounted — writing 100 here would
+                    # report a code they never had.
+                    if discount_obj:
+                        sub.discount_percent_snapshot = discount_obj.discount_percent
                     sub.save()
                     # A code the owner flagged as a Student Basic promotion
                     # puts the student on that tier. Read off the subscription,

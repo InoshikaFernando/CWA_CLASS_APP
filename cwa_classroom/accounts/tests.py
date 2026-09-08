@@ -959,6 +959,200 @@ class CPP300_CompleteProfileStripeEnforcementTest(TestCase):
         self.pkg_no_stripe.save(update_fields=['stripe_price_id'])
 
 
+class CompleteProfileFreePackageTest(TestCase):
+    """A school student on a *free* package must not be asked to pay.
+
+    ``package.is_free`` (a plan costing nothing) and ``discount.is_fully_free``
+    (a code taking the whole price off) both mean there is nothing to charge.
+    The gate used to read only the code, so a free package — which legitimately
+    has no ``stripe_price_id`` — sent every student who typed no code to
+    "Payment is not currently configured. Please contact support." The code
+    reaches students only in the welcome email, so anyone who never received
+    one (or self-served through a password-reset link) could not get past it.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.url = reverse('complete_profile')
+        self.free_pkg = Package.objects.create(
+            name='Student Basic', class_limit=0, price=0,
+            stripe_price_id='', is_default=True, is_active=True, order=1,
+        )
+        self.user = CustomUser.objects.create_user(
+            'freestud', 'freestud@test.com', 'pass1234',
+            must_change_password=True, profile_completed=False,
+        )
+        role, _ = Role.objects.get_or_create(
+            name=Role.STUDENT, defaults={'display_name': 'Student'},
+        )
+        from accounts.models import UserRole
+        UserRole.objects.create(user=self.user, role=role)
+        self.client.force_login(self.user)
+
+    def _post(self, **extra):
+        data = {
+            'new_password': 'newpass1234',
+            'confirm_password': 'newpass1234',
+            'first_name': 'Free',
+            'last_name': 'Student',
+        }
+        data.update(extra)
+        return self.client.post(self.url, data)
+
+    def test_free_package_without_code_activates(self):
+        """The regression: no code typed, free plan — activate, don't error."""
+        resp = self._post()
+        self.assertEqual(resp.status_code, 302)
+        self.assertNotIn('stripe.com', resp.url)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.profile_completed)
+        sub = Subscription.objects.get(user=self.user)
+        self.assertEqual(sub.status, Subscription.STATUS_ACTIVE)
+        self.assertEqual(sub.package, self.free_pkg)
+
+    def test_free_package_without_code_is_not_recorded_as_discounted(self):
+        """No code held → no discount. The HoI discount list reads these fields."""
+        self._post()
+        sub = Subscription.objects.get(user=self.user)
+        self.assertIsNone(sub.discount_code)
+        self.assertIsNone(sub.discount_percent_snapshot)
+
+    def test_free_package_with_full_code_still_records_the_code(self):
+        """A 100% code on a free plan is still redeemed and snapshotted."""
+        code = DiscountCode.objects.create(
+            code='MHMFREE', discount_percent=100, is_active=True,
+        )
+        resp = self._post(discount_code='MHMFREE')
+        self.assertEqual(resp.status_code, 302)
+        sub = Subscription.objects.get(user=self.user)
+        self.assertEqual(sub.discount_code, code)
+        self.assertEqual(sub.discount_percent_snapshot, 100)
+        code.refresh_from_db()
+        self.assertEqual(code.uses, 1)
+
+    def test_free_package_does_not_reach_the_contact_support_branch(self):
+        """The blank stripe_price_id on a free plan is not a misconfiguration."""
+        resp = self._post()
+        self.assertEqual(resp.status_code, 302)
+        messages = [str(m) for m in self.client.session.get('_messages', [])]
+        self.assertNotIn('Payment is not currently configured', ' '.join(messages))
+
+    @patch('billing.stripe_service.create_student_checkout_session')
+    def test_paid_package_still_reaches_the_card_page(self, mock_stripe):
+        """A paid plan must still send the student to Stripe to enter a card."""
+        self.free_pkg.is_default = False
+        self.free_pkg.save(update_fields=['is_default'])
+        Package.objects.create(
+            name='Wizard Monthly', class_limit=1, price=19.90,
+            stripe_price_id='price_live_wizard', is_default=True,
+            is_active=True, order=2,
+        )
+        mock_session = MagicMock()
+        mock_session.url = 'https://checkout.stripe.com/c/pay/cs_test_card'
+        mock_stripe.return_value = mock_session
+
+        resp = self._post()
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('checkout.stripe.com', resp.url)
+        # Not activated yet — the webhook / success view does that after payment.
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.profile_completed)
+        self.assertFalse(Subscription.objects.filter(user=self.user).exists())
+
+    def test_paid_package_without_stripe_id_still_blocks(self):
+        """A genuine misconfiguration (paid plan, no price id) must still error."""
+        self.free_pkg.is_default = False
+        self.free_pkg.save(update_fields=['is_default'])
+        Package.objects.create(
+            name='Broken Paid', class_limit=1, price=19.90,
+            stripe_price_id='', is_default=True, is_active=True, order=2,
+        )
+        resp = self._post()
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Payment is not currently configured')
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.profile_completed)
+
+
+class CompleteProfileViaPasswordResetTest(TestCase):
+    """Onboarding through a password-reset link must reach the same payment gate.
+
+    A student who never received their welcome email uses "Forgot password"
+    instead. Django's reset view only calls ``set_password``, so it leaves the
+    gating flags untouched — this pins that, and that such a student (who has
+    no discount code, because the code only ever travels in the welcome email)
+    can still complete onboarding on a free plan.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        Package.objects.create(
+            name='Student Basic', class_limit=0, price=0,
+            stripe_price_id='', is_default=True, is_active=True, order=1,
+        )
+        self.user = CustomUser.objects.create_user(
+            'resetstud', 'parent+child@example.com', 'TempImported1',
+            must_change_password=True, profile_completed=False,
+            creation_method=CustomUser.CREATION_INSTITUTE,
+        )
+        role, _ = Role.objects.get_or_create(
+            name=Role.STUDENT, defaults={'display_name': 'Student'},
+        )
+        from accounts.models import UserRole
+        UserRole.objects.create(user=self.user, role=role)
+
+    def _walk_reset_link(self, new_password):
+        """Request a reset, follow the emailed link, set a new password."""
+        from django.core import mail
+        mail.outbox = []
+        resp = self.client.post(reverse('password_reset'), {'email': self.user.email})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(len(mail.outbox), 1)
+        match = re.search(r'/accounts/reset/([^/]+)/([^/\s]+)/', mail.outbox[0].body)
+        self.assertIsNotNone(match, mail.outbox[0].body)
+        # Django swaps the token for a session token on GET, then takes the POST.
+        resp = self.client.get(
+            f'/accounts/reset/{match.group(1)}/{match.group(2)}/', follow=True,
+        )
+        post_url = resp.redirect_chain[-1][0]
+        self.client.post(post_url, {
+            'new_password1': new_password, 'new_password2': new_password,
+        })
+
+    def test_reset_link_leaves_the_student_gated(self):
+        """The reset sets only the password — the payment gate still applies."""
+        self._walk_reset_link('BrandNewPass1')
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('BrandNewPass1'))
+        self.assertTrue(self.user.must_change_password)
+        self.assertFalse(self.user.profile_completed)
+
+        self.assertTrue(self.client.login(
+            username='resetstud', password='BrandNewPass1'))
+        resp = self.client.get(reverse('subjects_hub'))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/accounts/complete-profile', resp.url)
+
+    def test_reset_onboarded_student_can_finish_without_a_code(self):
+        """No welcome email means no discount code — they must still get through."""
+        self._walk_reset_link('BrandNewPass1')
+        self.client.login(username='resetstud', password='BrandNewPass1')
+        resp = self.client.post(reverse('complete_profile'), {
+            'new_password': 'FinalPass1234',
+            'confirm_password': 'FinalPass1234',
+            'first_name': 'Reset',
+            'last_name': 'Student',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.profile_completed)
+        self.assertFalse(self.user.must_change_password)
+        self.assertEqual(
+            Subscription.objects.get(user=self.user).status,
+            Subscription.STATUS_ACTIVE,
+        )
+
+
 class CPP300_ModelValidationTest(TestCase):
     """CPP-300: Model clean() validation prevents paid plans/packages without stripe_price_id."""
 
