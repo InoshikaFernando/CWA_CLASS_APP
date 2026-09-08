@@ -286,3 +286,127 @@ class TestImportIntoUnpublishedThenPublish:
         expect(page.locator("body")).to_contain_text("Complete Your Profile")
         expect(page.locator("input[name='discount_code']")).to_be_visible()
         expect(page.locator("body")).to_contain_text("Subscription")
+
+
+# ---------------------------------------------------------------------------
+# Scenario 3 — the school is on a FREE plan
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def free_default_package(db):
+    """A free default package — the plan costs nothing, so it has no price id.
+
+    ``Package.clean()`` only demands a ``stripe_price_id`` above $0, so a blank
+    one here is valid configuration, not a mistake.
+    """
+    from billing.models import Package
+
+    return Package.objects.create(
+        name="Student Basic",
+        class_limit=0,
+        price=Decimal("0"),
+        stripe_price_id="",
+        trial_days=0,
+        is_active=True,
+        is_default=True,
+        order=1,
+    )
+
+
+class TestFreePackageOnboarding:
+    """A student on a free plan must get through the gate without a code.
+
+    The discount code only ever reaches a student in the welcome email, so a
+    student who never received one has nothing to type. The gate used to read
+    the code alone to decide whether anything was owed, and sent them to
+    "contact support" instead.
+    """
+
+    def test_free_plan_student_completes_without_a_discount_code(
+        self, live_server, page, admin_user, school, free_default_package,
+        locmem_email,
+    ):
+        url = live_server.url
+        school.is_published = True
+        school.save(update_fields=["is_published"])
+
+        creds = _import_one_student(school, admin_user, first="Kira", last="Vale")
+        _send_publish_emails(school)
+
+        _login_with_password(page, url, creds["username"], creds["password"])
+        expect(page).to_have_url(re.compile(r"/accounts/complete-profile"))
+
+        # Fill in the profile and leave the discount code EMPTY.
+        page.locator("input[name='new_password']").fill("NewPass123!")
+        page.locator("input[name='confirm_password']").fill("NewPass123!")
+        page.locator("input[name='first_name']").fill("Kira")
+        page.locator("input[name='last_name']").fill("Vale")
+        page.get_by_role("button", name=re.compile("Complete Profile")).click()
+
+        # Through the gate, not bounced back with an error.
+        page.wait_for_url(
+            lambda u: "/accounts/complete-profile" not in u, timeout=10_000,
+        )
+        expect(page.locator("body")).not_to_contain_text(
+            "Payment is not currently configured"
+        )
+
+        from accounts.models import CustomUser
+        from billing.models import Subscription
+
+        student = CustomUser.objects.get(email__iexact=creds["email"])
+        assert student.profile_completed is True
+        sub = Subscription.objects.get(user=student)
+        assert sub.status == Subscription.STATUS_ACTIVE
+        # No code was typed, so nothing is recorded as a discount.
+        assert sub.discount_code is None
+        assert sub.discount_percent_snapshot is None
+
+    def test_paid_plan_student_is_sent_to_the_card_page(
+        self, live_server, page, admin_user, school, default_package, locmem_email,
+    ):
+        """The paid plan must still hand the student off to Stripe's card page.
+
+        Stripe Checkout is hosted on Stripe's own domain, so the assertion is
+        that the browser is actually navigated there. The Checkout session is
+        stubbed at the service layer (no live Stripe call), and the assertion
+        is on the request the browser issues — Stripe's page itself is not
+        reachable from CI and is not what is under test.
+        """
+        from unittest.mock import MagicMock, patch
+
+        url = live_server.url
+        school.is_published = True
+        school.save(update_fields=["is_published"])
+
+        creds = _import_one_student(school, admin_user, first="Noor", last="Ali")
+        _send_publish_emails(school)
+
+        _login_with_password(page, url, creds["username"], creds["password"])
+        expect(page).to_have_url(re.compile(r"/accounts/complete-profile"))
+
+        session = MagicMock()
+        session.url = "https://checkout.stripe.com/c/pay/cs_test_cpp300"
+        with patch(
+            "billing.stripe_service.create_student_checkout_session",
+            return_value=session,
+        ):
+            page.locator("input[name='new_password']").fill("NewPass123!")
+            page.locator("input[name='confirm_password']").fill("NewPass123!")
+            page.locator("input[name='first_name']").fill("Noor")
+            page.locator("input[name='last_name']").fill("Ali")
+            with page.expect_request(
+                re.compile(r"checkout\.stripe\.com"), timeout=10_000,
+            ) as card_page:
+                page.get_by_role(
+                    "button", name=re.compile("Complete Profile"),
+                ).click()
+
+        # The browser really was handed off to Stripe's hosted card form.
+        assert card_page.value.url == session.url
+
+        # Still gated until Stripe confirms — the webhook / success view activates.
+        from accounts.models import CustomUser
+
+        student = CustomUser.objects.get(email__iexact=creds["email"])
+        assert student.profile_completed is False
