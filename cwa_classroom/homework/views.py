@@ -1144,7 +1144,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
         # complete overdue work; lateness is reflected in the submission status,
         # not enforced as a hard block. Only the attempt cap gates access.
 
-        hw_questions = list(homework.homework_questions.order_by('order'))
+        hw_questions = live_homework_questions(homework)
 
         # Build one "item" per HomeworkQuestion by dispatching to the plugin
         # bound to its subject_slug. Each item carries the template path + the
@@ -1200,7 +1200,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             return redirect('homework:student_list')
 
         time_taken = int(request.POST.get('time_taken_seconds', 0))
-        hw_questions = list(homework.homework_questions.order_by('order'))
+        hw_questions = live_homework_questions(homework)
 
         # Grade all items OUTSIDE the DB transaction — for coding homework each
         # plugin.grade_answer() hits Piston over HTTP (2–10s per call). Running
@@ -1350,6 +1350,33 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
         if request.POST.get('action') == 'save_exit':
             return redirect('homework:student_list')
         return redirect('homework:student_result', submission_id=submission.id)
+
+
+def live_homework_questions(homework):
+    """The items a homework should actually serve (CPP-410).
+
+    A retired question keeps its ``HomeworkQuestion`` row — what a homework
+    contained is a fact about the past and must not be rewritten — but it has
+    to stop reaching children the MOMENT it is withdrawn, not at the next
+    assignment. A question is normally retired because it is broken.
+
+    So the filter lives here, in the one place the take page and the grader
+    both read, rather than in each of them separately: two copies would drift,
+    and the failure mode is a child meeting a question we have already decided
+    is unanswerable.
+
+    Non-maths rows (coding, and any future subject) carry no ``question`` FK
+    and are always served — retirement is a maths-question concept today.
+    """
+    rows = list(
+        homework.homework_questions
+        .select_related('question')
+        .order_by('order')
+    )
+    return [
+        hwq for hwq in rows
+        if not (hwq.question_id and hwq.question and hwq.question.is_retired)
+    ]
 
 
 class SaveHomeworkProgressView(LoginRequiredMixin, View):
