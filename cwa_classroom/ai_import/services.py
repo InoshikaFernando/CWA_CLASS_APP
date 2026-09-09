@@ -11,7 +11,9 @@ import tempfile
 from django.conf import settings
 from django.utils import timezone
 
+from worksheets.explanation_checks import flag_explanation_problems
 from worksheets.page_attribution import pin_page_enum, resolve_chunk_pages
+from worksheets.pdf_geometry import displayed_rect, raster_native_dpi
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +130,9 @@ def _page_figure_regions(page):
                     if content else page.cluster_drawings())
         regions = []
         for r in clusters:
+            # Clusters are reported in unrotated coordinates; the model's boxes
+            # are drawn on the (displayed) screenshot. No-op unless rotated.
+            r = displayed_rect(page, r)
             w, h = r.width, r.height
             area_frac = (w * h) / page_area
             if area_frac > 0.80:
@@ -160,6 +165,9 @@ def _embedded_image_bbox_pct(page, xref):
         rects = page.get_image_rects(xref)
         if not rects:
             return None
+        # Placements are reported unrotated; the percentages describe the
+        # displayed page (a rotated full-page scan read as "x 0-141%" before).
+        rects = [displayed_rect(page, r) for r in rects]
         x0 = min(r.x0 for r in rects)
         y0 = min(r.y0 for r in rects)
         x1 = max(r.x1 for r in rects)
@@ -623,6 +631,16 @@ shown in the question, then check it.
   recompute until it is.
 - The explanation must describe the SAME numbers as the answer. Never let the answer and
   the explanation disagree with each other or with the figure.
+- COUNTING AND ARITHMETIC ARE SHOWN, NOT ASSERTED: when an answer depends on counting
+  items in a figure (leaves in a stem-and-leaf plot, dots, tally marks, bars, rows of a
+  table) or on adding parts, write the items or parts out in the explanation and let the
+  count or sum follow from what you wrote — "stem 1: 4, 7, 8 (3 leaves); stem 2: 0, 2, 4,
+  5, 7, 8, 8, 9 (8 leaves); stem 3: 0, 3, 7 (3 leaves); 3 + 8 + 3 = 14 values". For a
+  median, write the FULL ordered list, state n as the number of values in THAT list, and
+  take the middle value (the mean of the two middle values when n is even). Count the list
+  you wrote before stating n, and re-add every sum's parts before stating its total. A
+  stated count that disagrees with the list, or a sum that does not add up, is caught
+  automatically and sent to the teacher as a suspect answer.
 - The explanation must be CLEAN and FINAL: do your working silently and write only the
   verified conclusion. Never leave scratch work, self-corrections, or "wait, let me redo
   this" notes in it. For multiple choice, the option you mark is_correct MUST be the exact
@@ -1330,6 +1348,16 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
             '%s question(s) re-routed to human_graded: they ask the student to '
             'draw something the app has no answer surface for.', routed)
 
+    # An explanation that contradicts itself — "15 values" over a list of 14, an
+    # ordinal that disagrees with the list, a sum that does not add up — is a
+    # wrong answer announcing itself. Flag it for the teacher before the paid
+    # second opinion; no model, image or token needed.
+    contradicted = flag_explanation_problems(merged.get('questions', []))
+    if contradicted:
+        logger.info(
+            '%s question(s) flagged for review: the explanation contradicts '
+            'itself (miscount or arithmetic slip).', contradicted)
+
     verification = verify_answers(merged.get('questions', []), page_images=page_images)
     if verification is not None:
         verification['comparison_flags'] = comparison_flags
@@ -1400,7 +1428,7 @@ def _box_has_drawing(doc, page_num, box_pct):
                         hi_x / 100 * pw, hi_y / 100 * ph)
         for d in page.get_drawings():
             r = d.get('rect')
-            if r and fitz.Rect(r).intersects(box):
+            if r and displayed_rect(page, r).intersects(box):
                 return True
         return False
     except Exception:
@@ -1626,7 +1654,9 @@ def _expand_box_for_clipped_labels(doc, page_num, box_pct,
         gy1 = min(100.0, hi_y + max_grow) / 100 * ph
         nx0, ny0, nx1, ny1 = bx0, by0, bx1, by1
         for word in page.get_text('words'):
-            wx0, wy0, wx1, wy1 = word[0], word[1], word[2], word[3]
+            # Words are reported unrotated; the box is on the displayed page.
+            shown = displayed_rect(page, (word[0], word[1], word[2], word[3]))
+            wx0, wy0, wx1, wy1 = shown.x0, shown.y0, shown.x1, shown.y1
             wa = max(0.0, wx1 - wx0) * max(0.0, wy1 - wy0)
             if wa <= 0:
                 continue
@@ -1741,8 +1771,23 @@ def _assign_figure_to_question(q, idx, pages, crops, decoded, doc, Image, io):
     # falls back to cropping the 150-DPI screenshot when the PDF isn't
     # available or the render fails.
     if doc is not None:
+        # A box on a scanned page holds no vectors to sharpen: rendering the
+        # embedded scan above its own resolution only upsamples it into a
+        # multi-megabyte PNG. Stop at the scan's native DPI in that case.
+        render_dpi = None
+        if not overlapping:
+            try:
+                page_obj = doc[int(page_num) - 1]
+                pw, ph = page_obj.rect.width, page_obj.rect.height
+                native = raster_native_dpi(page_obj, (
+                    lo_x / 100 * pw, lo_y / 100 * ph, hi_x / 100 * pw, hi_y / 100 * ph))
+                if native and _box_has_drawing(doc, int(page_num),
+                                               [lo_x, lo_y, hi_x, hi_y]) is False:
+                    render_dpi = max(72, min(FIGURE_RENDER_DPI, int(native)))
+            except Exception:
+                render_dpi = None
         img_bytes = _render_pdf_region(doc, int(page_num),
-                                       [lo_x, lo_y, hi_x, hi_y])
+                                       [lo_x, lo_y, hi_x, hi_y], dpi=render_dpi)
     if img_bytes is None:
         try:
             img = decoded.get(int(page_num))

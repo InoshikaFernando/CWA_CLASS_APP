@@ -68,6 +68,21 @@ back (a number that is not one of the batch's pages but is a valid position
 names the page at that position; an impossible number is dropped rather than
 trusted). The worksheet / homework upload does the same for its `page_num`.
 
+## Self-contradiction checks (no tokens)
+
+Before the paid second opinion, `worksheets/explanation_checks.py` reads each
+question's explanation for a contradiction *inside it* — the way a miscount or an
+arithmetic slip betrays itself: a stated count that disagrees with the list written
+out ("There are 15 values: <fourteen numbers>"), an ordinal that disagrees with the
+list ("the 8th value is 25" when the 8th listed is 27), or a sum that does not add
+up ("10 + 5 + 2 = 18"). Any hit routes the question to `needs_review` with the
+contradiction as the `review_reason`, and the review screens show the same warning
+for sessions extracted before the check existed (`answer_review_warning`). The
+prompts tell the model to write counted items and summed parts out so the check has
+something to read; the worksheet / homework classifier additionally thinks before it
+answers (adaptive thinking with `tool_choice: auto`, falling back to the forced tool
+call; `WORKSHEET_THINKING=0` restores the old behaviour).
+
 ## Second-opinion answer verification
 
 After Claude classifies the questions, an optional **GPT verifier** independently

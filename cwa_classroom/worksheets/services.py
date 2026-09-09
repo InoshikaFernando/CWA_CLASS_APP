@@ -31,7 +31,9 @@ from django.conf import settings
 
 from maths.shape_detect import trace_shape_select_scenes
 
+from .explanation_checks import explanation_problems, flag_explanation_problems
 from .page_attribution import pin_page_enum, resolve_chunk_pages
+from .pdf_geometry import displayed_rect, raster_native_dpi
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +141,14 @@ def answer_review_warning(q):
     if _SCRATCH_WORK_RE.search(explanation):
         return ('The explanation contains second-guessing or scratch work — '
                 'check the ticked answer matches its final conclusion.')
+
+    # The explanation contradicting ITSELF — "there are 15 values: <14 numbers>",
+    # "the 8th value is 25" when its own list says 27, "10 + 5 + 2 = 18". Checked
+    # here as well as at import time so sessions extracted before the check
+    # existed still show it on the review screen.
+    problems = explanation_problems(q)
+    if problems:
+        return problems[0]
 
     if q.get('question_type') == 'multiple_choice':
         expl = _norm_text(explanation)
@@ -1104,6 +1114,16 @@ actually shown in the question, then check it.
 - The answer and the explanation must describe the SAME result. Never let the answer text
   and the explanation disagree with each other or with the figure. If they disagree,
   recompute until they match before returning.
+- COUNTING AND ARITHMETIC ARE SHOWN, NOT ASSERTED: when an answer depends on counting
+  items in a figure (leaves in a stem-and-leaf plot, dots, tally marks, bars, rows of a
+  table) or on adding parts, write the items or parts out in the explanation and let the
+  count or sum follow from what you wrote — "stem 1: 4, 7, 8 (3 leaves); stem 2: 0, 2, 4,
+  5, 7, 8, 8, 9 (8 leaves); stem 3: 0, 3, 7 (3 leaves); 3 + 8 + 3 = 14 values". For a
+  median, write the FULL ordered list, state n as the number of values in THAT list, and
+  take the middle value (the mean of the two middle values when n is even). Count the list
+  you wrote before stating n, and re-add every sum's parts before stating its total. A
+  stated count that disagrees with the list, or a sum that does not add up, is caught
+  automatically and sent to the teacher as a suspect answer.
 - If you cannot determine the correct answer with confidence, set validation_type to
   "human_graded" rather than inventing one.
 
@@ -1393,6 +1413,55 @@ class ChunkTooDenseError(ValueError):
     """
 
 
+def _stream_classification(client, system, tools, content_blocks):
+    """One classification request, streamed (a long generation must not trip the
+    SDK read timeout). Returns the final Message.
+
+    The model THINKS before it answers. This used to force the tool call
+    (``tool_choice: tool``) with thinking disabled — the two are incompatible —
+    and a model that cannot reason before it writes miscounts: a stem-and-leaf
+    plot with 14 leaves came back as "15 values" (and a median taken as the 8th
+    of 15), a sum as "10 + 5 + 2 = 18". Adaptive thinking with ``tool_choice:
+    auto`` lets it count and compute first; the closing instruction still tells
+    it to answer with the tool, and it does. Should a reply ever come back
+    without the tool call, the request is re-issued once the old way — forced
+    tool, thinking off — so an upload never fails on that alone.
+    ``WORKSHEET_THINKING=0`` skips straight to the forced call.
+    """
+    model = os.environ.get('WORKSHEET_MODEL', 'claude-opus-5')
+    common = dict(
+        model=model,
+        max_tokens=WORKSHEET_MAX_TOKENS,
+        system=system,
+        tools=tools,
+        messages=[{"role": "user", "content": content_blocks}],
+    )
+    if os.environ.get('WORKSHEET_THINKING', '1') != '0':
+        with client.messages.stream(
+            thinking={"type": "adaptive"},
+            tool_choice={"type": "auto"},
+            **common,
+        ) as stream:
+            response = stream.get_final_message()
+        used_tool = any(getattr(block, 'type', None) == 'tool_use'
+                        for block in (response.content or []))
+        if used_tool or getattr(response, 'stop_reason', None) in ('refusal', 'max_tokens'):
+            return response
+        logger.warning(
+            'classify chunk: the model answered without calling the tool '
+            '(stop_reason=%s); retrying with the tool call forced.',
+            getattr(response, 'stop_reason', None))
+
+    # Forced tool call. Thinking must be off for a forced tool_choice; disabled
+    # thinking is valid at the default effort ("high") on Opus 5.
+    with client.messages.stream(
+        thinking={"type": "disabled"},
+        tool_choice={"type": "tool", "name": "classify_worksheet_questions"},
+        **common,
+    ) as stream:
+        return stream.get_final_message()
+
+
 def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=False):
     """Classify one chunk of pages in a single streamed Claude call.
 
@@ -1486,23 +1555,9 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
         "text": closing,
     })
 
-    # Stream so a long generation doesn't trip the SDK read timeout.
-    # claude-sonnet-4-20250514 is deprecated; default to Opus (env-overridable via
-    # WORKSHEET_MODEL). Thinking is explicitly disabled — it is incompatible with
-    # the forced tool_choice below, and on Opus 5 (and later) adaptive thinking is
-    # ON by default, so omitting the parameter would 400. Disabled thinking is
-    # valid at the default effort ("high").
-    with client.messages.stream(
-        model=os.environ.get('WORKSHEET_MODEL', 'claude-opus-5'),
-        max_tokens=WORKSHEET_MAX_TOKENS,
-        thinking={"type": "disabled"},
-        system=system,
-        tools=[pin_page_enum(WORKSHEET_CLASSIFICATION_TOOL, ('page_num',),
-                             [p['page_num'] for p in pages])],
-        tool_choice={"type": "tool", "name": "classify_worksheet_questions"},
-        messages=[{"role": "user", "content": content_blocks}],
-    ) as stream:
-        response = stream.get_final_message()
+    tools = [pin_page_enum(WORKSHEET_CLASSIFICATION_TOOL, ('page_num',),
+                           [p['page_num'] for p in pages])]
+    response = _stream_classification(client, system, tools, content_blocks)
 
     result = None
     for block in response.content:
@@ -1736,18 +1791,22 @@ def _bleeding_text_blocks(fitz_page, clip_rect):
 
     Only these can dirty the crop: a block that starts above the clip and ends
     above it too is outside the rendered region and invisible either way, so
-    redacting it would be pure cost. Returns a list of fitz.Rect.
+    redacting it would be pure cost.
+
+    *clip_rect* is in displayed coordinates (it came from the screenshot), so
+    the comparison is made on each block's displayed rectangle; the returned
+    rects are the RAW (unrotated) ones, because that is the space a redaction
+    annotation is placed in. Identical on an unrotated page.
     """
     import fitz
 
     bleeding = []
     # (x0, y0, x1, y1, text, block_no, block_type)
     for b in fitz_page.get_text('blocks'):
-        bx0, by0, bx1, by1 = b[0], b[1], b[2], b[3]
-        if by0 < clip_rect.y0 < by1:
-            block_rect = fitz.Rect(bx0, by0, bx1, by1)
-            if block_rect.intersects(clip_rect):
-                bleeding.append(block_rect)
+        raw = fitz.Rect(b[0], b[1], b[2], b[3])
+        shown = displayed_rect(fitz_page, raw)
+        if shown.y0 < clip_rect.y0 < shown.y1 and shown.intersects(clip_rect):
+            bleeding.append(raw)
     return bleeding
 
 
@@ -1852,7 +1911,9 @@ def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
 
     picked = []
     for r in clusters:
-        r = fitz.Rect(r)
+        # Clusters are reported in unrotated coordinates; search_rect came from
+        # the screenshot, so compare in displayed space (a no-op unless rotated).
+        r = displayed_rect(fitz_page, r)
         if r.is_empty or r.is_infinite:
             continue
         # Skip page-border / full-page decoration and tiny specks.
@@ -1922,7 +1983,7 @@ def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18):
         text = (b[4] or '').strip() if len(b) > 4 else ''
         if not text:
             continue
-        br = fitz.Rect(b[0], b[1], b[2], b[3])
+        br = displayed_rect(fitz_page, fitz.Rect(b[0], b[1], b[2], b[3]))
         if br.width > max_label_w:
             continue                 # running text — never an attached label
         # Gap from the diagram core (measured against the core, NOT the growing
@@ -1976,7 +2037,8 @@ def _region_has_raster_image(fitz_page, search_rect, min_overlap_frac=0.12):
         except Exception:
             continue
         for r in rects:
-            inter = fitz.Rect(r)
+            # Image placements are reported unrotated; search_rect is displayed.
+            inter = displayed_rect(fitz_page, r)
             inter.intersect(search_rect)
             if inter.is_valid and abs(inter.get_area()) >= min_overlap_frac * search_area:
                 return True
@@ -2000,7 +2062,7 @@ def _region_has_drawing(fitz_page, search_rect, min_area_pts=50):
     page_rect = fitz_page.rect
     page_area = page_rect.width * page_rect.height
     for r in clusters:
-        r = fitz.Rect(r)
+        r = displayed_rect(fitz_page, r)
         if r.is_empty or r.is_infinite:
             continue
         if page_area > 0 and (r.width * r.height) / page_area > 0.80:
@@ -2200,6 +2262,7 @@ def render_question_images(doc, extracted_pages, classified_result, progress=Non
             # stray question text below the diagram is excluded.
             search_rect = fitz.Rect(pt0, pt1, pt2, pt3)
             clip_rect = _smart_diagram_rect(fitz_page, search_rect)
+            render_dpi = None
             if clip_rect is None:
                 # Couldn't snap to a tight figure. Render Claude's bbox as-is when
                 # there's a real figure here — an embedded raster (scanned/photo
@@ -2209,6 +2272,14 @@ def render_question_images(doc, extracted_pages, classified_result, progress=Non
                 if (_region_has_raster_image(fitz_page, search_rect)
                         or _region_has_drawing(fitz_page, search_rect)):
                     clip_rect = fitz.Rect(pt0, pt1, pt2, min(pdf_h, pt3 + 20))
+                    # A region that is only a scan gains nothing from print DPI:
+                    # rendering a 180-DPI photocopy at 300 DPI just upsamples
+                    # it into a multi-megabyte PNG. Stop at the scan's own
+                    # resolution (vector regions keep the full render DPI).
+                    if not _region_has_drawing(fitz_page, search_rect):
+                        native = raster_native_dpi(fitz_page, clip_rect)
+                        if native:
+                            render_dpi = max(72, min(IMAGE_RENDER_DPI, int(native)))
                 else:
                     logger.info(
                         f'Q{idx+1}: has_image=True but no figure (vector or raster) '
@@ -2222,7 +2293,7 @@ def render_question_images(doc, extracted_pages, classified_result, progress=Non
             # removes "Questions" / section headings while keeping angle labels
             # and other text inside the diagram itself.
             pix = _render_clean_diagram(
-                fitz_page, clip_rect, dpi=_capped_render_dpi(clip_rect))
+                fitz_page, clip_rect, dpi=_capped_render_dpi(clip_rect, dpi=render_dpi))
 
             # Trim residual whitespace
             trimmed = _trim_whitespace(pix)
@@ -2417,6 +2488,16 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
             logger.info(
                 '%s question(s) re-routed to human_graded: they ask the student '
                 'to draw something the app has no answer surface for.', routed)
+
+        # An explanation that contradicts itself — a count that disagrees with
+        # the list it wrote, an ordinal that disagrees with the list, a sum that
+        # does not add up — is a wrong answer announcing itself. Flag it for the
+        # teacher now; no model, image or token needed.
+        contradicted = flag_explanation_problems(result.get('questions'))
+        if contradicted:
+            logger.info(
+                '%s question(s) flagged for review: the explanation contradicts '
+                'itself (miscount or arithmetic slip).', contradicted)
 
         for q in result.get('questions', []):
             # Teacher-graded (human_graded) questions are deselected by default so
