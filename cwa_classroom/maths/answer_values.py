@@ -68,7 +68,11 @@ def parse_answer_value(text):
     """
     if text is None:
         return None
-    s = str(text).strip().lower()
+    # An EN DASH minus is still a minus. Without this an answer stored as
+    # '\u20133' read as "not a number", so the audit skipped it as unverifiable
+    # rather than checking it (CPP-407).
+    from maths.algebra_grading import fold_dashes
+    s = fold_dashes(str(text).strip().lower())
     if not s:
         return None
 

@@ -28,17 +28,32 @@
     {% if my_classrooms %}
     <form method="post">
       {% csrf_token %}
+
+      <!-- Title override -->
+      <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-4">
+        <label for="homework_title" class="block text-sm font-medium text-gray-700 mb-1">Homework Title</label>
+        <input type="text" name="homework_title" id="homework_title"
+               value="{{ homework.title }}" required maxlength="200"
+               data-original-title="{{ homework.title }}"
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <p class="text-xs text-gray-400 mt-1">
+          Every class selected below gets a copy under this title. Change it to give
+          the copies a different name from the original.
+        </p>
+      </div>
+
       <div class="bg-white rounded-2xl border border-gray-100 shadow-sm divide-y divide-gray-50 mb-5">
         {% for cls in my_classrooms %}
         <label class="flex items-center gap-3 px-5 py-4 cursor-pointer hover:bg-gray-50 transition
-                      {% if cls.id in already_assigned %}opacity-50 cursor-not-allowed{% endif %}">
+                      {% if cls.id in already_assigned %}opacity-50 cursor-not-allowed{% endif %}"
+               data-class-row{% if cls.id in already_assigned %} data-already-assigned{% endif %}>
           <input type="checkbox" name="classroom_ids" value="{{ cls.id }}"
                  class="w-4 h-4 accent-blue-600"
                  {% if cls.id in already_assigned %}disabled checked{% endif %}>
           <div class="flex-1">
             <p class="text-sm font-medium text-gray-800">{{ cls.name }}</p>
             {% if cls.id in already_assigned %}
-            <p class="text-xs text-green-600">Already assigned</p>
+            <p class="text-xs text-green-600" data-assigned-note>Already assigned</p>
             {% else %}
             <p class="text-xs text-gray-400">{{ cls.students.count }} student{{ cls.students.count|pluralize }}</p>
             {% endif %}
@@ -67,4 +82,46 @@
 
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // "Already assigned" is true of the ORIGINAL title only. Once the teacher
+  // types a different one, those classes become valid targets again, so unlock
+  // them. The server applies the same rule, keyed on the submitted title, so a
+  // real duplicate is still skipped even if this script never runs.
+  (function () {
+    var titleInput = document.getElementById('homework_title');
+    if (!titleInput) return;
+    var originalTitle = titleInput.dataset.originalTitle;
+    var lockedRows = document.querySelectorAll('[data-class-row][data-already-assigned]');
+    if (!lockedRows.length) return;
+
+    function sync() {
+      var renamed = titleInput.value.trim() !== originalTitle.trim();
+      lockedRows.forEach(function (row) {
+        var box = row.querySelector('input[type="checkbox"]');
+        var note = row.querySelector('[data-assigned-note]');
+        row.classList.toggle('opacity-50', !renamed);
+        row.classList.toggle('cursor-not-allowed', !renamed);
+        if (renamed) {
+          if (box.disabled) {
+            box.disabled = false;
+            // It was checked only to show the assigned state — clear it so an
+            // unlocked row is not silently submitted.
+            box.checked = false;
+          }
+          if (note) note.textContent = 'Already has the original title';
+        } else {
+          box.disabled = true;
+          box.checked = true;
+          if (note) note.textContent = 'Already assigned';
+        }
+      });
+    }
+
+    titleInput.addEventListener('input', sync);
+    sync();
+  })();
+</script>
 {% endblock %}
