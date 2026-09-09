@@ -959,6 +959,14 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
     Reuses the exact same HomeworkQuestion records (same question PKs)
     so the AIGradingCache is shared — answers from any class help
     grade all other classes using the same homework.
+
+    The copies can be given a different title than the original. Because one
+    submission fans out to several classes at once, renaming afterwards would
+    mean editing every copy by hand, so the title is settable here — the same
+    ``homework_title`` override the PDF and JSON import confirm screens offer.
+    The title also decides what counts as "already assigned": a class holding
+    the *original* title is not holding the *renamed* one, so it stays a valid
+    target once the title is changed.
     """
 
     def get(self, request, homework_id):
@@ -989,6 +997,20 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
         homework = get_object_or_404(Homework, id=homework_id)
         _check_teacher_owns_class(request, homework.classroom)
 
+        # Title for the copies. Blank falls back to the original, so a caller
+        # that does not post the field at all keeps the old behaviour.
+        new_title = request.POST.get('homework_title', '').strip() or homework.title
+        title_max = Homework._meta.get_field('title').max_length
+        if len(new_title) > title_max:
+            # Truncating silently would leave the teacher with a title they
+            # never typed, and a duplicate check that no longer matches.
+            messages.error(
+                request,
+                f'The title is too long — {len(new_title)} characters, '
+                f'but the maximum is {title_max}.',
+            )
+            return redirect('homework:assign_to_class', homework_id=homework_id)
+
         classroom_ids = request.POST.getlist('classroom_ids')
         if not classroom_ids:
             messages.error(request, 'Please select at least one class.')
@@ -1006,8 +1028,10 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
                 continue
             classroom = ClassRoom.objects.get(pk=cid)
 
-            # Skip if already assigned
-            if Homework.objects.filter(title=homework.title, classroom=classroom).exists():
+            # Skip if already assigned — judged on the title being assigned,
+            # not the original, so a rename can legitimately target a class
+            # that already holds the original.
+            if Homework.objects.filter(title=new_title, classroom=classroom).exists():
                 continue
 
             # Create new Homework for this classroom, copying all settings.
@@ -1017,7 +1041,7 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
             new_hw = Homework.objects.create(
                 classroom=classroom,
                 created_by=request.user,
-                title=homework.title,
+                title=new_title,
                 description=homework.description,
                 homework_type=homework.homework_type,
                 subject_slug=homework.subject_slug,
@@ -1044,7 +1068,7 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
         if created:
             messages.success(
                 request,
-                f'Homework assigned to: {", ".join(created)}. '
+                f'Homework "{new_title}" assigned to: {", ".join(created)}. '
                 'All classes share the same grading cache — answers improve accuracy for everyone.'
             )
         else:
@@ -2295,6 +2319,10 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             """Apply this question's posted form fields onto the dict q (in place)."""
             prefix = f'q_{idx}_'
             q['include'] = request.POST.get(f'{prefix}include') == 'on'
+            # "Reviewed" tick on a flagged question — keeps needs_review (and its
+            # reason) for the record but stops the preview shouting about it, and
+            # persists so coming back to the page does not re-raise the alarm.
+            q['review_ack'] = request.POST.get(f'{prefix}review_ack') == 'on'
             q['question_text'] = request.POST.get(f'{prefix}text', q.get('question_text', ''))
             q['question_type'] = accepted_question_type(
                 request.POST.get(f'{prefix}type'), q.get('question_type', 'short_answer'))
