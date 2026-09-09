@@ -8,7 +8,7 @@ Receives ``ctx`` with keys: question, shuffled_answers (list of Answer).
 text), so it prints the question itself further down — printing it here too would
 show the question twice.{% endcomment %}
 {% if not q.blank_data %}
-<p class="text-gray-900 font-medium mb-4">{{ q.question_text|exponents }}</p>
+<p class="text-gray-900 font-medium mb-4 whitespace-pre-line">{{ q.question_text|exponents }}</p>
 {% endif %}
 
 {% comment %} measure renders its own figure inside the interactive tool stage. {% endcomment %}

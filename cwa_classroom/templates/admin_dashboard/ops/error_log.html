@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Ops — Application Log{% endblock %}
+
+{% block content %}
+<div class="-mx-4 -my-6 md:-mx-8 px-4 py-6 md:px-8 bg-slate-900 text-slate-200 min-h-[calc(100vh-4rem)]">
+<div class="max-w-7xl mx-auto">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div>
+      <h1 class="text-2xl font-display font-bold text-white">Application Log</h1>
+      <p class="text-slate-400 mt-1">
+        What the server actually said &mdash; without an SSH session.
+      </p>
+      <p class="text-xs text-slate-500 mt-1">
+        Reading <code>{{ meta.dir }}/{{ meta.file }}</code>{% if meta.files_read|length > 1 %}
+        and {{ meta.files_read|length|add:"-1" }} rotated backup{{ meta.files_read|length|add:"-1"|pluralize }}{% endif %}
+      </p>
+    </div>
+    <a href="{% url 'ops_admin_dashboard' %}"
+       class="px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 transition">
+      &larr; Ops dashboard
+    </a>
+  </div>
+
+  <!-- Which file -->
+  <div class="flex items-center gap-2 mb-4 flex-wrap">
+    {% for key, f in files.items %}
+      <a href="?file={{ key }}{% if selected_level %}&level={{ selected_level }}{% endif %}{% if search %}&q={{ search|urlencode }}{% endif %}"
+         data-testid="log-file-{{ key }}"
+         class="px-3 py-1.5 rounded-lg text-sm font-medium transition {% if key == selected_file %}bg-accent text-white{% else %}bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700{% endif %}">
+        {{ f.label }}
+      </a>
+    {% endfor %}
+    <span class="text-xs text-slate-500 ml-1">{{ meta.help }}</span>
+  </div>
+
+  <!-- Filters -->
+  <form method="get" class="bg-slate-800 rounded-2xl border border-slate-700 p-4 mb-6 flex flex-wrap gap-3 items-end">
+    <input type="hidden" name="file" value="{{ selected_file }}">
+    <div>
+      <label for="q" class="block text-xs text-slate-400 mb-1">Search</label>
+      <input type="text" name="q" id="q" value="{{ search }}"
+             placeholder="e.g. Stripe checkout"
+             class="px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 text-sm w-72 placeholder-slate-600">
+    </div>
+    <div>
+      <label for="level" class="block text-xs text-slate-400 mb-1">Level</label>
+      <select name="level" id="level"
+              class="px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 text-sm">
+        <option value="">Any</option>
+        {% for lvl in levels %}
+          <option value="{{ lvl }}" {% if lvl == selected_level %}selected{% endif %}>{{ lvl }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="limit" class="block text-xs text-slate-400 mb-1">Show</label>
+      <input type="number" name="limit" id="limit" value="{{ limit }}" min="10" max="500" step="10"
+             class="px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 text-sm w-24">
+    </div>
+    <button type="submit"
+            class="px-4 py-2 rounded-lg bg-accent text-white text-sm font-semibold hover:opacity-90 transition">
+      Apply
+    </button>
+    {% if search or selected_level %}
+      <a href="?file={{ selected_file }}" class="px-4 py-2 rounded-lg bg-slate-700 text-slate-200 text-sm">Clear</a>
+    {% endif %}
+  </form>
+
+  {% if not meta.available or not entries %}
+    <div class="bg-slate-800 rounded-2xl border border-slate-700 p-8 text-center"
+         data-testid="log-empty">
+      <p class="text-slate-300">{{ meta.note }}</p>
+      {% if meta.available and not search and not selected_level %}
+        <p class="text-xs text-slate-500 mt-2">A quiet log is good news.</p>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="text-xs text-slate-500 mb-2">
+      {{ entries|length }} entr{{ entries|length|pluralize:"y,ies" }}, newest first{% if meta.truncated %} &mdash; more exist further back{% endif %}
+    </p>
+    <div class="space-y-2" data-testid="log-entries">
+      {% for e in entries %}
+        <div class="bg-slate-800 rounded-xl border {% if e.level == 'ERROR' %}border-red-500/40{% elif e.level == 'WARNING' %}border-amber-500/30{% else %}border-slate-700{% endif %} p-4">
+          <div class="flex items-baseline gap-3 flex-wrap">
+            <span class="text-xs font-mono px-2 py-0.5 rounded {% if e.level == 'ERROR' %}bg-red-500/15 text-red-300{% elif e.level == 'WARNING' %}bg-amber-500/15 text-amber-300{% else %}bg-slate-700 text-slate-300{% endif %}">{{ e.level }}</span>
+            <span class="text-xs text-slate-500 font-mono">{{ e.timestamp }}</span>
+            <span class="text-xs text-slate-400 font-mono">{{ e.logger }}</span>
+            <span class="text-xs text-slate-600 font-mono">{{ e.location }}</span>
+          </div>
+          <p class="mt-2 text-sm text-slate-200 break-words">{{ e.message }}</p>
+          {% if e.detail %}
+            <details class="mt-2">
+              <summary class="text-xs text-slate-400 cursor-pointer hover:text-slate-200">Traceback</summary>
+              <pre class="mt-2 text-xs text-slate-400 bg-slate-900 rounded-lg p-3 overflow-x-auto whitespace-pre">{{ e.detail }}</pre>
+            </details>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <p class="text-xs text-slate-600 mt-6">
+    Timestamps are the app's timezone (Pacific/Auckland); <code>systemctl</code> and cron report UTC &mdash; they differ by 12&ndash;13 hours.
+    Only the most recent part of each file is read, so this page stays fast on a 10&nbsp;MB log.
+  </p>
+
+</div>
+</div>
+{% endblock %}

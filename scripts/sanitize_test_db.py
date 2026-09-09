@@ -17,6 +17,7 @@ What it does:
   3. Clears Stripe IDs (set via env vars in test)
   4. Clears email logs AND the pending email queue
   5. Clears pending passwords and invite tokens
+  6. Clears sessions, so no prod login carries over
 """
 
 import os
@@ -125,7 +126,18 @@ for invite in ParentInvite.objects.all():
     invite.save(update_fields=['token'])
 print('    Pending passwords and tokens cleared.')
 
-# ── 5. Clear welcome_email_sent so we don't accidentally resend ──────────────
+# ── 5. Clear sessions ───────────────────────────────────────────────────────
+# A prod dump carries prod's live django_session rows. Leaving them means a
+# session key issued to a real user is still valid against the restored
+# database — the runbook lists "sessions cleared" as an invariant of a
+# sanitised environment, so clear them here rather than trusting each caller
+# to remember a separate TRUNCATE.
+print('==> Clearing sessions ...')
+from django.contrib.sessions.models import Session
+sessions = Session.objects.all().delete()
+print(f'    {sessions[0]} session(s) cleared.')
+
+# ── 6. Clear welcome_email_sent so we don't accidentally resend ──────────────
 print('==> Clearing welcome_email_sent timestamps ...')
 User.objects.filter(welcome_email_sent__isnull=False).update(welcome_email_sent=None)
 print('    Done.')
@@ -136,3 +148,4 @@ print('    All passwords: Password1!')
 print('    All emails: user<id>@test.local')
 print('    Stripe IDs: cleared')
 print('    Email logs: cleared')
+print('    Sessions: cleared')
