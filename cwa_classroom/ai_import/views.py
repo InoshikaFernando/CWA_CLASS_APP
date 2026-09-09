@@ -413,6 +413,10 @@ class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View)
         for idx, q in enumerate(questions):
             prefix = f'q_{idx}_'
             q['include'] = request.POST.get(f'{prefix}include') == 'on'
+            # "Reviewed" tick on a flagged question — keeps needs_review (and its
+            # reason) for the record but stops the preview shouting about it, and
+            # persists so coming back to the page does not re-raise the alarm.
+            q['review_ack'] = request.POST.get(f'{prefix}review_ack') == 'on'
             q['question_text'] = request.POST.get(f'{prefix}text', q.get('question_text', ''))
             q['question_type'] = request.POST.get(f'{prefix}type', q.get('question_type', 'short_answer'))
             q['difficulty'] = int(request.POST.get(f'{prefix}difficulty', q.get('difficulty', 1)))

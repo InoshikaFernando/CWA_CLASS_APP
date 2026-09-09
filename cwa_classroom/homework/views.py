@@ -2268,6 +2268,10 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             """Apply this question's posted form fields onto the dict q (in place)."""
             prefix = f'q_{idx}_'
             q['include'] = request.POST.get(f'{prefix}include') == 'on'
+            # "Reviewed" tick on a flagged question — keeps needs_review (and its
+            # reason) for the record but stops the preview shouting about it, and
+            # persists so coming back to the page does not re-raise the alarm.
+            q['review_ack'] = request.POST.get(f'{prefix}review_ack') == 'on'
             q['question_text'] = request.POST.get(f'{prefix}text', q.get('question_text', ''))
             q['question_type'] = accepted_question_type(
                 request.POST.get(f'{prefix}type'), q.get('question_type', 'short_answer'))

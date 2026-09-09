@@ -1,5 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Preview Worksheet — {{ session.worksheet_name|default:session.pdf_filename }}{% endblock %}
+{% block extra_head %}
+<style>
+  /* A question the verifier flagged is red for the WHOLE card, not just a badge
+     in the header — a corner badge is easy to scroll past on a long preview.
+     Ticking "Reviewed" clears it (and is posted, so it stays cleared). */
+  .q-card { transition: background-color 0.2s, border-color 0.2s; }
+  .q-card.needs-review { background-color: #fef2f2; border-color: #fca5a5; }
+</style>
+{% endblock %}
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6">
   <div class="flex items-center justify-between">
@@ -135,7 +144,8 @@
 
     <!-- Questions -->
     {% for q in questions %}
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4" id="q-{{ forloop.counter0 }}">
+    <div class="q-card bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4{% if q.needs_review and not q.review_ack %} needs-review{% endif %}"
+         id="q-{{ forloop.counter0 }}">
       <div class="flex items-start gap-3">
         <label class="flex items-center gap-2 cursor-pointer mt-0.5">
           <input type="checkbox" name="q_{{ forloop.counter0 }}_include" {% if q.include != False %}checked{% endif %}
@@ -149,6 +159,15 @@
         <span class="px-2 py-0.5 mt-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 whitespace-nowrap"
               data-testid="review-badge-{{ forloop.counter0 }}"
               title="{{ q.review_reason|default:'Please double-check this answer.' }}">⚠ Review</span>
+        <label class="flex items-center gap-1 mt-0.5 text-xs font-semibold text-red-700 cursor-pointer whitespace-nowrap"
+               title="Tick once you have checked this question — the red highlight clears">
+          <input type="checkbox" name="q_{{ forloop.counter0 }}_review_ack"
+                 {% if q.review_ack %}checked{% endif %}
+                 class="review-ack-cb rounded text-red-600 w-4 h-4 cursor-pointer"
+                 data-card="q-{{ forloop.counter0 }}"
+                 data-testid="review-ack-{{ forloop.counter0 }}" />
+          Reviewed
+        </label>
         {% endif %}
         <button type="button" data-preview-open="{{ forloop.counter0 }}"
                 class="px-2 py-0.5 mt-0.5 rounded-full border border-blue-200 text-xs font-semibold text-blue-600 hover:bg-blue-50 whitespace-nowrap"
@@ -332,6 +351,16 @@
 
 {% url 'worksheets:question_preview' session.pk as student_preview_url %}
 {% include 'partials/_student_preview_modal.html' with preview_url=student_preview_url %}
+
+{# --- "Reviewed" tick clears the red flagged-question highlight --- #}
+<script>
+  document.querySelectorAll('.review-ack-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const card = document.getElementById(cb.dataset.card);
+      if (card) card.classList.toggle('needs-review', !cb.checked);
+    });
+  });
+</script>
 
 {# --- "Same image as previous" reuse control --- #}
 {% url 'worksheets:pdf_reuse_image' session.pk as reuse_image_url %}
