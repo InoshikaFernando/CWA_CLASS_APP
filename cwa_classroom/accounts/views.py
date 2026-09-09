@@ -16,7 +16,9 @@ from django.views.generic import TemplateView
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 
-from .models import CustomUser, Role, UserRole, PendingRegistration
+from .models import (
+    CustomUser, PendingInstituteRegistration, PendingRegistration, Role, UserRole,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -327,127 +329,93 @@ class TeacherCenterRegisterView(View):
                 'postal_code': postal_code, 'country': country,
             })
 
+        address = {
+            'abn': abn, 'phone': phone, 'street_address': street_address,
+            'city': city, 'state_region': state_region,
+            'postal_code': postal_code, 'country': country,
+            'discount_code': discount_obj.code if discount_obj else None,
+        }
+        is_free = discount_obj and getattr(discount_obj, 'is_fully_free', False)
+
         try:
-            from datetime import timedelta
-            from django.utils import timezone
-            from classroom.models import School
+            from billing.models import SchoolSubscription
+            from accounts.institute_registration import create_institute_account
 
-            with transaction.atomic():
-                # 1. Create user
-                user = CustomUser.objects.create_user(
+            # ── Nothing to charge: build the account now, no card needed ──────
+            if is_free or not (plan and plan.stripe_price_id):
+                user, school, _sub = create_institute_account(
                     username=username, email=email, password=password,
+                    center_name=center_name, plan=plan,
+                    discount_obj=discount_obj, address=address,
+                    status=SchoolSubscription.STATUS_ACTIVE,
+                    trial_end=None,
                 )
-                user.terms_accepted_at = timezone.now()
-                user.save(update_fields=['terms_accepted_at'])
+                login(request, user)
 
-                # 2. Assign Head of Institute role
-                role, _ = Role.objects.get_or_create(
-                    name=Role.HEAD_OF_INSTITUTE,
-                    defaults={'display_name': 'Head of Institute'},
+                from audit.services import log_event
+                log_event(
+                    user=user, school=school, category='auth',
+                    action='hoi_registered',
+                    detail={
+                        'center_name': center_name,
+                        'plan': plan.name if plan else None,
+                        'discount_code': discount_code_str or None,
+                        'via': 'free',
+                    },
+                    request=request,
                 )
-                UserRole.objects.create(user=user, role=role)
-
-                # 3. Create school with this user as admin
-                slug = slugify(center_name)
-                base_slug = slug or 'school'
-                counter = 1
-                while School.objects.filter(slug=slug).exists():
-                    slug = f'{base_slug}-{counter}'
-                    counter += 1
-                school = School.objects.create(
-                    name=center_name,
-                    slug=slug,
-                    admin=user,
-                    abn=abn,
-                    phone=phone,
-                    street_address=street_address,
-                    city=city,
-                    state_region=state_region,
-                    postal_code=postal_code,
-                    country=country,
-                )
-
-                # 4. Create school subscription
-                # If 100% discount code → active immediately, otherwise trial
-                is_free = discount_obj and discount_obj.is_fully_free
-                if is_free:
-                    status = SchoolSubscription.STATUS_ACTIVE
-                    trial_end = None
-                    has_used_trial = False
-                else:
-                    status = SchoolSubscription.STATUS_TRIALING
-                    trial_days = plan.trial_days if plan else 14
-                    trial_end = timezone.now() + timedelta(days=trial_days)
-                    has_used_trial = True
-
-                sub = SchoolSubscription.objects.create(
-                    school=school,
-                    plan=plan,
-                    discount_code=discount_obj,
-                    status=status,
-                    trial_end=trial_end,
-                    has_used_trial=has_used_trial,
-                    invoice_year_start=timezone.now().date(),
-                )
-
-                # Increment discount code usage
-                if discount_obj:
-                    discount_obj.uses += 1
-                    discount_obj.save(update_fields=['uses'])
-
-            login(request, user)
-
-            from audit.services import log_event
-            log_event(
-                user=user, school=school, category='auth',
-                action='hoi_registered',
-                detail={
-                    'center_name': center_name, 'plan': plan.name if plan else None,
-                    'discount_code': discount_code_str or None,
-                },
-                request=request,
-            )
-
-            # Send self-registered welcome email (HoI chose their own password)
-            try:
-                from notifications.services import send_welcome_notification
-                send_welcome_notification(user, school=school)
-            except Exception:
-                logger.exception('Failed to send welcome email for HoI user %s', user.pk)
-
-            # If plan has a Stripe price and not fully free → redirect to Stripe Checkout
-            if plan and plan.stripe_price_id and not is_free:
                 try:
-                    from billing.stripe_service import create_institute_checkout_session
-                    stripe_coupon = discount_obj.stripe_coupon_id if discount_obj and discount_obj.stripe_coupon_id else None
-                    session = create_institute_checkout_session(
-                        school, plan, request,
-                        trial_period_days=plan.trial_days if plan.trial_days else 14,
-                        stripe_coupon_id=stripe_coupon,
-                    )
-                    return redirect(session.url)
-                except Exception as exc:
-                    logger.exception(
-                        'Stripe checkout session creation failed for institute %s (plan %s)',
-                        school.id, plan.id,
-                    )
-                    from billing.stripe_health import record_checkout_failure
-                    record_checkout_failure(
-                        exc, user=user, school=school, plan=plan, request=request,
-                        flow='institute_registration',
-                    )
-                    messages.warning(
-                        request,
-                        'Your account has been created but we could not redirect to payment. '
-                        'Please set up billing from your dashboard or contact support.',
-                    )
-                    return redirect('subjects_hub')
+                    from notifications.services import send_welcome_notification
+                    send_welcome_notification(user, school=school)
+                except Exception:
+                    logger.exception('Failed to send welcome email for HoI user %s', user.pk)
 
-            messages.success(request, f'Welcome! Your school "{center_name}" is ready.')
-            return redirect('subjects_hub')
-        except Exception as e:
+                messages.success(request, f'Welcome! Your school "{center_name}" is ready.')
+                return redirect('subjects_hub')
+
+            # ── Paid plan: card first, account second ─────────────────────────
+            #
+            # The account used to be created here and Stripe visited afterwards,
+            # so closing that tab left a working school with no card on file for
+            # the whole trial. Nothing exists until Stripe confirms the card;
+            # the trial still runs, and Stripe charges nothing until it ends.
+            from django.contrib.auth.hashers import make_password
+            from billing.stripe_service import create_pending_institute_checkout_session
+
+            trial_days = plan.trial_days if plan.trial_days else 14
+            stripe_coupon = (
+                discount_obj.stripe_coupon_id
+                if discount_obj and discount_obj.stripe_coupon_id else None
+            )
+            stripe_session = create_pending_institute_checkout_session(
+                email=email, plan=plan, request=request,
+                trial_period_days=trial_days,
+                stripe_coupon_id=stripe_coupon,
+            )
+            PendingInstituteRegistration.objects.create(
+                stripe_session_id=stripe_session.id,
+                email=email,
+                username=username,
+                password_hash=make_password(password),
+                center_name=center_name,
+                plan_id=plan.id,
+                data=address,
+            )
+            return redirect(stripe_session.url)
+
+        except Exception as exc:
+            logger.exception('Institute registration failed for %s', email)
+            from billing.stripe_health import record_checkout_failure
+            record_checkout_failure(
+                exc, plan=plan, request=request, flow='institute_registration',
+            )
             return render(request, 'accounts/register_teacher.html', {
-                'errors': [str(e)], 'username': username, 'email': email,
+                'errors': [
+                    'We could not start the sign-up. No account was created and '
+                    'you have not been charged. Please try again, or contact '
+                    'support if it persists.',
+                ],
+                'username': username, 'email': email,
                 'center_name': center_name, 'center_mode': True,
                 'plans': self._get_plans(), 'selected_plan_id': plan_id,
                 'discount_code': discount_code_str,

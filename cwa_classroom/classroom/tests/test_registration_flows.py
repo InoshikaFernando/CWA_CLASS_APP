@@ -14,6 +14,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import CustomUser, Role, UserRole
+from accounts.tests_institute_helpers import register_and_pay
 from billing.models import (
     InstitutePlan, SchoolSubscription, Package, Subscription,
     InstituteDiscountCode, DiscountCode,
@@ -58,7 +59,7 @@ class InstituteRegistrationCompanyDetailsTest(TestCase):
             plan.stripe_price_id = 'price_test_basic'
             plan.save(update_fields=['stripe_price_id'])
 
-        resp = self.client.post(reverse('register_teacher_center'), {
+        resp = register_and_pay(self.client, reverse('register_teacher_center'), {
             'center_name': 'Test Academy',
             'username': 'testacademy',
             'email': 'admin@testacademy.com',
@@ -99,7 +100,7 @@ class InstituteRegistrationCompanyDetailsTest(TestCase):
             plan.stripe_price_id = 'price_test_basic'
             plan.save(update_fields=['stripe_price_id'])
 
-        resp = self.client.post(reverse('register_teacher_center'), {
+        resp = register_and_pay(self.client, reverse('register_teacher_center'), {
             'center_name': 'Minimal School',
             'username': 'minschool',
             'email': 'admin@minschool.com',
@@ -124,7 +125,7 @@ class InstituteRegistrationCompanyDetailsTest(TestCase):
                 stripe_price_id='price_test_basic',
             )
 
-        resp = self.client.post(reverse('register_teacher_center'), {
+        resp = register_and_pay(self.client, reverse('register_teacher_center'), {
             'center_name': 'Error School',
             'username': 'errorschool',
             'email': 'bad-email',  # Invalid
