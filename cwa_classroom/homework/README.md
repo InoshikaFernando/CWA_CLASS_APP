@@ -17,6 +17,13 @@ Mounted at the project root (namespace `homework`).
 - `/homework/monitor/` — teacher view: all submissions per class
 - `/homework/class/<id>/create/` — teacher creates homework
 - `/homework/<id>/` — teacher detail + submissions
+- `/homework/<id>/assign/` — copy an existing homework to the teacher's other
+  classes. One submission fans out to every class ticked, so the screen carries
+  a title field (`homework_title`, prefilled with the original) rather than
+  making the teacher rename each copy afterwards. Copies reuse the *same*
+  `HomeworkQuestion` rows, so the AI grading cache stays shared. A class is
+  skipped only if it already holds a homework under the **title being
+  assigned** — a renamed copy may go to a class that holds the original.
 - `/homework/student/` — student's assigned-homework list
 - `/homework/pdf/preview/<session_id>/` — teacher reviews PDF-extracted questions
 - `/homework/pdf/preview/<session_id>/question-preview/` — one of them rendered as
