@@ -28,7 +28,7 @@ answers fall back to ``is_correct``):
     {% endif %}
   </div>
   <div class="flex-1">
-    <p class="text-sm font-medium text-gray-800 mb-2">{{ q.question_text|exponents }}</p>
+    <p class="text-sm font-medium text-gray-800 mb-2 whitespace-pre-line">{{ q.question_text|exponents }}</p>
 
     {% if ans.selected_answer %}
       <p class="text-xs text-gray-500">Your answer:
