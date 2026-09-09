@@ -13,6 +13,16 @@ form, land on the review page, press Continue — rather than requesting the
 review URL directly, because the failure was in what the *rendered form*
 submits, which only a browser builds.
 
+The SIZE that triggered it is not reproduced here, deliberately. At the ~690
+questions where the old form crossed the ceiling the page is 17 MB of HTML and
+25,000 form controls; Chromium spends longer than any sane timeout parsing it,
+which makes for a slow, flaky test that fails on runner load rather than on the
+bug. That half belongs to homework/tests_preview_form_size.py, which posts a
+real browser-shaped multipart body at 690 questions and asserts the redirect
+instead of the 400. What is left here is the half only a browser can check: the
+journey works end to end, and the form a browser builds from this page is the
+one the view accepts.
+
 The AI call and the RQ worker are the two things stubbed: extraction runs inline
 against a canned classification result, so the flow is real from the upload form
 onwards without needing Claude or Redis.
@@ -35,9 +45,10 @@ _TYPES = [
     'sketch_graph', 'prime_factorization', 'extended_answer',
 ]
 
-# Enough questions that the old form's ~29 parts each would cross
-# DATA_UPLOAD_MAX_NUMBER_FIELDS (20000) on submit, and the new form's ~13 do not.
-QUESTION_COUNT = 720
+# One of each shape, and no more: this test is about the journey, not the
+# ceiling (see the module docstring). Every spec panel is still on the page, so
+# a card that posts a panel it should not still shows up in what gets saved.
+QUESTION_COUNT = len(_TYPES)
 
 
 def _pdf_bytes() -> bytes:
@@ -146,9 +157,19 @@ class TestReviewContinue:
 
         body = page.locator('body').inner_text()
         assert 'Bad Request' not in body, body[:400]
-        # The confirm step really rendered, with every question carried over.
+        # The confirm step really rendered...
         expect(page.get_by_text('Questions included')).to_be_visible()
-        assert str(QUESTION_COUNT) in body, body[:400]
+        # ...and the submit reached the view, which is what the 400 prevented.
+        # Checked against the row rather than the page text, so the count cannot
+        # be matched by some other number that happens to be on screen.
+        from homework.models import HomeworkUploadSession
+
+        # The upload flow created this row, so read it back rather than holding
+        # a handle to one the test made up.
+        session = HomeworkUploadSession.objects.latest('created_at')
+        saved = session.extracted_data['questions']
+        assert len(saved) == QUESTION_COUNT, len(saved)
+        assert [q['question_type'] for q in saved] == _TYPES
 
     @pytest.mark.django_db(transaction=True)
     def test_a_structured_question_still_posts_its_own_spec(
