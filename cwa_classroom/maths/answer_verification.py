@@ -109,7 +109,10 @@ def extract_expression(question_text):
     """
     if not question_text:
         return None
-    text = str(question_text)
+    # A stem written with a typographic minus ("12 \u2013 5 = ?") would fail the
+    # tokeniser's operator class and fall through as UNVERIFIED (CPP-407).
+    from maths.algebra_grading import fold_dashes
+    text = fold_dashes(str(question_text))
     match = _PROMPT_RE.match(text) or _EQUATION_RE.match(text)
     if not match:
         return None

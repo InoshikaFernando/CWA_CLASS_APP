@@ -108,7 +108,7 @@ needs the width; everything else keeps the narrow reading column.{% endcomment %
               it here too would show the question twice. The read-aloud button still reads the
               whole sentence.{% endcomment %}
               {% if not question.blank_data %}
-              <p class="text-gray-800 text-lg leading-relaxed flex-1">{{ question.question_text|exponents }}</p>
+              <p class="text-gray-800 text-lg leading-relaxed flex-1 whitespace-pre-line">{{ question.question_text|exponents }}</p>
               {% else %}<span class="flex-1"></span>{% endif %}
               {% if question.question_text %}
               <button type="button"

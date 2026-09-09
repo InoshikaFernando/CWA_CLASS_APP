@@ -77,7 +77,7 @@ def normalize_notation(text: str) -> str:
     >>> normalize_notation("n ÷ 4")
     'n/4'
     """
-    s = text.strip().lower()
+    s = fold_dashes(text.strip().lower())
     # Unicode superscripts: a run of superscript digits -> "^" + the digits.
     s = re.sub(
         rf"[{_SUPERSCRIPTS}]+",
@@ -195,6 +195,34 @@ def fold_division(text: str) -> str:
     return text
 
 
+# Every dash a worksheet or a PDF importer can produce, mapped onto the ASCII
+# hyphen-minus. HYPHEN, NON-BREAKING HYPHEN, FIGURE DASH, EN DASH, EM DASH,
+# HORIZONTAL BAR, MINUS SIGN.
+_DASHES = "\u2010\u2011\u2012\u2013\u2014\u2015\u2212"
+
+
+def fold_dashes(text: str) -> str:
+    """Fold every typographic dash onto ASCII ``-`` (CPP-407).
+
+    Imported content is full of these. A question whose answer key was stored
+    as ``–3`` (EN DASH) marked a child typing ``-3`` WRONG, because nothing
+    compared the two characters as the same sign — and nobody reported it,
+    because it looks like the student getting it wrong rather than like a bug.
+
+    Whitespace is left untouched so this composes with the other folds.
+
+    >>> fold_dashes("\u20133")
+    '-3'
+    >>> fold_dashes("\u22123")
+    '-3'
+    >>> fold_dashes("-3")
+    '-3'
+    """
+    for dash in _DASHES:
+        text = text.replace(dash, "-")
+    return text
+
+
 def fold_answer(text: str) -> str:
     """Normalise a typed answer for exact-match comparison.
 
@@ -223,6 +251,10 @@ def fold_answer(text: str) -> str:
     >>> fold_answer("-5") == fold_answer("5")
     False
     """
+    # Typographic dashes become the ASCII sign FIRST, so everything below —
+    # the letter-hyphen rule, the significant leading minus — sees one
+    # character rather than seven (CPP-407).
+    text = fold_dashes(text)
     # Only hyphens *between letters* fold to a space — a leading "-" on a
     # negative number stays significant ("-5" must not match "5"). Run before
     # fold_exponents collapses whitespace so "and" is still a separable word.

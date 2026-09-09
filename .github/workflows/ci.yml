@@ -383,6 +383,12 @@ jobs:
             ui_navigation:
               - 'cwa_classroom/ui_tests/navigation/**'
               - 'cwa_classroom/accounts/**'
+              # The group drives the ops application-log page and the admin
+              # sidebar that reaches it. Without these an ops-only change would
+              # leave these tests green by never running them.
+              - 'cwa_classroom/ops/**'
+              - 'cwa_classroom/templates/admin_dashboard/ops/**'
+              - 'cwa_classroom/templates/partials/sidebar_admin.html'
               - 'cwa_classroom/rewards/**'
               - 'cwa_classroom/ai_import/**'
               - 'cwa_classroom/billing/**'
@@ -772,6 +778,15 @@ jobs:
       - name: Check templates print no developer notes
         working-directory: cwa_classroom
         run: pytest tests_templates.py -q --tb=short
+
+      # And again: scripts/ belongs to no app. Both of its silent failure modes
+      # need a test — a credential written into a committed file, and a
+      # prod->test restore that leaves the test site holding LIVE Stripe price
+      # ids, which reads as "contact support" to a tester and as nothing at all
+      # to CI.
+      - name: Check the ops scripts
+        working-directory: cwa_classroom
+        run: pytest tests_ops_scripts.py -q --tb=short
 
   # A release PR (test -> main) merges `test` into `main` unchanged, so its tree
   # is normally byte-identical to the one the full matrix just ran on `test`.

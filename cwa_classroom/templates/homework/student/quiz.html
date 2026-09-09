@@ -24,7 +24,7 @@
     <img src="{{ question.image.url }}" alt="Question image" class="max-w-full rounded-lg border border-gray-200">
     {% endif %}
 
-    <p class="text-lg font-medium text-gray-900">{{ question.question_text }}</p>
+    <p class="text-lg font-medium text-gray-900 whitespace-pre-line">{{ question.question_text }}</p>
 
     <!-- Multiple choice / True-False -->
     {% if question.question_type == 'multiple_choice' or question.question_type == 'true_false' %}

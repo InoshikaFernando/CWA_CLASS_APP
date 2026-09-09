@@ -8,4 +8,9 @@ urlpatterns = [
         views.OpsDashboardView.as_view(),
         name='ops_admin_dashboard',
     ),
+    path(
+        'admin-dashboard/ops/logs/',
+        views.ErrorLogView.as_view(),
+        name='ops_error_log',
+    ),
 ]

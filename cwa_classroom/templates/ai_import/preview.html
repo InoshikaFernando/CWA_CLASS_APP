@@ -1,5 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Preview Questions — AI Import{% endblock %}
+{% block extra_head %}
+<style>
+  /* A question the verifier flagged is red for the WHOLE card, not just a badge
+     in the header — a corner badge is easy to scroll past on a long preview.
+     Ticking "Reviewed" clears it (and is posted, so it stays cleared). */
+  .question-card { transition: background-color 0.2s, border-color 0.2s; }
+  .question-card.needs-review { background-color: #fef2f2; border-color: #fca5a5; }
+</style>
+{% endblock %}
 {% block content %}
 <div class="max-w-5xl mx-auto space-y-6">
   <div class="flex items-center justify-between">
@@ -92,8 +101,9 @@
 
     <!-- Questions -->
     {% for q in questions %}
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 question-card"
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 question-card{% if q.needs_review and not q.review_ack %} needs-review{% endif %}"
          x-data="{ expanded: true }"
+         id="question-card-{{ forloop.counter0 }}"
          data-idx="{{ forloop.counter0 }}">
       <div class="flex items-start gap-3">
         <!-- Include checkbox -->
@@ -125,7 +135,18 @@
             {% endif %}
             {% if q.needs_review %}
             <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700"
+                  data-testid="review-badge-{{ forloop.counter0 }}"
                   title="{{ q.review_reason|default:'The system could not determine this answer with confidence — please double-check it.' }}">⚠ Review</span>
+            <label class="flex items-center gap-1 text-[10px] font-bold text-red-700 cursor-pointer whitespace-nowrap"
+                   style="pointer-events:auto" @click.stop
+                   title="Tick once you have checked this question — the red highlight clears">
+              <input type="checkbox" name="q_{{ forloop.counter0 }}_review_ack"
+                     {% if q.review_ack %}checked{% endif %}
+                     class="review-ack-cb rounded border-gray-300 text-red-600 w-3.5 h-3.5 cursor-pointer"
+                     data-card="question-card-{{ forloop.counter0 }}"
+                     data-testid="review-ack-{{ forloop.counter0 }}" />
+              Reviewed
+            </label>
             {% endif %}
             <button type="button" data-preview-open="{{ forloop.counter0 }}" @click.stop
                     class="ml-auto px-2 py-0.5 rounded-full border border-blue-200 text-[10px] font-bold text-blue-600 hover:bg-blue-50 whitespace-nowrap"
@@ -597,6 +618,15 @@ function handleTypeChange(qIdx, newType) {
     addBtn.style.display = '';
   }
 }
+
+// "Reviewed" clears the red flagged-question highlight (and back again if the
+// teacher unticks it). The checkbox itself posts, so the state survives.
+document.addEventListener('change', function (ev) {
+  var cb = ev.target.closest ? ev.target.closest('.review-ack-cb') : null;
+  if (!cb) return;
+  var card = document.getElementById(cb.dataset.card);
+  if (card) card.classList.toggle('needs-review', !cb.checked);
+});
 
 // Init selected count on page load
 document.addEventListener('DOMContentLoaded', function() {

@@ -288,11 +288,21 @@
   <!-- Ops — droplet health (superuser only) -->
   <a href="{% url 'ops_admin_dashboard' %}"
      class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
-            {% if '/admin-dashboard/ops/' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+            {% if request.path == '/admin-dashboard/ops/' %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
     <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3V7.5a3 3 0 013-3h13.5a3 3 0 013 3v3.75a3 3 0 01-3 3m-16.5 0h.008v.008H5.25v-.008zm0 0H3.75m1.5 0h13.5m0 0h1.5m-1.5 0v3a3 3 0 01-3 3H8.25a3 3 0 01-3-3v-3m3.75-6.75h.008v.008H9v-.008z"/>
     </svg>
     <span>Ops</span>
+  </a>
+
+  <!-- Application log — what the server actually said (superuser only) -->
+  <a href="{% url 'ops_error_log' %}"
+     class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/90 font-medium transition
+            {% if '/admin-dashboard/ops/logs/' in request.path %}bg-white/15 text-white{% else %}hover:bg-white/10{% endif %}">
+    <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+    </svg>
+    <span>Logs</span>
   </a>
 
   <!-- Database Backup -->

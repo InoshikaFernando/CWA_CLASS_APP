@@ -19,6 +19,11 @@
     </div>
     <!-- Window selector (applies to all charts) -->
     <div class="flex items-center gap-2">
+      <a href="{% url 'ops_error_log' %}"
+         data-testid="ops-log-link"
+         class="px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 transition mr-2">
+        Application log
+      </a>
       <span class="text-sm text-slate-400">Window:</span>
       {% for opt in window_options %}
         <a href="?window={{ opt.key }}"
@@ -193,12 +198,13 @@
     <div class="mt-4 px-4 py-3 rounded-xl text-sm bg-red-500/10 border border-red-500/30 text-red-300"
          data-testid="stripe-prices-broken">
       {% for b in stripe_prices.broken %}
-        <div><strong>{{ b.kind }} &ldquo;{{ b.label }}&rdquo;</strong>
+        <div class="mb-2">
+          <strong>{{ b.kind }} &ldquo;{{ b.label }}&rdquo;</strong>
           {% if b.price_id %}<code class="text-red-200">{{ b.price_id }}</code>{% endif %}
-          &mdash; {{ b.problem }}</div>
+          &mdash; {{ b.problem }}
+          {% if b.fix %}<div class="text-slate-400 mt-0.5">&rarr; {{ b.fix }}</div>{% endif %}
+        </div>
       {% endfor %}
-      <p class="text-slate-400 mt-2">Fix in the Stripe dashboard (re-activate the price),
-        or point the plan at an active price id.</p>
     </div>
     {% endif %}
 
