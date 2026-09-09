@@ -25,7 +25,7 @@
     text), so it prints the question itself below — printing it here too would show the
     question twice. The read-aloud button still reads the whole sentence.{% endcomment %}
     {% if not question.blank_data %}
-    <p class="text-gray-800 font-semibold text-lg leading-snug flex-1">{{ question.question_text }}</p>
+    <p class="text-gray-800 font-semibold text-lg leading-snug flex-1 whitespace-pre-line">{{ question.question_text }}</p>
     {% else %}<span class="flex-1"></span>{% endif %}
     {% if question.question_text %}
     <button type="button"
