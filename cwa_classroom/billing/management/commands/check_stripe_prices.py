@@ -53,8 +53,10 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(
                 f'  {b["kind"]} "{b["label"]}" (id={b["id"]}) {price}: {b["problem"]}'
             ))
-        self.stderr.write(
-            'Fix: re-activate the price in the Stripe dashboard, or point the '
-            'plan at an active price id.'
-        )
+            # Each problem gets its own remedy. One shared footer told an admin
+            # to re-activate a price that was already active, which is twenty
+            # minutes in the Stripe dashboard looking for a fault that is not
+            # there.
+            if b.get('fix'):
+                self.stderr.write(f'      → {b["fix"]}')
         sys.exit(1)
