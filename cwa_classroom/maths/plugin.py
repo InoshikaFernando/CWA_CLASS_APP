@@ -162,7 +162,8 @@ class MathsPlugin(SubjectPlugin):
         # Same scoping as pick_homework_items — visible_to_classroom plus the
         # class's levels — so the count a teacher reads is the pool the
         # generator will actually draw from.
-        qs = Question.objects.visible_to_classroom(classroom).filter(topic_id__in=ids)
+        qs = (Question.objects.visible_to_classroom(classroom).live()
+              .filter(topic_id__in=ids))
         classroom_levels = classroom.levels.all()
         if classroom_levels.exists():
             qs = qs.filter(level__in=classroom_levels)
@@ -188,7 +189,7 @@ class MathsPlugin(SubjectPlugin):
         classroom_levels = classroom.levels.all()
         # Scope to what this CLASS may draw on. Unscoped, homework generated for
         # one school pulled in every other school's private questions.
-        qs = (Question.objects.visible_to_classroom(classroom)
+        qs = (Question.objects.visible_to_classroom(classroom).live()
               .filter(topic__in=topics).select_related('topic'))
         if classroom_levels.exists():
             qs = qs.filter(level__in=classroom_levels)
@@ -409,7 +410,7 @@ class MathsPlugin(SubjectPlugin):
             .select_related('subject', 'parent', 'parent__parent')
             .order_by('subject__name', 'parent__name', 'name')
         )
-        visible = Question.objects.visible_to_classroom(classroom)
+        visible = Question.objects.visible_to_classroom(classroom).live()
         if classroom_levels.exists():
             question_filter = visible.filter(
                 topic=OuterRef('pk'), level__in=classroom_levels,

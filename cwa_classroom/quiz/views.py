@@ -723,7 +723,7 @@ class TopicQuizView(LoginRequiredMixin, View):
         # filter then drops what this student's quiz cannot mark; both narrow
         # the same pool, so the hidden-count log counts against the global bank
         # rather than against questions the student was never entitled to.
-        in_topic = Question.objects.global_only().filter(topic=topic, level=level)
+        in_topic = Question.objects.global_only().live().filter(topic=topic, level=level)
         questions_qs = list(
             gradable_for(request.user, in_topic).prefetch_related('answers'))
         in_topic_total = in_topic.count()
@@ -818,7 +818,7 @@ class MixedQuizView(LoginRequiredMixin, View):
         pool_total = pool_gradable = 0
         for topic in topics:
             # Global bank only (see TopicQuizView), then drop the ungradable.
-            in_topic = Question.objects.global_only().filter(topic=topic, level=level)
+            in_topic = Question.objects.global_only().live().filter(topic=topic, level=level)
             gradable = gradable_for(request.user, in_topic)
             pool_total += in_topic.count()
             pool_gradable += gradable.count()
