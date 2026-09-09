@@ -2990,6 +2990,12 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
 
     school_id, dept_id, _ = _get_question_scope(user)
     saved = []
+    # Storage path of each image ref already written in THIS run, so several
+    # questions sharing one figure ("Same image as previous") land on ONE stored
+    # file instead of a byte-identical copy each. Scoped to the run on purpose:
+    # refs are only unique within a session, so a ref from another upload may
+    # name a completely different picture.
+    uploaded_by_ref = {}
 
     for q in questions_data:
         q_text = q.get('question_text', '').strip()
@@ -3195,8 +3201,17 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         # single row via get_or_create and the (created or not mq.image) guard
         # then dropped every image but the first — silent data loss. So a question
         # that carries image data is deduped on its would-be image PATH (unique
-        # per image_ref) instead of the text: re-runs stay idempotent, but
-        # distinct figures sharing a stem are never merged.
+        # per image_ref) AND its text: re-runs stay idempotent, but distinct
+        # figures sharing a stem are never merged.
+        #
+        # The text half of that key is what makes "Same image as previous" safe.
+        # Several questions can legitimately share ONE figure ("use the diagram
+        # for questions 3-6"), and they now share the image_ref too, so the path
+        # alone would collapse them into a single row and silently drop all but
+        # the first. Their stems differ — that is why they are separate questions
+        # — so path+text keeps them apart. Two questions identical in BOTH text
+        # and figure are indistinguishable to a student and still collapse, which
+        # is the same call the text-only branch below makes.
         image_ref = q.get('image_ref')
         image_b64 = session.extracted_images.get(image_ref) if image_ref else None
         # Types that self-draw from structured fields never carry an image.
@@ -3252,7 +3267,8 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         if dedup_by_image:
             target_image = f'questions/year{yl}/{topic_slug}/{safe_ref}'
             mq = MQ.objects.filter(
-                image=target_image, level=level, school_id=school_id,
+                image=target_image, question_text=q_text,
+                level=level, school_id=school_id,
             ).first()
             created = mq is None
             if created:
@@ -3268,6 +3284,12 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 school_id=school_id, defaults=defaults,
             )
 
+        if has_image and not created and mq.image:
+            # Matched an existing row that already holds this figure — later
+            # questions sharing the ref reuse its file rather than upload again.
+            uploaded_by_ref.setdefault(
+                f'year{yl}/{topic_slug}/{safe_ref}', mq.image.name)
+
         if not created and validation_type != 'auto':
             # Update rubric in case teacher edited it
             mq.validation_type = validation_type
@@ -3282,12 +3304,29 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             import logging as _img_log
             _img_logger = _img_log.getLogger('homework')
             try:
-                import base64
-                from django.core.files.base import ContentFile
-                img_bytes = base64.b64decode(image_b64)
-                img_filename = f'year{yl}/{topic_slug}/{safe_ref}'
-                mq.image.save(img_filename, ContentFile(img_bytes), save=True)
-                _img_logger.info('Saved question image: %s', mq.image.name)
+                # Keyed on the whole target path, not the bare ref: the same ref
+                # under a different level/topic belongs in a different folder,
+                # and Question.clean() enforces that layout for global questions.
+                ref_key = f'year{yl}/{topic_slug}/{safe_ref}'
+                shared_path = uploaded_by_ref.get(ref_key)
+                if shared_path:
+                    # An earlier question in this run already uploaded this exact
+                    # figure ("Same image as previous"). Point at the stored file
+                    # rather than writing byte-identical copy #2 to Spaces —
+                    # storage never overwrites (AWS_S3_FILE_OVERWRITE=False), so
+                    # a second save would cost a whole extra object.
+                    mq.image.name = shared_path
+                    mq.save(update_fields=['image'])
+                    _img_logger.info(
+                        'Reused stored question image: %s', mq.image.name)
+                else:
+                    import base64
+                    from django.core.files.base import ContentFile
+                    img_bytes = base64.b64decode(image_b64)
+                    mq.image.save(ref_key, ContentFile(img_bytes), save=True)
+                    # Read the name back: storage may have uniquified it.
+                    uploaded_by_ref[ref_key] = mq.image.name
+                    _img_logger.info('Saved question image: %s', mq.image.name)
             except Exception as _exc:
                 _img_logger.error(
                     'Failed to save image for question %s (ref=%s): %s',

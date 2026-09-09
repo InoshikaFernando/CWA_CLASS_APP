@@ -1917,6 +1917,14 @@ def save_questions_from_session(session, user, overrides=None):
     blanks_built = 0
     errors = []
     warnings = []
+    # Storage path of each image ref already written in THIS run. Several
+    # questions can share one figure ("Same image as previous" points them all at
+    # the same ref), and they must land on ONE stored file instead of a
+    # byte-identical copy each — storage never overwrites
+    # (AWS_S3_FILE_OVERWRITE=False), so a repeat save costs a whole extra object.
+    # Run-scoped on purpose: refs are unique only within a session, so the same
+    # ref in another upload may name a completely different picture.
+    uploaded_by_ref = {}
 
     for idx, q in enumerate(questions_data, 1):
         # Skip if not included (from preview form)
@@ -2193,9 +2201,23 @@ def save_questions_from_session(session, user, overrides=None):
                 if resolved_ref:
                     from django.core.files.base import ContentFile
 
-                    img_bytes = base64.b64decode(session.extracted_images[resolved_ref])
+                    # Keyed on the whole target path, not the bare ref: the same
+                    # ref under a different level/topic belongs in a different
+                    # folder, and Question.clean() enforces that layout for
+                    # global questions.
                     name = f'year{year_level}/{topic_slug}/{resolved_ref}'
-                    question.image.save(name, ContentFile(img_bytes), save=False)
+                    shared_path = uploaded_by_ref.get(name)
+                    if shared_path:
+                        # An earlier question in this run already stored this
+                        # figure — point at that file instead of duplicating it.
+                        question.image.name = shared_path
+                    else:
+                        img_bytes = base64.b64decode(
+                            session.extracted_images[resolved_ref])
+                        question.image.save(
+                            name, ContentFile(img_bytes), save=False)
+                        # Read the name back: storage may have uniquified it.
+                        uploaded_by_ref[name] = question.image.name
                     question.save(update_fields=['image'])
                     images_saved += 1
 
