@@ -55,6 +55,19 @@ out is recorded on `extracted_data['page_selection']` and stated on the preview 
 Parser and helpers: `worksheets/page_selection.py`. Full design:
 [`docs/SPEC_PDF_PAGE_SELECTION.md`](../../docs/SPEC_PDF_PAGE_SELECTION.md).
 
+## Page attribution
+
+Pages go to the classifier in batches (`AI_IMPORT_PAGE_CHUNK`, default 20), each
+labelled with its absolute page number. The model occasionally answers with a
+page's *position in the batch* instead — page 27, sent seventh in the batch
+21–40, comes back as `source_page: 7` — and a figure box would then be cropped
+from the wrong page. Each request therefore pins `source_page` / `image_page` to
+the batch's real page numbers with a schema `enum`, and
+`worksheets/page_attribution.py` remaps any positional answer that still comes
+back (a number that is not one of the batch's pages but is a valid position
+names the page at that position; an impossible number is dropped rather than
+trusted). The worksheet / homework upload does the same for its `page_num`.
+
 ## Second-opinion answer verification
 
 After Claude classifies the questions, an optional **GPT verifier** independently

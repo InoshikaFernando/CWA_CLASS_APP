@@ -11,6 +11,8 @@ import tempfile
 from django.conf import settings
 from django.utils import timezone
 
+from worksheets.page_attribution import pin_page_enum, resolve_chunk_pages
+
 logger = logging.getLogger(__name__)
 
 
@@ -1031,6 +1033,7 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
     """
     first_pg = pages[0]['page_num']
     last_pg = pages[-1]['page_num']
+    batch_pages = [p['page_num'] for p in pages]
 
     content_blocks = [{
         "type": "text",
@@ -1038,7 +1041,11 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
             f"Here is a {total_page_count}-page PDF (this message covers pages "
             f"{first_pg}–{last_pg}). I'm sending each page as a screenshot so "
             f"you can see all tables, charts, and diagrams. The extracted text is "
-            f"also provided for accuracy."
+            f"also provided for accuracy. The pages in this message are numbered "
+            f"{', '.join(str(p) for p in batch_pages)} — their real page numbers, "
+            f"printed in the label under each screenshot. source_page and "
+            f"image_page must be one of exactly these numbers, never a "
+            f"screenshot's position in this message."
         ),
     }]
 
@@ -1096,7 +1103,11 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
         max_tokens=int(os.environ.get('AI_IMPORT_MAX_TOKENS', '32000')),
         thinking={"type": "adaptive"},
         system=system_prompt,
-        tools=[CLASSIFICATION_TOOL],
+        # Pin both page fields to this batch's real page numbers so the model
+        # cannot answer with a screenshot's position in the message (page 27,
+        # sent seventh in the batch 21–40, coming back as page 7).
+        tools=[pin_page_enum(CLASSIFICATION_TOOL, ('source_page', 'image_page'),
+                             batch_pages, nullable=('image_page',))],
         messages=[{"role": "user", "content": content_blocks}],
     ) as stream:
         response = stream.get_final_message()
@@ -1128,6 +1139,14 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
                 "Please review the PDF and try again."
             )
         raise ValueError("AI did not return structured question data. Please try again.")
+
+    # Backstop for the position-for-page mix-up: a page number that is not one
+    # of this batch's pages cannot be right, and one that is a valid position in
+    # the batch names the page at that position. image_page is held to the
+    # question's own page — the figure is always cropped from there — so a
+    # figure page that only matches under the positional reading takes it.
+    resolve_chunk_pages(result.get('questions') or [], batch_pages,
+                        field='source_page', figure_field='image_page')
 
     result['usage'] = {
         'input_tokens': response.usage.input_tokens,

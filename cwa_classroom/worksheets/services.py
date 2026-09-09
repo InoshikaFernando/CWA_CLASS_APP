@@ -10,6 +10,9 @@ Flow:
   1. Open PDF with fitz once — keep doc open throughout.
   2. Render each page as a screenshot (sent to Claude so it can see the layout).
   3. Claude returns image_bbox [x0, y0, x1, y1] in screenshot pixel space + page_num.
+     page_num is pinned to the request's ABSOLUTE page numbers and any positional
+     answer is remapped (worksheets/page_attribution.py) — a figure is only ever
+     cropped from the page the question is really on.
   4. Convert pixel coords → PDF point coords using the known DPI.
   5. Call page.get_pixmap(clip=fitz.Rect(...), dpi=150) to render just that region
      directly from the PDF — clean vector rendering, not a crop of a compressed JPEG.
@@ -27,6 +30,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from django.conf import settings
 
 from maths.shape_detect import trace_shape_select_scenes
+
+from .page_attribution import pin_page_enum, resolve_chunk_pages
 
 logger = logging.getLogger(__name__)
 
@@ -1410,6 +1415,17 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
             "I'm sending each page as a screenshot. Extract ALL questions on these "
             "pages using the classify_worksheet_questions tool."
         )
+    # The model sometimes reports a page's POSITION in this request instead of
+    # its number (page 7, sent third in the chunk 5–8, came back as page 3 and
+    # its figure was cropped from page 3). Name the real numbers up front; the
+    # tool schema below pins page_num to exactly these values as well.
+    page_labels = ', '.join(str(p['page_num']) for p in pages)
+    intro += (
+        f" This request holds page(s) {page_labels} of the document — those are "
+        f"their real page numbers, printed in the label under each screenshot. "
+        f"Every question's page_num must be one of exactly these numbers, never "
+        f"the screenshot's position in this request."
+    )
     content_blocks = [{
         "type": "text",
         "text": intro,
@@ -1481,7 +1497,8 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
         max_tokens=WORKSHEET_MAX_TOKENS,
         thinking={"type": "disabled"},
         system=system,
-        tools=[WORKSHEET_CLASSIFICATION_TOOL],
+        tools=[pin_page_enum(WORKSHEET_CLASSIFICATION_TOOL, ('page_num',),
+                             [p['page_num'] for p in pages])],
         tool_choice={"type": "tool", "name": "classify_worksheet_questions"},
         messages=[{"role": "user", "content": content_blocks}],
     ) as stream:
@@ -1517,6 +1534,11 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
         raise ValueError("AI did not return structured question data. Please try again.")
 
     result.setdefault('questions', [])
+    # Backstop for the page-position mix-up described above: a page_num that is
+    # not one of this request's pages cannot be right, and one that is a valid
+    # position in the request names the page at that position. Done here, per
+    # request, because only this call knows which pages it sent.
+    resolve_chunk_pages(result['questions'], [p['page_num'] for p in pages])
     # Safety net: strip any leading question-number/section label the model copied
     # into question_text (e.g. "Question 5 e)", "PART C:", "5)"). It's enumeration,
     # not part of the question.
@@ -2069,6 +2091,18 @@ def _trim_whitespace(pix):
         return pix
 
 
+def _flag_missing_figure(q, reason):
+    """Mark a question whose figure could not be cropped so the teacher sees why.
+
+    ``has_image`` is cleared (there is no image to show) and the question is
+    routed to review with the reason, rather than arriving looking like a
+    text-only question. The preview's crop tool lets the teacher add the figure.
+    """
+    q['has_image'] = False
+    q['needs_review'] = True
+    q.setdefault('review_reason', reason)
+
+
 def render_question_images(doc, extracted_pages, classified_result, progress=None):
     """
     For every question where has_image=True:
@@ -2105,15 +2139,25 @@ def render_question_images(doc, extracted_pages, classified_result, progress=Non
         report(f'Preparing question images ({rendered} of {with_images})…')
 
         bbox = q.get('image_bbox')
-        page_num = q.get('page_num', 1)
+        page_num = q.get('page_num')
 
         if not bbox or len(bbox) != 4:
             logger.warning(f'Q{idx+1}: has_image=True but no valid image_bbox — skipping')
+            _flag_missing_figure(
+                q, 'The AI said this question has a figure but gave no box for it; '
+                   'use "Crop image from page" to add it.')
             continue
 
-        page_data = pages_by_num.get(page_num)
+        # No default page. This used to fall back to page 1, which cropped the
+        # figure box from the cover sheet when the model left the page out —
+        # a wrong image with nothing to say it was wrong. An unknown page is now
+        # surfaced on the question instead.
+        page_data = pages_by_num.get(page_num) if page_num is not None else None
         if not page_data:
-            logger.warning(f'Q{idx+1}: page {page_num} not found — skipping')
+            logger.warning(f'Q{idx+1}: page {page_num!r} not found — skipping')
+            _flag_missing_figure(
+                q, 'The AI did not say which page this question\'s figure is on, '
+                   'so no image was cropped; use "Crop image from page" to add it.')
             continue
 
         try:
