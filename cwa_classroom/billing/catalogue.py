@@ -83,6 +83,9 @@ MODULE_CATALOGUE: dict[str, dict] = {
     'whatsapp_notifications': {
         'name': 'WhatsApp Parent Notifications', 'price': Decimal('10.00'),
     },
+    'invoicing': {
+        'name': 'Student Invoicing', 'price': Decimal('10.00'),
+    },
 }
 
 

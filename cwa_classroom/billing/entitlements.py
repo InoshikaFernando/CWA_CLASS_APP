@@ -122,6 +122,47 @@ def has_module_any_school(user, module_slug):
     return False
 
 
+def _parent_linked_modules(user):
+    """Modules held by the schools of this user's linked children.
+
+    A parent belongs to no school of their own: ``get_all_schools_for_user``
+    reads admin, teacher and student roles, and a parent is none of them. So
+    without this a parent resolves to *no* modules at all, and every gate that
+    asks the request rather than the student denies them — the parent-facing
+    half of invoicing, and every parent opening the report their child's
+    school has paid for.
+
+    That has been invisible so far only because ``MODULE_ENFORCEMENT`` ships
+    in shadow: the middleware records the denial and lets the request through.
+    Flipping to enforce without this would lock parents out of features their
+    school is being billed for, which is the worst possible first impression
+    of the module system.
+
+    View-level gates already got this right one at a time
+    (:func:`student_school_has_module`). This is the same rule, resolved once
+    per request, so the middleware's answer agrees with theirs.
+
+    Only ever *adds* entitlements. A parent can hold nothing a school has not
+    already bought, so this cannot open a gate for anyone else.
+    """
+    from classroom.models import ParentStudent
+    from billing.models import ModuleSubscription
+
+    school_ids = ParentStudent.objects.filter(
+        parent=user, is_active=True, school__isnull=False,
+    ).values_list('school_id', flat=True)
+
+    if not school_ids:
+        return frozenset()
+
+    return frozenset(
+        ModuleSubscription.objects.filter(
+            is_active=True,
+            school_subscription__school_id__in=school_ids,
+        ).values_list('module', flat=True)
+    )
+
+
 def student_school_has_module(student, module_slug):
     """Whether the SCHOOL that *student* belongs to has *module_slug* active.
 
@@ -204,6 +245,7 @@ def entitled_modules(request):
         ).values_list('module', flat=True)
     )
     slugs.update(active_student_modules(user))
+    slugs.update(_parent_linked_modules(user))
 
     result = frozenset(slugs)
     request._entitled_modules = result

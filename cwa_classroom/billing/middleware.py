@@ -123,6 +123,15 @@ class ModuleEnforcementMiddleware:
         if by_name:
             return by_name
 
+        # A whole view module can be owned — the invoicing case, where the
+        # file sits inside a base app and claiming by url name would leak.
+        by_view_module = registry.module_for_view_module(
+            view_class.__module__ if view_class is not None
+            else getattr(view_func, '__module__', None)
+        )
+        if by_view_module:
+            return by_view_module
+
         # DRF routes are named "<basename>-list" / "<basename>-detail".
         return registry.module_for_api_basename(self._basename(match.url_name))
 

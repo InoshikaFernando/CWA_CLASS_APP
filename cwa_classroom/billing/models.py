@@ -514,6 +514,12 @@ class ModuleSubscription(models.Model):
     MODULE_BRAINBUZZ = 'brainbuzz'
     MODULE_WORKSHEETS = 'worksheets'
     MODULE_WHATSAPP = 'whatsapp_notifications'
+    # Student invoicing: fee schedules, invoice numbering, line items,
+    # part-payments and reversals, and parent card checkout. Free until now by
+    # inheritance rather than by decision — it lives in `classroom` and
+    # `billing`, both base for unrelated reasons (enrolment; you must be able
+    # to pay us). Schools are using it today, so it grandfathers.
+    MODULE_INVOICING = 'invoicing'
     # Deliberately NOT here: 'rewards'. Points and the leaderboard are free on
     # every plan and belong to the base product — see billing/registry.py
     # BASE_APPS for why. A slug listed here is a thing we can charge for, so
@@ -534,6 +540,7 @@ class ModuleSubscription(models.Model):
         (MODULE_BRAINBUZZ, 'BrainBuzz Live Quiz'),
         (MODULE_WORKSHEETS, 'Worksheets'),
         (MODULE_WHATSAPP, 'WhatsApp Parent Notifications'),
+        (MODULE_INVOICING, 'Student Invoicing'),
     ]
 
     school_subscription = models.ForeignKey(

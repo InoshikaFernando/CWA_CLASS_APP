@@ -54,6 +54,15 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            '--with-invoices', action='store_true',
+            help=(
+                'Narrow the selection to schools that have actually issued an '
+                'invoice. The invoicing equivalent of --with-reports: use it '
+                'with --all to grandfather the schools that were really '
+                'billing families while invoicing was free.'
+            ),
+        )
+        parser.add_argument(
             '--reason', default='',
             help='Why this was granted. Recorded in the audit log.',
         )
@@ -96,10 +105,25 @@ class Command(BaseCommand):
                 .values_list('school_id', flat=True).distinct()
             subs = subs.filter(school_id__in=used)
 
+        if options['with_invoices']:
+            # Same evidence-not-inference rule as --with-reports. A draft is
+            # somebody trying the screen out; an *issued* invoice went to a
+            # family and may already be part-paid, which is what makes taking
+            # invoicing away from this school a different act from taking it
+            # away from one that only ever looked at the page.
+            from classroom.models import Invoice
+            billed = Invoice.objects.exclude(status='draft') \
+                .values_list('school_id', flat=True).distinct()
+            subs = subs.filter(school_id__in=billed)
+
         subs = list(subs)
         if not subs:
-            scope = ('schools with an existing period report'
-                     if options['with_reports'] else 'matching school subscriptions')
+            if options['with_reports']:
+                scope = 'schools with an existing period report'
+            elif options['with_invoices']:
+                scope = 'schools that have issued an invoice'
+            else:
+                scope = 'matching school subscriptions'
             self.stdout.write(f'No {scope} — nothing to do.')
             return
 

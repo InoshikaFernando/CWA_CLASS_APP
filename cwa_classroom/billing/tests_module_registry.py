@@ -66,6 +66,9 @@ def _decision(route):
     by_name = registry.module_for_route(route['namespace'], route['name'])
     if by_name:
         return by_name
+    by_view_module = registry.module_for_view_module(route['module'])
+    if by_view_module:
+        return by_view_module
     name = route['name'] or ''
     for suffix in ('-list', '-detail'):
         if name.endswith(suffix):

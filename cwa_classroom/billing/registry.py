@@ -53,6 +53,18 @@ class Module:
     route_names: tuple = ()
     #: Url-name prefixes, un-namespaced.
     route_prefixes: tuple = ()
+    #: View modules owned outright (``classroom.views_invoicing``), matched on
+    #: the dotted path of the view's own module.
+    #:
+    #: This exists for a module that lives *inside* a base app, where claiming
+    #: by url name is unsafe. ``classroom`` cannot leave ``BASE_APPS`` — it
+    #: also holds classes, enrolment and the timetable — so an invoicing route
+    #: nobody claimed falls through to base and ships free, and the build stays
+    #: green because the route *is* accounted for. Claiming the view module
+    #: instead means a new view in that file is owned the moment it exists,
+    #: which is the only version of this that survives someone adding a page in
+    #: six months without reading this file.
+    view_modules: tuple = ()
     #: DRF router basenames, as registered in ``api/urls.py``.
     api_basenames: tuple = ()
     #: Free-text note for the module the sales page will need.
@@ -107,6 +119,30 @@ _add(Module(
     route_prefixes=('student_report', 'period_report', 'report_preview',
                     'report_settings'),
     api_basenames=('report',),
+))
+
+_add(Module(
+    slug='invoicing',
+    name='Student Invoicing',
+    audience=INSTITUTE,
+    enforcement=(ROUTE,),
+    # Claimed by view module, not by url name. The 29 staff routes are named
+    # inconsistently enough (`zero_balances`, `csv_upload`, `student_search_api`,
+    # `reference_mappings`, `invoicing_scope_classes`) that a prefix list would
+    # be a guessing game, and a missed name here does not fail the build — it
+    # falls through to `classroom`, which is base. Owning the module is exact.
+    view_modules=('classroom.views_invoicing',),
+    # The stragglers, which live in other view modules and so must be named.
+    # The four parent routes are the family-facing half: a parent has no school
+    # of their own, so the gate follows the *student's* school, exactly as the
+    # progress-report gate does.
+    route_names=(
+        'parent_invoices', 'parent_invoice_detail',
+        'parent_invoice_pay', 'parent_invoice_pay_success',
+        'update_student_fee', 'admin_department_update_fee',
+    ),
+    note=('Fee schedules, invoice numbering, line items, part-payments and '
+          'reversals, plus parent card checkout. Base product until 1.36.0.'),
 ))
 
 _add(Module(
@@ -294,6 +330,22 @@ def module_for_route(namespace: str | None, url_name: str | None) -> str | None:
             if namespace in module.namespaces:
                 return module.slug
 
+    return None
+
+
+def module_for_view_module(view_module: str | None) -> str | None:
+    """The module owning every view in this Python module, or None.
+
+    Checked *after* the name rules so an explicit ``route_names`` entry can
+    still carve a single route back out of a claimed file, and *before*
+    :func:`is_base`, so a claimed file inside a base app is paid rather than
+    silently free.
+    """
+    if not view_module:
+        return None
+    for module in REGISTRY.values():
+        if view_module in module.view_modules:
+            return module.slug
     return None
 
 
