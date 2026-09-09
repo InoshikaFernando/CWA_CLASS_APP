@@ -145,13 +145,20 @@ def _configured_prices():
 
     Yields ``(kind, label, price_id, obj_id)``. Only active, paid rows — a free
     package has no price id by design, and an inactive one charges nobody.
+
+    Modules are included because leaving them out made the check dishonest: on
+    the test site three AI Grading modules had no usable price while this
+    reported everything healthy, which is precisely the "green tick that means
+    less than it looks" the page exists to avoid.
     """
-    from .models import InstitutePlan, Package
+    from .models import InstitutePlan, ModuleProduct, Package
 
     for pkg in Package.objects.filter(is_active=True, price__gt=0):
         yield ('Package', pkg.name, pkg.stripe_price_id, pkg.id)
     for plan in InstitutePlan.objects.filter(is_active=True, price__gt=0):
         yield ('InstitutePlan', plan.name, plan.stripe_price_id, plan.id)
+    for mod in ModuleProduct.objects.filter(is_active=True, price__gt=0):
+        yield ('Module', mod.name, mod.stripe_price_id, mod.id)
 
 
 def get_stripe_price_health(use_cache=True):
@@ -197,7 +204,9 @@ def _compute_price_health():
         if not price_id:
             broken.append({
                 'kind': kind, 'label': label, 'id': obj_id, 'price_id': '',
-                'problem': 'No Stripe price id set — this plan cannot be paid for.',
+                'problem': 'No Stripe price id set — this cannot be paid for.',
+                'fix': 'Set a Stripe price id on it, or run '
+                       '"manage.py sync_stripe_prices --create-missing".',
             })
             continue
         try:
@@ -206,6 +215,9 @@ def _compute_price_health():
             broken.append({
                 'kind': kind, 'label': label, 'id': obj_id, 'price_id': price_id,
                 'problem': f'Stripe rejected this price: {e}',
+                'fix': 'Check the id exists in THIS Stripe account and mode — a '
+                       'live-mode id restored into a test environment fails '
+                       'exactly like this.',
             })
             continue
         checked += 1
@@ -214,6 +226,8 @@ def _compute_price_health():
                 'kind': kind, 'label': label, 'id': obj_id, 'price_id': price_id,
                 'problem': 'Archived in Stripe — checkout fails with '
                            '"The price specified is inactive".',
+                'fix': 'Re-activate the price in the Stripe dashboard, or point '
+                       'this at an active price id.',
             })
             continue
 
@@ -232,6 +246,12 @@ def _compute_price_health():
                            f'{want.upper()} — students on it are charged the '
                            f'wrong currency and their Stripe customer is then '
                            f'locked to {got.upper()}.',
+                # NOT "re-activate it": this price is active and working. Saying
+                # so would send someone to the Stripe dashboard to fix a problem
+                # that is not there.
+                'fix': f'Create a {want.upper()} price and point this at it, or '
+                       f'set STRIPE_CURRENCY={got} if {got.upper()} is what this '
+                       f'environment should bill in.',
             })
 
     reasons = []

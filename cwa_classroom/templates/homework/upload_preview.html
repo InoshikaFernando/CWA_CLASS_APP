@@ -3,8 +3,13 @@
 
 {% block extra_head %}
 <style>
-  .q-card { transition: opacity 0.2s; }
+  .q-card { transition: opacity 0.2s, background-color 0.2s, border-color 0.2s; }
   .q-card.excluded { opacity: 0.45; }
+  /* A question the verifier flagged is red for the WHOLE card, not just a badge
+     in the header — a corner badge is easy to scroll past on a long preview.
+     Ticking "Reviewed" clears it (and is posted, so it stays cleared). */
+  .q-card.needs-review { background-color: #fef2f2; border-color: #fca5a5; }
+  .q-card.needs-review .card-header { border-color: #fecaca; }
   details[open] summary .chevron { transform: rotate(180deg); }
   .chevron { transition: transform 0.2s; }
 </style>
@@ -88,11 +93,11 @@
       <div class="space-y-4" id="questions-container">
         {% for q in questions %}
         {% with q_idx=forloop.counter0 %}
-        <div class="q-card bg-white rounded-2xl border border-gray-100 shadow-sm {% if not q.include %}excluded{% endif %}"
+        <div class="q-card bg-white rounded-2xl border border-gray-100 shadow-sm {% if not q.include %}excluded{% endif %}{% if q.needs_review and not q.review_ack %} needs-review{% endif %}"
              id="card-{{ q_idx }}">
 
           <!-- Card header -->
-          <div class="flex items-center gap-3 px-5 py-3 border-b border-gray-50">
+          <div class="card-header flex items-center gap-3 px-5 py-3 border-b border-gray-50">
             <input type="checkbox" name="q_{{ q_idx }}_include" id="inc_{{ q_idx }}"
                    {% if q.include %}checked{% endif %}
                    class="include-cb w-4 h-4 rounded text-blue-600 cursor-pointer"
@@ -113,7 +118,16 @@
 
             {% if q.needs_review %}
             <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700"
+                  data-testid="review-badge-{{ q_idx }}"
                   title="{{ q.review_reason|default:'Please double-check this answer.' }}">⚠ Review</span>
+            <label class="flex items-center gap-1 text-xs font-semibold text-red-700 cursor-pointer whitespace-nowrap"
+                   title="Tick once you have checked this question — the red highlight clears">
+              <input type="checkbox" name="q_{{ q_idx }}_review_ack" id="ack_{{ q_idx }}"
+                     {% if q.review_ack %}checked{% endif %}
+                     class="review-ack-cb w-4 h-4 rounded text-red-600 cursor-pointer"
+                     data-card="card-{{ q_idx }}" data-testid="review-ack-{{ q_idx }}">
+              Reviewed
+            </label>
             {% endif %}
 
             <button type="button" data-preview-open="{{ q_idx }}"
@@ -443,6 +457,15 @@
     cb.addEventListener('change', () => {
       const card = document.getElementById(cb.dataset.card);
       card.classList.toggle('excluded', !cb.checked);
+    });
+  });
+
+  // "Reviewed" clears the red flagged-question highlight (and back again if the
+  // teacher unticks it). The checkbox itself posts, so the state survives.
+  document.querySelectorAll('.review-ack-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const card = document.getElementById(cb.dataset.card);
+      if (card) card.classList.toggle('needs-review', !cb.checked);
     });
   });
 

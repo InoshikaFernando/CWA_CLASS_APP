@@ -114,18 +114,25 @@ def recrop_response(session, request):
 
 
 def reuse_previous_image_response(session, request):
-    """POST: copy an earlier question's image onto this question under a NEW ref.
+    """POST: point this question at an earlier question's image — no copy.
 
     JSON body: ``{q_idx:int, source_ref:str, page?:int, bbox_frac?:[x0,y0,x1,y1]}``.
     The teacher clicks "Same image as previous" when several consecutive
-    questions share one figure the extractor didn't group — this duplicates the
-    bytes stored under ``source_ref`` to a fresh ref and points ``q_idx`` at it.
+    questions share one figure the extractor didn't group. ``q_idx`` is pointed
+    at ``source_ref`` itself, so the figure is stored ONCE in
+    ``extracted_images`` however many questions share it — and at confirm the
+    sharing questions land on one stored file instead of a copy each.
 
-    A *fresh* ref is deliberate, not incidental: the homework confirm step dedups
-    image questions by their image PATH (derived from the ref), so two questions
-    pointing at the SAME ref would collapse into a single row — silently dropping
-    the second question. Distinct refs over identical bytes keep the questions
-    separate while showing the same picture. Returns ``{ref, image_b64, page}``.
+    Sharing a ref is only safe because every other way of changing a question's
+    image mints a NEW ref rather than mutating the shared entry — re-crop
+    (``recrop_response``), "Replace image" (a fresh ``upload_`` ref) and "Remove
+    image" (clears this question's ref alone). None of them can reach through a
+    shared ref and disturb the other questions using it.
+
+    The confirm step must therefore not treat "same image" as "same question":
+    homework dedups image questions on their image path AND their text, so
+    questions sharing a figure stay distinct rows. Returns
+    ``{ref, image_b64, page}``.
     """
     try:
         payload = json.loads((request.body or b'{}').decode('utf-8'))
@@ -150,13 +157,8 @@ def reuse_previous_image_response(session, request):
         return JsonResponse(
             {'error': 'Question no longer exists — reload the page.'}, status=400)
 
-    ref = f'reuse_{uuid.uuid4().hex[:10]}.png'
-    if session.extracted_images is None:
-        session.extracted_images = {}
-    session.extracted_images[ref] = b64
-
     q = questions[q_idx]
-    q['image_ref'] = ref
+    q['image_ref'] = source_ref
     q['has_image'] = True
 
     # Carry the source's crop origin so a later re-crop of THIS question opens on
@@ -176,6 +178,7 @@ def reuse_previous_image_response(session, request):
 
     data['questions'] = questions
     session.extracted_data = data
-    session.save(update_fields=['extracted_data', 'extracted_images'])
+    session.save(update_fields=['extracted_data'])
 
-    return JsonResponse({'ref': ref, 'image_b64': b64, 'page': q.get('image_page')})
+    return JsonResponse(
+        {'ref': source_ref, 'image_b64': b64, 'page': q.get('image_page')})

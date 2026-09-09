@@ -11,6 +11,10 @@ import tempfile
 from django.conf import settings
 from django.utils import timezone
 
+from worksheets.explanation_checks import flag_explanation_problems
+from worksheets.page_attribution import pin_page_enum, resolve_chunk_pages
+from worksheets.pdf_geometry import displayed_rect, raster_native_dpi
+
 logger = logging.getLogger(__name__)
 
 
@@ -126,6 +130,9 @@ def _page_figure_regions(page):
                     if content else page.cluster_drawings())
         regions = []
         for r in clusters:
+            # Clusters are reported in unrotated coordinates; the model's boxes
+            # are drawn on the (displayed) screenshot. No-op unless rotated.
+            r = displayed_rect(page, r)
             w, h = r.width, r.height
             area_frac = (w * h) / page_area
             if area_frac > 0.80:
@@ -158,6 +165,9 @@ def _embedded_image_bbox_pct(page, xref):
         rects = page.get_image_rects(xref)
         if not rects:
             return None
+        # Placements are reported unrotated; the percentages describe the
+        # displayed page (a rotated full-page scan read as "x 0-141%" before).
+        rects = [displayed_rect(page, r) for r in rects]
         x0 = min(r.x0 for r in rects)
         y0 = min(r.y0 for r in rects)
         x1 = max(r.x1 for r in rects)
@@ -621,6 +631,16 @@ shown in the question, then check it.
   recompute until it is.
 - The explanation must describe the SAME numbers as the answer. Never let the answer and
   the explanation disagree with each other or with the figure.
+- COUNTING AND ARITHMETIC ARE SHOWN, NOT ASSERTED: when an answer depends on counting
+  items in a figure (leaves in a stem-and-leaf plot, dots, tally marks, bars, rows of a
+  table) or on adding parts, write the items or parts out in the explanation and let the
+  count or sum follow from what you wrote — "stem 1: 4, 7, 8 (3 leaves); stem 2: 0, 2, 4,
+  5, 7, 8, 8, 9 (8 leaves); stem 3: 0, 3, 7 (3 leaves); 3 + 8 + 3 = 14 values". For a
+  median, write the FULL ordered list, state n as the number of values in THAT list, and
+  take the middle value (the mean of the two middle values when n is even). Count the list
+  you wrote before stating n, and re-add every sum's parts before stating its total. A
+  stated count that disagrees with the list, or a sum that does not add up, is caught
+  automatically and sent to the teacher as a suspect answer.
 - The explanation must be CLEAN and FINAL: do your working silently and write only the
   verified conclusion. Never leave scratch work, self-corrections, or "wait, let me redo
   this" notes in it. For multiple choice, the option you mark is_correct MUST be the exact
@@ -1031,6 +1051,7 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
     """
     first_pg = pages[0]['page_num']
     last_pg = pages[-1]['page_num']
+    batch_pages = [p['page_num'] for p in pages]
 
     content_blocks = [{
         "type": "text",
@@ -1038,7 +1059,11 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
             f"Here is a {total_page_count}-page PDF (this message covers pages "
             f"{first_pg}–{last_pg}). I'm sending each page as a screenshot so "
             f"you can see all tables, charts, and diagrams. The extracted text is "
-            f"also provided for accuracy."
+            f"also provided for accuracy. The pages in this message are numbered "
+            f"{', '.join(str(p) for p in batch_pages)} — their real page numbers, "
+            f"printed in the label under each screenshot. source_page and "
+            f"image_page must be one of exactly these numbers, never a "
+            f"screenshot's position in this message."
         ),
     }]
 
@@ -1096,7 +1121,11 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
         max_tokens=int(os.environ.get('AI_IMPORT_MAX_TOKENS', '32000')),
         thinking={"type": "adaptive"},
         system=system_prompt,
-        tools=[CLASSIFICATION_TOOL],
+        # Pin both page fields to this batch's real page numbers so the model
+        # cannot answer with a screenshot's position in the message (page 27,
+        # sent seventh in the batch 21–40, coming back as page 7).
+        tools=[pin_page_enum(CLASSIFICATION_TOOL, ('source_page', 'image_page'),
+                             batch_pages, nullable=('image_page',))],
         messages=[{"role": "user", "content": content_blocks}],
     ) as stream:
         response = stream.get_final_message()
@@ -1128,6 +1157,14 @@ def _classify_page_batch(client, system_prompt, pages, total_page_count):
                 "Please review the PDF and try again."
             )
         raise ValueError("AI did not return structured question data. Please try again.")
+
+    # Backstop for the position-for-page mix-up: a page number that is not one
+    # of this batch's pages cannot be right, and one that is a valid position in
+    # the batch names the page at that position. image_page is held to the
+    # question's own page — the figure is always cropped from there — so a
+    # figure page that only matches under the positional reading takes it.
+    resolve_chunk_pages(result.get('questions') or [], batch_pages,
+                        field='source_page', figure_field='image_page')
 
     result['usage'] = {
         'input_tokens': response.usage.input_tokens,
@@ -1311,6 +1348,16 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
             '%s question(s) re-routed to human_graded: they ask the student to '
             'draw something the app has no answer surface for.', routed)
 
+    # An explanation that contradicts itself — "15 values" over a list of 14, an
+    # ordinal that disagrees with the list, a sum that does not add up — is a
+    # wrong answer announcing itself. Flag it for the teacher before the paid
+    # second opinion; no model, image or token needed.
+    contradicted = flag_explanation_problems(merged.get('questions', []))
+    if contradicted:
+        logger.info(
+            '%s question(s) flagged for review: the explanation contradicts '
+            'itself (miscount or arithmetic slip).', contradicted)
+
     verification = verify_answers(merged.get('questions', []), page_images=page_images)
     if verification is not None:
         verification['comparison_flags'] = comparison_flags
@@ -1381,7 +1428,7 @@ def _box_has_drawing(doc, page_num, box_pct):
                         hi_x / 100 * pw, hi_y / 100 * ph)
         for d in page.get_drawings():
             r = d.get('rect')
-            if r and fitz.Rect(r).intersects(box):
+            if r and displayed_rect(page, r).intersects(box):
                 return True
         return False
     except Exception:
@@ -1607,7 +1654,9 @@ def _expand_box_for_clipped_labels(doc, page_num, box_pct,
         gy1 = min(100.0, hi_y + max_grow) / 100 * ph
         nx0, ny0, nx1, ny1 = bx0, by0, bx1, by1
         for word in page.get_text('words'):
-            wx0, wy0, wx1, wy1 = word[0], word[1], word[2], word[3]
+            # Words are reported unrotated; the box is on the displayed page.
+            shown = displayed_rect(page, (word[0], word[1], word[2], word[3]))
+            wx0, wy0, wx1, wy1 = shown.x0, shown.y0, shown.x1, shown.y1
             wa = max(0.0, wx1 - wx0) * max(0.0, wy1 - wy0)
             if wa <= 0:
                 continue
@@ -1722,8 +1771,23 @@ def _assign_figure_to_question(q, idx, pages, crops, decoded, doc, Image, io):
     # falls back to cropping the 150-DPI screenshot when the PDF isn't
     # available or the render fails.
     if doc is not None:
+        # A box on a scanned page holds no vectors to sharpen: rendering the
+        # embedded scan above its own resolution only upsamples it into a
+        # multi-megabyte PNG. Stop at the scan's native DPI in that case.
+        render_dpi = None
+        if not overlapping:
+            try:
+                page_obj = doc[int(page_num) - 1]
+                pw, ph = page_obj.rect.width, page_obj.rect.height
+                native = raster_native_dpi(page_obj, (
+                    lo_x / 100 * pw, lo_y / 100 * ph, hi_x / 100 * pw, hi_y / 100 * ph))
+                if native and _box_has_drawing(doc, int(page_num),
+                                               [lo_x, lo_y, hi_x, hi_y]) is False:
+                    render_dpi = max(72, min(FIGURE_RENDER_DPI, int(native)))
+            except Exception:
+                render_dpi = None
         img_bytes = _render_pdf_region(doc, int(page_num),
-                                       [lo_x, lo_y, hi_x, hi_y])
+                                       [lo_x, lo_y, hi_x, hi_y], dpi=render_dpi)
     if img_bytes is None:
         try:
             img = decoded.get(int(page_num))
@@ -1917,6 +1981,14 @@ def save_questions_from_session(session, user, overrides=None):
     blanks_built = 0
     errors = []
     warnings = []
+    # Storage path of each image ref already written in THIS run. Several
+    # questions can share one figure ("Same image as previous" points them all at
+    # the same ref), and they must land on ONE stored file instead of a
+    # byte-identical copy each — storage never overwrites
+    # (AWS_S3_FILE_OVERWRITE=False), so a repeat save costs a whole extra object.
+    # Run-scoped on purpose: refs are unique only within a session, so the same
+    # ref in another upload may name a completely different picture.
+    uploaded_by_ref = {}
 
     for idx, q in enumerate(questions_data, 1):
         # Skip if not included (from preview form)
@@ -2193,9 +2265,23 @@ def save_questions_from_session(session, user, overrides=None):
                 if resolved_ref:
                     from django.core.files.base import ContentFile
 
-                    img_bytes = base64.b64decode(session.extracted_images[resolved_ref])
+                    # Keyed on the whole target path, not the bare ref: the same
+                    # ref under a different level/topic belongs in a different
+                    # folder, and Question.clean() enforces that layout for
+                    # global questions.
                     name = f'year{year_level}/{topic_slug}/{resolved_ref}'
-                    question.image.save(name, ContentFile(img_bytes), save=False)
+                    shared_path = uploaded_by_ref.get(name)
+                    if shared_path:
+                        # An earlier question in this run already stored this
+                        # figure — point at that file instead of duplicating it.
+                        question.image.name = shared_path
+                    else:
+                        img_bytes = base64.b64decode(
+                            session.extracted_images[resolved_ref])
+                        question.image.save(
+                            name, ContentFile(img_bytes), save=False)
+                        # Read the name back: storage may have uniquified it.
+                        uploaded_by_ref[name] = question.image.name
                     question.save(update_fields=['image'])
                     images_saved += 1
 
