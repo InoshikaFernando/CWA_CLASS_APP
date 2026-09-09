@@ -198,6 +198,11 @@ jobs:
               # and coding's plugin builds that window's context.
               - 'cwa_classroom/coding/**'
               - 'cwa_classroom/templates/coding/**'
+              # Homework's "Adjust image" and "Same image as previous" endpoints
+              # are thin wrappers around this shared helper, and the homework
+              # suite tests them through it — a change there is a homework
+              # change, and without this entry those tests go quiet, not red.
+              - 'cwa_classroom/worksheets/image_adjust.py'
             brainbuzz:
               - 'cwa_classroom/brainbuzz/**'
             ai_import:
@@ -209,6 +214,10 @@ jobs:
               # worksheets suite asserts against coding's URLs and templates.
               - 'cwa_classroom/coding/**'
               - 'cwa_classroom/templates/coding/**'
+              # Worksheet confirm saves its questions through ai_import's
+              # save_questions_from_session — the worksheet import is only as
+              # correct as that saver.
+              - 'cwa_classroom/ai_import/services.py'
             taskqueue:
               - 'cwa_classroom/taskqueue/**'
             feedback:
