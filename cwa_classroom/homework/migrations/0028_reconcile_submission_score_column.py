@@ -39,6 +39,13 @@ Safety
   a message naming the rows, instead of silently truncating a child's mark.
 * Reversible — the reverse restores ``decimal(6,2)``, which is what production
   holds today.
+* **Non-atomic**, like ``0020``. MySQL cannot roll DDL back, and Django refuses
+  to issue DDL from ``RunPython`` inside a transaction on such a database
+  ("Executing DDL statements while in a transaction on databases that can't
+  perform a rollback is prohibited") — which is exactly how the first deploy
+  of this migration failed on the test site. The SQLite suites never hit it,
+  because SQLite's DDL is transactional. Nothing here needs the transaction:
+  the checks before the ALTER only read, and the ALTER is a single statement.
 
 The target type is DERIVED from the model field rather than hard-coded, so it
 cannot drift from what Django would create for a fresh install.
@@ -122,6 +129,9 @@ def restore_legacy_column(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+
+    # DDL from RunPython on MySQL must run outside a transaction (see Safety).
+    atomic = False
 
     dependencies = [
         ('homework', '0027_questionschedule_scheduleweek_and_more'),
