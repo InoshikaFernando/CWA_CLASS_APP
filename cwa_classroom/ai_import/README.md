@@ -55,6 +55,34 @@ out is recorded on `extracted_data['page_selection']` and stated on the preview 
 Parser and helpers: `worksheets/page_selection.py`. Full design:
 [`docs/SPEC_PDF_PAGE_SELECTION.md`](../../docs/SPEC_PDF_PAGE_SELECTION.md).
 
+## Page attribution
+
+Pages go to the classifier in batches (`AI_IMPORT_PAGE_CHUNK`, default 20), each
+labelled with its absolute page number. The model occasionally answers with a
+page's *position in the batch* instead — page 27, sent seventh in the batch
+21–40, comes back as `source_page: 7` — and a figure box would then be cropped
+from the wrong page. Each request therefore pins `source_page` / `image_page` to
+the batch's real page numbers with a schema `enum`, and
+`worksheets/page_attribution.py` remaps any positional answer that still comes
+back (a number that is not one of the batch's pages but is a valid position
+names the page at that position; an impossible number is dropped rather than
+trusted). The worksheet / homework upload does the same for its `page_num`.
+
+## Self-contradiction checks (no tokens)
+
+Before the paid second opinion, `worksheets/explanation_checks.py` reads each
+question's explanation for a contradiction *inside it* — the way a miscount or an
+arithmetic slip betrays itself: a stated count that disagrees with the list written
+out ("There are 15 values: <fourteen numbers>"), an ordinal that disagrees with the
+list ("the 8th value is 25" when the 8th listed is 27), or a sum that does not add
+up ("10 + 5 + 2 = 18"). Any hit routes the question to `needs_review` with the
+contradiction as the `review_reason`, and the review screens show the same warning
+for sessions extracted before the check existed (`answer_review_warning`). The
+prompts tell the model to write counted items and summed parts out so the check has
+something to read; the worksheet / homework classifier additionally thinks before it
+answers (adaptive thinking with `tool_choice: auto`, falling back to the forced tool
+call; `WORKSHEET_THINKING=0` restores the old behaviour).
+
 ## Second-opinion answer verification
 
 After Claude classifies the questions, an optional **GPT verifier** independently

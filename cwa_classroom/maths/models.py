@@ -397,8 +397,53 @@ class Question(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # ---- Retirement (CPP-410) ------------------------------------------
+    # A question that must stop being served but whose history must survive.
+    #
+    # Deleting is not the tool for this: every FK pointing at Question is
+    # on_delete=CASCADE, so removing one takes every homework, worksheet and
+    # quiz answer ever given to it — rewriting completed homework and a
+    # child's answer history to tidy up, say, a diagram that never got
+    # attached. Retiring withdraws the question and leaves all of that alone.
+    retired_at = models.DateTimeField(
+        null=True, blank=True, db_index=True,
+        help_text='Set to withdraw this question from all future selection. '
+                  'Past submissions keep it, shown greyed out. Clear it to '
+                  'bring the question back.',
+    )
+    retired_reason = models.TextField(
+        blank=True, default='',
+        help_text='Why it was withdrawn — shown to the reviewer, so the next '
+                  'person does not have to rediscover the fault.',
+    )
+
     # Custom manager for visibility filtering
     objects = MathsQuestionsManager()
+
+    @property
+    def is_retired(self):
+        """Has this question been withdrawn from service?
+
+        Read by the take page (which skips it) and the result page (which
+        still shows it, greyed). Kept as a property so templates and callers
+        ask one question rather than each testing ``retired_at`` for
+        themselves.
+        """
+        return self.retired_at is not None
+
+    def retire(self, reason='', *, when=None):
+        """Withdraw this question from service, keeping every answer to it."""
+        self.retired_at = when or timezone.now()
+        self.retired_reason = reason or ''
+        self.save(update_fields=['retired_at', 'retired_reason', 'updated_at'])
+        return self
+
+    def unretire(self):
+        """Put a repaired question back into service."""
+        self.retired_at = None
+        self.retired_reason = ''
+        self.save(update_fields=['retired_at', 'retired_reason', 'updated_at'])
+        return self
 
     @property
     def needs_grading(self):
