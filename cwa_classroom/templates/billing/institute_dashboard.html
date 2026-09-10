@@ -105,11 +105,12 @@
 
   <!-- Standard Modules -->
   <div class="border border-gray-200 rounded-xl p-4 mb-6">
-    <h3 class="font-semibold text-gray-800 mb-3">Modules ($10/mo each)</h3>
+    <h3 class="font-semibold text-gray-800 mb-3">Modules</h3>
     <div class="space-y-2">
-      {% for module_key, module_name in standard_modules %}
+      {% for m in standard_modules %}{% with module_key=m.key module_name=m.name %}
       <div class="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
         <span class="text-sm text-gray-700">{{ module_name }}</span>
+        {% if m.price %}<span class="text-xs text-gray-400 ml-2">${{ m.price }}/mo</span>{% endif %}
         <div class="flex items-center gap-2">
           {% if module_key in active_modules %}
             <span class="text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-full">Active</span>
@@ -117,7 +118,7 @@
               {% csrf_token %}
               <input type="hidden" name="module_slug" value="{{ module_key }}">
               <input type="hidden" name="action" value="remove">
-              <button type="button" @click="show({ title: 'Remove Module', message: 'Remove {{ module_name }}?{% if subscription.stripe_subscription_id %} $10/mo will be removed from your next invoice.{% endif %}', confirmText: 'Remove', variant: 'danger', formId: 'remove-{{ module_key }}' })"
+              <button type="button" @click="show({ title: 'Remove Module', message: 'Remove {{ module_name }}?{% if subscription.stripe_subscription_id and m.price %} ${{ m.price }}/mo will be removed from your next invoice.{% endif %}', confirmText: 'Remove', variant: 'danger', formId: 'remove-{{ module_key }}' })"
                       class="text-xs text-red-500 hover:text-red-700 font-medium">Remove</button>
             </form>
           {% else %}
@@ -125,13 +126,13 @@
               {% csrf_token %}
               <input type="hidden" name="module_slug" value="{{ module_key }}">
               <input type="hidden" name="action" value="add">
-              <button type="button" @click="show({ title: 'Add Module', message: 'Add {{ module_name }}{% if subscription.stripe_subscription_id %} for $10/month{% endif %}?', confirmText: 'Add Module', variant: 'default', formId: 'add-{{ module_key }}' })"
+              <button type="button" @click="show({ title: 'Add Module', message: 'Add {{ module_name }}{% if subscription.stripe_subscription_id and m.price %} for ${{ m.price }}/month{% endif %}?', confirmText: 'Add Module', variant: 'default', formId: 'add-{{ module_key }}' })"
                       class="text-xs bg-primary hover:bg-primary-dark text-white font-semibold rounded-lg px-3 py-1 transition">Add</button>
             </form>
           {% endif %}
         </div>
       </div>
-      {% endfor %}
+      {% endwith %}{% endfor %}
     </div>
   </div>
 
@@ -251,6 +252,57 @@
     </form>
     {% endif %}
   </div>
+
+  <!-- Tier ladders without a bespoke section of their own.
+       Rendered from billing.registry.families(), so a new ladder appears here
+       because it exists rather than because someone added a block. -->
+  {% for fam in tier_families %}
+  <div class="border border-gray-200 rounded-xl p-4">
+    <h3 class="font-semibold text-gray-800 mb-1">{{ fam.label }}</h3>
+    <p class="text-xs text-gray-500 mb-3">Pick one tier. Switching replaces the tier you are on.</p>
+
+    <form id="tier-form-{{ fam.family }}" method="post" action="{% url 'module_toggle' %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add">
+      <div class="space-y-2">
+        {% for tier in fam.tiers %}
+        <label class="flex items-center justify-between py-3 px-4 rounded-lg border cursor-pointer transition
+                      {% if tier.slug in active_modules %}border-primary bg-primary/5{% else %}border-gray-200 hover:border-gray-300 hover:bg-gray-50{% endif %}">
+          <div class="flex items-center gap-3">
+            <input type="radio" name="module_slug" value="{{ tier.slug }}"
+                   {% if tier.slug in active_modules %}checked{% endif %}
+                   class="text-primary focus:ring-primary" />
+            <div>
+              <span class="text-sm font-semibold text-gray-700">{{ tier.name }}</span>
+              <span class="text-xs text-gray-400 ml-1">{{ tier.allowance }}</span>
+            </div>
+          </div>
+          <div class="text-right">
+            <span class="text-sm font-bold text-primary">${{ tier.price }}/mo</span>
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+      <div class="flex gap-2 mt-4">
+        <button type="button"
+                @click="show({ title: 'Change {{ fam.label }} Plan', message: 'Switch to the selected {{ fam.label }} plan?', confirmText: 'Confirm', variant: 'default', formId: 'tier-form-{{ fam.family }}' })"
+                class="text-xs bg-primary hover:bg-primary-dark text-white font-semibold rounded-lg px-4 py-2 transition">
+          {% if fam.active_slug %}Switch Plan{% else %}Activate{% endif %}
+        </button>
+      </div>
+    </form>
+    {% if fam.active_slug %}
+    <form id="remove-tier-{{ fam.family }}" method="post" action="{% url 'module_toggle' %}" class="mt-2">
+      {% csrf_token %}
+      <input type="hidden" name="module_slug" value="{{ fam.active_slug }}">
+      <input type="hidden" name="action" value="remove">
+      <button type="button"
+              @click="show({ title: 'Remove {{ fam.label }}', message: 'Remove {{ fam.label }}? Existing plans are kept, but nothing new is built automatically.', confirmText: 'Remove', variant: 'danger', formId: 'remove-tier-{{ fam.family }}' })"
+              class="text-xs text-red-500 hover:text-red-700 font-medium px-4 py-2">Remove</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
 
   <!-- Cancel Subscription -->
   {% if subscription.stripe_subscription_id and subscription.status == 'active' %}
