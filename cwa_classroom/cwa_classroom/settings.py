@@ -735,21 +735,32 @@ SESSION_COOKIE_SECURE = not DEBUG               # HTTPS-only in production
 # Upload limits
 # ---------------------------------------------------------------------------
 # The homework/worksheet PDF preview form posts every question back as a block
-# of individual fields (~15 per question: text, type, validation, difficulty,
-# points, rubric, explanation, image_ref, an always-submitted empty file input,
-# plus answer rows). A large workbook PDF can extract several hundred questions,
-# so the field count climbs fast: at ~334 questions it crosses 5000 and Django's
-# request parser raises TooManyFieldsSent *before the view runs* (CsrfViewMiddleware
-# reads request.POST first), surfacing as a bare "Bad Request (400)" on submit with
-# the URL still on the preview page. 20000 covers ~1300 questions with headroom;
-# this is an authenticated teacher-only endpoint so the larger ceiling is safe.
+# of individual fields (text, type, validation, difficulty, points, rubric,
+# explanation, image_ref, an always-submitted empty file input, plus answer
+# rows). A large workbook PDF can extract several hundred questions, so the
+# field count climbs fast: at ~334 questions it crossed 5000 and Django's
+# request parser raised TooManyFieldsSent *before the view runs*
+# (CsrfViewMiddleware reads request.POST first), surfacing as a bare
+# "Bad Request (400)" on submit with the URL still on the preview page.
+#
+# These ceilings are the backstop, NOT the fix. What actually keeps a workbook
+# under them is the review card posting only the fields it is editing: the nine
+# structured-spec panels are rendered on every card but disabled unless the
+# question's type uses one (worksheets.services.spec_panel_for_type). Posting
+# all of them cost ~29 parts per question and put the wall at 690 questions —
+# which is what prod session 134 hit. Editing only what applies costs ~13, so
+# 20000 covers ~1500 questions. Raising the number again is not the answer if
+# this recurs; count the parts one card posts first.
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 20000
 
-# Same form has one file input per question (image replace/upload). Django counts
-# only files that are actually chosen (empty file inputs parse as fields), but a
-# teacher replacing images across a big worksheet could exceed the default of 100
-# and hit the identical 400 via TooManyFilesSent. Lift it in step with the fields.
-DATA_UPLOAD_MAX_NUMBER_FILES = 1000
+# Same form has one file input per question (image replace/upload). Every file
+# PART counts here, not just the ones a teacher actually chose a file for: an
+# untouched file input is still submitted (as `filename=""`) and Django's
+# multipart parser counts it before it looks at the filename. So this ceiling is
+# read as "questions", the same as the field ceiling above, and has to be lifted
+# in step with it or it becomes the next bare 400 (TooManyFilesSent, identical
+# symptom). 2000 stays ahead of the ~1500 questions the field ceiling allows.
+DATA_UPLOAD_MAX_NUMBER_FILES = 2000
 
 # Third twin of the same bug. Even under the field/file ceilings, the preview form
 # is multipart/form-data and every non-file part (question text, AI-generated
