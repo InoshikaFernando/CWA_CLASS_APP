@@ -63,3 +63,38 @@ def ai_grading_login_alert(context):
     return {
         'alert': grading_alert_for_user(request.user, getattr(request, 'session', None)),
     }
+
+
+@register.filter
+def money(amount):
+    """Render a price with the currency that will actually be charged.
+
+    Every price in this product used to render as a bare ``$``, while
+    ``STRIPE_CURRENCY`` decides what the card is billed in. That is only
+    unambiguous to an American: the customers here are a Melbourne Pty Ltd and
+    an Aotearoa institute, and "$189.00/month" reads to both of them as their
+    own dollar — a reading that is reasonable rather than careless, and wrong
+    by roughly half.
+
+    The system already knows two currencies are in play: invoices to families
+    deliberately use the school's ``default_currency`` while subscriptions use
+    the env var (see ``stripe_service`` around the invoice-payment path). It
+    displayed neither.
+
+    A filter rather than a context variable so it cannot be half-applied: a
+    template that renders a price without it is visibly different from one
+    that does, and there is one format to change if it ever needs changing.
+
+    Usage: ``{{ plan.price|money }}`` -> ``USD $189.00``
+    """
+    from django.conf import settings
+
+    if amount is None or amount == '':
+        return ''
+    code = (getattr(settings, 'STRIPE_CURRENCY', 'usd') or 'usd').upper()
+    try:
+        return f'{code} ${amount:.2f}'
+    except (TypeError, ValueError):
+        # A price that is not a number is a bug elsewhere; showing it bare is
+        # better than a 500 on the page where somebody agrees to pay.
+        return f'{code} ${amount}'

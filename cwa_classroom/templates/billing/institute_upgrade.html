@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load billing_tags %}
 {% block title %}Upgrade Plan{% endblock %}
 
 {% block content %}
@@ -64,7 +65,7 @@
       </div>
       <div class="flex items-center gap-4">
         <div class="text-right">
-          <span class="text-lg font-bold text-gray-800">${{ plan.price }}</span>
+          <span class="text-lg font-bold text-gray-800">{{ plan.price|money }}</span>
           <span class="text-xs text-gray-500">/mo</span>
         </div>
         <div>
