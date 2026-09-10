@@ -14,7 +14,7 @@ from decimal import Decimal
 
 import requests
 from django.conf import settings
-from django.db.models import Sum
+from django.db.models import Count, Sum
 from django.utils import timezone
 
 from taskqueue.models import AIUsageLog
@@ -109,6 +109,53 @@ def aggregate_grading(days=None):
     }
 
 
+def aggregate_question_review(days=None):
+    """Sum semantic question review (``maths.QuestionAIReview``) over the window.
+
+    Read from its own table rather than the ``AIUsageLog`` ledger, for two
+    reasons that both come down to pricing honestly:
+
+    * it is charged per QUESTION, not per page, so it cannot share the
+      page-based table without inventing a $/page for work that has no pages;
+    * ``maths.ai_review`` prices each model from ``AI_REVIEW_RATES`` — a cheap
+      first pass and a stronger adjudicator, on purpose — while the ledger
+      prices a whole provider at one rate. Routing these tokens through the
+      ledger would bill a cheap review model at the extraction model's rate,
+      which is the same class of error the provider split exists to prevent.
+
+    ``cost`` counts only the reviews whose models had a configured rate;
+    ``unpriced`` says how many did not, so an under-reported total is visible
+    rather than silent. Returns zeros if nothing was reviewed, or ``None`` if
+    the maths app isn't available.
+    """
+    try:
+        from maths.models import QuestionAIReview
+    except Exception:
+        return None
+
+    qs = QuestionAIReview.objects.all()
+    if days:
+        qs = qs.filter(reviewed_at__gte=timezone.now() - timezone.timedelta(days=days))
+
+    agg = qs.aggregate(
+        reviews=Count('id'),
+        input_tokens=Sum('input_tokens'),
+        output_tokens=Sum('output_tokens'),
+        cost=Sum('cost_usd'),
+    )
+    reviews = agg['reviews'] or 0
+    cost = agg['cost'] or Decimal('0')
+    return {
+        'reviews': reviews,
+        'escalated': qs.filter(escalated=True).count(),
+        'input_tokens': agg['input_tokens'] or 0,
+        'output_tokens': agg['output_tokens'] or 0,
+        'cost': cost,
+        'per_review': (cost / reviews) if reviews else Decimal('0'),
+        'unpriced': qs.filter(cost_usd__isnull=True).count(),
+    }
+
+
 # Column headers for the generation table, with their alignment. Kept as data
 # and rendered through ``_row`` so every line — data, empty state, totals —
 # is built against the same column count: the totals row silently lost its
@@ -124,6 +171,11 @@ _GEN_COLUMNS = (
 _GRADING_COLUMNS = (
     ('Answers graded', '--:'), ('Tokens', '--:'), ('Cost (USD)', '--:'),
     ('$/answer', '--:'),
+)
+
+_REVIEW_COLUMNS = (
+    ('Questions reviewed', '--:'), ('Escalated', '--:'), ('Input tok', '--:'),
+    ('Output tok', '--:'), ('Cost (USD)', '--:'), ('$/question', '--:'),
 )
 
 _VENDOR_COLUMNS = (
@@ -243,7 +295,8 @@ def _unpriced_vendor_warnings(rates):
     return ['', *lines] if lines else []
 
 
-def render_markdown(rows, tot, window, *, generated_at=None, grading=None, env_label=None):
+def render_markdown(rows, tot, window, *, generated_at=None, grading=None,
+                    review=None, env_label=None):
     """Render the GitHub-flavoured dashboard (page-based generation + grading).
 
     ``env_label`` sets the heading — when given (e.g. "🏭 Production") this block
@@ -302,6 +355,25 @@ def render_markdown(rows, tot, window, *, generated_at=None, grading=None, env_l
                  _GRADING_COLUMNS),
         ]
 
+    if review is not None and review['reviews']:
+        grand_total += review['cost']
+        unpriced = ''
+        if review['unpriced']:
+            unpriced = (f' — {review["unpriced"]:,} of these had no configured '
+                        f'model rate, so the cost above is a floor')
+        lines += [
+            '',
+            '### Question review (per question)',
+            '',
+            *_header(_REVIEW_COLUMNS),
+            _row([f'{review["reviews"]:,}', f'{review["escalated"]:,}',
+                  f'{review["input_tokens"]:,}', f'{review["output_tokens"]:,}',
+                  f'${review["cost"]:.4f}', f'${review["per_review"]:.4f}'],
+                 _REVIEW_COLUMNS),
+        ]
+        if unpriced:
+            lines += ['', f'_{unpriced.lstrip(" —")}_']
+
     lines += [
         '',
         f'### 💰 Total AI cost — **${grand_total:.4f}**',
@@ -314,6 +386,13 @@ def render_markdown(rows, tot, window, *, generated_at=None, grading=None, env_l
         footnote += (
             'AI grading from `billing.AIGradingUsage` (per answer, bucketed by '
             'billing month, so its window is approximate). '
+        )
+    if review is not None and review['reviews']:
+        footnote += (
+            'Question review from `maths.QuestionAIReview` (per question, priced '
+            'per model from AI_REVIEW_RATES rather than at a whole provider\'s '
+            'rate, because it deliberately runs a cheap pass and a stronger '
+            'adjudicator). '
         )
     footnote += (
         'Cost by vendor splits the same generation ledger by billing vendor, '
@@ -334,8 +413,9 @@ def build_usage_markdown(days=None, generated_at=None, env_label=None):
     rows, tot = aggregate_usage(qs)
     window = f'last {days} days' if days else 'all time'
     grading = aggregate_grading(days)
+    review = aggregate_question_review(days)
     return render_markdown(rows, tot, window, generated_at=generated_at,
-                           grading=grading, env_label=env_label)
+                           grading=grading, review=review, env_label=env_label)
 
 
 # --- per-environment sections -------------------------------------------------

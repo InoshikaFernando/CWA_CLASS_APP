@@ -1,0 +1,44 @@
+{% extends "base_public.html" %}
+
+{% block title %}Bad Request{% endblock %}
+
+{% block content %}
+<section class="py-20 bg-gradient-to-br from-blue-50 to-slate-50 min-h-[60vh] flex items-center">
+  <div class="max-w-2xl mx-auto px-4 text-center">
+    <div class="mb-8">
+      <span class="font-display text-8xl text-primary/30">400</span>
+    </div>
+    <h1 class="font-display text-3xl text-gray-800 mb-4">
+      {% if too_large %}That form was too big to send{% else %}We couldn't read that request{% endif %}
+    </h1>
+    {% if too_large %}
+    <p class="text-gray-500 mb-4">
+      The page you submitted carried more fields than the server accepts in one
+      request, so none of it was saved. Nothing has been lost — the questions are
+      still on the review page exactly as they were.
+    </p>
+    <p class="text-gray-500 mb-8">
+      This happens on a very long PDF. Re-upload it in two smaller page ranges
+      using <span class="font-semibold">Pages to extract</span> on the upload
+      screen, and send each part through on its own.
+    </p>
+    {% else %}
+    <p class="text-gray-500 mb-8">
+      The request didn't reach us in a form the server could read. Go back, reload
+      the page and try again — if it keeps happening, tell us what you were doing.
+    </p>
+    {% endif %}
+    {% if back_url %}
+    <a href="{{ back_url }}"
+       class="inline-block bg-primary text-white hover:bg-primary-dark rounded-xl px-6 py-3 font-semibold transition">
+      Back to the review page
+    </a>
+    {% else %}
+    <a href="/"
+       class="inline-block bg-primary text-white hover:bg-primary-dark rounded-xl px-6 py-3 font-semibold transition">
+      Back to Home
+    </a>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
