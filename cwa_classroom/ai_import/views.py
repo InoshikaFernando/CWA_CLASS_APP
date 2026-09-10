@@ -16,6 +16,7 @@ from classroom.views import RoleRequiredMixin, _get_question_scope
 
 from worksheets.services import (
     answer_review_warning, preview_question_type_choices, question_source_page,
+    spec_panel_for_type,
 )
 
 from .models import AIImportSession, AIImportUsage
@@ -363,6 +364,16 @@ class PreviewQuestionsView(RoleRequiredMixin, View):
             # Flag a suspect answer key (explanation disagrees with / second-guesses
             # the ticked answer) so the teacher checks it before confirming.
             q['answer_warning'] = answer_review_warning(q)
+            # Which structured-spec panel this card's type edits ('' for the
+            # plain types). All eight panels are still rendered so the type
+            # dropdown can reveal one without a reload, but the inactive ones are
+            # DISABLED. Two reasons, both real: a browser posts every enabled
+            # field whether or not it is shown, so a long import crossed Django's
+            # request-parser field ceiling and "Save & Continue" came back as a
+            # bare 400; and the graph and measure panels share three field names,
+            # so the hidden one's stale copy was overwriting the visible one's
+            # edit (a QueryDict keeps the LAST value for a repeated key).
+            q['spec_panel'] = spec_panel_for_type(q.get('question_type'))
 
         from worksheets.page_selection import describe_page_selection
 
