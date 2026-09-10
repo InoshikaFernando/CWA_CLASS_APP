@@ -83,7 +83,7 @@ class ScheduleTestBase(TestCase):
         )
         ModuleSubscription.objects.create(
             school_subscription=cls.school_subscription,
-            module=ModuleSubscription.MODULE_QUESTION_AUTOMATION,
+            module=ModuleSubscription.MODULE_QUESTION_AUTOMATION_UNLIMITED,
             is_active=True,
         )
 

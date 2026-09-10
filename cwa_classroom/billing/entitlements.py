@@ -18,10 +18,13 @@ Multi-school design:
     independent of any school subscriptions. One payment covers access
     regardless of how many school classes they join.
 """
+import logging
 from decimal import Decimal
 
 from classroom.models import ClassRoom, SchoolStudent, SchoolTeacher, School
 from accounts.models import Role
+
+logger = logging.getLogger(__name__)
 
 
 def get_school_subscription(school):
@@ -201,10 +204,16 @@ def school_ids_with_module(module_slug):
     rows for other people's children, and the schedule cron runs with no
     request at all. Matches :func:`has_module` in treating a school with no
     subscription as not having the module.
+
+    *module_slug* may name a tier family, in which case a school holding any
+    tier matches. Passing one tier of a family matches the whole family too —
+    a cron that hard-coded Starter must not stop building for the schools that
+    pay for Unlimited.
     """
+    from billing import registry
     from billing.models import ModuleSubscription
     return ModuleSubscription.objects.filter(
-        module=module_slug,
+        module__in=registry.satisfied_by(module_slug),
         is_active=True,
     ).values_list('school_subscription__school_id', flat=True)
 
@@ -389,6 +398,95 @@ def check_ai_import_quota(school):
     used = usage.pages_processed
     remaining = max(0, limit - used)
     return (remaining, limit, used)
+
+
+#: Question-automation tiers, WEAKEST FIRST. Order is load-bearing: the
+#: resolver reads it backwards so a school holding more than one tier gets the
+#: strongest, not whichever row the database happened to return.
+#:
+#: This is deliberately unlike ``get_ai_grading_tier``, which walks its list
+#: forwards and so answers "starter" for a school holding all three, and unlike
+#: ``check_ai_import_quota``, which takes ``.first()`` off an unordered
+#: queryset and answers arbitrarily. Both are pre-existing; do not copy them.
+QUESTION_AUTOMATION_TIERS = (
+    'question_automation_starter',
+    'question_automation_professional',
+    'question_automation_unlimited',
+)
+
+
+def question_automation_tier(school):
+    """The strongest question-automation tier *school* holds, or None."""
+    sub = get_school_subscription(school)
+    if not sub:
+        return None
+    held = set(
+        sub.modules.filter(
+            module__in=QUESTION_AUTOMATION_TIERS, is_active=True,
+        ).values_list('module', flat=True)
+    )
+    for slug in reversed(QUESTION_AUTOMATION_TIERS):
+        if slug in held:
+            return slug
+    return None
+
+
+def running_schedule_count(school, on_date=None):
+    """Schedules running for *school* right now.
+
+    "Running" is not "ever created" and not merely ``is_active``. Nothing sets
+    ``is_active`` back to False when a term ends — its help text calls it a
+    pause switch — so a school that creates one schedule per class per term
+    accumulates them forever: ten classes reach forty rows within a year and
+    would trip a fifteen-schedule limit in their second term while never
+    running more than ten at once.
+
+    So the date window is part of the definition. ``start_date`` and
+    ``end_date`` are always populated, resolved from the scope on save, which
+    is what lets term-, year- and custom-scoped schedules answer this the same
+    way.
+    """
+    from django.utils import timezone as tz
+    from homework.models import QuestionSchedule
+
+    on_date = on_date or tz.localdate()
+    return QuestionSchedule.objects.filter(
+        classroom__school=school,
+        is_active=True,
+        start_date__lte=on_date,
+        end_date__gte=on_date,
+    ).count()
+
+
+def check_schedule_limit(school, on_date=None):
+    """May *school* start another schedule?
+
+    Returns ``(within_limit, current, limit)`` where a limit of None means
+    unlimited. A school with no tier gets ``(False, current, 0)`` — the module
+    gate has already refused them, and reporting "within limit" here would let
+    a caller that checked only this one through.
+    """
+    tier = question_automation_tier(school)
+    current = running_schedule_count(school, on_date=on_date)
+    if not tier:
+        return (False, current, 0)
+
+    from billing.models import ModuleProduct
+    try:
+        product = ModuleProduct.objects.get(module=tier)
+    except ModuleProduct.DoesNotExist:
+        # A tier that is sellable but has no product row is a seeding gap, not
+        # a reason to block a school that has paid. Surface it and allow.
+        logger.error(
+            'No ModuleProduct for %s — cannot read schedules_limit, allowing.',
+            tier,
+        )
+        return (True, current, None)
+
+    limit = product.schedules_limit
+    if limit is None:
+        return (True, current, None)
+    return (current < limit, current, limit)
 
 
 def record_invoice_usage(school, count):

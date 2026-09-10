@@ -410,7 +410,7 @@ def due_weeks(now=None, *, schedule_id=None):
     qs = qs.filter(
         Q(schedule__classroom__school__isnull=True)
         | Q(schedule__classroom__school_id__in=school_ids_with_module(
-            ModuleSubscription.MODULE_QUESTION_AUTOMATION)),
+            ModuleSubscription.FAMILY_QUESTION_AUTOMATION)),
     )
     # build_at() needs the schedule's release time and lead days, so the window
     # is applied in Python. The candidate set is small — active, ungenerated

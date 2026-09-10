@@ -71,8 +71,21 @@ MODULE_CATALOGUE: dict[str, dict] = {
     'report_automation': {
         'name': 'Student Report Automation', 'price': Decimal('10.00'),
     },
-    'question_automation': {
-        'name': 'Question Automation', 'price': Decimal('10.00'),
+    # Tiered on schedules running at once. 15 covers a Basic plan's 5 classes
+    # across three subjects; 75 covers Silver's 15 classes across five, or Gold
+    # at one or two. A schedule is per (class, subject), so a school's true
+    # count is classes x subjects, not classes.
+    'question_automation_starter': {
+        'name': 'Question Automation - Starter', 'price': Decimal('10.00'),
+        'schedules_limit': 15,
+    },
+    'question_automation_professional': {
+        'name': 'Question Automation - Professional', 'price': Decimal('25.00'),
+        'schedules_limit': 75,
+    },
+    'question_automation_unlimited': {
+        'name': 'Question Automation - Unlimited', 'price': Decimal('60.00'),
+        'schedules_limit': None,
     },
     'brainbuzz': {
         'name': 'BrainBuzz Live Quiz', 'price': Decimal('10.00'),

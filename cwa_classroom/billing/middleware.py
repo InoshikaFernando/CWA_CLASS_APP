@@ -95,7 +95,10 @@ class ModuleEnforcementMiddleware:
         module = self._module_for(request, view_func, match)
         if module is None:
             return None
-        if module in entitled_modules(request):
+        # Never compare the resolved slug directly: a tier family resolves to
+        # whichever of its members the registry lists first, so a school on a
+        # higher tier holds a different slug than the one this route names.
+        if registry.satisfied_by(module) & entitled_modules(request):
             return None
 
         self._record(request, module, match, blocked=(mode == ENFORCE))

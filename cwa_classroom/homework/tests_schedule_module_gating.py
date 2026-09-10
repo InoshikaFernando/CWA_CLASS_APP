@@ -21,7 +21,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import CustomUser, Role
-from billing.models import InstitutePlan, ModuleSubscription, SchoolSubscription
+from billing.models import (
+    InstitutePlan, ModuleProduct, ModuleSubscription, SchoolSubscription,
+)
 from classroom.models import (
     AcademicYear, ClassRoom, ClassTeacher, School, SchoolTeacher, Subject,
 )
@@ -81,7 +83,7 @@ class ScheduleGatingTest(TestCase):
     def _grant(self):
         return ModuleSubscription.objects.create(
             school_subscription=self.subscription,
-            module=ModuleSubscription.MODULE_QUESTION_AUTOMATION,
+            module=ModuleSubscription.MODULE_QUESTION_AUTOMATION_UNLIMITED,
             is_active=True,
         )
 
@@ -128,6 +130,94 @@ class ScheduleGatingTest(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertIn('module-required', resp['Location'])
         self.assertFalse(QuestionSchedule.objects.filter(name='Sneaky Plan').exists())
+
+    # -- the tier limit --------------------------------------------------
+
+    def _fill_to_limit(self, count):
+        """`count` schedules running today, so the next one is the (count+1)th."""
+        today = date.today()
+        for i in range(count):
+            QuestionSchedule.objects.create(
+                classroom=self.classroom, name=f'Running {i}',
+                scope=QuestionSchedule.SCOPE_CUSTOM,
+                start_date=today - timedelta(days=1),
+                end_date=today + timedelta(days=60),
+                is_active=True,
+            )
+
+    def _post_a_schedule(self, name):
+        url = reverse('homework:schedule_create',
+                      kwargs={'classroom_id': self.classroom.id})
+        return self.client.post(url, {
+            'name': name,
+            'subject_slug': 'mathematics',
+            'scope': QuestionSchedule.SCOPE_CUSTOM,
+            'start_date': date.today().isoformat(),
+            'end_date': (date.today() + timedelta(days=30)).isoformat(),
+            'release_weekday': 0,
+            'release_time': '08:00',
+            # The cadence fields carry model defaults but are still required by
+            # the ModelForm, so a payload without them never reaches the gate
+            # under test — it just fails validation.
+            'due_days': 7,
+            'lead_days': 3,
+            'num_questions': 10,
+            'avoid_repeat_weeks': 8,
+        })
+
+    def test_the_limit_refuses_at_creation_rather_than_silently_at_build(self):
+        """Refusing here is the point.
+
+        due_weeks() drops rows for a school without the module, which is right
+        for a lapsed subscription. A *limit* enforced there would generate
+        nothing and say nothing, and the teacher would find out via an empty
+        class weeks later.
+        """
+        ModuleSubscription.objects.create(
+            school_subscription=self.subscription,
+            module=ModuleSubscription.MODULE_QUESTION_AUTOMATION_STARTER,
+            is_active=True,
+        )
+        ModuleProduct.objects.update_or_create(
+            module=ModuleSubscription.MODULE_QUESTION_AUTOMATION_STARTER,
+            defaults={'name': 'QA Starter', 'price': Decimal('10.00'),
+                      'schedules_limit': 15, 'is_active': True},
+        )
+        self._fill_to_limit(15)
+
+        resp = self._post_a_schedule('Sixteenth Plan')
+
+        self.assertEqual(resp.status_code, 200)  # re-rendered, not redirected
+        self.assertContains(resp, '15 schedules running at once')
+        self.assertFalse(
+            QuestionSchedule.objects.filter(name='Sixteenth Plan').exists())
+
+    def test_finished_schedules_do_not_block_a_new_one(self):
+        """A school on its fifth term is not a school running 75 plans."""
+        ModuleSubscription.objects.create(
+            school_subscription=self.subscription,
+            module=ModuleSubscription.MODULE_QUESTION_AUTOMATION_STARTER,
+            is_active=True,
+        )
+        ModuleProduct.objects.update_or_create(
+            module=ModuleSubscription.MODULE_QUESTION_AUTOMATION_STARTER,
+            defaults={'name': 'QA Starter', 'price': Decimal('10.00'),
+                      'schedules_limit': 15, 'is_active': True},
+        )
+        today = date.today()
+        for i in range(20):
+            QuestionSchedule.objects.create(
+                classroom=self.classroom, name=f'Finished {i}',
+                scope=QuestionSchedule.SCOPE_CUSTOM,
+                start_date=today - timedelta(days=200),
+                end_date=today - timedelta(days=100),
+                is_active=True,
+            )
+
+        self._post_a_schedule('This Term')
+
+        self.assertTrue(
+            QuestionSchedule.objects.filter(name='This Term').exists())
 
     # -- the cron --------------------------------------------------------
 

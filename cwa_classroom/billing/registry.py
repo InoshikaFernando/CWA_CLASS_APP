@@ -67,6 +67,22 @@ class Module:
     view_modules: tuple = ()
     #: DRF router basenames, as registered in ``api/urls.py``.
     api_basenames: tuple = ()
+    #: Tier family this module belongs to, e.g. ``ai_import``. Blank for a
+    #: module that stands alone.
+    #:
+    #: A family is a set of slugs a school holds exactly *one* of, where the
+    #: tier decides an allowance rather than which pages open. Holding any of
+    #: them must therefore open all of the family's routes, and that is not
+    #: automatic: :func:`module_for_route` returns the *first* registry entry
+    #: whose namespace or prefix matches, so without this an ``ai_import``
+    #: route resolves to ``ai_import_starter`` for everyone and a school on
+    #: Enterprise is denied a page it has paid more for. Shadow mode is the
+    #: only reason that has not been seen in production.
+    #:
+    #: Use :func:`satisfied_by` to turn a requirement into the set of slugs
+    #: that meet it; never compare a resolved module slug directly against a
+    #: school's entitlements.
+    family: str = ''
     #: Free-text note for the module the sales page will need.
     note: str = ''
 
@@ -156,15 +172,20 @@ _add(Module(
     note='Scheduled, unattended sending. Manual sending stays in the base reports module.',
 ))
 
-_add(Module(
-    slug='question_automation',
-    name='Question Automation',
-    audience=INSTITUTE,
-    # Pages AND cron: schedule_services.due_weeks() runs with no request.
-    enforcement=(ROUTE, SERVICE),
-    route_prefixes=('schedule_',),
-    note='Teaching plan scheduled across a term or year, built unattended.',
-))
+for _slug, _label in (
+    ('question_automation_starter', 'Question Automation — Starter'),
+    ('question_automation_professional', 'Question Automation — Professional'),
+    ('question_automation_unlimited', 'Question Automation — Unlimited'),
+):
+    _add(Module(
+        slug=_slug, name=_label, audience=INSTITUTE,
+        # Pages AND cron: schedule_services.due_weeks() runs with no request.
+        enforcement=(ROUTE, SERVICE),
+        route_prefixes=('schedule_',),
+        family='question_automation',
+        note=('Teaching plan scheduled across a term or year, built '
+              'unattended. Tiered by concurrently running schedules.'),
+    ))
 
 for _slug, _label, _pages in (
     ('ai_import_starter', 'AI Question Import — Starter', 300),
@@ -176,6 +197,7 @@ for _slug, _label, _pages in (
         # One namespace, three tiers: whichever tier is held opens the same
         # pages, and the tier decides the monthly page quota.
         namespaces=('ai_import',),
+        family='ai_import',
         note='Tiered by pages/month.',
     ))
 
@@ -189,6 +211,7 @@ for _slug, _label in (
         # Enforced inside worksheets.grading_service, not on a URL: grading
         # happens on submission and in background jobs.
         enforcement=(SERVICE,),
+        family='ai_grading',
         note='Tiered by AI-graded answers/month.',
     ))
 
@@ -331,6 +354,38 @@ def module_for_route(namespace: str | None, url_name: str | None) -> str | None:
                 return module.slug
 
     return None
+
+
+def members_of(family: str) -> frozenset:
+    """Every slug in *family*, or an empty set if no such family exists."""
+    if not family:
+        return frozenset()
+    return frozenset(m.slug for m in REGISTRY.values() if m.family == family)
+
+
+def satisfied_by(requirement: str | None) -> frozenset:
+    """The slugs that satisfy *requirement* — the set to test entitlements against.
+
+    *requirement* may be a module slug or a family name. A slug in a tier
+    family expands to the whole family, because the tiers differ by allowance
+    and not by which pages they open: a school on Enterprise must not be
+    turned away from a route that happens to resolve to Starter.
+
+    Anything unrecognised comes back as itself, so a caller passing a slug this
+    registry has never heard of gets a denial rather than a silent allow.
+    """
+    if not requirement:
+        return frozenset()
+
+    module = REGISTRY.get(requirement)
+    if module is not None and module.family:
+        return members_of(module.family)
+
+    family = members_of(requirement)
+    if family:
+        return family
+
+    return frozenset({requirement})
 
 
 def module_for_view_module(view_module: str | None) -> str | None:
