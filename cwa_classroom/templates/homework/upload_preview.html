@@ -225,45 +225,45 @@
             </div>
 
             <!-- Long division (bus-stop layout) — shown only for long_division -->
-            <div id="longdiv-section-{{ q_idx }}"
-                 class="bg-indigo-50 rounded-lg p-3 grid grid-cols-2 gap-3 {% if not q.question_type == 'long_division' %}hidden{% endif %}">
+            <div id="longdiv-section-{{ q_idx }}" data-spec-panel="longdiv"
+                 class="bg-indigo-50 rounded-lg p-3 grid grid-cols-2 gap-3 {% if q.spec_panel != 'longdiv' %}hidden{% endif %}">
               <div>
                 <label class="block text-xs font-medium text-indigo-500 mb-1">Dividend (number being divided)</label>
                 <input type="text" name="q_{{ q_idx }}_dividend" value="{{ q.dividend|default:'' }}"
-                       placeholder="e.g. 611"
+                       placeholder="e.g. 611" {% if q.spec_panel != 'longdiv' %}disabled{% endif %}
                        class="w-full border border-indigo-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
               </div>
               <div>
                 <label class="block text-xs font-medium text-indigo-500 mb-1">Divisor (number dividing)</label>
                 <input type="text" name="q_{{ q_idx }}_divisor" value="{{ q.divisor|default:'' }}"
-                       placeholder="e.g. 47"
+                       placeholder="e.g. 47" {% if q.spec_panel != 'longdiv' %}disabled{% endif %}
                        class="w-full border border-indigo-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
               </div>
               <p class="col-span-2 text-[11px] text-indigo-400">The answer is calculated automatically from the dividend and divisor.</p>
             </div>
 
             <!-- Prime factorisation — shown only for prime_factorization -->
-            <div id="primefactor-section-{{ q_idx }}"
-                 class="bg-indigo-50 rounded-lg p-3 {% if not q.question_type == 'prime_factorization' %}hidden{% endif %}">
+            <div id="primefactor-section-{{ q_idx }}" data-spec-panel="primefactor"
+                 class="bg-indigo-50 rounded-lg p-3 {% if q.spec_panel != 'primefactor' %}hidden{% endif %}">
               <label class="block text-xs font-medium text-indigo-500 mb-1">Number to factorise</label>
               <input type="text" name="q_{{ q_idx }}_target_number" value="{{ q.target_number|default:'' }}"
-                     placeholder="e.g. 60"
+                     placeholder="e.g. 60" {% if q.spec_panel != 'primefactor' %}disabled{% endif %}
                      class="w-full border border-indigo-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
               <p class="text-[11px] text-indigo-400 mt-1">The app draws the factor ladder and works the answer out from this number, so there are no answer options.</p>
             </div>
 
             <!-- Column arithmetic (stacked +/−/×) — shown only for column_operation -->
-            <div id="column-section-{{ q_idx }}"
-                 class="bg-indigo-50 rounded-lg p-3 grid grid-cols-3 gap-3 {% if not q.question_type == 'column_operation' %}hidden{% endif %}">
+            <div id="column-section-{{ q_idx }}" data-spec-panel="column"
+                 class="bg-indigo-50 rounded-lg p-3 grid grid-cols-3 gap-3 {% if q.spec_panel != 'column' %}hidden{% endif %}">
               <div class="col-span-2">
                 <label class="block text-xs font-medium text-indigo-500 mb-1">Operands (top-to-bottom, comma-separated)</label>
                 <input type="text" name="q_{{ q_idx }}_operands" value="{% if q.operands %}{{ q.operands|join:', ' }}{% endif %}"
-                       placeholder="e.g. 23, 25"
+                       placeholder="e.g. 23, 25" {% if q.spec_panel != 'column' %}disabled{% endif %}
                        class="w-full border border-indigo-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500">
               </div>
               <div>
                 <label class="block text-xs font-medium text-indigo-500 mb-1">Operator</label>
-                <select name="q_{{ q_idx }}_operator"
+                <select name="q_{{ q_idx }}_operator" {% if q.spec_panel != 'column' %}disabled{% endif %}
                         class="w-full border border-indigo-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
                   <option value="+" {% if q.operator == '+' %}selected{% endif %}>+ (add)</option>
                   <option value="-" {% if q.operator == '-' %}selected{% endif %}>− (subtract)</option>
@@ -274,41 +274,41 @@
             </div>
 
             <!-- Cartesian plane — shown for plot_points / plot_line / identify_coords -->
-            <div id="plane-section-{{ q_idx }}"
-                 class="bg-sky-50 rounded-lg p-3 {% if not q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' %}hidden{% endif %}">
+            <div id="plane-section-{{ q_idx }}" data-spec-panel="plane"
+                 class="bg-sky-50 rounded-lg p-3 {% if q.spec_panel != 'plane' %}hidden{% endif %}">
               <label class="block text-xs font-medium text-sky-600 mb-1">Plane spec (JSON)</label>
-              <textarea name="q_{{ q_idx }}_plane_spec" rows="4"
+              <textarea name="q_{{ q_idx }}_plane_spec" rows="4" {% if q.spec_panel != 'plane' %}disabled{% endif %}
                         placeholder='{"bounds":{"xmin":-5,"xmax":5,"ymin":-5,"ymax":5},"mode":"points","target":{"points":[[3,-2]]}}'
                         class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 resize-y">{% if q.plane_spec %}{{ q.plane_spec_json }}{% endif %}</textarea>
               <p class="text-[11px] text-sky-500 mt-1">Signed integer coords. mode "points" (plot / identify) or "segments" (plot &amp; join). The answer is graded from this.</p>
             </div>
 
             <!-- Read a graph — shown only for read_graph -->
-            <div id="graph-section-{{ q_idx }}"
-                 class="bg-sky-50 rounded-lg p-3 space-y-3 {% if not q.question_type == 'read_graph' %}hidden{% endif %}">
+            <div id="graph-section-{{ q_idx }}" data-spec-panel="graph"
+                 class="bg-sky-50 rounded-lg p-3 space-y-3 {% if q.spec_panel != 'graph' %}hidden{% endif %}">
               <div class="grid grid-cols-3 gap-3">
                 <div>
                   <label class="block text-xs font-medium text-sky-600 mb-1">Answer (value to read)</label>
                   <input type="text" name="q_{{ q_idx }}_numeric_answer" value="{% if q.numeric_answer is not None %}{{ q.numeric_answer }}{% endif %}"
-                         placeholder="e.g. 130"
+                         placeholder="e.g. 130" {% if q.spec_panel != 'graph' %}disabled{% endif %}
                          class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500">
                 </div>
                 <div>
                   <label class="block text-xs font-medium text-sky-600 mb-1">Tolerance (±)</label>
                   <input type="text" name="q_{{ q_idx }}_answer_tolerance" value="{% if q.answer_tolerance is not None %}{{ q.answer_tolerance }}{% endif %}"
-                         placeholder="e.g. 5"
+                         placeholder="e.g. 5" {% if q.spec_panel != 'graph' %}disabled{% endif %}
                          class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500">
                 </div>
                 <div>
                   <label class="block text-xs font-medium text-sky-600 mb-1">Unit</label>
                   <input type="text" name="q_{{ q_idx }}_answer_unit" value="{{ q.answer_unit|default:'' }}"
-                         placeholder="e.g. km"
+                         placeholder="e.g. km" {% if q.spec_panel != 'graph' %}disabled{% endif %}
                          class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
                 </div>
               </div>
               <div>
                 <label class="block text-xs font-medium text-sky-600 mb-1">Graph spec (JSON, optional — leave blank to keep the graph image)</label>
-                <textarea name="q_{{ q_idx }}_graph_spec" rows="3"
+                <textarea name="q_{{ q_idx }}_graph_spec" rows="3" {% if q.spec_panel != 'graph' %}disabled{% endif %}
                           placeholder='{"title":"Race","x_axis":{"label":"Time","unit":"min","min":0,"max":110,"step":10},"y_axis":{"label":"Distance","unit":"km","min":0,"max":320,"step":65},"series":[{"points":[[20,65],[40,130]]}]}'
                           class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 resize-y">{% if q.graph_spec %}{{ q.graph_spec_json }}{% endif %}</textarea>
               </div>
@@ -320,53 +320,53 @@
             once — two inputs sharing a name means the POST silently keeps
             whichever the browser sent first.
             {% endcomment %}
-            <div id="measure-section-{{ q_idx }}"
-                 class="bg-sky-50 rounded-lg p-3 grid grid-cols-3 gap-3 {% if not q.question_type == 'measure' %}hidden{% endif %}">
+            <div id="measure-section-{{ q_idx }}" data-spec-panel="measure"
+                 class="bg-sky-50 rounded-lg p-3 grid grid-cols-3 gap-3 {% if q.spec_panel != 'measure' %}hidden{% endif %}">
               <div>
                 <label class="block text-xs font-medium text-sky-600 mb-1">Correct value</label>
                 <input type="text" name="q_{{ q_idx }}_measure_numeric_answer" value="{% if q.numeric_answer is not None %}{{ q.numeric_answer }}{% endif %}"
-                       placeholder="e.g. 135"
+                       placeholder="e.g. 135" {% if q.spec_panel != 'measure' %}disabled{% endif %}
                        class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500">
               </div>
               <div>
                 <label class="block text-xs font-medium text-sky-600 mb-1">Tolerance (±)</label>
                 <input type="text" name="q_{{ q_idx }}_measure_answer_tolerance" value="{% if q.answer_tolerance is not None %}{{ q.answer_tolerance }}{% endif %}"
-                       placeholder="e.g. 2"
+                       placeholder="e.g. 2" {% if q.spec_panel != 'measure' %}disabled{% endif %}
                        class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-500">
               </div>
               <div>
                 <label class="block text-xs font-medium text-sky-600 mb-1">Unit</label>
                 <input type="text" name="q_{{ q_idx }}_measure_answer_unit" value="{{ q.answer_unit|default:'' }}"
-                       placeholder="e.g. °"
+                       placeholder="e.g. °" {% if q.spec_panel != 'measure' %}disabled{% endif %}
                        class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
               </div>
             </div>
 
             <!-- Number line — shown only for number_line -->
-            <div id="numberline-section-{{ q_idx }}"
-                 class="bg-sky-50 rounded-lg p-3 {% if not q.question_type == 'number_line' %}hidden{% endif %}">
+            <div id="numberline-section-{{ q_idx }}" data-spec-panel="numberline"
+                 class="bg-sky-50 rounded-lg p-3 {% if q.spec_panel != 'numberline' %}hidden{% endif %}">
               <label class="block text-xs font-medium text-sky-600 mb-1">Number-line spec (JSON)</label>
-              <textarea name="q_{{ q_idx }}_number_line_spec" rows="3"
+              <textarea name="q_{{ q_idx }}_number_line_spec" rows="3" {% if q.spec_panel != 'numberline' %}disabled{% endif %}
                         placeholder='{"min":-3,"max":7,"step":1,"mode":"mark","target":[2]}'
                         class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 resize-y">{% if q.number_line_spec %}{{ q.number_line_spec_json }}{% endif %}</textarea>
               <p class="text-[11px] text-sky-500 mt-1">mode "mark" (tap ticks to mark target) or "read" (arrow at given, student types it). Every target/given value must land on a tick. The answer is graded from this.</p>
             </div>
 
             <!-- Table of values — shown only for table_of_values -->
-            <div id="table-section-{{ q_idx }}"
-                 class="bg-sky-50 rounded-lg p-3 {% if not q.question_type == 'table_of_values' %}hidden{% endif %}">
+            <div id="table-section-{{ q_idx }}" data-spec-panel="table"
+                 class="bg-sky-50 rounded-lg p-3 {% if q.spec_panel != 'table' %}hidden{% endif %}">
               <label class="block text-xs font-medium text-sky-600 mb-1">Table spec (JSON)</label>
-              <textarea name="q_{{ q_idx }}_table_spec" rows="4"
+              <textarea name="q_{{ q_idx }}_table_spec" rows="4" {% if q.spec_panel != 'table' %}disabled{% endif %}
                         placeholder='{"headers":["Money value","Decimal form"],"rows":[[{"given":"56c"},{"answer":"0.56"}]],"tolerance":0}'
                         class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 resize-y">{% if q.table_spec %}{{ q.table_spec_json }}{% endif %}</textarea>
               <p class="text-[11px] text-sky-500 mt-1">One cell per header per row: {"given": …} is printed for the student, {"answer": …} is a blank they fill (numeric). The app draws the table and grades it, so there are no answer options.</p>
             </div>
 
             <!-- Sketch a graph — shown only for sketch_graph -->
-            <div id="sketch-section-{{ q_idx }}"
-                 class="bg-sky-50 rounded-lg p-3 {% if not q.question_type == 'sketch_graph' %}hidden{% endif %}">
+            <div id="sketch-section-{{ q_idx }}" data-spec-panel="sketch"
+                 class="bg-sky-50 rounded-lg p-3 {% if q.spec_panel != 'sketch' %}hidden{% endif %}">
               <label class="block text-xs font-medium text-sky-600 mb-1">Sketch spec (JSON)</label>
-              <textarea name="q_{{ q_idx }}_sketch_spec" rows="5"
+              <textarea name="q_{{ q_idx }}_sketch_spec" rows="5" {% if q.spec_panel != 'sketch' %}disabled{% endif %}
                         placeholder='{"equation":"y = x^2 + x - 2","bounds":{"xmin":-6,"xmax":6,"ymin":-4,"ymax":8},"curve":{"type":"quadratic","a":1,"b":1,"c":-2},"features":[{"kind":"vertex","points":[[-0.5,-2.25]]},{"kind":"axis_of_symmetry","value":-0.5}]}'
                         class="w-full border border-sky-200 rounded-lg px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 resize-y">{% if q.sketch_spec %}{{ q.sketch_spec_json }}{% endif %}</textarea>
               <p class="text-[11px] text-sky-500 mt-1">The app draws the blank plane and takes one box per feature the question names — vertex, x/y intercepts, axis of symmetry — each marked within the tolerance. Coordinates are decimals. There are no answer options.</p>
@@ -387,8 +387,7 @@
             Rendered either way: omitting it meant that switching a question
             BACK to short answer left no answers list in the page at all.
             {% endcomment %}
-            <div id="answers-row-{{ q_idx }}"
-                 {% if q.question_type == 'extended_answer' or q.question_type == 'long_division' or q.question_type == 'column_operation' or q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' or q.question_type == 'read_graph' or q.question_type == 'measure' or q.question_type == 'number_line' or q.question_type == 'table_of_values' or q.question_type == 'sketch_graph' or q.question_type == 'prime_factorization' %}class="hidden"{% endif %}>
+            <div id="answers-row-{{ q_idx }}" {% if q.hide_answers %}class="hidden"{% endif %}>
               <label class="block text-xs font-medium text-gray-500 mb-2">Answers <span class="text-gray-400 font-normal">(tick the correct one — add alternatives that should also be accepted)</span></label>
               {% if q.answer_warning %}
               <p class="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">⚠ {{ q.answer_warning }}</p>
@@ -530,6 +529,22 @@
   // gave you no way to fix.
   //
   // Every panel is now present and hidden; this shows the one that applies.
+  //
+  // A hidden panel is also DISABLED, and that half is not cosmetic: a browser
+  // posts every enabled field on the form, shown or not, so leaving all nine
+  // panels enabled sent ~16 fields per question that the server ignores. On a
+  // several-hundred-question workbook that crossed Django's request-parser
+  // field ceiling and the submit came back as a bare "Bad Request (400)" with
+  // the teacher still on this page. Enable a panel only while it applies, and
+  // the form posts what the card is actually editing. The server renders the
+  // same state (see spec_panel_for_type) so this holds without JS too.
+  function setPanelEnabled(el, on) {
+    el.classList.toggle('hidden', !on);
+    el.querySelectorAll('input, select, textarea').forEach(function (field) {
+      field.disabled = !on;
+    });
+  }
+
   function handleTypeChange(idx, newType) {
     var planeTypes = ['plot_points', 'plot_line', 'identify_coords'];
     var panels = {
@@ -546,7 +561,7 @@
     var anyStructured = false;
     for (var name in panels) {
       var el = document.getElementById(name + '-section-' + idx);
-      if (el) { el.classList.toggle('hidden', !panels[name]); }
+      if (el) { setPanelEnabled(el, panels[name]); }
       if (panels[name]) { anyStructured = true; }
     }
     // These types compute their answer from the structured fields, so the
