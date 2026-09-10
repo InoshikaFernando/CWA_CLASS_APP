@@ -127,18 +127,21 @@ class TestReviewContinue:
 
     @pytest.mark.django_db(transaction=True)
     def test_upload_review_and_continue_reaches_the_confirm_step(
-        self, page: Page, live_server, school, teacher_user, tmp_path
+        self, page: Page, live_server, school_with_ai_pages, teacher_user, tmp_path
     ):
         pdf_path = tmp_path / "workbook.pdf"
         pdf_path.write_bytes(_pdf_bytes())
 
         do_login(page, str(live_server), teacher_user)
 
+        # Driven as a school that can actually spend AI pages, rather than
+        # patching the budget check past: reading a PDF with AI needs an AI
+        # module now, and a school without one does not get a submit button to
+        # click at all — patching only the POST-time check would leave the page
+        # in a state this journey never reaches.
         with mock.patch('taskqueue.services.enqueue_task', _run_inline), \
              mock.patch('worksheets.services.extract_and_classify_worksheet',
-                        _canned_extraction), \
-             mock.patch('billing.page_quota.check_page_budget',
-                        return_value=(True, '', None)):
+                        _canned_extraction):
             page.goto(f"{live_server}/homework/pdf/upload/")
             page.wait_for_load_state("domcontentloaded")
             page.set_input_files('input[name="pdf_file"]', str(pdf_path))

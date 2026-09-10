@@ -139,7 +139,36 @@ def _unmetered(reason, tier_name=''):
     return {
         'metered': False, 'unlimited': True, 'limit': 0, 'used': 0,
         'remaining': UNLIMITED, 'percent': 0, 'warn': False, 'exhausted': False,
+        'no_allowance': False,
         'tier_name': tier_name, 'next_tier_name': '', 'next_tier_pages': 0,
+        'reset_label': _period_reset_label(), 'reason': reason,
+    }
+
+
+# Reasons a school has no allowance at all, as opposed to having spent one.
+# check_page_budget writes a different message for each: "buy the module" is
+# useless advice to someone with no school to attach it to, and "wait for your
+# allowance to reset" is useless advice to someone who never had one.
+NO_ALLOWANCE_REASONS = ('no_ai_module', 'no_school')
+
+
+def _no_allowance(reason):
+    """Status for a school that has never had an allowance to spend.
+
+    Metered with a limit of zero rather than unmetered. Before this, a school
+    with no AI module fell through as unmetered and uploaded unlimited PDFs
+    through homework and worksheets — every page a real Anthropic call — while
+    the schools that *had* bought a tier were the only ones capped. The tier is
+    the licence to spend AI pages at all, wherever the upload starts.
+    """
+    return {
+        'metered': True, 'unlimited': False, 'limit': 0, 'used': 0,
+        'remaining': 0, 'percent': 100, 'warn': False, 'exhausted': True,
+        # The one the templates branch on: "never had an allowance", as opposed
+        # to `exhausted`, which means "had one and spent it". They need
+        # different words and a different link.
+        'no_allowance': True,
+        'tier_name': '', 'next_tier_name': '', 'next_tier_pages': 0,
         'reset_label': _period_reset_label(), 'reason': reason,
     }
 
@@ -160,11 +189,20 @@ def quota_status(school, *, unlimited=False):
     if unlimited:
         return _unmetered('superuser', tier_name='Unlimited (Admin)')
     if school is None:
-        return _unmetered('no_school')
+        # A teacher role is school-linked by construction, so this is an account
+        # part-way through setup rather than a supported kind of user. It has no
+        # subscription to charge, so it cannot spend AI pages.
+        return _no_allowance('no_school')
 
     module_slug, product = _active_tier(school)
+    if module_slug is None:
+        # No AI module at all — no allowance to draw on, anywhere.
+        return _no_allowance('no_ai_module')
     if product is None:
-        return _unmetered('no_ai_module', tier_name=tier_label(module_slug))
+        # On a tier the catalogue has no row for: a paying school we can't price.
+        # _active_tier has already logged it; fail open rather than refuse a
+        # school that has actually bought something.
+        return _unmetered('tier_not_in_catalogue', tier_name=tier_label(module_slug))
 
     # NULL = not applicable, 0 = unlimited (ModuleProduct.pages_per_month).
     if product.pages_per_month is None or product.pages_per_month == 0:
@@ -179,6 +217,7 @@ def quota_status(school, *, unlimited=False):
     return {
         'metered': True,
         'unlimited': False,
+        'no_allowance': False,
         'limit': limit,
         'used': used,
         'remaining': remaining,
@@ -203,6 +242,48 @@ def _upgrade_sentence(status):
             f'more, or wait until your allowance resets on {status["reset_label"]}.')
 
 
+def ai_plans_url():
+    """Where a teacher goes to buy AI pages.
+
+    The AI import tier comparison — Starter / Professional / Enterprise with
+    their monthly page counts — which is the thing being bought, whichever
+    upload screen the teacher was refused on. Not itself gated.
+    """
+    from django.urls import reverse, NoReverseMatch
+    try:
+        return reverse('ai_import:tier_select')
+    except NoReverseMatch:  # pragma: no cover - urlconf without ai_import
+        return ''
+
+
+def _no_allowance_message(status):
+    """What a teacher whose school has no AI pages at all should read.
+
+    Marked safe so the toast can carry the link; every part of it is a literal
+    or a reversed URL, so there is nothing user-supplied to escape.
+    """
+    from django.utils.html import format_html
+    from django.utils.safestring import mark_safe
+
+    if status['reason'] == 'no_school':
+        return mark_safe(
+            'Your account is not linked to a school yet, so it has no AI page '
+            'allowance to draw on. Ask your institute administrator to add you, '
+            'then try again.'
+        )
+
+    url = ai_plans_url()
+    body = ('Reading a PDF with AI needs an AI module, and your school does not '
+            'have one. You can still upload authored questions as JSON or ZIP, '
+            'and build homework from the question bank, without it.')
+    if not url:
+        return mark_safe(body)
+    return format_html(
+        '{} <a href="{}" class="underline font-semibold">See the AI plans</a>.',
+        body, url,
+    )
+
+
 def check_page_budget(school, pages, *, unlimited=False):
     """Can ``school`` afford ``pages`` right now?
 
@@ -218,6 +299,12 @@ def check_page_budget(school, pages, *, unlimited=False):
     pages = max(0, int(pages or 0))
     if pages <= status['remaining']:
         return True, None, status
+
+    # Never had an allowance, as opposed to having spent one. "Upgrade" and
+    # "wait for your reset" are both wrong here — there is nothing to upgrade
+    # from and the reset lands on the same zero. Point at the plans instead.
+    if status['reason'] in NO_ALLOWANCE_REASONS:
+        return False, _no_allowance_message(status), status
 
     if status['exhausted']:
         message = (

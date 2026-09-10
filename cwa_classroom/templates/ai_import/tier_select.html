@@ -7,11 +7,17 @@
     <p class="text-gray-400 text-sm mt-2">Upload PDFs and let AI extract, classify, and create questions automatically.</p>
   </div>
 
-  <!-- Year 1 Discount Banner -->
+  {% comment %}
+  The introductory offer is stated only when billing actually applies it —
+  ai_discount_enabled in billing/ai_tiers.py. It advertised half price for
+  months while every invoice charged full price.
+  {% endcomment %}
+  {% if ai_discount_enabled %}
   <div class="bg-gradient-to-r from-primary/10 to-accent/10 border border-primary/20 rounded-2xl p-4 text-center">
-    <p class="text-sm font-bold text-primary">50% off your first year on all plans!</p>
-    <p class="text-xs text-gray-500 mt-0.5">Introductory pricing for early adopters. Full price applies after 6 months.</p>
+    <p class="text-sm font-bold text-primary">{{ ai_discount_percent }}% off your {{ ai_discount_label }} on all plans!</p>
+    <p class="text-xs text-gray-500 mt-0.5">Introductory pricing for early adopters. Full price applies after {{ ai_discount_months }} months.</p>
   </div>
+  {% endif %}
 
   <!-- Tier Cards -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -27,10 +33,12 @@
 
       <div class="mt-4 mb-6">
         <div class="flex items-baseline gap-1">
-          <span class="font-display text-4xl text-primary">${{ tier.year1_price }}</span>
+          <span class="font-display text-4xl text-primary">${% if ai_discount_enabled %}{{ tier.intro_price }}{% else %}{{ tier.price }}{% endif %}</span>
           <span class="text-gray-400 text-sm">/mo</span>
         </div>
-        <p class="text-xs text-gray-400 mt-0.5"><s>${{ tier.price }}/mo</s> &mdash; first 6 months</p>
+        {% if ai_discount_enabled %}
+        <p class="text-xs text-gray-400 mt-0.5">for your {{ ai_discount_label }}, then ${{ tier.price }}/mo</p>
+        {% endif %}
       </div>
 
       <ul class="space-y-2 text-sm text-gray-600 flex-1">
