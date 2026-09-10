@@ -9,6 +9,7 @@ must not come back on every navigation, but a head who never clicks anything
 should still see it, so the session flag is only written once the modal has
 actually rendered in front of them.
 {% endcomment %}
+{% load billing_tags %}
 {% if alert %}
 <div id="ai-grading-alert-modal"
      class="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4"
@@ -45,7 +46,7 @@ actually rendered in front of them.
         <p class="text-sm text-gray-800">
           <strong>{{ alert.next_tier_name }}</strong>
           {% if alert.next_tier_answers %}— {{ alert.next_tier_answers }} answers a month{% else %}— unlimited answers{% endif %}
-          {% if alert.next_tier_price %}<span class="text-gray-500">· ${{ alert.next_tier_price }}/mo</span>{% endif %}
+          {% if alert.next_tier_price %}<span class="text-gray-500">· {{ alert.next_tier_price|money }}/mo</span>{% endif %}
         </p>
       </div>
       {% endif %}

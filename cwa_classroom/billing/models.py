@@ -502,7 +502,7 @@ class ModuleProduct(models.Model):
 
 
 class ModuleSubscription(models.Model):
-    """Per-school module add-on subscriptions ($10/mo each)."""
+    """Per-school module add-on subscriptions, each priced by its ModuleProduct."""
     MODULE_TEACHERS_ATTENDANCE = 'teachers_attendance'
     MODULE_STUDENTS_ATTENDANCE = 'students_attendance'
     MODULE_PROGRESS_REPORTS = 'student_progress_reports'

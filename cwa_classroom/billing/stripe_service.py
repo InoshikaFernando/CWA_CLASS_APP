@@ -417,7 +417,7 @@ def change_institute_plan(school_subscription, new_plan):
 # ---------------------------------------------------------------------------
 
 def add_module_to_subscription(school_subscription, module_slug, stripe_price_id):
-    """Add a module as a subscription item ($10/mo add-on)."""
+    """Add a module as a subscription item, billed at its own price."""
     _ensure_stripe_key()
     if not school_subscription.stripe_subscription_id:
         raise ValueError('No active Stripe subscription')

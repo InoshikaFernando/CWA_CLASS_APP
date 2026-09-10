@@ -83,6 +83,21 @@ class Module:
     #: that meet it; never compare a resolved module slug directly against a
     #: school's entitlements.
     family: str = ''
+    #: Position in the family's ladder, 1 = weakest. Zero for a module that
+    #: stands alone.
+    #:
+    #: A family is a *set*, so it cannot answer "which tier comes first" — and
+    #: three places needed that answer and each kept its own ordered list
+    #: (``AI_GRADING_MODULES``, ``GRADING_TIER_ORDER``, ``AI_IMPORT_TIERS``).
+    #: When question_automation became a third ladder none of them knew, and
+    #: the billing page simply stopped offering it: excluded from the flat
+    #: module list for having siblings, and absent from the two hand-written
+    #: tier sections. Enforceable, gated, and unbuyable.
+    #:
+    #: Ranking here means :func:`ordered_members_of` can answer it once, and a
+    #: fourth ladder appears in the UI because it exists rather than because
+    #: somebody remembered.
+    tier_rank: int = 0
     #: Free-text note for the module the sales page will need.
     note: str = ''
 
@@ -172,13 +187,13 @@ _add(Module(
     note='Scheduled, unattended sending. Manual sending stays in the base reports module.',
 ))
 
-for _slug, _label in (
+for _rank, (_slug, _label) in enumerate((
     ('question_automation_starter', 'Question Automation — Starter'),
     ('question_automation_professional', 'Question Automation — Professional'),
     ('question_automation_unlimited', 'Question Automation — Unlimited'),
-):
+), start=1):
     _add(Module(
-        slug=_slug, name=_label, audience=INSTITUTE,
+        slug=_slug, name=_label, audience=INSTITUTE, tier_rank=_rank,
         # Pages AND cron: schedule_services.due_weeks() runs with no request.
         enforcement=(ROUTE, SERVICE),
         route_prefixes=('schedule_',),
@@ -187,13 +202,13 @@ for _slug, _label in (
               'unattended. Tiered by concurrently running schedules.'),
     ))
 
-for _slug, _label, _pages in (
+for _rank, (_slug, _label, _pages) in enumerate((
     ('ai_import_starter', 'AI Question Import — Starter', 300),
     ('ai_import_professional', 'AI Question Import — Professional', None),
     ('ai_import_enterprise', 'AI Question Import — Enterprise', None),
-):
+), start=1):
     _add(Module(
-        slug=_slug, name=_label, audience=INSTITUTE,
+        slug=_slug, name=_label, audience=INSTITUTE, tier_rank=_rank,
         # One namespace, three tiers: whichever tier is held opens the same
         # pages, and the tier decides the monthly page quota.
         namespaces=('ai_import',),
@@ -201,13 +216,13 @@ for _slug, _label, _pages in (
         note='Tiered by pages/month.',
     ))
 
-for _slug, _label in (
+for _rank, (_slug, _label) in enumerate((
     ('ai_grading_starter', 'AI Grading — Starter'),
     ('ai_grading_professional', 'AI Grading — Professional'),
     ('ai_grading_enterprise', 'AI Grading — Enterprise'),
-):
+), start=1):
     _add(Module(
-        slug=_slug, name=_label, audience=INSTITUTE,
+        slug=_slug, name=_label, audience=INSTITUTE, tier_rank=_rank,
         # Enforced inside worksheets.grading_service, not on a URL: grading
         # happens on submission and in background jobs.
         enforcement=(SERVICE,),
@@ -386,6 +401,32 @@ def satisfied_by(requirement: str | None) -> frozenset:
         return family
 
     return frozenset({requirement})
+
+
+def ordered_members_of(family: str) -> tuple:
+    """The family's modules, weakest tier first. Empty for an unknown family.
+
+    The ordered counterpart to :func:`members_of`. Anything rendering or
+    resolving a ladder wants this, so the order lives in one place instead of
+    in a hand-written list per caller.
+    """
+    return tuple(sorted(
+        (m for m in REGISTRY.values() if m.family == family),
+        key=lambda m: m.tier_rank,
+    ))
+
+
+def families() -> tuple:
+    """Every tier family, as ``(family, ordered_modules)``, in registry order.
+
+    Exists so the billing page can render whatever ladders the product has
+    rather than the ones somebody wrote a template block for.
+    """
+    seen = []
+    for module in REGISTRY.values():
+        if module.family and module.family not in seen:
+            seen.append(module.family)
+    return tuple((f, ordered_members_of(f)) for f in seen)
 
 
 def siblings_of(slug: str | None) -> frozenset:
