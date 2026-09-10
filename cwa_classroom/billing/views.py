@@ -1263,6 +1263,20 @@ class ModuleToggleView(LoginRequiredMixin, View):
                         module=module_slug,
                         defaults={'is_active': True, 'deactivated_at': None},
                     )
+                # The plans page quotes the first-year price, so the discount
+                # is attached here — automatically, with no code for anyone to
+                # type. Stripe drops it after twelve months on its own.
+                #
+                # A failure is SHOWN, never swallowed: the school was quoted
+                # half price, so silently landing on the full price is an
+                # overcharge nobody would notice until the invoice.
+                from billing import ai_tiers
+                if module_slug in AI_IMPORT_SLUGS and ai_tiers.INTRO_DISCOUNT_ENABLED:
+                    from billing.stripe_service import apply_ai_intro_discount
+                    applied, discount_error = apply_ai_intro_discount(sub)
+                    if not applied and discount_error:
+                        messages.warning(request, discount_error)
+
                 log_event(
                     user=request.user, school=school, category='billing',
                     action='module_activated',
