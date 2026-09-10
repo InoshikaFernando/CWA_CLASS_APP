@@ -370,15 +370,15 @@ def check_ai_import_quota(school):
     if not sub:
         return (0, 0, 0)
 
-    ai_module = sub.modules.filter(
-        module__startswith='ai_import_', is_active=True,
-    ).select_related().first()
-    if not ai_module:
+    # Strongest tier held, never `.first()` off an unordered queryset: a school
+    # that ends up on two rows must get the quota it pays most for.
+    tier = strongest_tier(sub, AI_IMPORT_TIERS)
+    if not tier:
         return (0, 0, 0)
 
     from billing.models import ModuleProduct
     try:
-        product = ModuleProduct.objects.get(module=ai_module.module)
+        product = ModuleProduct.objects.get(module=tier)
     except ModuleProduct.DoesNotExist:
         return (0, 0, 0)
 
@@ -400,35 +400,95 @@ def check_ai_import_quota(school):
     return (remaining, limit, used)
 
 
-#: Question-automation tiers, WEAKEST FIRST. Order is load-bearing: the
-#: resolver reads it backwards so a school holding more than one tier gets the
-#: strongest, not whichever row the database happened to return.
-#:
-#: This is deliberately unlike ``get_ai_grading_tier``, which walks its list
-#: forwards and so answers "starter" for a school holding all three, and unlike
-#: ``check_ai_import_quota``, which takes ``.first()`` off an unordered
-#: queryset and answers arbitrarily. Both are pre-existing; do not copy them.
+#: Tier ladders, WEAKEST FIRST. Order is load-bearing — :func:`strongest_tier`
+#: reads these backwards — so a slug added in the wrong place silently changes
+#: what a school on two tiers resolves to.
 QUESTION_AUTOMATION_TIERS = (
     'question_automation_starter',
     'question_automation_professional',
     'question_automation_unlimited',
 )
 
+AI_IMPORT_TIERS = (
+    'ai_import_starter',
+    'ai_import_professional',
+    'ai_import_enterprise',
+)
 
-def question_automation_tier(school):
-    """The strongest question-automation tier *school* holds, or None."""
-    sub = get_school_subscription(school)
+
+def strongest_tier(sub, ordered_tiers):
+    """The strongest slug in *ordered_tiers* that *sub* holds, or None.
+
+    One query, and one rule for every ladder: read the tiers weakest-first and
+    answer with the last match.
+
+    A school is not supposed to hold two tiers of one family — the add path
+    retires the sibling, and :func:`deactivate_sibling_modules` does the same
+    for grants — but "supposed to" is not a guarantee. An upgrade that fails
+    between adding the new item and removing the old, a grant that lands
+    alongside an existing tier, a Stripe webhook arriving out of order: any of
+    those leaves two active rows, and ``unique_together`` is per (subscription,
+    module) so nothing at the database level prevents it.
+
+    When that happens the school must get the tier it pays MOST for. Both of
+    the resolvers this replaces did the opposite — one walked its ladder
+    forwards and answered "starter" for a school holding all three, the other
+    took ``.first()`` off an unordered queryset and answered arbitrarily.
+    Neither raised; the school was simply served a smaller quota than it bought
+    and nobody found out.
+    """
     if not sub:
         return None
     held = set(
         sub.modules.filter(
-            module__in=QUESTION_AUTOMATION_TIERS, is_active=True,
+            module__in=ordered_tiers, is_active=True,
         ).values_list('module', flat=True)
     )
-    for slug in reversed(QUESTION_AUTOMATION_TIERS):
+    for slug in reversed(tuple(ordered_tiers)):
         if slug in held:
             return slug
     return None
+
+
+def question_automation_tier(school):
+    """The strongest question-automation tier *school* holds, or None."""
+    return strongest_tier(get_school_subscription(school), QUESTION_AUTOMATION_TIERS)
+
+
+def ai_import_tier(school):
+    """The strongest AI-import tier *school* holds, or None."""
+    return strongest_tier(get_school_subscription(school), AI_IMPORT_TIERS)
+
+
+def deactivate_sibling_modules(school_subscription, module_slug):
+    """Retire the other tiers of *module_slug*'s family. Returns the slugs hit.
+
+    A no-op for a module that stands alone, so callers apply it unconditionally.
+
+    This does NOT touch Stripe. Callers that bill through Stripe must remove
+    the subscription item as well — ``ModuleToggleView`` does — or the school
+    keeps paying for a tier that no longer takes effect. It exists for the
+    paths that never had a Stripe item to begin with: comped grants, trials,
+    and local activation.
+    """
+    from django.utils import timezone as tz
+
+    from billing import registry
+    from billing.models import ModuleSubscription
+
+    siblings = registry.siblings_of(module_slug)
+    if not siblings:
+        return frozenset()
+
+    stale = ModuleSubscription.objects.filter(
+        school_subscription=school_subscription,
+        module__in=siblings,
+        is_active=True,
+    )
+    hit = frozenset(stale.values_list('module', flat=True))
+    if hit:
+        stale.update(is_active=False, deactivated_at=tz.now())
+    return hit
 
 
 def running_schedule_count(school, on_date=None):

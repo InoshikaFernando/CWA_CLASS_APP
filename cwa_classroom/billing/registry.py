@@ -388,6 +388,22 @@ def satisfied_by(requirement: str | None) -> frozenset:
     return frozenset({requirement})
 
 
+def siblings_of(slug: str | None) -> frozenset:
+    """The other tiers in *slug*'s family — the rows that must be retired.
+
+    Empty for a module that stands alone, so a caller can apply this
+    unconditionally. A family is pick-one: holding two tiers means being billed
+    twice while only one takes effect, and which one takes effect depends on
+    the resolver you happen to ask.
+    """
+    if not slug:
+        return frozenset()
+    module = REGISTRY.get(slug)
+    if module is None or not module.family:
+        return frozenset()
+    return members_of(module.family) - {slug}
+
+
 def module_for_view_module(view_module: str | None) -> str | None:
     """The module owning every view in this Python module, or None.
 

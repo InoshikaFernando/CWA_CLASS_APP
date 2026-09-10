@@ -26,6 +26,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
+from billing.entitlements import deactivate_sibling_modules
 from billing.models import ModuleSubscription, SchoolSubscription
 
 VALID = {slug for slug, _label in ModuleSubscription.MODULE_CHOICES}
@@ -152,6 +153,18 @@ class Command(BaseCommand):
                     ModuleSubscription.objects.create(
                         school_subscription=sub, module=module, is_active=True,
                     )
+
+                # Granting a tier retires the rest of its ladder. Without this,
+                # granting Enterprise to a school already on Starter leaves two
+                # active rows, and the school is served whichever the resolver
+                # reaches — historically the weaker one. A no-op for a module
+                # that stands alone.
+                retired = deactivate_sibling_modules(sub, module)
+                if retired:
+                    self.stdout.write(self.style.WARNING(
+                        f'  ~ {sub.school.name}: retired '
+                        f'{", ".join(sorted(retired))} (same tier family)'))
+
                 granted.append(sub.school.name)
 
                 self._log(sub, module, options['reason'])

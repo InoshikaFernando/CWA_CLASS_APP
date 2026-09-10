@@ -693,11 +693,18 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
         # once and be billed for both while only one took effect.
         from billing.page_quota import AI_IMPORT_MODULE_PREFIX
         from billing.quota_alerts import GRADING_TIER_ORDER
-        AI_IMPORT_SLUGS = {'ai_import_starter', 'ai_import_professional', 'ai_import_enterprise'}
-        AI_GRADING_SLUGS = set(GRADING_TIER_ORDER)
+        from billing import registry
+        AI_IMPORT_SLUGS = registry.members_of('ai_import')
+        # Any module in a family is a ladder, so ask the registry instead of
+        # naming the two we happened to know about. question_automation became
+        # a third ladder, and a hard-coded list would have shown its tiers here
+        # as three independent switches — precisely the bug above.
+        #
+        # GRADING_TIER_ORDER stays for the tier CARDS further down: those need
+        # the ladder in weakest-to-strongest order, and a family is a set.
         standard_modules = [
             (k, v) for k, v in ModuleSubscription.MODULE_CHOICES
-            if k not in AI_IMPORT_SLUGS and k not in AI_GRADING_SLUGS
+            if not registry.siblings_of(k)
         ]
         # Shared with the public plans page — see billing/ai_tiers.py. This
         # list used to be a second copy whose 'price' key meant the discounted
@@ -1223,21 +1230,18 @@ class ModuleToggleView(LoginRequiredMixin, View):
         # tier it replaces, or the school is billed for two and only one takes
         # effect. Grading was missing from this and was sold as three separate
         # $10 modules that could all be switched on at once.
-        from billing.quota_alerts import GRADING_TIER_ORDER
-        AI_IMPORT_SLUGS = {'ai_import_starter', 'ai_import_professional', 'ai_import_enterprise'}
-        AI_GRADING_SLUGS = set(GRADING_TIER_ORDER)
-        if module_slug in AI_IMPORT_SLUGS:
-            exclusive_family = AI_IMPORT_SLUGS
-        elif module_slug in AI_GRADING_SLUGS:
-            exclusive_family = AI_GRADING_SLUGS
-        else:
-            exclusive_family = set()
+        # Read the family from the registry rather than listing it here. This
+        # was two hard-coded sets, and question_automation became a third
+        # ladder without either of them knowing — a new family that nobody
+        # remembered to add would silently sell two tiers at once.
+        from billing import registry
+        AI_IMPORT_SLUGS = registry.members_of('ai_import')
 
         try:
             if action == 'add':
                 # Deactivate the other tiers in this family (mutual exclusivity)
-                if exclusive_family:
-                    other_ai_slugs = exclusive_family - {module_slug}
+                other_ai_slugs = registry.siblings_of(module_slug)
+                if other_ai_slugs:
                     for other_slug in other_ai_slugs:
                         existing = ModuleSubscription.objects.filter(
                             school_subscription=sub, module=other_slug, is_active=True,
