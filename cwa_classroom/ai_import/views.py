@@ -815,37 +815,17 @@ class TierSelectView(LoginRequiredMixin, View):
         current_tier = _get_ai_import_tier(school) if school else None
         remaining, limit, used = _get_remaining_pages(school) if school and current_tier else (0, 0, 0)
 
-        tiers = [
-            {
-                'slug': 'ai_import_starter',
-                'name': 'Starter',
-                'pages': 300,
-                'price': 30,
-                'year1_price': 15,
-                'is_current': current_tier == 'ai_import_starter',
-            },
-            {
-                'slug': 'ai_import_professional',
-                'name': 'Professional',
-                'pages': 600,
-                'price': 60,
-                'year1_price': 30,
-                'is_current': current_tier == 'ai_import_professional',
-            },
-            {
-                'slug': 'ai_import_enterprise',
-                'name': 'Enterprise',
-                'pages': 1000,
-                'price': 99,
-                'year1_price': 50,
-                'is_current': current_tier == 'ai_import_enterprise',
-            },
-        ]
+        # The ladder and the wording of the introductory offer both come from
+        # billing.ai_tiers, so this page and the institute dashboard cannot
+        # quote different prices or different discount durations.
+        from billing.ai_tiers import ai_import_tiers, discount_context
 
-        return render(request, 'ai_import/tier_select.html', {
-            'tiers': tiers,
+        context = {
+            'tiers': ai_import_tiers(current_tier),
             'current_tier': current_tier,
             'remaining_pages': remaining,
             'page_limit': limit,
             'pages_used': used,
-        })
+        }
+        context.update(discount_context())
+        return render(request, 'ai_import/tier_select.html', context)

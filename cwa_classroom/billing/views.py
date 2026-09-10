@@ -699,11 +699,13 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
             (k, v) for k, v in ModuleSubscription.MODULE_CHOICES
             if k not in AI_IMPORT_SLUGS and k not in AI_GRADING_SLUGS
         ]
-        ai_import_tiers = [
-            {'slug': 'ai_import_starter', 'name': 'Starter', 'pages': 300, 'price': 15, 'full_price': 30, 'discount_months': 6},
-            {'slug': 'ai_import_professional', 'name': 'Professional', 'pages': 600, 'price': 30, 'full_price': 60, 'discount_months': 6},
-            {'slug': 'ai_import_enterprise', 'name': 'Enterprise', 'pages': 1000, 'price': 50, 'full_price': 99, 'discount_months': 6},
-        ]
+        # Shared with the public plans page — see billing/ai_tiers.py. This
+        # list used to be a second copy whose 'price' key meant the discounted
+        # price while the plans page's meant the full one.
+        from billing.ai_tiers import (
+            ai_import_tiers as _ai_import_tiers, discount_context,
+        )
+        ai_import_tiers = _ai_import_tiers()
         active_ai_import_tier = next(
             (s for s in AI_IMPORT_SLUGS if s in active_modules), None
         )
@@ -763,6 +765,9 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
                 if grading_limit else 0
             ),
             'page_quota': quota_status(school),
+            # The introductory offer's wording, from the same place the plans
+            # page takes it.
+            **discount_context(),
         })
 
 
