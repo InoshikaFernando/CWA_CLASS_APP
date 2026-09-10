@@ -485,6 +485,16 @@ jobs:
               - 'cwa_classroom/templates/homework/**'
               - 'cwa_classroom/templates/ai_import/**'
               - 'cwa_classroom/templates/_partials/**'
+              # The worksheet upload screen is one of the three PDF screens
+              # these tests drive, so its template belongs here as well as to
+              # ui_worksheets.
+              - 'cwa_classroom/templates/worksheets/**'
+              # The AI page meter is a billing partial rendered on all three
+              # upload screens, and the PDF control on a school with no AI
+              # module leads to billing's "needs an AI module" page. Break
+              # either and these tests fail with nothing under an upload app
+              # touched.
+              - 'cwa_classroom/templates/billing/**'
               - 'cwa_classroom/ui_tests/xls_fixtures.py'
             ui_worksheets:
               - 'cwa_classroom/ui_tests/worksheets/**'

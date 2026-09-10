@@ -287,6 +287,35 @@ def individual_student_user(db, roles):
 
 
 @pytest.fixture
+def school_with_ai_pages(school, teacher_user):
+    """A school the teacher belongs to, on one priced AI tier.
+
+    Two things a PDF-upload test needs and `school` alone does not give it:
+
+    * `teacher_user` is not a SchoolTeacher of `school`, so the page allowance
+      resolves through no school at all — which now means no AI pages;
+    * `school` switches on every module in MODULE_CHOICES including all three AI
+      tiers, none of which has a catalogue row, so _active_tier lands on an
+      unpriced one.
+
+    Spending AI pages needs an AI module wherever the upload starts, so a test
+    that uploads a PDF has to say which kind of school it is driving.
+    """
+    from billing.models import ModuleSubscription
+    from billing.testing import grant_ai_pages
+    from classroom.models import SchoolTeacher
+
+    SchoolTeacher.objects.get_or_create(
+        school=school, teacher=teacher_user, defaults={"role": "teacher"},
+    )
+    ModuleSubscription.objects.filter(
+        school_subscription__school=school, module__startswith="ai_import_",
+    ).update(is_active=False)
+    grant_ai_pages(school, pages=600)
+    return school
+
+
+@pytest.fixture
 def teacher_user(db, roles):
     from accounts.models import Role
     return _make_user("ui_teacher", Role.TEACHER)
