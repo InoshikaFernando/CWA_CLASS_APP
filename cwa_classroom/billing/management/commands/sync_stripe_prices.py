@@ -274,9 +274,34 @@ class Command(BaseCommand):
                         f"(from: {match['product_name']})"
                     ))
                 updated_modules += 1
+            elif create_missing:
+                # Until this branch existed, --create-missing covered institute
+                # plans only. Modules fell through to [MISS] and the summary
+                # still read "Module Products: updated 0", so the command
+                # looked like it had done its job while creating nothing.
+                if dry_run:
+                    self.stdout.write(self.style.WARNING(
+                        f"  [DRY RUN] {mp.name} (${mp.price}/mo) -- "
+                        f"would create Stripe Product + Price"
+                    ))
+                    updated_modules += 1
+                else:
+                    price_id = self._create_stripe_product_and_price(
+                        mp.name, mp.price, mp.module, 'module',
+                        extra_metadata={'module_slug': mp.module},
+                    )
+                    if price_id:
+                        mp.stripe_price_id = price_id
+                        mp.save(update_fields=['stripe_price_id'])
+                        self.stdout.write(self.style.SUCCESS(
+                            f"  [CREATED] {mp.name} (${mp.price}/mo) -- "
+                            f"stripe_price_id={price_id}"
+                        ))
+                        updated_modules += 1
             else:
                 self.stdout.write(self.style.WARNING(
-                    f"  [MISS] {mp.name} -- no matching Stripe price found"
+                    f"  [MISS] {mp.name} -- no matching Stripe price found "
+                    f"(re-run with --create-missing to create it)"
                 ))
 
         # Summary
@@ -289,13 +314,24 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write(self.style.WARNING('\nDry run -- no changes saved. Run without --dry-run to apply.'))
 
-    def _create_stripe_product_and_price(self, name, price_amount, slug, product_type):
-        """Create a Stripe Product and recurring monthly Price. Returns the price ID."""
+    def _create_stripe_product_and_price(self, name, price_amount, slug,
+                                         product_type, extra_metadata=None):
+        """Create a Stripe Product and recurring monthly Price. Returns the price ID.
+
+        ``extra_metadata`` matters more than it looks. The module matcher below
+        keys off ``metadata.module_slug``, so a module product created without
+        it would not be found on the next run — the command would create a
+        second Stripe product every time it was called, and the name-keyword
+        fallback would never cover the newer modules. Stamping the slug at
+        creation is what makes this idempotent.
+        """
         currency = getattr(settings, 'STRIPE_CURRENCY', 'usd')
+        metadata = {'slug': slug, 'type': product_type}
+        metadata.update(extra_metadata or {})
         try:
             product = stripe.Product.create(
                 name=name,
-                metadata={'slug': slug, 'type': product_type},
+                metadata=metadata,
             )
             price = stripe.Price.create(
                 product=product.id,

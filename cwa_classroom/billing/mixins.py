@@ -91,9 +91,16 @@ class ModuleRequiredMixin(_SchoolResolverMixin):
     def dispatch(self, request, *args, **kwargs):
         if self.required_module:
             school = self._resolve_school(request, *args, **kwargs)
-            if school and not has_module(school, self.required_module):
+            # A tier family is satisfied by any of its members, so expand the
+            # requirement rather than testing the declared slug alone —
+            # otherwise a view marked with one tier turns away the schools on
+            # the others. ``satisfied_by`` returns the slug itself for a module
+            # that stands alone, so single-slug views are unaffected.
+            from billing import registry
+            candidates = registry.satisfied_by(self.required_module)
+            if school and not any(has_module(school, s) for s in candidates):
                 # Multi-school fallback: check all schools the user belongs to
-                if not has_module_any_school(request.user, self.required_module):
+                if not any(has_module_any_school(request.user, s) for s in candidates):
                     from audit.services import log_event
                     log_event(
                         user=request.user, school=school,

@@ -484,6 +484,15 @@ class ModuleProduct(models.Model):
         null=True, blank=True,
         help_text='Monthly AI-graded answer quota. Null = unlimited. Only relevant for ai_grading_* modules.',
     )
+    schedules_limit = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text=(
+            'How many question-automation schedules may run at the same time. '
+            'Null = unlimited. Counts schedules whose date window covers today '
+            'and which are not paused — never the schedules a school has ever '
+            'created, which only ever grows.'
+        ),
+    )
 
     class Meta:
         ordering = ['module']
@@ -503,6 +512,36 @@ class ModuleSubscription(models.Model):
     MODULE_AI_GRADING_STARTER = 'ai_grading_starter'
     MODULE_AI_GRADING_PROFESSIONAL = 'ai_grading_professional'
     MODULE_AI_GRADING_ENTERPRISE = 'ai_grading_enterprise'
+    # Automation add-ons. Each sits on top of a feature that is already sold:
+    # the base module buys the thing, these buy it happening without anyone
+    # clicking. Priced separately because unattended runs are what cost us.
+    MODULE_REPORT_AUTOMATION = 'report_automation'
+    # Question automation is tiered on how many schedules run at once, because
+    # that — not the student roll — is what the weekly build and its downstream
+    # homework notifications actually scale with.
+    MODULE_QUESTION_AUTOMATION_STARTER = 'question_automation_starter'
+    MODULE_QUESTION_AUTOMATION_PROFESSIONAL = 'question_automation_professional'
+    MODULE_QUESTION_AUTOMATION_UNLIMITED = 'question_automation_unlimited'
+    #: Family name, NOT a sellable slug — deliberately absent from
+    #: MODULE_CHOICES. Views declare this rather than a tier so that any tier
+    #: opens the pages; billing.registry.satisfied_by() expands it.
+    FAMILY_QUESTION_AUTOMATION = 'question_automation'
+    # Features that exist and are currently free. Declared here so they can be
+    # priced and so shadow mode can measure who would be affected; nothing is
+    # denied until MODULE_ENFORCEMENT is switched on. See billing/registry.py.
+    MODULE_BRAINBUZZ = 'brainbuzz'
+    MODULE_WORKSHEETS = 'worksheets'
+    MODULE_WHATSAPP = 'whatsapp_notifications'
+    # Student invoicing: fee schedules, invoice numbering, line items,
+    # part-payments and reversals, and parent card checkout. Free until now by
+    # inheritance rather than by decision — it lives in `classroom` and
+    # `billing`, both base for unrelated reasons (enrolment; you must be able
+    # to pay us). Schools are using it today, so it grandfathers.
+    MODULE_INVOICING = 'invoicing'
+    # Deliberately NOT here: 'rewards'. Points and the leaderboard are free on
+    # every plan and belong to the base product — see billing/registry.py
+    # BASE_APPS for why. A slug listed here is a thing we can charge for, so
+    # leaving it out is the decision, not an omission.
 
     MODULE_CHOICES = [
         (MODULE_TEACHERS_ATTENDANCE, 'Teachers Attendance'),
@@ -514,6 +553,14 @@ class ModuleSubscription(models.Model):
         (MODULE_AI_GRADING_STARTER, 'AI Grading - Starter (1,000 answers/mo)'),
         (MODULE_AI_GRADING_PROFESSIONAL, 'AI Grading - Professional (5,000 answers/mo)'),
         (MODULE_AI_GRADING_ENTERPRISE, 'AI Grading - Enterprise (unlimited)'),
+        (MODULE_REPORT_AUTOMATION, 'Student Report Automation (scheduled sending)'),
+        (MODULE_QUESTION_AUTOMATION_STARTER, 'Question Automation - Starter (15 schedules)'),
+        (MODULE_QUESTION_AUTOMATION_PROFESSIONAL, 'Question Automation - Professional (75 schedules)'),
+        (MODULE_QUESTION_AUTOMATION_UNLIMITED, 'Question Automation - Unlimited'),
+        (MODULE_BRAINBUZZ, 'BrainBuzz Live Quiz'),
+        (MODULE_WORKSHEETS, 'Worksheets'),
+        (MODULE_WHATSAPP, 'WhatsApp Parent Notifications'),
+        (MODULE_INVOICING, 'Student Invoicing'),
     ]
 
     school_subscription = models.ForeignKey(

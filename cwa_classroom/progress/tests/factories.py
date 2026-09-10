@@ -7,6 +7,7 @@ visible.
 """
 
 from datetime import timedelta
+from decimal import Decimal
 
 from django.utils import timezone
 
@@ -19,6 +20,10 @@ from homework.models import (
     Homework, HomeworkStudentAnswer, HomeworkSubmission,
 )
 from maths.models import Question
+
+# Spelled out rather than imported from billing.models so this module stays
+# importable without the app registry being ready.
+_REPORTS_BY_DEFAULT = ('student_progress_reports', 'report_automation')
 
 
 def role(name, display=None):
@@ -36,13 +41,58 @@ def make_user(username, role_name='student', **kwargs):
     return user
 
 
-def make_school(admin=None, name='Test School', slug='test-school'):
+def make_school(admin=None, name='Test School', slug='test-school',
+                modules=_REPORTS_BY_DEFAULT):
+    """A school that has bought the progress-reports module.
+
+    Reports are a paid add-on, so a school with no ModuleSubscription cannot
+    read one. Almost every test in this package is about what a report says,
+    not about who may buy one, and making each of them set up billing first
+    would bury the interesting part. So the default school is a subscribed
+    one, and the tests that are about entitlement pass ``modules=[]`` to get
+    a school that has bought nothing.
+    """
     # The admin username is derived from the slug so a test that needs a second
     # school does not collide on CustomUser.email, which is unique.
-    return School.objects.create(
+    school = School.objects.create(
         name=name, slug=slug,
         admin=admin or make_user(f'admin-{slug}', 'admin'),
     )
+    if modules:
+        grant_modules(school, modules)
+    return school
+
+
+def grant_modules(school, modules):
+    """Give *school* a subscription carrying *modules*.
+
+    Creates the SchoolSubscription a module has to hang off — the plan's
+    limits are all set to unlimited so this never becomes a second, invisible
+    reason a test fails.
+    """
+    from billing.models import (
+        InstitutePlan, ModuleSubscription, SchoolSubscription,
+    )
+
+    plan, _ = InstitutePlan.objects.get_or_create(
+        slug='test-unlimited',
+        defaults={
+            'name': 'Test Unlimited', 'price': Decimal('0.00'),
+            'class_limit': 0, 'student_limit': 0,
+            'invoice_limit_yearly': 100000,
+            'extra_invoice_rate': Decimal('0.00'),
+        },
+    )
+    sub, _ = SchoolSubscription.objects.get_or_create(
+        school=school,
+        defaults={'plan': plan, 'status': SchoolSubscription.STATUS_ACTIVE},
+    )
+    for slug in modules:
+        ModuleSubscription.objects.get_or_create(
+            school_subscription=sub, module=slug,
+            defaults={'is_active': True},
+        )
+    return sub
 
 
 def make_classroom(school, name='Year 5 Maths', code='RPT00001'):
