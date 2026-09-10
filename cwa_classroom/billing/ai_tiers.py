@@ -30,25 +30,30 @@ MODULE_PREFIX = 'ai_import_'
 # The introductory offer
 # ---------------------------------------------------------------------------
 #
-# Half price for the first year, then full price.
+# Half price for the first year, then full price. Stated on the plans page and
+# the institute dashboard.
 #
-# OFF, deliberately. Nothing in the add-module path applies a discount:
-# ``ModuleToggleView`` hands ``ModuleProduct.stripe_price_id`` to
+# ---------------------------------------------------------------------------
+# READ THIS BEFORE CHANGING THE PRICES
+# ---------------------------------------------------------------------------
+# The discount is DISPLAY ONLY until a Stripe coupon exists for it. Nothing in
+# the add-module path applies one: ``ModuleToggleView`` hands
+# ``ModuleProduct.stripe_price_id`` to
 # ``stripe_service.add_module_to_subscription``, which creates a plain
 # ``SubscriptionItem`` at that price — no coupon, no schedule, no end date. So
-# every month, from the first, is billed at the full catalogue price.
+# until the coupon is wired, a school shown $14.50 is invoiced $29.
 #
-# Advertising a discounted price while charging the full one is the more
-# expensive direction of that mistake, so the offer stays off the page until
-# the billing side exists. Turning this on without wiring the coupon puts the
-# original bug back.
+# To make it true: create a Stripe coupon with
+# ``percent_off=INTRO_DISCOUNT_PERCENT``, ``duration='repeating'``,
+# ``duration_in_months=INTRO_DISCOUNT_MONTHS``, and ``applies_to.products``
+# limited to the AI import products — so the school's institute plan is not
+# discounted along with the module — then attach it when the module is added.
+# ``stripe_service._build_stripe_coupon_kwargs`` already builds repeating
+# coupons for discount codes and is the place to extend.
 #
-# To turn it on: create a Stripe coupon (percent_off=INTRO_DISCOUNT_PERCENT,
-# duration='repeating', duration_in_months=INTRO_DISCOUNT_MONTHS) and apply it
-# to the module's subscription item — the item, not the subscription, or the
-# institute plan gets discounted too. ``stripe_service`` already builds
-# repeating coupons for discount codes and is the place for it.
-INTRO_DISCOUNT_ENABLED = False
+# Setting this to False takes the offer off both pages in one edit; the prices
+# shown then fall back to the catalogue price, which is what is charged.
+INTRO_DISCOUNT_ENABLED = True
 INTRO_DISCOUNT_PERCENT = 50
 INTRO_DISCOUNT_MONTHS = 12
 INTRO_DISCOUNT_LABEL = 'first year'

@@ -207,37 +207,38 @@ class RenderedPagesTests(TestCase):
             self.assertIn('$59.00', body, label)
             self.assertIn('$99.00', body, label)
 
-    def test_neither_page_advertises_a_discount_that_billing_does_not_apply(self):
-        """Nothing in the add-module path applies a coupon, so nothing on the
-        page may promise one."""
-        self.assertFalse(
-            ai_tiers.INTRO_DISCOUNT_ENABLED,
-            'Turning the offer on needs the Stripe coupon wired first — see '
-            'billing/ai_tiers.py.',
-        )
+    def test_both_pages_state_the_same_first_year_offer(self):
+        """The offer is one year at half price, said the same way in both places.
+
+        The bug was the two pages disagreeing — "first year" in the banner,
+        "6 months" in the small print one line below, and a third answer on the
+        dashboard.
+        """
         for label, body in self._pages():
-            self.assertNotIn('% off', body, label)
-            self.assertNotIn('first year', body, label)
-            self.assertNotIn('6 months', body, label)
-            # And the half-price numbers are nowhere on the page either.
-            self.assertNotIn('$14.50', body, label)
-            self.assertNotIn('$29.50', body, label)
-
-    def test_with_the_offer_on_both_pages_state_the_same_thing(self):
-        """What the page becomes once the coupon exists."""
-        with mock.patch.object(ai_tiers, 'INTRO_DISCOUNT_ENABLED', True):
-            pages = self._pages()
-
-        for label, body in pages:
-            self.assertIn('$14.50', body, label)   # half of $29
+            self.assertIn('$14.50', body, label)   # half of the $29 catalogue price
             self.assertIn('first year', body, label)
             # The full price is still shown — it is what they pay from month 13.
             self.assertIn('$29.00', body, label)
             self.assertNotIn('6 months', body, label)
 
-        plans = dict(pages)['plans']
+        plans = dict(self._pages())['plans']
         self.assertIn(f'{ai_tiers.INTRO_DISCOUNT_PERCENT}% off', plans)
         self.assertIn(f'after {ai_tiers.INTRO_DISCOUNT_MONTHS} months', plans)
+
+    def test_the_offer_can_be_taken_off_both_pages_in_one_edit(self):
+        """The discount is display-only until the Stripe coupon exists, so the
+        one switch that removes the claim has to remove all of it — including
+        the half-price numbers, which are the part that misleads."""
+        with mock.patch.object(ai_tiers, 'INTRO_DISCOUNT_ENABLED', False):
+            pages = self._pages()
+
+        for label, body in pages:
+            self.assertNotIn('% off', body, label)
+            self.assertNotIn('first year', body, label)
+            self.assertNotIn('$14.50', body, label)
+            self.assertNotIn('$29.50', body, label)
+            # What is left is the price that will actually be charged.
+            self.assertIn('$29.00', body, label)
 
     def test_the_dashboard_still_marks_the_active_tier(self):
         ModuleSubscription.objects.create(
