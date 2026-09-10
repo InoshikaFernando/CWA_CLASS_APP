@@ -19,6 +19,7 @@ Two answers live here, and they are deliberately different questions:
     archived price is visible before a student finds it.
 """
 import logging
+from decimal import Decimal, InvalidOperation
 from datetime import timedelta
 
 from django.conf import settings
@@ -143,8 +144,15 @@ def get_checkout_failure_health(days=7, limit=20, now=None):
 def _configured_prices():
     """Every Stripe price id the app would try to charge against.
 
-    Yields ``(kind, label, price_id, obj_id)``. Only active, paid rows — a free
-    package has no price id by design, and an inactive one charges nobody.
+    Yields ``(kind, label, price_id, obj_id, local_amount)``. Only active, paid
+    rows — a free package has no price id by design, and an inactive one
+    charges nobody.
+
+    ``local_amount`` rides along so the amount can be compared against Stripe's.
+    A Stripe Price is immutable, so editing a price in the admin changes what
+    the app *displays* and never what the card is *charged*; the two then
+    disagree silently and forever. That is not hypothetical — production had
+    three modules showing $10 while Stripe billed $9.
 
     Modules are included because leaving them out made the check dishonest: on
     the test site three AI Grading modules had no usable price while this
@@ -154,11 +162,11 @@ def _configured_prices():
     from .models import InstitutePlan, ModuleProduct, Package
 
     for pkg in Package.objects.filter(is_active=True, price__gt=0):
-        yield ('Package', pkg.name, pkg.stripe_price_id, pkg.id)
+        yield ('Package', pkg.name, pkg.stripe_price_id, pkg.id, pkg.price)
     for plan in InstitutePlan.objects.filter(is_active=True, price__gt=0):
-        yield ('InstitutePlan', plan.name, plan.stripe_price_id, plan.id)
+        yield ('InstitutePlan', plan.name, plan.stripe_price_id, plan.id, plan.price)
     for mod in ModuleProduct.objects.filter(is_active=True, price__gt=0):
-        yield ('Module', mod.name, mod.stripe_price_id, mod.id)
+        yield ('Module', mod.name, mod.stripe_price_id, mod.id, mod.price)
 
 
 def get_stripe_price_health(use_cache=True):
@@ -200,7 +208,7 @@ def _compute_price_health():
     broken = []
     checked = 0
 
-    for kind, label, price_id, obj_id in _configured_prices():
+    for kind, label, price_id, obj_id, local_amount in _configured_prices():
         if not price_id:
             broken.append({
                 'kind': kind, 'label': label, 'id': obj_id, 'price_id': '',
@@ -252,6 +260,37 @@ def _compute_price_health():
                 'fix': f'Create a {want.upper()} price and point this at it, or '
                        f'set STRIPE_CURRENCY={got} if {got.upper()} is what this '
                        f'environment should bill in.',
+            })
+            continue
+
+        # The amount, which nothing checked until production was found showing
+        # $10 for three modules that Stripe bills at $9. A Stripe Price is
+        # IMMUTABLE: editing ModuleProduct.price changes the number on the page
+        # and never the number on the invoice, and sync_stripe_prices will not
+        # repair it because the row already has a price id. The two drift apart
+        # permanently, and the only visible symptom is a customer reading their
+        # invoice.
+        #
+        # ``unit_amount`` is null on a tiered price, and absent is not zero:
+        # reading it as zero would report every tiered price as charging
+        # nothing. No amount from Stripe, no claim about the amount.
+        raw_amount = price.get('unit_amount')
+        try:
+            stripe_amount = None if raw_amount is None else Decimal(raw_amount) / 100
+        except (TypeError, InvalidOperation):
+            stripe_amount = None
+        if (stripe_amount is not None and local_amount is not None
+                and Decimal(local_amount) != stripe_amount):
+            broken.append({
+                'kind': kind, 'label': label, 'id': obj_id, 'price_id': price_id,
+                'problem': (f'Shows {local_amount} but Stripe charges '
+                            f'{stripe_amount} — the app displays a price it '
+                            f'does not bill.'),
+                'fix': ('Decide which is right. A Stripe Price cannot be '
+                        'edited, so either correct the local price to match '
+                        'what is charged, or create a new Stripe price at the '
+                        'intended amount and point this row at it — existing '
+                        'subscriptions keep the old one until they are moved.'),
             })
 
     reasons = []

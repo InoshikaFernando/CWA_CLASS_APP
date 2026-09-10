@@ -87,19 +87,27 @@
   </div>
 
   <div class="bg-gray-50 rounded-xl p-4 text-sm text-gray-600">
-    <h3 class="font-semibold text-gray-800 mb-2">Add-on Modules ($10/mo each)</h3>
+    <h3 class="font-semibold text-gray-800 mb-2">Add-on Modules</h3>
     <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+      {% for a in addons %}
       <div class="flex items-center gap-2">
-        <span class="text-primary">&#10003;</span> Teachers Attendance
+        <span class="text-primary">&#10003;</span> {{ a.name }}
+        <span class="text-xs text-gray-400">{% if a.from %}from {% endif %}{{ a.price|money }}/mo</span>
       </div>
-      <div class="flex items-center gap-2">
-        <span class="text-primary">&#10003;</span> Students Attendance
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="text-primary">&#10003;</span> Student Progress Reports
-      </div>
+      {% endfor %}
     </div>
     <p class="text-xs text-gray-400 mt-2">Modules can be added after selecting a plan.</p>
+  </div>
+
+  <div class="mt-6 bg-primary/5 border border-primary/20 rounded-xl p-4 text-center">
+    <p class="text-sm text-gray-700">
+      <span class="font-semibold text-gray-800">Larger institute, or several campuses?</span>
+      Volume pricing is available above these plans.
+    </p>
+    <a href="{% url 'contact' %}"
+       class="inline-block mt-2 text-sm font-semibold text-primary hover:text-primary-dark transition">
+      Talk to sales about a discount &rarr;
+    </a>
   </div>
 </div>
 {% endblock %}

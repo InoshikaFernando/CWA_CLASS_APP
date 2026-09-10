@@ -605,6 +605,38 @@ class InstitutePlanSelectView(LoginRequiredMixin, View):
         current_classes = ClassRoom.objects.filter(school=school, is_active=True).count()
         current_students = SchoolStudent.objects.filter(school=school, is_active=True).count()
 
+        # The add-on list on this page was three module names typed by hand
+        # under a heading that read "($10/mo each)". Both had gone stale: there
+        # are twelve sellable modules now, they range from $10 to $149, and the
+        # three that were listed are billed at $9 in Stripe. A hand-kept list
+        # on the page a prospect reads before paying is the last place to let
+        # drift happen, so it comes from the catalogue.
+        #
+        # One row per tier family rather than three, since a family is a
+        # pick-one ladder and listing every rung reads as nine products.
+        from billing import registry
+        from billing.models import ModuleProduct as _MP
+
+        addons, seen_families = [], set()
+        for product in _MP.objects.filter(is_active=True).order_by('price'):
+            module = registry.REGISTRY.get(product.module)
+            if module is None:
+                continue
+            if module.family:
+                if module.family in seen_families:
+                    continue
+                seen_families.add(module.family)
+                cheapest = registry.ordered_members_of(module.family)[0]
+                addons.append({
+                    'name': module.name.split('—')[0].strip(),
+                    'price': _MP.objects.filter(module=cheapest.slug).values_list(
+                        'price', flat=True).first(),
+                    'from': True,
+                })
+            else:
+                addons.append({'name': module.name, 'price': product.price,
+                               'from': False})
+
         active_sub = sub if sub and sub.is_active_or_trialing else None
         return render(request, 'billing/institute_plans.html', {
             'plans': plans,
@@ -613,6 +645,7 @@ class InstitutePlanSelectView(LoginRequiredMixin, View):
             'current_plan': active_sub.plan if active_sub else None,
             'current_classes': current_classes,
             'current_students': current_students,
+            'addons': addons,
         })
 
 
@@ -873,8 +906,8 @@ class AIPagesRequiredView(LoginRequiredMixin, View):
     had just left, and arriving at a price list with no context is exactly the
     confusion this page removes.
 
-    Not ModuleRequiredView either: that one is generic, quotes a flat $10/month
-    that is wrong for AI import, and says nothing about what still works.
+    Not ModuleRequiredView either: that one is generic, names one module's price
+    with no allowance to go with it, and says nothing about what still works.
 
     ``from`` is a label for the screen they came from, not a URL. It is echoed
     into the page, so it is looked up in a known map rather than trusted.
@@ -919,9 +952,15 @@ class ModuleRequiredView(LoginRequiredMixin, View):
         module_name = dict(ModuleSubscription.MODULE_CHOICES).get(
             module_slug, module_slug.replace('_', ' ').title(),
         )
+        # The real price, not a literal. This page said "$10/month" for every
+        # module, on the screen a blocked school reads — while the modules it
+        # gates run from $10 to $149.
+        from billing.models import ModuleProduct as _MP
+        product = _MP.objects.filter(module=module_slug, is_active=True).first()
         return render(request, 'billing/module_required.html', {
             'module_slug': module_slug,
             'module_name': module_name,
+            'module_price': product.price if product else None,
         })
 
 
@@ -1343,7 +1382,43 @@ class ModuleToggleView(LoginRequiredMixin, View):
                     from billing.stripe_service import add_module_to_subscription
                     add_module_to_subscription(sub, module_slug, stripe_price_id)
                 else:
-                    # No Stripe subscription — activate locally (trial/test)
+                    # No Stripe subscription — activate locally (trial/test).
+                    #
+                    # But separate the two reasons for landing here, because
+                    # only one of them is legitimate. A school with no Stripe
+                    # subscription is on trial or comped: nothing to bill, so a
+                    # local row is right. A school that HAS a Stripe
+                    # subscription and reaches this branch is here because the
+                    # module has no stripe_price_id — and it silently receives
+                    # a paid module for free, forever, with no line on any
+                    # invoice and nothing anywhere reporting it.
+                    #
+                    # That is how AI Grading Professional was given away: the
+                    # module was active on a paying school for months, at $49
+                    # list, and simply never appeared on a Stripe invoice.
+                    # Nobody found out until the invoice was read by hand.
+                    if sub.stripe_subscription_id and not stripe_price_id:
+                        logger.error(
+                            'Module %s activated for school %s with no Stripe '
+                            'price — it will NOT be billed. Run '
+                            '"manage.py sync_stripe_prices --create-missing".',
+                            module_slug, sub.school_id,
+                        )
+                        log_event(
+                            user=request.user, school=sub.school,
+                            category='entitlement',
+                            action='module_activated_unbilled',
+                            result='success',
+                            detail={'module': module_slug,
+                                    'reason': 'no stripe_price_id'},
+                            request=request,
+                        )
+                        messages.warning(
+                            request,
+                            f'{module_name} was switched on, but it has no '
+                            f'price set up in Stripe yet, so it will not be '
+                            f'billed. Tell support before relying on it.',
+                        )
                     ModuleSubscription.objects.update_or_create(
                         school_subscription=sub,
                         module=module_slug,

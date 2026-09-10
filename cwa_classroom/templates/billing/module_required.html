@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load billing_tags %}
 {% block title %}Feature Not Available{% endblock %}
 
 {% block content %}
@@ -11,7 +12,7 @@
 
   {% if is_hoi or is_institute_owner %}
     <p class="text-gray-500 text-sm mb-6">
-      Add this module to your plan for <strong>$10/month</strong>.
+      {% if module_price %}Add this module to your plan for <strong>{{ module_price|money }}/month</strong>.{% else %}Add this module to your plan.{% endif %}
     </p>
     <a href="{% url 'institute_subscription_dashboard' %}"
        class="inline-block bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition">
