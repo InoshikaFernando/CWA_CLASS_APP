@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% comment %}
+Shown when someone tries to read a PDF with AI and their school has no AI module.
+
+Reached by clicking the PDF control on any of the three upload screens, and by
+the link in the refusal message when an upload is turned away. It exists because
+sending a teacher straight to the pricing page answered "how do I buy one?"
+without ever answering "what just happened?" — the explanation was on the page
+they had left.
+
+Role-aware on purpose: a teacher cannot add a module to the school's plan, so
+pointing them at a checkout is its own dead end. They get told who can.
+
+Three states, and the view decides which from the live quota rather than from
+the link that arrived here: the school has an allowance after all (someone
+bought one, or a stale tab), the user is in no school, or the school simply has
+no AI module.
+{% endcomment %}
+{% block title %}AI PDF import needs a module{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto py-10 px-4">
+
+  {% if has_allowance %}
+  <div class="bg-white rounded-2xl border border-emerald-200 shadow-sm p-6" data-testid="ai-allowance-ok">
+    <div class="flex items-start gap-4">
+      <div class="text-3xl leading-none" aria-hidden="true">✅</div>
+      <div>
+        <h1 class="font-display text-xl text-gray-900 mb-1">
+          You can read PDFs with AI
+        </h1>
+        <p class="text-sm text-gray-600">
+          <strong>{{ school_name|default:"Your school" }}</strong> has an AI page
+          allowance, so nothing is blocking you. If a PDF import was refused,
+          it was for another reason — the upload screen shows what is left this
+          month.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  {% else %}
+
+  <div class="bg-white rounded-2xl border border-amber-200 shadow-sm p-6 mb-5" data-testid="ai-pages-required">
+    <div class="flex items-start gap-4">
+      <div class="text-3xl leading-none" aria-hidden="true">📄</div>
+      <div>
+        <h1 class="font-display text-xl text-gray-900 mb-1">
+          Reading a PDF with AI needs an AI module
+        </h1>
+        <p class="text-sm text-gray-600">
+          {% if no_school %}
+            Your account isn't linked to a school yet, so there's no AI page
+            allowance for it to draw on. Ask your institute administrator to add
+            you, then try again.
+          {% else %}
+            You tried to import questions from a PDF{% if from_label %} on the
+            <strong>{{ from_label }}</strong> screen{% endif %}. Every page of a
+            PDF is read by AI, which is charged against a monthly page
+            allowance — and <strong>{{ school_name|default:"your school" }}</strong>
+            doesn't have one yet.
+          {% endif %}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  {% if not no_school %}
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-5">
+    <h2 class="text-sm font-semibold text-gray-800 mb-3">What still works without it</h2>
+    <ul class="space-y-2 text-sm text-gray-600">
+      <li class="flex gap-2">
+        <span class="text-emerald-600" aria-hidden="true">✓</span>
+        <span><strong>Upload authored questions</strong> as JSON or ZIP — no AI is
+        used, so there's nothing to charge.</span>
+      </li>
+      <li class="flex gap-2">
+        <span class="text-emerald-600" aria-hidden="true">✓</span>
+        <span><strong>Build from the question bank</strong> — pick questions by
+        topic and level for homework and worksheets.</span>
+      </li>
+      <li class="flex gap-2">
+        <span class="text-emerald-600" aria-hidden="true">✓</span>
+        <span><strong>Everything else</strong> — classes, marking, progress,
+        attendance and reports are unaffected.</span>
+      </li>
+    </ul>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+    {% if is_hoi or is_institute_owner %}
+      <h2 class="text-sm font-semibold text-gray-800 mb-1">Add an AI module</h2>
+      <p class="text-sm text-gray-600 mb-4">
+        The allowance is shared across homework, worksheet and AI-import PDF
+        uploads, so it doesn't matter which screen you start from.
+      </p>
+      <div class="flex flex-wrap gap-3">
+        <a href="{% url 'ai_import:tier_select' %}" data-testid="see-ai-plans"
+           class="inline-block px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition">
+          See the AI plans
+        </a>
+        <a href="{% url 'institute_subscription_dashboard' %}"
+           class="inline-block px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 text-sm font-semibold hover:bg-gray-50 transition">
+          Manage modules
+        </a>
+      </div>
+    {% else %}
+      <h2 class="text-sm font-semibold text-gray-800 mb-1">Who can turn this on</h2>
+      <p class="text-sm text-gray-600 mb-4">
+        Modules are added to the school's plan, which only your institute owner or
+        head of institute can do. Ask them to add an AI module — you can send them
+        the plans if it helps.
+      </p>
+      <a href="{% url 'ai_import:tier_select' %}" data-testid="see-ai-plans"
+         class="inline-block px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 text-sm font-semibold hover:bg-gray-50 transition">
+        See the AI plans
+      </a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% endif %}
+
+  {% if back_url %}
+  <div class="mt-5 text-center">
+    <a href="{{ back_url }}" data-testid="ai-pages-required-back"
+       class="text-sm text-gray-400 hover:text-gray-600">
+      ← Back to uploading
+    </a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

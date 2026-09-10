@@ -96,11 +96,48 @@ class TestNoAIModule:
             expect(page.get_by_text("Your school does not have one").first,
                    f"{label}: names the real reason").to_be_visible()
 
-            # The PDF control is still there, and it leads to the plans rather
-            # than spending a round-trip to come back with an error.
+            # The PDF control is still there, and it leads to the page that
+            # explains what happened rather than spending a round-trip to come
+            # back with an error — or dumping the teacher on a price list with
+            # no context, which was the first version of this.
             control = page.locator('[data-testid="pdf-needs-module"]')
             expect(control, f"{label}: PDF button").to_be_visible()
-            assert "/ai-import/plans/" in (control.get_attribute("href") or ""), label
+            href = control.get_attribute("href") or ""
+            assert "/billing/ai-pages-required/" in href, f"{label}: {href}"
+            # ...and it says which screen it came from, so the page can offer a
+            # way back to the one the teacher was actually on.
+            assert "from=" in href, f"{label}: {href}"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_clicking_the_pdf_control_explains_what_happened(
+        self, page: Page, live_server, school_without_ai, teacher_user
+    ):
+        """The click has to answer "what just happened?", not only "buy this".
+
+        It used to go straight to the tier comparison, which is an answer to a
+        question the teacher had not asked yet.
+        """
+        do_login(page, str(live_server), teacher_user)
+
+        for label, path in PDF_UPLOAD_PAGES:
+            page.goto(f"{live_server}{path}")
+            page.wait_for_load_state("domcontentloaded")
+            page.click('[data-testid="pdf-needs-module"]')
+            page.wait_for_url("**/billing/ai-pages-required/**", timeout=15_000)
+
+            expect(page.locator('[data-testid="ai-pages-required"]'),
+                   f"{label}: explanation").to_be_visible()
+            body = page.locator("body").inner_text()
+            # What happened, what still works, and how to get it — all three,
+            # because any one of them on its own leaves the teacher guessing.
+            assert "needs an AI module" in body, f"{label}: {body[:300]}"
+            assert "What still works without it" in body, f"{label}: {body[:300]}"
+            expect(page.locator('[data-testid="see-ai-plans"]'),
+                   f"{label}: plans link").to_be_visible()
+            # And a way back to the screen they were on, not just to "/".
+            back = page.locator('[data-testid="ai-pages-required-back"]')
+            expect(back, f"{label}: back link").to_be_visible()
+            assert back.get_attribute("href") == path, label
 
     @pytest.mark.django_db(transaction=True)
     def test_the_meter_is_not_drawn_as_an_empty_bar(

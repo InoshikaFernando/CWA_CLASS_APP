@@ -766,6 +766,57 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
         })
 
 
+class AIPagesRequiredView(LoginRequiredMixin, View):
+    """"Reading a PDF with AI needs an AI module" — what happened, and what next.
+
+    The PDF control on all three upload screens points here when the school has
+    no AI page allowance, as does the link in the refusal message when an upload
+    is turned away.
+
+    It exists because the pricing page is the wrong destination on its own.
+    Sending a teacher straight there answered "how do I buy one?" without ever
+    answering "what just happened?" — the explanation lived on the screen they
+    had just left, and arriving at a price list with no context is exactly the
+    confusion this page removes.
+
+    Not ModuleRequiredView either: that one is generic, quotes a flat $10/month
+    that is wrong for AI import, and says nothing about what still works.
+
+    ``from`` is a label for the screen they came from, not a URL. It is echoed
+    into the page, so it is looked up in a known map rather than trusted.
+    """
+
+    SCREEN_LABELS = {
+        'homework': 'Upload PDF Homework',
+        'worksheet': 'Upload Worksheet',
+        'ai_import': 'AI Question Import',
+    }
+    BACK_URLS = {
+        'homework': '/homework/pdf/upload/',
+        'worksheet': '/worksheets/upload/',
+        'ai_import': '/ai-import/upload/',
+    }
+
+    def get(self, request):
+        from billing.entitlements import get_school_for_user
+        from billing.page_quota import quota_status
+
+        school = get_school_for_user(request.user)
+        status = quota_status(school)
+        screen = request.GET.get('from', '')
+
+        return render(request, 'billing/ai_pages_required.html', {
+            # A school that CAN spend pages should never be told it cannot, so
+            # the page reads its own answer from quota_status rather than
+            # assuming the link that brought it here was still true.
+            'has_allowance': not status.get('no_allowance'),
+            'no_school': status.get('reason') == 'no_school',
+            'school_name': getattr(school, 'name', ''),
+            'from_label': self.SCREEN_LABELS.get(screen, ''),
+            'back_url': self.BACK_URLS.get(screen, ''),
+        })
+
+
 class ModuleRequiredView(LoginRequiredMixin, View):
     """Landing page shown when a user tries to access a gated module feature."""
 

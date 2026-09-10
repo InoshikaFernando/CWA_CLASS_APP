@@ -37,8 +37,8 @@
         </label>
       </div>
       {% if page_quota.no_allowance %}
-      <a href="{% url 'ai_import:tier_select' %}" data-testid="pdf-needs-module"
-         title="Reading a PDF with AI needs an AI module — see the plans"
+      <a href="{% url 'ai_pages_required' %}?from=worksheet" data-testid="pdf-needs-module"
+         title="Reading a PDF with AI needs an AI module — find out what that means"
          class="inline-block px-6 py-2.5 rounded-xl bg-amber-500 text-white font-semibold shadow-sm hover:bg-amber-600 transition">
         Upload &amp; Extract with AI
       </a>
