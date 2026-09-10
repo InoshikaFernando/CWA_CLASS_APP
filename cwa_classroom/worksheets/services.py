@@ -601,6 +601,56 @@ EXTRACTED_QUESTION_TYPE_CHOICES = [
 EXTRACTED_QUESTION_TYPES = [value for value, _label in EXTRACTED_QUESTION_TYPE_CHOICES]
 
 
+# Which structured-spec panel a review card shows for a given question type.
+#
+# The review editor renders EVERY panel on EVERY card (hidden) so switching the
+# type reveals that type's fields without a reload. Rendering them is fine;
+# SUBMITTING them is not. A browser posts every enabled field it can see or not
+# see, so each card was sending ~29 parts — 16 of them spec fields the view
+# ignores for that question's type — and a long workbook crossed Django's
+# DATA_UPLOAD_MAX_NUMBER_FIELDS in the request parser, before any view ran. That
+# surfaces as a bare "Bad Request (400)" with the URL still on the review page
+# (prod session 134, and session 23 before it under a lower ceiling).
+#
+# So the panels that don't apply are rendered DISABLED: still there for the type
+# dropdown to reveal, not posted until they are. This mapping is the one source
+# of truth for "which panel applies", used by the view to render the disabled
+# state and mirrored by the page's own handleTypeChange().
+SPEC_PANEL_BY_QUESTION_TYPE = {
+    'long_division': 'longdiv',
+    'prime_factorization': 'primefactor',
+    'column_operation': 'column',
+    'plot_points': 'plane',
+    'plot_line': 'plane',
+    'identify_coords': 'plane',
+    'read_graph': 'graph',
+    'measure': 'measure',
+    'number_line': 'numberline',
+    'table_of_values': 'table',
+    'sketch_graph': 'sketch',
+}
+
+# Panels in the order the review card renders them. Keeping the list here (rather
+# than only in the template) is what lets a test assert every panel is covered.
+SPEC_PANELS = [
+    'longdiv', 'primefactor', 'column', 'plane', 'graph',
+    'measure', 'numberline', 'table', 'sketch',
+]
+
+# The types whose answer is computed from a spec (or that take free text), so the
+# review card hides its answer-options box. Mirrored by handleTypeChange().
+SPEC_GRADED_QUESTION_TYPES = frozenset(SPEC_PANEL_BY_QUESTION_TYPE) | {'extended_answer'}
+
+
+def spec_panel_for_type(question_type):
+    """The panel key a question of this type edits, or '' when it has none.
+
+    '' covers the plain types (short answer, multiple choice, …) — every panel
+    on their card is inactive, so none of the spec fields are posted.
+    """
+    return SPEC_PANEL_BY_QUESTION_TYPE.get((question_type or '').strip(), '')
+
+
 def accepted_question_type(posted, stored):
     """The type a review POST should store: ``posted``, unless it is a value we
     do not recognise — then ``stored`` is kept.

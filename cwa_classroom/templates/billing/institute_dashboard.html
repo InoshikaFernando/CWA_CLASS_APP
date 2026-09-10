@@ -156,8 +156,10 @@
             </div>
           </div>
           <div class="text-right">
-            <span class="text-sm font-bold text-primary">${{ tier.price }}/mo</span>
-            <p class="text-[10px] text-gray-400"><s>${{ tier.full_price }}</s> first 6 months</p>
+            <span class="text-sm font-bold text-primary">${% if ai_discount_enabled %}{{ tier.intro_price }}{% else %}{{ tier.price }}{% endif %}/mo</span>
+            {% if ai_discount_enabled %}
+            <p class="text-[10px] text-gray-400">{{ ai_discount_label }}, then ${{ tier.price }}</p>
+            {% endif %}
           </div>
         </label>
         {% endfor %}

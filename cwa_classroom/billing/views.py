@@ -699,11 +699,13 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
             (k, v) for k, v in ModuleSubscription.MODULE_CHOICES
             if k not in AI_IMPORT_SLUGS and k not in AI_GRADING_SLUGS
         ]
-        ai_import_tiers = [
-            {'slug': 'ai_import_starter', 'name': 'Starter', 'pages': 300, 'price': 15, 'full_price': 30, 'discount_months': 6},
-            {'slug': 'ai_import_professional', 'name': 'Professional', 'pages': 600, 'price': 30, 'full_price': 60, 'discount_months': 6},
-            {'slug': 'ai_import_enterprise', 'name': 'Enterprise', 'pages': 1000, 'price': 50, 'full_price': 99, 'discount_months': 6},
-        ]
+        # Shared with the public plans page — see billing/ai_tiers.py. This
+        # list used to be a second copy whose 'price' key meant the discounted
+        # price while the plans page's meant the full one.
+        from billing.ai_tiers import (
+            ai_import_tiers as _ai_import_tiers, discount_context,
+        )
+        ai_import_tiers = _ai_import_tiers()
         active_ai_import_tier = next(
             (s for s in AI_IMPORT_SLUGS if s in active_modules), None
         )
@@ -763,6 +765,60 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
                 if grading_limit else 0
             ),
             'page_quota': quota_status(school),
+            # The introductory offer's wording, from the same place the plans
+            # page takes it.
+            **discount_context(),
+        })
+
+
+class AIPagesRequiredView(LoginRequiredMixin, View):
+    """"Reading a PDF with AI needs an AI module" — what happened, and what next.
+
+    The PDF control on all three upload screens points here when the school has
+    no AI page allowance, as does the link in the refusal message when an upload
+    is turned away.
+
+    It exists because the pricing page is the wrong destination on its own.
+    Sending a teacher straight there answered "how do I buy one?" without ever
+    answering "what just happened?" — the explanation lived on the screen they
+    had just left, and arriving at a price list with no context is exactly the
+    confusion this page removes.
+
+    Not ModuleRequiredView either: that one is generic, quotes a flat $10/month
+    that is wrong for AI import, and says nothing about what still works.
+
+    ``from`` is a label for the screen they came from, not a URL. It is echoed
+    into the page, so it is looked up in a known map rather than trusted.
+    """
+
+    SCREEN_LABELS = {
+        'homework': 'Upload PDF Homework',
+        'worksheet': 'Upload Worksheet',
+        'ai_import': 'AI Question Import',
+    }
+    BACK_URLS = {
+        'homework': '/homework/pdf/upload/',
+        'worksheet': '/worksheets/upload/',
+        'ai_import': '/ai-import/upload/',
+    }
+
+    def get(self, request):
+        from billing.entitlements import get_school_for_user
+        from billing.page_quota import quota_status
+
+        school = get_school_for_user(request.user)
+        status = quota_status(school)
+        screen = request.GET.get('from', '')
+
+        return render(request, 'billing/ai_pages_required.html', {
+            # A school that CAN spend pages should never be told it cannot, so
+            # the page reads its own answer from quota_status rather than
+            # assuming the link that brought it here was still true.
+            'has_allowance': not status.get('no_allowance'),
+            'no_school': status.get('reason') == 'no_school',
+            'school_name': getattr(school, 'name', ''),
+            'from_label': self.SCREEN_LABELS.get(screen, ''),
+            'back_url': self.BACK_URLS.get(screen, ''),
         })
 
 
@@ -1207,6 +1263,20 @@ class ModuleToggleView(LoginRequiredMixin, View):
                         module=module_slug,
                         defaults={'is_active': True, 'deactivated_at': None},
                     )
+                # The plans page quotes the first-year price, so the discount
+                # is attached here — automatically, with no code for anyone to
+                # type. Stripe drops it after twelve months on its own.
+                #
+                # A failure is SHOWN, never swallowed: the school was quoted
+                # half price, so silently landing on the full price is an
+                # overcharge nobody would notice until the invoice.
+                from billing import ai_tiers
+                if module_slug in AI_IMPORT_SLUGS and ai_tiers.INTRO_DISCOUNT_ENABLED:
+                    from billing.stripe_service import apply_ai_intro_discount
+                    applied, discount_error = apply_ai_intro_discount(sub)
+                    if not applied and discount_error:
+                        messages.warning(request, discount_error)
+
                 log_event(
                     user=request.user, school=school, category='billing',
                     action='module_activated',

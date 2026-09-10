@@ -69,23 +69,65 @@ def _seed_ladder():
 
 
 class WhoIsMeteredTests(TestCase):
-    """The allowance IS the AI import tier — a school without one is unmetered."""
+    """The AI module is the licence to spend AI pages at all.
 
-    def test_school_without_subscription_is_not_metered(self):
-        school = _school('No Sub', 'no-sub', with_subscription=False)
-        status = page_quota.quota_status(school)
-        self.assertFalse(status['metered'])
-        self.assertTrue(page_quota.check_page_budget(school, 5_000)[0])
+    It used to be read as "the allowance IS the tier, so a school without one
+    has no allowance to draw down and is left unmetered". That put the cap on
+    the schools that had paid and left the ones that hadn't uploading unlimited
+    pages through homework and worksheets — every page a real Anthropic call.
+    No module now means no pages, wherever the upload starts.
+    """
 
-    def test_school_without_ai_module_is_not_metered(self):
+    def test_school_without_an_ai_module_cannot_spend_pages(self):
         school = _school('No AI', 'no-ai', module=None)
         status = page_quota.quota_status(school)
-        self.assertFalse(status['metered'])
-        self.assertEqual(status['reason'], 'no_ai_module')
-        self.assertTrue(page_quota.check_page_budget(school, 5_000)[0])
 
-    def test_no_school_is_not_metered(self):
-        self.assertFalse(page_quota.quota_status(None)['metered'])
+        self.assertTrue(status['metered'])
+        self.assertEqual(status['reason'], 'no_ai_module')
+        self.assertEqual((status['limit'], status['remaining']), (0, 0))
+        self.assertTrue(status['exhausted'])
+
+        allowed, message, _ = page_quota.check_page_budget(school, 1)
+        self.assertFalse(allowed)
+        self.assertIn('needs an AI module', message)
+
+    def test_school_without_a_subscription_cannot_spend_pages(self):
+        school = _school('No Sub', 'no-sub', with_subscription=False)
+        status = page_quota.quota_status(school)
+        self.assertTrue(status['metered'])
+        self.assertFalse(page_quota.check_page_budget(school, 1)[0])
+
+    def test_the_refusal_points_at_the_plans_and_at_what_still_works(self):
+        """A school that never had an allowance can't upgrade or wait it out."""
+        school = _school('No AI Msg', 'no-ai-msg', module=None)
+        _, message, _ = page_quota.check_page_budget(school, 1)
+
+        self.assertIn(page_quota.ai_plans_url(), message)
+        self.assertIn('JSON', message)          # the path that still works
+        self.assertNotIn('Upgrade to', message)  # nothing to upgrade from
+        self.assertNotIn('resets on', message)   # a reset lands on the same zero
+
+    def test_an_account_with_no_school_is_told_to_get_linked(self):
+        status = page_quota.quota_status(None)
+        self.assertTrue(status['metered'])
+        self.assertEqual(status['reason'], 'no_school')
+
+        _, message, _ = page_quota.check_page_budget(None, 1)
+        self.assertIn('not linked to a school', message)
+        self.assertNotIn(page_quota.ai_plans_url(), message)
+
+    def test_a_tier_the_catalogue_cannot_price_still_works(self):
+        """A school that HAS paid is never refused over our own missing row."""
+        school = _school('Odd Tier', 'odd-tier', module=None)
+        from billing.models import ModuleSubscription, SchoolSubscription
+        ModuleSubscription.objects.create(
+            school_subscription=SchoolSubscription.objects.get(school=school),
+            module='ai_import_mystery', is_active=True,
+        )
+        status = page_quota.quota_status(school)
+        self.assertFalse(status['metered'])
+        self.assertEqual(status['reason'], 'tier_not_in_catalogue')
+        self.assertTrue(page_quota.check_page_budget(school, 5_000)[0])
 
     def test_superuser_is_not_metered(self):
         school = _school('Super', 'super', pages=600, used=600)
@@ -199,8 +241,15 @@ class ConsumeAndRefundTests(TestCase):
         page_quota.consume_pages(school, 25)
         self.assertEqual(AIImportUsage.objects.get(school=school).pages_processed, 35)
 
-    def test_consume_is_a_no_op_for_an_unmetered_school(self):
-        school = _school('Free', 'free-school', module=None)
+    def test_consume_is_a_no_op_for_an_unlimited_tier(self):
+        """A tier that sells unlimited pages has no counter to move.
+
+        This used to use a school with no AI module as its example of an
+        unmetered school. That school is now metered at zero — it is refused
+        before it can consume anything — so the unlimited case is the tier that
+        genuinely isn't counted.
+        """
+        school = _school('Free', 'free-school', pages=0)
         page_quota.consume_pages(school, 25)
         self.assertFalse(AIImportUsage.objects.filter(
             school=school, pages_processed__gt=0).exists())

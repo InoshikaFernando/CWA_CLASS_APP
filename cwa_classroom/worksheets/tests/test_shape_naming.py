@@ -7,6 +7,7 @@ from django.urls import reverse
 
 from accounts.models import CustomUser, Role
 from classroom.models import School, SchoolTeacher
+from billing.testing import grant_ai_pages
 from worksheets import services
 from worksheets.models import WorksheetUploadSession
 
@@ -166,6 +167,7 @@ class WorksheetUploadViewShapeNamingTests(TestCase):
         cls.owner.roles.add(owner_role)
         cls.school = School.objects.create(name='WS V', slug='ws-v', admin=cls.owner)
         SchoolTeacher.objects.get_or_create(school=cls.school, teacher=cls.owner)
+        grant_ai_pages(cls.school)
 
     def setUp(self):
         self.client.force_login(self.owner)

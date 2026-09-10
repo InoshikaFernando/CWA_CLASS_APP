@@ -2200,6 +2200,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         from worksheets.services import (
             answer_review_warning, backfill_constructions,
             preview_question_type_choices, question_source_page,
+            spec_panel_for_type, SPEC_GRADED_QUESTION_TYPES,
         )
 
         # Sessions extracted before drawing questions were routed to the teacher
@@ -2239,6 +2240,14 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             # Flag a suspect answer key (explanation disagrees with / second-guesses
             # the ticked answer) so the teacher checks it before confirming.
             q['answer_warning'] = answer_review_warning(q)
+            # Which structured-spec panel this card's type edits ('' for the
+            # plain types). Every panel is still rendered so the type dropdown
+            # can reveal one without a reload, but the inactive ones are
+            # DISABLED — a disabled field is not posted, and posting all of them
+            # for every question is what pushed a long workbook past Django's
+            # request-parser field ceiling and returned a bare 400 on submit.
+            q['spec_panel'] = spec_panel_for_type(q.get('question_type'))
+            q['hide_answers'] = q.get('question_type') in SPEC_GRADED_QUESTION_TYPES
             # Pre-format the structured-spec JSON for the editable textareas.
             if q.get('plane_spec'):
                 q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)

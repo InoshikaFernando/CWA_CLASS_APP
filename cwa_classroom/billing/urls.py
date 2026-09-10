@@ -18,6 +18,8 @@ urlpatterns = [
     path('billing/institute/trial-expired/', views.InstituteTrialExpiredView.as_view(), name='institute_trial_expired'),
     path('billing/institute/upgrade/', views.InstitutePlanUpgradeView.as_view(), name='institute_plan_upgrade'),
     path('billing/institute/dashboard/', views.InstituteSubscriptionDashboardView.as_view(), name='institute_subscription_dashboard'),
+    path('billing/ai-pages-required/', views.AIPagesRequiredView.as_view(),
+         name='ai_pages_required'),
     path('billing/module-required/', views.ModuleRequiredView.as_view(), name='module_required'),
 
     # Institute Stripe checkout & management

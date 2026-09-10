@@ -639,6 +639,148 @@ def sync_module_to_stripe(module_product):
     return price.id
 
 
+# ---------------------------------------------------------------------------
+# AI Question Import — half price for the first year
+# ---------------------------------------------------------------------------
+#
+# The offer the plans page advertises, applied automatically. There is no code
+# for anyone to type: adding an AI import module attaches the coupon, and
+# Stripe drops it by itself once the twelve months are up.
+#
+# The coupon is scoped with ``applies_to.products`` so it discounts ONLY the AI
+# import line. A subscription-level coupon with no scope would take 50% off the
+# institute's own plan too, which is not the offer and is not recoverable once
+# invoiced.
+
+
+def ai_intro_coupon_id():
+    """A stable id that changes when the terms do.
+
+    Baking the terms into the id means a coupon can never be reused at terms it
+    was not created with: change the percentage or the length and the next call
+    creates a new coupon rather than quietly attaching the old one.
+    """
+    from billing import ai_tiers
+
+    return (f'ai-import-intro-{ai_tiers.INTRO_DISCOUNT_PERCENT}off-'
+            f'{ai_tiers.INTRO_DISCOUNT_MONTHS}m')
+
+
+def _ai_intro_products():
+    """Stripe product ids for the AI import tiers.
+
+    ``sync_module_to_stripe`` creates products at a deterministic id, so these
+    are derivable without a round trip.
+    """
+    from billing.models import ModuleProduct
+    from billing import ai_tiers
+
+    return [
+        f'module_{slug}' for slug in ModuleProduct.objects
+        .filter(module__startswith=ai_tiers.MODULE_PREFIX)
+        .values_list('module', flat=True)
+    ]
+
+
+def ensure_ai_intro_coupon():
+    """The intro coupon, created once and reused. Returns its id, or None."""
+    from billing import ai_tiers
+
+    _ensure_stripe_key()
+    coupon_id = ai_intro_coupon_id()
+    try:
+        stripe.Coupon.retrieve(coupon_id)
+        return coupon_id
+    except stripe.error.InvalidRequestError:
+        pass  # Not there yet — create it below.
+
+    products = _ai_intro_products()
+    if not products:
+        logger.error('No AI import products in the catalogue — cannot scope the '
+                     'intro coupon, and an unscoped one would discount the '
+                     "institute's whole plan. Not creating it.")
+        return None
+
+    coupon = stripe.Coupon.create(
+        id=coupon_id,
+        percent_off=float(ai_tiers.INTRO_DISCOUNT_PERCENT),
+        duration='repeating',
+        duration_in_months=ai_tiers.INTRO_DISCOUNT_MONTHS,
+        name=(f'AI Question Import — {ai_tiers.INTRO_DISCOUNT_PERCENT}% off '
+              f'the {ai_tiers.INTRO_DISCOUNT_LABEL}'),
+        applies_to={'products': products},
+        metadata={'type': 'ai_import_intro'},
+    )
+    return coupon.id
+
+
+def apply_ai_intro_discount(school_subscription):
+    """Put the school's AI import module on its first-year price.
+
+    Returns ``(applied, error)``. ``error`` is written for the person who just
+    clicked Activate, and every caller must show it: the plans page promised
+    half price, so a school that ends up without the discount is being charged
+    twice what it was quoted. Silence here is how that goes unnoticed.
+
+    Never overwrites a discount the subscription already has. Institutes can
+    register with their own discount code, and a coupon set on the subscription
+    replaces whatever was there — trading their negotiated discount for this
+    one, with no record of what was lost.
+    """
+    if not school_subscription.stripe_subscription_id:
+        # Trial or locally-activated module: nothing is being charged, so
+        # there is nothing to discount.
+        return False, None
+
+    _ensure_stripe_key()
+    coupon_id = ai_intro_coupon_id()
+
+    try:
+        subscription = stripe.Subscription.retrieve(
+            school_subscription.stripe_subscription_id,
+        )
+    except stripe.error.StripeError as e:
+        logger.exception('Could not read subscription %s to apply the AI intro '
+                         'discount', school_subscription.stripe_subscription_id)
+        return False, str(e)
+
+    existing = getattr(subscription, 'discount', None)
+    existing_coupon = getattr(existing, 'coupon', None) if existing else None
+    existing_id = getattr(existing_coupon, 'id', None)
+
+    if existing_id == coupon_id:
+        # Already on it — including after a tier switch, which keeps the
+        # original twelve-month clock rather than restarting it.
+        return True, None
+
+    if existing_id:
+        logger.warning(
+            'Subscription %s already carries coupon %s — not replacing it with '
+            'the AI intro discount.',
+            school_subscription.stripe_subscription_id, existing_id,
+        )
+        return False, (
+            'Your subscription already has a discount applied, so the AI '
+            'import introductory price was not added on top of it. Contact '
+            'support to have it applied.'
+        )
+
+    try:
+        coupon_id = ensure_ai_intro_coupon()
+        if not coupon_id:
+            return False, ('The introductory discount is not set up in Stripe '
+                           'yet. Contact support before you are invoiced.')
+        stripe.Subscription.modify(
+            school_subscription.stripe_subscription_id, coupon=coupon_id,
+        )
+    except stripe.error.StripeError as e:
+        logger.exception('Failed to apply the AI intro discount to %s',
+                         school_subscription.stripe_subscription_id)
+        return False, str(e)
+
+    return True, None
+
+
 def _build_stripe_coupon_kwargs(code_obj):
     """Build kwargs for stripe.Coupon.create from any discount/coupon model instance."""
     kwargs = {
