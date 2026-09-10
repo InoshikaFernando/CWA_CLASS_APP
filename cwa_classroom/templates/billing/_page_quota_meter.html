@@ -3,14 +3,40 @@ Monthly AI page allowance — the meter shown above every upload form that spend
 pages (homework, worksheets, AI import). Takes the dict returned by
 billing.page_quota.quota_status() as `page_quota`.
 
-Renders nothing at all when the school isn't metered (no AI import tier, or an
-unlimited one), so a plain-plan school doesn't see an empty 0/0 bar.
+Renders nothing at all when the school isn't metered (an unlimited tier), so it
+never shows an empty 0/0 bar.
+
+A school with NO AI module is metered at zero — it cannot read a PDF with AI on
+any of the three screens — and gets the purchase panel instead of a meter, since
+a 0/0 bar and a "resets on the 1st" would both be lies. `page_quota.no_allowance`
+is the flag for that case; `page_quota.exhausted` means the school HAD an
+allowance and spent it, which needs different words and a different link.
 
 The warning threshold is billing.page_quota.WARN_RATIO (75%) and arrives as
 `page_quota.warn` — don't re-derive it from the percentage here, or the banner
 and the code that actually refuses an upload can drift apart.
 {% endcomment %}
-{% if page_quota.metered %}
+{% if page_quota.no_allowance %}
+<div class="bg-white rounded-2xl border border-amber-200 shadow-sm p-5" data-testid="no-ai-allowance">
+  <p class="text-sm font-semibold text-gray-800 mb-1">Reading a PDF with AI needs an AI module</p>
+  {% if page_quota.reason == 'no_school' %}
+  <p class="text-sm text-gray-600">
+    Your account is not linked to a school yet, so it has no AI page allowance to
+    draw on. Ask your institute administrator to add you, then try again.
+  </p>
+  {% else %}
+  <p class="text-sm text-gray-600 mb-3">
+    Your school does not have one, so PDF import is unavailable. You can still
+    upload authored questions as JSON or ZIP, and build from the question bank,
+    without it.
+  </p>
+  <a href="{% url 'ai_import:tier_select' %}"
+     class="inline-block px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition">
+    See the AI plans
+  </a>
+  {% endif %}
+</div>
+{% elif page_quota.metered %}
 <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
   <p class="text-sm font-semibold text-gray-700 mb-2">
     You have used {{ page_quota.used }}/{{ page_quota.limit }} pages from your monthly limit

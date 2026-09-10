@@ -7,6 +7,7 @@ from django.urls import reverse
 
 from accounts.models import CustomUser, Role
 from classroom.models import School
+from billing.testing import grant_ai_pages
 from homework.models import HomeworkUploadSession
 from homework.tasks import process_homework_pdf
 
@@ -35,6 +36,7 @@ class HomeworkPageSelectionUploadTests(TestCase):
         cls.user.roles.add(teacher_role)
         cls.school = School.objects.create(
             name='HW PS School', slug='hw-ps-school', admin=cls.user)
+        grant_ai_pages(cls.school)
 
     def setUp(self):
         self.client.force_login(self.user)

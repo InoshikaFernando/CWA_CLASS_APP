@@ -85,30 +85,22 @@ def _get_remaining_pages(school):
 # Mixin
 # ---------------------------------------------------------------------------
 
-class AIImportModuleRequiredMixin:
-    """Check that the user's school has any AI import module active."""
-
-    def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_superuser:
-            if not _has_ai_import_access(request.user):
-                from urllib.parse import urlencode
-                from audit.services import log_event
-                school = get_school_for_user(request.user)
-                log_event(
-                    user=request.user, school=school,
-                    category='entitlement', action='ai_import_access_denied',
-                    result='blocked', request=request,
-                )
-                url = reverse('ai_import:tier_select')
-                return redirect(url)
-        return super().dispatch(request, *args, **kwargs)
+# The AI import screens used to sit behind their own module check, while the
+# homework and worksheet PDF uploads — the same extraction, the same Anthropic
+# bill — sat behind none. A school with no module was locked out of this app and
+# uploaded unlimited pages through the other two.
+#
+# There is now one gate for all three, and it is the page allowance: no AI
+# module means no allowance, so the upload is refused wherever it starts (see
+# billing/page_quota.py). These screens open for any teacher; what needs a
+# module is spending AI pages, not reading this page.
 
 
 # ---------------------------------------------------------------------------
 # Views
 # ---------------------------------------------------------------------------
 
-class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+class UploadPDFView(RoleRequiredMixin, View):
     """Step 1: Upload a PDF for AI classification."""
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
@@ -258,7 +250,7 @@ class UploadPDFView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
             return redirect('ai_import:upload')
 
 
-class ProcessingView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+class ProcessingView(RoleRequiredMixin, View):
     """Interstitial page shown while the PDF is classified in the background."""
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
@@ -276,7 +268,7 @@ class ProcessingView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
         return render(request, 'ai_import/processing.html', {'session': session})
 
 
-class ImportStatusView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+class ImportStatusView(RoleRequiredMixin, View):
     """HTMX poll endpoint: returns the status partial for a processing session.
 
     When the session becomes READY the partial sends an HX-Redirect to the
@@ -298,7 +290,7 @@ class ImportStatusView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
         return response
 
 
-class PreviewQuestionsView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+class PreviewQuestionsView(RoleRequiredMixin, View):
     """Step 2: Preview AI-classified questions. User can edit/include/exclude."""
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
@@ -555,7 +547,7 @@ _IMPORT_ROLES = [
 ]
 
 
-class PageImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+class PageImageView(RoleRequiredMixin, View):
     """AJAX: full source-page PNG for the 'Adjust image' crop modal."""
     required_roles = _IMPORT_ROLES
 
@@ -567,7 +559,7 @@ class PageImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
         return page_image_response(session, request)
 
 
-class RecropView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+class RecropView(RoleRequiredMixin, View):
     """AJAX: re-render a question image from a teacher-drawn box on the PDF."""
     required_roles = _IMPORT_ROLES
 
@@ -579,7 +571,7 @@ class RecropView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
         return recrop_response(session, request)
 
 
-class QuestionPreviewView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+class QuestionPreviewView(RoleRequiredMixin, View):
     """AJAX: one extracted question rendered as the student will meet it.
 
     ``promote_blanks=True`` — ``save_questions_from_session`` calls
@@ -601,7 +593,7 @@ class QuestionPreviewView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
         )
 
 
-class UploadImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+class UploadImageView(RoleRequiredMixin, View):
     """AJAX endpoint: upload an image to the session's image gallery."""
     required_roles = _IMPORT_ROLES
 
@@ -640,7 +632,7 @@ class UploadImageView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
         })
 
 
-class ConfirmImportView(RoleRequiredMixin, AIImportModuleRequiredMixin, View):
+class ConfirmImportView(RoleRequiredMixin, View):
     """Step 3: Confirm and save questions to the database."""
     required_roles = [
         Role.INSTITUTE_OWNER, Role.HEAD_OF_INSTITUTE,
