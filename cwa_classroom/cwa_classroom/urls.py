@@ -134,5 +134,9 @@ urlpatterns = [
     path('api/', include('progress.api_urls')),
 ]
 
+# Django's stock 400 page is the four words "Bad Request (400)" — see
+# cwa_classroom.views.bad_request for why that is not good enough here.
+handler400 = 'cwa_classroom.views.bad_request'
+
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

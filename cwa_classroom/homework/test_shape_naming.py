@@ -7,6 +7,7 @@ from django.urls import reverse
 
 from accounts.models import CustomUser, Role
 from classroom.models import School
+from billing.testing import grant_ai_pages
 from homework.models import HomeworkUploadSession
 from homework.tasks import process_homework_pdf
 
@@ -72,6 +73,7 @@ class HomeworkUploadViewShapeNamingTests(TestCase):
             name=Role.TEACHER, defaults={'display_name': 'Teacher'})
         cls.user.roles.add(teacher_role)
         cls.school = School.objects.create(name='HW UV', slug='hw-uv', admin=cls.user)
+        grant_ai_pages(cls.school)
 
     @patch('homework.views.log_event')
     @patch('billing.entitlements.get_school_for_user')
