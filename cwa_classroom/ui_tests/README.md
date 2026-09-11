@@ -113,3 +113,42 @@ or the packing shifts. Branch protection therefore hangs off
 red exactly when the UI suite is red. Point required checks at that name and
 leave it alone — `tests_workflows.py` fails the build if it is renamed or stops
 running unconditionally.
+
+## The marketing capture
+
+`ui_tests/maths/test_question_showcase.py` is the odd one out: it drives a
+student through one homework carrying every interactive question type — long
+division with its working ladder, the prime-factor ladder, long multiplication
+with partial products, a draggable protractor, a Cartesian plane, a symmetry
+grid, a number line, a table of values, a sketched parabola — at human speed,
+with the browser recording. `scripts/render_question_showcase.sh` runs it and
+transcodes the result to MP4:
+
+```bash
+./scripts/render_question_showcase.sh                 # the full cut (~2½ min)
+./scripts/render_question_showcase.sh --pace 0.4      # a fast rehearsal
+```
+
+Output lands in `artifacts/demo/` (gitignored).
+
+It is still a real test. Every answer it types is the correct one and the run
+asserts the submission came back 100%, so a widget that stops mounting — or
+stops grading — fails it instead of producing a video of a child filling in a
+box that marks wrong.
+
+**It is skipped unless `CWA_DEMO_VIDEO=1` is set**, so it costs CI nothing while
+staying in the `maths` group where its imports and path filter already belong.
+The switches are environment variables rather than pytest options on purpose:
+`ui_core` watches `ui_tests/*.py`, so adding an option to `conftest.py` would
+run all fifteen UI groups every time the capture was re-timed.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `CWA_DEMO_VIDEO` | unset | run it at all |
+| `CWA_DEMO_PACE` | `1` | multiplies every wait — `0.4` is a rehearsal cut |
+| `CWA_DEMO_OUT` | `artifacts/demo` | where the recording lands |
+
+The cursor, captions and progress chip are injected from outside the page
+(`ui_tests/maths/showcase.py`, via `add_init_script`), so nothing in the app's
+own templates or JavaScript knows the capture exists — the recording shows the
+product exactly as a student gets it.
