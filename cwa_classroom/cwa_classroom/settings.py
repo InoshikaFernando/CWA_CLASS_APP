@@ -336,7 +336,6 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'cwa_classroom.middleware.MathsRoomRedirectMiddleware',    # mathsroom → /maths/ redirect
-    'cwa_classroom.middleware.SubdomainURLRoutingMiddleware',  # subdomain → urlconf routing
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
