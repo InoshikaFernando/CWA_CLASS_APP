@@ -366,25 +366,30 @@ def _act_plot_points(sc, q, card):
 def _build_plot_line(Question, level, topic):
     return Question.objects.create(
         level=level, topic=topic,
-        # Names the points and says "in order", rather than "join them up":
-        # the widget appends each NEW point to a polyline and ignores a tap on
-        # one already plotted, so the path it draws is open. "Join them up"
-        # reads as an instruction to close the shape, which a student cannot
-        # do here however hard they tap.
-        question_text="Plot (\u22122, 1), (0, 4) and (3, 1), joining them in order.",
+        question_text="Plot (\u22122, 1), (0, 4) and (3, 1) and join them into a triangle.",
         question_type=Question.PLOT_LINE, difficulty=2, points=1,
         plane_spec={"bounds": _PLANE_BOUNDS, "mode": "segments",
                     "target": {"segments": [
                         {"x1": -2, "y1": 1, "x2": 0, "y2": 4},
                         {"x1": 0, "y1": 4, "x2": 3, "y2": 1},
+                        {"x1": 3, "y1": 1, "x2": -2, "y2": 1},   # the closing side
                     ]}},
     )
 
 
 def _act_plot_line(sc, q, card):
+    """Three taps to lay the sides, a fourth on the first point to close it.
+
+    The closing tap only does anything because the question's own answer is a
+    ring; on an open "join them in order" question the widget leaves the first
+    point alone, so a child cannot add a side that was never asked for.
+    """
     for gx, gy in ((-2, 1), (0, 4), (3, 1)):
         sc.click(card.locator(f'[data-pl-dot="{q.pk}"][data-gx="{gx}"][data-gy="{gy}"]'),
                  settle=0.6)
+    sc.click(card.locator(f'[data-pl-dot="{q.pk}"][data-gx="-2"][data-gy="1"]'),
+             settle=0.5)
+    sc.point_at(card.locator(f'[data-pl-readout="{q.pk}"]'), hold=1.2)
 
 
 def _build_read_graph(Question, level, topic):
@@ -498,7 +503,7 @@ SCENES = [
      "A real Cartesian plane. Tap a lattice point to plot it, tap again to undo.",
      _build_plot_points, _act_plot_points),
     ("Plot a Line",
-     "The points join themselves up as they land.",
+     "The sides join themselves up as they land. Tap the first point to close the shape.",
      _build_plot_line, _act_plot_line),
     ("Read a Graph",
      "Read the value off the axes. Marked within a tolerance, like a real reading.",

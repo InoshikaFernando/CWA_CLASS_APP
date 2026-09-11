@@ -88,6 +88,28 @@ def plot_line_hw(db, classroom, teacher_user, topic, level):
     return _make_homework(classroom, teacher_user, topic, q, 'Plot Line E2E'), q
 
 
+TRIANGLE_SPEC = {
+    'bounds': {'xmin': -5, 'xmax': 5, 'ymin': -5, 'ymax': 5},
+    'mode': 'segments',
+    'target': {'segments': [
+        {'x1': -2, 'y1': 1, 'x2': 0, 'y2': 4},
+        {'x1': 0, 'y1': 4, 'x2': 3, 'y2': 1},
+        {'x1': 3, 'y1': 1, 'x2': -2, 'y2': 1},      # the closing side
+    ]},
+}
+
+
+@pytest.fixture
+def closed_shape_hw(db, classroom, teacher_user, topic, level):
+    from maths.models import Question
+    q = Question.objects.create(
+        level=level, topic=topic, question_text='Join the points into a triangle.',
+        question_type=Question.PLOT_LINE, difficulty=1, points=1,
+        plane_spec=TRIANGLE_SPEC,
+    )
+    return _make_homework(classroom, teacher_user, topic, q, 'Closed Shape E2E'), q
+
+
 @pytest.fixture
 def identify_hw(db, classroom, teacher_user, topic, level):
     from maths.models import Question
@@ -212,6 +234,89 @@ class TestPlotLine:
         # plot_line DOES join the dots — the polyline is populated.
         line_points = page.locator(f'[data-pl-line="{q.pk}"]').get_attribute("points")
         assert (line_points or "").strip()
+        _submit(page)
+        assert _answer(hw, enrolled_student, q).is_correct is True
+
+
+class TestClosedShape:
+    """Tapping the first point again closes the ring (CPP plot_line).
+
+    Before this the tap was a silent no-op, so the closing side could never be
+    drawn — and nothing stopped an author storing a triangle as the answer, which
+    then marked every attempt wrong without a word anywhere.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    def test_closing_the_shape_is_marked_right(
+        self, page, live_server, enrolled_student, closed_shape_hw
+    ):
+        hw, q = closed_shape_hw
+        _take(page, live_server, enrolled_student, hw)
+        for gx, gy in ((-2, 1), (0, 4), (3, 1)):
+            _dot(page, q.pk, gx, gy).click()
+        _dot(page, q.pk, -2, 1).click()             # tap the first point to close
+        _submit(page)
+        assert _answer(hw, enrolled_student, q).is_correct is True
+
+    @pytest.mark.django_db(transaction=True)
+    def test_leaving_it_open_is_marked_wrong(
+        self, page, live_server, enrolled_student, closed_shape_hw
+    ):
+        hw, q = closed_shape_hw
+        _take(page, live_server, enrolled_student, hw)
+        for gx, gy in ((-2, 1), (0, 4), (3, 1)):
+            _dot(page, q.pk, gx, gy).click()
+        _submit(page)
+        assert _answer(hw, enrolled_student, q).is_correct is False
+
+    @pytest.mark.django_db(transaction=True)
+    def test_the_readout_and_line_show_the_shape_closed(
+        self, page, live_server, enrolled_student, closed_shape_hw
+    ):
+        hw, q = closed_shape_hw
+        _take(page, live_server, enrolled_student, hw)
+        for gx, gy in ((-2, 1), (0, 4), (3, 1)):
+            _dot(page, q.pk, gx, gy).click()
+        open_corners = page.locator(f'[data-pl-line="{q.pk}"]').get_attribute("points")
+        _dot(page, q.pk, -2, 1).click()
+        closed_corners = page.locator(f'[data-pl-line="{q.pk}"]').get_attribute("points")
+        # The polyline gains the return leg...
+        assert len(closed_corners.split()) == len(open_corners.split()) + 1
+        # ...and the read-out says so, rather than leaving the child to squint.
+        expect(page.locator(f'[data-pl-readout="{q.pk}"]')).to_have_text(
+            "(-2, 1), (0, 4), (3, 1), (-2, 1)")
+
+    @pytest.mark.django_db(transaction=True)
+    def test_tapping_the_first_point_again_opens_it_back_up(
+        self, page, live_server, enrolled_student, closed_shape_hw
+    ):
+        hw, q = closed_shape_hw
+        _take(page, live_server, enrolled_student, hw)
+        for gx, gy in ((-2, 1), (0, 4), (3, 1)):
+            _dot(page, q.pk, gx, gy).click()
+        _dot(page, q.pk, -2, 1).click()             # close...
+        _dot(page, q.pk, -2, 1).click()             # ...and think better of it
+        expect(page.locator(f'[data-pl-readout="{q.pk}"]')).to_have_text(
+            "(-2, 1), (0, 4), (3, 1)")
+        _submit(page)
+        assert _answer(hw, enrolled_student, q).is_correct is False
+
+    @pytest.mark.django_db(transaction=True)
+    def test_an_open_question_does_not_offer_closing(
+        self, page, live_server, enrolled_student, plot_line_hw
+    ):
+        """The gate: closing is offered only where the answer is a ring.
+
+        On a "join these in order" question a stray tap on the first point must
+        do nothing, not quietly add a side and lose the mark.
+        """
+        hw, q = plot_line_hw
+        _take(page, live_server, enrolled_student, hw)
+        for gx, gy in ((-2, 1), (0, 4), (3, 1)):
+            _dot(page, q.pk, gx, gy).click()
+        _dot(page, q.pk, -2, 1).click()             # would close it, if allowed
+        expect(page.locator(f'[data-pl-readout="{q.pk}"]')).to_have_text(
+            "(-2, 1), (0, 4), (3, 1)")
         _submit(page)
         assert _answer(hw, enrolled_student, q).is_correct is True
 

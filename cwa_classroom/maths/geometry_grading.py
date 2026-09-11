@@ -416,6 +416,70 @@ def given_point_parts(p):
     return x, y, label
 
 
+def segment_chain(segments):
+    """Order ``segments`` into the vertex path a student taps out, or None.
+
+    Returns ``(vertices, closed)`` — ``vertices`` in tap order, with the closing
+    vertex NOT repeated, and ``closed`` True when the figure is a ring. Returns
+    None when the segments are not one simple open path or one simple ring, i.e.
+    when no sequence of taps on the plane widget could draw them.
+
+    This is what makes "can a child actually draw this?" a question the code can
+    answer. The widget builds its line by appending tapped points, so the only
+    figures it can produce are a single unbranched stroke and (when the question
+    asks for one) that stroke closed back onto its start. A target that is a
+    star, a T, two separate strokes, or the same side listed twice is
+    unanswerable however hard a child taps — and grading is a set comparison, so
+    it fails silently rather than erroring. ``validate_plane_spec`` uses this to
+    refuse such a target at the source; ``Question.plane_data`` uses it to tell
+    the take page whether this question wants its shape closed.
+    """
+    try:
+        pairs = [((int(s['x1']), int(s['y1'])), (int(s['x2']), int(s['y2'])))
+                 for s in segments]
+    except (KeyError, TypeError, ValueError, IndexError):
+        return None
+    if not pairs:
+        return None
+    # The same side listed twice is not a drawable stroke, it is a typo.
+    if len({tuple(sorted(pair)) for pair in pairs}) != len(pairs):
+        return None
+
+    adjacent = {}
+    for a, b in pairs:
+        if a == b:
+            return None
+        adjacent.setdefault(a, []).append(b)
+        adjacent.setdefault(b, []).append(a)
+    # Degree 3+ is a junction: the stroke would have to branch.
+    if any(len(neighbours) > 2 for neighbours in adjacent.values()):
+        return None
+
+    ends = sorted(v for v, neighbours in adjacent.items() if len(neighbours) == 1)
+    if len(ends) == 2:
+        closed, start = False, ends[0]
+    elif not ends and len(pairs) == len(adjacent):
+        closed, start = True, min(adjacent)
+    else:
+        return None
+
+    vertices = [start]
+    previous, current = None, start
+    while True:
+        options = [v for v in adjacent[current] if v != previous]
+        if not options:
+            break                       # walked off the open end
+        step = min(options)
+        if step == start:
+            break                       # the ring met itself
+        vertices.append(step)
+        previous, current = current, step
+    # Short of every vertex means the segments were in two or more pieces.
+    if len(vertices) != len(adjacent):
+        return None
+    return vertices, closed
+
+
 def validate_plane_spec(plane_spec):
     """Validate a ``plane_spec``; raise ``ValueError`` if invalid.
 
@@ -500,6 +564,20 @@ def validate_plane_spec(plane_spec):
             raise ValueError("plane_spec.target.segments must be a non-empty list for mode 'segments'.")
         for s in items:
             _check_segment(s)
+        # ...and the sides must add up to something a child can actually tap
+        # out. The widget draws ONE unbranched stroke, optionally closed back
+        # onto its start, so a target that branches, comes in two pieces, or
+        # repeats a side can never be matched. Grading is a set comparison and
+        # would mark every attempt wrong without a word, so the spec is refused
+        # here instead — at the model's clean() and at both AI importers.
+        if segment_chain(items) is None:
+            raise ValueError(
+                'plane_spec.target.segments must form a single unbranched '
+                'line, or a closed shape: no branches, no separate pieces and '
+                'no side listed twice. A student draws this by tapping points '
+                'in order, so anything else cannot be drawn and would be marked '
+                'wrong whatever they do.'
+            )
 
     # Optional: draw a smooth curve through the student's plotted points (plot_points
     # only — a visual "join the dots into a parabola" aid; grading is unchanged).

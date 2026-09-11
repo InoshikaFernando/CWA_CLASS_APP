@@ -439,8 +439,12 @@ pattern of the draw-on-grid partial; grading is server-side set comparison.
 {% elif q.question_type == 'plot_points' or q.question_type == 'plot_line' %}{% if q.plane_data %}
 {% comment %}
 Cartesian plane (signed). plot_points: tap a lattice point to plot it, tap again
-to remove. plot_line: tap points in order and they auto-connect into an open
-polyline; tap the last point again to undo it. Marks serialise to JSON in the
+to remove. plot_line: tap points in order and they auto-connect into a polyline;
+tap the last point again to undo it. When the ANSWER is a closed shape (d.closed,
+derived from the target by segment_chain) tapping the first point again closes
+the ring, and tapping it once more opens it back up. Closing is offered only for
+those questions on purpose: on an open "join these in order" question a stray
+tap on the first point would silently add a side and lose the mark. Marks serialise to JSON in the
 hidden answer_{id} input — {"points":[[x,y],...]} or {"segments":[{x1,y1,x2,y2}]}
 (signed integer coords). A visible read-out echoes the plotted points so a
 mis-tap is never silent; each lattice point has a generous invisible hit-circle
@@ -450,7 +454,7 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
 <input type="hidden" name="answer_{{ q.id }}" data-pl-hidden="{{ q.id }}"
        value='{% if d.mode == "segments" %}{"segments":[]}{% else %}{"points":[]}{% endif %}' />
 <p class="text-xs text-gray-500 mb-2">
-  {% if d.mode == 'segments' %}Tap points in order to plot and join them. Tap the last point again to undo.{% else %}Tap the grid to plot each point. Tap a point again to remove it.{% endif %}
+  {% if d.mode == 'segments' %}Tap points in order to plot and join them. Tap the last point again to undo.{% if d.closed %} Tap the first point to close the shape.{% endif %}{% else %}Tap the grid to plot each point. Tap a point again to remove it.{% endif %}
 </p>
 <svg data-pl-wrap="{{ q.id }}" viewBox="0 0 {{ d.width }} {{ d.height }}"
      class="border border-gray-200 rounded-lg bg-white touch-none select-none max-w-full"
@@ -491,6 +495,9 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
   if (!svg || !hidden || !marks) return;
   var SVGNS = "http://www.w3.org/2000/svg";
   var pts = [];  // ordered list of [x, y] (order matters only for plot_line)
+  // Only ever true when the question's own answer is a ring — see d.closed.
+  var wantsClosed = {% if d.closed %}true{% else %}false{% endif %};
+  var closed = false;
 
   function px(x){ return pad + (x - xmin) * step; }
   function py(y){ return pad + (ymax - y) * step; }
@@ -518,11 +525,19 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
       for (var i = 1; i < pts.length; i++){
         segs.push({x1: pts[i-1][0], y1: pts[i-1][1], x2: pts[i][0], y2: pts[i][1]});
       }
+      if (closed && pts.length > 2){
+        var last = pts[pts.length - 1];
+        segs.push({x1: last[0], y1: last[1], x2: pts[0][0], y2: pts[0][1]});
+      }
       hidden.value = JSON.stringify({segments: segs});
     } else {
       hidden.value = JSON.stringify({points: pts.slice()});
     }
-    readout.textContent = pts.length ? pts.map(fmt).join(", ") : "—";
+    // The read-out names the closing point again, so "closed" is something the
+    // child can READ and not just infer from the drawing.
+    readout.textContent = pts.length
+      ? pts.map(fmt).join(", ") + (closed && pts.length > 2 ? ", " + fmt(pts[0]) : "")
+      : "—";
   }
   function render(){
     while (marks.firstChild) marks.removeChild(marks.firstChild);
@@ -535,7 +550,8 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
     // Only plot_line (segments mode) joins the dots. plot_points must leave them
     // unconnected — connecting them would misrepresent a "plot these points" task.
     if (line && mode === "segments"){
-      line.setAttribute("points", pts.map(function(p){ return px(p[0]) + "," + py(p[1]); }).join(" "));
+      var path = (closed && pts.length > 2) ? pts.concat([pts[0]]) : pts;
+      line.setAttribute("points", path.map(function(p){ return px(p[0]) + "," + py(p[1]); }).join(" "));
     }
     // Opt-in curve: draw a smooth parabola through the plotted points (points mode
     // only), sorted left→right. Grading still compares the point set, unchanged.
@@ -556,7 +572,15 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
     for (var i = 0; i < pts.length; i++){ if (eq(pts[i], p)){ idx = i; break; } }
     if (mode === "segments"){
       // Auto-connect in tap order; tapping the last point again undoes it.
-      if (idx === pts.length - 1 && idx !== -1){ pts.pop(); }
+      // On a closed-shape question, the first point closes the ring and opens
+      // it again, so a mis-close is as recoverable as a mis-tap. While the
+      // shape is closed every OTHER point is inert: a tap that quietly altered
+      // a finished figure is the thing this widget must never do.
+      if (closed){
+        if (idx === 0){ closed = false; }
+      }
+      else if (idx === pts.length - 1 && idx !== -1){ pts.pop(); }
+      else if (wantsClosed && idx === 0 && pts.length > 2){ closed = true; }
       else if (idx === -1){ pts.push(p); }
     } else {
       if (idx !== -1){ pts.splice(idx, 1); } else { pts.push(p); }
@@ -567,7 +591,7 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
     g.addEventListener("click", function(){ onDot(g); });
     g.addEventListener("keydown", function(e){ if (e.key === "Enter" || e.key === " "){ e.preventDefault(); onDot(g); } });
   });
-  if (clearBtn) clearBtn.addEventListener("click", function(){ pts = []; render(); sync(); });
+  if (clearBtn) clearBtn.addEventListener("click", function(){ pts = []; closed = false; render(); sync(); });
   var form = svg.closest('form');
   if (form) form.addEventListener('submit', sync, true);
   sync();
@@ -579,6 +603,13 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
       if (mode === "segments" && saved && Array.isArray(saved.segments) && saved.segments.length){
         pts = [[saved.segments[0].x1, saved.segments[0].y1]];
         saved.segments.forEach(function(s){ pts.push([s.x2, s.y2]); });
+        // A saved ring ends where it started. Drop the repeat and raise the
+        // flag, or the duplicate becomes a real point and the next tap on it
+        // behaves like a stranger.
+        if (pts.length > 3 && eq(pts[0], pts[pts.length - 1])){
+          pts.pop();
+          closed = true;
+        }
         render(); sync();
       } else if (saved && Array.isArray(saved.points) && saved.points.length){
         pts = saved.points.map(function(p){ return [p[0], p[1]]; });

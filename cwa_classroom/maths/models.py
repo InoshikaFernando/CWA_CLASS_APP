@@ -1244,12 +1244,25 @@ class Question(models.Model):
                           'label': label,
                           # Nudge the label clear of the dot and of the axes.
                           'lx': px(gx) + 8, 'ly': py(gy) - 8})
+        mode = self.plane_spec.get('mode') or 'points'
+        # Does this question want its shape CLOSED? Derived from the target, so
+        # the widget only offers closing where the answer is a ring — a child
+        # working an open "join these in order" question cannot accidentally
+        # join the last point back to the first and lose the mark. It leaks
+        # nothing: which points to plot is still the answer, and `mode` already
+        # reaches the page the same way.
+        from maths.geometry_grading import segment_chain
+        chain = None
+        if mode == 'segments':
+            chain = segment_chain(
+                (self.plane_spec.get('target') or {}).get('segments') or [])
         return {
             'svg': cartesian_plane_svg(self.plane_spec, pad=pad, step=step),
             'width': width, 'height': height, 'pad': pad, 'step': step,
             'xmin': xmin, 'xmax': xmax, 'ymin': ymin, 'ymax': ymax,
-            'mode': self.plane_spec.get('mode') or 'points',
+            'mode': mode,
             'dots': dots, 'given': given, 'interactive': interactive,
+            'closed': bool(chain and chain[1]),
             # Opt-in: render a smooth curve through the plotted points (plot_points
             # only — a "join the dots into a parabola" visual aid; grading unchanged).
             'curve': bool(self.plane_spec.get('curve')),
