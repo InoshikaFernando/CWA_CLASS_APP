@@ -163,9 +163,13 @@ def _act_column_operation(sc, q, card):
         ─────────
           1 4 7 2
 
-    Both carries are a 1 above the same column, so the one amber digit serves
-    both rows — it is written when the first partial needs it and left standing
-    for the second, which is what a child's page looks like.
+    A carry belongs to the ROW being worked, and is rubbed out before the next
+    one starts. Both carries here happen to be a 1 above the same column, and
+    an earlier cut leaned on that to leave the first one standing through the
+    second row — which is not how it is taught and does not read as one either:
+    a digit left over from x4 sitting above the working for x6 looks like part
+    of the x6. So the box is erased when the first partial is finished, and the
+    second carry is written fresh out of 3 x 6 = 18.
 
     The carry cells are the only inputs in the widget with no data attribute:
     they are scratch, like the partial rows, and only the blue answer row is
@@ -174,14 +178,19 @@ def _act_column_operation(sc, q, card):
     carry = card.locator(
         f'[data-ca-wrap="{q.pk}"] input:not([data-ca-partial]):not([data-ca-answer])')
     partial = card.locator(f'[data-ca-partial="{q.pk}"]')
+    tens_carry = carry.nth(2)
 
     # 23 x 4: units first, then the carry it produced, then the tens.
-    sc.write(partial.nth(3), "2")
-    sc.write(carry.nth(2), "1")
-    sc.write(partial.nth(2), "9")
-    # 23 x 6, shifted one place. The carry above the tens is still the 1.
-    for index, digit in ((6, "8"), (5, "3"), (4, "1")):
-        sc.write(partial.nth(index), digit)
+    sc.write(partial.nth(3), "2")       # 3 x 4 = 12, write the 2
+    sc.write(tens_carry, "1")           # ...carry the 1
+    sc.write(partial.nth(2), "9")       # 2 x 4 = 8, + the 1 carried = 9
+
+    # Done with that row, so the carry goes. A fresh one comes out of 3 x 6.
+    sc.erase(tens_carry)
+    sc.write(partial.nth(6), "8")       # 3 x 6 = 18, write the 8
+    sc.write(tens_carry, "1")           # ...carry the 1, this time from x6
+    sc.write(partial.nth(5), "3")       # 2 x 6 = 12, + the 1 carried = 13
+    sc.write(partial.nth(4), "1")
 
     answer = card.locator(f'[data-ca-answer="{q.pk}"]')
     for index, digit in reversed(list(enumerate("1472"))):
@@ -357,7 +366,12 @@ def _act_plot_points(sc, q, card):
 def _build_plot_line(Question, level, topic):
     return Question.objects.create(
         level=level, topic=topic,
-        question_text="Plot the points and join them up.",
+        # Names the points and says "in order", rather than "join them up":
+        # the widget appends each NEW point to a polyline and ignores a tap on
+        # one already plotted, so the path it draws is open. "Join them up"
+        # reads as an instruction to close the shape, which a student cannot
+        # do here however hard they tap.
+        question_text="Plot (\u22122, 1), (0, 4) and (3, 1), joining them in order.",
         question_type=Question.PLOT_LINE, difficulty=2, points=1,
         plane_spec={"bounds": _PLANE_BOUNDS, "mode": "segments",
                     "target": {"segments": [

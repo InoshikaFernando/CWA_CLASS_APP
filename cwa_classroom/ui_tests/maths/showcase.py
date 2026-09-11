@@ -313,6 +313,20 @@ class Showcase:
         locator.press_sequentially(str(text), delay=int(delay * self.pace))
         return self.beat(settle)
 
+    def erase(self, locator, settle: float = 0.45):
+        """Rub a value out on camera.
+
+        Clearing a field with fill("") is instantaneous and invisible, which is
+        no good when the ERASING is the thing being shown.
+        """
+        self.point_at(locator, hold=0.35)
+        self.page.evaluate("() => window.__demoTap()")
+        locator.click()
+        self.beat(0.3)
+        locator.press("Control+a")
+        locator.press("Backspace")
+        return self.beat(settle)
+
     def drag_from(self, x: float, y: float, dx: float, dy: float,
                   steps: int = 28, settle: float = 0.5):
         """Drag from an explicit viewport point by (dx, dy), slowly.
