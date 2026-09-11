@@ -83,17 +83,34 @@ def _act_long_division(sc, q, card):
     def working(row, col):
         return scratch.nth(row * cols + col)
 
-    # 8 ÷ 4 = 2, nothing left over.
+    # The ladder, written the way it is taught: each product goes UNDER the
+    # digits it came from, a multi-digit product straddles the columns it
+    # occupies (16 is a 1 in the tens column and a 6 in the units — not "16"
+    # crammed into one cell), and each brought-down digit is written out.
+    #
+    #       2 1 4
+    #   4 ) 8 5 7
+    #       8          2 x 4
+    #       0 5        8 - 8, bring down the 5
+    #         4        1 x 4
+    #         1 7      5 - 4, bring down the 7
+    #       . 1 6      4 x 4, across the tens and units columns
+    #           1      17 - 16 — the remainder
+    #
+    # 8 ÷ 4 = 2, nothing left over; bring down the 5.
     sc.write(quotient.nth(0), "2")
     sc.write(working(0, 0), "8")
     sc.write(working(1, 0), "0")
-    # bring down the 5 → 5 ÷ 4 = 1 remainder 1.
+    sc.write(working(1, 1), "5")
+    # 5 ÷ 4 = 1 remainder 1; bring down the 7.
     sc.write(quotient.nth(1), "1")
     sc.write(working(2, 1), "4")
     sc.write(working(3, 1), "1")
-    # bring down the 7 → 17 ÷ 4 = 4 remainder 1.
+    sc.write(working(3, 2), "7")
+    # 17 ÷ 4 = 4 remainder 1.
     sc.write(quotient.nth(2), "4")
-    sc.write(working(4, 2), "16")
+    sc.write(working(4, 1), "1")
+    sc.write(working(4, 2), "6")
     sc.write(working(5, 2), "1")
     sc.write(card.locator(f'[data-ld-r="{q.pk}"]'), "1")
 
