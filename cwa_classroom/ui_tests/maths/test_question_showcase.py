@@ -523,6 +523,13 @@ def showcase_homework(db, classroom, teacher_user, topic, level):
     from homework.models import Homework, HomeworkQuestion
     from maths.models import Question
 
+    # The shared fixture names the class "Year 7 Maths <run id>" so parallel
+    # runs cannot collide. That id is on camera on the homework list, where it
+    # reads as a glitch rather than a test detail, so this capture takes the
+    # clean name — nothing else in the run depends on it.
+    classroom.name = "Year 7 Maths"
+    classroom.save(update_fields=["name"])
+
     questions = [build(Question, level, topic) for _, _, build, _ in SCENES]
     homework = Homework.objects.create(
         classroom=classroom, created_by=teacher_user,
@@ -537,13 +544,13 @@ def showcase_homework(db, classroom, teacher_user, topic, level):
     return homework, questions
 
 
-def _sign_in_and_open(sc, destination, user):
+def _sign_in(sc, destination, user):
     """Log in on camera and land on ``destination``.
 
-    Asks for the homework while signed out and lets the login-required redirect
-    supply the login page, rather than navigating to it by URL. Two reasons:
-    it is the journey a child actually takes (tap the homework, sign in, you are
-    on it), and it keeps this file free of an ``/accounts/`` literal — the CI
+    Asks for the page while signed out and lets the login-required redirect
+    supply the login form, rather than navigating to it by URL. Two reasons:
+    it is the journey a child actually takes (tap the link, sign in, you are
+    there), and it keeps this file free of an ``/accounts/`` literal — the CI
     path filter for the maths UI group is derived from the URLs its tests name,
     so hard-coding one here would make every accounts change run all thirteen
     of these question-type suites.
@@ -559,6 +566,7 @@ def _sign_in_and_open(sc, destination, user):
     assert username.count(), (
         "expected the login-required redirect to land on the sign-in form; "
         f"got {page.url}")
+    sc.cue("Sign-in screen")
     sc.caption("Wizards Learning Hub",
                "Maths question types a worksheet cannot do.", hold=2.2)
     sc.write(username, user.username, delay=85)
@@ -566,6 +574,30 @@ def _sign_in_and_open(sc, destination, user):
     sc.caption_off()
     sc.click(page.locator("button[type='submit'], input[type='submit']").first)
     page.wait_for_url(lambda url: "login" not in url, timeout=15_000)
+    page.wait_for_load_state("networkidle")
+
+
+def _open_from_the_homework_list(sc, homework):
+    """The step between signing in and answering: find the paper and start it.
+
+    Worth its ten seconds. Deep-linking to the take page shows a question
+    widget; arriving through the list shows a classroom — the sidebar a child
+    actually navigates, the teacher's title, and a due date that says this is
+    assigned work rather than a demo.
+    """
+    page = sc.page
+    sc.cue("Homework list, sidebar and due date")
+    sc.caption("Set by their teacher, with a due date",
+               "Homework lands here, and the app keeps score of what is left.",
+               hold=2.6)
+    row = page.get_by_text(homework.title, exact=True).first
+    sc.spotlight(row.locator(
+        "xpath=ancestor::div[contains(@class,'rounded')][1]"))
+    sc.point_at(page.get_by_text("Due:", exact=False).first, hold=1.2)
+    sc.caption_off()
+    start = page.get_by_role("link", name="Start").first
+    with page.expect_navigation():
+        sc.click(start)
     page.wait_for_load_state("networkidle")
 
 
@@ -583,12 +615,13 @@ def test_records_the_question_type_showcase(
         record_video_size=VIEWPORT,
     )
     page = context.new_page()
-    sc = Showcase(page, pace=PACE).install()
+    sc = Showcase(page, pace=PACE).install().start_clock()
 
     try:
-        _sign_in_and_open(
-            sc, f"{live_server.url}/homework/{homework.pk}/take/",
-            enrolled_student)
+        # Sign in onto the homework LIST, then open the paper from it.
+        _sign_in(sc, f"{live_server.url}/homework/", enrolled_student)
+        _open_from_the_homework_list(sc, homework)
+        sc.cue("The paper opens")
         sc.caption(homework.title,
                    f"{len(questions)} question types, one paper.", hold=2.4)
         sc.caption_off()
@@ -599,6 +632,7 @@ def test_records_the_question_type_showcase(
         for index, ((title, subtitle, _, act), question) in enumerate(
                 zip(SCENES, questions)):
             card = cards.nth(index)
+            sc.cue(f"{index + 1}. {title}")
             sc.chip(f"{index + 1} / {len(SCENES)}")
             sc.spotlight(card)
             sc.caption(title, subtitle, hold=1.9)
@@ -607,6 +641,7 @@ def test_records_the_question_type_showcase(
             sc.caption_off()
 
         sc.chip("")
+        sc.cue("Submit")
         submit = page.get_by_role("button", name="Submit Homework")
         sc.caption("Marked the moment it is handed in",
                    "Every one of these is graded automatically, working and all.",
@@ -616,6 +651,7 @@ def test_records_the_question_type_showcase(
             submit.click()
         page.wait_for_load_state("networkidle")
 
+        sc.cue("Result: 100%, 13 / 13")
         sc.caption("Wizards Learning Hub",
                    "wizardslearninghub.co.nz", hold=3.4)
 
@@ -632,7 +668,15 @@ def test_records_the_question_type_showcase(
     raw = OUT_DIR / "_raw"
     if raw.is_dir() and not any(raw.iterdir()):
         raw.rmdir()
+    cues = destination.with_suffix(".cues.md")
+    cues.write_text(
+        f"# {homework.title} — capture cues\n\n"
+        f"Timings are from the start of the recording (+/- half a second), for "
+        f"laying a voice-over over `{destination.name}`.\n\n"
+        + sc.cue_sheet() + "\n"
+    )
     print(f"\nCapture written to {destination}")
+    print(f"Cue sheet written to {cues}")
 
     from homework.models import HomeworkStudentAnswer, HomeworkSubmission
 

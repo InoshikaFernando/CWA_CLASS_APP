@@ -24,6 +24,7 @@ import glob
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 
@@ -222,6 +223,8 @@ class Showcase:
     def __init__(self, page, pace: float = 1.0):
         self.page = page
         self.pace = pace
+        self._t0 = None
+        self.cues = []
 
     # -- installation -------------------------------------------------------
     def install(self):
@@ -236,6 +239,31 @@ class Showcase:
         page — and any page loaded before install() ran — needs this.
         """
         self.page.evaluate(_OVERLAY_JS)
+
+    # -- cue sheet ----------------------------------------------------------
+    def start_clock(self):
+        """Start counting from the moment the recording does.
+
+        Whoever lays a voice-over over this needs to know when each beat lands,
+        and reading timestamps off a scrubber is a job nobody should do twice.
+        Cues are written next to the video.
+        """
+        self._t0 = time.monotonic()
+        self.cues = []
+        return self
+
+    def cue(self, label: str):
+        if self._t0 is None:
+            return self
+        self.cues.append((label, round(time.monotonic() - self._t0, 1)))
+        return self
+
+    def cue_sheet(self) -> str:
+        """The cues as markdown: mm:ss, then what is on screen."""
+        lines = ["| Time | On screen |", "| --- | --- |"]
+        for label, seconds in self.cues:
+            lines.append(f"| {int(seconds // 60)}:{int(seconds % 60):02d} | {label} |")
+        return "\n".join(lines)
 
     # -- pacing -------------------------------------------------------------
     def beat(self, seconds: float = 0.6):
