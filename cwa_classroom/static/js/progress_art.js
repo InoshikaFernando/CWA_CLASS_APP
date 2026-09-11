@@ -270,6 +270,27 @@
     scope.addEventListener("click", handler);
   };
 
+  /* Tell "pinned to the top of the screen" from "sitting at rest".
+   *
+   * A page that puts the panel in a sticky side column marks it `.pa-side` and
+   * drops a `[data-pa-sentinel]` immediately above it. The sentinel scrolls out
+   * of view exactly when the panel starts sticking, so watching it needs no
+   * scroll handler and no hard-coded header offset. The `.pa-stuck` class it
+   * toggles is what lets a phone show the whole picture at the top of the paper
+   * and shrink to a strip only once the panel is actually pinned.
+   *
+   * Absent sentinel, absent IntersectionObserver, or a panel placed normally:
+   * nothing happens and the panel keeps its resting shape. */
+  function watchStuck(root) {
+    var side = root.closest ? root.closest(".pa-side") : null;
+    if (!side || !window.IntersectionObserver) return;
+    var sentinel = side.previousElementSibling;
+    if (!sentinel || !sentinel.hasAttribute("data-pa-sentinel")) return;
+    new IntersectionObserver(function (entries) {
+      side.classList.toggle("pa-stuck", !entries[0].isIntersecting);
+    }).observe(sentinel);
+  }
+
   function mount(root) {
     if (!root || root.getAttribute("data-pa-mounted") === "1") return null;
     var panel = new Panel(root);
@@ -281,6 +302,7 @@
     panel.paint(panel.targetRatio());
     panel.syncLabels();
     panel.watchGroups();
+    watchStuck(root);
     registry.push(panel);
     return panel;
   }

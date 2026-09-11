@@ -8,6 +8,7 @@ So this drives the real page.
 """
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
 import pytest
@@ -188,3 +189,99 @@ class TestHomeworkProgressArt:
         expect(panel.locator("[data-pa-count]")).to_have_text("4 of 4")
         expect(panel.locator(".pa-reveal")).to_be_visible()
         expect(panel.locator("[data-pa-title]")).not_to_be_empty()
+
+
+class TestPanelStaysInView:
+    """The panel is pinned beside the questions, not scrolled past.
+
+    The reward only works if a child can see it while they work. On a long
+    paper the panel used to sit above question 1 and be gone by question 3 —
+    which is most of the paper spent with no sign of the picture at all.
+    """
+
+    @pytest.fixture
+    def long_homework(self, db, classroom, teacher_user, level, topic):
+        """Long enough that the bottom questions are far off the first screen."""
+        from homework.models import Homework, HomeworkQuestion
+        from maths.models import Answer, Question
+        from datetime import timedelta
+        from django.utils import timezone
+
+        hw = Homework.objects.create(
+            classroom=classroom, created_by=teacher_user,
+            title="Long Paper", homework_type="topic", num_questions=30,
+            due_date=timezone.now() + timedelta(days=3), max_attempts=3,
+        )
+        hw.topics.add(topic)
+        for i in range(30):
+            q = Question.objects.create(
+                level=level, topic=topic, question_text=f"What is {i} + 7?",
+                question_type=Question.MULTIPLE_CHOICE, difficulty=1, points=1,
+            )
+            Answer.objects.create(question=q, answer_text=str(i + 7), is_correct=True, order=1)
+            Answer.objects.create(question=q, answer_text=str(i + 9), is_correct=False, order=2)
+            HomeworkQuestion.objects.create(homework=hw, question=q, order=i)
+        return hw
+
+    def _open(self, page, live_server, student, hw, width, height):
+        # Log in FIRST: do_login navigates, and a viewport set before it does
+        # not survive — which silently ran both of these at the default 1280
+        # and made them assert nothing about the size they named.
+        do_login(page, live_server.url, student)
+        page.set_viewport_size({"width": width, "height": height})
+        page.goto(f"{live_server.url}/homework/{hw.pk}/take/")
+        page.wait_for_load_state("networkidle")
+
+    @pytest.mark.django_db(transaction=True)
+    def test_the_panel_is_still_on_screen_at_the_bottom_of_a_long_paper(
+        self, page: Page, live_server, enrolled_student, long_homework
+    ):
+        self._open(page, live_server, enrolled_student, long_homework, 1400, 900)
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        page.wait_for_timeout(500)
+
+        box = page.locator("[data-progress-art]").bounding_box()
+        assert box is not None
+        height = page.evaluate("() => window.innerHeight")
+        # bounding_box is viewport-relative: fully inside means it is pinned,
+        # not merely present somewhere far up the document.
+        assert box["y"] >= 0, box
+        assert box["y"] + box["height"] <= height + 1, (box, height)
+
+    @pytest.mark.django_db(transaction=True)
+    def test_the_questions_still_have_room_beside_it(
+        self, page: Page, live_server, enrolled_student, long_homework
+    ):
+        """A side column that squeezed the questions into a ribbon would be a
+        poor trade. They keep the bulk of the width."""
+        self._open(page, live_server, enrolled_student, long_homework, 1400, 900)
+        form = page.locator("#hw-form").bounding_box()
+        panel = page.locator("[data-progress-art]").bounding_box()
+        assert form["width"] > panel["width"], (form, panel)
+        # A 1280 laptop is the tight case: 256px of sidebar and the page's own
+        # padding come out of the row before either column gets anything.
+        assert form["width"] >= 520, form
+
+    @pytest.mark.django_db(transaction=True)
+    def test_a_phone_gets_the_whole_picture_at_rest_and_a_strip_once_pinned(
+        self, page: Page, live_server, enrolled_student, long_homework
+    ):
+        """A full card pinned to a phone screen would eat half of it — but
+        compacting it always would cost the reward the feature exists for."""
+        self._open(page, live_server, enrolled_student, long_homework, 390, 780)
+        side = page.locator(".pa-side")
+
+        page.evaluate("window.scrollTo(0, 0)")
+        page.wait_for_timeout(400)
+        expect(side).not_to_have_class(re.compile(r"\bpa-stuck\b"))
+        tall = page.locator("[data-progress-art]").bounding_box()["height"]
+
+        page.evaluate("window.scrollTo(0, 1200)")
+        page.wait_for_timeout(500)
+        expect(side).to_have_class(re.compile(r"\bpa-stuck\b"))
+        short = page.locator("[data-progress-art]").bounding_box()["height"]
+
+        assert short < tall / 2, (short, tall)
+        # Still pinned, and still saying how far through the student is.
+        assert page.locator("[data-progress-art]").bounding_box()["y"] >= 0
+        expect(page.locator("[data-pa-count]")).to_be_visible()

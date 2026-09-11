@@ -112,6 +112,41 @@ before anything is drawn. `classroom.progress_art.answer_is_present()` rejects
 those, and `static/js/progress_art.js` mirrors the rule exactly; if the two ever
 disagreed the drawing would jump the moment a page reloaded.
 
+## Where the panel sits
+
+On a page that shows one question at a time (topic quiz, worksheet session) the
+panel is simply below the question and always in view. On the two pages that
+show every question at once — the homework take page and the mixed quiz — it
+goes in a **sticky side column**, because the reward only works if a child can
+see it while they work: sitting above question 1, it was gone by question 3,
+which on a 100-question paper is nearly the whole paper spent with no sign of
+the picture.
+
+It is `sticky`, not `fixed`, so it stops at the top of the viewport and travels
+no further than the questions column is tall. Two things that needs, both easy
+to lose:
+
+* `lg:self-start` — a flex item stretches to the row height by default, leaving
+  sticky no room to move inside its own box;
+* a tall **parent** — sticky moves within its parent, so the panel sits directly
+  in the flex row rather than in a wrapper of its own height.
+
+The panel comes *first* in the source so that on a phone, where the row is a
+plain block, it lands above the questions; `lg:order-2` puts it back on the
+right once the columns appear.
+
+**On a phone it changes shape.** A full card pinned to the top would eat half
+the screen, but compacting it always would cost the reward the feature exists
+for. So it is the whole picture at the top of the paper and a thumbnail-sized
+strip once pinned — `progress_art.js` watches a `[data-pa-sentinel]` placed just
+above the panel (it scrolls out of view exactly when the panel starts sticking)
+and toggles `.pa-stuck`, which is what the compact grid keys off. No scroll
+handler, no hard-coded header offset.
+
+The column widths are set for the tight case, a 1280 laptop, where 256px of
+sidebar and the page's own padding come out of the row before either column gets
+anything: the panel takes 16rem there and 20rem from `xl`.
+
 ## Files
 
 | File | Role |
@@ -138,10 +173,6 @@ disagreed the drawing would jump the moment a page reloaded.
 
 ## Not included
 
-- **The panel is not sticky.** On the homework take page it sits above the
-  questions and scrolls away. A compact pinned version would keep the reward in
-  view on a 100-question paper; it needs a design that does not eat a third of a
-  phone screen.
 - **No colouring-in.** The finished drawing recolours to green and pops once.
   Filling regions with colour as a second pass is the obvious next step.
 - **Times-tables and basic-facts drills are not wired up.** They are speed

@@ -47,6 +47,29 @@ surprise is the point of the whole feature.
     [data-progress-art].pa-complete .pa-canvas { animation: none; }
     [data-progress-art] .pa-stroke { transition: none; }
   }
+
+  /* Compact strip — only where a page has put the panel in a sticky side
+     column (`.pa-side`), and only below that column's breakpoint. There the
+     panel is pinned to the top of a phone screen, and the full card would eat
+     half of it; this lays the same markup out as a thumbnail beside its text.
+     Grid areas do the reordering, so the partial's DOM stays one shape.
+     Only while actually PINNED (`.pa-stuck`, set by progress_art.js): at the
+     top of the paper a phone still gets the whole picture, which is the reward
+     the feature exists for. Pages that place the panel normally are untouched. */
+  @media (max-width: 1023.98px) {
+    .pa-side.pa-stuck [data-progress-art] {
+      display: grid;
+      grid-template-columns: 4rem 1fr;
+      grid-template-areas: "art head" "art hint";
+      align-items: center;
+      column-gap: .75rem;
+      padding: .5rem .75rem;
+    }
+    .pa-side.pa-stuck [data-progress-art] > .pa-head   { grid-area: head; margin: 0; }
+    .pa-side.pa-stuck [data-progress-art] > .pa-canvas { grid-area: art; max-width: 100%; margin: 0; }
+    .pa-side.pa-stuck [data-progress-art] > .pa-hint,
+    .pa-side.pa-stuck [data-progress-art] > .pa-reveal { grid-area: hint; margin: .125rem 0 0; text-align: left; }
+  }
 </style>
 
 <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4"
@@ -57,7 +80,7 @@ surprise is the point of the whole feature.
 
   {{ progress_art.picture|json_script:"progress-art-picture" }}
 
-  <div class="flex items-center justify-between gap-3 mb-2">
+  <div class="pa-head flex items-center justify-between gap-3 mb-2">
     <p class="text-sm font-semibold text-gray-700">
       <span aria-hidden="true">🎨</span> Your secret picture
     </p>
@@ -69,7 +92,7 @@ surprise is the point of the whole feature.
        data-pa-canvas viewBox="0 0 240 180" role="img"
        aria-label="A drawing that fills in as you answer questions"></svg>
 
-  <p class="mt-2 text-xs text-gray-400 text-center pa-hide-on-complete" data-pa-hint>
+  <p class="pa-hint mt-2 text-xs text-gray-400 text-center pa-hide-on-complete" data-pa-hint>
     Answer more questions to draw more of the picture.
   </p>
   <p class="mt-2 text-sm font-semibold text-emerald-700 text-center pa-reveal">

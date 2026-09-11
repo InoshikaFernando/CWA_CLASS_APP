@@ -95,11 +95,19 @@
   </header>
 
   <!-- ── Content ─────────────────────────────────────────────── -->
-  <main class="pt-14 min-h-screen px-4 py-6 md:px-8 max-w-3xl mx-auto pb-24">
+  {% comment %}`quiz_width` is widened only by a quiz that puts the progress-art
+  panel in a side column (the mixed quiz); one question at a time keeps the
+  narrow reading column.{% endcomment %}
+  <main class="pt-14 min-h-screen px-4 py-6 md:px-8 {% block quiz_width %}max-w-3xl{% endblock %} mx-auto pb-24">
     {% block content %}{% endblock %}
     {% comment %}Renders nothing unless the view supplied `progress_art`, so a
-    quiz that has not opted in looks exactly as it did.{% endcomment %}
+    quiz that has not opted in looks exactly as it did. A quiz that shows every
+    question at once overrides `progress_art_panel` to empty and places the
+    panel beside its questions instead, so it stays in view while they scroll.
+    {% endcomment %}
+    {% block progress_art_panel %}
     <div class="mt-6">{% include "partials/_progress_art.html" %}</div>
+    {% endblock %}
   </main>
 
   <!-- ── Legal footer ───────────────────────────────────────────── -->

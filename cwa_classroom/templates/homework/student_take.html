@@ -33,7 +33,11 @@ rather than fetched from a CDN.{% endcomment %}
 <div class="p-6">
   {% comment %}Coding homework opens the split editor/console window and needs
   the width; a maths-only paper keeps the narrow reading column.{% endcomment %}
-  <div class="{% if has_coding_item %}max-w-5xl{% else %}max-w-3xl{% endif %} mx-auto">
+  {% comment %}Wider than the old reading column because the progress-art panel
+  now sits beside the questions on a large screen (see the two-column block
+  below). The questions keep roughly their previous width; the extra is the
+  panel's.{% endcomment %}
+  <div class="{% if has_coding_item %}max-w-7xl{% else %}max-w-6xl{% endif %} mx-auto">
 
     <!-- Header -->
     <div class="mb-6">
@@ -58,22 +62,50 @@ rather than fetched from a CDN.{% endcomment %}
     </div>
 
     {% comment %}
-      The progress-art panel. `scope` points it at #hw-form below, so it counts
-      the answered `data-pa-group` blocks live as the student types. How much is
-      already drawn comes from the saved draft, which is what makes the drawing
-      pick up where it stopped when the paper is resumed the next day.
-    {% endcomment %}
-    <div class="mb-6">
-      {% include "partials/_progress_art.html" %}
-    </div>
-
-    {% comment %}
       Saved draft (if any), embedded as JSON for the restore/autosave script.
       json_script HTML-escapes the values, so student-entered answer text is safe
       to round-trip here.
     {% endcomment %}
     {{ draft_answers|json_script:"hw-draft-answers" }}
 
+    {% comment %}
+      Two columns on a large screen: the questions scroll with the page while
+      the progress-art panel stays in view beside them, so a child working down
+      a 100-question paper keeps seeing their picture fill in.
+
+      The panel is `sticky`, not `fixed`, so it simply stops at the top of the
+      viewport and travels no further than the questions column is tall. Two
+      things that has to have, and both are easy to lose:
+        * `lg:self-start` — a flex item stretches to the row height by default,
+          which would leave sticky no room to move inside its own box;
+        * a tall PARENT — sticky moves within its parent, so the panel sits
+          directly in the flex row rather than in a wrapper of its own height.
+
+      It comes FIRST in the source so that on a phone — where this is a plain
+      block, not a flex row — it lands above the questions rather than below
+      them; `lg:order-2` puts it back on the right when the columns appear.
+
+      `scope` points the counter at #hw-form, so it counts the answered
+      `data-pa-group` blocks live as the student types wherever the panel sits.
+      How much is already drawn comes from the saved draft, which is what makes
+      the drawing pick up where it stopped when the paper is resumed next day.
+    {% endcomment %}
+    <div class="lg:flex lg:items-start lg:gap-4 xl:gap-6">
+
+      {% if progress_art %}
+      {% comment %}Scrolls out of view exactly when the panel below starts
+      sticking — progress_art.js watches it to tell "pinned" from "at rest", so
+      a phone can show the whole picture at the top of the paper and shrink to a
+      strip only once it is pinned.{% endcomment %}
+      <div data-pa-sentinel aria-hidden="true"></div>
+      <aside class="pa-side sticky top-16 z-20 -mx-6 px-6 py-2 mb-4 bg-emerald-50/95 backdrop-blur
+                    lg:static lg:order-2 lg:w-64 xl:w-80 lg:shrink-0 lg:self-start lg:sticky lg:top-20
+                    lg:mx-0 lg:px-0 lg:py-0 lg:mb-0 lg:bg-transparent lg:backdrop-blur-none">
+        {% include "partials/_progress_art.html" %}
+      </aside>
+      {% endif %}
+
+      <div class="lg:order-1 lg:flex-1 lg:min-w-0">
     <form method="post" id="hw-form"
           data-save-url="{% url 'homework:save_progress' homework_id=homework.id %}"
           data-list-url="{% url 'homework:student_list' %}"
@@ -114,6 +146,9 @@ rather than fetched from a CDN.{% endcomment %}
         Your answers are saved automatically as you go — you can close this page and pick up where you left off.
       </p>
     </form>
+      </div>
+
+    </div>
 
   </div>
 </div>
