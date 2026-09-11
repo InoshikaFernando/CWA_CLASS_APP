@@ -88,15 +88,17 @@ def credit_for(score_fraction):
 # ---------------------------------------------------------------------------
 
 def get_ai_grading_tier(school):
-    """Return the active AI grading module slug for a school, or None."""
-    from billing.entitlements import get_school_subscription
-    sub = get_school_subscription(school)
-    if not sub:
-        return None
-    for slug in AI_GRADING_MODULES:
-        if sub.modules.filter(module=slug, is_active=True).exists():
-            return slug
-    return None
+    """Return the active AI grading module slug for a school, or None.
+
+    The strongest tier held, not the first found. This used to walk
+    ``AI_GRADING_MODULES`` forwards and return on the first match, so a school
+    left holding Starter alongside Enterprise — an upgrade that half-failed, a
+    grant landing beside an existing row — was served the 1,000-answer quota it
+    had stopped paying for instead of the unlimited one it had bought. Nothing
+    errored; the school just ran out early.
+    """
+    from billing.entitlements import get_school_subscription, strongest_tier
+    return strongest_tier(get_school_subscription(school), AI_GRADING_MODULES)
 
 
 def student_can_be_ai_graded(user):

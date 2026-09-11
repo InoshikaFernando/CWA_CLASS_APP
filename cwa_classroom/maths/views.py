@@ -27,6 +27,7 @@ from classroom.models import (
 from accounts.models import CustomUser, Role, UserRole
 from .forms import StudentSignUpForm, TeacherSignUpForm, TeacherCenterRegistrationForm, IndividualStudentRegistrationForm, StudentBulkRegistrationForm, QuestionForm, AnswerFormSet, UserProfileForm, UserPasswordChangeForm
 from .constants import YEAR_TOPICS_MAP
+from classroom.topic_redirect import resolve_topic
 
 BASIC_FACTS_TOPIC_CONFIG = {
     "addition": {"start_level": 100, "level_count": 7},
@@ -1219,7 +1220,11 @@ def topic_list(request):
 
 @login_required
 def level_list(request, topic_id):
-    topic = get_object_or_404(Topic, pk=topic_id)
+    # A merged-away topic id redirects to its survivor rather than 404ing on a
+    # link somebody still holds — see classroom.topic_redirect.
+    topic, moved = resolve_topic(topic_id, 'maths:levels')
+    if moved:
+        return moved
     levels = topic.levels.all()
     return render(request, "maths/levels.html", {"topic": topic, "levels": levels})
 

@@ -20,6 +20,12 @@ survivor, then DELETES them. Unlike the student merge next door there is no
 financial or identity history to preserve, and leaving an inactive twin in the
 picker would defeat the point.
 
+What the delete cannot re-point is a link somebody already holds — a bookmark,
+an open tab, a history entry — so each absorbed id is recorded as a
+``TopicAlias`` first. Without it the merge silently converts every existing
+link to that topic into a 404 that tells the student the topic never existed;
+with it, ``classroom.topic_redirect`` sends them to the survivor.
+
 Re-pointing walks ``_meta.related_objects`` rather than a hand-written list of
 models, so a topic FK added to a new app later is carried too instead of being
 quietly left behind on a row that is about to disappear.
@@ -37,7 +43,7 @@ from collections import defaultdict
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 
-from .models import Subject, Topic
+from .models import Subject, Topic, TopicAlias
 
 logger = logging.getLogger(__name__)
 
@@ -546,6 +552,7 @@ def merge_topics(keep, absorbed_list, actor=None, request=None):
         'rescued': defaultdict(int),
         'dropped_dependents': defaultdict(int),
         'reparented': 0,
+        'aliased': 0,
         'statistics_refreshed': 0,
     }
 
@@ -613,6 +620,25 @@ def merge_topics(keep, absorbed_list, actor=None, request=None):
             moved = Topic.objects.filter(parent_id=absorbed.id).update(
                 parent_id=keep.id)
             summary['reparented'] += moved
+
+            # The id is about to stop existing, so record where it went
+            # BEFORE it does. Links already out in the world — a bookmark, an
+            # open tab, a history entry — are the one thing the re-pointing
+            # above cannot reach, and without this row every one of them 404s
+            # the instant the merge lands. Written inside this transaction,
+            # not from the audit log below: that write is best-effort by
+            # design, and a redirect students depend on cannot rest on a
+            # record that is allowed to go missing.
+            #
+            # Aliases that already pointed at ``absorbed`` were re-pointed at
+            # ``keep`` by the related-objects walk above, so a topic merged
+            # twice keeps resolving and no chain builds up here.
+            TopicAlias.objects.update_or_create(
+                old_topic_id=absorbed.id,
+                defaults={'topic': keep, 'old_name': absorbed.name,
+                          'old_slug': absorbed.slug},
+            )
+            summary['aliased'] += 1
 
             summary['absorbed'].append({
                 'id': absorbed.id, 'name': absorbed.name, 'slug': absorbed.slug,

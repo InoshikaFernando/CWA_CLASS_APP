@@ -11,7 +11,8 @@ from django.conf import settings
 from django.db.models import Q
 
 from audit.services import log_event
-from classroom.models import Level as ClassroomLevel, SchoolStudent, Topic as ClassroomTopic
+from classroom.models import Level as ClassroomLevel, SchoolStudent
+from classroom.topic_redirect import resolve_topic
 from maths.models import calculate_points
 # Which times tables each year may practise. This module used to carry its own
 # divergent copy of that mapping, and this was the copy the page actually read.
@@ -714,7 +715,13 @@ class TopicQuizView(LoginRequiredMixin, View):
     def get(self, request, subject, level_number, topic_id):
         import random as rnd
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
-        topic = get_object_or_404(ClassroomTopic, id=topic_id)
+        # Not get_object_or_404: a topic id that a merge retired is still a
+        # link students hold, and it belongs on the survivor rather than on a
+        # 404 page. See classroom.topic_redirect.
+        topic, moved = resolve_topic(
+            topic_id, 'topic_quiz', subject=subject, level_number=level_number)
+        if moved:
+            return moved
 
         from maths.models import Question
         # Global bank only. A plain .filter() here reads every school's private
@@ -784,7 +791,11 @@ class TopicQuizView(LoginRequiredMixin, View):
 class TopicResultsView(LoginRequiredMixin, View):
     def get(self, request, subject, level_number, topic_id):
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
-        topic = get_object_or_404(ClassroomTopic, id=topic_id)
+        topic, moved = resolve_topic(
+            topic_id, 'topic_results', subject=subject,
+            level_number=level_number)
+        if moved:
+            return moved
 
         result_id = request.session.get(f'tq_result_{topic_id}_{level_number}')
         from maths.models import StudentFinalAnswer

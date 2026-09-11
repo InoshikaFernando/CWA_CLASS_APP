@@ -6,7 +6,7 @@ from whatsapp import services
 from whatsapp.models import (
     WhatsAppConfig, WhatsAppMessageLog, WhatsAppTemplate,
 )
-from whatsapp.tests.helpers import make_school, make_user
+from whatsapp.tests.helpers import grant_whatsapp_module, make_school, make_user
 
 PUBLISHED = WhatsAppMessageLog.EVENT_HOMEWORK_PUBLISHED
 
@@ -130,3 +130,30 @@ class SendTemplateTests(TestCase):
         with patch('whatsapp.services.normalize_msisdn',
                    side_effect=RuntimeError('boom')):
             self.assertIsNone(self._send())
+
+
+class ModuleGateTests(TestCase):
+    """WhatsApp notifications are a paid add-on (``whatsapp_notifications``).
+
+    The gate sits in ``is_enabled_for``, which every send path funnels through
+    via ``send_template``. There is no request anywhere in that path — the
+    sends come from signals and RQ tasks — so a view mixin could not have
+    reached it.
+    """
+
+    def test_enabled_but_unbought_does_not_send(self):
+        school = make_school(with_module=False)
+        WhatsAppConfig.objects.create(school=school, is_enabled=True)
+        self.assertFalse(services.is_enabled_for(school))
+
+    def test_bought_and_enabled_sends(self):
+        school = make_school(with_module=False)
+        WhatsAppConfig.objects.create(school=school, is_enabled=True)
+        grant_whatsapp_module(school)
+        self.assertTrue(services.is_enabled_for(school))
+
+    def test_bought_but_disabled_still_does_not_send(self):
+        """Buying the module does not switch the feature on by itself."""
+        school = make_school()
+        WhatsAppConfig.objects.create(school=school, is_enabled=False)
+        self.assertFalse(services.is_enabled_for(school))

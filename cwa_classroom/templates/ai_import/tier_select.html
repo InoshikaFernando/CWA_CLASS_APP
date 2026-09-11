@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load billing_tags %}
 {% block title %}AI Import Plans{% endblock %}
 {% block content %}
 <div class="max-w-4xl mx-auto space-y-6">
@@ -37,7 +38,7 @@
           <span class="text-gray-400 text-sm">/mo</span>
         </div>
         {% if ai_discount_enabled %}
-        <p class="text-xs text-gray-400 mt-0.5">for your {{ ai_discount_label }}, then ${{ tier.price }}/mo</p>
+        <p class="text-xs text-gray-400 mt-0.5">for your {{ ai_discount_label }}, then {{ tier.price|money }}/mo</p>
         {% endif %}
       </div>
 

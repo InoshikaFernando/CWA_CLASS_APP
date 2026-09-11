@@ -17,6 +17,7 @@ from django.db import transaction
 from accounts.models import CustomUser, Role, UserRole
 from audit.services import log_event
 from billing.mixins import ModuleRequiredMixin
+from .topic_redirect import resolve_topic
 
 def _get_user_school_ids(user):
     """Get school IDs the user can manage (as admin or HoI via SchoolTeacher)."""
@@ -849,7 +850,11 @@ class TopicsView(LoginRequiredMixin, View):
 
 class TopicLevelsView(LoginRequiredMixin, View):
     def get(self, request, topic_id):
-        topic = get_object_or_404(Topic, id=topic_id)
+        # A merged-away topic id redirects to its survivor rather than 404ing
+        # on a link somebody still holds — see classroom.topic_redirect.
+        topic, moved = resolve_topic(topic_id, 'topic_levels')
+        if moved:
+            return moved
         levels = topic.levels.all().order_by('level_number')
         return render(request, 'teacher/topic_levels.html', {'topic': topic, 'levels': levels})
 

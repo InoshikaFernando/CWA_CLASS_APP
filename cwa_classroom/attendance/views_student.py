@@ -12,14 +12,17 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views import View
 
+from billing.mixins import ModuleRequiredMixin
+from billing.models import ModuleSubscription
 from classroom.models import ClassRoom, ClassStudent
 from audit.services import log_event
 from .models import AbsenceToken, ClassSession, StudentAttendance
 
 
 
-class StudentAttendanceHistoryView(LoginRequiredMixin, View):
+class StudentAttendanceHistoryView(LoginRequiredMixin, ModuleRequiredMixin, View):
     """Show the student's own attendance records across all enrolled classes."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
 
     def get(self, request):
         # Get all classes the student belongs to
@@ -101,8 +104,9 @@ class StudentAttendanceHistoryView(LoginRequiredMixin, View):
         })
 
 
-class StudentSelfMarkAttendanceView(LoginRequiredMixin, View):
+class StudentSelfMarkAttendanceView(LoginRequiredMixin, ModuleRequiredMixin, View):
     """Allow a student to self-report attendance for a session (requires teacher approval)."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
 
     def post(self, request, session_id):
         session = get_object_or_404(
@@ -167,8 +171,9 @@ class StudentSelfMarkAttendanceView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 
-class RequestAbsenceTokenView(LoginRequiredMixin, View):
+class RequestAbsenceTokenView(LoginRequiredMixin, ModuleRequiredMixin, View):
     """Student/parent requests an absence token for a class (optionally for a specific session)."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
 
     def post(self, request):
         classroom_id = request.POST.get('classroom_id')
@@ -234,8 +239,9 @@ class RequestAbsenceTokenView(LoginRequiredMixin, View):
         return redirect('student_absence_tokens')
 
 
-class MyAbsenceTokensView(LoginRequiredMixin, View):
+class MyAbsenceTokensView(LoginRequiredMixin, ModuleRequiredMixin, View):
     """List all absence tokens for the current student."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
 
     def get(self, request):
         tokens = (
@@ -263,8 +269,9 @@ class MyAbsenceTokensView(LoginRequiredMixin, View):
         })
 
 
-class AvailableMakeupSessionsView(LoginRequiredMixin, View):
+class AvailableMakeupSessionsView(LoginRequiredMixin, ModuleRequiredMixin, View):
     """Show sessions from other classes at the same level that a token can be redeemed for."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
 
     def get(self, request, token_id):
         token = get_object_or_404(
@@ -321,8 +328,9 @@ class AvailableMakeupSessionsView(LoginRequiredMixin, View):
         })
 
 
-class RedeemAbsenceTokenView(LoginRequiredMixin, View):
+class RedeemAbsenceTokenView(LoginRequiredMixin, ModuleRequiredMixin, View):
     """Redeem an absence token to attend a makeup session."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
 
     def post(self, request, token_id):
         token = get_object_or_404(
