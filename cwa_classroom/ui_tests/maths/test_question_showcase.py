@@ -146,15 +146,43 @@ def _build_column_operation(Question, level, topic):
 
 
 def _act_column_operation(sc, q, card):
-    # Column arithmetic is worked from the UNITS COLUMN LEFTWARDS — that is the
-    # method, and a capture that fills the digits left to right shows a child
-    # doing it backwards. So every row here is filled right to left.
-    #
-    # Two partial rows: 23 × 4 = 92 (4 cells, right-aligned) then
-    # 23 × 6 = 138 shifted one place (3 cells).
+    """Work 23 x 64 the way it is taught, carry included.
+
+    Two things the first cut of this got wrong. It filled every row LEFT to
+    right, when column arithmetic is worked from the units column leftwards —
+    that is the method. And it never touched the amber carry row, even though
+    the widget renders one, the hint above it says to use it, and both partial
+    products here genuinely carry:
+
+          . 1 .        the carry, above the tens column
+            2 3
+        x   6 4
+        ─────────
+            9 2        3x4 = 12 → write 2, carry 1;  2x4 = 8 + 1 = 9
+          1 3 8        3x6 = 18 → write 8, carry 1;  2x6 = 12 + 1 = 13
+        ─────────
+          1 4 7 2
+
+    Both carries are a 1 above the same column, so the one amber digit serves
+    both rows — it is written when the first partial needs it and left standing
+    for the second, which is what a child's page looks like.
+
+    The carry cells are the only inputs in the widget with no data attribute:
+    they are scratch, like the partial rows, and only the blue answer row is
+    marked.
+    """
+    carry = card.locator(
+        f'[data-ca-wrap="{q.pk}"] input:not([data-ca-partial]):not([data-ca-answer])')
     partial = card.locator(f'[data-ca-partial="{q.pk}"]')
-    for index, digit in ((3, "2"), (2, "9"), (6, "8"), (5, "3"), (4, "1")):
+
+    # 23 x 4: units first, then the carry it produced, then the tens.
+    sc.write(partial.nth(3), "2")
+    sc.write(carry.nth(2), "1")
+    sc.write(partial.nth(2), "9")
+    # 23 x 6, shifted one place. The carry above the tens is still the 1.
+    for index, digit in ((6, "8"), (5, "3"), (4, "1")):
         sc.write(partial.nth(index), digit)
+
     answer = card.locator(f'[data-ca-answer="{q.pk}"]')
     for index, digit in reversed(list(enumerate("1472"))):
         sc.write(answer.nth(index), digit)
@@ -200,11 +228,63 @@ def _build_measure(Question, level, topic):
     )
 
 
+# Read a viewBox point of the angle figure back as a viewport coordinate,
+# through the SVG's own transform — so it stays right whatever the figure is
+# scaled to.
+_FIGURE_POINT_JS = """(svg, p) => {
+    const pt = svg.createSVGPoint();
+    pt.x = p[0]; pt.y = p[1];
+    const s = pt.matrixTransform(svg.getScreenCTM());
+    return {x: s.x, y: s.y};
+}"""
+
+#: Where the protractor is grabbed, relative to its centre mark. Inside the
+#: translucent semicircle (radius 132) and clear of the baseline edge, where a
+#: press can land outside the fill and grab nothing — and on the RIGHT half, so
+#: the hand does not come to rest on top of the reading being demonstrated,
+#: which for an obtuse angle is over on the left.
+_PROTRACTOR_GRAB = (62, -46)
+
+
 def _act_measure(sc, q, card):
-    # Line the protractor up the way a child does: slide it, then spin it.
-    sc.drag(card.locator(".measure-instrument"), -30, 26)
-    sc.drag(card.locator("[data-role='rotate']"), 34, -18)
-    sc.write(card.locator(f"input[name='answer_{q.pk}']"), "135")
+    """Place the protractor the way it is meant to be used.
+
+    Centre mark ON the vertex, baseline ALONG the arm the angle opens from —
+    which is what makes the second arm fall across the 135 tick. This used to
+    be two arbitrary drags (slide a bit, spin a bit), and it looked exactly
+    like what it was: a protractor lying across the figure at no particular
+    angle, next to a confident "135". The figure's own geometry is known, so
+    the placement is computed from it instead of eyeballed.
+
+    No rotation is needed and none is performed: ``angle_svg`` always draws the
+    angle opening from a horizontal arm, and the protractor's baseline is
+    horizontal at rest, so a correct placement is a pure translation. Spinning
+    it would be a misuse, not a feature demo.
+    """
+    from maths.svg_geometry import angle_ray_points
+
+    (vertex_x, vertex_y), _, _ = angle_ray_points(q.numeric_answer)
+    vertex = sc.viewport_point(
+        card.locator(".measure-figure svg"), _FIGURE_POINT_JS,
+        [vertex_x, vertex_y])
+    # The instrument anchor is a zero-size div sitting exactly on the
+    # protractor's centre mark (see static/js/measure_tool.js), so its own box
+    # IS the pivot.
+    pivot = sc.viewport_point(
+        card.locator(".measure-instrument"),
+        "(el) => { const r = el.getBoundingClientRect();"
+        "          return {x: r.left, y: r.top}; }")
+
+    grab_dx, grab_dy = _PROTRACTOR_GRAB
+    sc.drag_from(pivot["x"] + grab_dx, pivot["y"] + grab_dy,
+                 vertex["x"] - pivot["x"], vertex["y"] - pivot["y"])
+
+    # Move the hand off the instrument before the hold, so the frame the viewer
+    # gets to study is the reading itself and not a cursor parked on it.
+    answer = card.locator(f"input[name='answer_{q.pk}']")
+    sc.point_at(answer, hold=0.3)
+    sc.beat(1.6)        # hold: the second arm crosses the 135 tick
+    sc.write(answer, "135")
 
 
 def _build_shape_select(Question, level, topic):
@@ -383,7 +463,7 @@ SCENES = [
      "The factor ladder children are taught on paper, checked as they climb it.",
      _build_prime_factorization, _act_prime_factorization),
     ("Long Multiplication",
-     "Partial products with somewhere to carry — the working, not just the answer.",
+     "Partial products, a row to carry into, and the answer — all of the working.",
      _build_column_operation, _act_column_operation),
     ("Number Line",
      "Tap the tick. Negatives, fractions and decimals all on the same scale.",
@@ -392,7 +472,7 @@ SCENES = [
      "Gaps sit inside the sentence, and each one is marked on its own.",
      _build_fill_blank, _act_fill_blank),
     ("Measure an Angle",
-     "A protractor you drag and spin over the figure, graded to a tolerance.",
+     "Line the protractor up on the vertex and read it off — graded to a tolerance.",
      _build_measure, _act_measure),
     ("Find the Shapes",
      "Tap every triangle to colour it — a shape-hunt that marks itself.",

@@ -259,10 +259,29 @@ class Showcase:
         return self
 
     def spotlight(self, locator, hold: float = 0.9):
-        """Ring and centre a question card."""
+        """Ring and centre a question card, and wait for the scroll to stop.
+
+        The wait is not cosmetic: a scene that reads viewport coordinates mid
+        smooth-scroll places things where the page *was*, and at a fast pace the
+        hold below is far too short to cover it on its own.
+        """
         self._ensure()
         locator.evaluate("(el) => window.__demoSpotlight(el)")
+        self.settle_scroll()
         return self.beat(hold)
+
+    def settle_scroll(self, timeout: int = 3000):
+        """Block until the page has stopped scrolling."""
+        self.page.evaluate("() => { window.__demoScrollY = null; }")
+        self.page.wait_for_function(
+            """() => {
+                 const was = window.__demoScrollY;
+                 window.__demoScrollY = window.scrollY;
+                 return was === window.scrollY;
+               }""",
+            timeout=timeout, polling=80,
+        )
+        return self
 
     # -- pointer ------------------------------------------------------------
     def point_at(self, locator, hold: float = 0.45):
@@ -294,19 +313,32 @@ class Showcase:
         locator.press_sequentially(str(text), delay=int(delay * self.pace))
         return self.beat(settle)
 
-    def drag(self, locator, dx: float, dy: float, steps: int = 24,
-             settle: float = 0.4):
-        """Drag ``locator`` by (dx, dy) slowly enough to read on screen."""
-        self.point_at(locator, hold=0.35)
-        box = locator.bounding_box()
-        x = box["x"] + box["width"] / 2
-        y = box["y"] + box["height"] / 2
+    def drag_from(self, x: float, y: float, dx: float, dy: float,
+                  steps: int = 28, settle: float = 0.5):
+        """Drag from an explicit viewport point by (dx, dy), slowly.
+
+        Takes a point rather than a locator because the thing being dragged is
+        not always the thing being aimed at: the protractor is grabbed by its
+        translucent body but has to be placed by its centre mark.
+        """
+        self._ensure()
+        self.page.evaluate("([x, y]) => window.__demoCursor(x, y)", [x, y])
         self.page.mouse.move(x, y)
+        self.beat(0.5)
         self.page.mouse.down()
         for i in range(1, steps + 1):
             nx, ny = x + dx * i / steps, y + dy * i / steps
             self.page.mouse.move(nx, ny)
             self.page.evaluate("([x, y]) => window.__demoCursor(x, y)", [nx, ny])
-            self.page.wait_for_timeout(int(14 * self.pace))
+            self.page.wait_for_timeout(int(16 * self.pace))
         self.page.mouse.up()
         return self.beat(settle)
+
+    def viewport_point(self, locator, evaluate_js: str, arg=None):
+        """Read a viewport coordinate out of the page.
+
+        Scenes that place something by hand (the protractor onto the angle's
+        vertex) need real coordinates, not a locator — and those are only valid
+        once the smooth scroll has stopped, which ``spotlight`` waits for.
+        """
+        return locator.evaluate(evaluate_js, arg)
