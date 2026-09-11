@@ -20,6 +20,8 @@ from django.views import View
 from accounts.models import Role
 from audit.services import log_event
 from classroom.models import ClassRoom, Department
+from billing.mixins import ModuleRequiredMixin
+from billing.models import ModuleSubscription
 from classroom.views import RoleRequiredMixin
 from progress import periods, report_settings, reports
 from progress.models import PeriodReport
@@ -189,10 +191,11 @@ def _preview_row(student, entry, subject, class_ids, period_type, start, end,
     }
 
 
-class ReportPreviewView(RoleRequiredMixin, View):
+class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """What would be sent, for every student in scope, before it is sent."""
 
     required_roles = PREVIEW_ROLES
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
 
     def get(self, request):
         schools = _schools_for(request.user)
@@ -504,10 +507,11 @@ def _resolve_one(request):
     return school, report, period_type, classroom
 
 
-class ReportPreviewDetailView(RoleRequiredMixin, View):
+class ReportPreviewDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """One student's report as the family would see it, computed and discarded."""
 
     required_roles = PREVIEW_ROLES
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
 
     def get(self, request):
         if _no_student_yet(request):
@@ -530,10 +534,11 @@ class ReportPreviewDetailView(RoleRequiredMixin, View):
         ))
 
 
-class ReportPreviewPdfView(RoleRequiredMixin, View):
+class ReportPreviewPdfView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """The preview as the PDF a parent would be sent. Also saves nothing."""
 
     required_roles = PREVIEW_ROLES
+    required_module = ModuleSubscription.MODULE_PROGRESS_REPORTS
 
     def get(self, request):
         if _no_student_yet(request):

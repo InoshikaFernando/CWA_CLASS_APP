@@ -61,7 +61,28 @@ def config_for(school):
 
 
 def is_enabled_for(school):
-    return config_for(school)['enabled']
+    """Whether WhatsApp notifications actually go out for *school*.
+
+    Two independent switches, both of which must be on: the school (or the
+    global config) has enabled the feature, and the school has bought the
+    module. Checked here rather than at each caller because every send path —
+    the publish signal, the submission signal and the RQ tasks — funnels
+    through ``send_template``, which asks this, and none of them has a request
+    for a view mixin to hang off.
+
+    A school with no subscription at all has no module, so this stays False
+    for them; the feature is inert until both switches are on, which is what
+    it already was.
+    """
+    if not config_for(school)['enabled']:
+        return False
+
+    from billing.entitlements import has_module
+    from billing.models import ModuleSubscription
+
+    if school is None:
+        return False
+    return has_module(school, ModuleSubscription.MODULE_WHATSAPP)
 
 
 def active_template(key):

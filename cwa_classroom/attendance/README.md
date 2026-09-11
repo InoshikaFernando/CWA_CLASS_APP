@@ -4,6 +4,19 @@ Class-session attendance tracking. Records when each class meets, who was presen
 
 > **Status:** mid-refactor (CPP-64). The app code has been extracted from `classroom/`, but as of the current `settings.py` it is **not yet in `INSTALLED_APPS`** — the models are still owned by `classroom/` (migrations and `db_table` names preserve `classroom_*`). See the `PATCH_*.py` files in this directory for the cutover steps.
 
+> **⚠ Do not enable this app without re-adding the module gate.** The
+> extraction copied the views out of `classroom/` but dropped
+> `billing.mixins.ModuleRequiredMixin` on the way, so all 22 routes here are
+> ungated. The live `classroom/` copies still carry
+> `required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE` (and
+> `MODULE_TEACHERS_ATTENDANCE` for the teacher self-attendance view). Attendance
+> is a **paid add-on**: adding `'attendance'` to `INSTALLED_APPS` and including
+> `attendance.urls` as they stand today would hand every school a module they
+> have not bought, silently — nothing would 500, nothing would fail, the
+> feature would simply be free. `cwa_classroom/tests_workflows.py` fails the
+> build if this app is wired up while its views are still ungated; re-add the
+> mixin to every view here before you touch that test.
+
 ## Key models
 
 - **ClassSession** — a single meeting of a class (date, start/end time, subject).

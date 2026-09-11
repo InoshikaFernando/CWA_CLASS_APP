@@ -1,4 +1,5 @@
 {% extends "base_auth.html" %}
+{% load billing_tags %}
 {% block title %}Subscription Active{% endblock %}
 {% block card_content %}
   <div class="text-center">
@@ -9,7 +10,7 @@
     </p>
     {% if subscription and subscription.plan %}
       <p class="text-gray-600 text-sm mb-6">
-        Plan: <strong>{{ subscription.plan.name }}</strong> &mdash; ${{ subscription.plan.price }}/month
+        Plan: <strong>{{ subscription.plan.name }}</strong> &mdash; {{ subscription.plan.price|money }}/month
       </p>
     {% endif %}
     <a href="{% url 'institute_subscription_dashboard' %}"

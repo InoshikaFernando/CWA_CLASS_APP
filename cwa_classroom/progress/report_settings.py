@@ -135,9 +135,53 @@ def sends(classroom, period_type):
     return effective(classroom).get(period_type, False)
 
 
+def automated_school_ids():
+    """Schools entitled to send reports on a schedule.
+
+    Automation is a paid module of its own, separate from the reports
+    themselves: ``student_progress_reports`` buys the report, and
+    ``report_automation`` buys it going out without anyone clicking.
+
+    Returned as a set so the class loop in :func:`enabled_classrooms` can ask
+    once per run instead of once per class — the nightly tick walks every
+    configured class in the install, and a per-class entitlement query is the
+    difference between one query and hundreds.
+    """
+    from billing.entitlements import school_ids_with_module
+    from billing.models import ModuleSubscription
+
+    return set(school_ids_with_module(
+        ModuleSubscription.MODULE_REPORT_AUTOMATION))
+
+
+def entitled_mode(classroom, values, automated=None):
+    """The mode this class actually runs in, after the automation module.
+
+    A school that has not bought automation falls back to MANUAL rather than
+    losing reports: staff keep every report they already had and send them by
+    hand. That is the honest downgrade — the feature degrades, it does not
+    vanish — and it is why this returns a mode instead of raising.
+
+    *automated* is the pre-computed set from :func:`automated_school_ids`;
+    omitting it costs a query, which is fine for a single class and wrong
+    inside a loop.
+    """
+    mode = values.get('mode')
+    if mode != MODE_AUTO:
+        return mode
+    if classroom.school_id is None:
+        # A class with no school belongs to an individual learner, who is
+        # outside the institute module economy — the same call the report
+        # views make for a report with no school.
+        return MODE_AUTO
+    if automated is None:
+        automated = automated_school_ids()
+    return MODE_AUTO if classroom.school_id in automated else MODE_MANUAL
+
+
 def is_auto(classroom):
     """Whether this class sends on a schedule rather than on a staff click."""
-    return effective(classroom).get('mode') == MODE_AUTO
+    return entitled_mode(classroom, effective(classroom)) == MODE_AUTO
 
 
 def scheduled_for(values, period_type, reference, term=None):
@@ -184,15 +228,22 @@ def enabled_classrooms(period_type, school=None, mode=None, reference=None,
 
     picked = []
     qs = qs.select_related('school', 'department', 'subject')
+    # Resolved once for the whole walk rather than per class — see
+    # automated_school_ids().
+    automated = automated_school_ids()
     # department__subjects because a class with no subject of its own takes
     # its department's — see progress.reports.resolved_subject.
     for classroom in qs.prefetch_related('department__subjects'):
         values = effective(classroom)
         if not values.get(period_type):
             continue
-        if mode is not None and values['mode'] != mode:
+        # The entitled mode, not the configured one: a school whose automation
+        # module has lapsed drops back into the manual run rather than keeping
+        # a nightly send alive through a setting saved while it was active.
+        class_mode = entitled_mode(classroom, values, automated=automated)
+        if mode is not None and class_mode != mode:
             continue
-        if reference is not None and values['mode'] == MODE_AUTO:
+        if reference is not None and class_mode == MODE_AUTO:
             if not scheduled_for(values, period_type, reference, term=term):
                 continue
         picked.append(classroom)

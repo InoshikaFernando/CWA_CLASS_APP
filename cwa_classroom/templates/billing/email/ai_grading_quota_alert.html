@@ -1,3 +1,4 @@
+{% load billing_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8" /><title>AI Grading Allowance</title></head>
@@ -45,7 +46,7 @@
         <p style="margin:0; font-size:16px; color:#111827;">
           <strong>{{ next_tier_name }}</strong>
           {% if next_tier_answers %}— {{ next_tier_answers }} answers a month{% else %}— unlimited answers{% endif %}
-          {% if next_tier_price %}<br /><span style="font-size:14px; color:#4b5563;">${{ next_tier_price }}/month</span>{% endif %}
+          {% if next_tier_price %}<br /><span style="font-size:14px; color:#4b5563;">{{ next_tier_price|money }}/month</span>{% endif %}
         </p>
       </td></tr>
     </table>
