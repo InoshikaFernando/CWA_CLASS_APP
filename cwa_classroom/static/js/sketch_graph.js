@@ -79,7 +79,20 @@
         var v = (el.value || "").trim();
         if (v !== "") out[el.dataset.kind] = v;
       });
-      hidden.value = JSON.stringify({ features: out, points: pts });
+      var next = JSON.stringify({ features: out, points: pts });
+      // Tell the page an answer happened. This widget is driven by taps on
+      // the SVG, so nothing else does: the hidden field is written in script
+      // and setting `.value` fires no event, which left the homework take
+      // page's debounced autosave (and the progress-art panel) unaware that
+      // the student had answered at all. Guarded on an actual change so a
+      // no-op sync -- on submit, or when a resumed draft rebuilds the same
+      // working -- stays silent.
+      // The typed feature boxes DO fire their own native events; the points
+      // plotted on the plane, and the undo/clear buttons, do not.
+      if (hidden.value !== next) {
+        hidden.value = next;
+        hidden.dispatchEvent(new Event("input", { bubbles: true }));
+      }
     }
 
     function draw() {

@@ -36,7 +36,18 @@
     var marks = []; // list of {value, px, py}
 
     function sync() {
-      hidden.value = JSON.stringify({ marks: marks.map(function (m) { return m.value; }) });
+      var next = JSON.stringify({ marks: marks.map(function (m) { return m.value; }) });
+      // Tell the page an answer happened. This widget is driven by taps on
+      // the SVG, so nothing else does: the hidden field is written in script
+      // and setting `.value` fires no event, which left the homework take
+      // page's debounced autosave (and the progress-art panel) unaware that
+      // the student had answered at all. Guarded on an actual change so a
+      // no-op sync -- on submit, or when a resumed draft rebuilds the same
+      // working -- stays silent.
+      if (hidden.value !== next) {
+        hidden.value = next;
+        hidden.dispatchEvent(new Event("input", { bubbles: true }));
+      }
       if (readout) {
         readout.textContent = marks.length
           ? marks.map(function (m) { return m.value; }).join(", ")

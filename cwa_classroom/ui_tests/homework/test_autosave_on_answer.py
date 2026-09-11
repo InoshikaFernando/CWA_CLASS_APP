@@ -1,4 +1,4 @@
-"""Playwright UI test — picking an answer must autosave it.
+"""Playwright UI tests — answering must autosave, however you answer.
 
 Regression guard for a bug that made the take page's debounced autosave dead
 for the commonest answer type of all.
@@ -12,9 +12,14 @@ selection appeared on screen, the form never heard about it, and the
 A student picking answers saw no "Saved" confirmation and rode entirely on the
 30-second heartbeat, losing up to half a minute of work if the tab died.
 
-This drives the real page and asserts a save actually reaches the server
-shortly after a click — WITHOUT touching "Save & continue later", which always
-worked and would hide the bug.
+The click-driven maths widgets had the same bug for a different reason: they
+are answered by tapping an SVG, and write their answer straight into a hidden
+input. Assigning to ``.value`` in script fires no event either, so plotting a
+point was just as invisible to the autosave as picking a radio was.
+
+Both are driven here against the real page, and both assert a save actually
+reaches the server shortly after the interaction — WITHOUT touching "Save &
+continue later", which always worked and would hide the bug.
 """
 from __future__ import annotations
 
@@ -136,3 +141,102 @@ class TestAutosaveOnAnswer:
         assert page.evaluate("() => window.__seen") == [
             "input", "change", "input", "change",
         ]
+
+
+PLOT_POINTS_SPEC = {
+    'bounds': {'xmin': -5, 'xmax': 5, 'ymin': -5, 'ymax': 5},
+    'mode': 'points',
+    'target': {'points': [[3, -2]]},
+    'allow_extra': False,
+}
+
+
+@pytest.fixture
+def plot_points_homework(db, classroom, teacher_user, level, topic):
+    """A homework whose only question is answered by tapping the plane."""
+    from homework.models import Homework, HomeworkQuestion
+    from maths.models import Question
+
+    hw = Homework.objects.create(
+        classroom=classroom,
+        created_by=teacher_user,
+        title="Plot Points Autosave",
+        homework_type="topic",
+        num_questions=1,
+        due_date=timezone.now() + timedelta(days=3),
+        max_attempts=3,
+    )
+    hw.topics.add(topic)
+    q = Question.objects.create(
+        level=level, topic=topic,
+        question_text="Plot the point (3, -2).",
+        question_type=Question.PLOT_POINTS,
+        difficulty=1, points=1,
+        plane_spec=PLOT_POINTS_SPEC,
+    )
+    HomeworkQuestion.objects.create(homework=hw, question=q, order=0)
+    return hw, q
+
+
+class TestAutosaveOnWidgetAnswer:
+
+    @pytest.mark.django_db(transaction=True)
+    def test_plotting_a_point_saves_it_without_pressing_save(
+        self, page: Page, live_server, enrolled_student, plot_points_homework
+    ):
+        import json
+
+        from homework.models import HomeworkDraft
+
+        hw, question = plot_points_homework
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/homework/{hw.pk}/take/")
+        page.wait_for_load_state("networkidle")
+
+        dot = page.locator(f'[data-pl-dot="{question.pk}"][data-gx="3"][data-gy="-2"]')
+        with page.expect_response(
+            lambda r: "/save-progress/" in r.url and r.status == 200,
+            timeout=SAVE_TIMEOUT_MS,
+        ):
+            dot.click()
+
+        expect(page.locator("#save-status")).to_contain_text("Saved")
+        draft = HomeworkDraft.objects.get(homework=hw, student=enrolled_student)
+        saved = json.loads(draft.answers_data[f"answer_{question.pk}"])
+        assert saved["points"] == [[3, -2]], saved
+
+    @pytest.mark.django_db(transaction=True)
+    def test_a_resumed_draft_does_not_trigger_a_pointless_save(
+        self, page: Page, live_server, enrolled_student, plot_points_homework
+    ):
+        """The dispatch is guarded on a real change for a reason.
+
+        Rebuilding a resumed draft's working calls the widget's sync with the
+        value it already has. Announcing that would flash "Unsaved changes…" and
+        fire an autosave on every page load that changed nothing.
+        """
+        import json
+
+        from homework.models import HomeworkDraft
+
+        hw, question = plot_points_homework
+        HomeworkDraft.objects.create(
+            homework=hw, student=enrolled_student,
+            answers_data={
+                f"answer_{question.pk}": json.dumps({"points": [[3, -2]]}),
+            },
+        )
+
+        saves: list[str] = []
+        page.on("request", lambda r: saves.append(r.url)
+                if "/save-progress/" in r.url else None)
+
+        do_login(page, live_server.url, enrolled_student)
+        page.goto(f"{live_server.url}/homework/{hw.pk}/take/")
+        page.wait_for_load_state("networkidle")
+        # Comfortably past the 1.5s debounce, nowhere near the 30s heartbeat.
+        page.wait_for_timeout(4000)
+
+        assert saves == [], f"a resumed page saved without the student doing anything: {saves}"
+        expect(page.locator("#save-status")).to_be_empty()
