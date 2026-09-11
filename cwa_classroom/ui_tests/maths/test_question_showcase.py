@@ -457,13 +457,13 @@ def _act_sketch_graph(sc, q, card):
 #: (title, subtitle, build, act) — the running order of the capture.
 SCENES = [
     ("Long Division",
-     "The full ladder — quotient, working rows and remainder, marked automatically.",
+     "Quotient, working rows and remainder. Every part marked automatically.",
      _build_long_division, _act_long_division),
     ("Prime Factorisation",
      "The factor ladder children are taught on paper, checked as they climb it.",
      _build_prime_factorization, _act_prime_factorization),
     ("Long Multiplication",
-     "Partial products, a row to carry into, and the answer — all of the working.",
+     "Partial products, a row to carry into, and the answer. All of the working.",
      _build_column_operation, _act_column_operation),
     ("Number Line",
      "Tap the tick. Negatives, fractions and decimals all on the same scale.",
@@ -472,13 +472,13 @@ SCENES = [
      "Gaps sit inside the sentence, and each one is marked on its own.",
      _build_fill_blank, _act_fill_blank),
     ("Measure an Angle",
-     "Line the protractor up on the vertex and read it off — graded to a tolerance.",
+     "Line the protractor up on the vertex and read it off. Graded to a tolerance.",
      _build_measure, _act_measure),
     ("Find the Shapes",
-     "Tap every triangle to colour it — a shape-hunt that marks itself.",
+     "Tap every triangle to colour it. A shape hunt that marks itself.",
      _build_shape_select, _act_shape_select),
     ("Lines of Symmetry",
-     "Draw straight onto the grid; the line is compared to the answer, not eyeballed.",
+     "Draw straight onto the grid. The line is compared to the answer, not eyeballed.",
      _build_draw_on_grid, _act_draw_on_grid),
     ("Plot Points",
      "A real Cartesian plane. Tap a lattice point to plot it, tap again to undo.",
@@ -487,7 +487,7 @@ SCENES = [
      "The points join themselves up as they land.",
      _build_plot_line, _act_plot_line),
     ("Read a Graph",
-     "Read the value off the axes — marked within a tolerance, like a real reading.",
+     "Read the value off the axes. Marked within a tolerance, like a real reading.",
      _build_read_graph, _act_read_graph),
     ("Table of Values",
      "Fill the table cell by cell. Four right out of five earns four fifths.",
@@ -507,7 +507,7 @@ def showcase_homework(db, classroom, teacher_user, topic, level):
     questions = [build(Question, level, topic) for _, _, build, _ in SCENES]
     homework = Homework.objects.create(
         classroom=classroom, created_by=teacher_user,
-        title="Maths Question Types — Showcase",
+        title="Maths Question Types",
         homework_type="topic", num_questions=len(questions),
         due_date=timezone.now() + timedelta(days=3), max_attempts=3,
     )
@@ -590,7 +590,7 @@ def test_records_the_question_type_showcase(
         sc.chip("")
         submit = page.get_by_role("button", name="Submit Homework")
         sc.caption("Marked the moment it is handed in",
-                   "Every one of these is graded automatically — working and all.",
+                   "Every one of these is graded automatically, working and all.",
                    hold=2.2)
         sc.point_at(submit)
         with page.expect_navigation():
