@@ -87,11 +87,12 @@ def health_check(request):
     "the app actually works".
 
     Deep responses also carry a "warnings" object for conditions that are real
-    but must NOT fail the request. Email-queue backlog and unpaid access live
-    here deliberately: scripts/deploy.sh gates on a 200 from this endpoint, so
-    making either a 503 would block the very deploy that fixes it. Uptime
-    monitors should watch warnings.email_queue.status and
-    warnings.unpaid_access.status for "warning"/"critical".
+    but must NOT fail the request. Email-queue backlog, unpaid access and
+    scheduled publishing live here deliberately: scripts/deploy.sh gates on a
+    200 from this endpoint, so making any of them a 503 would block the very
+    deploy that fixes it. Uptime monitors should watch
+    warnings.email_queue.status, warnings.unpaid_access.status and
+    warnings.scheduled_publish.status for "warning"/"critical".
     """
     body = {
         "status":    "ok",
@@ -124,6 +125,7 @@ def health_check(request):
         "email_queue": _email_queue_warning(),
         "unpaid_access": _unpaid_access_warning(),
         "payment_delays": _payment_delay_warning(),
+        "scheduled_publish": _scheduled_publish_warning(),
     }
 
     if not all_ok:
@@ -199,6 +201,31 @@ def _payment_delay_warning():
             "untold": health["untold"],
             "unreachable": health["unreachable"],
             "oldest_untold_days": health["oldest_untold_days"],
+            "reasons": health["reasons"],
+        }
+    except Exception as exc:  # pragma: no cover - defensive
+        return {"status": "unknown", "detail": str(exc)}
+
+
+def _scheduled_publish_warning():
+    """Scheduled-homework publishing summary for the deep health body.
+
+    Non-fatal by design — see health_check's docstring. A set stuck past its
+    release time means the publish cron is dead, which is an ops failure, not a
+    liveness one, and this endpoint is reachable precisely when the app is fine
+    and the cron is not. Any failure to read the signal is reported rather than
+    swallowed, so a broken probe cannot look like a class that got its homework.
+    """
+    try:
+        from homework.publish_health import get_scheduled_publish_health
+
+        health = get_scheduled_publish_health()
+        return {
+            "status": health["status"],
+            "overdue": health["overdue"],
+            "from_schedule": health["from_schedule"],
+            "upcoming": health["upcoming"],
+            "oldest_overdue_minutes": health["oldest_overdue_min"],
             "reasons": health["reasons"],
         }
     except Exception as exc:  # pragma: no cover - defensive
