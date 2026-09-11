@@ -17,6 +17,7 @@ from django.utils import timezone
 from django.views import View
 
 from audit.services import log_event
+from classroom import progress_art
 from classroom.models import ClassRoom, ClassStudent, ClassTeacher, SchoolStudent, Topic
 from classroom.notifications import create_notification
 from classroom.subject_registry import (
@@ -1147,6 +1148,46 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
         return render(request, self.template_name, {'rows': rows})
 
 
+def _homework_progress_art(homework, student, items, draft):
+    """Context for the take page's progress-art panel — the picture that draws
+    itself as the student answers.
+
+    How much is drawn is COUNTED from the draft, never stored: that is what
+    makes "save now, finish tomorrow" resume the drawing for free. Only the
+    choice of picture is persisted (on the draft, by the save-progress view),
+    so a paper picked up days later continues the same one.
+    """
+    saved = (draft.answers_data or {}) if draft else {}
+    answered = 0
+    for item in items:
+        plugin = get_plugin(item['subject_slug'])
+        if plugin is None:
+            continue
+        item['is_answered'] = any(
+            progress_art.answer_is_present(saved.get(name))
+            for name in plugin.answer_field_names(item['content_id'])
+        )
+        if item['is_answered']:
+            answered += 1
+
+    picture = progress_art.resolve(
+        draft.art_picture_key if draft else '',
+        len(items),
+        _homework_art_seed(homework, student),
+        year_level=progress_art.year_level_for_classroom(homework.classroom),
+    )
+    ctx = progress_art.context(picture, done=answered, total=len(items))
+    # The take page shows every question at once, so the panel follows the
+    # student's typing by counting `data-pa-group` blocks inside the form.
+    ctx['scope'] = '#hw-form'
+    return ctx
+
+
+def _homework_art_seed(homework, student):
+    """Stable per (homework, student) — a reload must not reroll the picture."""
+    return f'homework-{homework.pk}-{getattr(student, "pk", "")}'
+
+
 class StudentHomeworkTakeView(LoginRequiredMixin, View):
     template_name = 'homework/student_take.html'
 
@@ -1206,6 +1247,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             'draft_answers': draft.answers_data if draft else {},
             'draft_time_taken': draft.time_taken_seconds if draft else 0,
             'draft_saved_at': draft.updated_at.isoformat() if draft else '',
+            'progress_art': _homework_progress_art(homework, request.user, items, draft),
         })
 
     def post(self, request, homework_id):
@@ -1467,12 +1509,27 @@ class SaveHomeworkProgressView(LoginRequiredMixin, View):
         else:
             merged = answers
 
+        # Pin the progress-art picture the first time this student saves. It is
+        # derived server-side from the same seed the take page used rather than
+        # accepted from the client — a posted key would let a student reroll
+        # until they liked the drawing, and would break the whole point of
+        # storing it, which is that the picture cannot change under them.
+        art_key = existing.art_picture_key if existing else ''
+        if not progress_art.get(art_key):
+            art_key = progress_art.resolve(
+                '',
+                len(live_homework_questions(homework)),
+                _homework_art_seed(homework, request.user),
+                year_level=progress_art.year_level_for_classroom(homework.classroom),
+            ).key
+
         draft, _ = HomeworkDraft.objects.update_or_create(
             homework=homework,
             student=request.user,
             defaults={
                 'answers_data': merged,
                 'time_taken_seconds': time_taken,
+                'art_picture_key': art_key,
             },
         )
 

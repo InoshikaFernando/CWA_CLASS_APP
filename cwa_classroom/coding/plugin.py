@@ -532,6 +532,15 @@ class CodingExercisePlugin(SubjectPlugin):
         window['cw_textarea_name'] = f'code_{exercise.pk}'
         return window
 
+    def answer_field_names(self, content_id):
+        """Coding items answer through one of three fields, by question type:
+        an MCQ radio, a short-answer box, or the code editor's textarea."""
+        return (
+            f'coding_choice_{content_id}',
+            f'coding_text_{content_id}',
+            f'code_{content_id}',
+        )
+
     def grade_answer(self, content_id, post_data):
         """Grade one coding exercise according to its ``question_type``.
 

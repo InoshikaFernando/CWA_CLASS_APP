@@ -26,6 +26,8 @@
   <script defer src="{% static 'js/pattern_fields.js' %}"></script>
   <!-- Read-aloud (text-to-speech) for questions & answers -->
   <script defer src="{% static 'js/tts_speaker.js' %}"></script>
+  <!-- The hidden picture that draws itself as questions get answered -->
+  <script defer src="{% static 'js/progress_art.js' %}"></script>
   <style>
     [x-cloak] { display: none !important; }
     /* Speaker (read-aloud) buttons — hidden when the browser has no TTS support */
@@ -95,6 +97,9 @@
   <!-- ── Content ─────────────────────────────────────────────── -->
   <main class="pt-14 min-h-screen px-4 py-6 md:px-8 max-w-3xl mx-auto pb-24">
     {% block content %}{% endblock %}
+    {% comment %}Renders nothing unless the view supplied `progress_art`, so a
+    quiz that has not opted in looks exactly as it did.{% endcomment %}
+    <div class="mt-6">{% include "partials/_progress_art.html" %}</div>
   </main>
 
   <!-- ── Legal footer ───────────────────────────────────────────── -->

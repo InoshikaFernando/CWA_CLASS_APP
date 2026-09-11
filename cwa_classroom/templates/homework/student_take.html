@@ -11,6 +11,8 @@
 <script defer src="{% static 'js/sketch_graph.js' %}"></script>
 <script defer src="{% static 'js/fill_blank.js' %}"></script>
 <script defer src="{% static 'js/pattern_fields.js' %}"></script>
+<!-- The hidden picture that draws itself as questions get answered -->
+<script defer src="{% static 'js/progress_art.js' %}"></script>
 <style>
   .answer-option input[type="radio"]:checked + label {
     background-color: #dbeafe;
@@ -56,6 +58,16 @@ rather than fetched from a CDN.{% endcomment %}
     </div>
 
     {% comment %}
+      The progress-art panel. `scope` points it at #hw-form below, so it counts
+      the answered `data-pa-group` blocks live as the student types. How much is
+      already drawn comes from the saved draft, which is what makes the drawing
+      pick up where it stopped when the paper is resumed the next day.
+    {% endcomment %}
+    <div class="mb-6">
+      {% include "partials/_progress_art.html" %}
+    </div>
+
+    {% comment %}
       Saved draft (if any), embedded as JSON for the restore/autosave script.
       json_script HTML-escapes the values, so student-entered answer text is safe
       to round-trip here.
@@ -71,7 +83,13 @@ rather than fetched from a CDN.{% endcomment %}
 
       <div class="space-y-6">
         {% for item in items %}
-        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        {% comment %}`data-pa-group` makes this block one unit of progress-art
+        progress; `data-pa-answered` seeds it from the saved draft so a resumed
+        paper starts with the right amount of the picture already drawn.
+        {% endcomment %}
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5"
+             data-pa-group
+             data-pa-answered="{% if item.is_answered %}1{% else %}0{% endif %}">
           <p class="text-sm font-semibold text-gray-400 mb-2">Question {{ forloop.counter }}</p>
           {% comment %}
             Subject-plugin dispatch: each plugin provides its own rendering
