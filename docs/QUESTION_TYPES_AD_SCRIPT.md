@@ -43,9 +43,10 @@ cue.
 | --- | --- | --- | --- | --- |
 | 0:02 | 8s | Sign-in screen | YOUNGER | "This is where my maths homework lives now." |
 | 0:10 | 7s | Homework list | YOUNGER | "My teacher sets it. I can see what's due." |
-| 0:17 | 3s | The paper opens | YOUNGER | "Thirteen questions. Not one of them is multiple choice." |
-| 0:20 | 19s | Long division | YOUNGER | "Long division. The actual thing — bringing the numbers down, the bit left over." |
-| 0:29 | | | YOUNGER | "Other apps just want the answer. This one takes my working." |
+| 0:17 | 3s | The paper opens | YOUNGER | "Thirteen questions." |
+| 0:20 | 19s | Long division | YOUNGER | "And not one of them is multiple choice." |
+| 0:25 | | | YOUNGER | "Long division — the actual thing. Bringing the numbers down, the bit left over." |
+| 0:32 | | | YOUNGER | "Other apps just want the answer. This one takes my working." |
 | 0:39 | 14s | Prime factorisation | YOUNGER | "The factor ladder. Same as the one in my book." |
 | 0:46 | | | YOUNGER | "It follows me down, step by step." |
 | 0:53 | 19s | Long multiplication | YOUNGER | "Every partial product. And a box to carry the one into." |
@@ -79,7 +80,9 @@ use the line for what the caption cannot say.
 
 If anything gets cut, keep these:
 
-1. **"Not one of them is multiple choice."** — the whole pitch in six words.
+1. **"Thirteen questions." / "And not one of them is multiple choice."** — the
+   whole pitch, split so the second half lands over the long-division ladder
+   that proves it.
 2. **"Other apps just want the answer. This one takes my working."** — names
    the competitor gap without naming a competitor.
 3. **"Four right out of five gets me four out of five."** — partial credit, in
@@ -108,6 +111,35 @@ that cannot be done on paper-to-photo, and the result.
 | Sketch | OLDER | "All the way up to sketching a parabola." |
 | Result | YOUNGER | "Hand it in, and it's marked. Working and all." |
 | Card | YOUNGER | "Wizards Learning Hub." |
+
+## The subtitle track
+
+`scripts/make_ad_subtitles.py` turns the table above into an SRT beside the
+video. Re-run it after any re-render — the cue times move, and a subtitle file
+typed once goes stale in silence.
+
+```bash
+python scripts/make_ad_subtitles.py
+```
+
+It refuses to overlap two captions and warns about any line that cannot be said
+in the room it has, which is how the opening was re-cut: "Thirteen questions.
+Not one of them is multiple choice." had 2.7 seconds and needed 4.2, so it is
+now split across the cue, with the second half landing over the long-division
+ladder that proves it.
+
+Use the SRT for two things:
+
+* **the recording session** — the reader sees each line and the moment it has to
+  land in;
+* **a soft subtitle track** on a platform that has one (YouTube), for the large
+  share of viewers watching with the sound off.
+
+**Do not burn it into the picture.** The capture already carries its own caption
+cards, bottom-centre, naming each question type — burned subtitles put a second
+layer of text on a frame that has one, and at the top they cover the working
+the ad exists to show. If a placement demands burnt-in text, re-cut the capture
+with the caption cards turned off rather than stacking the two.
 
 ## Recording notes
 
