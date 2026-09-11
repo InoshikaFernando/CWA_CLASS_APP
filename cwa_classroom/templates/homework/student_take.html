@@ -177,13 +177,21 @@ rather than fetched from a CDN.{% endcomment %}
     paintTimer();
   }, 1000);
 
-  // Make radio labels clickable without double-click issue
-  document.querySelectorAll('.answer-option label').forEach(label => {
-    label.addEventListener('click', () => {
-      const input = document.getElementById(label.htmlFor);
-      if (input) input.checked = true;
-    });
-  });
+  // NOTE: there is deliberately no click handler on the answer labels here.
+  //
+  // There used to be one ("make radio labels clickable without double-click
+  // issue") that set `input.checked = true` itself. Each option is a sibling
+  // `<label for=…>`, so the browser already checks the radio on a label click —
+  // but it does so as the click's DEFAULT ACTION, after every listener has run.
+  // Finding the radio already checked, it then fired NOTHING: no `input`, no
+  // `change`. Picking an answer looked fine on screen while the form never
+  // heard about it, so the debounced autosave below never ran and a student saw
+  // no "Saved" confirmation — their answers rode on the 30-second heartbeat
+  // alone, and up to 30 seconds of work was lost if the tab died.
+  //
+  // Native activation handles all of this correctly, including firing nothing
+  // when an already-selected option is clicked again. Do not add a handler back.
+  // ui_tests/homework/test_autosave_on_answer.py fails if one returns.
 
   // ── Autosave / save-and-exit ──────────────────────────────────────────────
   function getCsrfToken() {

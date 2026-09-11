@@ -254,12 +254,15 @@
         ? event.target.closest("[data-pa-group]")
         : null;
       if (!group) return;
-      // Deferred by a tick on purpose. A click on a <label for> only checks its
-      // radio as the event's DEFAULT ACTION, after every listener has run — and
-      // the homework take page has its own label handler that sets `checked`
-      // first, which then suppresses the radio's `change` event entirely. So
-      // `click` has to be watched as well as `input`/`change`, and the field
-      // has to be read after the browser has finished with it.
+      // `click` is watched as well as `input`/`change` because not every answer
+      // announces itself: the construction widgets (number line, sketch graph,
+      // table of values, fill-in-the-blank, pattern fields) write their hidden
+      // input's value directly and dispatch no event at all, so a student
+      // plotting a point would otherwise see the drawing sit still.
+      //
+      // Deferred by a tick because a click on a <label for> only checks its
+      // radio as the event's DEFAULT ACTION, after every listener has run — so
+      // reading the field synchronously here would see its previous state.
       setTimeout(function () { reexamine(group); }, 0);
     };
     scope.addEventListener("input", handler);
