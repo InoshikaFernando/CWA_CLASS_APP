@@ -14,7 +14,11 @@ from django.urls import reverse
 from accounts.models import CustomUser
 from classroom.models import Level
 from ai_import.models import AIImportSession
-from ai_import.services import CLASSIFICATION_TOOL, save_questions_from_session
+from ai_import.services import (
+    CLASSIFICATION_TOOL,
+    _build_classification_prompt,
+    save_questions_from_session,
+)
 from maths.models import Question
 
 
@@ -36,6 +40,23 @@ class ExtractionSchemaTests(TestCase):
         props = (CLASSIFICATION_TOOL["input_schema"]["properties"]["questions"]
                  ["items"]["properties"])
         self.assertIn('number_line_spec', props)
+
+    def test_prompt_keeps_the_mark_and_read_guidance(self):
+        prompt = _build_classification_prompt([], [])
+        self.assertIn('number_line', prompt)
+        self.assertIn('put the value(s) in target', prompt)
+        self.assertIn('put the marked position(s) in given', prompt)
+
+    def test_prompt_asks_for_an_inequality_block_not_a_tick_list(self):
+        # A "graph the inequality" answer is a ray: enumerating its ticks is
+        # what dropped the boundary tick and failed correct answers.
+        prompt = _build_classification_prompt([], [])
+        self.assertIn('do NOT list its ticks in target', prompt)
+        # The JSON example must reach the model as JSON. It lives in an
+        # f-string, so its braces are escaped in source — a regression here
+        # renders {{"op": ...}} or raises on build.
+        self.assertIn('inequality {"op": "<="|"<"|">="|">", "value": -2}', prompt)
+        self.assertNotIn('{{', prompt)
 
 
 class SaveNumberLineTests(TestCase):

@@ -15,7 +15,10 @@ from accounts.models import CustomUser, Role
 from classroom.models import Level, School, Subject, Topic
 from maths.models import Question
 from worksheets.models import Worksheet, WorksheetQuestion
-from worksheets.services import WORKSHEET_CLASSIFICATION_TOOL
+from worksheets.services import (
+    WORKSHEET_CLASSIFICATION_TOOL,
+    WORKSHEET_SYSTEM_PROMPT,
+)
 from worksheets.views import ANSWER_PARTIAL_MAP
 
 
@@ -38,6 +41,26 @@ class NumberLineWorksheetConfigTests(TestCase):
 
     def test_in_answer_partial_map(self):
         self.assertTrue(ANSWER_PARTIAL_MAP['number_line'].endswith('_answer_number_line.html'))
+
+    def test_prompt_keeps_the_mark_and_read_guidance(self):
+        self.assertIn('put the value(s) to mark in target', WORKSHEET_SYSTEM_PROMPT)
+        self.assertIn('put the marked position(s) in given', WORKSHEET_SYSTEM_PROMPT)
+
+    def test_prompt_asks_for_an_inequality_block_not_a_tick_list(self):
+        # A "graph the inequality" answer is a ray — enumerating its ticks is
+        # what dropped the boundary tick and failed correct answers.
+        # The instruction wraps across lines in the prompt, so match the parts
+        # that carry the meaning rather than the line breaks.
+        self.assertIn('ticks in target', WORKSHEET_SYSTEM_PROMPT)
+        self.assertIn('leave target out', WORKSHEET_SYSTEM_PROMPT)
+        self.assertIn('inequality {"op": "<="|"<"|">="|">", "value": -2}',
+                      WORKSHEET_SYSTEM_PROMPT)
+
+    def test_spec_schema_describes_the_inequality_block(self):
+        desc = (WORKSHEET_CLASSIFICATION_TOOL["input_schema"]["properties"]
+                ["questions"]["items"]["properties"]["number_line_spec"]["description"])
+        self.assertIn('inequality', desc)
+        self.assertIn('target', desc)
 
     def _topic(self):
         level, _ = Level.objects.get_or_create(
