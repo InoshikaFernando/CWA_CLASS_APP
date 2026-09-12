@@ -11,6 +11,7 @@ from django.conf import settings
 from django.db.models import Q
 
 from audit.services import log_event
+from classroom import progress_art
 from classroom.models import Level as ClassroomLevel, SchoolStudent
 from classroom.topic_redirect import resolve_topic
 from maths.models import calculate_points
@@ -785,6 +786,15 @@ class TopicQuizView(LoginRequiredMixin, View):
             'question_number': 1,
             'total_questions': len(questions),
             'subject': subject,
+            # The picture that draws itself as the quiz is answered. Seeded on
+            # the session id, so a refresh of THIS quiz redraws the same one —
+            # and a new quiz gets a new one. A quiz is a single sitting, so
+            # unlike homework there is nothing to persist.
+            'progress_art': progress_art.context(
+                progress_art.pick(len(questions), f'topic-quiz-{session_id}',
+                                  year_level=level.level_number),
+                done=0, total=len(questions),
+            ),
         })
 
 
@@ -863,6 +873,17 @@ class MixedQuizView(LoginRequiredMixin, View):
             'session_id': session_id,
             'total': len(all_questions),
             'subject': subject,
+            # Every question is on this one page, so the panel counts the
+            # answered `data-pa-group` blocks inside the form as the student
+            # works (see static/js/progress_art.js).
+            'progress_art': dict(
+                progress_art.context(
+                    progress_art.pick(len(all_questions), f'mixed-quiz-{session_id}',
+                                      year_level=level.level_number),
+                    done=0, total=len(all_questions),
+                ),
+                scope='#mixed-form',
+            ),
         })
 
     def post(self, request, subject, level_number):
