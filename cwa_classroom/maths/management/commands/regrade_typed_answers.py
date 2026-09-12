@@ -69,9 +69,10 @@ from collections import defaultdict
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from maths.models import (
-    Question, StudentAnswer, StudentFinalAnswer, TopicLevelStatistics,
-    calculate_points,
+from maths.models import StudentAnswer
+from maths.regrade_support import (
+    fix_results, fix_submissions, format_changes, quiz_changes,
+    rebuild_statistics, submission_changes,
 )
 
 # Typed answers, graded by Question.grade_text_answer.
@@ -79,19 +80,9 @@ REGRADABLE_TYPES = ('short_answer', 'fill_blank', 'calculation')
 REGRADABLE_FORMATS = ('text', 'set', 'algebra', 'equation', 'pattern')
 
 
-def typed_answer(entry):
-    """Read a student's typed answer out of a stored quiz review payload.
-
-    questions_data is JSON written by the quiz view, and a bare numeric answer
-    can land in it as a number rather than a string, so this coerces instead of
-    assuming str. Zero has to survive that coercion — "0" is a real answer to a
-    maths question, not a blank — which is why this cannot be `or ''`. A list
-    or dict is not a typed answer at all, so it reads as blank.
-    """
-    raw = entry.get('student_answer')
-    if raw is None or isinstance(raw, (list, dict, bool)):
-        return ''
-    return str(raw).strip()
+def now_correct(question, raw):
+    """Does today's grader accept what this student typed?"""
+    return question.grade_text_answer(raw)
 
 
 class Command(BaseCommand):
@@ -275,8 +266,9 @@ class Command(BaseCommand):
                 row.points_earned = row.question.points
                 row.save(update_fields=['is_correct', 'points_earned'])
 
-            results_fixed, stats_keys = self._fix_results(students, questions)
-            submissions_fixed = self._fix_submissions(
+            results_fixed, stats_keys = fix_results(
+                students, questions, now_correct)
+            submissions_fixed, self.lowered = fix_submissions(
                 homework_found, worksheet_found)
 
         self.stdout.write('')
@@ -292,191 +284,19 @@ class Command(BaseCommand):
                 f'its answers justify ({recount}). Kept {kept} — no mark taken '
                 f'away — but the two disagree and something put them out of step.'))
 
-        for topic, level in stats_keys:
-            TopicLevelStatistics.recalculate(topic, level)
-        if stats_keys:
+        rebuilt = rebuild_statistics(stats_keys)
+        if rebuilt:
             self.stdout.write(self.style.SUCCESS(
-                f'Rebuilt statistics for {len(stats_keys)} topic/level pair(s).'))
+                f'Rebuilt statistics for {rebuilt} topic/level pair(s).'))
 
     # ------------------------------------------------------------------
     def _score_changes(self, found, homework_found, worksheet_found):
-        """What each affected mark goes from, and to.
-
-        A count of corrected answers does not tell anyone what a child's mark
-        actually was and will become — which is the only form a teacher or a
-        parent can act on. Computed without writing anything, so the dry run
-        shows exactly what --apply would do.
-        """
-        changes = []
-
-        # Homework and worksheets: the owed rows belong to a submission whose
-        # score counts its correct answers, so the new score is the old one
-        # plus the rows about to flip.
-        for label, rows in (('homework', homework_found),
-                            ('worksheets', worksheet_found)):
-            per_submission = defaultdict(list)
-            for row in rows:
-                per_submission[row.submission].append(row)
-            for submission, owed in per_submission.items():
-                before = submission.score or 0
-                # Project the way --apply counts — from the answer rows — not
-                # from the stored score. Where the two disagree the stored
-                # score is already wrong, and a dry run that quietly assumed it
-                # was right would promise a number apply then would not write.
-                after = (submission.answers.filter(is_correct=True).count()
-                         + len(owed))
-                changes.append((
-                    label, submission.student_id, f'submission {submission.pk}',
-                    before, max(before, after),
-                    submission.total_questions or 0))
-
-        # Quiz: the attempt total is recounted from the stored review payload,
-        # so the projection re-grades that payload rather than assuming.
-        if found:
-            questions = {row.question_id for row in found}
-            cache = {q.id: q for q in Question.objects.filter(id__in=questions)
-                     .prefetch_related('answers')}
-            students = {row.student_id for row in found}
-            for result in (StudentFinalAnswer.objects
-                           .filter(student_id__in=students)
-                           .iterator(chunk_size=200)):
-                entries = result.questions_data or []
-                if not isinstance(entries, list):
-                    continue
-                flips = 0
-                for entry in entries:
-                    if not isinstance(entry, dict) or entry.get('is_correct'):
-                        continue
-                    question = cache.get(entry.get('id'))
-                    typed = typed_answer(entry)
-                    if question and typed and question.grade_text_answer(typed):
-                        flips += 1
-                if flips:
-                    before = result.score or 0
-                    changes.append((
-                        'quiz', result.student_id, f'attempt {result.pk}',
-                        before, before + flips, result.total_questions or 0))
-        return changes
+        """What each affected mark goes from, and to — projected, not written,
+        so the dry run shows exactly what --apply would do."""
+        return (submission_changes('homework', homework_found)
+                + submission_changes('worksheets', worksheet_found)
+                + quiz_changes(found, now_correct))
 
     def _report_changes(self, changes):
-        if not changes:
-            return
-        self.stdout.write('')
-        self.stdout.write('Marks before → after:')
-        by_student = defaultdict(list)
-        for change in changes:
-            by_student[change[1]].append(change)
-        for student in sorted(by_student):
-            self.stdout.write(f'  student {student}')
-            for label, _sid, what, before, after, total in sorted(by_student[student]):
-                out_of = f'/{total}' if total else ''
-                self.stdout.write(
-                    f'      {label:<11} {what:<16} '
-                    f'{before}{out_of} → {after}{out_of}   (+{after - before})')
-
-    # ------------------------------------------------------------------
-    def _fix_submissions(self, homework_found, worksheet_found):
-        """Recount the homework and worksheet totals the marks sit inside.
-
-        Each app already owns the arithmetic for its own totals, so this calls
-        theirs rather than keeping a second copy that could drift: homework
-        counts correct answers and sums points_earned, worksheets count correct
-        answers. Recomputing either here would be a third opinion on a sum that
-        already has an owner.
-        """
-        from homework.views import _recalculate_submission_score
-
-        fixed = 0
-        self.lowered = []
-        seen = set()
-        for row in homework_found:
-            submission = row.submission
-            if submission.pk in seen:
-                continue
-            seen.add(submission.pk)
-            before = submission.score or 0
-            _recalculate_submission_score(submission)
-            submission.refresh_from_db()
-            self._never_lower('homework', submission, before)
-            fixed += 1
-
-        seen = set()
-        for row in worksheet_found:
-            submission = row.submission
-            if submission.pk in seen:
-                continue
-            seen.add(submission.pk)
-            before = submission.score or 0
-            submission.score = submission.answers.filter(is_correct=True).count()
-            submission.save(update_fields=['score'])
-            self._never_lower('worksheets', submission, before)
-            fixed += 1
-        return fixed
-
-    def _never_lower(self, label, submission, before):
-        """A recount must not take a mark away.
-
-        The totals are recounted from the answer rows. Where a stored score is
-        already higher than its rows justify — a manual adjustment, or grading
-        that ran after the score was written — recounting would quietly drop
-        the child's mark, which is not what this command was asked to do. The
-        old score is kept and the disagreement is reported, because a score
-        that does not match its own answers is worth someone looking at.
-        """
-        if (submission.score or 0) >= before:
-            return
-        recount = submission.score
-        submission.score = before
-        submission.save(update_fields=['score'])
-        self.lowered.append((label, submission.pk, before, recount))
-
-    # ------------------------------------------------------------------
-    def _fix_results(self, students, questions):
-        """Re-mark the stored review payloads and recount the attempt scores.
-
-        StudentFinalAnswer carries its own session id rather than the answers'
-        attempt_id, so the two cannot be joined. They do not need to be: each
-        result stores the student's own words per question in questions_data,
-        which is the same evidence, and re-grading that is what keeps the
-        attempt total honest with the answers underneath it.
-        """
-        fixed = 0
-        stats_keys = set()
-        results = (
-            StudentFinalAnswer.objects
-            .filter(student_id__in=students)
-            .select_related('topic', 'level')
-        )
-        cache = {q.id: q for q in
-                 Question.objects.filter(id__in=questions)
-                 .prefetch_related('answers')}
-
-        for result in results.iterator(chunk_size=200):
-            entries = result.questions_data or []
-            if not isinstance(entries, list):
-                continue
-            changed = False
-            for entry in entries:
-                if not isinstance(entry, dict) or entry.get('is_correct'):
-                    continue
-                question = cache.get(entry.get('id'))
-                typed = typed_answer(entry)
-                if not question or not typed:
-                    continue
-                if question.grade_text_answer(typed):
-                    entry['is_correct'] = True
-                    changed = True
-            if not changed:
-                continue
-
-            result.score = sum(1 for e in entries
-                               if isinstance(e, dict) and e.get('is_correct'))
-            result.points = calculate_points(
-                result.score, result.total_questions,
-                result.time_taken_seconds or 1)
-            result.questions_data = entries
-            result.save(update_fields=['score', 'points', 'questions_data'])
-            fixed += 1
-            if result.topic_id and result.level_id:
-                stats_keys.add((result.topic, result.level))
-        return fixed, stats_keys
+        for line in format_changes(changes):
+            self.stdout.write(line)

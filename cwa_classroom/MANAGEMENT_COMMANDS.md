@@ -395,6 +395,44 @@ python manage.py generate_puzzles --clear            # remove existing first
 python manage.py generate_puzzles --dry-run          # preview
 ```
 
+### `regrade_number_line_answers`
+Give back the marks a number-line **inequality graph's broken key** took.
+
+`repair_number_line_inequalities` fixes the QUESTION. It does not move the marks
+already given — grading happens once, at submission, and the verdict is written
+into the answer row, the attempt score, the review payload the child and their
+teacher read months later, and the statistics built on top. This is the other
+half, and the two run in order:
+
+```bash
+python manage.py repair_number_line_inequalities --apply   # fix the questions
+python manage.py regrade_number_line_answers --apply       # then the marks
+```
+
+Re-grades answers to number-line questions whose spec now STATES its inequality
+— the ones the repair converted, where the key was corrected to match the
+question as printed — across quiz, homework (auto-graded rows only) and
+worksheet answers, then recounts the attempt and submission totals and rebuilds
+the topic/level statistics. A hand-listed target is **not** swept: nothing
+derived its key, so a mismatch there means someone edited the question, and the
+children who answered it answered the old one.
+
+**One direction only — wrong to right, never right to wrong.** Under the broken
+key, a student who left the boundary tick OUT was marked right; the repaired key
+says otherwise, and that mark stays. Note that a quiz attempt score is still
+recounted from its review payload, which can lower a stored score that already
+disagreed with its own payload — see `maths/regrade_support.py`.
+
+Dry run by default. Idempotent: a corrected row grades correct and is never
+examined again.
+```bash
+python manage.py regrade_number_line_answers                # dry run — report only
+python manage.py regrade_number_line_answers --apply        # actually write
+python manage.py regrade_number_line_answers --question 9710
+python manage.py regrade_number_line_answers --student 31
+python manage.py regrade_number_line_answers --source homework
+```
+
 ### `repair_number_line_inequalities`
 Rebuild the answer key of a number-line **inequality graph** from the inequality the
 question states, instead of the ticks someone spelled out.
