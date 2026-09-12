@@ -4,10 +4,11 @@ Data comes from OpsSnapshot rows recorded by the ``record_ops_metrics``
 management command (droplet-side cron). Mirrors the finance / subscription
 super-admin dashboards (dark theme, window selector, Chart.js).
 
-Alongside the droplet metrics it carries the two daily health checks whose
-failure mode is silence rather than an error: email delivery (a stalled drain
-leaves invoices "issued" but unsent) and unpaid access (a delinquent account
-still using the app because the paywall let it through).
+Alongside the droplet metrics it carries the daily health checks whose failure
+mode is silence rather than an error: email delivery (a stalled drain leaves
+invoices "issued" but unsent), unpaid access (a delinquent account still using
+the app because the paywall let it through), and scheduled publishing (homework
+the automation built, sitting past its release time, never sent to the class).
 """
 from datetime import timedelta
 
@@ -23,6 +24,7 @@ from billing.stripe_health import (
 from billing.subscription_health import (
     get_payment_delay_health, get_unpaid_access_health)
 from classroom.email_health import get_email_queue_health
+from homework.publish_health import get_scheduled_publish_health
 
 from .log_reader import DEFAULT_FILE, LEVELS, LOG_FILES, read_log
 from .models import OpsSnapshot
@@ -80,8 +82,16 @@ class OpsDashboardView(SuperuserRequiredMixin, View):
         checkout_failures = get_checkout_failure_health()
         stripe_prices = get_stripe_price_health()
 
+        # The same silence again, on the teaching side. publish_scheduled_homework
+        # is the only thing that makes a scheduled set visible to students, and
+        # its cron drop-in is written by the one-time provisioning script rather
+        # than by a deploy — so a droplet can run for months without it while
+        # every question-schedule week is built, previewed, and never sent.
+        scheduled_publish = get_scheduled_publish_health()
+
         return render(request, 'admin_dashboard/ops/dashboard.html', {
             'checkout_failures': checkout_failures,
+            'scheduled_publish': scheduled_publish,
             'stripe_prices': stripe_prices,
             'latest': latest,
             'email_queue': email_queue,

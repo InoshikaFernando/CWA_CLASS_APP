@@ -380,18 +380,49 @@ bash scripts/deploy.sh    # re-runs migrate/collectstatic/restart against the ol
 | Error cron check | `scripts/cron_check_errors.sh` |
 | Question-health cron | `scripts/cron_record_question_health.sh` — **must be installed**, or `/admin-dashboard/question-health/` stays empty forever |
 
+#### Cron drop-ins are installed by provisioning, NOT by a deploy
+
+Every scheduled job runs from an `/etc/cron.d/cwa-*` drop-in written by
+`deploy/setup-app-prod.sh`. That script is run **by hand, as root, on the
+droplet**; `scripts/deploy.sh` (what the deploy workflows run) never touches
+cron. So a drop-in added to the repo after a droplet was provisioned does not
+exist on that droplet until someone re-runs the script — the code ships, the job
+does not, and nothing anywhere says so.
+
+This is how scheduled homework went unpublished: the `cwa-publish-homework`
+drop-in was added in 1.24.1, the droplet was never re-provisioned, and teachers
+had to hit "Publish now" by hand on sets the question automation had already
+built.
+
+After merging any release that adds or changes a cron drop-in:
+
+```bash
+# On the droplet, as root:
+ls /etc/cron.d/cwa-*                      # what is actually installed
+bash /home/cwa/CWA_CLASS_APP/deploy/setup-app-prod.sh   # idempotent — rewrites every drop-in
+```
+
+The script is safe to re-run: it overwrites its own drop-ins and leaves the
+`cwa` user's personal crontab alone.
+
+Expected drop-ins: `cwa-ops`, `cwa-uploads`, `cwa-email`, `cwa-email-health`,
+`cwa-unpaid-access`, `cwa-progress-reports`, `cwa-publish-homework`,
+`cwa-scheduled-questions`.
+
 #### Daily health checks
 
-Two watchdogs exist because their failure mode is silence, not an error. Both
-are installed by `deploy/setup-app-prod.sh`, both post to Discord, and both are
-also readable on the Ops dashboard (`/admin-dashboard/ops/`) and in
-`/api/health/?deep=1` under `warnings.*` — so a leak is visible without reading
-a chat channel.
+These watchdogs exist because their failure mode is silence, not an error. All
+are installed by `deploy/setup-app-prod.sh` and all are readable on the Ops
+dashboard (`/admin-dashboard/ops/`) and in `/api/health/?deep=1` under
+`warnings.*` — so a leak is visible without reading a chat channel. The first
+two also post to Discord; the publish check has no alert cron of its own on
+purpose, since a cron is the thing it is watching for.
 
 | Check | Cron drop-in | Log | Catches |
 |-------|--------------|-----|---------|
 | `check_email_queue_health` | `/etc/cron.d/cwa-email-health` (hourly) | `/var/log/cwa/email_queue_health.log` | the `process_email_queue` drain stopping — invoices read as issued but are never sent |
 | `check_unpaid_access` | `/etc/cron.d/cwa-unpaid-access` (daily 09:00) | `/var/log/cwa/unpaid_access.log` | a delinquent subscription still reaching restricted pages — the paywall letting unpaid accounts through |
+| `publish_scheduled_homework` | `/etc/cron.d/cwa-publish-homework` (every 5 min) | `/var/log/cwa/publish_scheduled_homework.log` | the publish cron stopping — scheduled homework (including every set the question automation builds) created, previewed, and never sent to the class |
 
 Run either by hand with `sudo -u cwa .../manage.py <command>` (§ 4.5); each
 exits non-zero when it finds something, which is the alert condition.
