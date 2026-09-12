@@ -587,6 +587,7 @@ class Question(models.Model):
         from maths.algebra_grading import (
             fold_answer as _fold,
             is_reordered_expression_correct,
+            is_reordered_product_correct,
             option_label_set,
         )
 
@@ -638,6 +639,15 @@ class Question(models.Model):
         # student's answer is still graded strictly, so un-combined like terms
         # and un-expanded brackets stay wrong (see is_reordered_expression_correct).
         if any(is_reordered_expression_correct(text_answer, c) for c in correct):
+            return True
+
+        # "Factorise 16p^2 - 81q^2" stores "(4p - 9q)(4p + 9q)", and
+        # multiplication commutes — the same two factors written the other way
+        # round is the same answer and was marked wrong (CPP-360). Only the
+        # ORDER is forgiven: a different factor, a different sign or the
+        # unfactorised expression all stay wrong, so no student is marked
+        # correct for work they did not do.
+        if any(is_reordered_product_correct(text_answer, c) for c in correct):
             return True
 
         # "Work out the number pattern rule and complete the pattern: 30, ___,
