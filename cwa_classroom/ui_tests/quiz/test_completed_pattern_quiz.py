@@ -23,6 +23,7 @@ import pytest
 from playwright.sync_api import expect
 
 from ..conftest import do_login
+from ..helpers import content_excluding_progress_art
 
 pytestmark = pytest.mark.quiz
 
@@ -169,7 +170,10 @@ class TestConvertedPatternTopicQuiz:
 
     def test_the_answers_never_reach_the_page(self):
         self._open()
-        body = self.page.content()
+        # Everything except the progress-art panel, whose picture is a few
+        # hundred SVG coordinates in which a bare "105" shows up by coincidence
+        # — see the helper. The check stays whole-page for all real markup.
+        body = content_excluding_progress_art(self.page)
         assert '105' not in body
         assert 'add 15' not in body
 

@@ -213,6 +213,15 @@ class WorksheetSubmission(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     score = models.PositiveIntegerField(default=0)
     total_questions = models.PositiveIntegerField(default=0)
+    art_picture_key = models.CharField(
+        max_length=40, blank=True, default='',
+        help_text=(
+            'Which classroom.progress_art picture this student is drawing as '
+            'they work through the worksheet. A worksheet session is resumed '
+            'across days, so the choice is pinned here — how much is drawn is '
+            'counted from the answers, not stored.'
+        ),
+    )
 
     class Meta:
         unique_together = [('assignment', 'student')]

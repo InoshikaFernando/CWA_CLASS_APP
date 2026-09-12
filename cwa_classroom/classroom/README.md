@@ -86,6 +86,34 @@ register(MyPlugin())
 
 `maths` and `coding` use this to appear in the subjects hub and sidebar.
 
+## Progress art (`progress_art.py`)
+
+The catalogue of hidden line drawings that draw themselves as a student answers
+— one dot after question one, finished on the last question. It lives here
+rather than in `quiz`/`homework`/`worksheets` because all three want the same
+picture library and the same rules for choosing one, while each owns a different
+"how far through are you" signal.
+
+```python
+from classroom import progress_art
+
+picture = progress_art.resolve(
+    draft.art_picture_key,          # keep the one already started, if any
+    total_questions=len(items),     # → tier: how detailed a picture this earns
+    seed=f'homework-{hw.pk}-{student.pk}',
+    year_level=progress_art.year_level_for_classroom(hw.classroom),  # → band
+)
+ctx = progress_art.context(picture, done=answered, total=len(items))
+```
+
+Hand `ctx` to the template as `progress_art` and include
+`partials/_progress_art.html`; the partial renders nothing without it. How much
+is drawn is always **counted** from the student's answers, never stored — that
+is what makes a homework resumed days later continue the same drawing. Only the
+*choice* of picture is persisted, on the draft or submission.
+
+Full design, and how to add a picture: [`docs/SPEC_PROGRESS_ART.md`](../../docs/SPEC_PROGRESS_ART.md).
+
 ## Dependencies
 
 - **accounts** — every actor is a `CustomUser`.

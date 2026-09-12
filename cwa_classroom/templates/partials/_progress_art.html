@@ -1,0 +1,102 @@
+{% comment %}
+Progress art — the hidden picture that draws itself as the student answers.
+
+Include this wherever a student works through a numbered set of questions and
+pass a `progress_art` context dict built by ``classroom.progress_art.context()``
+(optionally with a `scope` key, see below). The partial renders nothing at all
+when that dict is missing, so a page that has not opted in is unaffected.
+
+Two ways it learns about progress:
+
+* One question per page (topic quiz, worksheet session): the server's
+  `done` is already right on every load. The topic quiz additionally calls
+  ``ProgressArt.set(n)`` as each answer is graded so the drawing grows without
+  waiting for the next page.
+* Every question on one page (homework, mixed quiz): set `scope` to a CSS
+  selector for the form and mark each question block `data-pa-group`, with
+  `data-pa-answered="1"` on the ones the server already counted. The drawing
+  then follows the student's typing live.
+
+The picture's title is deliberately hidden until the last question — the
+surprise is the point of the whole feature.
+{% endcomment %}
+{% if progress_art %}
+<style>
+  [data-progress-art] .pa-stroke {
+    fill: none;
+    stroke: #334155;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: stroke .55s ease;
+  }
+  /* A flash of colour on the strokes while new ink is going down, so a child
+     looking at the question (not the panel) still notices something happened. */
+  [data-progress-art].pa-drawing .pa-stroke { stroke: #2563eb; }
+  [data-progress-art].pa-complete .pa-stroke { stroke: #047857; }
+  [data-progress-art] .pa-reveal { display: none; }
+  [data-progress-art].pa-complete .pa-reveal { display: block; }
+  [data-progress-art].pa-complete .pa-hide-on-complete { display: none; }
+  [data-progress-art].pa-complete .pa-canvas { animation: pa-pop .6s ease; }
+  @keyframes pa-pop {
+    0%   { transform: scale(1); }
+    45%  { transform: scale(1.045); }
+    100% { transform: scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-progress-art].pa-complete .pa-canvas { animation: none; }
+    [data-progress-art] .pa-stroke { transition: none; }
+  }
+
+  /* Compact strip — only where a page has put the panel in a sticky side
+     column (`.pa-side`), and only below that column's breakpoint. There the
+     panel is pinned to the top of a phone screen, and the full card would eat
+     half of it; this lays the same markup out as a thumbnail beside its text.
+     Grid areas do the reordering, so the partial's DOM stays one shape.
+     Only while actually PINNED (`.pa-stuck`, set by progress_art.js): at the
+     top of the paper a phone still gets the whole picture, which is the reward
+     the feature exists for. Pages that place the panel normally are untouched. */
+  @media (max-width: 1023.98px) {
+    .pa-side.pa-stuck [data-progress-art] {
+      display: grid;
+      grid-template-columns: 4rem 1fr;
+      grid-template-areas: "art head" "art hint";
+      align-items: center;
+      column-gap: .75rem;
+      padding: .5rem .75rem;
+    }
+    .pa-side.pa-stuck [data-progress-art] > .pa-head   { grid-area: head; margin: 0; }
+    .pa-side.pa-stuck [data-progress-art] > .pa-canvas { grid-area: art; max-width: 100%; margin: 0; }
+    .pa-side.pa-stuck [data-progress-art] > .pa-hint,
+    .pa-side.pa-stuck [data-progress-art] > .pa-reveal { grid-area: hint; margin: .125rem 0 0; text-align: left; }
+  }
+</style>
+
+<div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4"
+     data-progress-art
+     data-pa-total="{{ progress_art.total }}"
+     data-pa-done="{{ progress_art.done }}"
+     {% if progress_art.scope %}data-pa-scope="{{ progress_art.scope }}"{% endif %}>
+
+  {{ progress_art.picture|json_script:"progress-art-picture" }}
+
+  <div class="pa-head flex items-center justify-between gap-3 mb-2">
+    <p class="text-sm font-semibold text-gray-700">
+      <span aria-hidden="true">🎨</span> Your secret picture
+    </p>
+    <span class="text-xs font-semibold text-gray-500 tabular-nums"
+          data-pa-count aria-live="polite">{{ progress_art.done }} of {{ progress_art.total }}</span>
+  </div>
+
+  <svg class="pa-canvas w-full h-auto max-w-xs sm:max-w-sm mx-auto block"
+       data-pa-canvas viewBox="0 0 240 180" role="img"
+       aria-label="A drawing that fills in as you answer questions"></svg>
+
+  <p class="pa-hint mt-2 text-xs text-gray-400 text-center pa-hide-on-complete" data-pa-hint>
+    Answer more questions to draw more of the picture.
+  </p>
+  <p class="mt-2 text-sm font-semibold text-emerald-700 text-center pa-reveal">
+    <span aria-hidden="true">🎉</span> You drew it — <span data-pa-title></span>!
+  </p>
+</div>
+{% endif %}
