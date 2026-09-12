@@ -755,7 +755,10 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                                 "arrow(s) at 'given' positions and the student types the "
                                 "value(s)); target = the correct value(s) to mark/read (numbers "
                                 "on the scale, each landing on a tick); given = value(s) already "
-                                "marked with an arrow (read mode). The app draws the line, so set "
+                                "marked with an arrow (read mode). For a 'graph the inequality' "
+                                "question give inequality {'op': '<='|'<'|'>='|'>', 'value': number} "
+                                "and NO target — the app derives every satisfying tick, boundary "
+                                "included for <= and >=. The app draws the line, so set "
                                 "has_image=false for this type."
                             ),
                         },
@@ -1060,8 +1063,12 @@ Rules:
    Use mode "mark" when the student must place/mark a value ("mark 5 on the number line", "draw a
    number line from -3 to 7 and show 2") — put the value(s) to mark in target. Use mode "read" when an
    arrow/marker is already drawn and the student reads its value — put the marked position(s) in given
-   (target defaults to given). Every target/given value must land exactly on a tick. The app draws the
-   line, so set has_image=false. Leave answers=[]; validation_type="auto".
+   (target defaults to given). Every target/given value must land exactly on a tick. A "draw/graph the
+   inequality" question ("draw a graph for the inequality k <= -2") is mode "mark", but do NOT list its
+   ticks in target: give inequality {"op": "<="|"<"|">="|">", "value": -2} and leave target out. The app
+   works out every tick that satisfies it, boundary included for <= and >=, so the answer cannot lose the
+   boundary tick. The app draws the line, so set has_image=false. Leave answers=[];
+   validation_type="auto".
 14b. FIND / COLOUR THE SHAPES: if the question shows a SET of 2D shapes — a row, grid or
    scatter of them — and asks the student to find, colour, tick or circle every shape of ONE
    kind ("Colour all the triangles", "Tick each rectangle", "Circle the circles"), set

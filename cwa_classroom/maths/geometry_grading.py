@@ -683,6 +683,135 @@ def number_line_ticks(spec):
     return ticks
 
 
+# An inequality graph ("draw a graph for k <= -2") is a RAY, not a handful of
+# marks: every tick on the drawn line that satisfies the inequality is part of
+# the answer. Spelling that answer out by hand (or having the PDF importer's
+# model spell it out) is where it goes wrong — an enumeration that stops one
+# tick early drops the closed boundary of a <= / >= (or the line's own end tick
+# on a < / >), and a student who marks the mathematically correct set is told
+# they are wrong. So a spec states the inequality and the tick set is DERIVED
+# from it, by filtering the tick list the line actually draws — there is no
+# start/stop arithmetic left to be off by one.
+_INEQUALITY_OPS = ('<', '<=', '>', '>=')
+
+# Every spelling a question (or a teacher pasting JSON) might use, folded to the
+# canonical ASCII operator. Mirrors maths.algebra_grading.fold_inequalities:
+# strict and non-strict stay DISTINCT — the boundary tick is exactly what is at
+# stake here.
+_OP_ALIASES = {
+    '≤': '<=', '=<': '<=', '≥': '>=', '=>': '>=',
+    '<': '<', '<=': '<=', '>': '>', '>=': '>=',
+}
+
+# The operator, mirrored. "-2 >= k" states the same thing as "k <= -2", and a
+# question prints it either way round.
+_OP_MIRROR = {'<': '>', '<=': '>=', '>': '<', '>=': '<='}
+
+
+def fold_inequality_op(op):
+    """Canonical ASCII form of an inequality operator, or None if unknown.
+
+    ``≤`` / ``=<`` fold to ``<=``; ``≥`` / ``=>`` fold to ``>=``. Strict
+    (``<`` ``>``) and non-strict (``<=`` ``>=``) are never folded together — the
+    difference IS the boundary tick.
+    """
+    if not isinstance(op, str):
+        return None
+    return _OP_ALIASES.get(op.strip())
+
+
+def inequality_ticks(op, value, ticks):
+    """The ticks satisfying ``tick <op> value``, in the order ``ticks`` gives.
+
+    Filters the line's own tick list, so the closed boundary of a ``<=``/``>=``
+    and the ticks at either end of the line are included by construction — no
+    range/slice arithmetic to get wrong. Returns ``[]`` for an unknown operator,
+    a non-numeric bound or a missing tick list (the caller then grades/validates
+    it as an unanswerable spec rather than silently marking everything wrong).
+    """
+    folded = fold_inequality_op(op)
+    if folded is None or not _is_number(value) or not ticks:
+        return []
+    bound = float(value)
+    test = {
+        '<': lambda t: t < bound,
+        '<=': lambda t: t <= bound,
+        '>': lambda t: t > bound,
+        '>=': lambda t: t >= bound,
+    }[folded]
+    return [t for t in ticks if test(float(t))]
+
+
+def spec_inequality(spec):
+    """The ``(op, value)`` an ``inequality`` spec block states, or ``None``.
+
+    ``{"op": "<=", "value": -2}`` — ``op`` in any accepted spelling. Returns None
+    (rather than raising) when the block is absent or malformed;
+    ``validate_number_line_spec`` is the strict gate that rejects a malformed one
+    at import/clean time.
+    """
+    if not isinstance(spec, dict):
+        return None
+    block = spec.get('inequality')
+    if not isinstance(block, dict):
+        return None
+    op = fold_inequality_op(block.get('op'))
+    value = block.get('value')
+    if op is None or not _is_number(value):
+        return None
+    return op, value
+
+
+# A stated inequality in a question's text: "k <= -2", "m > 1", "x ≥ -3.5" and
+# the mirrored "-2 >= k". One variable letter, one operator, one number.
+# Longest spellings first, so "<=" is never read as a bare "<" — the difference
+# is the boundary tick.
+_OP_ALT = '≤|≥|<=|>=|=<|=>|<|>'
+_INEQUALITY_TEXT_RE = re.compile(
+    r'(?<![A-Za-z0-9])'
+    r'(?:(?P<var1>[A-Za-z])\s*(?P<op1>' + _OP_ALT + r')\s*(?P<num1>[-+]?\d+(?:\.\d+)?)'
+    r'|(?P<num2>[-+]?\d+(?:\.\d+)?)\s*(?P<op2>' + _OP_ALT + r')\s*(?P<var2>[A-Za-z]))'
+    r'(?![A-Za-z0-9])'
+)
+
+# Every operator the text contains, matched or not. A compound statement
+# ("1 < x <= 4") reads as ONE bound through the pattern above — the first half
+# consumes the variable and the second half then matches nothing — so the
+# operator count, not the match count, is what says "more than one inequality
+# here, leave it to a person".
+_ANY_OP_RE = re.compile(_OP_ALT)
+
+
+def parse_inequality_text(text):
+    """``(op, value)`` for the single inequality a question states, else ``None``.
+
+    Reads the inequality off the question wording ("Draw a graph for the
+    inequality k ≤ -2." -> ``('<=', -2.0)``), folding a mirrored statement
+    ("-2 ≥ k") to the variable-first form. Returns None when the text states
+    no inequality, or states more than one — an ambiguous question is left for a
+    human rather than repaired on a guess.
+    """
+    if not isinstance(text, str):
+        return None
+    if len(_ANY_OP_RE.findall(text)) != 1:
+        return None
+    m = _INEQUALITY_TEXT_RE.search(text)
+    if m is None:
+        return None
+    if m.group('var1'):
+        op, raw = fold_inequality_op(m.group('op1')), m.group('num1')
+    else:
+        # "-2 >= k" is "k <= -2" — mirror the operator, not the value.
+        op, raw = _OP_MIRROR.get(fold_inequality_op(m.group('op2'))), m.group('num2')
+    if op is None:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return op, _num_key(value)
+
+
 def validate_number_line_spec(spec):
     """Validate a ``number_line`` ``number_line_spec``; raise ``ValueError`` if bad.
 
@@ -691,7 +820,11 @@ def validate_number_line_spec(spec):
     can't slip in through either path. Checks the scale (min < max, positive step,
     bounded tick count), a known ``mode``, and that the mode's required values are
     present, numeric, in range, and aligned to a tick (so a marked/read answer is
-    actually reachable on the drawn line).
+    actually reachable on the drawn line). An ``inequality`` block (the answer to
+    a "draw a graph for k <= -2" question) is checked too: known operator, numeric
+    bound, at least one tick satisfying it, and — when a ``target`` is spelled out
+    alongside it — the two must agree, so a stale enumeration is rejected loudly
+    instead of quietly out-voting the inequality.
     """
     if not isinstance(spec, dict):
         raise ValueError('number_line_spec must be a JSON object.')
@@ -726,10 +859,42 @@ def validate_number_line_spec(spec):
                     f'(min {lo}, max {hi}, step {step}).'
                 )
 
-    if mode == 'mark':
+    inequality = spec.get('inequality')
+    if inequality is not None:
+        if mode != 'mark':
+            raise ValueError(
+                'number_line_spec.inequality is a mark-mode answer (the student '
+                'graphs the inequality); it has no meaning in read mode.'
+            )
+        if not isinstance(inequality, dict):
+            raise ValueError('number_line_spec.inequality must be a JSON object.')
+        parsed = spec_inequality(spec)
+        if parsed is None:
+            raise ValueError(
+                'number_line_spec.inequality needs an op (one of '
+                f'{_INEQUALITY_OPS}) and a numeric value; got {inequality!r}.'
+            )
+        op, value = parsed
+        derived = inequality_ticks(op, value, ticks)
+        if not derived:
+            raise ValueError(
+                f'number_line_spec.inequality {op} {value} is satisfied by no tick '
+                f'on this line (min {lo}, max {hi}, step {step}) — nothing to mark.'
+            )
+        stated = spec.get('target')
+        if stated is not None:
+            _check_values('target', stated)
+            if {_num_key(v) for v in stated} != {_num_key(v) for v in derived}:
+                raise ValueError(
+                    f'number_line_spec.target {sorted(_num_key(v) for v in stated)} '
+                    f'does not match the inequality {op} {value}, whose ticks are '
+                    f'{derived}. Drop the target and let the inequality state the '
+                    'answer, or fix the enumeration.'
+                )
+    elif mode == 'mark':
         # The student places marker(s); target is the required set.
         _check_values('target', spec.get('target'))
-    else:  # read
+    if mode == 'read':
         # The line shows marker(s) at given positions; the student types them.
         _check_values('given', spec.get('given'))
         # target defaults to given; if supplied explicitly it must also be valid.
@@ -741,9 +906,21 @@ def validate_number_line_spec(spec):
         raise ValueError('number_line_spec.tolerance must be a non-negative number.')
 
 
-def _number_line_targets(spec):
-    """The set of correct values for grading: ``target`` (or ``given`` if target
-    is omitted, e.g. a read question whose answer is exactly the drawn marks)."""
+def number_line_targets(spec):
+    """The correct values for grading and for the answer key.
+
+    An ``inequality`` block wins: its ticks are DERIVED from the line's own tick
+    list every time they are needed, so the answer key cannot drift from the
+    question the way a spelled-out ``target`` did. Otherwise ``target`` (or
+    ``given`` when target is omitted, e.g. a read question whose answer is
+    exactly the drawn marks).
+    """
+    if not isinstance(spec, dict):
+        return []
+    parsed = spec_inequality(spec)
+    if parsed is not None:
+        op, value = parsed
+        return inequality_ticks(op, value, number_line_ticks(spec) or [])
     targets = spec.get('target')
     if targets is None:
         targets = spec.get('given') or []
@@ -765,7 +942,7 @@ def grade_number_line(spec, payload):
     if not isinstance(spec, dict):
         return False
     mode = spec.get('mode', 'mark')
-    targets = _number_line_targets(spec)
+    targets = number_line_targets(spec)
     if not targets:
         return False
 

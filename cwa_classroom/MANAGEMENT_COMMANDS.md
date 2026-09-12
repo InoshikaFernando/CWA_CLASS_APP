@@ -395,6 +395,32 @@ python manage.py generate_puzzles --clear            # remove existing first
 python manage.py generate_puzzles --dry-run          # preview
 ```
 
+### `repair_number_line_inequalities`
+Rebuild the answer key of a number-line **inequality graph** from the inequality the
+question states, instead of the ticks someone spelled out.
+
+A "draw a graph for the inequality k <= -2" answer is a ray — every tick on the line
+that satisfies it. Listing those ticks by hand (or having the PDF importer's model
+list them) is where it goes wrong: an enumeration that stops one tick early drops the
+closed boundary of a `<=` / `>=`, or the line's own end tick on a `<` / `>`, and a
+student who marks the mathematically correct set is told they are wrong.
+
+The spec can now state `"inequality": {"op": "<=", "value": -2}` and the ticks are
+derived from the line every time they are needed, so the key cannot drift from the
+question. This command converts the questions already in the bank. It refuses to
+guess: a question whose text states no inequality, or states more than one (a
+compound `1 < x <= 4`), is reported and left alone, and an inequality no tick on the
+line satisfies is reported as a broken **scale** rather than "repaired" to an empty
+key.
+
+Dry run by default. Idempotent — a converted spec rewrites to the same bytes, so a
+second run reports it and writes nothing.
+```bash
+python manage.py repair_number_line_inequalities              # dry run — report only
+python manage.py repair_number_line_inequalities --apply      # actually write
+python manage.py repair_number_line_inequalities --question 9710
+```
+
 ### `relevel_questions`
 Repair questions stranded at the wrong year, using the year of the **class** each
 was actually assigned to.

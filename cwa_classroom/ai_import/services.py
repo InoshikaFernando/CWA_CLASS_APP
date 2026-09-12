@@ -586,7 +586,11 @@ QUESTION TYPE RULES (important):
   the student must place/mark value(s) ("mark 5 on the number line", "draw a number line from -3 to 7
   and show 2") — put the value(s) in target. Use mode "read" when an arrow is already drawn and the
   student reads its value — put the marked position(s) in given. Every target/given value must land on a
-  tick. The app draws the line, so do NOT attach an image. Do NOT generate answers.
+  tick. A "draw/graph the inequality" question ("draw a graph for the inequality k <= -2") is mode "mark",
+  but do NOT list its ticks in target: give inequality {{"op": "<="|"<"|">="|">", "value": -2}} and leave
+  target out. The app works out every tick that satisfies it, boundary included for <= and >=, so the
+  answer cannot lose the boundary tick. The app draws the line, so do NOT attach an image. Do NOT
+  generate answers.
 
 ANSWER BLANK FORMATTING (important):
 - When a question is an equation where the student fills in a missing value, ALWAYS represent
@@ -730,7 +734,10 @@ CLASSIFICATION_TOOL = {
                                 "(app draws the blank scale, student marks value(s)) or 'read' (app "
                                 "draws marker arrow(s) at 'given' positions, student types the value(s)); "
                                 "target = correct value(s) to mark/read (each landing on a tick); given = "
-                                "value(s) already marked with an arrow (read mode). The app draws the line."
+                                "value(s) already marked with an arrow (read mode). For a 'graph the "
+                                "inequality' question give inequality {'op': '<='|'<'|'>='|'>', 'value': "
+                                "number} and NO target — the app derives every satisfying tick, boundary "
+                                "included for <= and >=. The app draws the line."
                             ),
                         },
                         "shape_target_type": {

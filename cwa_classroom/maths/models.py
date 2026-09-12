@@ -330,11 +330,22 @@ class Question(models.Model):
     #     and the student types the value(s); graded numerically within tolerance.
     # All positions are numbers on the line's own scale (not pixels), so the figure
     # is scale-independent. Schema validation lives in Question.clean().
+    # A "draw a graph for the inequality k <= -2" question answers with a RAY, not
+    # a couple of marks: state it as {"inequality": {"op": "<=", "value": -2}} and
+    # the target set is derived from the line's ticks (boundary tick included for
+    # <= / >=, excluded for < / >). Spelling those ticks out in target instead is
+    # what dropped a boundary and failed correct answers — an inequality block
+    # cannot drift from the question.
     #   {"min": -3, "max": 7, "step": 1, "mode": "mark"|"read",
-    #    "target": [numbers], "given": [numbers], "tolerance": 0}
+    #    "target": [numbers], "given": [numbers], "tolerance": 0,
+    #    "inequality": {"op": "<"|"<="|">"|">=", "value": number}}
     number_line_spec = models.JSONField(
         null=True, blank=True,
-        help_text="number_line only. Scale + mode + correct target set (mark: set-comparison; read: numeric tolerance).",
+        help_text=(
+            "number_line only. Scale + mode + correct target set (mark: set-comparison; "
+            "read: numeric tolerance). An inequality graph states "
+            '{"inequality": {"op": "<=", "value": -2}} instead of listing the ticks.'
+        ),
     )
 
     # Table-of-values question data: a table of headers + rows where each cell is
@@ -1286,7 +1297,9 @@ class Question(models.Model):
         """
         if self.question_type != self.NUMBER_LINE or not self.number_line_spec:
             return None
-        from maths.geometry_grading import number_line_ticks, _num_key
+        from maths.geometry_grading import (
+            _num_key, number_line_targets, number_line_ticks,
+        )
         from maths.svg_geometry import number_line_svg
         ticks = number_line_ticks(self.number_line_spec)
         if ticks is None:
@@ -1312,10 +1325,11 @@ class Question(models.Model):
         # Values already marked with an arrow (read mode reads these).
         given = [{'value': v, 'px': px(index_of[_num_key(v)]), 'py': top}
                  for v in (spec.get('given') or []) if _num_key(v) in index_of]
-        # Correct answer marks — shown on the teacher answer-key (worksheets).
-        targets = spec.get('target')
-        if targets is None:
-            targets = spec.get('given') or []
+        # Correct answer marks — shown on the teacher answer-key (worksheets) and
+        # quoted back as the right answer in quiz feedback. Derived through the
+        # shared helper so an inequality graph's ticks are the same set the
+        # grader compares against, never a second enumeration that can disagree.
+        targets = number_line_targets(spec)
         answer = [{'value': v, 'px': px(index_of[_num_key(v)]), 'py': top}
                   for v in targets if _num_key(v) in index_of]
         return {

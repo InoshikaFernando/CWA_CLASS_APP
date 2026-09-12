@@ -177,6 +177,13 @@
           student types the value. Every target/given value must land on a tick
           (min, min+step, …). Example:
           <code class="text-[11px]">{"min": -3, "max": 7, "step": 1, "mode": "mark", "target": [2]}</code>
+          <br>
+          For a <strong>graph the inequality</strong> question, state the inequality instead of
+          listing the ticks — the app marks every tick that satisfies it, keeping the boundary
+          tick for <code class="text-[11px]">&lt;=</code> / <code class="text-[11px]">&gt;=</code>
+          and dropping it for <code class="text-[11px]">&lt;</code> /
+          <code class="text-[11px]">&gt;</code>:
+          <code class="text-[11px]">{"min": -7, "max": 7, "step": 1, "mode": "mark", "inequality": {"op": "&lt;=", "value": -2}}</code>
         </p>
         <textarea name="number_line_spec" rows="4"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition"
