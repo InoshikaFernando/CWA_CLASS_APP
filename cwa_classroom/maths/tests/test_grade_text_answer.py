@@ -567,3 +567,109 @@ class WrittenExpressionOrderTests(TestCase):
         self.assertFalse(ordered.grade_text_answer('63, 54'))
         words = self._question(['left'], text='Which way does it turn?')
         self.assertFalse(words.grade_text_answer('felt'))
+
+
+class PlusMinusAnswerTests(TestCase):
+    """"Solve the equation, rounding to two decimal places: x² = 23".
+
+    The reported bug: the marked-quiz screen listed THREE correct answers —
+    ``x=±4.80``, ``x=4.80 or x=-4.80`` and ``±4.80`` — and still marked a
+    student wrong, because every one of them needs a ± the student had no way
+    to type. A fourth equally correct spelling ("+/-4.80") matched none of the
+    stored rows, and neither did the same roots written against a differently
+    formatted stored row.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=992,
+            defaults={'display_name': 'plus-minus fixture'},
+        )
+
+    def _question(self, correct, answer_format=Question.ANSWER_FORMAT_TEXT):
+        q = Question.objects.create(
+            level=self.level,
+            question_text=(
+                'Solve the equation, rounding to two decimal places: x² = 23'
+            ),
+            question_type=Question.SHORT_ANSWER,
+            answer_format=answer_format,
+            difficulty=1,
+            points=1,
+        )
+        for text in correct:
+            Answer.objects.create(question=q, answer_text=text, is_correct=True)
+        return q
+
+    # The answer rows exactly as the screenshot shows them.
+    STORED = ['x=±4.80', 'x=4.80 or x=-4.80', '±4.80']
+
+    # Every way a student may name the same two roots.
+    SPELLINGS = [
+        '±4.80', 'x=±4.80', 'x = ±4.80', 'x = ± 4.80',
+        '+/-4.80', 'x=+/-4.80', 'x = +/- 4.80', '+-4.80',
+        '4.80 or -4.80', 'x=4.80 or x=-4.80', 'x = 4.80 or x = -4.80',
+        '-4.80 or 4.80',
+    ]
+
+    def test_every_spelling_is_accepted_against_the_stored_rows(self):
+        q = self._question(self.STORED)
+        for typed in self.SPELLINGS:
+            self.assertTrue(q.grade_text_answer(typed), typed)
+
+    def test_a_question_storing_only_the_symbol_accepts_them_all(self):
+        # The fix must not depend on the bank happening to store all three
+        # forms: one ± row is enough.
+        q = self._question(['±4.80'])
+        for typed in self.SPELLINGS:
+            self.assertTrue(q.grade_text_answer(typed), typed)
+
+    def test_a_question_storing_only_the_long_form_accepts_them_all(self):
+        q = self._question(['x=4.80 or x=-4.80'])
+        for typed in self.SPELLINGS:
+            self.assertTrue(q.grade_text_answer(typed), typed)
+
+    def test_one_root_of_two_is_still_wrong(self):
+        """The half-answer from the screenshot stays wrong — on purpose.
+
+        "x = 4.80" names one of the two roots. That is an incomplete answer to
+        "solve x² = 23", not a differently spelled complete one, and marking it
+        correct would hide the very thing the question tests.
+        """
+        q = self._question(self.STORED)
+        for typed in ['4.80', 'x = 4.80', '-4.80', 'x=-4.80']:
+            self.assertFalse(q.grade_text_answer(typed), typed)
+
+    def test_the_wrong_value_is_still_wrong(self):
+        q = self._question(self.STORED)
+        for typed in ['±4.79', '±4.8', '+/-23', '4.79 or -4.79', '±0.48']:
+            self.assertFalse(q.grade_text_answer(typed), typed)
+
+    def test_an_ordinary_either_or_answer_keeps_its_exact_match(self):
+        # "4 or 5" is not a ± pair, so it is graded exactly as before.
+        q = self._question(['4 or 5'])
+        self.assertTrue(q.grade_text_answer('4 or 5'))
+        self.assertFalse(q.grade_text_answer('4'))
+        self.assertFalse(q.grade_text_answer('±4'))
+
+    def test_an_ordered_list_is_not_turned_into_a_pair(self):
+        ordered = Question.objects.create(
+            level=self.level,
+            question_text='Write these numbers in order',
+            question_type=Question.SHORT_ANSWER,
+            answer_format=Question.ANSWER_FORMAT_TEXT,
+            difficulty=1, points=1,
+        )
+        Answer.objects.create(question=ordered, answer_text='54, 63', is_correct=True)
+        self.assertTrue(ordered.grade_text_answer('54, 63'))
+        self.assertFalse(ordered.grade_text_answer('63, 54'))
+
+    def test_an_equation_format_question_accepts_the_spellings_too(self):
+        # "±4.80" is not a polynomial, so without the ± comparison running
+        # before the format branches an equation-format question would reject
+        # every spelling of it.
+        q = self._question(['x=±4.80'], answer_format=Question.ANSWER_FORMAT_EQUATION)
+        self.assertTrue(q.grade_text_answer('+/-4.80'))
+        self.assertTrue(q.grade_text_answer('4.80 or -4.80'))
+        self.assertFalse(q.grade_text_answer('4.80'))
