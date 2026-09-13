@@ -354,8 +354,18 @@
     </button>
 
   {% else %}
-    <!-- Short answer / calculation (symbol keypad injected by maths_exponent.js) -->
-    <div class="flex gap-3">
+    {% comment %}
+      Short answer / calculation. maths_exponent.js wraps the input in a
+      .cwa-answer-row and appends the symbol keypad beside it; the keypad is a
+      fixed 3-column grid, so this row keeps a wide minimum.
+
+      flex-wrap is load-bearing (CPP-412): without it the row and the Submit
+      button were forced onto one line, and on a phone Submit was pushed off
+      the right edge — the page scrolled sideways and the button could not be
+      fully tapped. Wrapping lets Submit drop below the answer row on a narrow
+      screen and changes nothing on desktop, where both still fit on one line.
+    {% endcomment %}
+    <div class="flex flex-wrap gap-3">
       <input type="text" id="text-answer-input"
              placeholder="Your answer..."
              autocomplete="off"
