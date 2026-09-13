@@ -17,6 +17,15 @@
     picking any of the others is marked wrong.
   </p>
   {% endif %}
+  {% comment %}Marks already recorded against the OLD answer are re-marked by
+  the save (maths.answer_key_regrade). A child's history changing is not
+  something the question itself can show, so it is said here rather than left
+  to the audit log.{% endcomment %}
+  {% if regraded %}
+  <p class="mt-2 text-xs text-emerald-700" data-testid="regraded-note">
+    ✅ {{ regraded }}
+  </p>
+  {% endif %}
 </div>
 
 {# 2. The listing row is updated out-of-band. When the reader came from the #}

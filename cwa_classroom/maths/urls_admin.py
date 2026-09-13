@@ -24,4 +24,9 @@ urlpatterns = [
         views_admin.QuestionBulkFixView.as_view(),
         name='question_bulk_fix_admin_dashboard',
     ),
+    path(
+        'admin-dashboard/question-health/reviewed/',
+        views_admin.QuestionReviewedView.as_view(),
+        name='question_reviewed_admin_dashboard',
+    ),
 ]
