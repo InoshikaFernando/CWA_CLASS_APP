@@ -1142,6 +1142,29 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             correct_answer_text = ' -> '.join(
                 q.answers.order_by('order').values_list('answer_text', flat=True)
             )
+        elif q.question_type == Question.COLUMN_OPERATION and q.column_result is not None:
+            # A stacked sum is graded from its own operands — the numbers ARE
+            # the question, so it carries no Answer row (the contract
+            # SELF_GRADED_ANSWER_FIELDS states, which the upload and import
+            # paths save against). Without this branch it fell into the typed
+            # fallback below, which found nothing to match and marked every
+            # student wrong: 867 × 8 answered 6936 — the result the question's
+            # own explanation works out — scored zero, with no correct answer
+            # shown beside the ❌ either. Worksheets and homework have always
+            # graded the type this way.
+            from maths.column_grading import grade_column_operation
+            raw = data.get('text_answer', '').strip()
+            is_correct = grade_column_operation(q, raw)
+            correct_answer_text = q.correct_answer_display()
+        elif (q.question_type == Question.LONG_DIVISION
+              and q.dividend is not None and q.divisor):
+            # Same contract, same hole: the quotient and remainder come from
+            # dividend/divisor, so a long division authored without an answer
+            # row was unanswerable in a quiz.
+            from maths.column_grading import grade_long_division
+            raw = data.get('text_answer', '').strip()
+            is_correct = grade_long_division(q, raw)
+            correct_answer_text = q.correct_answer_display()
         elif q.question_type == 'prime_factorization' and q.target_number:
             # Correct iff every entered value is prime AND their product == target_number.
             # Order doesn't matter; submitted as 'x'/'×'/'*'/',' separated digits.

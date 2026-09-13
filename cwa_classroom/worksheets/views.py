@@ -4,7 +4,6 @@ Worksheets views: PDF upload → AI extraction → preview → confirm → assig
 import json
 import os
 import logging
-import re
 
 logger = logging.getLogger(__name__)
 
@@ -999,25 +998,12 @@ def _grade_long_division(question, text_answer: str) -> bool:
     """
     Grade a long-division answer submitted as "quotient r remainder" or just "quotient".
     Accepts "6 r 0" and "6" as equivalent when expected remainder is 0.
+
+    Thin wrapper over the shared grader so the worksheet, the quiz and homework
+    mark this type identically.
     """
-    if not (question.dividend and question.divisor):
-        return False
-    try:
-        expected_quotient = question.dividend // question.divisor
-        expected_remainder = question.dividend % question.divisor
-
-        text = text_answer.strip().lower().replace(' r ', ' r')
-        if ' r' in text:
-            parts = text.split(' r', 1)
-            submitted_quotient = int(parts[0].strip())
-            submitted_remainder = int(parts[1].strip()) if parts[1].strip() else 0
-        else:
-            submitted_quotient = int(text.strip())
-            submitted_remainder = 0
-
-        return submitted_quotient == expected_quotient and submitted_remainder == expected_remainder
-    except (ValueError, TypeError, IndexError):
-        return False
+    from maths.column_grading import grade_long_division
+    return grade_long_division(question, text_answer)
 
 
 def _grade_column_operation(question, text_answer: str) -> bool:
@@ -1025,11 +1011,12 @@ def _grade_column_operation(question, text_answer: str) -> bool:
     Grade a column-arithmetic answer (the joined result digits) against the
     computed column_result. Tolerant of surrounding spaces and leading zeros,
     so it grades without needing a stored answer row.
+
+    Thin wrapper over the shared grader so the worksheet, the quiz and homework
+    mark this type identically.
     """
-    if question.column_result is None:
-        return False
-    m = re.match(r'^\s*(-?\d+)\s*$', (text_answer or '').replace(' ', ''))
-    return bool(m) and int(m.group(1)) == question.column_result
+    from maths.column_grading import grade_column_operation
+    return grade_column_operation(question, text_answer)
 
 
 def _prime_factors(n: int):
