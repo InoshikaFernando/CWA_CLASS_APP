@@ -188,7 +188,7 @@ safe to re-run.
 ```bash
 python manage.py publish_scheduled_homework
 ```
-Runs every 5 minutes on both droplets, installed by `deploy/setup-app-prod.sh`
+Runs every 5 minutes on both droplets, installed by `scripts/install_crons.sh`
 as `/etc/cron.d/cwa-publish-homework` — you should not need to add it by hand:
 ```cron
 */5 * * * * cwa cd /home/cwa/CWA_CLASS_APP && venv/bin/python cwa_classroom/manage.py publish_scheduled_homework >> /var/log/cwa/publish_scheduled_homework.log 2>&1
@@ -198,9 +198,11 @@ root. This entry previously ran `manage.py` from the root, so it failed on every
 tick into its own log — and it had never been installed on production at all,
 which meant no scheduled homework was ever published there.
 
-The drop-in is written by `deploy/setup-app-prod.sh`, which is a **one-time
-provisioning script** — a deploy never rewrites it. A droplet provisioned before
-the drop-in existed therefore keeps running without it, which is what happened:
+The drop-in is written by `scripts/install_crons.sh`, and nothing in the deploy
+path installs cron — so a droplet only gets it when someone runs that script
+there (`--check` reports what is missing without writing). It previously lived
+inside `deploy/setup-app-prod.sh`, which also upgrades the OS and overwrites the
+Caddyfile, so nobody ran it and production went two weeks with no publish cron:
 the question automation kept building sets and teachers published them by hand.
 `homework/publish_health.py` now reports that state (a set past its `publish_at`
 with no `published_at`) on the Ops dashboard and in `/api/health/?deep=1` under
@@ -404,6 +406,44 @@ python manage.py generate_puzzles --count 50         # how many
 python manage.py generate_puzzles --clear            # remove existing first
 python manage.py generate_puzzles --dry-run          # preview
 ```
+
+### `regrade_typed_answers`
+Give back the marks a grading defect took. Re-runs today's grader over the text
+each student actually typed — `maths.StudentAnswer`, auto-graded
+`homework.HomeworkStudentAnswer` and `worksheets.WorksheetStudentAnswer` — and
+corrects the attempt scores, submission totals and topic/level statistics built
+on them.
+
+**One direction only** — wrong to right, never right to wrong. A mark already
+awarded stays awarded; taking one back from a child months later, because
+grading got stricter, is not a script's decision to make.
+
+Covers the typed types graded by `Question.grade_text_answer`: short_answer /
+fill_blank / calculation in the text / set / algebra / equation / pattern
+formats, plus column_operation and long_division, which are worked out from the
+question's own numbers. Choice questions, spec-graded geometry and AI- or
+teacher-marked answers are left alone (see the command's docstring for why each).
+
+```bash
+python manage.py regrade_typed_answers                    # dry run — report only
+python manage.py regrade_typed_answers --source quiz      # one store
+python manage.py regrade_typed_answers --topic 147
+python manage.py regrade_typed_answers --student 31
+python manage.py regrade_typed_answers --question 4021
+python manage.py regrade_typed_answers --limit 200        # smoke run
+python manage.py regrade_typed_answers --apply            # actually write
+```
+
+The dry run prints every affected question, what each child typed, and each mark
+before → after. Read it before applying. Safe to re-run: an answer already
+marked right is left alone, so a second run reports nothing.
+
+Runnable without an SSH session from **Actions → Re-mark past answers**, which
+runs exactly this on a deployed site (`apply` unticked by default, `environment`
+defaulting to test) and keeps the output on the run page — the record of who
+gave the marks back, on which site, and what changed. It re-grades with the code
+ON the droplet, so deploy the grading fix first or the run will honestly report
+nothing owed.
 
 ### `relevel_questions`
 Repair questions stranded at the wrong year, using the year of the **class** each
