@@ -558,6 +558,18 @@ class Question(models.Model):
             from maths.pattern_grading import grade_pattern
             return grade_pattern(self.question_text, text_answer).is_correct
 
+        # A column sum and a long division are worked out from their own
+        # numbers — the operands ARE the question — so they may carry no Answer
+        # row at all (what SELF_GRADED_ANSWER_FIELDS promises the import and
+        # upload paths). Like the pattern branch above, this must come before
+        # the no-stored-answer guard below, which marked every correct answer
+        # wrong. A question of these types that is missing its numbers grades
+        # against its Answer rows as before.
+        from maths.column_grading import grade_self_graded_arithmetic
+        arithmetic = grade_self_graded_arithmetic(self, text_answer)
+        if arithmetic is not None:
+            return arithmetic
+
         correct = [
             a.answer_text for a in self.answers.filter(is_correct=True)
             if a.answer_text
@@ -867,6 +879,15 @@ class Question(models.Model):
         ]
         if texts:
             return ' or '.join(texts)
+
+        # A column sum and a long division are graded from their own numbers
+        # and so may carry no answer row at all. Working the answer out is what
+        # the grader does anyway; without this the student who got one wrong
+        # was shown a blank where the answer should be.
+        from maths.column_grading import self_graded_answer_text
+        computed = self_graded_answer_text(self)
+        if computed:
+            return computed
 
         # "Create your own pattern" questions have no stored answer because
         # there is no single right one. Showing the student a blank where the

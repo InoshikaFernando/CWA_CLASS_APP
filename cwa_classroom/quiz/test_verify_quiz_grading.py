@@ -77,6 +77,38 @@ class VerifyQuizGradingTests(TestCase):
         )
         call_command('verify_quiz_grading', '--level', 989)
 
+    def test_a_column_question_with_no_answer_row_is_actually_graded(self):
+        """The sweep's blind spot, and the bug it hid.
+
+        A column sum is graded from its own operands and so carries no Answer
+        row. The sweep used to report "no stored correct answer to submit" and
+        grade nothing — which is why nobody noticed that the quiz marked every
+        correct column answer wrong. It now works 867 × 8 out and types it.
+        """
+        Question.objects.create(
+            question_text='Work out 867 × 8 using column multiplication.',
+            question_type=Question.COLUMN_OPERATION,
+            operands=[867, 8], operator='*',
+            topic=self.topic, level=self.level,
+        )
+        call_command('verify_quiz_grading', '--level', 989)   # no SystemExit
+
+    def test_a_column_question_that_mismarks_is_reported(self):
+        """The same question, with the grader broken the way it was."""
+        Question.objects.create(
+            question_text='Work out 867 × 8 using column multiplication.',
+            question_type=Question.COLUMN_OPERATION,
+            operands=[867, 8], operator='*',
+            topic=self.topic, level=self.level,
+        )
+        out = StringIO()
+        with patch('maths.column_grading.grade_column_operation',
+                   return_value=False):
+            with self.assertRaises(SystemExit) as ctx:
+                call_command('verify_quiz_grading', '--level', 989, stdout=out)
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn('MISMARK', out.getvalue())
+
     # --------------------------------------------------------------- no writes
 
     def test_sweep_writes_nothing(self):

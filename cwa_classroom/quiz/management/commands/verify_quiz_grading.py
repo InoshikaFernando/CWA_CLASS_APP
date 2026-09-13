@@ -68,6 +68,13 @@ TEXT_TYPES = (
     'short_answer', 'fill_blank', 'calculation',
     'long_division', 'prime_factorization', 'column_operation',
 )
+# Typed answers whose correct value is the arithmetic of the question itself,
+# so they are often authored with no Answer row at all. The sweep used to
+# report those as "no stored correct answer to submit" and move on without
+# grading one — which is how a quiz that marked every correct column sum wrong
+# went unnoticed. It now works the answer out and submits it, exactly as the
+# student does.
+SELF_GRADED_ARITHMETIC_TYPES = ('column_operation', 'long_division')
 
 
 def _allowed_host():
@@ -219,6 +226,22 @@ class Command(BaseCommand):
             return [f'MISMARK: the model pattern {text!r} was scored WRONG']
         return []
 
+    def _check_self_graded_arithmetic(self, client, question):
+        """A column sum / long division carrying no answer row is graded from
+        its own numbers, so the sweep works the answer out and types that."""
+        from maths.column_grading import self_graded_answer_text
+
+        text = self_graded_answer_text(question)
+        if not text:
+            return [f'{question.question_type} with no numbers to work the '
+                    f'answer out from']
+        result = self._submit(client, question, {'text_answer': text})
+        if result is None:
+            return [f'endpoint error submitting {text!r}']
+        if not result:
+            return [f'MISMARK: the computed answer {text!r} was scored WRONG']
+        return []
+
     def _check_measure(self, client, question):
         if question.numeric_answer is None:
             return ['measure question with no numeric_answer']
@@ -336,6 +359,14 @@ class Command(BaseCommand):
                     # Before the typed-answer branch: these ARE short answers,
                     # but there is no stored answer for _check_text to submit.
                     check = self._check_pattern
+                elif (question.question_type in SELF_GRADED_ARITHMETIC_TYPES
+                      and not any(a.is_correct and (a.answer_text or '').strip()
+                                  for a in question.answers.all())):
+                    # Before the typed-answer branch, and only when there is no
+                    # stored answer for _check_text to submit — an imported
+                    # column question does carry one, and checking that row is
+                    # the stronger test.
+                    check = self._check_self_graded_arithmetic
                 elif question.question_type in TEXT_TYPES:
                     check = self._check_text
                 elif question.question_type == 'measure':

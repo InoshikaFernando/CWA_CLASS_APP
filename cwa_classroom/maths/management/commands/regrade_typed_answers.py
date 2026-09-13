@@ -29,8 +29,9 @@ grading got stricter, is not a decision a script should make on its own.
 WHAT IS RE-GRADED
   Typed answers whose result is a pure function of the stored data:
   short_answer / fill_blank / calculation, in the text / set / algebra /
-  equation / pattern formats — across all three places a maths answer is
-  recorded:
+  equation / pattern formats, plus column_operation / long_division, which are
+  worked out from the question's own numbers — across all three places a maths
+  answer is recorded:
 
     quiz        maths.StudentAnswer
     homework    homework.HomeworkStudentAnswer  (auto-graded rows only)
@@ -41,12 +42,21 @@ WHAT IS RE-GRADED
   order ("110+12p" for "12p + 110") and division notation ("n/4" for "n ÷ 4")
   live in that shared method, so those two stores are owed marks as well.
 
+  Column arithmetic and long division, since the quiz learned to grade them.
+  These are worked out from the question's own numbers, so they carry no
+  Answer row — and the quiz, which had no branch for them, dropped them into
+  the answer-row fallback and scored every submission zero: 867 x 8 answered
+  6936 was marked wrong for every child who ever typed it. Worksheets and
+  homework graded them from the numbers all along, so most of what is owed
+  here is the quiz's — but a long division spelled "12r0" rather than
+  "12 r 0" was refused on a worksheet too, and is owed as well.
+
 WHAT IS NOT, and why
   * multiple choice / true-false / drag-drop — graded from the row the student
     picked, and those rules have not changed.
   * measure, number_line, draw_on_grid, plot_*, table_of_values, shape_select,
-    long_division, prime_factorization, column_operation — graded against a
-    spec by a different code path, not grade_text_answer.
+    prime_factorization — graded against a spec by a different code path, not
+    grade_text_answer.
   * ai_graded / human_graded / extended_answer — a model or a person judged
     them. Re-running an AI grader over historical answers would cost money and
     could return a different verdict on the same text, which is not a
@@ -75,8 +85,15 @@ from maths.models import (
 )
 
 # Typed answers, graded by Question.grade_text_answer.
-REGRADABLE_TYPES = ('short_answer', 'fill_blank', 'calculation')
+REGRADABLE_TYPES = ('short_answer', 'fill_blank', 'calculation',
+                    'column_operation', 'long_division')
 REGRADABLE_FORMATS = ('text', 'set', 'algebra', 'equation', 'pattern')
+# The two that grade from the question's own numbers rather than its Answer
+# rows. answer_format plays no part in that verdict, so it must not narrow what
+# is re-marked: these are regradable whatever format they were saved with. One
+# missing its numbers grades against its rows like any other typed answer, and
+# the format rule above decides it.
+SELF_GRADED_ARITHMETIC_TYPES = ('column_operation', 'long_division')
 
 
 def typed_answer(entry):
@@ -116,9 +133,16 @@ class Command(BaseCommand):
 
     # ------------------------------------------------------------------
     def _regradable(self, question):
+        if question.needs_grading:
+            return False
+        if question.question_type in SELF_GRADED_ARITHMETIC_TYPES:
+            from maths.column_grading import grade_self_graded_arithmetic
+            # None means the question cannot work its own answer out, so it is
+            # graded against its rows and the ordinary rule decides it.
+            if grade_self_graded_arithmetic(question, '') is not None:
+                return True
         return (question.question_type in REGRADABLE_TYPES
-                and question.answer_format in REGRADABLE_FORMATS
-                and not question.needs_grading)
+                and question.answer_format in REGRADABLE_FORMATS)
 
     def _scan(self, rows, opts):
         """Rows marked wrong whose recorded text the grader now accepts."""

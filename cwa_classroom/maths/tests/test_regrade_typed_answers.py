@@ -372,3 +372,150 @@ class RegradeTypedAnswersTests(TestCase):
         self._answer(self.question, '40 ,36 ,28')
         output = self._run('--student', str(self.student.id + 999))
         self.assertIn('Nothing to correct', output)
+
+
+class RegradeColumnArithmeticTests(TestCase):
+    """The marks the quiz's missing column branch took.
+
+    A column sum carries no Answer row — it is worked out from its operands —
+    and the quiz had no branch for the type, so it fell into the answer-row
+    fallback and scored every submission zero. 867 × 8 answered 6936 is
+    recorded as wrong for every child who ever typed it. Their text is stored,
+    so the marks can be given back.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.student = User.objects.create_user(
+            username='column-regrade', password='pass1234',
+            email='column-regrade@test.com')
+        cls.school = School.objects.create(
+            name='Column School', slug='column-school', admin=cls.student)
+        cls.classroom = ClassRoom.objects.create(
+            name='Column Class', code='CG01', school=cls.school)
+        subject = Subject.objects.create(name='Mathematics', slug='maths-col')
+        cls.level = Level.objects.create(level_number=4, display_name='Year 4')
+        cls.topic = Topic.objects.create(
+            subject=subject, name='Multiplication', slug='multiplication-col')
+
+        cls.question = Question.objects.create(
+            level=cls.level, topic=cls.topic,
+            question_text='Work out 867 × 8 using column multiplication.',
+            question_type=Question.COLUMN_OPERATION,
+            operands=[867, 8], operator='*', points=1,
+        )
+        cls.division = Question.objects.create(
+            level=cls.level, topic=cls.topic,
+            question_text='Work out 872 ÷ 4 using long division.',
+            question_type=Question.LONG_DIVISION,
+            dividend=872, divisor=4, points=1,
+        )
+
+    def _quiz_answer(self, question, text):
+        return StudentAnswer.objects.create(
+            student=self.student, question=question, text_answer=text,
+            is_correct=False, attempt_id=uuid.uuid4())
+
+    def _run(self, *args):
+        out = StringIO()
+        call_command('regrade_typed_answers', *args, stdout=out, stderr=out)
+        return out.getvalue()
+
+    def test_the_reported_answer_gets_its_mark_back(self):
+        row = self._quiz_answer(self.question, '6936')
+        self._run('--apply')
+        row.refresh_from_db()
+        self.assertTrue(row.is_correct)
+        self.assertEqual(row.points_earned, self.question.points)
+
+    def test_a_genuinely_wrong_product_keeps_its_mark(self):
+        row = self._quiz_answer(self.question, '6836')
+        self._run('--apply')
+        row.refresh_from_db()
+        self.assertFalse(row.is_correct)
+
+    def test_a_long_division_spelled_without_spaces_is_owed_too(self):
+        row = self._quiz_answer(self.division, '218r0')
+        self._run('--apply')
+        row.refresh_from_db()
+        self.assertTrue(row.is_correct)
+
+    def test_the_dry_run_names_the_question_and_changes_nothing(self):
+        row = self._quiz_answer(self.question, '6936')
+        output = self._run()
+        self.assertIn('867', output)
+        self.assertIn('Dry run', output)
+        row.refresh_from_db()
+        self.assertFalse(row.is_correct)
+
+    def test_the_homework_and_worksheet_stores_are_swept_as_well(self):
+        """Both graded column sums from the numbers all along, so they should
+        come back clean — but they are swept rather than assumed clean, which
+        is the point of running this over all three stores."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from homework.models import (
+            Homework, HomeworkStudentAnswer, HomeworkSubmission,
+        )
+        from worksheets.models import (
+            Worksheet, WorksheetAssignment, WorksheetStudentAnswer,
+            WorksheetSubmission,
+        )
+
+        homework = Homework.objects.create(
+            classroom=self.classroom, title='Column homework',
+            due_date=timezone.now() + timedelta(days=3),
+            created_by=self.student)
+        hw_submission = HomeworkSubmission.objects.create(
+            homework=homework, student=self.student, score=0,
+            total_questions=1)
+        hw_row = HomeworkStudentAnswer.objects.create(
+            submission=hw_submission, question=self.question,
+            text_answer='6936', is_correct=False,
+            content_id=self.question.id,
+            review_status=HomeworkStudentAnswer.REVIEW_AUTO,
+        )
+
+        worksheet = Worksheet.objects.create(
+            school=self.school, name='Column worksheet',
+            original_filename='column.pdf', created_by=self.student)
+        assignment = WorksheetAssignment.objects.create(
+            worksheet=worksheet, classroom=self.classroom)
+        ws_submission = WorksheetSubmission.objects.create(
+            assignment=assignment, student=self.student, score=0,
+            total_questions=1)
+        ws_row = WorksheetStudentAnswer.objects.create(
+            submission=ws_submission, question=self.division,
+            text_answer='218r0', is_correct=False,
+            content_id=self.division.id,
+        )
+
+        self._run('--apply')
+        hw_row.refresh_from_db()
+        ws_row.refresh_from_db()
+        hw_submission.refresh_from_db()
+        ws_submission.refresh_from_db()
+        self.assertTrue(hw_row.is_correct)
+        self.assertEqual(hw_submission.score, 1)
+        # "218r0" was refused by the worksheet's own long-division grader
+        # before the three surfaces shared one.
+        self.assertTrue(ws_row.is_correct)
+        self.assertEqual(ws_submission.score, 1)
+
+    def test_a_column_question_missing_its_numbers_is_left_to_its_answer_rows(self):
+        broken = Question.objects.create(
+            level=self.level, topic=self.topic,
+            question_text='Work out the product.',
+            question_type=Question.COLUMN_OPERATION, points=1,
+        )
+        Answer.objects.create(question=broken, answer_text='6936',
+                              is_correct=True)
+        owed = self._quiz_answer(broken, '6936')
+        wrong = self._quiz_answer(broken, '6836')
+        self._run('--apply')
+        owed.refresh_from_db()
+        wrong.refresh_from_db()
+        self.assertTrue(owed.is_correct)
+        self.assertFalse(wrong.is_correct)

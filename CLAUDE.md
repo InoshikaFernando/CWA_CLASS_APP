@@ -50,6 +50,12 @@ bulk-fill script: [`Runbooks/jira-story-points.md`](Runbooks/jira-story-points.m
   [`cwa_classroom/ui_tests/README.md`](cwa_classroom/ui_tests/README.md).
 - Branch discipline: develop on a feature branch; `test` deploys to the test
   site, `main` deploys to production. Open a PR; never push to `main` directly.
+- **Releasing to production is on demand and is a human decision — there is no
+  weekly (or any) release schedule.** Work ships to `test` and waits there. Only
+  the repo owner decides when a `test` → `main` promotion PR is opened and
+  merged; merging it deploys production. Do not open, merge, or "tee up" a
+  promotion to `main` on your own initiative, and do not treat a full `test`
+  branch as a reason to release.
 - **Bump `APP_VERSION` on the feature branch, before the PR merges — never on
   `test` afterwards.** A push to `test` can run the full CI matrix (~65 billed
   Actions minutes), so a later bump buys a second one AND cancels the first
