@@ -141,22 +141,30 @@ pool32 = [(a, b, difficulty_from_carries(c, _max_c32)) for (a, b), c in _c32.ite
 y5 = [(a, b, explain_double(a, b), d)
       for a, b, d in sorted(pick(pool32, 100, rng), key=lambda p: (p[2], p[0], p[1]))]
 
-groups = [
-    {
-        "year": "Year 4",
-        "level_number": 4,
+def group(year_number, rows):
+    """One (strand, topic, year) set, keyed for BOTH import doors.
+
+    The in-app Upload Questions screen reads strand / topic / year_level
+    (classroom.upload_services.MathsQuestionParser); the CLI
+    ``manage.py import_global_questions`` reads title / subtitle / level_number
+    / year. Each ignores the other's keys, so carrying both lets one file go in
+    either way rather than needing a copy per door.
+    """
+    return {
+        # in-app Upload Questions
+        "strand": "Number",
+        "topic": "Multiplication",
+        "year_level": year_number,
+        # manage.py import_global_questions
         "title": "Number",
         "subtitle": "Multiplication",
-        "questions": [question(a, b, e, d) for (a, b, e, d) in y4],
-    },
-    {
-        "year": "Year 5",
-        "level_number": 5,
-        "title": "Number",
-        "subtitle": "Multiplication",
-        "questions": [question(a, b, e, d) for (a, b, e, d) in y5],
-    },
-]
+        "level_number": year_number,
+        "year": f"Year {year_number}",
+        "questions": [question(a, b, e, d) for (a, b, e, d) in rows],
+    }
+
+
+groups = [group(4, y4), group(5, y5)]
 
 out = {
     "meta": {
@@ -167,11 +175,13 @@ out = {
             "widget. Year 4 = 3-digit and 4-digit multiplicands by a single "
             "digit; Year 5 = 3-digit by 2-digit with partial-product rows. "
             "No multiplier is 1. Answers are computed by the app from "
-            "operands/operator, so every 'answers' list is empty."
+            "operands/operator, so every 'answers' list is empty. Each group "
+            "carries the keys for both import doors - see group() in the "
+            "generator."
         ),
         "question_count": sum(len(g["questions"]) for g in groups),
         "group_count": len(groups),
-        "schema": "import_global_questions",
+        "schema": "upload_questions + import_global_questions",
     },
     "groups": groups,
 }

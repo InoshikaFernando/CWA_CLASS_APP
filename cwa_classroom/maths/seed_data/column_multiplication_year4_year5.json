@@ -2,17 +2,20 @@
   "meta": {
     "source": "generated",
     "generated_from": "scripts/generate_column_multiplication.py",
-    "description": "Column (long) multiplication practice for the column_operation widget. Year 4 = 3-digit and 4-digit multiplicands by a single digit; Year 5 = 3-digit by 2-digit with partial-product rows. No multiplier is 1. Answers are computed by the app from operands/operator, so every 'answers' list is empty.",
+    "description": "Column (long) multiplication practice for the column_operation widget. Year 4 = 3-digit and 4-digit multiplicands by a single digit; Year 5 = 3-digit by 2-digit with partial-product rows. No multiplier is 1. Answers are computed by the app from operands/operator, so every 'answers' list is empty. Each group carries the keys for both import doors - see group() in the generator.",
     "question_count": 200,
     "group_count": 2,
-    "schema": "import_global_questions"
+    "schema": "upload_questions + import_global_questions"
   },
   "groups": [
     {
-      "year": "Year 4",
-      "level_number": 4,
+      "strand": "Number",
+      "topic": "Multiplication",
+      "year_level": 4,
       "title": "Number",
       "subtitle": "Multiplication",
+      "level_number": 4,
+      "year": "Year 4",
       "questions": [
         {
           "question_text": "Work out 104 × 2 using column multiplication.",
@@ -1517,10 +1520,13 @@
       ]
     },
     {
-      "year": "Year 5",
-      "level_number": 5,
+      "strand": "Number",
+      "topic": "Multiplication",
+      "year_level": 5,
       "title": "Number",
       "subtitle": "Multiplication",
+      "level_number": 5,
+      "year": "Year 5",
       "questions": [
         {
           "question_text": "Work out 101 × 28 using column multiplication.",

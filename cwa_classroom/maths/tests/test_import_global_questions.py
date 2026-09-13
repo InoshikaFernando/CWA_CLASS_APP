@@ -162,3 +162,49 @@ def test_import_links_topic_to_level(global_maths, tmp_path):
     assert geometry.levels.filter(pk=level.pk).exists()   # parent strand linked
     # And it surfaces via the reverse relation the picker uses.
     assert two_d in level.topics.all()
+
+
+# ── The shipped column-multiplication bank ────────────────────────────────────
+
+SHIPPED_BANK = 'maths/seed_data/column_multiplication_year4_year5.json'
+
+
+@pytest.fixture
+def global_maths_y4_y5(db):
+    subject = Subject.objects.create(name='Mathematics', slug='mathematics', school=None)
+    for n in (4, 5):
+        Level.objects.create(level_number=n, display_name=f'Year {n}', school=None)
+    return subject
+
+
+def test_shipped_column_multiplication_bank_imports(global_maths_y4_y5):
+    """The Year 4 + Year 5 bank goes in through the CLI door as one file.
+
+    The same file is also uploaded through the in-app Upload Questions screen
+    (classroom.tests.test_column_operation_upload), which reads a different set
+    of keys off each group — strand/topic/year_level rather than
+    title/subtitle/level_number. Both doors are exercised so the file cannot
+    drift out of either schema unnoticed.
+    """
+    import os
+    from django.conf import settings
+
+    path = os.path.join(settings.BASE_DIR, SHIPPED_BANK)
+    call_command('import_global_questions', path)
+
+    assert Question.objects.filter(school__isnull=True).count() == 200
+    assert Question.objects.filter(level__level_number=4).count() == 100
+    assert Question.objects.filter(level__level_number=5).count() == 100
+
+    multiplication = Topic.objects.get(name='Multiplication')
+    assert multiplication.parent.name == 'Number'
+    assert sorted(multiplication.levels.values_list('level_number', flat=True)) == [4, 5]
+
+    # Operands survived, so every question can actually draw its grid and be
+    # graded; the Year 5 ones get the partial-product working rows.
+    assert all(q.column_arithmetic is not None for q in Question.objects.all())
+    y5 = Question.objects.filter(level__level_number=5)
+    assert all('partials' in q.column_arithmetic for q in y5)
+    y4 = Question.objects.filter(level__level_number=4)
+    assert not any('partials' in q.column_arithmetic for q in y4)
+    assert not Answer.objects.exists()   # computed answers, no rows

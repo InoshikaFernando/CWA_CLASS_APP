@@ -141,6 +141,24 @@ class MathsQuestionParser(BaseQuestionParser):
 
     subject_slug = 'mathematics'
 
+    # Type-specific data columns on maths.Question. These carry the question's
+    # content (the numbers a column sum stacks, the spec a graph is graded
+    # against) — leaving one out does not fail the upload, it saves a question
+    # with nothing to render and nothing to grade, which is the silent failure
+    # this repo does not allow. The same tuple is maintained in
+    # maths/management/commands/{export_school,import_global}_questions.py; add
+    # a column to all three whenever a question type gains one.
+    #
+    # blank_spec is deliberately absent: this parser derives it from the "___"
+    # gaps in the question text via apply_blank_format() below, which runs after
+    # the answers are written and would overwrite anything set here.
+    TYPE_SPECIFIC_FIELDS = (
+        'dividend', 'divisor', 'target_number', 'operands', 'operator',
+        'numeric_answer', 'answer_tolerance', 'answer_unit',
+        'grid_spec', 'shape_spec', 'plane_spec', 'graph_spec',
+        'number_line_spec', 'table_spec', 'sketch_spec',
+    )
+
     def process(
         self,
         uploaded_file,
@@ -152,16 +170,6 @@ class MathsQuestionParser(BaseQuestionParser):
         selected_classroom_id=None,
         **_,
     ) -> dict:
-        from django.conf import settings
-        import os
-
-        from maths.models import Question as MathsQuestion, Answer as MathsAnswer
-        from classroom.models import (
-            Topic as ClassroomTopic,
-            Level as ClassroomLevel,
-            Subject as ClassroomSubject,
-        )
-
         result = UploadResult()
         result.subject = 'mathematics'
 
@@ -172,14 +180,86 @@ class MathsQuestionParser(BaseQuestionParser):
             result.failed = 1
             return result.to_dict()
 
-        topic_name = data.get('topic', '').strip()
-        strand_name = data.get('strand', '').strip()
+        # One file may carry several (strand, topic, year_level) sets under
+        # "groups" — a Year 4 and a Year 5 bank uploaded together, say. A file
+        # with the fields at the top level is the original single-group form and
+        # is read as a one-entry list, so both shapes take the same path below.
+        grouped = data.get('groups') is not None
+        if not grouped:
+            groups = [data]
+        else:
+            groups = data.get('groups')
+            if not isinstance(groups, list) or not groups:
+                result.errors.append('"groups" must be a non-empty list.')
+                result.failed = 1
+                return result.to_dict()
+            # A file may use both shapes at once: questions listed at the top
+            # level belong to the top-level topic/year and read as an implicit
+            # first group. Ignoring them would drop a whole bank without saying
+            # so.
+            if data.get('questions'):
+                groups = [data] + list(groups)
+
+        details = []
+        for gi, group in enumerate(groups, 1):
+            if not isinstance(group, dict):
+                result.errors.append(f'Group {gi}: expected an object.')
+                result.failed += 1
+                continue
+            # A grouped file may still state strand/topic/year_level once at the
+            # top level; a group overrides only what it names itself.
+            merged = ({k: data[k] for k in ('strand', 'topic', 'year_level')
+                       if k in data} if grouped else {})
+            merged.update(group)
+            label = self._process_group(
+                merged, result, extracted_images,
+                prefix='' if len(groups) == 1 else f'Group {gi} ',
+                school_id=school_id, dept_id=dept_id,
+                selected_classroom_id=selected_classroom_id,
+            )
+            if label:
+                details.append(label)
+
+        result.images_saved = len(extracted_images)
+        result.image_dir = details[0]['image_dir'] if (details and extracted_images) else ''
+        if len(details) == 1:
+            result.detail = {'topic': details[0]['topic'],
+                             'year_level': details[0]['year_level']}
+        else:
+            result.detail = {'groups': [{'topic': d['topic'],
+                                         'year_level': d['year_level'],
+                                         'questions': d['count']}
+                                        for d in details]}
+        return result.to_dict()
+
+    def _process_group(
+        self, data, result, extracted_images, prefix='', *,
+        school_id=None, dept_id=None, selected_classroom_id=None,
+    ):
+        """Resolve one group's topic/level and save its questions.
+
+        Appends to the shared ``result``; returns a small dict describing the
+        group, or None if the group could not be resolved at all.
+        """
+        from django.conf import settings
+        import os
+
+        from maths.models import Question as MathsQuestion, Answer as MathsAnswer
+        from maths.answer_verification import SELF_GRADED_ANSWER_FIELDS
+        from classroom.models import (
+            Topic as ClassroomTopic,
+            Level as ClassroomLevel,
+            Subject as ClassroomSubject,
+        )
+
+        topic_name = (data.get('topic') or '').strip()
+        strand_name = (data.get('strand') or '').strip()
         year_level = data.get('year_level')
 
         if not topic_name:
-            result.errors.append('Missing "topic" field.')
-            result.failed = 1
-            return result.to_dict()
+            result.errors.append(f'{prefix}Missing "topic" field.')
+            result.failed += 1
+            return None
 
         # Ensure global Mathematics subject
         maths_subject, _ = ClassroomSubject.objects.get_or_create(
@@ -228,17 +308,25 @@ class MathsQuestionParser(BaseQuestionParser):
             )
         except ClassroomTopic.MultipleObjectsReturned:
             result.errors.append(
-                f'Multiple topics named "{topic_name}" exist — please disambiguate in the database.'
+                f'{prefix}Multiple topics named "{topic_name}" exist — please '
+                f'disambiguate in the database.'
             )
-            result.failed = 1
-            return result.to_dict()
+            result.failed += 1
+            return None
 
         try:
             maths_level = ClassroomLevel.objects.get(level_number=year_level)
         except ClassroomLevel.DoesNotExist:
-            result.errors.append(f'Year level {year_level} not found.')
-            result.failed = 1
-            return result.to_dict()
+            result.errors.append(f'{prefix}Year level {year_level} not found.')
+            result.failed += 1
+            return None
+        except ClassroomLevel.MultipleObjectsReturned:
+            # Legacy prod has school-scoped levels sharing a number; prefer the
+            # global one rather than blowing up the whole upload.
+            maths_level = (
+                ClassroomLevel.objects.filter(level_number=year_level, school__isnull=True).first()
+                or ClassroomLevel.objects.filter(level_number=year_level).first()
+            )
 
         # Link topic / strand to the level
         if not maths_topic.levels.filter(pk=maths_level.pk).exists():
@@ -258,29 +346,61 @@ class MathsQuestionParser(BaseQuestionParser):
                     fh.write(img_bytes)
 
         # Process questions
+        saved_here = 0
         for i, q_data in enumerate(data.get('questions', []), 1):
             question_text = q_data.get('question_text', '').strip()
             question_type = q_data.get('question_type', '').strip()
             answers_data = q_data.get('answers', [])
 
             if not question_text:
-                result.errors.append(f'Q{i}: missing question_text')
+                result.errors.append(f'{prefix}Q{i}: missing question_text')
                 result.failed += 1
                 continue
             if question_type not in dict(MathsQuestion.QUESTION_TYPES):
-                result.errors.append(f'Q{i}: unknown question_type "{question_type}"')
+                result.errors.append(f'{prefix}Q{i}: unknown question_type "{question_type}"')
                 result.failed += 1
                 continue
+
+            fields = {
+                'question_type': question_type,
+                'difficulty': q_data.get('difficulty', 1),
+                'points': q_data.get('points', 1),
+                'explanation': q_data.get('explanation', ''),
+            }
+            for fname in self.TYPE_SPECIFIC_FIELDS:
+                if q_data.get(fname) is not None:
+                    fields[fname] = q_data[fname]
+
+            # Types whose answer is computed from the question itself (a column
+            # sum from operands/operator, a long division from dividend/divisor)
+            # carry no answer rows — Question.clean() refuses them on most of
+            # these. Requiring answers here rejected exactly what the model
+            # mandates, so the check becomes: no answers is fine IF the question
+            # actually carries the data it is graded from, and a specific error
+            # naming the missing field if it does not.
+            required = SELF_GRADED_ANSWER_FIELDS.get(question_type)
             if not answers_data:
-                result.errors.append(f'Q{i}: no answers provided')
-                result.failed += 1
-                continue
+                if not required:
+                    result.errors.append(f'{prefix}Q{i}: no answers provided')
+                    result.failed += 1
+                    continue
+                probe = MathsQuestion(question_text=question_text, **fields)
+                missing = [f for f in required if getattr(probe, f, None) in (None, '', [])]
+                if missing:
+                    result.errors.append(
+                        f'{prefix}Q{i}: {question_type} has no answers and no '
+                        f'{"/".join(missing)} to work the answer out from'
+                    )
+                    result.failed += 1
+                    continue
 
             image_field = ''
             img_filename = q_data.get('image', '').strip()
             if img_filename and img_filename in extracted_images:
                 safe_name = re.sub(r'[^\w.\-]', '_', img_filename)
                 image_field = f'{image_rel_dir}/{safe_name}'
+            if image_field:
+                fields['image'] = image_field
 
             try:
                 with transaction.atomic():
@@ -292,18 +412,6 @@ class MathsQuestionParser(BaseQuestionParser):
                         department_id=dept_id,
                         classroom_id=selected_classroom_id,
                     ).first()
-                    fields = {
-                        'question_type': question_type,
-                        'difficulty': q_data.get('difficulty', 1),
-                        'points': q_data.get('points', 1),
-                        'explanation': q_data.get('explanation', ''),
-                    }
-                    # Optional type-specific fields (long_division, prime_factorization)
-                    for fname in ('dividend', 'divisor', 'target_number'):
-                        if fname in q_data and q_data[fname] is not None:
-                            fields[fname] = q_data[fname]
-                    if image_field:
-                        fields['image'] = image_field
 
                     if existing:
                         for k, v in fields.items():
@@ -343,7 +451,7 @@ class MathsQuestionParser(BaseQuestionParser):
                         question.save(update_fields=['question_type', 'blank_spec'])
                     if blank_reason:
                         result.errors.append(
-                            f'Q{i}: has blanks but stayed a single box — {blank_reason}'
+                            f'{prefix}Q{i}: has blanks but stayed a single box — {blank_reason}'
                         )
 
                     result.saved.append({
@@ -351,16 +459,38 @@ class MathsQuestionParser(BaseQuestionParser):
                         'content_id': question.pk,
                         'order': i,
                     })
+                    saved_here += 1
             except Exception as exc:
-                result.errors.append(f'Q{i}: {exc}')
+                result.errors.append(f'{prefix}Q{i}: {exc}')
                 result.failed += 1
 
-        result.images_saved = len(extracted_images)
-        result.image_dir = image_rel_dir if extracted_images else ''
-        result.detail = {'topic': topic_name, 'year_level': year_level}
-        return result.to_dict()
+        return {'topic': topic_name, 'year_level': year_level,
+                'image_dir': image_rel_dir, 'count': saved_here}
+
 
     def get_template_json(self) -> dict:
+        """Sample upload file.
+
+        Two shapes, shown together here because a file may use both at once:
+        strand/topic/year_level stated once at the top level for the questions
+        under "questions", and any number of further (strand, topic, year_level)
+        sets under "groups" — which is how one file covers more than one topic
+        or year. A file needs only one of the two.
+        """
+        def column(a, b, difficulty):
+            # A column sum is graded from operands/operator, which is why it
+            # carries no answer rows.
+            return {
+                'question_text': f'Work out {a} \u00d7 {b} using column multiplication.',
+                'question_type': 'column_operation',
+                'operands': [a, b],
+                'operator': '*',
+                'difficulty': difficulty,
+                'points': 1,
+                'explanation': f'{a} \u00d7 {b} = {a * b}',
+                'answers': [],
+            }
+
         return {
             'strand': 'Number',
             'topic': 'Fractions',
@@ -378,6 +508,20 @@ class MathsQuestionParser(BaseQuestionParser):
                         {'text': '2/6', 'is_correct': False},
                         {'text': '1/4', 'is_correct': False},
                     ],
+                },
+            ],
+            'groups': [
+                {
+                    'strand': 'Number',
+                    'topic': 'Multiplication',
+                    'year_level': 4,
+                    'questions': [column(347, 8, 2)],
+                },
+                {
+                    'strand': 'Number',
+                    'topic': 'Multiplication',
+                    'year_level': 5,
+                    'questions': [column(347, 68, 2)],
                 },
             ],
         }
