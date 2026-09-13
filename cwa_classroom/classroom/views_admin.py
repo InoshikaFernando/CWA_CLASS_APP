@@ -4308,6 +4308,33 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             request=request,
         )
 
+        # The other half of the repair. Editing the key fixes the question from
+        # this moment on; every child who already sat it keeps the nought — in
+        # their history, in their teacher's view and in the statistics built on
+        # top. So the save re-marks what is already recorded against the key as
+        # it now stands, wrong-to-right only.
+        #
+        # Run after EVERY successful save rather than only when the correct
+        # option moved: a type change, a re-worded answer row and a grader that
+        # has learned since all change the same verdict, and a condition that
+        # tried to name them would be the one that quietly missed a case. It
+        # flips nothing when nothing is owed, and says so by staying silent.
+        from maths.answer_key_regrade import regrade_question
+
+        regraded = regrade_question(question)
+        if regraded:
+            log_event(
+                user=request.user, school=None,
+                category='data_change', action='global_question_marks_regraded',
+                detail={'question_id': question.id,
+                        'quiz': regraded.quiz, 'homework': regraded.homework,
+                        'worksheets': regraded.worksheets,
+                        'students': len(regraded.students),
+                        'attempts': regraded.attempts,
+                        'submissions': regraded.submissions},
+                request=request,
+            )
+
         # The modal gets a "Saved" body; the listing row is refreshed out of
         # band. Returning the row alone meant the form had to target that row,
         # which does not exist when the editor was opened by ?edit=<id> from
@@ -4328,6 +4355,10 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             'correct_count': sum(1 for a in answers if a.is_correct),
             'multi_correct': (question.question_type in CHOICE_QUESTION_TYPES
                               and sum(1 for a in answers if a.is_correct) > 1),
+            # Marks given back are the part of this save nobody can see from
+            # the question, so the modal says it in words rather than leaving
+            # a silent write to a child's history.
+            'regraded': regraded.summary(),
         })
 
 
