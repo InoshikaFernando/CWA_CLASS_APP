@@ -114,13 +114,18 @@ disagreed the drawing would jump the moment a page reloaded.
 
 ## Where the panel sits
 
-On a page that shows one question at a time (topic quiz, worksheet session) the
-panel is simply below the question and always in view. On the two pages that
-show every question at once — the homework take page and the mixed quiz — it
-goes in a **sticky side column**, because the reward only works if a child can
-see it while they work: sitting above question 1, it was gone by question 3,
-which on a 100-question paper is nearly the whole paper spent with no sign of
-the picture.
+Beside the questions, in a **sticky side column** — on every page that carries
+it. The reward only works if a child can see it while they work, and below the
+questions it was off-screen on anything but the shortest page: on the homework
+paper it sat above question 1 and was gone by question 3, and on the quiz a
+child had to scroll away from the question they were answering to see the
+picture they were earning.
+
+`base_quiz.html` gives the column to any quiz whose view supplies
+`progress_art`, so the topic quiz and the mixed quiz share one implementation
+and a quiz that has not opted in (the times-tables and basic-facts drills) keeps
+its narrow reading column untouched. The homework take page builds the same
+arrangement itself.
 
 It is `sticky`, not `fixed`, so it stops at the top of the viewport and travels
 no further than the questions column is tall. Two things that needs, both easy
