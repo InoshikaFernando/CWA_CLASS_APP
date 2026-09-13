@@ -12,6 +12,7 @@ Duplicate keys are the specific trap: PyYAML's safe_load accepts them silently
 These tests run in the migration-check job, which is deliberately ungated, so
 they execute on every push and pull request.
 """
+import os
 import re
 from pathlib import Path
 
@@ -1074,7 +1075,7 @@ def test_no_multi_line_django_comment_leaks_into_a_page():
         '{% comment %}...{% endcomment %}:\n  ' + '\n  '.join(offenders))
 
 
-# ── Cron drop-ins in deploy/setup-app-prod.sh ────────────────────────────────
+# ── Cron drop-ins in scripts/install_crons.sh ────────────────────────────────
 # A missing or mistyped cron is the quietest failure this repo has. Production
 # ran for months with no `publish_scheduled_homework` cron at all: every
 # homework a teacher scheduled was created, sat with published_at NULL — which
@@ -1084,8 +1085,13 @@ def test_no_multi_line_django_comment_leaks_into_a_page():
 # the documentation got you a job that died on every tick into its own log.
 #
 # Neither mistake is detectable at runtime, so they are checked here instead.
+#
+# The drop-ins now live in scripts/install_crons.sh rather than inline in the
+# provisioning script — see test_setup_script_delegates_its_cron_drop_ins for
+# why that split must hold.
 
 _SETUP_SCRIPT = REPO_ROOT / 'deploy' / 'setup-app-prod.sh'
+_CRON_INSTALLER = REPO_ROOT / 'scripts' / 'install_crons.sh'
 
 
 # A crontab line: five schedule fields, then the command.
@@ -1107,7 +1113,8 @@ def _cron_manage_py_invocations():
     """
     found = []
 
-    for path in [_SETUP_SCRIPT, REPO_ROOT / 'cwa_classroom' / 'MANAGEMENT_COMMANDS.md']:
+    for path in [_SETUP_SCRIPT, _CRON_INSTALLER,
+                 REPO_ROOT / 'cwa_classroom' / 'MANAGEMENT_COMMANDS.md']:
         for number, line in enumerate(
                 path.read_text(encoding='utf-8').splitlines(), 1):
             if not _CRONTAB_LINE.match(line):
@@ -1150,7 +1157,7 @@ def test_cron_entries_point_at_the_real_manage_py():
 def test_every_cron_wrapper_script_is_actually_installed():
     """A cron wrapper nobody installs is dead code that reads as a live job.
 
-    scripts/cron_*.sh exists to be run by cron. If setup-app-prod.sh writes no
+    scripts/cron_*.sh exists to be run by cron. If install_crons.sh writes no
     drop-in for one, the command never runs on either droplet — and the only
     symptom is the feature quietly doing nothing, which is how the question
     schedule shipped with its generator uninstalled.
@@ -1159,23 +1166,23 @@ def test_every_cron_wrapper_script_is_actually_installed():
     with the reason — so it is a decision on the record rather than an
     oversight nobody can distinguish from one.
     """
-    setup = _SETUP_SCRIPT.read_text(encoding='utf-8')
+    installer = _CRON_INSTALLER.read_text(encoding='utf-8')
     missing = [
         f'scripts/{path.name}'
         for path in sorted((REPO_ROOT / 'scripts').glob('cron_*.sh'))
         if path.name not in _CRON_SCRIPTS_NOT_INSTALLED
-        and f'scripts/{path.name}' not in setup
+        and path.name not in installer
     ]
     assert not missing, (
         'These cron wrapper scripts have no /etc/cron.d drop-in in '
-        'deploy/setup-app-prod.sh, so nothing ever runs them:\n  '
+        'scripts/install_crons.sh, so nothing ever runs them:\n  '
         + '\n  '.join(missing)
         + '\nAdd a drop-in, or list the file in _CRON_SCRIPTS_NOT_INSTALLED '
           'with the reason it is intentionally left out.')
 
 
 # Cron wrappers that exist in scripts/ but are deliberately NOT installed by
-# setup-app-prod.sh. Each needs a reason; an empty reason is not a decision.
+# install_crons.sh. Each needs a reason; an empty reason is not a decision.
 _CRON_SCRIPTS_NOT_INSTALLED = {
     # Reviewed 2026-08-31 while fixing the missing publish cron: these predate
     # that review and their install status was never decided either way. Listed
@@ -1191,12 +1198,80 @@ _CRON_SCRIPTS_NOT_INSTALLED = {
 
 def test_the_publish_cron_is_installed():
     """The one whose absence made every scheduled homework invisible."""
-    setup = _SETUP_SCRIPT.read_text(encoding='utf-8')
-    assert 'publish_scheduled_homework' in setup, (
-        'deploy/setup-app-prod.sh installs no cron for '
+    installer = _CRON_INSTALLER.read_text(encoding='utf-8')
+    assert 'publish_scheduled_homework' in installer, (
+        'scripts/install_crons.sh installs no cron for '
         'publish_scheduled_homework. Without it every homework with a future '
         'publish_at — including every set the question-schedule cron builds — '
         'stays hidden from students forever, with nothing erroring')
+
+
+def test_setup_script_delegates_its_cron_drop_ins():
+    """The provisioning script must not write drop-ins of its own again.
+
+    Inlining them there is what kept production without a publish cron for two
+    weeks: installing one meant running a script that also upgrades the OS,
+    overwrites the Caddyfile and the gunicorn unit and rebuilds the venv, so
+    nobody ran it and the cron stayed missing while the automation built
+    homework that was never sent.
+
+    A second copy here would also be a second source of truth, free to drift
+    from the one install_crons.sh writes — and the drift would be invisible
+    until a droplet was provisioned from the wrong one.
+    """
+    setup = _SETUP_SCRIPT.read_text(encoding='utf-8')
+
+    # A mention in a comment is not a call — the assertion has to see the
+    # invocation itself, or removing the call while leaving the comment behind
+    # would read as a pass.
+    calls = [
+        line.strip() for line in setup.splitlines()
+        if 'install_crons.sh' in line and not line.lstrip().startswith('#')
+    ]
+    assert calls, (
+        'deploy/setup-app-prod.sh no longer calls scripts/install_crons.sh, so '
+        'a freshly provisioned droplet would come up with no cron at all')
+
+    # Code only: the comment above the call names /etc/cron.d to explain what
+    # was moved out, and must not read as a re-inlining.
+    offenders = [
+        f'{number}: {line.strip()}'
+        for number, line in enumerate(setup.splitlines(), 1)
+        if '/etc/cron.d/' in line and not line.lstrip().startswith('#')
+    ]
+    assert not offenders, (
+        'deploy/setup-app-prod.sh writes /etc/cron.d drop-ins directly again. '
+        'They belong in scripts/install_crons.sh, which can be run on a live '
+        'droplet without upgrading the OS:\n  ' + '\n  '.join(offenders))
+
+
+def test_cron_installer_is_executable_and_writes_only_cron_files():
+    """Its whole value is being safe to run on a live droplet.
+
+    The moment it grows an apt call, a systemctl restart or a copy into /etc
+    beyond cron.d, it becomes the thing it replaced — something too risky to
+    run for the sake of a crontab line.
+    """
+    assert os.access(_CRON_INSTALLER, os.X_OK), (
+        'scripts/install_crons.sh is not executable, so the documented '
+        '`scripts/install_crons.sh` invocation fails on a droplet')
+
+    body = _CRON_INSTALLER.read_text(encoding='utf-8')
+    # Only lines that would actually run — comments explain the history and
+    # name these very commands.
+    code = [
+        line for line in body.splitlines()
+        if line.strip() and not line.lstrip().startswith('#')
+    ]
+    forbidden = ('apt-get', 'apt ', 'systemctl', 'pip install', 'git ')
+    offenders = [
+        line.strip() for line in code
+        if any(token in line for token in forbidden)
+    ]
+    assert not offenders, (
+        'scripts/install_crons.sh does more than write cron drop-ins, which '
+        'is what made the old provisioning script unrunnable on a live '
+        'site:\n  ' + '\n  '.join(offenders))
 
 
 # ---------------------------------------------------------------------------

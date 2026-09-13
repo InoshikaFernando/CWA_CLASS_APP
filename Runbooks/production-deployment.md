@@ -380,34 +380,49 @@ bash scripts/deploy.sh    # re-runs migrate/collectstatic/restart against the ol
 | Error cron check | `scripts/cron_check_errors.sh` |
 | Question-health cron | `scripts/cron_record_question_health.sh` — **must be installed**, or `/admin-dashboard/question-health/` stays empty forever |
 
-#### Cron drop-ins are installed by provisioning, NOT by a deploy
+#### Cron drop-ins are installed by hand, NOT by a deploy
 
 Every scheduled job runs from an `/etc/cron.d/cwa-*` drop-in written by
-`deploy/setup-app-prod.sh`. That script is run **by hand, as root, on the
-droplet**; `scripts/deploy.sh` (what the deploy workflows run) never touches
-cron. So a drop-in added to the repo after a droplet was provisioned does not
-exist on that droplet until someone re-runs the script — the code ships, the job
-does not, and nothing anywhere says so.
-
-This is how scheduled homework went unpublished: the `cwa-publish-homework`
-drop-in was added in 1.24.1, the droplet was never re-provisioned, and teachers
-had to hit "Publish now" by hand on sets the question automation had already
-built.
-
-After merging any release that adds or changes a cron drop-in:
+`scripts/install_crons.sh`. Nothing in the deploy path touches cron, so a
+drop-in added to the repo does not exist on a droplet until someone runs that
+script there.
 
 ```bash
 # On the droplet, as root:
-ls /etc/cron.d/cwa-*                      # what is actually installed
-bash /home/cwa/CWA_CLASS_APP/deploy/setup-app-prod.sh   # idempotent — rewrites every drop-in
+/home/cwa/CWA_CLASS_APP/scripts/install_crons.sh --check   # report drift, write nothing
+sudo /home/cwa/CWA_CLASS_APP/scripts/install_crons.sh      # install / update them
+sudo /home/cwa/CWA_CLASS_APP_TEST/scripts/install_crons.sh test   # the test checkout
 ```
 
-The script is safe to re-run: it overwrites its own drop-ins and leaves the
-`cwa` user's personal crontab alone.
+`--check` prints one line per drop-in (`ok` / `MISSING` / `STALE`) and exits
+non-zero if any are wrong, so it is safe to run any time and answers "is this
+droplet correctly wired?" without changing anything. Installing is idempotent
+and touches nothing but `/etc/cron.d` — safe on a live site, and `cron` re-reads
+that directory by itself, so no reload.
 
-Expected drop-ins: `cwa-ops`, `cwa-uploads`, `cwa-email`, `cwa-email-health`,
-`cwa-unpaid-access`, `cwa-progress-reports`, `cwa-publish-homework`,
-`cwa-scheduled-questions`.
+The `test` profile suffixes both drop-in and log names (`cwa-publish-homework-test`,
+`publish_scheduled_homework-test.log`) so the two checkouts on a shared droplet
+cannot overwrite each other's jobs or logs. It omits `cwa-unpaid-access`, which
+is prod-only: live PageHits accrue only there.
+
+Expected drop-ins (prod): `cwa-ops`, `cwa-uploads`, `cwa-email`,
+`cwa-email-health`, `cwa-unpaid-access`, `cwa-progress-reports`,
+`cwa-publish-homework`, `cwa-scheduled-questions`.
+
+**Why this is a script of its own.** The drop-ins used to be inlined in
+`deploy/setup-app-prod.sh`, which is one-time provisioning: it also runs
+`apt-get upgrade -y`, overwrites `/etc/caddy/Caddyfile` and the gunicorn unit,
+rebuilds the venv and re-pulls the repo. Installing a crontab line therefore
+meant doing all of that to a live site, so nobody did — and
+`cwa-publish-homework`, added on 2026-08-31, was still missing from production
+on 2026-09-13. For two weeks the question automation built a homework set for
+every planned week and not one was ever sent, with nothing erroring; a teacher
+found it by noticing she published every set by hand. The attempt to fix it by
+re-running the provisioning script upgraded 35 packages on production and
+restarted Caddy under live traffic before being aborted.
+`tests_workflows.py` now fails the build if the drop-ins drift back into the
+provisioning script, or if `install_crons.sh` grows anything beyond writing
+cron files.
 
 #### Daily health checks
 
