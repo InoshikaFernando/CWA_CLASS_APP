@@ -697,6 +697,23 @@ class ParentProgressView(RoleRequiredMixin, View):
         except Exception:
             np_entries = []
 
+        # Homework and worksheets are graded work too — a child whose class
+        # runs on homework would otherwise show an empty Recent Activity.
+        from homework.models import HomeworkSubmission
+        from worksheets.models import WorksheetSubmission
+        hw_entries = list(
+            HomeworkSubmission.objects
+            .filter(student=child)
+            .select_related('homework')
+            .order_by('-submitted_at')[:20]
+        )
+        ws_entries = list(
+            WorksheetSubmission.objects
+            .filter(student=child, completed_at__isnull=False)
+            .select_related('assignment__worksheet')
+            .order_by('-completed_at')[:20]
+        )
+
         # Merge and sort all activity by completed_at, take latest 20
         all_activity = []
         for e in sfa_entries:
@@ -725,6 +742,24 @@ class ParentProgressView(RoleRequiredMixin, View):
                 'score': e.correct_count if hasattr(e, 'correct_count') else None,
                 'total': None,
                 'pct': None,
+                'completed_at': e.completed_at,
+            })
+        for e in hw_entries:
+            all_activity.append({
+                'type': 'homework',
+                'label': f'Homework – {e.homework.title}',
+                'score': e.score,
+                'total': e.total_questions,
+                'pct': e.percentage,
+                'completed_at': e.submitted_at,
+            })
+        for e in ws_entries:
+            all_activity.append({
+                'type': 'worksheet',
+                'label': f'Worksheet – {e.assignment.worksheet.name}',
+                'score': e.score,
+                'total': e.total_questions,
+                'pct': e.percentage,
                 'completed_at': e.completed_at,
             })
         all_activity.sort(key=lambda x: x['completed_at'], reverse=True)

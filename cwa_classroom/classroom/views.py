@@ -505,6 +505,31 @@ class StudentDashboardView(LoginRequiredMixin, View):
         except (ImportError, Exception):
             pass
 
+        # Homework and worksheets are graded work like any quiz, so they belong
+        # in the same feed — a student who only ever does homework would
+        # otherwise see an empty Recent Activity.
+        from homework.models import HomeworkSubmission
+        for r in HomeworkSubmission.objects.filter(
+            student=request.user,
+        ).select_related('homework').order_by('-submitted_at')[:20]:
+            _activity.append({
+                'completed_at': r.submitted_at,
+                'name': f"📚 Homework — {r.homework.title}",
+                'score_label': f"{r.score}/{r.total_questions} — {r.points:.1f}pts",
+                'pct': r.percentage,
+            })
+
+        from worksheets.models import WorksheetSubmission
+        for r in WorksheetSubmission.objects.filter(
+            student=request.user, completed_at__isnull=False,
+        ).select_related('assignment__worksheet').order_by('-completed_at')[:20]:
+            _activity.append({
+                'completed_at': r.completed_at,
+                'name': f"📝 Worksheet — {r.assignment.worksheet.name}",
+                'score_label': f"{r.score}/{r.total_questions}",
+                'pct': r.percentage,
+            })
+
         _activity.sort(key=lambda x: x['completed_at'], reverse=True)
         recent_activity = _activity[:20]
 
