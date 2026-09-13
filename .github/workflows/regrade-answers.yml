@@ -1,0 +1,161 @@
+name: Re-mark past answers
+
+# Runs `manage.py regrade_typed_answers` on a deployed site, on demand.
+#
+# Why a workflow rather than an SSH prompt: when a grading defect is fixed, the
+# marks already recorded do not move. Giving them back is a data change on a
+# live database, and it should leave a record of who ran it, against which
+# site, and exactly what it changed — which a terminal on the droplet does not.
+# The whole output is printed to the run log and summarised on the run page.
+#
+# It is SAFE BY DEFAULT in two ways that are worth knowing before you press the
+# button:
+#   * `apply` defaults to false — the run reports what it would change and
+#     writes nothing. Read that first. Always.
+#   * The command itself only ever moves a mark from wrong to right. A mark
+#     already awarded is never taken back, however today's grader reads it.
+#
+# `environment` defaults to `test`. Point it at prod once the dry run there
+# looks right and the fix is actually deployed to prod — the command re-grades
+# with the code on the droplet, so a run against a site that has not taken the
+# fix yet will honestly report that nothing is owed.
+#
+# Required repository secrets (the same ones the deploys use):
+#   test   TEST_DEPLOY_HOST, TEST_DEPLOY_SSH_KEY, TEST_DEPLOY_USER (opt),
+#          TEST_DEPLOY_PATH (opt, default /home/cwa/CWA_CLASS_APP_TEST)
+#   prod   DEPLOY_HOST, DEPLOY_SSH_KEY, DEPLOY_USER (opt),
+#          DEPLOY_PATH (opt, default /home/cwa/CWA_CLASS_APP)
+# With the host secret unset the run no-ops rather than half-doing anything.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Which site to re-grade'
+        type: choice
+        options: [test, prod]
+        default: test
+      apply:
+        description: 'Write the corrections (unticked = dry run, writes nothing)'
+        type: boolean
+        default: false
+      source:
+        description: 'Which record of answers'
+        type: choice
+        options: [all, quiz, homework, worksheets]
+        default: all
+      topic:
+        description: 'Restrict to one Topic id (blank = every topic)'
+        required: false
+        default: ''
+      question:
+        description: 'Restrict to one Question id (blank = every question)'
+        required: false
+        default: ''
+      student:
+        description: 'Restrict to one Student id (blank = every student)'
+        required: false
+        default: ''
+
+concurrency:
+  group: regrade-${{ inputs.environment }}
+  cancel-in-progress: false      # never interrupt a run that is writing
+
+# A re-grade walks every recorded answer and can be silent for minutes, and a
+# GitHub runner's NAT drops a TCP flow carrying no bytes for four minutes —
+# which is what killed the weekly audit's connection. Keepalives hold it open.
+env:
+  SSH_OPTS: >-
+    -o IdentitiesOnly=yes
+    -o BatchMode=yes
+    -o ConnectTimeout=30
+    -o ServerAliveInterval=30
+    -o ServerAliveCountMax=10
+
+jobs:
+  regrade:
+    name: Re-mark on ${{ inputs.environment }}${{ inputs.apply && ' (APPLY)' || ' (dry run)' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check the secrets for this environment
+        id: gate
+        env:
+          TEST_HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+          PROD_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.environment }}" = "prod" ]; then
+            HOST="$PROD_HOST"; NAME="DEPLOY_HOST"
+          else
+            HOST="$TEST_HOST"; NAME="TEST_DEPLOY_HOST"
+          fi
+          if [ -z "$HOST" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${NAME} not set — skipping (nothing touched)."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Re-grade
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          TEST_DEPLOY_HOST: ${{ secrets.TEST_DEPLOY_HOST }}
+          TEST_DEPLOY_USER: ${{ secrets.TEST_DEPLOY_USER }}
+          TEST_DEPLOY_SSH_KEY: ${{ secrets.TEST_DEPLOY_SSH_KEY }}
+          TEST_DEPLOY_PATH: ${{ secrets.TEST_DEPLOY_PATH }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.environment }}" = "prod" ]; then
+            HOST="$DEPLOY_HOST"; USER="${DEPLOY_USER:-cwa}"
+            KEY="$DEPLOY_SSH_KEY"; REPO="${DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP}"
+          else
+            HOST="$TEST_DEPLOY_HOST"; USER="${TEST_DEPLOY_USER:-cwa}"
+            KEY="$TEST_DEPLOY_SSH_KEY"
+            REPO="${TEST_DEPLOY_PATH:-/home/cwa/CWA_CLASS_APP_TEST}"
+          fi
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          # Built here rather than interpolated into the remote shell, so a
+          # stray character in an input cannot become part of the command.
+          ARGS="--source ${{ inputs.source }}"
+          for pair in "topic:${{ inputs.topic }}" "question:${{ inputs.question }}" "student:${{ inputs.student }}"; do
+            name="${pair%%:*}"; value="${pair#*:}"
+            [ -z "$value" ] && continue
+            case "$value" in
+              ''|*[!0-9]*) echo "::error::--${name} must be a number, got '${value}'"; exit 1 ;;
+            esac
+            ARGS="$ARGS --${name} ${value}"
+          done
+          if [ "${{ inputs.apply }}" = "true" ]; then
+            ARGS="$ARGS --apply"
+            echo "::warning::Applying corrections to ${{ inputs.environment }} — marks will be written."
+          else
+            echo "Dry run — nothing will be written."
+          fi
+
+          echo "Running: manage.py regrade_typed_answers ${ARGS}"
+          ssh $SSH_OPTS -i ~/.ssh/deploy_key "${USER}@${HOST}" \
+            "set -uo pipefail
+             cd ${REPO}
+             ./venv/bin/python -u cwa_classroom/manage.py regrade_typed_answers ${ARGS}" \
+            2>&1 | tee regrade.log
+
+      - name: Summarise the run
+        if: always() && steps.gate.outputs.configured == 'true'
+        run: |
+          {
+            echo "## Re-mark — ${{ inputs.environment }}${{ inputs.apply && ' (applied)' || ' (dry run)' }}"
+            echo
+            echo '```'
+            tail -n 120 regrade.log 2>/dev/null || echo '(no output captured)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

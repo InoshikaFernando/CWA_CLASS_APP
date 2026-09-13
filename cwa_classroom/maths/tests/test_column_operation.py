@@ -210,3 +210,85 @@ class ColumnArithmeticTemplateRenderTests(TestCase):
         html = self._render([23, 4], '*')
         self.assertNotIn(self._PARTIAL, html)
         self.assertEqual(html.count(self._ANSWER), 2)  # 23×4 = 92, width 2
+
+
+class SelfGradedArithmeticGraderTests(TestCase):
+    """The shared grader every surface marks these types with.
+
+    The quiz, worksheets and homework each used to carry their own copy of this
+    arithmetic — until the quiz turned out to have no copy at all and marked
+    every correct column answer wrong. One grader, one set of rules.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.level, _ = Level.objects.get_or_create(
+            level_number=992, defaults={'display_name': 'grader fixture'},
+        )
+
+    def _column(self, operands, operator):
+        return Question(
+            level=self.level, question_text='Work it out.',
+            question_type=Question.COLUMN_OPERATION,
+            operands=operands, operator=operator, difficulty=1, points=1,
+        )
+
+    def _division(self, dividend, divisor):
+        return Question(
+            level=self.level, question_text='Work it out.',
+            question_type=Question.LONG_DIVISION,
+            dividend=dividend, divisor=divisor, difficulty=1, points=1,
+        )
+
+    # ── column arithmetic ────────────────────────────────────────────────────
+    def test_the_reported_product_grades_correct(self):
+        from maths.column_grading import grade_column_operation
+        self.assertTrue(grade_column_operation(self._column([867, 8], '*'), '6936'))
+
+    def test_leading_zero_and_spaces_are_the_same_number(self):
+        from maths.column_grading import grade_column_operation
+        self.assertTrue(grade_column_operation(self._column([867, 8], '*'), ' 06936 '))
+
+    def test_a_wrong_or_unreadable_answer_is_wrong(self):
+        from maths.column_grading import grade_column_operation
+        q = self._column([867, 8], '*')
+        for raw in ('6836', '', 'six thousand', '69 36x'):
+            with self.subTest(raw=raw):
+                self.assertFalse(grade_column_operation(q, raw))
+
+    def test_a_question_with_no_computable_result_grades_nothing_right(self):
+        from maths.column_grading import grade_column_operation
+        self.assertFalse(grade_column_operation(self._column([], '*'), '0'))
+
+    # ── long division ────────────────────────────────────────────────────────
+    def test_an_exact_division_accepts_both_spellings(self):
+        from maths.column_grading import grade_long_division
+        q = self._division(872, 4)
+        for raw in ('218', '218 r 0', '218r0', '218 R 0'):
+            with self.subTest(raw=raw):
+                self.assertTrue(grade_long_division(q, raw))
+
+    def test_a_remainder_must_be_written_and_must_match(self):
+        from maths.column_grading import grade_long_division
+        q = self._division(875, 4)
+        self.assertTrue(grade_long_division(q, '218 r 3'))
+        self.assertFalse(grade_long_division(q, '218'))
+        self.assertFalse(grade_long_division(q, '218 r 2'))
+
+    def test_a_division_with_nothing_to_divide_grades_nothing_right(self):
+        from maths.column_grading import grade_long_division
+        self.assertFalse(grade_long_division(self._division(None, 4), '0'))
+        self.assertFalse(grade_long_division(self._division(872, 0), '0'))
+
+    # ── what the student is shown when they get it wrong ─────────────────────
+    def test_the_computed_answer_stands_in_for_a_missing_answer_row(self):
+        # Saved, because reading the (empty) answer rows is the first thing
+        # correct_answer_display does.
+        for question, shown in (
+            (self._column([867, 8], '*'), '6936'),
+            (self._division(872, 4), '218'),
+            (self._division(875, 4), '218 r 3'),
+        ):
+            question.save()
+            with self.subTest(shown=shown):
+                self.assertEqual(question.correct_answer_display(), shown)

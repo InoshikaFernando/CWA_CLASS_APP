@@ -407,6 +407,44 @@ python manage.py generate_puzzles --clear            # remove existing first
 python manage.py generate_puzzles --dry-run          # preview
 ```
 
+### `regrade_typed_answers`
+Give back the marks a grading defect took. Re-runs today's grader over the text
+each student actually typed — `maths.StudentAnswer`, auto-graded
+`homework.HomeworkStudentAnswer` and `worksheets.WorksheetStudentAnswer` — and
+corrects the attempt scores, submission totals and topic/level statistics built
+on them.
+
+**One direction only** — wrong to right, never right to wrong. A mark already
+awarded stays awarded; taking one back from a child months later, because
+grading got stricter, is not a script's decision to make.
+
+Covers the typed types graded by `Question.grade_text_answer`: short_answer /
+fill_blank / calculation in the text / set / algebra / equation / pattern
+formats, plus column_operation and long_division, which are worked out from the
+question's own numbers. Choice questions, spec-graded geometry and AI- or
+teacher-marked answers are left alone (see the command's docstring for why each).
+
+```bash
+python manage.py regrade_typed_answers                    # dry run — report only
+python manage.py regrade_typed_answers --source quiz      # one store
+python manage.py regrade_typed_answers --topic 147
+python manage.py regrade_typed_answers --student 31
+python manage.py regrade_typed_answers --question 4021
+python manage.py regrade_typed_answers --limit 200        # smoke run
+python manage.py regrade_typed_answers --apply            # actually write
+```
+
+The dry run prints every affected question, what each child typed, and each mark
+before → after. Read it before applying. Safe to re-run: an answer already
+marked right is left alone, so a second run reports nothing.
+
+Runnable without an SSH session from **Actions → Re-mark past answers**, which
+runs exactly this on a deployed site (`apply` unticked by default, `environment`
+defaulting to test) and keeps the output on the run page — the record of who
+gave the marks back, on which site, and what changed. It re-grades with the code
+ON the droplet, so deploy the grading fix first or the run will honestly report
+nothing owed.
+
 ### `relevel_questions`
 Repair questions stranded at the wrong year, using the year of the **class** each
 was actually assigned to.
