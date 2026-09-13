@@ -56,6 +56,20 @@
   </div>
   {% endif %}
 
+  {% if scheduled_publish.status != 'ok' %}
+  <div class="mb-6 px-4 py-3 rounded-xl text-sm {% if scheduled_publish.status == 'critical' %}bg-red-500/10 border border-red-500/30 text-red-300{% else %}bg-amber-500/10 border border-amber-500/30 text-amber-300{% endif %}"
+       data-testid="scheduled-publish-banner">
+    {% if scheduled_publish.status == 'critical' %}🔴 Scheduled homework is not being published{% else %}🟡 Scheduled homework publishing is behind{% endif %} —
+    {% for reason in scheduled_publish.reasons %}{{ reason }}{% if not forloop.last %}; {% endif %}{% endfor %}.
+    Students gate on <code>published_at</code>, which only
+    <code>publish_scheduled_homework</code> sets, so these classes have been sent
+    nothing and nothing has errored. Check the cron
+    (<code>/etc/cron.d/cwa-publish-homework</code>) and
+    <code>/var/log/cwa/publish_scheduled_homework.log</code>; if the drop-in is
+    missing, re-run <code>deploy/setup-app-prod.sh</code> as root.
+  </div>
+  {% endif %}
+
   {% if unpaid_access.status != 'ok' %}
   <div class="mb-6 px-4 py-3 rounded-xl text-sm {% if unpaid_access.status == 'critical' %}bg-red-500/10 border border-red-500/30 text-red-300{% else %}bg-amber-500/10 border border-amber-500/30 text-amber-300{% endif %}">
     {% if unpaid_access.status == 'critical' %}🔴 Unpaid accounts are getting in{% else %}🟡 Unpaid access seen recently{% endif %} —
@@ -103,6 +117,64 @@
       Waiting by type:
       {% for kind, count in email_queue.pending_by_type.items %}<span class="text-slate-400">{{ kind }}</span> {{ count }}{% if not forloop.last %} · {% endif %}{% endfor %}
     </p>
+    {% endif %}
+  </div>
+
+  <!-- Scheduled publishing (the question automation's delivery path) -->
+  <div class="mb-6">
+    <h2 class="text-sm font-semibold text-slate-400 mb-3">Scheduled homework</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if scheduled_publish.status == 'critical' %}border-red-500/40{% elif scheduled_publish.status == 'warning' %}border-amber-500/40{% else %}border-emerald-500/40{% endif %}"
+           data-testid="scheduled-publish-tile">
+        <p class="text-sm text-slate-400">Publishing</p>
+        <p class="text-2xl font-bold mt-1 {% if scheduled_publish.status == 'critical' %}text-red-400{% elif scheduled_publish.status == 'warning' %}text-amber-400{% else %}text-emerald-400{% endif %}">
+          {% if scheduled_publish.status == 'critical' %}Stalled{% elif scheduled_publish.status == 'warning' %}Behind{% else %}Healthy{% endif %}
+        </p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if scheduled_publish.last_published_at %}last released {{ scheduled_publish.last_published_at|timesince }} ago{% else %}nothing released yet{% endif %}
+        </p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if scheduled_publish.overdue %}border-red-500/40{% else %}border-slate-700{% endif %}">
+        <p class="text-sm text-slate-400">Past release, unsent</p>
+        <p class="text-2xl font-bold mt-1 {% if scheduled_publish.overdue %}text-red-400{% else %}text-slate-100{% endif %}">{{ scheduled_publish.overdue }}</p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if scheduled_publish.oldest_overdue_at %}oldest due {{ scheduled_publish.oldest_overdue_at|timesince }} ago{% else %}every release has gone out{% endif %}
+        </p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">Built by a schedule</p>
+        <p class="text-2xl font-bold mt-1 text-slate-100">{{ scheduled_publish.from_schedule }}</p>
+        <p class="text-xs text-slate-500 mt-1">of the unsent sets above</p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">Awaiting release</p>
+        <p class="text-2xl font-bold mt-1 text-slate-100">{{ scheduled_publish.upcoming }}</p>
+        <p class="text-xs text-slate-500 mt-1">in the teacher preview window</p>
+      </div>
+    </div>
+    {% if scheduled_publish.rows %}
+    <div class="mt-3 overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead class="text-slate-500">
+          <tr class="text-left">
+            <th class="py-1 pr-4 font-medium">Homework</th>
+            <th class="py-1 pr-4 font-medium">Class</th>
+            <th class="py-1 pr-4 font-medium">Should have released</th>
+            <th class="py-1 font-medium">Late by</th>
+          </tr>
+        </thead>
+        <tbody class="text-slate-400">
+          {% for row in scheduled_publish.rows %}
+          <tr class="border-t border-slate-800">
+            <td class="py-1 pr-4">{{ row.title }}{% if row.from_schedule %} <span class="text-slate-500">(schedule)</span>{% endif %}</td>
+            <td class="py-1 pr-4">{{ row.classroom }}</td>
+            <td class="py-1 pr-4">{{ row.publish_at|date:"d M Y H:i" }}</td>
+            <td class="py-1">{{ row.publish_at|timesince }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% endif %}
   </div>
 

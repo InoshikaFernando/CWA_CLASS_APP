@@ -228,7 +228,18 @@ hidden-field-sync pattern of the long-division / prime-factorisation partials.
   var sel = null;           // first selected dot element
 
   function px(g){ return pad + g * step; }
-  function sync(){ hidden.value = JSON.stringify({segments: segs}); }
+  {% comment %}Write the hidden answer AND tell the page it changed. This
+  widget is answered by clicking the figure, so nothing else does: assigning to
+  `.value` in script fires no event, which left the take page's debounced
+  autosave and the progress-art panel unaware a student had answered at all.
+  Guarded on a real change, so a no-op sync -- on submit, or when a resumed
+  draft rebuilds the same working -- stays silent.{% endcomment %}
+  function setAnswer(next){
+    if (hidden.value === next) return;
+    hidden.value = next;
+    hidden.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  function sync(){ setAnswer(JSON.stringify({segments: segs})); }
   function key(s){ var a=[[s.x1,s.y1],[s.x2,s.y2]].sort(); return JSON.stringify(a); }
 
   function drawLine(s){
@@ -396,7 +407,18 @@ pattern of the draw-on-grid partial; grading is server-side set comparison.
   if (!svg || !hidden) return;
   var FILL = "#f59e0b";        // amber crayon
   var sel = new Set();
-  function sync(){ hidden.value = JSON.stringify({selected: Array.from(sel)}); }
+  {% comment %}Write the hidden answer AND tell the page it changed. This
+  widget is answered by clicking the figure, so nothing else does: assigning to
+  `.value` in script fires no event, which left the take page's debounced
+  autosave and the progress-art panel unaware a student had answered at all.
+  Guarded on a real change, so a no-op sync -- on submit, or when a resumed
+  draft rebuilds the same working -- stays silent.{% endcomment %}
+  function setAnswer(next){
+    if (hidden.value === next) return;
+    hidden.value = next;
+    hidden.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  function sync(){ setAnswer(JSON.stringify({selected: Array.from(sel)})); }
   function toggle(el){
     var sid = el.getAttribute('data-shape-id');
     if (!sid) return;
@@ -512,15 +534,26 @@ for mobile. Mirrors the draw-on-grid hidden-field-sync pattern.
     return d;
   }
 
+  {% comment %}Write the hidden answer AND tell the page it changed. This
+  widget is answered by clicking the figure, so nothing else does: assigning to
+  `.value` in script fires no event, which left the take page's debounced
+  autosave and the progress-art panel unaware a student had answered at all.
+  Guarded on a real change, so a no-op sync -- on submit, or when a resumed
+  draft rebuilds the same working -- stays silent.{% endcomment %}
+  function setAnswer(next){
+    if (hidden.value === next) return;
+    hidden.value = next;
+    hidden.dispatchEvent(new Event('input', { bubbles: true }));
+  }
   function sync(){
     if (mode === "segments"){
       var segs = [];
       for (var i = 1; i < pts.length; i++){
         segs.push({x1: pts[i-1][0], y1: pts[i-1][1], x2: pts[i][0], y2: pts[i][1]});
       }
-      hidden.value = JSON.stringify({segments: segs});
+      setAnswer(JSON.stringify({segments: segs}));
     } else {
-      hidden.value = JSON.stringify({points: pts.slice()});
+      setAnswer(JSON.stringify({points: pts.slice()}));
     }
     readout.textContent = pts.length ? pts.map(fmt).join(", ") : "—";
   }
