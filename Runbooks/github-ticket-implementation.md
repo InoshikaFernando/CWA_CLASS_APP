@@ -211,8 +211,9 @@ merge your own PR with red or pending checks.
 
 PRs merge to `test`, and **every push to `test` auto-deploys to the test site**
 via [`deploy-test.yml`](../.github/workflows/deploy-test.yml). Production is a
-separate, scheduled release (Sunday ~03:00 NZ via
-[`deploy-prod.yml`](../.github/workflows/deploy-prod.yml)) — see
+separate, **on-demand** release: a human opens and merges a `test` → `main`
+promotion PR when the work is ready to ship, and that push runs
+[`deploy-prod.yml`](../.github/workflows/deploy-prod.yml) — see
 [`production-deployment.md`](production-deployment.md) § 2.
 
 After your PR merges to `test`:
@@ -229,8 +230,10 @@ After your PR merges to `test`:
    Chrome MCP against the test URL for UI changes, or exercise the endpoint for
    backend changes. If it fails, it's your job to fix it via a follow-up PR —
    never patch the server directly.
-4. The change rides the next weekly `test` → `main` release to production; the
-   prod deploy runs the same health + smoke gates.
+4. The change then waits on `test` until someone promotes it. It ships in the
+   next `test` → `main` promotion PR — whenever that is decided; there is no
+   release schedule to wait for, and **shipping to production is not your call
+   to make**. The prod deploy runs the same health + smoke gates.
 
 ---
 

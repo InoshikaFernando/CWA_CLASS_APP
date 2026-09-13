@@ -9,10 +9,10 @@ password reset, log access). The supporting scripts live in
 
 - **Test site:** every merge to `test` auto-deploys (`deploy-test.yml`).
 - **Production:** every push to `main` auto-deploys (`deploy-prod.yml`) — in
-  practice, merging the weekly release PR. Also runnable on demand via
+  practice, merging a `test` → `main` promotion PR. Also runnable on demand via
   `workflow_dispatch`. See § 2 for the full model.
-  (There is no cron for this: the release *cadence* is weekly by convention,
-  but the *trigger* is the push to `main`, not a schedule.)
+  (There is no cron and **no fixed cadence**: production ships when a human
+  decides to promote. The *trigger* is the push to `main`, never a schedule.)
 
 Both run the same script the manual path does:
 
@@ -166,29 +166,30 @@ Two pipelines, matching the `test` → `main` branch flow:
 | Branch | Trigger | What it does | Workflow |
 |--------|---------|--------------|----------|
 | `test` | **every push** (each merged PR) | deploys to the **test site** | [`deploy-test.yml`](../.github/workflows/deploy-test.yml) |
-| `main` | **scheduled — Sunday ~03:00 NZ** (+ manual) | **auto-merges `test` → `main`, then deploys to production** | [`deploy-prod.yml`](../.github/workflows/deploy-prod.yml) |
+| `main` | **every push** (merging a promotion PR) + manual | deploys to **production** | [`deploy-prod.yml`](../.github/workflows/deploy-prod.yml) |
 
-So PRs land on `test` and deploy to the test site immediately. Once a week the
-prod job promotes the whole `test` branch into `main` (a `--no-ff` merge it
-pushes itself) and deploys the result to production — **no review PR, no manual
-step.** The deep health gate, the public smoke test, and the Sunday-morning
-timing are the only safety net; a `test → main` merge conflict aborts the
-release (nothing deploys). Both pipelines run `scripts/deploy.sh` over SSH and
-alert to `DEPLOY_ALERT_WEBHOOK` on failure.
+So PRs land on `test` and deploy to the test site immediately. Production is
+**released on demand**: when what has accumulated on `test` is ready to ship,
+someone opens a `test` → `main` pull request and merges it — that push to `main`
+is what deploys production. There is no schedule and no weekly (or any other)
+fixed cadence; nothing reaches production until a human decides to promote it.
+The deep health gate and the public smoke test guard the deploy itself. Both
+pipelines run `scripts/deploy.sh` over SSH and alert to `DEPLOY_ALERT_WEBHOOK`
+on failure.
 
-> **The prod schedule only fires from the default branch (`main`).** So
-> `deploy-prod.yml` must live on `main` — the initial `test` → `main`
-> reconciliation handles that. Need an off-schedule release (hotfix)? Use
-> **Actions → Deploy to Production → Run workflow** on `main`; it runs the same
-> promote-then-deploy.
+> **Promotion is a pull request, not a workflow step.** `deploy-prod.yml`
+> deliberately does not push `main` itself — the old in-workflow "promote
+> `test` → `main`" step could not push a protected branch (GH006) and blocked
+> every release. Separating promote (the PR) from deploy (this workflow) means
+> a protected `main` is a feature rather than a blocker, and no release PAT is
+> needed.
 >
-> **Branch protection:** the promote step pushes to `main` with `GITHUB_TOKEN`.
-> If `main` forbids direct pushes, add a `RELEASE_TOKEN` secret (a PAT allowed
-> to bypass) — it's preferred over `GITHUB_TOKEN` when set. Without one, a
-> protected `main` will reject the auto-push and the release fails.
+> Need to re-deploy the *current* `main` without promoting anything new (a
+> failed run, a rebuilt server)? **Actions → Deploy to Production → Run
+> workflow** on `main`.
 >
-> Cron is UTC with no DST awareness: `0 15 * * 6` = Sun 03:00 NZST (winter) /
-> 04:00 NZDT (summer). Switch to `0 14 * * 6` for 03:00 in summer.
+> A hotfix takes the same route, just faster: branch, PR into `test`, then a
+> promotion PR into `main`. Version bumps still follow § 2.1.
 
 ### 2.0 Enabling the deploys (one-time)
 
@@ -214,7 +215,6 @@ variables → Actions), so adopting this never breaks CI.
 | `DEPLOY_USER` | SSH user | `cwa` |
 | `DEPLOY_PATH` | repo path on the Droplet | `/home/cwa/CWA_CLASS_APP` |
 | `SMOKE_URL` | URL the post-deploy smoke hits | `https://www.wizardslearninghub.co.nz` |
-| `RELEASE_TOKEN` | token to push `main` if it's branch-protected | — (falls back to `GITHUB_TOKEN`) |
 
 **Shared:**
 
