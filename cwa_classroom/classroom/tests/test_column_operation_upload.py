@@ -227,3 +227,79 @@ class MultiGroupResultsPageTests(TestCase):
         })
         self.assertIn('Year 4 › Multiplication (1)', html)
         self.assertIn('Year 5 › Multiplication (1)', html)
+
+
+class UploadQuestionsViewTests(TestCase):
+    """End-to-end through the real Upload Questions view, not just the parser.
+
+    The parser tests above call process() directly; this posts the shipped file
+    to the URL a teacher actually uses, so nothing in the view layer (scope
+    resolution, the multi-file loop, the results render) can quietly reject it.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = CustomUser.objects.create_superuser(
+            'col_view_super', 'col_view@test.internal', 'pw1!')
+        for n in (4, 5):
+            Level.objects.get_or_create(
+                level_number=n, defaults={'display_name': f'Year {n}'})
+        Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True})
+
+    def test_posting_the_shipped_bank_uploads_both_years(self):
+        import os
+
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__)))),
+            'maths', 'seed_data', 'column_multiplication_year4_year5.json')
+        with open(path, 'rb') as fh:
+            payload = fh.read()
+
+        self.client.force_login(self.user)
+        response = self.client.post('/upload-questions/', {
+            'subject': 'mathematics',
+            'upload_file': SimpleUploadedFile(
+                'column_multiplication_year4_year5.json', payload,
+                content_type='application/json'),
+        }, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        results = response.context['upload_results_list']
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['failed'], 0, results[0]['errors'][:5])
+        self.assertEqual(results[0]['inserted'], 200)
+
+        # The page reports both years rather than a blank "Year  › ".
+        self.assertContains(response, 'Year 4 › Multiplication (100)')
+        self.assertContains(response, 'Year 5 › Multiplication (100)')
+
+        self.assertEqual(Question.objects.filter(level__level_number=4).count(), 100)
+        self.assertEqual(Question.objects.filter(level__level_number=5).count(), 100)
+        self.assertTrue(all(q.column_arithmetic is not None
+                            for q in Question.objects.all()))
+
+    def test_downloadable_template_round_trips_through_the_uploader(self):
+        """The sample template teachers download must itself be uploadable."""
+        import json as json_mod
+
+        self.client.force_login(self.user)
+        tpl = self.client.get('/upload-questions/template/?subject=mathematics')
+        self.assertEqual(tpl.status_code, 200)
+        template = json_mod.loads(b''.join(tpl.streaming_content)
+                                  if tpl.streaming else tpl.content)
+        self.assertIn('groups', template)
+
+        response = self.client.post('/upload-questions/', {
+            'subject': 'mathematics',
+            'upload_file': SimpleUploadedFile(
+                'template_mathematics.json',
+                json_mod.dumps(template).encode(),
+                content_type='application/json'),
+        }, follow=True)
+        result = response.context['upload_results_list'][0]
+        self.assertEqual(result['failed'], 0, result['errors'])
+        # 1 fractions MCQ at the top level + 1 Year 4 and 1 Year 5 column sum.
+        self.assertEqual(result['inserted'], 3)
