@@ -15,31 +15,11 @@
   </div>
 {% endblock %}
 
-{% comment %}Every question is on this page, so the progress-art panel goes in a
-column of its own rather than below them all — see the aside below.{% endcomment %}
-{% block quiz_width %}max-w-6xl{% endblock %}
-{% block progress_art_panel %}{% endblock %}
-
+{% comment %}The progress-art panel is placed by base_quiz.html, which now gives
+any quiz carrying one a sticky side column — this template used to build its own
+and no longer needs to.{% endcomment %}
 {% block content %}
 {% include "billing/_ai_grading_promo.html" %}
-<div class="lg:flex lg:items-start lg:gap-4 xl:gap-6">
-
-  {% if progress_art %}
-  {% comment %}Sentinel + sticky aside, the same arrangement as the homework
-  take page: `lg:self-start` so the flex item does not stretch (sticky would
-  have no room inside its own box), and the panel sits directly in the flex row
-  so its parent is as tall as the questions. First in source so a phone gets it
-  above the questions; `lg:order-2` moves it right once the columns appear.
-  {% endcomment %}
-  <div data-pa-sentinel aria-hidden="true"></div>
-  <aside class="pa-side sticky top-14 z-20 -mx-4 px-4 py-2 mb-4 bg-slate-50/95 backdrop-blur
-                lg:static lg:order-2 lg:w-64 xl:w-80 lg:shrink-0 lg:self-start lg:sticky lg:top-20
-                lg:mx-0 lg:px-0 lg:py-0 lg:mb-0 lg:bg-transparent lg:backdrop-blur-none">
-    {% include "partials/_progress_art.html" %}
-  </aside>
-  {% endif %}
-
-  <div class="lg:order-1 lg:flex-1 lg:min-w-0">
 <form method="post" id="mixed-form">
   {% csrf_token %}
   <input type="hidden" name="session_id" value="{{ session_id }}" />
@@ -128,9 +108,6 @@ column of its own rather than below them all — see the aside below.{% endcomme
     </div>
   </div>
 </form>
-  </div>
-
-</div>
 {% include "partials/_rough_work_whiteboard.html" %}
 {% endblock %}
 

@@ -95,19 +95,47 @@
   </header>
 
   <!-- ── Content ─────────────────────────────────────────────── -->
-  {% comment %}`quiz_width` is widened only by a quiz that puts the progress-art
-  panel in a side column (the mixed quiz); one question at a time keeps the
-  narrow reading column.{% endcomment %}
-  <main class="pt-14 min-h-screen px-4 py-6 md:px-8 {% block quiz_width %}max-w-3xl{% endblock %} mx-auto pb-24">
-    {% block content %}{% endblock %}
-    {% comment %}Renders nothing unless the view supplied `progress_art`, so a
-    quiz that has not opted in looks exactly as it did. A quiz that shows every
-    question at once overrides `progress_art_panel` to empty and places the
-    panel beside its questions instead, so it stays in view while they scroll.
-    {% endcomment %}
-    {% block progress_art_panel %}
-    <div class="mt-6">{% include "partials/_progress_art.html" %}</div>
-    {% endblock %}
+  {% comment %}
+    The progress-art panel sits BESIDE the quiz, not under it.
+
+    Below the questions it was out of sight on anything but the shortest page —
+    a child had to scroll away from the question they were answering to see the
+    picture they were earning, which is most of the point of it gone. So when a
+    view supplies `progress_art`, this becomes two columns: the quiz on the
+    left, the picture pinned on the right.
+
+    A quiz that has NOT opted in is untouched — same narrow reading column, and
+    the wrappers below collapse to classless divs. That matters: the
+    times-tables and basic-facts drills share this template.
+
+    Sticky, not fixed, so it stops under the topbar and travels no further than
+    the quiz column is tall. `lg:self-start` keeps the flex item from
+    stretching to the row height, which would leave sticky no room to move
+    inside its own box. The panel is FIRST in source so a phone — where this is
+    a plain block, not a flex row — gets it above the quiz; `lg:order-2` puts
+    it back on the right once the columns appear.
+  {% endcomment %}
+  <main class="pt-14 min-h-screen px-4 py-6 md:px-8 mx-auto pb-24
+               {% block quiz_width %}{% if progress_art %}max-w-6xl{% else %}max-w-3xl{% endif %}{% endblock %}">
+    <div class="{% if progress_art %}lg:flex lg:items-start lg:gap-4 xl:gap-6{% endif %}">
+
+      {% if progress_art %}
+      {% comment %}Scrolls out of view exactly when the panel starts sticking;
+      progress_art.js watches it to tell pinned from at-rest, so a phone shows
+      the whole picture at the top and a strip once pinned.{% endcomment %}
+      <div data-pa-sentinel aria-hidden="true"></div>
+      <aside class="pa-side sticky top-14 z-20 -mx-4 px-4 py-2 mb-4 bg-slate-50/95 backdrop-blur
+                    lg:static lg:order-2 lg:w-64 xl:w-80 lg:shrink-0 lg:self-start lg:sticky lg:top-20
+                    lg:mx-0 lg:px-0 lg:py-0 lg:mb-0 lg:bg-transparent lg:backdrop-blur-none">
+        {% include "partials/_progress_art.html" %}
+      </aside>
+      {% endif %}
+
+      <div class="{% if progress_art %}lg:order-1 lg:flex-1 lg:min-w-0{% endif %}">
+        {% block content %}{% endblock %}
+      </div>
+
+    </div>
   </main>
 
   <!-- ── Legal footer ───────────────────────────────────────────── -->
