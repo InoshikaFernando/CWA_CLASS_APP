@@ -198,6 +198,16 @@ root. This entry previously ran `manage.py` from the root, so it failed on every
 tick into its own log — and it had never been installed on production at all,
 which meant no scheduled homework was ever published there.
 
+The drop-in is written by `deploy/setup-app-prod.sh`, which is a **one-time
+provisioning script** — a deploy never rewrites it. A droplet provisioned before
+the drop-in existed therefore keeps running without it, which is what happened:
+the question automation kept building sets and teachers published them by hand.
+`homework/publish_health.py` now reports that state (a set past its `publish_at`
+with no `published_at`) on the Ops dashboard and in `/api/health/?deep=1` under
+`warnings.scheduled_publish`, so a missing cron is visible from the app itself.
+Remedy: re-run `deploy/setup-app-prod.sh` as root — see
+[`Runbooks/production-deployment.md`](../Runbooks/production-deployment.md) § 4.1.
+
 ### `generate_scheduled_questions`
 Turn each due week of a teacher's question schedule (CPP-399) into a homework set.
 A week is "due" once its release time minus the plan's `lead_days` has passed. The

@@ -15,15 +15,41 @@
   </div>
 {% endblock %}
 
+{% comment %}Every question is on this page, so the progress-art panel goes in a
+column of its own rather than below them all — see the aside below.{% endcomment %}
+{% block quiz_width %}max-w-6xl{% endblock %}
+{% block progress_art_panel %}{% endblock %}
+
 {% block content %}
 {% include "billing/_ai_grading_promo.html" %}
+<div class="lg:flex lg:items-start lg:gap-4 xl:gap-6">
+
+  {% if progress_art %}
+  {% comment %}Sentinel + sticky aside, the same arrangement as the homework
+  take page: `lg:self-start` so the flex item does not stretch (sticky would
+  have no room inside its own box), and the panel sits directly in the flex row
+  so its parent is as tall as the questions. First in source so a phone gets it
+  above the questions; `lg:order-2` moves it right once the columns appear.
+  {% endcomment %}
+  <div data-pa-sentinel aria-hidden="true"></div>
+  <aside class="pa-side sticky top-14 z-20 -mx-4 px-4 py-2 mb-4 bg-slate-50/95 backdrop-blur
+                lg:static lg:order-2 lg:w-64 xl:w-80 lg:shrink-0 lg:self-start lg:sticky lg:top-20
+                lg:mx-0 lg:px-0 lg:py-0 lg:mb-0 lg:bg-transparent lg:backdrop-blur-none">
+    {% include "partials/_progress_art.html" %}
+  </aside>
+  {% endif %}
+
+  <div class="lg:order-1 lg:flex-1 lg:min-w-0">
 <form method="post" id="mixed-form">
   {% csrf_token %}
   <input type="hidden" name="session_id" value="{{ session_id }}" />
 
   <div class="space-y-4 mb-28">
     {% for q in questions %}
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+    {% comment %}`data-pa-group` makes this card one unit of progress for the
+    progress-art panel below (static/js/progress_art.js).{% endcomment %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5"
+         data-pa-group data-pa-answered="0">
       <div class="flex items-start gap-3 mb-4">
         <span class="flex-shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-lg bg-primary-light text-primary text-xs font-bold">
           {{ forloop.counter }}
@@ -102,6 +128,9 @@
     </div>
   </div>
 </form>
+  </div>
+
+</div>
 {% include "partials/_rough_work_whiteboard.html" %}
 {% endblock %}
 

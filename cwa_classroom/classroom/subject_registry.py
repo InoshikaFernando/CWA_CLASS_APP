@@ -127,6 +127,18 @@ class SubjectPlugin:
         """Context dict for ``take_item_template`` given a content_id."""
         raise NotImplementedError
 
+    def answer_field_names(self, content_id) -> tuple:
+        """The POST/draft field names that carry this item's answer.
+
+        Used to work out how far through a paper a student is *without*
+        grading anything — the progress-art panel on the take page needs the
+        count, and a saved draft is just a flat ``{field_name: value}`` map.
+
+        The default is the maths convention (``answer_<content_id>``), which is
+        also what a new plugin should follow unless it has a reason not to.
+        """
+        return (f'answer_{content_id}',)
+
     def grade_answer(self, content_id, post_data) -> dict:
         """Grade a student's answer and return the fields to persist.
 

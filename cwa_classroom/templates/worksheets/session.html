@@ -10,6 +10,8 @@
 <script defer src="{% static 'js/sketch_graph.js' %}"></script>
 <script defer src="{% static 'js/fill_blank.js' %}"></script>
 <script defer src="{% static 'js/pattern_fields.js' %}"></script>
+<!-- The hidden picture that draws itself as questions get answered -->
+<script defer src="{% static 'js/progress_art.js' %}"></script>
 {% if is_coding and coding_ctx.is_write_code %}
 {% comment %}The shared coding window — editor beside console, the same one
 the compilers and the worksheet builder's preview render. This page used to
@@ -37,6 +39,11 @@ needs the width; everything else keeps the narrow reading column.{% endcomment %
     </div>
     <p class="text-xs text-gray-400">{{ answered_count }} answered · {{ total_questions }} total</p>
   </div>
+
+  {% comment %}The picture that draws itself as the worksheet is worked through.
+  One question per page, so the server's `done` is already correct on every
+  load — including the next day, which is the whole point.{% endcomment %}
+  {% include "partials/_progress_art.html" %}
 
   <!-- Question card -->
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">

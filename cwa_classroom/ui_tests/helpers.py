@@ -86,3 +86,27 @@ def assert_card_visible(page: Page, text: str) -> None:
         has_text=text,
     ).first
     expect(card).to_be_visible()
+
+
+def content_excluding_progress_art(page: Page) -> str:
+    """The page's HTML with the progress-art panel stripped out.
+
+    Use this instead of ``page.content()`` for "this answer must never appear in
+    the source" assertions.
+
+    The panel embeds its hidden picture as a few hundred SVG path coordinates,
+    so a bare number the test cares about can turn up inside it by pure
+    coincidence — "105" occurs in three of the pictures. Since which picture a
+    quiz gets is seeded on its session id, a whole-page check against a bare
+    number then failed only on the runs that happened to pick one of the three.
+
+    Stripping the panel keeps the assertion's full breadth over everything that
+    could actually leak an answer, rather than narrowing it to one element.
+    """
+    return page.evaluate(
+        """() => {
+            const doc = document.documentElement.cloneNode(true);
+            doc.querySelectorAll('[data-progress-art]').forEach(el => el.remove());
+            return doc.outerHTML;
+        }"""
+    )

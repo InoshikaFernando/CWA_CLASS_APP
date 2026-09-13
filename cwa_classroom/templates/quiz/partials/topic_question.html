@@ -354,8 +354,18 @@
     </button>
 
   {% else %}
-    <!-- Short answer / calculation (symbol keypad injected by maths_exponent.js) -->
-    <div class="flex gap-3">
+    {% comment %}Short answer / calculation. The symbol keypad is injected beside
+    the input by maths_exponent.js, which wraps the input in a .cwa-answer-row —
+    so this row carries three things on a phone, not two, and the keypad's
+    3-column grid holds a ~120px floor that will not shrink.
+
+    `flex-wrap` is what keeps Submit on screen (CPP-412). Without it this row
+    could not break, so at 390px the button was pushed to x327..427 — 37px past
+    the edge, 107px at 320px — and the page scrolled sideways with the button
+    clipped. Wrapping drops it onto its own line instead; `w-full sm:w-auto`
+    then makes the wrapped button full-width rather than a stub floating under
+    the keypad, and above `sm` nothing moves at all.{% endcomment %}
+    <div class="flex flex-wrap items-start gap-3">
       <input type="text" id="text-answer-input"
              placeholder="Your answer..."
              autocomplete="off"
@@ -363,7 +373,7 @@
              class="cwa-exp-input flex-1 rounded-xl border-2 border-gray-200 px-4 py-3 text-lg font-bold
                     focus:outline-none focus:border-primary transition" />
       <button type="button"
-              class="bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
+              class="w-full sm:w-auto bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl px-6 py-3 transition"
               onclick="submitTextAnswer('{{ session_id }}', {{ question.id }})">
         Submit
       </button>

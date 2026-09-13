@@ -565,6 +565,27 @@ class Question(models.Model):
         if not correct:
             return False
 
+        # "Solve x² = 23, rounding to two decimal places" has TWO roots, and
+        # the bank already knows there is no single way to write them: the same
+        # question stores "x=±4.80", "x=4.80 or x=-4.80" and "±4.80" as three
+        # Answer rows. A student who names the same two roots in a fourth
+        # equally correct way — "+/-4.80", the ASCII spelling reached for when
+        # there is no ± key — matched none of the three and was marked wrong
+        # under a screen listing all of them.
+        #
+        # Compared on the magnitude the pair shares, so every spelling of the
+        # same two roots is one answer. Deliberately NOT a fold: a bare "4.80"
+        # names one root of two, and accepting an incomplete answer is worse
+        # than rejecting a differently-spelled complete one. This runs before
+        # the answer_format branches because "±4.80" is not a polynomial —
+        # an algebra- or equation-format question would otherwise reject
+        # every spelling of it.
+        from maths.algebra_grading import plus_minus_magnitude
+        magnitude = plus_minus_magnitude(text_answer)
+        if magnitude is not None and any(
+                magnitude == plus_minus_magnitude(c) for c in correct):
+            return True
+
         if self.answer_format == self.ANSWER_FORMAT_ALGEBRA:
             from maths.algebra_grading import is_algebraic_answer_correct
             return any(is_algebraic_answer_correct(text_answer, c) for c in correct)
@@ -587,6 +608,7 @@ class Question(models.Model):
         from maths.algebra_grading import (
             fold_answer as _fold,
             is_reordered_expression_correct,
+            is_reordered_product_correct,
             option_label_set,
         )
 
@@ -638,6 +660,15 @@ class Question(models.Model):
         # student's answer is still graded strictly, so un-combined like terms
         # and un-expanded brackets stay wrong (see is_reordered_expression_correct).
         if any(is_reordered_expression_correct(text_answer, c) for c in correct):
+            return True
+
+        # "Factorise 16p^2 - 81q^2" stores "(4p - 9q)(4p + 9q)", and
+        # multiplication commutes — the same two factors written the other way
+        # round is the same answer and was marked wrong (CPP-360). Only the
+        # ORDER is forgiven: a different factor, a different sign or the
+        # unfactorised expression all stay wrong, so no student is marked
+        # correct for work they did not do.
+        if any(is_reordered_product_correct(text_answer, c) for c in correct):
             return True
 
         # "Work out the number pattern rule and complete the pattern: 30, ___,

@@ -12,6 +12,8 @@ polynomial equal to the expected answer. Concretely:
   - unicode/`**` exponents accepted  ``2x^2``  ``2x^2``  ``2x**2``  (all -> x^2) OK
   - un-combined like terms FAIL      ``2x^2 - 3x - 4x - 15``  (two x terms)      WRONG
   - un-expanded brackets FAIL        ``(2x + 3)(x - 5)``                          WRONG
+  - ...UNLESS the key is factorised ``(4p + 9q)(4p - 9q)`` for ``(4p - 9q)(4p + 9q)``
+                                     (then factor order does not matter either) OK
   - wrong value FAIL                 ``2x^2 - 7x - 14``                           WRONG
 
 Why not SymPy?
@@ -35,7 +37,7 @@ the convention already used elsewhere for short answers.
 """
 import re
 from fractions import Fraction
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 # A monomial signature: sorted ((variable, exponent), ...) with exponents > 0.
 # The empty tuple () is the constant term.
@@ -223,6 +225,117 @@ def fold_dashes(text: str) -> str:
     return text
 
 
+# Every way "plus or minus" reaches the grader: the ± the keypad inserts, and
+# the ASCII spellings a student reaches for on a keyboard that has no such key.
+_PLUS_MINUS_ASCII = ("+/-", "-/+", "+-", "-+")
+
+
+def fold_plus_minus(text: str) -> str:
+    """Fold every ASCII spelling of "plus or minus" onto ``±``.
+
+    "Solve x² = 23, rounding to two decimal places" has two roots, and the
+    answer key writes them ``±4.80`` — a character a student cannot type at
+    all without the keypad's ± key, so they spell it ``+/-4.80`` and are
+    marked wrong on notation alone. Both spellings land on the same character
+    here, so the stored answer and the typed one compare equal.
+
+    Whitespace is left untouched (the caller folds it), which is what keeps
+    this composing with :func:`fold_exponents` — and what stops ``5 + -3``,
+    a sum of two signed terms, from folding into a ± answer.
+
+    >>> fold_plus_minus("+/-4.80")
+    '±4.80'
+    >>> fold_plus_minus("+-4.80") == fold_plus_minus("±4.80")
+    True
+    >>> fold_plus_minus("5 + -3")
+    '5 + -3'
+    """
+    for spelling in _PLUS_MINUS_ASCII:
+        text = text.replace(spelling, "±")
+    return text
+
+
+# "x = …" — the variable a "solve the equation" answer is usually written with.
+# Stripped on the ± path only (see plus_minus_magnitude), where the answer key
+# is itself inconsistent about carrying it: the same question stores "x=±4.80",
+# "x=4.80 or x=-4.80" AND a bare "±4.80". A plain typed answer keeps its
+# exact match, prefix and all.
+_ASSIGNMENT_PREFIX_RE = re.compile(r"^[A-Za-z]\s*=\s*")
+# "4.80 or -4.80" — the long-hand spelling of the same pair of roots.
+_OR_SPLIT_RE = re.compile(r"\bor\b", re.IGNORECASE)
+_UNSIGNED_VALUE_RE = re.compile(r"^\d+(?:\.\d+)?$")
+_SIGNED_VALUE_RE = re.compile(r"^([+-])?\s*(\d+(?:\.\d+)?)$")
+
+
+def _plus_minus_side(side: str) -> str:
+    """One side of a ± answer, with any "x =" prefix removed."""
+    return _ASSIGNMENT_PREFIX_RE.sub("", side.strip(), count=1).strip()
+
+
+def plus_minus_magnitude(text: str):
+    """The magnitude of a "plus or minus" answer, or ``None`` if it isn't one.
+
+    A ± answer is fully described by the one value both its roots share, so
+    reducing every spelling to that value is all the comparison needs: two
+    answers name the same pair of roots exactly when this returns the same
+    string for both. That is what lets a question whose key is ``x=±4.80``
+    accept ``+/-4.80`` and ``4.80 or -4.80``, and vice versa — the bank
+    already stores all three forms as separate Answer rows on the same
+    question, which is the clearest possible evidence that a student typing
+    any of them has answered it.
+
+    Two shapes count, and only two:
+
+    - ``±V`` — the sign symbol carries both roots on its own.
+    - ``V or -V`` — the roots written out, same magnitude, opposite signs.
+
+    Everything else returns ``None`` and keeps its ordinary exact match. In
+    particular a bare ``4.80`` is **not** a ± answer: it names one root of
+    two, which is an incomplete answer to "solve x² = 23", not a differently
+    spelled complete one. Marking it correct is the one thing this must not
+    do.
+
+    >>> plus_minus_magnitude("x = ±4.80")
+    '4.80'
+    >>> plus_minus_magnitude("+/-4.80")
+    '4.80'
+    >>> plus_minus_magnitude("x=4.80 or x=-4.80")
+    '4.80'
+    >>> plus_minus_magnitude("4.80") is None      # one root of two
+    True
+    >>> plus_minus_magnitude("4 or 5") is None    # an ordinary either/or
+    True
+    """
+    if not text:
+        return None
+    sides = [_plus_minus_side(side)
+             for side in _OR_SPLIT_RE.split(fold_plus_minus(fold_dashes(text)))]
+    sides = [side for side in sides if side]
+
+    if len(sides) == 1:
+        side = sides[0]
+        if not side.startswith("±"):
+            return None
+        magnitude = side[1:].strip()
+        return magnitude if _UNSIGNED_VALUE_RE.match(magnitude) else None
+
+    if len(sides) != 2:
+        return None
+
+    signs, magnitudes = set(), set()
+    for side in sides:
+        match = _SIGNED_VALUE_RE.match(side)
+        if not match:
+            return None
+        signs.add(match.group(1) or "+")
+        magnitudes.add(match.group(2))
+    # Opposite signs and one shared magnitude, or it is not a ± pair: "4 or 5"
+    # and "4.80 or 4.80" both fall back to the exact match they always had.
+    if signs != {"+", "-"} or len(magnitudes) != 1:
+        return None
+    return magnitudes.pop()
+
+
 def fold_answer(text: str) -> str:
     """Normalise a typed answer for exact-match comparison.
 
@@ -237,8 +350,8 @@ def fold_answer(text: str) -> str:
     "fifty-three" == "fifty three" == "and fifty three"), digit-grouping and
     list commas ("1,000" == "1000"), every multiplication mark (the dedicated
     symbols always; a bare "x" or "*" only between two digits, so "box" is left
-    alone), then division, degrees, inequalities and exponents via the folds
-    above — which also strip all whitespace.
+    alone), then division, plus-minus, degrees, inequalities and exponents via
+    the folds above — which also strip all whitespace.
 
     A leading "-" on a negative number is significant and always survives.
 
@@ -263,7 +376,8 @@ def fold_answer(text: str) -> str:
     text = text.replace(",", "")
     text = re.sub(r"[×✕✖·∙⋅]", "*", text)
     text = re.sub(r"(?<=\d)\s*[x*]\s*(?=\d)", "*", text)
-    return fold_exponents(fold_inequalities(fold_degrees(fold_division(text))))
+    return fold_exponents(
+        fold_inequalities(fold_degrees(fold_plus_minus(fold_division(text)))))
 
 
 def match_value(user_answer: str, stored_answer: str, answer_format: str = "text") -> bool:
@@ -275,6 +389,7 @@ def match_value(user_answer: str, stored_answer: str, answer_format: str = "text
     a list or a set of values and needs logic a single gap never does; what is
     shared is how ONE value is compared, and that is this.
 
+    - any format — a ± answer matches any spelling of the same two roots.
     - ``algebra``  — simplified-polynomial equivalence ("2ab" == "2ba").
     - ``equation`` — algebraic equivalence of a whole equation.
     - anything else — folded exact match, then commuted-expression equivalence
@@ -286,13 +401,22 @@ def match_value(user_answer: str, stored_answer: str, answer_format: str = "text
     """
     if not user_answer or not stored_answer:
         return False
+    # A "plus or minus" gap is judged on the pair of roots it names rather than
+    # on how it spells them — before the format branches, because ±4.80 is not
+    # a polynomial and an algebra-format gap would otherwise reject every
+    # spelling of it (see plus_minus_magnitude).
+    magnitude = plus_minus_magnitude(user_answer)
+    if magnitude is not None and magnitude == plus_minus_magnitude(stored_answer):
+        return True
     if answer_format == "algebra":
         return is_algebraic_answer_correct(user_answer, stored_answer)
     if answer_format == "equation":
         return is_equation_answer_correct(user_answer, stored_answer)
     if fold_answer(user_answer) == fold_answer(stored_answer):
         return True
-    return is_reordered_expression_correct(user_answer, stored_answer)
+    if is_reordered_expression_correct(user_answer, stored_answer):
+        return True
+    return is_reordered_product_correct(user_answer, stored_answer)
 
 
 # Separators a student (or a teacher) may use between the option labels of a
@@ -458,6 +582,14 @@ def is_algebraic_answer_correct(user_answer: str, correct_answer: str) -> bool:
     if not user_answer or not correct_answer:
         return False
 
+    # A factorised key means factorising is the objective, so the same factors
+    # in any order are correct (CPP-360). This has to come BEFORE the strict
+    # collect below, which rejects every bracketed answer to enforce the
+    # *expand* objective — on a factorised key that rejected the stored answer
+    # itself, leaving the question impossible to get right.
+    if is_reordered_product_correct(user_answer, correct_answer):
+        return True
+
     try:
         student = _collect(user_answer, strict=True)
     except MathAnswerError:
@@ -552,6 +684,147 @@ def is_reordered_expression_correct(user_answer: str, correct_answer: str) -> bo
         if _is_simple_expression(alternative) and is_algebraic_answer_correct(
             user_answer, alternative
         ):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Factor-order fallback for FACTORISED answers (CPP-360)
+# ---------------------------------------------------------------------------
+# "Factorise 16p^2 - 81q^2" stores the key ``(4p - 9q)(4p + 9q)``, and
+# multiplication commutes: a student writing ``(4p + 9q)(4p - 9q)`` has
+# factorised it correctly. Neither existing path accepted that.
+#
+# The literal path compares strings, so the swapped pair was simply unequal.
+# Worse, is_algebraic_answer_correct rejects ANY bracketed *student* answer up
+# front to enforce the "expand the brackets" objective — so on a factorised key
+# the question could not be answered correctly at all, not even by typing the
+# stored answer back verbatim. That is why this fixes two faults at once.
+#
+# The rule is that THE KEY DEFINES THE OBJECTIVE. An expanded key still demands
+# an expanded answer, exactly as before — expanding is still the thing being
+# taught there, and brackets are still unfinished work. Only when the key is
+# ITSELF a product of factors do we compare factor-by-factor, because then
+# factorising is the objective. The expanded form of a factorised key stays
+# WRONG: it is the question, not the answer.
+#
+# Order is the only thing forgiven. ``(4p - 9q)(4p - 9q)`` is a different
+# multiset and stays wrong, and the overall sign is compared too, so
+# ``-(x + 1)(x - 2)`` never matches ``(x + 1)(x - 2)``.
+
+
+def _poly_key(poly: Polynomial) -> Tuple:
+    """A canonical, sortable form of a polynomial, for comparing two factors.
+
+    Fractions are reduced to a (numerator, denominator) pair so that equal
+    coefficients written differently ("0.5" and "1/2") share one key.
+    """
+    return tuple(sorted(
+        (sig, (coeff.numerator, coeff.denominator)) for sig, coeff in poly.items()
+    ))
+
+
+def _product_factors(text: str) -> Optional[Tuple[int, List[Polynomial]]]:
+    """Split a factorised product into ``(overall sign, [factor, ...])``.
+
+    Returns ``None`` — meaning "not a factorised product, keep the exact match
+    you already had" — unless the text is two or more factors of which at least
+    one is a *bracketed sum*. That guard is what keeps ordinary answers out of
+    this path: the polynomial parser reads a run of letters as a product of
+    single-letter variables, so without it "(cat)(dog)" would parse as algebra
+    and two unrelated words could compare equal.
+
+    >>> _product_factors("(4p+9q)(4p-9q)") is None
+    False
+    >>> _product_factors("(cat)(dog)") is None          # no bracketed sum
+    True
+    >>> _product_factors("16p^2-81q^2") is None         # not a product
+    True
+    >>> _product_factors("(x+1)") is None               # one factor to reorder
+    True
+    """
+    s = normalize_notation(text)
+    if not s:
+        return None
+
+    sign = 1
+    if s[0] in ("+", "-"):
+        sign = -1 if s[0] == "-" else 1
+        s = s[1:]
+
+    chunks: List[Tuple[str, bool]] = []   # (source text, came from brackets)
+    i = 0
+    while i < len(s):
+        if s[i] == "(":
+            depth = 0
+            j = i
+            while j < len(s):
+                if s[j] == "(":
+                    depth += 1
+                elif s[j] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            if depth != 0:
+                return None                     # unbalanced brackets
+            chunks.append((s[i + 1:j], True))
+            i = j + 1
+        else:
+            j = s.find("(", i)
+            end = len(s) if j == -1 else j
+            chunk = s[i:end].strip("*")
+            if chunk in ("+", "-"):
+                # A sign between factors, e.g. "(x+1)-(x-2)": that is a sum,
+                # not a product, and reordering it is not safe.
+                return None
+            if chunk:
+                chunks.append((chunk, False))
+            i = end
+
+    if len(chunks) < 2:
+        return None
+    if not any(bracketed and ("+" in body or "-" in body)
+               for body, bracketed in chunks):
+        return None
+
+    factors: List[Polynomial] = []
+    for body, _bracketed in chunks:
+        try:
+            factors.append(_ExprParser(body).parse())
+        except (MathAnswerError, ZeroDivisionError, ValueError):
+            return None
+    return sign, factors
+
+
+def is_reordered_product_correct(user_answer: str, correct_answer: str) -> bool:
+    """True iff both answers are the same factors, written in a different order.
+
+    >>> is_reordered_product_correct("(4p + 9q)(4p - 9q)", "(4p - 9q)(4p + 9q)")
+    True
+    >>> is_reordered_product_correct("(4p - 9q)(4p + 9q)", "(4p - 9q)(4p + 9q)")
+    True
+    >>> is_reordered_product_correct("(4p - 9q)(4p - 9q)", "(4p - 9q)(4p + 9q)")
+    False
+    >>> is_reordered_product_correct("16p^2 - 81q^2", "(4p - 9q)(4p + 9q)")
+    False
+    >>> is_reordered_product_correct("(x + 1)(x - 2)", "-(x + 1)(x - 2)")
+    False
+    """
+    if not user_answer or not correct_answer:
+        return False
+    parsed_user = _product_factors(user_answer)
+    if parsed_user is None:
+        return False
+    user_sign, user_factors = parsed_user
+    user_key = sorted(_poly_key(factor) for factor in user_factors)
+
+    for alternative in correct_answer.split("|"):
+        parsed = _product_factors(alternative.strip())
+        if parsed is None:
+            continue
+        sign, factors = parsed
+        if sign == user_sign and sorted(_poly_key(f) for f in factors) == user_key:
             return True
     return False
 
