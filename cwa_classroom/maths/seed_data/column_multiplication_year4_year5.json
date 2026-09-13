@@ -1,0 +1,3034 @@
+{
+  "meta": {
+    "source": "generated",
+    "generated_from": "scripts/generate_column_multiplication.py",
+    "description": "Column (long) multiplication practice for the column_operation widget. Year 4 = 3-digit and 4-digit multiplicands by a single digit; Year 5 = 3-digit by 2-digit with partial-product rows. No multiplier is 1. Answers are computed by the app from operands/operator, so every 'answers' list is empty. Each group carries the keys for both import doors - see group() in the generator.",
+    "question_count": 200,
+    "group_count": 2,
+    "schema": "upload_questions + import_global_questions"
+  },
+  "groups": [
+    {
+      "strand": "Number",
+      "topic": "Multiplication",
+      "year_level": 4,
+      "title": "Number",
+      "subtitle": "Multiplication",
+      "level_number": 4,
+      "year": "Year 4",
+      "questions": [
+        {
+          "question_text": "Work out 104 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            104,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "4 × 2 = 8. 0 × 2 = 0. 1 × 2 = 2. So 104 × 2 = 208.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 110 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            110,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "0 × 2 = 0. 1 × 2 = 2. 1 × 2 = 2. So 110 × 2 = 220.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 111 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            111,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "1 × 4 = 4. 1 × 4 = 4. 1 × 4 = 4. So 111 × 4 = 444.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 113 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            113,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "3 × 3 = 9. 1 × 3 = 3. 1 × 3 = 3. So 113 × 3 = 339.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 121 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            121,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "1 × 4 = 4. 2 × 4 = 8. 1 × 4 = 4. So 121 × 4 = 484.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 130 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            130,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "0 × 2 = 0. 3 × 2 = 6. 1 × 2 = 2. So 130 × 2 = 260.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 132 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            132,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "2 × 3 = 6. 3 × 3 = 9. 1 × 3 = 3. So 132 × 3 = 396.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 142 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            142,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "2 × 2 = 4. 4 × 2 = 8. 1 × 2 = 2. So 142 × 2 = 284.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 220 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            220,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "0 × 4 = 0. 2 × 4 = 8. 2 × 4 = 8. So 220 × 4 = 880.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 223 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            223,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "3 × 3 = 9. 2 × 3 = 6. 2 × 3 = 6. So 223 × 3 = 669.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 230 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            230,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "0 × 2 = 0. 3 × 2 = 6. 2 × 2 = 4. So 230 × 2 = 460.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 230 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            230,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "0 × 3 = 0. 3 × 3 = 9. 2 × 3 = 6. So 230 × 3 = 690.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 233 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            233,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "3 × 2 = 6. 3 × 2 = 6. 2 × 2 = 4. So 233 × 2 = 466.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 243 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            243,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "3 × 2 = 6. 4 × 2 = 8. 2 × 2 = 4. So 243 × 2 = 486.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 320 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            320,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "0 × 3 = 0. 2 × 3 = 6. 3 × 3 = 9. So 320 × 3 = 960.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 332 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            332,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "2 × 2 = 4. 3 × 2 = 6. 3 × 2 = 6. So 332 × 2 = 664.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 422 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            422,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "2 × 2 = 4. 2 × 2 = 4. 4 × 2 = 8. So 422 × 2 = 844.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 119 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            119,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "9 × 2 = 18 - write 8, carry 1. 1 × 2 = 2, plus the 1 carried = 3. 1 × 2 = 2. So 119 × 2 = 238.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 158 × 5 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            158,
+            5
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "8 × 5 = 40 - write 0, carry 4. 5 × 5 = 25, plus the 4 carried = 29 - write 9, carry 2. 1 × 5 = 5, plus the 2 carried = 7. So 158 × 5 = 790.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 218 × 5 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            218,
+            5
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "8 × 5 = 40 - write 0, carry 4. 1 × 5 = 5, plus the 4 carried = 9. 2 × 5 = 10. So 218 × 5 = 1090.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 230 × 8 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            230,
+            8
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "0 × 8 = 0. 3 × 8 = 24 - write 4, carry 2. 2 × 8 = 16, plus the 2 carried = 18. So 230 × 8 = 1840.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 308 × 7 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            308,
+            7
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "8 × 7 = 56 - write 6, carry 5. 0 × 7 = 0, plus the 5 carried = 5. 3 × 7 = 21. So 308 × 7 = 2156.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 339 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            339,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "9 × 2 = 18 - write 8, carry 1. 3 × 2 = 6, plus the 1 carried = 7. 3 × 2 = 6. So 339 × 2 = 678.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 401 × 6 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            401,
+            6
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "1 × 6 = 6. 0 × 6 = 0. 4 × 6 = 24. So 401 × 6 = 2406.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 402 × 7 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            402,
+            7
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "2 × 7 = 14 - write 4, carry 1. 0 × 7 = 0, plus the 1 carried = 1. 4 × 7 = 28. So 402 × 7 = 2814.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 493 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            493,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "3 × 3 = 9. 9 × 3 = 27 - write 7, carry 2. 4 × 3 = 12, plus the 2 carried = 14. So 493 × 3 = 1479.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 525 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            525,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "5 × 3 = 15 - write 5, carry 1. 2 × 3 = 6, plus the 1 carried = 7. 5 × 3 = 15. So 525 × 3 = 1575.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 631 × 7 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            631,
+            7
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "1 × 7 = 7. 3 × 7 = 21 - write 1, carry 2. 6 × 7 = 42, plus the 2 carried = 44. So 631 × 7 = 4417.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 640 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            640,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "0 × 3 = 0. 4 × 3 = 12 - write 2, carry 1. 6 × 3 = 18, plus the 1 carried = 19. So 640 × 3 = 1920.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 711 × 6 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            711,
+            6
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "1 × 6 = 6. 1 × 6 = 6. 7 × 6 = 42. So 711 × 6 = 4266.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 713 × 7 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            713,
+            7
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "3 × 7 = 21 - write 1, carry 2. 1 × 7 = 7, plus the 2 carried = 9. 7 × 7 = 49. So 713 × 7 = 4991.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 802 × 9 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            802,
+            9
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "2 × 9 = 18 - write 8, carry 1. 0 × 9 = 0, plus the 1 carried = 1. 8 × 9 = 72. So 802 × 9 = 7218.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 901 × 9 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            901,
+            9
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "1 × 9 = 9. 0 × 9 = 0. 9 × 9 = 81. So 901 × 9 = 8109.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 932 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            932,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "2 × 3 = 6. 3 × 3 = 9. 9 × 3 = 27. So 932 × 3 = 2796.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 266 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            266,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "6 × 4 = 24 - write 4, carry 2. 6 × 4 = 24, plus the 2 carried = 26 - write 6, carry 2. 2 × 4 = 8, plus the 2 carried = 10. So 266 × 4 = 1064.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 322 × 8 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            322,
+            8
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "2 × 8 = 16 - write 6, carry 1. 2 × 8 = 16, plus the 1 carried = 17 - write 7, carry 1. 3 × 8 = 24, plus the 1 carried = 25. So 322 × 8 = 2576.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 458 × 9 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            458,
+            9
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "8 × 9 = 72 - write 2, carry 7. 5 × 9 = 45, plus the 7 carried = 52 - write 2, carry 5. 4 × 9 = 36, plus the 5 carried = 41. So 458 × 9 = 4122.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 469 × 5 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            469,
+            5
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "9 × 5 = 45 - write 5, carry 4. 6 × 5 = 30, plus the 4 carried = 34 - write 4, carry 3. 4 × 5 = 20, plus the 3 carried = 23. So 469 × 5 = 2345.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 559 × 9 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            559,
+            9
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "9 × 9 = 81 - write 1, carry 8. 5 × 9 = 45, plus the 8 carried = 53 - write 3, carry 5. 5 × 9 = 45, plus the 5 carried = 50. So 559 × 9 = 5031.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 599 × 6 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            599,
+            6
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "9 × 6 = 54 - write 4, carry 5. 9 × 6 = 54, plus the 5 carried = 59 - write 9, carry 5. 5 × 6 = 30, plus the 5 carried = 35. So 599 × 6 = 3594.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 689 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            689,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "9 × 4 = 36 - write 6, carry 3. 8 × 4 = 32, plus the 3 carried = 35 - write 5, carry 3. 6 × 4 = 24, plus the 3 carried = 27. So 689 × 4 = 2756.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 816 × 7 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            816,
+            7
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "6 × 7 = 42 - write 2, carry 4. 1 × 7 = 7, plus the 4 carried = 11 - write 1, carry 1. 8 × 7 = 56, plus the 1 carried = 57. So 816 × 7 = 5712.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 823 × 9 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            823,
+            9
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "3 × 9 = 27 - write 7, carry 2. 2 × 9 = 18, plus the 2 carried = 20 - write 0, carry 2. 8 × 9 = 72, plus the 2 carried = 74. So 823 × 9 = 7407.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 835 × 5 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            835,
+            5
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "5 × 5 = 25 - write 5, carry 2. 3 × 5 = 15, plus the 2 carried = 17 - write 7, carry 1. 8 × 5 = 40, plus the 1 carried = 41. So 835 × 5 = 4175.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 846 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            846,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "6 × 4 = 24 - write 4, carry 2. 4 × 4 = 16, plus the 2 carried = 18 - write 8, carry 1. 8 × 4 = 32, plus the 1 carried = 33. So 846 × 4 = 3384.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 867 × 8 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            867,
+            8
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "7 × 8 = 56 - write 6, carry 5. 6 × 8 = 48, plus the 5 carried = 53 - write 3, carry 5. 8 × 8 = 64, plus the 5 carried = 69. So 867 × 8 = 6936.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 877 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            877,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "7 × 4 = 28 - write 8, carry 2. 7 × 4 = 28, plus the 2 carried = 30 - write 0, carry 3. 8 × 4 = 32, plus the 3 carried = 35. So 877 × 4 = 3508.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 897 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            897,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "7 × 4 = 28 - write 8, carry 2. 9 × 4 = 36, plus the 2 carried = 38 - write 8, carry 3. 8 × 4 = 32, plus the 3 carried = 35. So 897 × 4 = 3588.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 992 × 6 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            992,
+            6
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "2 × 6 = 12 - write 2, carry 1. 9 × 6 = 54, plus the 1 carried = 55 - write 5, carry 5. 9 × 6 = 54, plus the 5 carried = 59. So 992 × 6 = 5952.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 994 × 7 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            994,
+            7
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "4 × 7 = 28 - write 8, carry 2. 9 × 7 = 63, plus the 2 carried = 65 - write 5, carry 6. 9 × 7 = 63, plus the 6 carried = 69. So 994 × 7 = 6958.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 1021 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            1021,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "1 × 4 = 4. 2 × 4 = 8. 0 × 4 = 0. 1 × 4 = 4. So 1021 × 4 = 4084.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 1101 × 9 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            1101,
+            9
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "1 × 9 = 9. 0 × 9 = 0. 1 × 9 = 9. 1 × 9 = 9. So 1101 × 9 = 9909.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 1213 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            1213,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "3 × 2 = 6. 1 × 2 = 2. 2 × 2 = 4. 1 × 2 = 2. So 1213 × 2 = 2426.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 1223 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            1223,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "3 × 2 = 6. 2 × 2 = 4. 2 × 2 = 4. 1 × 2 = 2. So 1223 × 2 = 2446.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 1234 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            1234,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "4 × 2 = 8. 3 × 2 = 6. 2 × 2 = 4. 1 × 2 = 2. So 1234 × 2 = 2468.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 1334 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            1334,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "4 × 2 = 8. 3 × 2 = 6. 3 × 2 = 6. 1 × 2 = 2. So 1334 × 2 = 2668.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 1433 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            1433,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "3 × 2 = 6. 3 × 2 = 6. 4 × 2 = 8. 1 × 2 = 2. So 1433 × 2 = 2866.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 2003 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            2003,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "3 × 2 = 6. 0 × 2 = 0. 0 × 2 = 0. 2 × 2 = 4. So 2003 × 2 = 4006.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 2112 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            2112,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "2 × 2 = 4. 1 × 2 = 2. 1 × 2 = 2. 2 × 2 = 4. So 2112 × 2 = 4224.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 2134 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            2134,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "4 × 2 = 8. 3 × 2 = 6. 1 × 2 = 2. 2 × 2 = 4. So 2134 × 2 = 4268.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 2401 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            2401,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "1 × 2 = 2. 0 × 2 = 0. 4 × 2 = 8. 2 × 2 = 4. So 2401 × 2 = 4802.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 2402 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            2402,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "2 × 2 = 4. 0 × 2 = 0. 4 × 2 = 8. 2 × 2 = 4. So 2402 × 2 = 4804.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 3134 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            3134,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "4 × 2 = 8. 3 × 2 = 6. 1 × 2 = 2. 3 × 2 = 6. So 3134 × 2 = 6268.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 3210 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            3210,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "0 × 3 = 0. 1 × 3 = 3. 2 × 3 = 6. 3 × 3 = 9. So 3210 × 3 = 9630.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 4220 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            4220,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "0 × 2 = 0. 2 × 2 = 4. 2 × 2 = 4. 4 × 2 = 8. So 4220 × 2 = 8440.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 4221 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            4221,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "1 × 2 = 2. 2 × 2 = 4. 2 × 2 = 4. 4 × 2 = 8. So 4221 × 2 = 8442.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 4344 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            4344,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "4 × 2 = 8. 4 × 2 = 8. 3 × 2 = 6. 4 × 2 = 8. So 4344 × 2 = 8688.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 1167 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            1167,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "7 × 4 = 28 - write 8, carry 2. 6 × 4 = 24, plus the 2 carried = 26 - write 6, carry 2. 1 × 4 = 4, plus the 2 carried = 6. 1 × 4 = 4. So 1167 × 4 = 4668.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 1425 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            1425,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "5 × 2 = 10 - write 0, carry 1. 2 × 2 = 4, plus the 1 carried = 5. 4 × 2 = 8. 1 × 2 = 2. So 1425 × 2 = 2850.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 2830 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            2830,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "0 × 4 = 0. 3 × 4 = 12 - write 2, carry 1. 8 × 4 = 32, plus the 1 carried = 33 - write 3, carry 3. 2 × 4 = 8, plus the 3 carried = 11. So 2830 × 4 = 11320.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 3043 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            3043,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "3 × 3 = 9. 4 × 3 = 12 - write 2, carry 1. 0 × 3 = 0, plus the 1 carried = 1. 3 × 3 = 9. So 3043 × 3 = 9129.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 3806 × 5 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            3806,
+            5
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "6 × 5 = 30 - write 0, carry 3. 0 × 5 = 0, plus the 3 carried = 3. 8 × 5 = 40 - write 0, carry 4. 3 × 5 = 15, plus the 4 carried = 19. So 3806 × 5 = 19030.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 4064 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            4064,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "4 × 3 = 12 - write 2, carry 1. 6 × 3 = 18, plus the 1 carried = 19 - write 9, carry 1. 0 × 3 = 0, plus the 1 carried = 1. 4 × 3 = 12. So 4064 × 3 = 12192.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 5860 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            5860,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "0 × 2 = 0. 6 × 2 = 12 - write 2, carry 1. 8 × 2 = 16, plus the 1 carried = 17 - write 7, carry 1. 5 × 2 = 10, plus the 1 carried = 11. So 5860 × 2 = 11720.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 6013 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            6013,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "3 × 3 = 9. 1 × 3 = 3. 0 × 3 = 0. 6 × 3 = 18. So 6013 × 3 = 18039.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 6201 × 8 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            6201,
+            8
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "1 × 8 = 8. 0 × 8 = 0. 2 × 8 = 16 - write 6, carry 1. 6 × 8 = 48, plus the 1 carried = 49. So 6201 × 8 = 49608.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 6208 × 7 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            6208,
+            7
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "8 × 7 = 56 - write 6, carry 5. 0 × 7 = 0, plus the 5 carried = 5. 2 × 7 = 14 - write 4, carry 1. 6 × 7 = 42, plus the 1 carried = 43. So 6208 × 7 = 43456.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 6306 × 6 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            6306,
+            6
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "6 × 6 = 36 - write 6, carry 3. 0 × 6 = 0, plus the 3 carried = 3. 3 × 6 = 18 - write 8, carry 1. 6 × 6 = 36, plus the 1 carried = 37. So 6306 × 6 = 37836.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 6507 × 6 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            6507,
+            6
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "7 × 6 = 42 - write 2, carry 4. 0 × 6 = 0, plus the 4 carried = 4. 5 × 6 = 30 - write 0, carry 3. 6 × 6 = 36, plus the 3 carried = 39. So 6507 × 6 = 39042.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 7971 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            7971,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "1 × 4 = 4. 7 × 4 = 28 - write 8, carry 2. 9 × 4 = 36, plus the 2 carried = 38 - write 8, carry 3. 7 × 4 = 28, plus the 3 carried = 31. So 7971 × 4 = 31884.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 9178 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            9178,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "8 × 4 = 32 - write 2, carry 3. 7 × 4 = 28, plus the 3 carried = 31 - write 1, carry 3. 1 × 4 = 4, plus the 3 carried = 7. 9 × 4 = 36. So 9178 × 4 = 36712.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 9771 × 7 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            9771,
+            7
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "1 × 7 = 7. 7 × 7 = 49 - write 9, carry 4. 7 × 7 = 49, plus the 4 carried = 53 - write 3, carry 5. 9 × 7 = 63, plus the 5 carried = 68. So 9771 × 7 = 68397.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 9901 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            9901,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "1 × 3 = 3. 0 × 3 = 0. 9 × 3 = 27 - write 7, carry 2. 9 × 3 = 27, plus the 2 carried = 29. So 9901 × 3 = 29703.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 9901 × 9 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            9901,
+            9
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "1 × 9 = 9. 0 × 9 = 0. 9 × 9 = 81 - write 1, carry 8. 9 × 9 = 81, plus the 8 carried = 89. So 9901 × 9 = 89109.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 2193 × 8 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            2193,
+            8
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "3 × 8 = 24 - write 4, carry 2. 9 × 8 = 72, plus the 2 carried = 74 - write 4, carry 7. 1 × 8 = 8, plus the 7 carried = 15 - write 5, carry 1. 2 × 8 = 16, plus the 1 carried = 17. So 2193 × 8 = 17544.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 2554 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            2554,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "4 × 4 = 16 - write 6, carry 1. 5 × 4 = 20, plus the 1 carried = 21 - write 1, carry 2. 5 × 4 = 20, plus the 2 carried = 22 - write 2, carry 2. 2 × 4 = 8, plus the 2 carried = 10. So 2554 × 4 = 10216.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 2885 × 7 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            2885,
+            7
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "5 × 7 = 35 - write 5, carry 3. 8 × 7 = 56, plus the 3 carried = 59 - write 9, carry 5. 8 × 7 = 56, plus the 5 carried = 61 - write 1, carry 6. 2 × 7 = 14, plus the 6 carried = 20. So 2885 × 7 = 20195.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 3487 × 7 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            3487,
+            7
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "7 × 7 = 49 - write 9, carry 4. 8 × 7 = 56, plus the 4 carried = 60 - write 0, carry 6. 4 × 7 = 28, plus the 6 carried = 34 - write 4, carry 3. 3 × 7 = 21, plus the 3 carried = 24. So 3487 × 7 = 24409.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 3578 × 7 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            3578,
+            7
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "8 × 7 = 56 - write 6, carry 5. 7 × 7 = 49, plus the 5 carried = 54 - write 4, carry 5. 5 × 7 = 35, plus the 5 carried = 40 - write 0, carry 4. 3 × 7 = 21, plus the 4 carried = 25. So 3578 × 7 = 25046.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 4252 × 5 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            4252,
+            5
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "2 × 5 = 10 - write 0, carry 1. 5 × 5 = 25, plus the 1 carried = 26 - write 6, carry 2. 2 × 5 = 10, plus the 2 carried = 12 - write 2, carry 1. 4 × 5 = 20, plus the 1 carried = 21. So 4252 × 5 = 21260.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 4439 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            4439,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "9 × 3 = 27 - write 7, carry 2. 3 × 3 = 9, plus the 2 carried = 11 - write 1, carry 1. 4 × 3 = 12, plus the 1 carried = 13 - write 3, carry 1. 4 × 3 = 12, plus the 1 carried = 13. So 4439 × 3 = 13317.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 4625 × 6 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            4625,
+            6
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "5 × 6 = 30 - write 0, carry 3. 2 × 6 = 12, plus the 3 carried = 15 - write 5, carry 1. 6 × 6 = 36, plus the 1 carried = 37 - write 7, carry 3. 4 × 6 = 24, plus the 3 carried = 27. So 4625 × 6 = 27750.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 4723 × 8 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            4723,
+            8
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "3 × 8 = 24 - write 4, carry 2. 2 × 8 = 16, plus the 2 carried = 18 - write 8, carry 1. 7 × 8 = 56, plus the 1 carried = 57 - write 7, carry 5. 4 × 8 = 32, plus the 5 carried = 37. So 4723 × 8 = 37784.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 4759 × 4 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            4759,
+            4
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "9 × 4 = 36 - write 6, carry 3. 5 × 4 = 20, plus the 3 carried = 23 - write 3, carry 2. 7 × 4 = 28, plus the 2 carried = 30 - write 0, carry 3. 4 × 4 = 16, plus the 3 carried = 19. So 4759 × 4 = 19036.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 4874 × 5 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            4874,
+            5
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "4 × 5 = 20 - write 0, carry 2. 7 × 5 = 35, plus the 2 carried = 37 - write 7, carry 3. 8 × 5 = 40, plus the 3 carried = 43 - write 3, carry 4. 4 × 5 = 20, plus the 4 carried = 24. So 4874 × 5 = 24370.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 7248 × 9 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            7248,
+            9
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "8 × 9 = 72 - write 2, carry 7. 4 × 9 = 36, plus the 7 carried = 43 - write 3, carry 4. 2 × 9 = 18, plus the 4 carried = 22 - write 2, carry 2. 7 × 9 = 63, plus the 2 carried = 65. So 7248 × 9 = 65232.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 7965 × 2 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            7965,
+            2
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "5 × 2 = 10 - write 0, carry 1. 6 × 2 = 12, plus the 1 carried = 13 - write 3, carry 1. 9 × 2 = 18, plus the 1 carried = 19 - write 9, carry 1. 7 × 2 = 14, plus the 1 carried = 15. So 7965 × 2 = 15930.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 8796 × 5 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            8796,
+            5
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "6 × 5 = 30 - write 0, carry 3. 9 × 5 = 45, plus the 3 carried = 48 - write 8, carry 4. 7 × 5 = 35, plus the 4 carried = 39 - write 9, carry 3. 8 × 5 = 40, plus the 3 carried = 43. So 8796 × 5 = 43980.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 8919 × 6 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            8919,
+            6
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "9 × 6 = 54 - write 4, carry 5. 1 × 6 = 6, plus the 5 carried = 11 - write 1, carry 1. 9 × 6 = 54, plus the 1 carried = 55 - write 5, carry 5. 8 × 6 = 48, plus the 5 carried = 53. So 8919 × 6 = 53514.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 9636 × 3 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            9636,
+            3
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "6 × 3 = 18 - write 8, carry 1. 3 × 3 = 9, plus the 1 carried = 10 - write 0, carry 1. 6 × 3 = 18, plus the 1 carried = 19 - write 9, carry 1. 9 × 3 = 27, plus the 1 carried = 28. So 9636 × 3 = 28908.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        }
+      ]
+    },
+    {
+      "strand": "Number",
+      "topic": "Multiplication",
+      "year_level": 5,
+      "title": "Number",
+      "subtitle": "Multiplication",
+      "level_number": 5,
+      "year": "Year 5",
+      "questions": [
+        {
+          "question_text": "Work out 101 × 28 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            101,
+            28
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 28 into 20 + 8. 101 × 8 = 808. Then 101 × 20 = 2020. Add the partial products: 808 + 2020 = 2828. So 101 × 28 = 2828.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 101 × 53 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            101,
+            53
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 53 into 50 + 3. 101 × 3 = 303. Then 101 × 50 = 5050. Add the partial products: 303 + 5050 = 5353. So 101 × 53 = 5353.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 101 × 69 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            101,
+            69
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 69 into 60 + 9. 101 × 9 = 909. Then 101 × 60 = 6060. Add the partial products: 909 + 6060 = 6969. So 101 × 69 = 6969.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 101 × 78 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            101,
+            78
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 78 into 70 + 8. 101 × 8 = 808. Then 101 × 70 = 7070. Add the partial products: 808 + 7070 = 7878. So 101 × 78 = 7878.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 103 × 22 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            103,
+            22
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 22 into 20 + 2. 103 × 2 = 206. Then 103 × 20 = 2060. Add the partial products: 206 + 2060 = 2266. So 103 × 22 = 2266.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 104 × 21 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            104,
+            21
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 21 into 20 + 1. 104 × 1 = 104. Then 104 × 20 = 2080. Add the partial products: 104 + 2080 = 2184. So 104 × 21 = 2184.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 111 × 24 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            111,
+            24
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 24 into 20 + 4. 111 × 4 = 444. Then 111 × 20 = 2220. Add the partial products: 444 + 2220 = 2664. So 111 × 24 = 2664.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 111 × 25 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            111,
+            25
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 25 into 20 + 5. 111 × 5 = 555. Then 111 × 20 = 2220. Add the partial products: 555 + 2220 = 2775. So 111 × 25 = 2775.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 111 × 26 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            111,
+            26
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 26 into 20 + 6. 111 × 6 = 666. Then 111 × 20 = 2220. Add the partial products: 666 + 2220 = 2886. So 111 × 26 = 2886.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 111 × 72 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            111,
+            72
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 72 into 70 + 2. 111 × 2 = 222. Then 111 × 70 = 7770. Add the partial products: 222 + 7770 = 7992. So 111 × 72 = 7992.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 112 × 42 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            112,
+            42
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 42 into 40 + 2. 112 × 2 = 224. Then 112 × 40 = 4480. Add the partial products: 224 + 4480 = 4704. So 112 × 42 = 4704.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 141 × 22 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            141,
+            22
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 22 into 20 + 2. 141 × 2 = 282. Then 141 × 20 = 2820. Add the partial products: 282 + 2820 = 3102. So 141 × 22 = 3102.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 202 × 31 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            202,
+            31
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 31 into 30 + 1. 202 × 1 = 202. Then 202 × 30 = 6060. Add the partial products: 202 + 6060 = 6262. So 202 × 31 = 6262.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 204 × 21 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            204,
+            21
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 21 into 20 + 1. 204 × 1 = 204. Then 204 × 20 = 4080. Add the partial products: 204 + 4080 = 4284. So 204 × 21 = 4284.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 212 × 22 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            212,
+            22
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 22 into 20 + 2. 212 × 2 = 424. Then 212 × 20 = 4240. Add the partial products: 424 + 4240 = 4664. So 212 × 22 = 4664.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 212 × 34 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            212,
+            34
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 34 into 30 + 4. 212 × 4 = 848. Then 212 × 30 = 6360. Add the partial products: 848 + 6360 = 7208. So 212 × 34 = 7208.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 212 × 42 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            212,
+            42
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 42 into 40 + 2. 212 × 2 = 424. Then 212 × 40 = 8480. Add the partial products: 424 + 8480 = 8904. So 212 × 42 = 8904.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 213 × 23 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            213,
+            23
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 23 into 20 + 3. 213 × 3 = 639. Then 213 × 20 = 4260. Add the partial products: 639 + 4260 = 4899. So 213 × 23 = 4899.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 220 × 44 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            220,
+            44
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 44 into 40 + 4. 220 × 4 = 880. Then 220 × 40 = 8800. Add the partial products: 880 + 8800 = 9680. So 220 × 44 = 9680.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 223 × 22 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            223,
+            22
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 22 into 20 + 2. 223 × 2 = 446. Then 223 × 20 = 4460. Add the partial products: 446 + 4460 = 4906. So 223 × 22 = 4906.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 230 × 12 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            230,
+            12
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 12 into 10 + 2. 230 × 2 = 460. Then 230 × 10 = 2300. Add the partial products: 460 + 2300 = 2760. So 230 × 12 = 2760.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 302 × 23 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            302,
+            23
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 23 into 20 + 3. 302 × 3 = 906. Then 302 × 20 = 6040. Add the partial products: 906 + 6040 = 6946. So 302 × 23 = 6946.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 311 × 31 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            311,
+            31
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 31 into 30 + 1. 311 × 1 = 311. Then 311 × 30 = 9330. Add the partial products: 311 + 9330 = 9641. So 311 × 31 = 9641.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 312 × 33 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            312,
+            33
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 33 into 30 + 3. 312 × 3 = 936. Then 312 × 30 = 9360. Add the partial products: 936 + 9360 = 10296. So 312 × 33 = 10296.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 322 × 23 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            322,
+            23
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 23 into 20 + 3. 322 × 3 = 966. Then 322 × 20 = 6440. Add the partial products: 966 + 6440 = 7406. So 322 × 23 = 7406.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 322 × 31 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            322,
+            31
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 31 into 30 + 1. 322 × 1 = 322. Then 322 × 30 = 9660. Add the partial products: 322 + 9660 = 9982. So 322 × 31 = 9982.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 330 × 23 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            330,
+            23
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 23 into 20 + 3. 330 × 3 = 990. Then 330 × 20 = 6600. Add the partial products: 990 + 6600 = 7590. So 330 × 23 = 7590.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 332 × 33 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            332,
+            33
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 33 into 30 + 3. 332 × 3 = 996. Then 332 × 30 = 9960. Add the partial products: 996 + 9960 = 10956. So 332 × 33 = 10956.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 334 × 21 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            334,
+            21
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 21 into 20 + 1. 334 × 1 = 334. Then 334 × 20 = 6680. Add the partial products: 334 + 6680 = 7014. So 334 × 21 = 7014.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 343 × 21 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            343,
+            21
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 21 into 20 + 1. 343 × 1 = 343. Then 343 × 20 = 6860. Add the partial products: 343 + 6860 = 7203. So 343 × 21 = 7203.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 344 × 22 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            344,
+            22
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 22 into 20 + 2. 344 × 2 = 688. Then 344 × 20 = 6880. Add the partial products: 688 + 6880 = 7568. So 344 × 22 = 7568.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 414 × 22 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            414,
+            22
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 22 into 20 + 2. 414 × 2 = 828. Then 414 × 20 = 8280. Add the partial products: 828 + 8280 = 9108. So 414 × 22 = 9108.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 431 × 21 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            431,
+            21
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 21 into 20 + 1. 431 × 1 = 431. Then 431 × 20 = 8620. Add the partial products: 431 + 8620 = 9051. So 431 × 21 = 9051.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 441 × 12 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            441,
+            12
+          ],
+          "operator": "*",
+          "difficulty": 1,
+          "points": 1,
+          "explanation": "Split 12 into 10 + 2. 441 × 2 = 882. Then 441 × 10 = 4410. Add the partial products: 882 + 4410 = 5292. So 441 × 12 = 5292.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 106 × 19 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            106,
+            19
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 19 into 10 + 9. 106 × 9 = 954. Then 106 × 10 = 1060. Add the partial products: 954 + 1060 = 2014. So 106 × 19 = 2014.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 161 × 46 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            161,
+            46
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 46 into 40 + 6. 161 × 6 = 966. Then 161 × 40 = 6440. Add the partial products: 966 + 6440 = 7406. So 161 × 46 = 7406.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 188 × 56 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            188,
+            56
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 56 into 50 + 6. 188 × 6 = 1128. Then 188 × 50 = 9400. Add the partial products: 1128 + 9400 = 10528. So 188 × 56 = 10528.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 197 × 83 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            197,
+            83
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 83 into 80 + 3. 197 × 3 = 591. Then 197 × 80 = 15760. Add the partial products: 591 + 15760 = 16351. So 197 × 83 = 16351.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 203 × 74 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            203,
+            74
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 74 into 70 + 4. 203 × 4 = 812. Then 203 × 70 = 14210. Add the partial products: 812 + 14210 = 15022. So 203 × 74 = 15022.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 206 × 23 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            206,
+            23
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 23 into 20 + 3. 206 × 3 = 618. Then 206 × 20 = 4120. Add the partial products: 618 + 4120 = 4738. So 206 × 23 = 4738.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 239 × 83 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            239,
+            83
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 83 into 80 + 3. 239 × 3 = 717. Then 239 × 80 = 19120. Add the partial products: 717 + 19120 = 19837. So 239 × 83 = 19837.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 261 × 94 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            261,
+            94
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 94 into 90 + 4. 261 × 4 = 1044. Then 261 × 90 = 23490. Add the partial products: 1044 + 23490 = 24534. So 261 × 94 = 24534.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 314 × 23 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            314,
+            23
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 23 into 20 + 3. 314 × 3 = 942. Then 314 × 20 = 6280. Add the partial products: 942 + 6280 = 7222. So 314 × 23 = 7222.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 354 × 13 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            354,
+            13
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 13 into 10 + 3. 354 × 3 = 1062. Then 354 × 10 = 3540. Add the partial products: 1062 + 3540 = 4602. So 354 × 13 = 4602.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 360 × 31 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            360,
+            31
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 31 into 30 + 1. 360 × 1 = 360. Then 360 × 30 = 10800. Add the partial products: 360 + 10800 = 11160. So 360 × 31 = 11160.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 409 × 41 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            409,
+            41
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 41 into 40 + 1. 409 × 1 = 409. Then 409 × 40 = 16360. Add the partial products: 409 + 16360 = 16769. So 409 × 41 = 16769.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 421 × 61 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            421,
+            61
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 61 into 60 + 1. 421 × 1 = 421. Then 421 × 60 = 25260. Add the partial products: 421 + 25260 = 25681. So 421 × 61 = 25681.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 436 × 61 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            436,
+            61
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 61 into 60 + 1. 436 × 1 = 436. Then 436 × 60 = 26160. Add the partial products: 436 + 26160 = 26596. So 436 × 61 = 26596.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 438 × 25 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            438,
+            25
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 25 into 20 + 5. 438 × 5 = 2190. Then 438 × 20 = 8760. Add the partial products: 2190 + 8760 = 10950. So 438 × 25 = 10950.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 487 × 42 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            487,
+            42
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 42 into 40 + 2. 487 × 2 = 974. Then 487 × 40 = 19480. Add the partial products: 974 + 19480 = 20454. So 487 × 42 = 20454.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 488 × 16 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            488,
+            16
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 16 into 10 + 6. 488 × 6 = 2928. Then 488 × 10 = 4880. Add the partial products: 2928 + 4880 = 7808. So 488 × 16 = 7808.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 502 × 86 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            502,
+            86
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 86 into 80 + 6. 502 × 6 = 3012. Then 502 × 80 = 40160. Add the partial products: 3012 + 40160 = 43172. So 502 × 86 = 43172.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 521 × 98 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            521,
+            98
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 98 into 90 + 8. 521 × 8 = 4168. Then 521 × 90 = 46890. Add the partial products: 4168 + 46890 = 51058. So 521 × 98 = 51058.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 530 × 12 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            530,
+            12
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 12 into 10 + 2. 530 × 2 = 1060. Then 530 × 10 = 5300. Add the partial products: 1060 + 5300 = 6360. So 530 × 12 = 6360.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 541 × 44 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            541,
+            44
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 44 into 40 + 4. 541 × 4 = 2164. Then 541 × 40 = 21640. Add the partial products: 2164 + 21640 = 23804. So 541 × 44 = 23804.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 608 × 75 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            608,
+            75
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 75 into 70 + 5. 608 × 5 = 3040. Then 608 × 70 = 42560. Add the partial products: 3040 + 42560 = 45600. So 608 × 75 = 45600.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 630 × 83 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            630,
+            83
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 83 into 80 + 3. 630 × 3 = 1890. Then 630 × 80 = 50400. Add the partial products: 1890 + 50400 = 52290. So 630 × 83 = 52290.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 647 × 17 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            647,
+            17
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 17 into 10 + 7. 647 × 7 = 4529. Then 647 × 10 = 6470. Add the partial products: 4529 + 6470 = 10999. So 647 × 17 = 10999.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 692 × 47 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            692,
+            47
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 47 into 40 + 7. 692 × 7 = 4844. Then 692 × 40 = 27680. Add the partial products: 4844 + 27680 = 32524. So 692 × 47 = 32524.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 699 × 13 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            699,
+            13
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 13 into 10 + 3. 699 × 3 = 2097. Then 699 × 10 = 6990. Add the partial products: 2097 + 6990 = 9087. So 699 × 13 = 9087.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 730 × 53 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            730,
+            53
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 53 into 50 + 3. 730 × 3 = 2190. Then 730 × 50 = 36500. Add the partial products: 2190 + 36500 = 38690. So 730 × 53 = 38690.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 749 × 52 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            749,
+            52
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 52 into 50 + 2. 749 × 2 = 1498. Then 749 × 50 = 37450. Add the partial products: 1498 + 37450 = 38948. So 749 × 52 = 38948.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 762 × 39 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            762,
+            39
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 39 into 30 + 9. 762 × 9 = 6858. Then 762 × 30 = 22860. Add the partial products: 6858 + 22860 = 29718. So 762 × 39 = 29718.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 808 × 29 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            808,
+            29
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 29 into 20 + 9. 808 × 9 = 7272. Then 808 × 20 = 16160. Add the partial products: 7272 + 16160 = 23432. So 808 × 29 = 23432.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 871 × 94 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            871,
+            94
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 94 into 90 + 4. 871 × 4 = 3484. Then 871 × 90 = 78390. Add the partial products: 3484 + 78390 = 81874. So 871 × 94 = 81874.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 886 × 81 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            886,
+            81
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 81 into 80 + 1. 886 × 1 = 886. Then 886 × 80 = 70880. Add the partial products: 886 + 70880 = 71766. So 886 × 81 = 71766.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 914 × 54 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            914,
+            54
+          ],
+          "operator": "*",
+          "difficulty": 2,
+          "points": 1,
+          "explanation": "Split 54 into 50 + 4. 914 × 4 = 3656. Then 914 × 50 = 45700. Add the partial products: 3656 + 45700 = 49356. So 914 × 54 = 49356.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 235 × 75 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            235,
+            75
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 75 into 70 + 5. 235 × 5 = 1175. Then 235 × 70 = 16450. Add the partial products: 1175 + 16450 = 17625. So 235 × 75 = 17625.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 273 × 69 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            273,
+            69
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 69 into 60 + 9. 273 × 9 = 2457. Then 273 × 60 = 16380. Add the partial products: 2457 + 16380 = 18837. So 273 × 69 = 18837.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 274 × 74 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            274,
+            74
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 74 into 70 + 4. 274 × 4 = 1096. Then 274 × 70 = 19180. Add the partial products: 1096 + 19180 = 20276. So 274 × 74 = 20276.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 275 × 86 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            275,
+            86
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 86 into 80 + 6. 275 × 6 = 1650. Then 275 × 80 = 22000. Add the partial products: 1650 + 22000 = 23650. So 275 × 86 = 23650.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 296 × 84 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            296,
+            84
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 84 into 80 + 4. 296 × 4 = 1184. Then 296 × 80 = 23680. Add the partial products: 1184 + 23680 = 24864. So 296 × 84 = 24864.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 317 × 86 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            317,
+            86
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 86 into 80 + 6. 317 × 6 = 1902. Then 317 × 80 = 25360. Add the partial products: 1902 + 25360 = 27262. So 317 × 86 = 27262.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 347 × 76 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            347,
+            76
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 76 into 70 + 6. 347 × 6 = 2082. Then 347 × 70 = 24290. Add the partial products: 2082 + 24290 = 26372. So 347 × 76 = 26372.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 368 × 79 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            368,
+            79
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 79 into 70 + 9. 368 × 9 = 3312. Then 368 × 70 = 25760. Add the partial products: 3312 + 25760 = 29072. So 368 × 79 = 29072.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 395 × 93 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            395,
+            93
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 93 into 90 + 3. 395 × 3 = 1185. Then 395 × 90 = 35550. Add the partial products: 1185 + 35550 = 36735. So 395 × 93 = 36735.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 427 × 67 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            427,
+            67
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 67 into 60 + 7. 427 × 7 = 2989. Then 427 × 60 = 25620. Add the partial products: 2989 + 25620 = 28609. So 427 × 67 = 28609.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 443 × 49 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            443,
+            49
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 49 into 40 + 9. 443 × 9 = 3987. Then 443 × 40 = 17720. Add the partial products: 3987 + 17720 = 21707. So 443 × 49 = 21707.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 484 × 66 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            484,
+            66
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 66 into 60 + 6. 484 × 6 = 2904. Then 484 × 60 = 29040. Add the partial products: 2904 + 29040 = 31944. So 484 × 66 = 31944.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 494 × 34 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            494,
+            34
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 34 into 30 + 4. 494 × 4 = 1976. Then 494 × 30 = 14820. Add the partial products: 1976 + 14820 = 16796. So 494 × 34 = 16796.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 495 × 97 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            495,
+            97
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 97 into 90 + 7. 495 × 7 = 3465. Then 495 × 90 = 44550. Add the partial products: 3465 + 44550 = 48015. So 495 × 97 = 48015.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 548 × 46 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            548,
+            46
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 46 into 40 + 6. 548 × 6 = 3288. Then 548 × 40 = 21920. Add the partial products: 3288 + 21920 = 25208. So 548 × 46 = 25208.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 565 × 66 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            565,
+            66
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 66 into 60 + 6. 565 × 6 = 3390. Then 565 × 60 = 33900. Add the partial products: 3390 + 33900 = 37290. So 565 × 66 = 37290.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 579 × 86 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            579,
+            86
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 86 into 80 + 6. 579 × 6 = 3474. Then 579 × 80 = 46320. Add the partial products: 3474 + 46320 = 49794. So 579 × 86 = 49794.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 646 × 57 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            646,
+            57
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 57 into 50 + 7. 646 × 7 = 4522. Then 646 × 50 = 32300. Add the partial products: 4522 + 32300 = 36822. So 646 × 57 = 36822.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 656 × 54 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            656,
+            54
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 54 into 50 + 4. 656 × 4 = 2624. Then 656 × 50 = 32800. Add the partial products: 2624 + 32800 = 35424. So 656 × 54 = 35424.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 665 × 96 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            665,
+            96
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 96 into 90 + 6. 665 × 6 = 3990. Then 665 × 90 = 59850. Add the partial products: 3990 + 59850 = 63840. So 665 × 96 = 63840.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 669 × 99 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            669,
+            99
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 99 into 90 + 9. 669 × 9 = 6021. Then 669 × 90 = 60210. Add the partial products: 6021 + 60210 = 66231. So 669 × 99 = 66231.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 689 × 86 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            689,
+            86
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 86 into 80 + 6. 689 × 6 = 4134. Then 689 × 80 = 55120. Add the partial products: 4134 + 55120 = 59254. So 689 × 86 = 59254.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 728 × 99 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            728,
+            99
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 99 into 90 + 9. 728 × 9 = 6552. Then 728 × 90 = 65520. Add the partial products: 6552 + 65520 = 72072. So 728 × 99 = 72072.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 734 × 49 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            734,
+            49
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 49 into 40 + 9. 734 × 9 = 6606. Then 734 × 40 = 29360. Add the partial products: 6606 + 29360 = 35966. So 734 × 49 = 35966.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 796 × 44 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            796,
+            44
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 44 into 40 + 4. 796 × 4 = 3184. Then 796 × 40 = 31840. Add the partial products: 3184 + 31840 = 35024. So 796 × 44 = 35024.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 825 × 69 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            825,
+            69
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 69 into 60 + 9. 825 × 9 = 7425. Then 825 × 60 = 49500. Add the partial products: 7425 + 49500 = 56925. So 825 × 69 = 56925.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 858 × 83 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            858,
+            83
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 83 into 80 + 3. 858 × 3 = 2574. Then 858 × 80 = 68640. Add the partial products: 2574 + 68640 = 71214. So 858 × 83 = 71214.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 865 × 96 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            865,
+            96
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 96 into 90 + 6. 865 × 6 = 5190. Then 865 × 90 = 77850. Add the partial products: 5190 + 77850 = 83040. So 865 × 96 = 83040.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 938 × 49 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            938,
+            49
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 49 into 40 + 9. 938 × 9 = 8442. Then 938 × 40 = 37520. Add the partial products: 8442 + 37520 = 45962. So 938 × 49 = 45962.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 969 × 44 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            969,
+            44
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 44 into 40 + 4. 969 × 4 = 3876. Then 969 × 40 = 38760. Add the partial products: 3876 + 38760 = 42636. So 969 × 44 = 42636.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 989 × 37 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            989,
+            37
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 37 into 30 + 7. 989 × 7 = 6923. Then 989 × 30 = 29670. Add the partial products: 6923 + 29670 = 36593. So 989 × 37 = 36593.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 996 × 33 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            996,
+            33
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 33 into 30 + 3. 996 × 3 = 2988. Then 996 × 30 = 29880. Add the partial products: 2988 + 29880 = 32868. So 996 × 33 = 32868.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        },
+        {
+          "question_text": "Work out 999 × 49 using column multiplication.",
+          "question_type": "column_operation",
+          "operands": [
+            999,
+            49
+          ],
+          "operator": "*",
+          "difficulty": 3,
+          "points": 1,
+          "explanation": "Split 49 into 40 + 9. 999 × 9 = 8991. Then 999 × 40 = 39960. Add the partial products: 8991 + 39960 = 48951. So 999 × 49 = 48951.",
+          "validation_type": "auto",
+          "has_image": false,
+          "answers": []
+        }
+      ]
+    }
+  ]
+}

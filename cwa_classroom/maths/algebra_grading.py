@@ -12,6 +12,8 @@ polynomial equal to the expected answer. Concretely:
   - unicode/`**` exponents accepted  ``2x^2``  ``2x^2``  ``2x**2``  (all -> x^2) OK
   - un-combined like terms FAIL      ``2x^2 - 3x - 4x - 15``  (two x terms)      WRONG
   - un-expanded brackets FAIL        ``(2x + 3)(x - 5)``                          WRONG
+  - ...UNLESS the key is factorised ``(4p + 9q)(4p - 9q)`` for ``(4p - 9q)(4p + 9q)``
+                                     (then factor order does not matter either) OK
   - wrong value FAIL                 ``2x^2 - 7x - 14``                           WRONG
 
 Why not SymPy?
@@ -35,7 +37,7 @@ the convention already used elsewhere for short answers.
 """
 import re
 from fractions import Fraction
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 # A monomial signature: sorted ((variable, exponent), ...) with exponents > 0.
 # The empty tuple () is the constant term.
@@ -412,7 +414,9 @@ def match_value(user_answer: str, stored_answer: str, answer_format: str = "text
         return is_equation_answer_correct(user_answer, stored_answer)
     if fold_answer(user_answer) == fold_answer(stored_answer):
         return True
-    return is_reordered_expression_correct(user_answer, stored_answer)
+    if is_reordered_expression_correct(user_answer, stored_answer):
+        return True
+    return is_reordered_product_correct(user_answer, stored_answer)
 
 
 # Separators a student (or a teacher) may use between the option labels of a
@@ -578,6 +582,14 @@ def is_algebraic_answer_correct(user_answer: str, correct_answer: str) -> bool:
     if not user_answer or not correct_answer:
         return False
 
+    # A factorised key means factorising is the objective, so the same factors
+    # in any order are correct (CPP-360). This has to come BEFORE the strict
+    # collect below, which rejects every bracketed answer to enforce the
+    # *expand* objective — on a factorised key that rejected the stored answer
+    # itself, leaving the question impossible to get right.
+    if is_reordered_product_correct(user_answer, correct_answer):
+        return True
+
     try:
         student = _collect(user_answer, strict=True)
     except MathAnswerError:
@@ -672,6 +684,147 @@ def is_reordered_expression_correct(user_answer: str, correct_answer: str) -> bo
         if _is_simple_expression(alternative) and is_algebraic_answer_correct(
             user_answer, alternative
         ):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Factor-order fallback for FACTORISED answers (CPP-360)
+# ---------------------------------------------------------------------------
+# "Factorise 16p^2 - 81q^2" stores the key ``(4p - 9q)(4p + 9q)``, and
+# multiplication commutes: a student writing ``(4p + 9q)(4p - 9q)`` has
+# factorised it correctly. Neither existing path accepted that.
+#
+# The literal path compares strings, so the swapped pair was simply unequal.
+# Worse, is_algebraic_answer_correct rejects ANY bracketed *student* answer up
+# front to enforce the "expand the brackets" objective — so on a factorised key
+# the question could not be answered correctly at all, not even by typing the
+# stored answer back verbatim. That is why this fixes two faults at once.
+#
+# The rule is that THE KEY DEFINES THE OBJECTIVE. An expanded key still demands
+# an expanded answer, exactly as before — expanding is still the thing being
+# taught there, and brackets are still unfinished work. Only when the key is
+# ITSELF a product of factors do we compare factor-by-factor, because then
+# factorising is the objective. The expanded form of a factorised key stays
+# WRONG: it is the question, not the answer.
+#
+# Order is the only thing forgiven. ``(4p - 9q)(4p - 9q)`` is a different
+# multiset and stays wrong, and the overall sign is compared too, so
+# ``-(x + 1)(x - 2)`` never matches ``(x + 1)(x - 2)``.
+
+
+def _poly_key(poly: Polynomial) -> Tuple:
+    """A canonical, sortable form of a polynomial, for comparing two factors.
+
+    Fractions are reduced to a (numerator, denominator) pair so that equal
+    coefficients written differently ("0.5" and "1/2") share one key.
+    """
+    return tuple(sorted(
+        (sig, (coeff.numerator, coeff.denominator)) for sig, coeff in poly.items()
+    ))
+
+
+def _product_factors(text: str) -> Optional[Tuple[int, List[Polynomial]]]:
+    """Split a factorised product into ``(overall sign, [factor, ...])``.
+
+    Returns ``None`` — meaning "not a factorised product, keep the exact match
+    you already had" — unless the text is two or more factors of which at least
+    one is a *bracketed sum*. That guard is what keeps ordinary answers out of
+    this path: the polynomial parser reads a run of letters as a product of
+    single-letter variables, so without it "(cat)(dog)" would parse as algebra
+    and two unrelated words could compare equal.
+
+    >>> _product_factors("(4p+9q)(4p-9q)") is None
+    False
+    >>> _product_factors("(cat)(dog)") is None          # no bracketed sum
+    True
+    >>> _product_factors("16p^2-81q^2") is None         # not a product
+    True
+    >>> _product_factors("(x+1)") is None               # one factor to reorder
+    True
+    """
+    s = normalize_notation(text)
+    if not s:
+        return None
+
+    sign = 1
+    if s[0] in ("+", "-"):
+        sign = -1 if s[0] == "-" else 1
+        s = s[1:]
+
+    chunks: List[Tuple[str, bool]] = []   # (source text, came from brackets)
+    i = 0
+    while i < len(s):
+        if s[i] == "(":
+            depth = 0
+            j = i
+            while j < len(s):
+                if s[j] == "(":
+                    depth += 1
+                elif s[j] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            if depth != 0:
+                return None                     # unbalanced brackets
+            chunks.append((s[i + 1:j], True))
+            i = j + 1
+        else:
+            j = s.find("(", i)
+            end = len(s) if j == -1 else j
+            chunk = s[i:end].strip("*")
+            if chunk in ("+", "-"):
+                # A sign between factors, e.g. "(x+1)-(x-2)": that is a sum,
+                # not a product, and reordering it is not safe.
+                return None
+            if chunk:
+                chunks.append((chunk, False))
+            i = end
+
+    if len(chunks) < 2:
+        return None
+    if not any(bracketed and ("+" in body or "-" in body)
+               for body, bracketed in chunks):
+        return None
+
+    factors: List[Polynomial] = []
+    for body, _bracketed in chunks:
+        try:
+            factors.append(_ExprParser(body).parse())
+        except (MathAnswerError, ZeroDivisionError, ValueError):
+            return None
+    return sign, factors
+
+
+def is_reordered_product_correct(user_answer: str, correct_answer: str) -> bool:
+    """True iff both answers are the same factors, written in a different order.
+
+    >>> is_reordered_product_correct("(4p + 9q)(4p - 9q)", "(4p - 9q)(4p + 9q)")
+    True
+    >>> is_reordered_product_correct("(4p - 9q)(4p + 9q)", "(4p - 9q)(4p + 9q)")
+    True
+    >>> is_reordered_product_correct("(4p - 9q)(4p - 9q)", "(4p - 9q)(4p + 9q)")
+    False
+    >>> is_reordered_product_correct("16p^2 - 81q^2", "(4p - 9q)(4p + 9q)")
+    False
+    >>> is_reordered_product_correct("(x + 1)(x - 2)", "-(x + 1)(x - 2)")
+    False
+    """
+    if not user_answer or not correct_answer:
+        return False
+    parsed_user = _product_factors(user_answer)
+    if parsed_user is None:
+        return False
+    user_sign, user_factors = parsed_user
+    user_key = sorted(_poly_key(factor) for factor in user_factors)
+
+    for alternative in correct_answer.split("|"):
+        parsed = _product_factors(alternative.strip())
+        if parsed is None:
+            continue
+        sign, factors = parsed
+        if sign == user_sign and sorted(_poly_key(f) for f in factors) == user_key:
             return True
     return False
 
