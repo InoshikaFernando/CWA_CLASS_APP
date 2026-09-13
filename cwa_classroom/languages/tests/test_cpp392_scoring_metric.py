@@ -39,9 +39,15 @@ from languages.models import (
 
 pytestmark = pytest.mark.cpp392
 
-LATIN_CONFIG   = {'line_height': 100, 'descender': 30, 'lines': 4}
-SINHALA_CONFIG = {'line_height': 130, 'descender': 0,  'lines': 3}
-TAMIL_CONFIG   = {'line_height': 120, 'descender': 0,  'lines': 3}
+# Imported rather than hand-copied: a hand-copied config here previously
+# drifted from the real CANVAS_CONFIG (still said Sinhala/Tamil descender=0
+# after the real config was fixed to 36/39 to stop clipping tall glyphs),
+# so these tests kept exercising a canvas shape production no longer uses.
+from languages.utils import CANVAS_CONFIG
+
+LATIN_CONFIG   = CANVAS_CONFIG['latin']
+SINHALA_CONFIG = CANVAS_CONFIG['sinhala']
+TAMIL_CONFIG   = CANVAS_CONFIG['tamil']
 
 CONFIG_FOR_SCRIPT = {
     'latin':   LATIN_CONFIG,

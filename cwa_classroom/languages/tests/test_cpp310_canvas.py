@@ -84,15 +84,20 @@ class TestCanvasConfigPerScriptType:
         assert cfg['lines'] == 4
 
     def test_sinhala_config(self):
+        # descender=36, not 0: measured against every seeded letter_writing
+        # character, some (e.g. ඤ) render up to 31px below the
+        # baseline -- 0 was silently clipping them against the canvas edge.
         cfg = get_canvas_config('sinhala')
         assert cfg['line_height'] == 130
-        assert cfg['descender'] == 0
+        assert cfg['descender'] == 36
         assert cfg['lines'] == 3
 
     def test_tamil_config(self):
+        # descender=39, not 0: measured max is 34px below baseline
+        # (e.g. ஆ) -- same clipping bug as Sinhala.
         cfg = get_canvas_config('tamil')
         assert cfg['line_height'] == 120
-        assert cfg['descender'] == 0
+        assert cfg['descender'] == 39
         assert cfg['lines'] == 3
 
     def test_unknown_script_returns_default(self):
@@ -223,3 +228,68 @@ class TestStrokeDataSavedToStudentAnswer:
 
         assert resp.status_code == 302
         assert '/accounts/login' in resp['Location']
+
+
+# ---------------------------------------------------------------------------
+# Regression: a script's 'descender' must leave enough room for every
+# seeded character's actual below-baseline ink, or the glyph (and, since
+# scoring.render_glyph_mask() uses this same config, the server's scoring
+# template) gets silently clipped at the canvas edge. Caught via a
+# screenshot of ஆ/ඤ sitting flush against the bottom of the canvas with no
+# room to spare -- Sinhala and Tamil both had descender=0, which happened
+# to be exactly enough for most letters and not enough for their tallest
+# ones (ஆ needs 34px, ඤ needs 31px; the generic 24px TOP_PAD used as the
+# only bottom margin covered neither).
+# ---------------------------------------------------------------------------
+
+class TestNoScriptClipsItsOwnSeededCharacters:
+
+    TOP_PAD = 24  # mirrors whiteboard.js's TOP_PAD / scoring.py's TOP_PAD
+
+    def _max_below_baseline(self, char, script_type, cfg):
+        """Render at a generously tall canvas (independent of cfg['descender'],
+        which is exactly the value under test) to find the *true* ink extent,
+        not one already clamped by whatever margin is currently configured."""
+        import numpy as np
+        from PIL import Image, ImageDraw
+        from languages import scoring
+
+        w = 400
+        line_height = cfg['line_height']
+        h = self.TOP_PAD + line_height + 300 + self.TOP_PAD  # 300px of slack
+        font_size = int(line_height * 0.9)
+        base_y = self.TOP_PAD + line_height
+
+        img = Image.new('L', (w, h), color=255)
+        font = scoring._load_font(script_type, font_size)
+        ImageDraw.Draw(img).text((w / 2, base_y), char, font=font, fill=0, anchor='ms')
+        mask = np.asarray(img, dtype=np.uint8) < 128
+        ys, _ = mask.nonzero()
+        if len(ys) == 0:
+            return 0
+        return int(ys.max()) - base_y
+
+    @pytest.mark.parametrize('lang_code,script_type', [('si', 'sinhala'), ('ta', 'tamil')])
+    def test_every_seeded_character_fits_within_its_script_descender(self, lang_code, script_type):
+        from languages.management.commands.seed_language_exercises import SEED
+
+        cfg = CANVAS_CONFIG[script_type]
+        margin = cfg['descender'] + self.TOP_PAD
+
+        chars = set()
+        for topic in SEED[lang_code]['topics']:
+            chars.update(topic.get('letter_writing', []))
+        assert chars, f'no letter_writing characters found for {lang_code}'
+
+        clipped = {
+            ch: needed for ch in sorted(chars)
+            if (needed := self._max_below_baseline(ch, script_type, cfg)) > margin
+        }
+        assert not clipped, (
+            f"{script_type}: characters whose ink needs more room below the "
+            f"baseline than CANVAS_CONFIG['{script_type}']['descender'] "
+            f"({cfg['descender']}px, {margin}px total margin) provides -- "
+            f"they get silently cut off at the canvas edge on both the "
+            f"student's whiteboard and the server's scoring template: "
+            f"{clipped}"
+        )
