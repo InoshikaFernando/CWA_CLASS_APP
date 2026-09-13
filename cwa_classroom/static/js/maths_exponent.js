@@ -2,7 +2,7 @@
 //
 // For every <input>/<textarea> carrying the class "cwa-exp-input" this script:
 //   1. Drops a small symbol keypad to the RIGHT of the box
-//      (x² √ π ≤ ≥ = < > ≠ ° ÷). Clicking a button inserts the symbol at the
+//      (x² √ π ≤ ≥ = < > ≠ ° ÷ ±). Clicking a button inserts the symbol at the
 //      caret. x² inserts "^".
 //   2. Live-formats powers: typing "y^2" shows as "y²" (Unicode superscripts).
 //
@@ -12,8 +12,10 @@
 //
 // Grading already accepts what the panel produces — the algebra grader and
 // maths.algebra_grading.fold_exponents (y²/y^2, cm²), fold_inequalities
-// (≤ ≡ <=, ≥ ≡ >=, ≠ ≡ !=), fold_degrees (50° ≡ 50) and fold_division
-// (n ÷ 4 ≡ n/4) make grading accept the keypad's symbols.
+// (≤ ≡ <=, ≥ ≡ >=, ≠ ≡ !=), fold_degrees (50° ≡ 50), fold_division
+// (n ÷ 4 ≡ n/4) and fold_plus_minus / plus_minus_magnitude
+// (±4.80 ≡ +/-4.80 ≡ "4.80 or -4.80") make grading accept the keypad's
+// symbols.
 (function () {
   // ---------------------------------------------------------------- superscript
   var SUP = {
@@ -56,7 +58,10 @@
     { ins: '°', aria: 'degrees' },
     // Appended rather than slotted in beside "=", so every existing button
     // keeps the position students already reach for.
-    { ins: '÷', aria: 'divided by' }
+    { ins: '÷', aria: 'divided by' },
+    // Same reason: appended. "Solve x² = 23" wants ±4.80, and a student with
+    // no ± key could only reach it through their OS symbol picker.
+    { ins: '±', aria: 'plus or minus' }
   ];
 
   function insertAtCaret(field, text) {

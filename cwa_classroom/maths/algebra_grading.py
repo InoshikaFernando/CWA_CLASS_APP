@@ -225,6 +225,117 @@ def fold_dashes(text: str) -> str:
     return text
 
 
+# Every way "plus or minus" reaches the grader: the ± the keypad inserts, and
+# the ASCII spellings a student reaches for on a keyboard that has no such key.
+_PLUS_MINUS_ASCII = ("+/-", "-/+", "+-", "-+")
+
+
+def fold_plus_minus(text: str) -> str:
+    """Fold every ASCII spelling of "plus or minus" onto ``±``.
+
+    "Solve x² = 23, rounding to two decimal places" has two roots, and the
+    answer key writes them ``±4.80`` — a character a student cannot type at
+    all without the keypad's ± key, so they spell it ``+/-4.80`` and are
+    marked wrong on notation alone. Both spellings land on the same character
+    here, so the stored answer and the typed one compare equal.
+
+    Whitespace is left untouched (the caller folds it), which is what keeps
+    this composing with :func:`fold_exponents` — and what stops ``5 + -3``,
+    a sum of two signed terms, from folding into a ± answer.
+
+    >>> fold_plus_minus("+/-4.80")
+    '±4.80'
+    >>> fold_plus_minus("+-4.80") == fold_plus_minus("±4.80")
+    True
+    >>> fold_plus_minus("5 + -3")
+    '5 + -3'
+    """
+    for spelling in _PLUS_MINUS_ASCII:
+        text = text.replace(spelling, "±")
+    return text
+
+
+# "x = …" — the variable a "solve the equation" answer is usually written with.
+# Stripped on the ± path only (see plus_minus_magnitude), where the answer key
+# is itself inconsistent about carrying it: the same question stores "x=±4.80",
+# "x=4.80 or x=-4.80" AND a bare "±4.80". A plain typed answer keeps its
+# exact match, prefix and all.
+_ASSIGNMENT_PREFIX_RE = re.compile(r"^[A-Za-z]\s*=\s*")
+# "4.80 or -4.80" — the long-hand spelling of the same pair of roots.
+_OR_SPLIT_RE = re.compile(r"\bor\b", re.IGNORECASE)
+_UNSIGNED_VALUE_RE = re.compile(r"^\d+(?:\.\d+)?$")
+_SIGNED_VALUE_RE = re.compile(r"^([+-])?\s*(\d+(?:\.\d+)?)$")
+
+
+def _plus_minus_side(side: str) -> str:
+    """One side of a ± answer, with any "x =" prefix removed."""
+    return _ASSIGNMENT_PREFIX_RE.sub("", side.strip(), count=1).strip()
+
+
+def plus_minus_magnitude(text: str):
+    """The magnitude of a "plus or minus" answer, or ``None`` if it isn't one.
+
+    A ± answer is fully described by the one value both its roots share, so
+    reducing every spelling to that value is all the comparison needs: two
+    answers name the same pair of roots exactly when this returns the same
+    string for both. That is what lets a question whose key is ``x=±4.80``
+    accept ``+/-4.80`` and ``4.80 or -4.80``, and vice versa — the bank
+    already stores all three forms as separate Answer rows on the same
+    question, which is the clearest possible evidence that a student typing
+    any of them has answered it.
+
+    Two shapes count, and only two:
+
+    - ``±V`` — the sign symbol carries both roots on its own.
+    - ``V or -V`` — the roots written out, same magnitude, opposite signs.
+
+    Everything else returns ``None`` and keeps its ordinary exact match. In
+    particular a bare ``4.80`` is **not** a ± answer: it names one root of
+    two, which is an incomplete answer to "solve x² = 23", not a differently
+    spelled complete one. Marking it correct is the one thing this must not
+    do.
+
+    >>> plus_minus_magnitude("x = ±4.80")
+    '4.80'
+    >>> plus_minus_magnitude("+/-4.80")
+    '4.80'
+    >>> plus_minus_magnitude("x=4.80 or x=-4.80")
+    '4.80'
+    >>> plus_minus_magnitude("4.80") is None      # one root of two
+    True
+    >>> plus_minus_magnitude("4 or 5") is None    # an ordinary either/or
+    True
+    """
+    if not text:
+        return None
+    sides = [_plus_minus_side(side)
+             for side in _OR_SPLIT_RE.split(fold_plus_minus(fold_dashes(text)))]
+    sides = [side for side in sides if side]
+
+    if len(sides) == 1:
+        side = sides[0]
+        if not side.startswith("±"):
+            return None
+        magnitude = side[1:].strip()
+        return magnitude if _UNSIGNED_VALUE_RE.match(magnitude) else None
+
+    if len(sides) != 2:
+        return None
+
+    signs, magnitudes = set(), set()
+    for side in sides:
+        match = _SIGNED_VALUE_RE.match(side)
+        if not match:
+            return None
+        signs.add(match.group(1) or "+")
+        magnitudes.add(match.group(2))
+    # Opposite signs and one shared magnitude, or it is not a ± pair: "4 or 5"
+    # and "4.80 or 4.80" both fall back to the exact match they always had.
+    if signs != {"+", "-"} or len(magnitudes) != 1:
+        return None
+    return magnitudes.pop()
+
+
 def fold_answer(text: str) -> str:
     """Normalise a typed answer for exact-match comparison.
 
@@ -239,8 +350,8 @@ def fold_answer(text: str) -> str:
     "fifty-three" == "fifty three" == "and fifty three"), digit-grouping and
     list commas ("1,000" == "1000"), every multiplication mark (the dedicated
     symbols always; a bare "x" or "*" only between two digits, so "box" is left
-    alone), then division, degrees, inequalities and exponents via the folds
-    above — which also strip all whitespace.
+    alone), then division, plus-minus, degrees, inequalities and exponents via
+    the folds above — which also strip all whitespace.
 
     A leading "-" on a negative number is significant and always survives.
 
@@ -265,7 +376,8 @@ def fold_answer(text: str) -> str:
     text = text.replace(",", "")
     text = re.sub(r"[×✕✖·∙⋅]", "*", text)
     text = re.sub(r"(?<=\d)\s*[x*]\s*(?=\d)", "*", text)
-    return fold_exponents(fold_inequalities(fold_degrees(fold_division(text))))
+    return fold_exponents(
+        fold_inequalities(fold_degrees(fold_plus_minus(fold_division(text)))))
 
 
 def match_value(user_answer: str, stored_answer: str, answer_format: str = "text") -> bool:
@@ -277,6 +389,7 @@ def match_value(user_answer: str, stored_answer: str, answer_format: str = "text
     a list or a set of values and needs logic a single gap never does; what is
     shared is how ONE value is compared, and that is this.
 
+    - any format — a ± answer matches any spelling of the same two roots.
     - ``algebra``  — simplified-polynomial equivalence ("2ab" == "2ba").
     - ``equation`` — algebraic equivalence of a whole equation.
     - anything else — folded exact match, then commuted-expression equivalence
@@ -288,6 +401,13 @@ def match_value(user_answer: str, stored_answer: str, answer_format: str = "text
     """
     if not user_answer or not stored_answer:
         return False
+    # A "plus or minus" gap is judged on the pair of roots it names rather than
+    # on how it spells them — before the format branches, because ±4.80 is not
+    # a polynomial and an algebra-format gap would otherwise reject every
+    # spelling of it (see plus_minus_magnitude).
+    magnitude = plus_minus_magnitude(user_answer)
+    if magnitude is not None and magnitude == plus_minus_magnitude(stored_answer):
+        return True
     if answer_format == "algebra":
         return is_algebraic_answer_correct(user_answer, stored_answer)
     if answer_format == "equation":

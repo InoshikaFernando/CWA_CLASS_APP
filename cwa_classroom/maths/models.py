@@ -565,6 +565,27 @@ class Question(models.Model):
         if not correct:
             return False
 
+        # "Solve x² = 23, rounding to two decimal places" has TWO roots, and
+        # the bank already knows there is no single way to write them: the same
+        # question stores "x=±4.80", "x=4.80 or x=-4.80" and "±4.80" as three
+        # Answer rows. A student who names the same two roots in a fourth
+        # equally correct way — "+/-4.80", the ASCII spelling reached for when
+        # there is no ± key — matched none of the three and was marked wrong
+        # under a screen listing all of them.
+        #
+        # Compared on the magnitude the pair shares, so every spelling of the
+        # same two roots is one answer. Deliberately NOT a fold: a bare "4.80"
+        # names one root of two, and accepting an incomplete answer is worse
+        # than rejecting a differently-spelled complete one. This runs before
+        # the answer_format branches because "±4.80" is not a polynomial —
+        # an algebra- or equation-format question would otherwise reject
+        # every spelling of it.
+        from maths.algebra_grading import plus_minus_magnitude
+        magnitude = plus_minus_magnitude(text_answer)
+        if magnitude is not None and any(
+                magnitude == plus_minus_magnitude(c) for c in correct):
+            return True
+
         if self.answer_format == self.ANSWER_FORMAT_ALGEBRA:
             from maths.algebra_grading import is_algebraic_answer_correct
             return any(is_algebraic_answer_correct(text_answer, c) for c in correct)
