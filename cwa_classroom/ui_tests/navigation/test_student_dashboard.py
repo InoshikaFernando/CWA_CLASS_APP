@@ -118,3 +118,68 @@ class TestStudentDashboard:
         # The class dropdown is a <select> inside the filter bar
         selects = filter_bar.locator("select")
         assert selects.count() == 0
+
+
+class TestStudentDashboardRecentActivity:
+    """Recent Activity lists every kind of graded work, not just quizzes.
+
+    Regression: the feed read only the self-directed quiz tables, so a student
+    whose class runs on homework and worksheets opened My Progress and saw
+    nothing — or an empty card — despite having done the work.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    def test_homework_submission_is_listed(
+        self, page: Page, live_server, enrolled_student, classroom
+    ):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from homework.models import Homework, HomeworkSubmission
+
+        hw = Homework.objects.create(
+            classroom=classroom,
+            title="Fractions Week 3",
+            num_questions=5,
+            due_date=timezone.now() + timedelta(days=7),
+        )
+        HomeworkSubmission.objects.create(
+            homework=hw, student=enrolled_student,
+            score=4, total_questions=5, points=8.0, attempt_number=1,
+        )
+
+        do_login(page, live_server.url, enrolled_student)
+        _goto_dashboard(page, live_server.url)
+
+        expect(page.get_by_role("heading", name=re.compile(r"Recent Activity", re.I))).to_be_visible()
+        expect(page.get_by_text("Homework — Fractions Week 3")).to_be_visible()
+        expect(page.get_by_text("4/5 — 8.0pts")).to_be_visible()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_completed_worksheet_is_listed(
+        self, page: Page, live_server, enrolled_student, classroom, school
+    ):
+        from django.utils import timezone
+
+        from worksheets.models import (
+            Worksheet, WorksheetAssignment, WorksheetSubmission,
+        )
+
+        worksheet = Worksheet.objects.create(
+            school=school, name="Shapes Worksheet",
+            original_filename="shapes.pdf", question_count=6,
+        )
+        assignment = WorksheetAssignment.objects.create(
+            worksheet=worksheet, classroom=classroom,
+        )
+        WorksheetSubmission.objects.create(
+            assignment=assignment, student=enrolled_student,
+            score=5, total_questions=6, completed_at=timezone.now(),
+        )
+
+        do_login(page, live_server.url, enrolled_student)
+        _goto_dashboard(page, live_server.url)
+
+        expect(page.get_by_text("Worksheet — Shapes Worksheet")).to_be_visible()
+        expect(page.get_by_text("5/6", exact=True)).to_be_visible()
