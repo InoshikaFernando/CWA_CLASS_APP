@@ -432,6 +432,13 @@ class StudentDashboardView(LoginRequiredMixin, View):
             np_grid = []
 
         # ── Times Tables results ──────────────────────────────────────────────
+        # The colour comes from the student's BEST attempt; the freshness beside
+        # it from their LATEST one. A wall that only showed the best said a
+        # table mastered in March was mastered today — see
+        # maths.times_table_freshness for why that is reported rather than
+        # expired.
+        from maths import times_table_freshness
+        tt_freshness = times_table_freshness.describe_map(request.user)
         tt_results = []
         for table in range(1, 16):
             best_mul = _tt_best(request.user, 'multiplication', table)
@@ -446,6 +453,10 @@ class StudentDashboardView(LoginRequiredMixin, View):
                 ).order_by('-points').first()
             else:
                 best_legacy = None
+            # Legacy rows are normalised to multiplication by describe_map, so
+            # a legacy-only table's × row still gets its freshness.
+            mul_fresh = tt_freshness.get((table, 'multiplication'))
+            div_fresh = tt_freshness.get((table, 'division'))
             tt_results.append({
                 'table': table,
                 'mul': best_mul,
@@ -453,7 +464,14 @@ class StudentDashboardView(LoginRequiredMixin, View):
                 'legacy': best_legacy,
                 'mul_colour': _tt_colour(best_mul if best_mul else best_legacy),
                 'div_colour': _tt_colour(best_div),
+                'mul_fresh': mul_fresh,
+                'div_fresh': div_fresh,
+                'needs_refresh': bool(
+                    (mul_fresh and mul_fresh['needs_refresh'])
+                    or (div_fresh and div_fresh['needs_refresh'])
+                ),
             })
+        tt_refresh_due = times_table_freshness.tables_needing_refresh(tt_freshness)
 
         # ── Recent activity ───────────────────────────────────────────────────
         _activity = []
@@ -504,6 +522,31 @@ class StudentDashboardView(LoginRequiredMixin, View):
                 })
         except (ImportError, Exception):
             pass
+
+        # Homework and worksheets are graded work like any quiz, so they belong
+        # in the same feed — a student who only ever does homework would
+        # otherwise see an empty Recent Activity.
+        from homework.models import HomeworkSubmission
+        for r in HomeworkSubmission.objects.filter(
+            student=request.user,
+        ).select_related('homework').order_by('-submitted_at')[:20]:
+            _activity.append({
+                'completed_at': r.submitted_at,
+                'name': f"📚 Homework — {r.homework.title}",
+                'score_label': f"{r.score}/{r.total_questions} — {r.points:.1f}pts",
+                'pct': r.percentage,
+            })
+
+        from worksheets.models import WorksheetSubmission
+        for r in WorksheetSubmission.objects.filter(
+            student=request.user, completed_at__isnull=False,
+        ).select_related('assignment__worksheet').order_by('-completed_at')[:20]:
+            _activity.append({
+                'completed_at': r.completed_at,
+                'name': f"📝 Worksheet — {r.assignment.worksheet.name}",
+                'score_label': f"{r.score}/{r.total_questions}",
+                'pct': r.percentage,
+            })
 
         _activity.sort(key=lambda x: x['completed_at'], reverse=True)
         recent_activity = _activity[:20]
@@ -622,6 +665,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
             'bf_grid': bf_grid,
             'np_grid': np_grid,
             'tt_results': tt_results,
+            'tt_refresh_due': tt_refresh_due,
             'recent_activity': recent_activity,
             'time_daily': _format_seconds(_daily_secs),
             'time_weekly': _format_seconds(_weekly_secs),

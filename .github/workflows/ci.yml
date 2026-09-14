@@ -404,6 +404,10 @@ jobs:
               - 'cwa_classroom/classroom/**'
               - 'cwa_classroom/coding/**'
               - 'cwa_classroom/help/**'
+              # My Progress lists homework and worksheets in Recent Activity,
+              # so the dashboard tests read both — a homework change can empty
+              # that card without touching a file under classroom/.
+              - 'cwa_classroom/homework/**'
               - 'cwa_classroom/maths/**'
               - 'cwa_classroom/music/**'
               - 'cwa_classroom/number_puzzles/**'

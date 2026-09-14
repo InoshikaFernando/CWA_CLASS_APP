@@ -544,3 +544,122 @@ class ParentProgressModuleActivityTest(ParentProgressTestBase):
         names = [m['module'] for m in resp.context['module_activity']]
         self.assertIn('Maths', names)
         self.assertIn('Number Puzzles', names)
+
+
+class ParentProgressRecentActivityTest(ParentProgressTestBase):
+    """recent_activity on the parent page includes homework and worksheets.
+
+    Regression: the feed read only the self-directed quiz tables, so a parent
+    whose child's class runs on homework and worksheets saw nothing at all.
+    """
+
+    def setUp(self):
+        self._login_parent()
+
+    def _homework(self, title='Fractions Week 3', offset_seconds=0):
+        from datetime import timedelta
+        from django.utils import timezone
+        from classroom.models import ClassRoom
+        from homework.models import Homework, HomeworkSubmission
+
+        classroom = ClassRoom.objects.create(name=f'HW Class {title}', school=self.school)
+        homework = Homework.objects.create(
+            classroom=classroom, title=title, num_questions=5,
+            due_date=timezone.now() + timedelta(days=7),
+        )
+        sub = HomeworkSubmission.objects.create(
+            homework=homework, student=self.student,
+            score=4, total_questions=5, points=8.0, attempt_number=1,
+        )
+        if offset_seconds:
+            HomeworkSubmission.objects.filter(pk=sub.pk).update(
+                submitted_at=timezone.now() - timedelta(seconds=offset_seconds),
+            )
+            sub.refresh_from_db()
+        return sub
+
+    def _worksheet(self, name='Shapes Worksheet', offset_seconds=0, complete=True):
+        from datetime import timedelta
+        from django.utils import timezone
+        from classroom.models import ClassRoom
+        from worksheets.models import (
+            Worksheet, WorksheetAssignment, WorksheetSubmission,
+        )
+
+        classroom = ClassRoom.objects.create(name=f'WS Class {name}', school=self.school)
+        worksheet = Worksheet.objects.create(
+            school=self.school, name=name,
+            original_filename=f'{name}.pdf', question_count=6,
+        )
+        assignment = WorksheetAssignment.objects.create(
+            worksheet=worksheet, classroom=classroom,
+        )
+        sub = WorksheetSubmission.objects.create(
+            assignment=assignment, student=self.student,
+            score=5, total_questions=6,
+        )
+        if complete:
+            WorksheetSubmission.objects.filter(pk=sub.pk).update(
+                completed_at=timezone.now() - timedelta(seconds=offset_seconds),
+            )
+            sub.refresh_from_db()
+        return sub
+
+    def _activity(self):
+        resp = self.client.get(reverse('parent_progress'))
+        self.assertEqual(resp.status_code, 200)
+        return resp.context['recent_activity']
+
+    def test_homework_appears_with_score(self):
+        self._homework(title='Fractions Week 3')
+
+        item = next(i for i in self._activity() if i['type'] == 'homework')
+        self.assertEqual(item['label'], 'Homework – Fractions Week 3')
+        self.assertEqual(item['score'], 4)
+        self.assertEqual(item['total'], 5)
+        self.assertEqual(item['pct'], 80)
+
+    def test_worksheet_appears_with_score(self):
+        self._worksheet(name='Shapes Worksheet')
+
+        item = next(i for i in self._activity() if i['type'] == 'worksheet')
+        self.assertEqual(item['label'], 'Worksheet – Shapes Worksheet')
+        self.assertEqual(item['score'], 5)
+        self.assertEqual(item['total'], 6)
+        self.assertEqual(item['pct'], 83)
+
+    def test_unfinished_worksheet_excluded(self):
+        self._worksheet(name='Half Done', complete=False)
+
+        self.assertEqual(self._activity(), [])
+
+    def test_sorted_newest_first(self):
+        self._worksheet(name='Older WS', offset_seconds=600)
+        self._homework(title='Newer HW', offset_seconds=10)
+
+        activity = self._activity()
+        times = [i['completed_at'] for i in activity]
+        self.assertEqual(times, sorted(times, reverse=True))
+        self.assertEqual(activity[0]['label'], 'Homework – Newer HW')
+
+    def test_another_childs_work_not_included(self):
+        """A different student's homework must not leak into this child's feed."""
+        from datetime import timedelta
+        from django.utils import timezone
+        from classroom.models import ClassRoom
+        from homework.models import Homework, HomeworkSubmission
+
+        other = CustomUser.objects.create_user(
+            'other_s_act', 'wlhtestmails+other_s_act@gmail.com', 'pw',
+        )
+        classroom = ClassRoom.objects.create(name='HW Class Other', school=self.school)
+        homework = Homework.objects.create(
+            classroom=classroom, title='Not Mine', num_questions=5,
+            due_date=timezone.now() + timedelta(days=7),
+        )
+        HomeworkSubmission.objects.create(
+            homework=homework, student=other,
+            score=4, total_questions=5, attempt_number=1,
+        )
+
+        self.assertEqual(self._activity(), [])

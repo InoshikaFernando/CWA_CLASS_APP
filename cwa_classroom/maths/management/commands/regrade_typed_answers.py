@@ -79,21 +79,11 @@ from collections import defaultdict
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
+from maths.answer_key_regrade import grades_from_text
 from maths.models import (
     Question, StudentAnswer, StudentFinalAnswer, TopicLevelStatistics,
     calculate_points,
 )
-
-# Typed answers, graded by Question.grade_text_answer.
-REGRADABLE_TYPES = ('short_answer', 'fill_blank', 'calculation',
-                    'column_operation', 'long_division')
-REGRADABLE_FORMATS = ('text', 'set', 'algebra', 'equation', 'pattern')
-# The two that grade from the question's own numbers rather than its Answer
-# rows. answer_format plays no part in that verdict, so it must not narrow what
-# is re-marked: these are regradable whatever format they were saved with. One
-# missing its numbers grades against its rows like any other typed answer, and
-# the format rule above decides it.
-SELF_GRADED_ARITHMETIC_TYPES = ('column_operation', 'long_division')
 
 
 def typed_answer(entry):
@@ -132,17 +122,12 @@ class Command(BaseCommand):
                                  'command only reports (dry run).')
 
     # ------------------------------------------------------------------
+    # Which typed answers grade_text_answer owns outright lives in
+    # maths.answer_key_regrade, because the same rule decides what the question
+    # editor's Save may re-mark. A rule about who may be awarded a mark must
+    # not have two readings that can drift apart.
     def _regradable(self, question):
-        if question.needs_grading:
-            return False
-        if question.question_type in SELF_GRADED_ARITHMETIC_TYPES:
-            from maths.column_grading import grade_self_graded_arithmetic
-            # None means the question cannot work its own answer out, so it is
-            # graded against its rows and the ordinary rule decides it.
-            if grade_self_graded_arithmetic(question, '') is not None:
-                return True
-        return (question.question_type in REGRADABLE_TYPES
-                and question.answer_format in REGRADABLE_FORMATS)
+        return grades_from_text(question)
 
     def _scan(self, rows, opts):
         """Rows marked wrong whose recorded text the grader now accepts."""
