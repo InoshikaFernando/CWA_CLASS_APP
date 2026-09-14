@@ -65,6 +65,17 @@ bulk-fill script: [`Runbooks/jira-story-points.md`](Runbooks/jira-story-points.m
   filtering never narrowed anything. `shared` therefore lists the package file
   by file; `tests_workflows.py` fails the build if a new module there goes
   unwatched, or if the version drifts back into `settings.py`.
+- **Seed/reference data ships in a data migration, never in a management
+  command alone.** A deploy runs `migrate`, `collectstatic` and a restart — it
+  never runs a management command, so command-only seed data does not exist on
+  any server. This is not theoretical: French/Mandarin/Japanese/Korean, and
+  seven whole Tamil topics, merged to `dev` and were invisible there while every
+  deploy reported migrations applied OK. It reads like "the deploy didn't
+  migrate"; it never is. CI cannot catch it either — `conftest.py` builds the
+  SQLite test database straight from the models, so no `RunPython` has ever run
+  under pytest. The `fresh-db-migrate` job (MySQL, migrate from zero, then
+  `check_language_seed`) is the only thing that does. Convention, checklist and
+  the diagnosis order: [`Runbooks/seed-data-migrations.md`](Runbooks/seed-data-migrations.md).
 - No silent failure — surface errors (blank data, swallowed 4xx, no-op commands)
   rather than hiding them.
 

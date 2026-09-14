@@ -26,6 +26,7 @@ CWA Classroom is a Django 4.2 monolith:
 | [`pdf-extraction-benchmark.md`](pdf-extraction-benchmark.md) | Measure PDF extraction over a corpus of real papers before/after a logic change — crop path, page-role detection, answer-key reading, and (with `--live`) how often the AI's answers match the paper's own key. Manual; never runs in CI. |
 | [`github-ticket-implementation.md`](github-ticket-implementation.md) | Agent workflow for taking one issue/ticket from "assigned" to merged-and-verified: implement, test, PR, watch CI, deploy-verify, close. |
 | [`jira-task-dates.md`](jira-task-dates.md) | Convention for setting a Jira task's Start date when you begin and End date when you finish, plus the one-time backfill rule for historical *Done* tasks (start = first comment date, end = done date). |
+| [`seed-data-migrations.md`](seed-data-migrations.md) | Reference/seed data (languages, subjects, currencies, default rows) must ship in a data migration — a deploy runs `migrate`, never a management command. Read before adding seed data, or when a merged feature is invisible on dev/test/prod. |
 | [`jira-story-points.md`](jira-story-points.md) | Standard story-point estimation scheme (Story=3, Task=2, Subtask=skip) so the burndown trends down, plus the idempotent bulk-fill script for unestimated issues. |
 
 ## Conventions used across these runbooks

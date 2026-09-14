@@ -6,8 +6,20 @@ on:
   # nothing new while costing a second full matrix per release.
   push:
     branches: [test]
+  # `dev` is here because it is a DEPLOYED environment: deploy-dev.yml ships
+  # every push to `dev` to the dev site. It was missing, and the Languages app —
+  # developed entirely on `dev`, never merged to `test` — was therefore built
+  # and deployed without CI ever running on it. That is how a subject app
+  # shipped with seed data no migration created: a PR into `dev` got no checks
+  # at all, and a PR showing no checks looks exactly like a PR that passed.
+  #
+  # PR validation only, deliberately not `push:`. A push to `dev` would run the
+  # FULL matrix (the push escape ignores the path filters), ~65 billed minutes
+  # per merge, and this account has hit its Actions spending limit once already
+  # — which stopped a production deploy. The path-filtered PR run is the cheap
+  # 90%; `test` remains the unfiltered gate.
   pull_request:
-    branches: [main, test]
+    branches: [main, test, dev]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -84,6 +96,7 @@ jobs:
       usage: ${{ steps.filter.outputs.usage }}
       rewards: ${{ steps.filter.outputs.rewards }}
       languages: ${{ steps.filter.outputs.languages }}
+      migrations: ${{ steps.filter.outputs.migrations }}
       ui_core: ${{ steps.filter.outputs.ui_core }}
       ui_billing: ${{ steps.filter.outputs.ui_billing }}
       ui_brainbuzz: ${{ steps.filter.outputs.ui_brainbuzz }}
@@ -272,6 +285,14 @@ jobs:
               - 'cwa_classroom/templates/hub/**'
             languages:
               - 'cwa_classroom/languages/**'
+            # Fresh-database migrate job. Watches anything that can change what a
+            # migrate from zero does: the migration files themselves, the seed
+            # data they read, and the models they build the schema from.
+            migrations:
+              - 'cwa_classroom/*/migrations/**'
+              - 'cwa_classroom/languages/seed_data.py'
+              - 'cwa_classroom/*/models.py'
+              - 'cwa_classroom/requirements.txt'
             # ---- UI (Playwright) --------------------------------------------
             # One filter per ui_tests/<group>/ package. The names MUST stay in
             # lockstep with the directories on disk — tests_workflows.py fails
@@ -788,6 +809,93 @@ jobs:
       - name: Check templates print no developer notes
         working-directory: cwa_classroom
         run: pytest tests_templates.py -q --tb=short
+
+  # Data migrations are invisible to every other job here. conftest.py builds
+  # the SQLite test database straight from the models (django_db_use_migrations
+  # returns False on SQLite), so no RunPython in this repository has ever
+  # executed under pytest — the suites verify what the models can do, never what
+  # a deployed database actually contains.
+  #
+  # That is how the Languages seed data went missing. French/Mandarin/Japanese/
+  # Korean were added to the seed_language_exercises management command with no
+  # migration, and deploy.sh runs `migrate`, never a management command, so the
+  # rows were never created on dev. Migrations ran green on every deploy. The
+  # same thing had quietly been happening to English/Sinhala/Tamil since 0010
+  # froze its own copy of them in June — seven whole Tamil topics had never
+  # reached a server.
+  #
+  # This job builds a database the way a deploy does: MySQL (the production
+  # backend, and the only one the raw-SQL migrations in billing/homework/
+  # classroom can run on at all), from zero, through every migration in order.
+  # Then it asserts the reference data actually landed. It is the only place
+  # that runs the migration chain end to end.
+  fresh-db-migrate:
+    name: Fresh-database Migrate (MySQL)
+    needs: changes
+    if: ${{ (needs.changes.outputs.release != 'true' || needs.changes.outputs.release_validated != 'true') && (github.event_name == 'push' || needs.changes.outputs.migrations == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30   # ~4min
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: cwa_classroom
+        ports:
+          - 3306:3306
+        # Migrations start the moment the container answers, and an unready
+        # MySQL fails them in ways that read like a broken migration.
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      DB_ENGINE: mysql
+      DB_NAME: cwa_classroom
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: cwa_classroom/requirements.txt
+
+      # mysqlclient builds against the client library; it is not in
+      # requirements-test.txt because the pytest suites run on SQLite.
+      - name: Install MySQL client headers
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends default-libmysqlclient-dev pkg-config
+
+      # requirements.txt, not requirements-test.txt: this job mirrors what
+      # scripts/deploy.sh installs, so a dependency a migration imports is
+      # caught here rather than on the droplet.
+      - name: Install dependencies
+        run: pip install -r cwa_classroom/requirements.txt
+
+      - name: Migrate a database from zero
+        working-directory: cwa_classroom
+        run: python manage.py migrate --noinput -v 1
+
+      # `migrate` exiting 0 only means no migration raised. It says nothing
+      # about whether a data migration put anything in the database, which is
+      # the failure that started all this.
+      - name: Verify the seed data actually landed
+        working-directory: cwa_classroom
+        run: python manage.py check_language_seed
+
+      # Replaying on an already-migrated database must be a no-op. Deploys
+      # re-run `migrate` every time, so a seeder that duplicates rows on a
+      # second pass would grow the table on every deploy.
+      - name: Re-run migrate and re-check (idempotence)
+        working-directory: cwa_classroom
+        run: |
+          python manage.py migrate --noinput
+          python manage.py check_language_seed
 
   # A release PR (test -> main) merges `test` into `main` unchanged, so its tree
   # is normally byte-identical to the one the full matrix just ran on `test`.
