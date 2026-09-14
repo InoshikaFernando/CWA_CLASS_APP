@@ -229,3 +229,45 @@ def test_a_name_rule_beats_a_namespace_rule():
     owner = registry.module_for_route('homework', 'schedule_list')
     assert owner in registry.members_of('question_automation')
     assert registry.module_for_route('homework', 'homework_detail') is None
+
+
+
+# ---------------------------------------------------------------------------
+# Shadow mode's deliverable is *who*, not just *what*
+# ---------------------------------------------------------------------------
+
+def _would_deny_rows():
+    from audit.models import AuditLog
+    return AuditLog.objects.filter(action='module_access_would_deny')
+
+
+@override_settings(MODULE_ENFORCEMENT='shadow')
+def test_a_would_be_denial_names_the_school(client, school_student):
+    """Sixteen would-be denials were recorded on production and every one read
+    "(no school)", because _record passed only the user. So the log could say
+    worksheets and invoicing would break, and not for whom — leaving the
+    decision to switch enforcement on with no way to tell whether it would lock
+    a paying school out of a feature it uses daily."""
+    student, school = school_student
+    client.force_login(student)
+
+    client.get(reverse('worksheets:student_list'))
+
+    row = _would_deny_rows().first()
+    assert row is not None, 'nothing was recorded at all'
+    assert row.school == school
+
+
+@override_settings(MODULE_ENFORCEMENT='enforce')
+def test_a_real_denial_names_the_school_too(client, school_student):
+    """Under enforce these rows are support tickets. Anonymous ones cannot be
+    answered."""
+    from audit.models import AuditLog
+    student, school = school_student
+    client.force_login(student)
+
+    client.get(reverse('worksheets:student_list'))
+
+    row = AuditLog.objects.filter(action='module_access_denied').first()
+    assert row is not None
+    assert row.school == school
