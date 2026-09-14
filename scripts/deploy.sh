@@ -90,7 +90,15 @@ echo "==> Collecting static files..."
 "${VENV_DIR}/bin/python" "${APP_DIR}/manage.py" collectstatic --noinput --clear
 
 echo "==> Running deploy checks..."
-"${VENV_DIR}/bin/python" "${APP_DIR}/manage.py" check --deploy 2>&1 || true
+# No `|| true`: under `set -e` a failing check now aborts the deploy BEFORE
+# gunicorn is restarted, so the previous release keeps serving instead of a
+# misconfigured one going live. That matters most for a missing SECRET_KEY,
+# which settings.py now raises on when DEBUG is off.
+#
+# Warnings still exit 0 and stay advisory. Promoting them to failures with
+# `--fail-level WARNING` needs SECURE_HSTS_SECONDS set first, or security.W004
+# (HSTS not configured) would fail every deploy on its own.
+"${VENV_DIR}/bin/python" "${APP_DIR}/manage.py" check --deploy 2>&1
 
 echo "==> Restarting ${SERVICE}..."
 sudo systemctl restart "$SERVICE"

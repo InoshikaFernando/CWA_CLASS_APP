@@ -19,6 +19,8 @@ from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / '.env', override=True)
@@ -33,11 +35,27 @@ load_dotenv(BASE_DIR / '.env', override=True)
 # path filtering never narrowed anything. See cwa_classroom/version.py.
 from .version import APP_VERSION, APP_VERSION_DATE  # noqa: F401
 
-SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
+# This fallback is a PUBLIC value: the repository is open source, so anyone
+# can read it. An environment running with DEBUG off must supply a real
+# SECRET_KEY or its session cookies and password-reset tokens are forgeable
+# by anyone. Guarded rather than removed, because CI and local dev run on the
+# fallback deliberately (ci.yml sets only DB_ENGINE, so DEBUG stays on there).
+_SECRET_KEY_FALLBACK = 'change-me-in-production'
+SECRET_KEY = os.environ.get('SECRET_KEY', _SECRET_KEY_FALLBACK)
 
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,test-cwa-class-avinesh.pythonanywhere.com').split(',')
+if not DEBUG and SECRET_KEY == _SECRET_KEY_FALLBACK:
+    raise ImproperlyConfigured(
+        'SECRET_KEY is unset and the development fallback is publicly known '
+        '(this repository is open source). Set SECRET_KEY in the environment '
+        'file (/etc/cwa/cwa.env on the droplet) before running with '
+        'DEBUG=False.'
+    )
+
+# Local-dev default only; every deployed environment sets ALLOWED_HOSTS.
+# (The old PythonAnywhere host is gone — both sites run on DigitalOcean.)
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 CSRF_TRUSTED_ORIGINS = [
     f'https://{host}' for host in ALLOWED_HOSTS if host not in ('localhost', '127.0.0.1')
@@ -814,7 +832,7 @@ SITE_NAME = os.environ.get('SITE_NAME', 'Wizards Learning Hub')
 SITE_DESCRIPTION = 'A comprehensive educational platform for students ages 6-12.'
 # Auto-derive from ALLOWED_HOSTS when SITE_URL env var is not set:
 #   local  → http://localhost:8000
-#   test   → https://test-cwa-class-avinesh.pythonanywhere.com
+#   test   → https://test.wizardslearninghub.co.nz
 #   prod   → https://<prod-domain>
 def _default_site_url():
     for host in ALLOWED_HOSTS:
