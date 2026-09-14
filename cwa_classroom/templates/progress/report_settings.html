@@ -40,6 +40,25 @@
       staff to send them from
       <a href="{% url 'progress:report_preview' %}" class="text-indigo-600 hover:underline">Preview Reports</a>.
     </span>
+    <span class="block mt-2" data-testid="coverage-note">
+      {% if outreach.whole_school %}
+        <b class="text-slate-800">Coverage:</b> every active student in
+        {{ school.name }} is covered, not only those in a reporting class.
+        Students with nothing to show
+        {% if outreach.email_parents_no_data %}
+          have their parents emailed the reason — no active subscription, or no
+          work done in the period.
+        {% else %}
+          are listed in the preview, but <b>nobody is emailed</b>: the note is
+          switched off below.
+        {% endif %}
+      {% else %}
+        <b class="text-slate-800">Coverage:</b> only students in a class with
+        the report switched on. Everyone else — no subscription, no reporting
+        class, nothing done — hears nothing. Switch
+        <i>Cover every student in the school</i> on below to change that.
+      {% endif %}
+    </span>
   </div>
 
   {# ---- School ---- #}
@@ -50,7 +69,7 @@
       {% csrf_token %}
       <input type="hidden" name="scope" value="school">
       <input type="hidden" name="school_id" value="{{ school.id }}">
-      {% include "progress/_setting_switches.html" with row=school_row switch_groups=switch_groups %}
+      {% include "progress/_setting_switches.html" with row=school_row switch_groups=school_switch_groups %}
       <button type="submit"
               class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
         Save school settings

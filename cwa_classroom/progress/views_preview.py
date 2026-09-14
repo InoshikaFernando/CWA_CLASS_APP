@@ -20,6 +20,7 @@ from django.views import View
 from accounts.models import Role
 from audit.services import log_event
 from classroom.models import ClassRoom, Department
+from billing import selectors as billing_selectors
 from billing.mixins import ModuleRequiredMixin
 from billing.models import ModuleSubscription
 from classroom.views import RoleRequiredMixin
@@ -30,6 +31,7 @@ from progress.reports import build_report_data
 from progress.services import (
     classrooms_for_period, run_period, students_for_period,
 )
+from progress import outreach
 from progress.views_reports import DETAIL_TEMPLATE, report_detail_context
 from progress.views_settings import _schools_for
 
@@ -191,6 +193,51 @@ def _preview_row(student, entry, subject, class_ids, period_type, start, end,
     }
 
 
+def _no_data_rows(school, rows, period_type, start, classroom, subscribed_only):
+    """The whole-school cohort, for the school that asked to cover it (CPP-422).
+
+    Returned as its own list rather than mixed into *rows*: those are one per
+    student PER SUBJECT, and this cohort has no subject — a student in no
+    reporting class has nothing for a report to be about. One row per student,
+    which is also exactly how many notes get sent.
+
+    Empty in the two scopes the send itself skips (see
+    ``progress.services._run_outreach``): a single-class preview and a
+    subscribed-only one. Showing a cohort the button would not mail is the
+    precise disagreement between page and send that this page exists to avoid.
+    """
+    from progress.models import PeriodReportNotice
+
+    if classroom is not None or subscribed_only:
+        return []
+    if not report_settings.covers_whole_school(school):
+        return []
+
+    with_activity = {row['student'].id for row in rows if row['has_activity']}
+    cohort = outreach.no_data_cohort(school, with_activity)
+    if not cohort:
+        return []
+
+    already = set(
+        PeriodReportNotice.objects
+        .filter(
+            student_id__in=[student.id for student, _reason in cohort],
+            period_type=period_type, period_start=start,
+        )
+        .values_list('student_id', flat=True)
+    )
+    return [
+        {
+            'student': student,
+            'reason': reason,
+            'reason_label': outreach.REASON_LABELS[reason],
+            'no_subscription': reason == outreach.REASON_NO_SUBSCRIPTION,
+            'already_sent': student.id in already,
+        }
+        for student, reason in cohort
+    ]
+
+
 class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """What would be sent, for every student in scope, before it is sent."""
 
@@ -279,6 +326,13 @@ class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
                     )
 
         with_activity = [row for row in rows if row['has_activity']]
+        no_data_rows = (
+            _no_data_rows(
+                school, rows, period_type, start, classroom, subscribed_only,
+            )
+            if start is not None else []
+        )
+        outreach_flags = report_settings.outreach(school)
         return render(request, 'progress/report_preview.html', {
             'school': school,
             'schools': schools,
@@ -299,6 +353,12 @@ class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
             'rows': rows,
             'empty_reason': empty_reason,
             'with_activity_count': len(with_activity),
+            'no_data_rows': no_data_rows,
+            'whole_school': outreach_flags['whole_school'],
+            'email_no_data': outreach_flags['email_parents_no_data'],
+            'discount_code': (
+                billing_selectors.school_discount_offer(school)[0] or ''
+            ),
             'average': (
                 round(sum(r['totals']['overall_avg_pct'] for r in with_activity)
                       / len(with_activity))
@@ -358,11 +418,17 @@ class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 'generated': counts['generated'],
                 'notified': counts['notified'],
                 'emailed': counts['emailed'],
+                'notices': counts['notices'],
+                'notices_emailed': counts['notices_emailed'],
             },
             request=request,
         )
 
-        if not counts['classes']:
+        # Whole-school coverage can make a run meaningful even when no class
+        # produced a report, so the "nothing was sent" warnings below have to
+        # consider it — otherwise a run that mailed forty families reports
+        # itself as a no-op.
+        if not counts['classes'] and not counts['notices']:
             # With the filter on, an empty run has a second cause — the classes
             # are switched on but hold nobody subscribed — and sending staff to
             # Report Automation for that is sending them to a correct setting.
@@ -382,13 +448,26 @@ class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
                     'first.',
                 )
         else:
-            messages.success(
-                request,
+            summary = (
                 f'{counts["period"]}: generated {counts["generated"]} report(s) '
                 f'for {counts["students"]} student(s); '
                 f'{counts["notified"]} notified, '
-                f'{counts["emailed"]} parent email(s).',
+                f'{counts["emailed"]} parent email(s).'
             )
+            if counts['notices']:
+                summary += (
+                    f' {counts["notices"]} student(s) had nothing to show; '
+                    f'{counts["notices_emailed"]} note(s) sent to '
+                    f'{counts["notices_recipients"]} parent address(es).'
+                )
+            if counts['notices_undelivered']:
+                # Said out loud rather than folded into the count above: a note
+                # that reached nobody is the silence this feature exists to end.
+                summary += (
+                    f' {counts["notices_undelivered"]} reached nobody — '
+                    f'no parent email on file, or delivery failed.'
+                )
+            messages.success(request, summary)
 
         target = f'?school={school.id}&period={period_type}'
         if classroom:
