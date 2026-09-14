@@ -448,6 +448,80 @@ def _generate_times_tables_questions(table, operation, count=12, shuffle=False):
     return questions
 
 
+def _times_tables_tiles(student, available_tables):
+    """One dict per tile on the picker: whether it is unlocked, and how it went.
+
+    This page used to offer twelve identical doors. It said nothing about which
+    tables the student had already nailed, which they had never opened, and —
+    the point of this function — which ones they last did so long ago that the
+    score no longer says much. A "you haven't practised this for a while" nudge
+    needs somewhere to sit, and until now the tile showed no result to sit
+    beside.
+
+    Best result per operation, freshness from the LATEST attempt, and the
+    per-operation *best* is the shuffled one where the student has one, matching
+    what the dashboard wall shows (``classroom.views._tt_best``).
+    """
+    from maths import times_table_freshness
+    from maths.models import StudentFinalAnswer
+
+    # Best % per (table, operation), one query. The picker wants "how well do I
+    # know this table", so it reads the highest score rather than the
+    # highest-points run, which trades accuracy off against speed.
+    best = {}
+    rows = (
+        StudentFinalAnswer.objects
+        .filter(
+            student=student,
+            quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
+            table_number__isnull=False,
+        )
+        .values('table_number', 'operation', 'score', 'total_questions')
+    )
+    for row in rows:
+        if not row['total_questions']:
+            continue
+        # Legacy rows saved no operation; they are multiplication attempts, the
+        # same reading times_table_freshness and progress.reports take.
+        operation = row['operation'] or times_table_freshness.MULTIPLICATION
+        pct = round(row['score'] / row['total_questions'] * 100)
+        key = (row['table_number'], operation)
+        if pct > best.get(key, -1):
+            best[key] = pct
+
+    freshness = times_table_freshness.describe_map(student)
+
+    tiles = []
+    for table in range(1, MAX_TIMES_TABLE + 1):
+        mul_key = (table, times_table_freshness.MULTIPLICATION)
+        div_key = (table, times_table_freshness.DIVISION)
+        mul_fresh = freshness.get(mul_key)
+        div_fresh = freshness.get(div_key)
+        # The tile carries ONE date — the last time this table was touched at
+        # all — so the two operations' freshness is reduced here rather than in
+        # the template, where a missing half is an unresolvable lookup.
+        attempted = [f for f in (mul_fresh, div_fresh) if f]
+        latest = min(attempted, key=lambda f: f['days']) if attempted else None
+        tiles.append({
+            'table': table,
+            'unlocked': table in available_tables,
+            'mul_pct': best.get(mul_key),
+            'div_pct': best.get(div_key),
+            'mul_fresh': mul_fresh,
+            'div_fresh': div_fresh,
+            'ago': latest['ago'] if latest else None,
+            'wash': latest['wash'] if latest else '',
+            'needs_refresh': bool(
+                (mul_fresh and mul_fresh['needs_refresh'])
+                or (div_fresh and div_fresh['needs_refresh'])
+            ),
+        })
+    # Locked tables cannot be practised, so nudging about them would be a
+    # chore the student has no way to do. Only unlocked ones are counted.
+    refresh_due = [t['table'] for t in tiles if t['unlocked'] and t['needs_refresh']]
+    return tiles, refresh_due
+
+
 class TimesTablesHomeView(LoginRequiredMixin, View):
     def get(self, request):
         # Determine student's year level from their hub classrooms
@@ -460,10 +534,13 @@ class TimesTablesHomeView(LoginRequiredMixin, View):
                 year = hub_levels.order_by('-level_number').first().level_number
 
         available_tables = times_tables_for_year(year)
+        tiles, refresh_due = _times_tables_tiles(request.user, available_tables)
 
         return render(request, 'quiz/times_tables_select.html', {
             'available_tables': available_tables,
             'all_tables': range(1, MAX_TIMES_TABLE + 1),
+            'tiles': tiles,
+            'refresh_due': refresh_due,
             'year': year,
         })
 
@@ -473,10 +550,13 @@ class TimesTablesSelectView(LoginRequiredMixin, View):
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
         year = level_number
         available = times_tables_for_year(year)
+        tiles, refresh_due = _times_tables_tiles(request.user, available)
         return render(request, 'quiz/times_tables_select.html', {
             'level': level, 'operation': operation,
             'available_tables': available,
             'all_tables': range(1, MAX_TIMES_TABLE + 1),
+            'tiles': tiles,
+            'refresh_due': refresh_due,
             'year': year,
         })
 
