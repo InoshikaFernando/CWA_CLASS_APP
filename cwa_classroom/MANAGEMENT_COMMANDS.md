@@ -105,6 +105,25 @@ python manage.py student_modules --grant ai_grading --user ada   # sell it back
 python manage.py student_modules --revoke basic --user ada
 ```
 
+### `free_trial_code`
+Mint the code that gives a cohort a fixed, free, card-free run of the app — the
+MHM promotion. Sets the three fields that have to agree and each fail quietly on
+their own: 100% off (so Stripe is never reached and no card is asked for),
+`grant_days` (so the access actually ends), and `grants_student_basic` (so the
+AI-graded questions are left out). When the window closes the student is walled
+and asked to subscribe; paying revokes Student Basic and hands them the
+AI-graded questions automatically.
+
+Re-running updates the code in place. It cannot add the Student Basic tier to a
+code students already hold — that would change what those students get the next
+time their subscription is activated — and says so rather than doing it.
+```bash
+python manage.py free_trial_code --code MHM2WEEKS --dry-run
+python manage.py free_trial_code --code MHM2WEEKS --max-uses 200
+python manage.py free_trial_code --code MHM-TERM4 --days 21 --expires 2026-12-19
+python manage.py free_trial_code --code MHM2WEEKS --deactivate  # stop new sign-ups
+```
+
 ### `promo_code_doctor`
 Report whether each Student (Promo) code has actually taken effect for anybody.
 Read-only — it writes nothing, so it is safe against production. Separates a

@@ -635,6 +635,27 @@ class IndividualStudentRegisterView(View):
             return render(request, 'accounts/register_individual_student.html', ctx)
 
 
+def _free_access_has_ended(sub):
+    """Did this student get here off the end of free access, rather than a trial?
+
+    Decides which of the two headings the wall shows, and "Trial Expired" is the
+    wrong one for somebody who never had a trial. ``is_promo_activated`` alone
+    could not tell: it reads ``promo_code_used``, which only a ``PromoCode``
+    writes. A ``DiscountCode`` — the kind handed out for a school cohort, and
+    the kind that carries the Student Basic tier — leaves a foreign key instead,
+    so every student on that promotion was told their trial had expired.
+
+    Only a code that took the WHOLE price counts. A partial code is a discount
+    on a subscription the student pays for; when that lapses they are an
+    ordinary expired subscriber, not somebody whose free run ended.
+    """
+    if sub.is_promo_activated:
+        return True
+    if sub.discount_percent_snapshot == 100:
+        return True
+    return bool(sub.discount_code_id and sub.discount_code.is_fully_free)
+
+
 class TrialExpiredView(View):
     def get(self, request):
         from billing.models import Package, Subscription
@@ -648,7 +669,7 @@ class TrialExpiredView(View):
                 sub = request.user.subscription
                 if sub and sub.status == Subscription.STATUS_PAST_DUE:
                     reason = 'payment_failed'
-                elif sub and sub.is_promo_activated:
+                elif sub and _free_access_has_ended(sub):
                     reason = 'promo_ended'
             except Subscription.DoesNotExist:
                 pass
@@ -1001,6 +1022,10 @@ class CompleteProfileView(LoginRequiredMixin, View):
 
         # School students need payment or a fully-free code to activate
         if user.is_student:
+            from datetime import timedelta
+
+            from django.utils import timezone
+
             from billing.models import Package, Subscription
 
             package = self._get_student_package()
@@ -1050,6 +1075,19 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     # report a code they never had.
                     if redeemed:
                         sub.discount_percent_snapshot = redeemed.discount_percent
+                    # How long the code said the access lasts. ``grant_days``
+                    # was read on every OTHER redemption route and ignored on
+                    # this one, so a fourteen-day promotion handed a school
+                    # student permanent free access — the field was set on the
+                    # code, shown in the admin, and silently dropped here.
+                    #
+                    # A code that names no window still gets none: a free plan
+                    # runs indefinitely, and writing a date on one would end
+                    # access nobody said should end.
+                    if redeemed and redeemed.grant_days:
+                        sub.trial_end = (
+                            timezone.now()
+                            + timedelta(days=redeemed.grant_days))
                     sub.save()
                     # A code the owner flagged as a Student Basic promotion
                     # puts the student on that tier. Read off the subscription,
@@ -1150,11 +1188,25 @@ class CompleteProfilePaymentSuccessView(LoginRequiredMixin, View):
     """
     Landing page after Stripe Checkout for a school student completing their profile.
     Marks the profile as complete now that payment has been confirmed.
-    The subscription itself is created/activated by the checkout webhook handler.
+
+    The subscription is normally created/activated by the checkout webhook. This
+    page activates it too, from the checkout session, for the times the webhook
+    is late or never arrives — the same safety net the individual-student
+    success page has always had, and the school student had none of. It matters
+    most to a student coming off a free promotion: the activation is what
+    revokes Student Basic and hands them the AI-graded questions they have just
+    paid for, so losing it means they paid and nothing changed.
+
+    Idempotent: the webhook and this page can both run, and the result is one
+    activated subscription on one tier.
     """
 
     def get(self, request):
         user = request.user
+        session_id = request.GET.get('session_id', '')
+        if session_id:
+            from billing.views import CheckoutSuccessView
+            CheckoutSuccessView._activate_from_session(user, session_id)
         if not user.profile_completed:
             user.profile_completed = True
             user.save(update_fields=['profile_completed'])
