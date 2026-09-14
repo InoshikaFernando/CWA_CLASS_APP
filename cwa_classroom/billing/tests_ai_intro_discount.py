@@ -45,22 +45,47 @@ def _catalogue():
         })
 
 
-def _subscription_with(coupon_id=None):
-    """A Stripe subscription object as the API would hand it back."""
-    sub = MagicMock()
+def _price_to_product(price_id, **kwargs):
+    """Stripe's answer for "which product is this price on?".
+
+    Scopes are built from what Stripe reports, never from the price id, because
+    the two product-creation paths give different id shapes.
+    """
+    return {'id': price_id, 'product': f'prod_for_{price_id}'}
+
+
+AI_IMPORT_PRODUCTS = [
+    'prod_for_price_ai_import_starter',
+    'prod_for_price_ai_import_professional',
+    'prod_for_price_ai_import_enterprise',
+]
+
+
+def _subscription_with(coupon_id=None, applies_to=None):
+    """A Stripe subscription as the API hands it back.
+
+    ``applies_to`` is the coupon's product scope; None means it discounts
+    everything, which is the state that blocks every other discount.
+    """
     if coupon_id is None:
-        sub.discount = None
-    else:
-        sub.discount = MagicMock()
-        sub.discount.coupon = MagicMock()
-        sub.discount.coupon.id = coupon_id
-    return sub
+        return {'discounts': [], 'discount': None}
+    coupon = {'id': coupon_id}
+    if applies_to is not None:
+        coupon['applies_to'] = {'products': list(applies_to)}
+    return {'discounts': [{'coupon': coupon}], 'discount': None}
 
 
 class CouponTermsTests(TestCase):
 
     def setUp(self):
         _catalogue()
+        # Scopes are built by asking Stripe which product each price is on, so
+        # every test here needs that answer — and none of them should reach the
+        # network to get it.
+        price_patcher = patch('billing.stripe_service.stripe.Price.retrieve',
+                              side_effect=_price_to_product)
+        price_patcher.start()
+        self.addCleanup(price_patcher.stop)
 
     @patch('billing.stripe_service.stripe.Coupon.create')
     @patch('billing.stripe_service.stripe.Coupon.retrieve', side_effect=_no_such_coupon())
@@ -86,11 +111,38 @@ class CouponTermsTests(TestCase):
         stripe_service.ensure_ai_intro_coupon()
 
         products = create.call_args.kwargs['applies_to']['products']
-        self.assertCountEqual(products, [
-            'module_ai_import_starter',
-            'module_ai_import_professional',
-            'module_ai_import_enterprise',
-        ])
+        self.assertCountEqual(products, AI_IMPORT_PRODUCTS)
+
+    @patch('billing.stripe_service.stripe.Coupon.create')
+    @patch('billing.stripe_service.stripe.Coupon.retrieve', side_effect=_no_such_coupon())
+    def test_the_scope_is_what_stripe_reports_not_a_guessed_id(
+        self, retrieve, create,
+    ):
+        """The scope used to be assumed as ``module_<slug>``, which is only the
+        id sync_module_to_stripe creates. Production's AI import products came
+        from sync_stripe_prices with generated ids, so the guess named products
+        that did not exist — and Stripe rejects a coupon scoped to those. That
+        is why this coupon was never created in production at all.
+        """
+        create.return_value = MagicMock(id='c')
+
+        stripe_service.ensure_ai_intro_coupon()
+
+        products = create.call_args.kwargs['applies_to']['products']
+        for guessed in ('module_ai_import_starter', 'module_ai_import_professional',
+                        'module_ai_import_enterprise'):
+            self.assertNotIn(guessed, products)
+
+    @patch('billing.stripe_service.stripe.Coupon.create')
+    @patch('billing.stripe_service.stripe.Coupon.retrieve', side_effect=_no_such_coupon())
+    def test_unreadable_prices_narrow_the_scope_rather_than_widening_it(
+        self, retrieve, create,
+    ):
+        """A scope we cannot confirm must never fall back to "everything"."""
+        with patch('billing.stripe_service.stripe.Price.retrieve',
+                   side_effect=stripe.error.InvalidRequestError('No such price', 'id')):
+            self.assertIsNone(stripe_service.ensure_ai_intro_coupon())
+        create.assert_not_called()
 
     @patch('billing.stripe_service.stripe.Coupon.create')
     @patch('billing.stripe_service.stripe.Coupon.retrieve', side_effect=_no_such_coupon())
@@ -126,6 +178,13 @@ class ApplyDiscountTests(TestCase):
 
     def setUp(self):
         _catalogue()
+        # Scopes are built by asking Stripe which product each price is on, so
+        # every test here needs that answer — and none of them should reach the
+        # network to get it.
+        price_patcher = patch('billing.stripe_service.stripe.Price.retrieve',
+                              side_effect=_price_to_product)
+        price_patcher.start()
+        self.addCleanup(price_patcher.stop)
         admin = CustomUser.objects.create_user('a', 'a@t.internal', 'pw1!')
         school = School.objects.create(name='S', slug='s', admin=admin)
         plan = InstitutePlan.objects.create(
@@ -155,7 +214,9 @@ class ApplyDiscountTests(TestCase):
     @patch('billing.stripe_service.stripe.Coupon.retrieve')
     @patch('billing.stripe_service.stripe.Subscription.modify')
     @patch('billing.stripe_service.stripe.Subscription.retrieve')
-    def test_a_clean_subscription_gets_the_discount(self, retrieve, modify, coupon):
+    def test_a_clean_subscription_gets_the_discount(
+        self, retrieve, modify, coupon,
+    ):
         retrieve.return_value = _subscription_with(None)
         coupon.return_value = MagicMock(id=stripe_service.ai_intro_coupon_id())
 
@@ -164,15 +225,20 @@ class ApplyDiscountTests(TestCase):
         self.assertTrue(applied)
         self.assertIsNone(error)
         modify.assert_called_once_with(
-            'sub_123', coupon=stripe_service.ai_intro_coupon_id(),
+            'sub_123',
+            discounts=[{'coupon': stripe_service.ai_intro_coupon_id()}],
         )
 
+    @patch('billing.stripe_service.stripe.Coupon.retrieve')
     @patch('billing.stripe_service.stripe.Subscription.modify')
     @patch('billing.stripe_service.stripe.Subscription.retrieve')
-    def test_a_tier_switch_does_not_restart_the_year(self, retrieve, modify):
+    def test_a_tier_switch_does_not_restart_the_year(
+        self, retrieve, modify, coupon,
+    ):
         """Starter → Professional in month 5 still ends at month 12."""
+        coupon.return_value = MagicMock(id=stripe_service.ai_intro_coupon_id())
         retrieve.return_value = _subscription_with(
-            stripe_service.ai_intro_coupon_id())
+            stripe_service.ai_intro_coupon_id(), applies_to=AI_IMPORT_PRODUCTS)
 
         applied, error = stripe_service.apply_ai_intro_discount(self.sub)
 
@@ -180,21 +246,78 @@ class ApplyDiscountTests(TestCase):
         self.assertIsNone(error)
         modify.assert_not_called()
 
+    @patch('billing.stripe_service.stripe.Coupon.retrieve')
     @patch('billing.stripe_service.stripe.Subscription.modify')
     @patch('billing.stripe_service.stripe.Subscription.retrieve')
-    def test_an_existing_discount_is_never_overwritten(self, retrieve, modify):
-        """Setting a coupon on a subscription REPLACES the one already there.
+    def test_an_existing_discount_is_never_overwritten(
+        self, retrieve, modify, coupon,
+    ):
+        """Their negotiated deal must survive. It is added beside, never
+        replaced — losing it would be invisible and irreversible."""
+        coupon.return_value = MagicMock(id=stripe_service.ai_intro_coupon_id())
+        retrieve.return_value = _subscription_with(
+            'their-own-deal', applies_to=['prod_plan_platinum'])
 
-        An institute that registered on a negotiated discount code would trade
-        it for this one, with nothing recording what was lost.
-        """
-        retrieve.return_value = _subscription_with('their-own-deal')
+        stripe_service.apply_ai_intro_discount(self.sub)
+
+        sent = modify.call_args.kwargs['discounts']
+        self.assertEqual(sent[0], {'coupon': 'their-own-deal'})
+
+    @patch('billing.stripe_service.stripe.Coupon.retrieve')
+    @patch('billing.stripe_service.stripe.Subscription.modify')
+    @patch('billing.stripe_service.stripe.Subscription.retrieve')
+    def test_a_scoped_deal_no_longer_blocks_the_intro_price(
+        self, retrieve, modify, coupon,
+    ):
+        """The case that cost a real school the offer: an institute on its own
+        discount code could never receive the first-year AI price the plans
+        page promises, because any discount at all made this refuse."""
+        coupon.return_value = MagicMock(id=stripe_service.ai_intro_coupon_id())
+        retrieve.return_value = _subscription_with(
+            'their-own-deal', applies_to=['prod_plan_platinum'])
+
+        applied, error = stripe_service.apply_ai_intro_discount(self.sub)
+
+        self.assertTrue(applied)
+        self.assertIsNone(error)
+
+    @patch('billing.stripe_service.stripe.Coupon.retrieve')
+    @patch('billing.stripe_service.stripe.Subscription.modify')
+    @patch('billing.stripe_service.stripe.Subscription.retrieve')
+    def test_an_unscoped_deal_still_blocks_it_and_says_why(
+        self, retrieve, modify, coupon,
+    ):
+        """EARLYBIRD in production: 50% off everything, forever. A second
+        discount beside it would take 50% off the AI line a SECOND time —
+        75% off, reported by nothing. The remedy is to scope it, and the
+        message has to say so or nobody will know what to do."""
+        coupon.return_value = MagicMock(id=stripe_service.ai_intro_coupon_id())
+        retrieve.return_value = _subscription_with('EARLYBIRD', applies_to=None)
 
         applied, error = stripe_service.apply_ai_intro_discount(self.sub)
 
         self.assertFalse(applied)
         modify.assert_not_called()
-        self.assertIn('already has a discount', error)
+        self.assertIn('EARLYBIRD', error)
+        self.assertIn('scope', error.lower())
+
+    @patch('billing.stripe_service.stripe.Coupon.retrieve')
+    @patch('billing.stripe_service.stripe.Subscription.modify')
+    @patch('billing.stripe_service.stripe.Subscription.retrieve')
+    def test_a_coupon_overlapping_the_same_products_is_refused(
+        self, retrieve, modify, coupon,
+    ):
+        """Stripe does not police overlap — it applies both in sequence, so two
+        50% coupons on one line take 75% off."""
+        coupon.return_value = MagicMock(id=stripe_service.ai_intro_coupon_id())
+        retrieve.return_value = _subscription_with(
+            'another-ai-deal', applies_to=AI_IMPORT_PRODUCTS[:1])
+
+        applied, error = stripe_service.apply_ai_intro_discount(self.sub)
+
+        self.assertFalse(applied)
+        modify.assert_not_called()
+        self.assertIn('twice', error)
 
     @patch('billing.stripe_service.stripe.Subscription.retrieve',
            side_effect=stripe.error.APIConnectionError('down'))
