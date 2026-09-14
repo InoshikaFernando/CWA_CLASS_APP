@@ -239,3 +239,66 @@ class ReviewUndoTests(TestCase):
 
         undone = self.undo(review.id)
         self.assertContains(undone, f'wrong-rate-row-{question.id}')
+
+    def test_the_notice_that_reports_the_verdict_carries_its_undo(self):
+        """Where the row used to be is where the way back belongs.
+
+        The strip at the bottom keeps the undo available afterwards, but the
+        moment somebody realises they clicked the wrong row is the moment they
+        read this line — ten rows above it.
+        """
+        question = self.question()
+        self.sit_and_get_wrong(question)
+
+        response = self.client.post(
+            reverse('question_reviewed_admin_dashboard'),
+            {'question_id': question.id}, HTTP_HX_REQUEST='true')
+
+        review = QuestionReview.objects.get(question=question)
+        self.assertContains(response, 'wrong-rate-notice-undo')
+        body = response.content.decode()
+        self.assertIn(f'"review_id": "{review.id}"', body)
+
+    def test_a_failed_review_offers_no_undo_in_its_notice(self):
+        response = self.client.post(
+            reverse('question_reviewed_admin_dashboard'),
+            {'question_id': 99999}, HTTP_HX_REQUEST='true')
+
+        self.assertContains(response, 'nothing was reviewed')
+        self.assertNotContains(response, 'wrong-rate-notice-undo')
+
+    def test_the_undo_notice_does_not_offer_a_redo(self):
+        """Undo deletes the row, so the id in hand names nothing afterwards.
+
+        A button there would read as "put it back" and answer "that verdict is
+        not there to undo" — worse than no button.
+        """
+        question = self.question()
+        self.sit_and_get_wrong(question)
+        review = record_review(question, user=self.superuser,
+                               verdict=QuestionReview.VERDICT_CORRECT)
+
+        response = self.undo(review.id)
+
+        self.assertContains(response, 'Undone')
+        self.assertNotContains(response, 'wrong-rate-notice-undo')
+
+    def test_the_strip_keeps_more_than_one_sitting_of_verdicts(self):
+        """Ten was one sitting\'s worth, and the eleventh pushed the first out.
+
+        A reviewer works down the list in one go, and the misclick they want
+        back is as likely to be early in that run as late.
+        """
+        from maths.question_review import RECENT_REVIEW_LIMIT
+
+        self.assertGreaterEqual(RECENT_REVIEW_LIMIT, 25)
+
+        for index in range(12):
+            question = self.question(text=f'Reviewed in one sitting {index}')
+            self.sit_and_get_wrong(question, times=6)
+            record_review(question, user=self.superuser,
+                          verdict=QuestionReview.VERDICT_CORRECT)
+
+        listed = recent_reviews()
+
+        self.assertEqual(len(listed), 12)

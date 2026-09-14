@@ -260,3 +260,58 @@ def test_the_bands_count_every_ranked_question_not_just_the_ten_listed(
     expect(bands).to_contain_text("Always wrong")
     expect(page.locator("[data-testid='wrong-rate-ranked-total']")
            ).to_have_text("1")
+
+
+def test_the_undo_is_on_the_notice_the_verdict_is_reported_in(
+    page, live_server, superuser, subject, level, topic, badly_answered_question,
+):
+    """One click from where the row was, not a scroll to the bottom.
+
+    The "Just reviewed" strip keeps the undo available afterwards, but it sits
+    under ten rows; the moment somebody realises they clicked the wrong row is
+    the moment they read the green line that replaced it.
+    """
+    from maths.models import QuestionReview
+
+    _open_health_page(page, live_server, superuser)
+    page.locator(f"#wrong-rate-row-{badly_answered_question.id}"
+                 ).locator("[data-testid='wrong-rate-reviewed']").click()
+
+    notice = page.locator("[data-testid='wrong-rate-notice']")
+    expect(notice).to_contain_text("reviewed and correct")
+    notice.locator("[data-testid='wrong-rate-notice-undo']").click()
+
+    expect(page.locator(
+        f"#wrong-rate-row-{badly_answered_question.id}")).to_be_visible()
+    assert not QuestionReview.objects.filter(
+        question=badly_answered_question).exists()
+
+
+def test_the_editor_edits_the_explanation_too(
+    page, live_server, superuser, subject, level, topic, badly_answered_question,
+):
+    """The other half of a key repair.
+
+    A question whose key was wrong usually carries an explanation arguing for
+    the wrong answer, and this editor could not reach it — so the reasoning the
+    child reads went on contradicting the corrected key.
+    """
+    _open_health_page(page, live_server, superuser)
+    page.locator(f"#wrong-rate-row-{badly_answered_question.id}"
+                 ).locator("[data-testid='wrong-rate-edit']").click()
+    expect(page.locator("#edit-modal-content")).to_contain_text("Edit Question")
+
+    page.locator("[data-testid='question-explanation']").fill(
+        "600 + 60 + 6 is 666 written out place by place.")
+    page.locator("#question-edit-form button[type='submit']").click()
+
+    # A bare "Saved." closes the modal and reloads the dashboard immediately
+    # (see its htmx:afterSwap handler), so the body carrying it is gone before
+    # it can be asserted on. What the save DID is read from the question.
+    for _ in range(50):
+        badly_answered_question.refresh_from_db()
+        if badly_answered_question.explanation:
+            break
+        page.wait_for_timeout(100)
+    assert badly_answered_question.explanation == (
+        "600 + 60 + 6 is 666 written out place by place.")

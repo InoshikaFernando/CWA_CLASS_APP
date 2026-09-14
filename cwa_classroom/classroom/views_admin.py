@@ -4252,6 +4252,17 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             question.question_type = requested_type
             fields.append('question_type')
 
+        # ---- explanation: what the child reads after answering -------------
+        # Only when the form actually carried the field, exactly as plane_spec
+        # is handled: the listing's preview button posts no form, and a blanket
+        # read would wipe the explanation of every question previewed from
+        # there. No grader reads this field (see grading_fingerprint), so an
+        # edit to it can never move a mark — which is why it is safe to save
+        # beside a key correction rather than needing its own pass.
+        if 'explanation' in request.POST:
+            question.explanation = (request.POST.get('explanation') or '').strip()
+            fields.append('explanation')
+
         # ---- plane_spec: the figure a coordinate question is read off ------
         # Offered only for the plane types, and only when the form actually
         # carried the field, so every other save is untouched. Refused rather
@@ -4353,7 +4364,9 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
         log_event(
             user=request.user, school=None,
             category='data_change', action='global_question_edited',
-            detail={'question_id': question.id, 'question_text': question.question_text[:100]},
+            detail={'question_id': question.id,
+                    'question_text': question.question_text[:100],
+                    'explanation': question.explanation[:100]},
             request=request,
         )
 

@@ -67,11 +67,30 @@ an absolute one.
     key rather than the children.
   </p>
 
+  {% comment %}The verdict is reported where the row used to be, so the way
+  back belongs here too. The "Just reviewed" strip further down keeps the
+  undo available afterwards, but that is at the bottom of ten rows: the
+  moment somebody realises they clicked the wrong one is the moment they
+  read THIS line, and asking them to scroll for it is asking them not to
+  bother.{% endcomment %}
   {% if notice %}
-  <p class="mt-3 mb-1 px-3 py-2 rounded-lg text-xs {% if notice_level == 'error' %}bg-red-500/10 border border-red-500/30 text-red-300{% else %}bg-emerald-500/10 border border-emerald-500/30 text-emerald-300{% endif %}"
-     data-testid="wrong-rate-notice">
-    {{ notice }}
-  </p>
+  <div class="mt-3 mb-1 px-3 py-2 rounded-lg text-xs flex items-start justify-between gap-3 flex-wrap {% if notice_level == 'error' %}bg-red-500/10 border border-red-500/30 text-red-300{% else %}bg-emerald-500/10 border border-emerald-500/30 text-emerald-300{% endif %}"
+       data-testid="wrong-rate-notice">
+    <span class="flex-1 min-w-[12rem]">{{ notice }}</span>
+    {% if notice_undo_review_id %}
+    <button type="button"
+            data-testid="wrong-rate-notice-undo"
+            hx-post="{% url 'question_review_undo_admin_dashboard' %}"
+            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+            hx-vals='{"review_id": "{{ notice_undo_review_id }}"}'
+            hx-target="#wrong-rate-panel"
+            hx-swap="outerHTML show:#wrong-rate-panel:top"
+            title="Take this verdict back — the question returns to the list with every answer counting again"
+            class="shrink-0 px-3 py-1 rounded-lg border border-slate-400/60 text-xs font-semibold text-slate-100 bg-slate-900/40 hover:bg-slate-700 transition">
+      ↩ Undo
+    </button>
+    {% endif %}
+  </div>
   {% endif %}
 
   {% if not wrong_rate_rows %}
@@ -212,7 +231,13 @@ an absolute one.
                 hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
                 hx-vals='{"question_id": "{{ row.question.id }}"}'
                 hx-target="#wrong-rate-panel"
-                hx-swap="outerHTML"
+                {% comment %}The swap brings the top of the panel into view.
+                The row this was clicked on has just gone, so without it the
+                viewport is left wherever a now-shorter list happens to put it
+                — while the outcome, and the undo for it, are reported above.
+                Nobody should have to go looking for the answer to a click they
+                have just made.{% endcomment %}
+                hx-swap="outerHTML show:#wrong-rate-panel:top"
                 title="I have read this question and it marks correctly — the students genuinely got it wrong"
                 class="px-3 py-1.5 rounded-lg border border-emerald-500/40 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/10 transition">
           ✓ Reviewed — correct
@@ -294,7 +319,7 @@ an absolute one.
                     hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
                     hx-vals='{"review_id": "{{ item.review.id }}"}'
                     hx-target="#wrong-rate-panel"
-                    hx-swap="outerHTML"
+                    hx-swap="outerHTML show:#wrong-rate-panel:top"
                     title="Take this verdict back — the question returns to the list with every answer counting again"
                     class="px-3 py-1.5 rounded-lg border border-slate-500 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition">
               ↩ Undo
