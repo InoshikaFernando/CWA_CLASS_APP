@@ -153,6 +153,32 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS(
                     f'  [OK] new subscribers now charged {mp.price} — {new_price.id}'
                 ))
+
+                # Archive the price we moved off. Not tidiness — correctness.
+                # Both prices sit on the same Stripe product, so both answer to
+                # this module's slug, and sync_stripe_prices only considers
+                # ACTIVE prices. Leaving the old one active gives the next sync
+                # two candidates for one module and a chance to repoint the row
+                # back to the amount we just moved away from.
+                #
+                # Archiving does NOT stop it billing: a subscription item keeps
+                # charging an archived price, which is exactly what the schools
+                # left on the old amount need. It only prevents new use.
+                try:
+                    stripe.Price.modify(old.id, active=False)
+                    self.stdout.write(
+                        f'  archived the old price {old.id} so it cannot be '
+                        f'matched again'
+                    )
+                except stripe.error.StripeError as exc:
+                    # The repricing itself succeeded; say what is left undone
+                    # rather than failing after the fact.
+                    self.stderr.write(self.style.WARNING(
+                        f'  repriced, but could not archive {old.id}: {exc}. '
+                        f'Archive it in the Stripe dashboard — while it is '
+                        f'active, sync_stripe_prices may repoint this module '
+                        f'back to it.'
+                    ))
             repriced += 1
 
             # Everyone already on it, and what happens to them.
