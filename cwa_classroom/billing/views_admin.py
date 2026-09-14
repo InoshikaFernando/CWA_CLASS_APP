@@ -1108,6 +1108,12 @@ class SubscriptionDetailView(SuperuserRequiredMixin, View):
             'invoice_limit': invoice_limit,
             'active_modules': active_modules,
             'plans': plans,
+            # The attached code is listed even when inactive: leaving it out
+            # would render the select with nothing selected, so saving the
+            # form would quietly strip a deal nobody meant to touch.
+            'discount_codes': InstituteDiscountCode.objects.filter(
+                Q(is_active=True) | Q(pk=sub.discount_code_id),
+            ),
         })
 
 
@@ -1159,6 +1165,107 @@ class SubscriptionOverrideView(SuperuserRequiredMixin, View):
                 request=request,
             )
             messages.success(request, 'Invoice counter reset to 0.')
+
+        elif action == 'apply_discount':
+            # A negotiated deal could be created but never attached: the only
+            # code that ever reached a subscription was one typed at
+            # registration, so granting an existing school a discount meant
+            # editing the row in Django admin. This is that grant, with the
+            # audit trail every other override here already leaves.
+            code_id = data.get('discount_code_id', '').strip()
+
+            if not code_id:
+                previous = sub.discount_code
+                sub.discount_code = None
+                sub.save(update_fields=['discount_code', 'updated_at'])
+                log_event(
+                    user=request.user, school=sub.school, category='data_change',
+                    action='subscription_discount_cleared',
+                    detail={'subscription_id': sub.id, 'school_name': str(sub.school),
+                            'previous_code': previous.code if previous else None},
+                    request=request,
+                )
+                messages.success(request, 'Discount code removed.')
+                return redirect('billing_admin_subscription_detail', pk=sub.pk)
+
+            # `.filter(pk=...)` raises on a non-numeric id, so a hand-rolled
+            # POST would be a 500 rather than the error message below.
+            code = (InstituteDiscountCode.objects.filter(pk=code_id).first()
+                    if code_id.isdigit() else None)
+            if not code:
+                messages.error(request, 'Discount code not found.')
+                return redirect('billing_admin_subscription_detail', pk=sub.pk)
+
+            # Partial codes are only worth anything if Stripe holds the coupon.
+            # Recording one it has never seen is how a school gets promised a
+            # discount and charged list price, so the grant is refused instead.
+            if not code.is_fully_free:
+                from .stripe_service import ensure_stripe_coupon
+                synced, sync_error = ensure_stripe_coupon(code)
+                if not synced:
+                    logger.error(
+                        'Refused to apply %s (%s%% off) to school %s: no Stripe '
+                        'coupon — %s', code.code, code.discount_percent,
+                        sub.school_id, sync_error,
+                    )
+                    messages.error(request, (
+                        f'"{code.code}" has no Stripe coupon, so Stripe would '
+                        f'still charge the full price. Not applied — {sync_error}'
+                    ))
+                    return redirect('billing_admin_subscription_detail', pk=sub.pk)
+
+            changed = sub.discount_code_id != code.id
+            sub.discount_code = code
+            sub.save(update_fields=['discount_code', 'updated_at'])
+            # `uses` counts redemptions, and this is one. Only on a real change,
+            # so re-applying the same code to the same school does not inflate
+            # it — and never decremented on clearing, because a redemption that
+            # happened is not undone by withdrawing the benefit.
+            if changed:
+                code.uses += 1
+                code.save(update_fields=['uses'])
+            log_event(
+                user=request.user, school=sub.school, category='data_change',
+                action='subscription_discount_applied',
+                detail={'subscription_id': sub.id, 'school_name': str(sub.school),
+                        'code': code.code, 'discount_percent': code.discount_percent},
+                request=request,
+            )
+            messages.success(
+                request,
+                f'"{code.code}" ({code.discount_percent}% off) applied to '
+                f'{sub.school.name}.',
+            )
+
+            # What happens to money already in flight. Attaching a code does
+            # not reach into a live Stripe subscription, and saying nothing
+            # here is what would let someone believe a $189 charge had stopped.
+            if sub.stripe_subscription_id:
+                if code.is_fully_free:
+                    messages.warning(request, (
+                        f'Stripe subscription {sub.stripe_subscription_id} is '
+                        f'still live and will keep charging — cancel it for '
+                        f'{code.code} to take effect on the next invoice.'
+                    ))
+                else:
+                    from .stripe_service import add_subscription_discount
+                    added, add_error = add_subscription_discount(
+                        sub.stripe_subscription_id, code.stripe_coupon_id, None,
+                    )
+                    if added:
+                        messages.success(
+                            request,
+                            f'Coupon {code.stripe_coupon_id} added to the live '
+                            'Stripe subscription.',
+                        )
+                    else:
+                        messages.warning(request, (
+                            f'Stripe still bills the full amount: the coupon '
+                            f'could not be added to {sub.stripe_subscription_id} '
+                            f'— {add_error}'
+                        ))
+
+            return redirect('billing_admin_subscription_detail', pk=sub.pk)
 
         elif action == 'change_status':
             new_status = data.get('status', '')

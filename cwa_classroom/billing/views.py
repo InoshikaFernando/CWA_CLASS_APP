@@ -3,6 +3,7 @@ import logging
 import stripe
 
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
@@ -969,7 +970,20 @@ class ModuleRequiredView(LoginRequiredMixin, View):
 # ---------------------------------------------------------------------------
 
 class InstituteCheckoutView(LoginRequiredMixin, View):
-    """Create a Stripe Checkout Session for institute plan subscription."""
+    """Create a Stripe Checkout Session for institute plan subscription.
+
+    The school may already carry a discount code — typed at registration, or
+    attached later by a super-admin — and it has to reach Stripe HERE. It did
+    not: this view never passed a coupon, so a school whose subscription
+    records "50% off" was sent to checkout at the full list price. Stripe
+    charges what the session says; the discount existed only in our database.
+
+    A 100% code is the other half of the same hole. Those deliberately have no
+    Stripe coupon (``is_fully_free`` short-circuits every sync), so there was
+    nothing to pass and the school was billed in full for a plan it had been
+    granted for free. Nothing to charge means Stripe is not involved at all —
+    the plan is activated directly, the way registration already does it.
+    """
 
     def post(self, request):
         plan_slug = request.POST.get('plan', '')
@@ -978,18 +992,69 @@ class InstituteCheckoutView(LoginRequiredMixin, View):
             messages.error(request, 'Invalid plan selected.')
             return redirect('institute_plan_select')
 
-        if not plan.stripe_price_id:
-            messages.error(request, 'This plan is not yet available for online checkout.')
-            return redirect('institute_plan_select')
-
         school = get_school_for_user(request.user)
         if not school:
             messages.error(request, 'No school found for your account.')
             return redirect('subjects_hub')
 
+        sub = get_school_subscription(school)
+        discount = sub.discount_code if sub else None
+
+        # ── Nothing to charge: activate the plan, never visit Stripe ─────────
+        if sub and discount and discount.is_fully_free:
+            sub.plan = plan
+            sub.status = SchoolSubscription.STATUS_ACTIVE
+            sub.trial_end = None
+            sub.save(update_fields=['plan', 'status', 'trial_end', 'updated_at'])
+            log_event(
+                user=request.user, school=school, category='billing',
+                action='institute_plan_activated_free',
+                detail={'plan_id': plan.id, 'plan_name': plan.name,
+                        'plan_slug': plan_slug, 'discount_code': discount.code},
+                request=request,
+            )
+            messages.success(
+                request,
+                f'{plan.name} is active — discount code {discount.code} covers '
+                f'the full cost, so there is nothing to pay.',
+            )
+            # Said out loud because the code does NOT stop an existing Stripe
+            # subscription; it only keeps us from starting a new one.
+            if sub.stripe_subscription_id:
+                messages.warning(
+                    request,
+                    'A Stripe subscription is still attached to this school and '
+                    'will keep billing until it is cancelled.',
+                )
+            return redirect('institute_subscription_dashboard')
+
+        if not plan.stripe_price_id:
+            messages.error(request, 'This plan is not yet available for online checkout.')
+            return redirect('institute_plan_select')
+
+        # A partial code Stripe has never seen is ignored by Checkout without
+        # complaint — the school pays list price against a subscription that
+        # says they are discounted. Refuse the checkout instead of overcharging.
+        stripe_coupon_id = None
+        if discount:
+            from billing.stripe_service import ensure_stripe_coupon
+            synced, sync_error = ensure_stripe_coupon(discount)
+            if not synced:
+                logger.error(
+                    'Institute checkout blocked: discount %s (%s%% off) for '
+                    'school %s has no Stripe coupon — %s',
+                    discount.code, discount.discount_percent, school.id, sync_error,
+                )
+                messages.error(
+                    request,
+                    f'Your discount code {discount.code} could not be applied, '
+                    'so we have not charged you. Please contact support.',
+                )
+                return redirect('institute_plan_select')
+            stripe_coupon_id = discount.stripe_coupon_id or None
+
         try:
             from billing.stripe_service import create_institute_checkout_session
-            sub = get_school_subscription(school)
             # Update plan on existing subscription so we don't create duplicates
             if sub and sub.plan_id != plan.id:
                 sub.plan = plan
@@ -998,11 +1063,14 @@ class InstituteCheckoutView(LoginRequiredMixin, View):
             trial_days = plan.trial_days if (not sub or not sub.has_used_trial) else None
             session = create_institute_checkout_session(
                 school, plan, request, trial_period_days=trial_days,
+                stripe_coupon_id=stripe_coupon_id,
             )
             log_event(
                 user=request.user, school=school, category='billing',
                 action='checkout_session_created',
-                detail={'plan_id': plan.id, 'plan_name': plan.name, 'plan_slug': plan_slug, 'trial_days': trial_days},
+                detail={'plan_id': plan.id, 'plan_name': plan.name, 'plan_slug': plan_slug,
+                        'trial_days': trial_days,
+                        'discount_code': discount.code if discount else None},
                 request=request,
             )
             return redirect(session.url)
@@ -1286,6 +1354,11 @@ class StripeBillingPortalView(LoginRequiredMixin, View):
 
     def get(self, request):
         customer_id = None
+        # Where Stripe sends them back to. Resolved from our own URLconf, never
+        # from the request: this used to be built from HTTP_REFERER, so any
+        # page that linked here chose where the school's billing admin landed
+        # afterwards — an off-site redirect handed out by a header.
+        return_to = 'billing_history'
 
         # Only the school's own admin (HoI / institute owner) may open the
         # SCHOOL's Stripe billing portal. Students, parents and other members
@@ -1298,6 +1371,11 @@ class StripeBillingPortalView(LoginRequiredMixin, View):
             sub = get_school_subscription(school)
             if sub:
                 customer_id = sub.stripe_customer_id
+                # Only when the school's customer is the one being opened — a
+                # school with no Stripe customer falls through to the user's own
+                # subscription below, and belongs back on its own page.
+                if customer_id:
+                    return_to = 'institute_subscription_dashboard'
 
         if not customer_id and hasattr(request.user, 'subscription'):
             try:
@@ -1311,9 +1389,7 @@ class StripeBillingPortalView(LoginRequiredMixin, View):
 
         try:
             from billing.stripe_service import create_billing_portal_session
-            return_url = request.build_absolute_uri(
-                request.META.get('HTTP_REFERER', '/billing/institute/dashboard/')
-            )
+            return_url = request.build_absolute_uri(reverse(return_to))
             session = create_billing_portal_session(customer_id, return_url)
             return redirect(session.url)
         except stripe.error.StripeError as e:
