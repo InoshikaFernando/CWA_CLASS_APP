@@ -12,6 +12,21 @@ loads them once up front and then answers per question without touching the
 database again.
 """
 
+from datetime import timedelta
+
+# How far back the dashboard's "just reviewed" strip looks when offering to undo
+# a verdict, and how many it lists. A verdict older than the window is not one
+# somebody is still undoing by mistake, and listing a month-old review under
+# "just reviewed" would be the panel lying about what it shows.
+#
+# The limit is sized for how the page is actually used: a reviewer works down
+# the list in a sitting, so ten rows meant the eleventh verdict pushed the first
+# one out of reach — and the misclick somebody wants back is as likely to be
+# early in that sitting as late. This is the whole table of standing verdicts
+# inside the window, one row per question, so it stays small either way.
+RECENT_REVIEW_DAYS = 7
+RECENT_REVIEW_LIMIT = 25
+
 # The issue code a reported question is raised under. It comes from the report
 # rows, not from ``verify_question``: the verifier has already passed the
 # question the student is complaining about, which is precisely why the
@@ -136,3 +151,49 @@ def record_review(question, *, user, verdict, note=''):
         note=note or '',
         question_updated_at=question.updated_at,
     )
+
+
+def recent_reviews(*, days=RECENT_REVIEW_DAYS, limit=RECENT_REVIEW_LIMIT):
+    """The verdicts recorded lately, newest first — what the undo strip lists.
+
+    Only the verdict that CURRENTLY stands for a question is listed. Undoing a
+    superseded one would delete somebody's reading of the question without
+    changing anything any dashboard shows — history lost and nothing undone,
+    the worst of both. A replacement verdict is by definition newer than the
+    row it replaced, so it falls inside this window too and is the row that
+    appears here.
+    """
+    from django.utils import timezone
+
+    from .models import QuestionReview
+
+    cutoff = timezone.now() - timedelta(days=days)
+    rows, seen = [], set()
+    for review in (QuestionReview.objects
+                   .filter(reviewed_at__gte=cutoff)
+                   .select_related('question', 'question__level',
+                                   'question__topic', 'question__topic__parent',
+                                   'reviewed_by')
+                   .order_by('-reviewed_at')):
+        if review.question_id in seen:
+            continue                      # already replaced by a later verdict
+        seen.add(review.question_id)
+        rows.append(review)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def is_latest_review(review):
+    """True if ``review`` is the verdict standing on its question right now.
+
+    Undo deletes a row, so it may only ever touch this one: deleting an
+    older verdict would rewrite what a person concluded while leaving the
+    verdict actually in force untouched.
+    """
+    from .models import QuestionReview
+
+    return not (QuestionReview.objects
+                .filter(question_id=review.question_id,
+                        reviewed_at__gt=review.reviewed_at)
+                .exists())

@@ -258,6 +258,16 @@ jobs:
               # The sidebar visibility flag for period reports is set here, and
               # its tests assert on it.
               - 'cwa_classroom/accounts/context_processors.py'
+              # Who counts as subscribed, and which signup discount code a
+              # family may be offered. The preview's "subscribed students only"
+              # filter and the whole-school outreach email (CPP-422) both read
+              # these, so a change here can change what a parent is sent
+              # without touching a file under progress/.
+              - 'cwa_classroom/billing/selectors.py'
+              # The outreach email itself. Its wording and its discount block
+              # are asserted on in progress/tests/, so an edit here can only be
+              # allowed to fail loudly.
+              - 'cwa_classroom/templates/email/transactional/progress_report_no_data.html'
             usage:
               - 'cwa_classroom/usage/**'
             rewards:
@@ -303,6 +313,11 @@ jobs:
               - 'cwa_classroom/billing/**'
               - 'cwa_classroom/classroom/**'
               - 'cwa_classroom/templates/billing/**'
+              # The group drives the super-admin billing screens too (applying a
+              # discount code to a school's subscription), and those templates
+              # live under admin_dashboard/. Without this entry a change to one
+              # of them runs no UI test at all — the tests go quiet, not red.
+              - 'cwa_classroom/templates/admin_dashboard/billing/**'
               - 'cwa_classroom/templates/invoicing/**'
               - 'cwa_classroom/templates/accounting/**'
               - 'cwa_classroom/templates/reports/**'
@@ -389,6 +404,12 @@ jobs:
               # change there is what most often breaks these tests.
               - 'cwa_classroom/classroom/**'
               - 'cwa_classroom/templates/messaging/**'
+              # WHO a message can be addressed to is a billing question: the
+              # "Unsubscribed Students" chip resolves its list through
+              # billing/selectors.py. Get that wrong and the chip returns the
+              # families who are already paying, or nobody — and a recipient
+              # list that is quietly wrong looks exactly like one that is right.
+              - 'cwa_classroom/billing/**'
             ui_navigation:
               - 'cwa_classroom/ui_tests/navigation/**'
               - 'cwa_classroom/accounts/**'

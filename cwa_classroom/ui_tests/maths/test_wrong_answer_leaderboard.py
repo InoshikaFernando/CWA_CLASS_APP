@@ -192,3 +192,126 @@ def test_reviewed_takes_it_off_the_list(
     review = QuestionReview.objects.get(question=badly_answered_question)
     assert review.verdict == QuestionReview.VERDICT_CORRECT
     assert review.reviewed_by == superuser
+
+
+def test_a_verdict_given_by_mistake_can_be_undone_from_the_page(
+    page, live_server, superuser, subject, level, topic, badly_answered_question,
+):
+    """The way back from one click on the wrong row.
+
+    Marking a question "Reviewed — correct" takes it off this list, which is
+    the point of the verdict; but it also takes it off the only surface that
+    showed it, so before the undo strip a misclick had nowhere to be seen and
+    no way back. Undo must delete the verdict, not write a second one over it:
+    a "needs fixing" verdict settles the past answers just the same and would
+    leave the question off the list — the mistake made permanent.
+    """
+    from maths.models import QuestionReview
+
+    _open_health_page(page, live_server, superuser)
+    page.locator(f"#wrong-rate-row-{badly_answered_question.id}"
+                 ).locator("[data-testid='wrong-rate-reviewed']").click()
+
+    # Gone from the list, but listed as just reviewed — with the question text,
+    # so it can be re-read without hunting for it.
+    strip = page.locator(f"#recent-review-{badly_answered_question.id}")
+    expect(strip).to_be_visible()
+    expect(strip).to_contain_text("Write 666 in expanded form")
+
+    strip.locator("[data-testid='recent-review-undo']").click()
+
+    expect(page.locator("[data-testid='wrong-rate-notice']")).to_contain_text(
+        "Undone")
+    # Back on the list with every answer counting again, and the verdict gone
+    # rather than replaced.
+    expect(page.locator(
+        f"#wrong-rate-row-{badly_answered_question.id}")).to_be_visible()
+    assert not QuestionReview.objects.filter(
+        question=badly_answered_question).exists()
+
+
+def test_the_row_shows_what_the_children_actually_answered(
+    page, live_server, superuser, subject, level, topic, badly_answered_question,
+):
+    """The half of the diagnosis the percentage cannot give.
+
+    Six children were marked wrong. That they all picked the SAME option is
+    what says the answer key is at fault rather than the children, and it is
+    unreadable from "100%" alone.
+    """
+    _open_health_page(page, live_server, superuser)
+
+    row = page.locator(f"#wrong-rate-row-{badly_answered_question.id}")
+    given = row.locator("[data-testid='wrong-rate-given']")
+    expect(given).to_contain_text("600 + 60 + 6")
+    expect(given).to_contain_text("×6")
+    # And what it would have accepted instead, side by side with it.
+    expect(row.locator("[data-testid='wrong-rate-expected']")).to_contain_text(
+        "6 + 6 + 6")
+
+
+def test_the_bands_count_every_ranked_question_not_just_the_ten_listed(
+    page, live_server, superuser, subject, level, topic, badly_answered_question,
+):
+    _open_health_page(page, live_server, superuser)
+
+    bands = page.locator("[data-testid='wrong-rate-bands']")
+    expect(bands).to_be_visible()
+    expect(bands).to_contain_text("Always wrong")
+    expect(page.locator("[data-testid='wrong-rate-ranked-total']")
+           ).to_have_text("1")
+
+
+def test_the_undo_is_on_the_notice_the_verdict_is_reported_in(
+    page, live_server, superuser, subject, level, topic, badly_answered_question,
+):
+    """One click from where the row was, not a scroll to the bottom.
+
+    The "Just reviewed" strip keeps the undo available afterwards, but it sits
+    under ten rows; the moment somebody realises they clicked the wrong row is
+    the moment they read the green line that replaced it.
+    """
+    from maths.models import QuestionReview
+
+    _open_health_page(page, live_server, superuser)
+    page.locator(f"#wrong-rate-row-{badly_answered_question.id}"
+                 ).locator("[data-testid='wrong-rate-reviewed']").click()
+
+    notice = page.locator("[data-testid='wrong-rate-notice']")
+    expect(notice).to_contain_text("reviewed and correct")
+    notice.locator("[data-testid='wrong-rate-notice-undo']").click()
+
+    expect(page.locator(
+        f"#wrong-rate-row-{badly_answered_question.id}")).to_be_visible()
+    assert not QuestionReview.objects.filter(
+        question=badly_answered_question).exists()
+
+
+def test_the_editor_edits_the_explanation_too(
+    page, live_server, superuser, subject, level, topic, badly_answered_question,
+):
+    """The other half of a key repair.
+
+    A question whose key was wrong usually carries an explanation arguing for
+    the wrong answer, and this editor could not reach it — so the reasoning the
+    child reads went on contradicting the corrected key.
+    """
+    _open_health_page(page, live_server, superuser)
+    page.locator(f"#wrong-rate-row-{badly_answered_question.id}"
+                 ).locator("[data-testid='wrong-rate-edit']").click()
+    expect(page.locator("#edit-modal-content")).to_contain_text("Edit Question")
+
+    page.locator("[data-testid='question-explanation']").fill(
+        "600 + 60 + 6 is 666 written out place by place.")
+    page.locator("#question-edit-form button[type='submit']").click()
+
+    # A bare "Saved." closes the modal and reloads the dashboard immediately
+    # (see its htmx:afterSwap handler), so the body carrying it is gone before
+    # it can be asserted on. What the save DID is read from the question.
+    for _ in range(50):
+        badly_answered_question.refresh_from_db()
+        if badly_answered_question.explanation:
+            break
+        page.wait_for_timeout(100)
+    assert badly_answered_question.explanation == (
+        "600 + 60 + 6 is 666 written out place by place.")

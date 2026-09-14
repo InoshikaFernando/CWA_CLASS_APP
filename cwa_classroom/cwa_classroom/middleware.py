@@ -122,6 +122,14 @@ class TrialExpiryMiddleware:
         '/billing/',
         '/stripe/',
         '/admin/',
+        # Where Stripe drops a school student after they pay. It has to be
+        # reachable BY an expired account, because that is the only kind of
+        # account that arrives here: a student walled at the end of a free
+        # promotion pays and comes straight back to this URL. Walling it sent
+        # them to the payment wall again with the payment unrecorded, so the
+        # page that exists to finish a late or lost webhook could never run at
+        # the one moment it was needed.
+        '/accounts/complete-profile/payment-success/',
         # The API's equivalent of the /accounts/logout/ and /billing/ escapes
         # above. Without it an expired account is 403'd on its own logout
         # endpoint and can never revoke a refresh token that stays valid for
@@ -160,7 +168,7 @@ class TrialExpiryMiddleware:
                 # Stripe statuses (past_due / cancelled) so the payment wall
                 # shows the correct "Payment Failed → Update card" message and
                 # our status doesn't drift from Stripe.
-                if sub.status == sub.STATUS_TRIALING:
+                if sub.status == sub.STATUS_TRIALING or sub.free_grant_has_lapsed:
                     sub.status = sub.STATUS_EXPIRED
                     sub.save(update_fields=['status'])
 
@@ -244,9 +252,19 @@ class TrialExpiryMiddleware:
         Rules:
           - Not a self-paying role, or no personal subscription → None (they ride
             the school plan; the school-subscription check below still applies).
-          - active / trialing (incl. an active 100%-discount free sub) → allowed.
-          - past_due / expired / cancelled → redirect to the payment wall, unless
-            already on an allowed billing path.
+          - active / trialing, and still inside whatever window it was given
+            → allowed.
+          - past_due / expired / cancelled, or a promotion window that has run
+            out → redirect to the payment wall, unless already on an allowed
+            billing path.
+
+        **``is_active_or_trialing`` is not enough on its own**, and that gap is
+        why a school student on a two-week promotion never stopped. It reads the
+        status word only, and a 100%-off code leaves that word saying ``active``
+        (or ``trialing``) with nothing in Stripe to ever change it — so a code
+        that granted fourteen days granted them permanently, for every student
+        who was not an individual. ``_is_trial_expired`` is the same question the
+        individual branch above asks, and it looks at the end date.
         """
         from accounts.models import Role
         from billing.models import Subscription
@@ -258,13 +276,26 @@ class TrialExpiryMiddleware:
             sub = user.subscription
         except Subscription.DoesNotExist:
             return None
-        if sub.is_active_or_trialing:
+        if sub.is_active_or_trialing and not self._is_trial_expired(sub):
             return None
+        # Record the lapse once, so the status column stops disagreeing with the
+        # access the student actually has. Only a grant or a trial is stamped:
+        # a real Stripe status (past_due / cancelled) is Stripe's to own, and
+        # overwriting it would break the "Payment Failed → update card" wall.
+        if sub.status == sub.STATUS_TRIALING or sub.free_grant_has_lapsed:
+            sub.status = sub.STATUS_EXPIRED
+            sub.save(update_fields=['status'])
         if not self._is_allowed_path(request.path):
-            self._log_block(request, 'personal_subscription_delinquent', sub.status)
+            lapsed_grant = sub.free_grant_has_lapsed
+            self._log_block(
+                request,
+                'personal_promotion_ended' if lapsed_grant
+                else 'personal_subscription_delinquent',
+                sub.status)
             return wall_response(
                 request, 'payment_required',
-                'Your subscription payment is overdue.',
+                'Your free access has ended. Subscribe to carry on.'
+                if lapsed_grant else 'Your subscription payment is overdue.',
                 'trial_expired')
         return None
 
@@ -295,6 +326,15 @@ class TrialExpiryMiddleware:
 
     @staticmethod
     def _is_trial_expired(sub):
+        # A promotion-granted window is asked about FIRST, before the status
+        # word gets a say. A 100%-off code creates nothing in Stripe, so no
+        # webhook will ever move the status on when the window closes — and the
+        # two redemption paths do not even agree on which word to write
+        # (``ApplyPromoCodeView`` writes ``active``, the discount-code branch
+        # beside it writes ``trialing``). Reading ``active`` as "paid, never
+        # expires" is what made one of those two promotions free forever.
+        if sub.free_grant_has_lapsed:
+            return True
         if sub.status == sub.STATUS_ACTIVE:
             return False
         if sub.status in (sub.STATUS_EXPIRED, sub.STATUS_CANCELLED, sub.STATUS_PAST_DUE):

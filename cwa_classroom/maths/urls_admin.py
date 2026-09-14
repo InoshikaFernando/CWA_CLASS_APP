@@ -29,4 +29,9 @@ urlpatterns = [
         views_admin.QuestionReviewedView.as_view(),
         name='question_reviewed_admin_dashboard',
     ),
+    path(
+        'admin-dashboard/question-health/reviewed/undo/',
+        views_admin.QuestionReviewUndoView.as_view(),
+        name='question_review_undo_admin_dashboard',
+    ),
 ]
