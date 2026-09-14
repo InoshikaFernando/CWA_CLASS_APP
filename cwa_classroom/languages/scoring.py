@@ -302,17 +302,34 @@ def _score_normalized(student_n, template_n):
     # at all. Both slip past the shape comparison itself (a big enough blob
     # legitimately covers plenty of the corridor), so check structure
     # first: a real letter, traced with a pen, only ever fills a modest
-    # fraction of its own bounding box (~8-16% for the fixtures in
+    # fraction of its own bounding box (~8-16% for most fixtures in
     # test_cpp392_scoring_metric.py) because it's a thin line, not a
     # filled area — a dot/blob's fill ratio is ~0.7+ regardless of scale
     # (fill ratio is scale-invariant, so this holds before or after
     # normalizing).
+    #
+    # Fill ratio alone over-fires on a genuinely single-stroke, unbent
+    # letter, though: a straight line's bounding box IS essentially just
+    # the stroke, so it "fills" 88-100% of its own bbox exactly like a
+    # dot does (found via a real student submission of Hangul ㅣ scoring
+    # 0% — 'l', 一, 丨 and ㅡ have the same shape). What actually tells a
+    # dot/tap apart from a real stroke — including a straight one — is
+    # elongation: a dot's bbox is roughly square (aspect ratio near 1),
+    # while every real letter stroke, even a bare straight line, has a
+    # bbox stretched along its length (aspect ratio close to 0). Requiring
+    # BOTH high fill ratio AND a near-square bbox is strictly narrower
+    # than the fill-ratio check alone, so it cannot let through anything
+    # that used to be correctly rejected as a dot (aspect ratio ~1 for the
+    # fixture in test_cpp392_scoring_metric.py's dot tests) — it only
+    # stops rejecting the elongated shapes that were never dots.
     if not student_n.any():
         return 0.0, 'no_ink'
     student_bbox = _bbox(student_n)
     x0, x1, y0, y1 = student_bbox
-    fill_ratio = float(student_n.sum()) / float((x1 - x0 + 1) * (y1 - y0 + 1))
-    if fill_ratio > 0.4:
+    bw, bh = x1 - x0 + 1, y1 - y0 + 1
+    fill_ratio = float(student_n.sum()) / float(bw * bh)
+    aspect_ratio = min(bw, bh) / float(max(bw, bh))
+    if fill_ratio > 0.4 and aspect_ratio > 0.5:
         return 0.0, 'too_little_ink'
 
     corridor = _dilate(skeleton, TOLERANCE_RADIUS)

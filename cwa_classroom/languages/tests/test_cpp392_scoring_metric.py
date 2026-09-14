@@ -146,6 +146,67 @@ class TestCorrectCharacterScoresHigh:
         score, reason = scoring._score_normalized(student_n, template_n)
         assert score >= 85, f"tamil '{char}' scored {score} (reason={reason})"
 
+    @pytest.mark.parametrize('char,script_type', [
+        ('l', 'latin'), ('一', 'cjk'), ('丨', 'cjk'), ('ㅡ', 'hangul'), ('ㅣ', 'hangul'),
+    ])
+    def test_bare_single_straight_stroke_letters(self, char, script_type):
+        """Regression: a real student submission of correctly-drawn Hangul
+        ㅣ scored 0% ('too_little_ink'). The degenerate-ink guard in
+        _score_normalized() rejected anything filling >40% of its own
+        bounding box as a dot/tap, on the assumption a real stroke never
+        fills that much of its bbox -- true for bent/curved letters, but a
+        single straight, unbent stroke's bbox IS essentially just the
+        stroke, so it legitimately fills 88-100% of its own bbox exactly
+        like a dot does. Swept every seeded character across every
+        language and found exactly these 5 (l/一/丨/ㅡ/ㅣ, all bare single
+        straight lines) hit the same false rejection."""
+        cfg = CANVAS_CONFIG[script_type]
+        template = scoring.render_glyph_mask(char, script_type, cfg)
+        template_n = scoring._normalize(template)
+        skeleton = scoring._skeletonize(template_n)
+        student_n = scoring._dilate(skeleton, 3)
+        score, reason = scoring._score_normalized(student_n, template_n)
+        assert score >= 85, f"{script_type} {char!r} scored {score} (reason={reason}), expected >=85"
+
+    def test_every_seeded_character_in_every_language_scores_high(self):
+        """Broader sweep than the shape-family samples above: every single
+        letter_writing character across every SEED language, not just a
+        hand-picked few per script. This is what actually caught the
+        single-straight-stroke bug above -- the hand-picked samples never
+        included a bare, unbent stroke. Kept as a permanent regression
+        rather than a one-off check so a future SEED addition (a new
+        language, or a character shape nobody thought to hand-pick) that
+        hits the same class of degenerate-ink false-positive fails a test
+        instead of shipping silently broken."""
+        from languages.management.commands.seed_language_exercises import SEED
+        from languages.utils import CANVAS_CONFIG
+
+        failures = []
+        checked = 0
+        for lang_code, data in SEED.items():
+            script_type = data['script_type']
+            cfg = CANVAS_CONFIG.get(script_type)
+            if cfg is None:
+                continue
+            chars = set()
+            for topic in data['topics']:
+                chars.update(topic.get('letter_writing', []))
+            for ch in sorted(chars):
+                checked += 1
+                template = scoring.render_glyph_mask(ch, script_type, cfg)
+                template_n = scoring._normalize(template)
+                skeleton = scoring._skeletonize(template_n)
+                student_n = scoring._dilate(skeleton, 3)
+                score, reason = scoring._score_normalized(student_n, template_n)
+                if score < 85:
+                    failures.append(f'{lang_code}/{script_type} {ch!r}: score={score} reason={reason}')
+
+        assert checked > 0, 'no seeded characters found to check -- SEED or CANVAS_CONFIG changed shape'
+        assert not failures, (
+            f'{len(failures)}/{checked} seeded characters score <85 with a '
+            f'correctly-formed trace:\n  ' + '\n  '.join(failures)
+        )
+
 
 # ---------------------------------------------------------------------------
 # Size / position invariance
