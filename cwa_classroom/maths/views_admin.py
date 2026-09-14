@@ -147,9 +147,15 @@ def wrong_rate_context():
     what stops the two views from ever disagreeing about what is in it.
     """
     from .question_difficulty import (
-        MIN_ATTEMPTS, TOP_N, report_counts, wrong_rate_rows)
+        MIN_ATTEMPTS, TOP_N, ranked_questions, report_counts, wrong_rate_bands,
+        wrong_rate_rows)
 
-    rows = wrong_rate_rows()
+    # One pass over the answer store feeds both the ten rows and the band
+    # counts above them, so the summary can never disagree with the list it
+    # heads.
+    ranked = ranked_questions()
+    rows = wrong_rate_rows(ranked=ranked)
+    bands = wrong_rate_bands(ranked[0])
     reports = report_counts([row['question'].id for row in rows])
     # The longest bar sets the scale, so ten questions between 40% and 55% are
     # still told apart at a glance. The percentage is printed next to every bar
@@ -164,6 +170,36 @@ def wrong_rate_context():
         'wrong_rate_rows': rows,
         'wrong_rate_top_n': TOP_N,
         'wrong_rate_min_attempts': MIN_ATTEMPTS,
+        'wrong_rate_bands': bands['bands'],
+        'wrong_rate_ranked_total': bands['total'],
+        **recent_review_context(),
+    }
+
+
+def recent_review_context():
+    """The "just reviewed" strip's context — the verdicts, and their undo.
+
+    A reviewed question leaves the list in front of the person who reviewed it,
+    which is the point; but a verdict clicked on the wrong row then has nowhere
+    to be seen and no way back, because the only surface that showed the
+    question is the one it has just left. This strip is that way back: the
+    verdicts standing from the last few days, each with the question to re-read
+    and a button that takes the verdict off again.
+    """
+    from .question_review import RECENT_REVIEW_DAYS, recent_reviews
+
+    return {
+        'recent_reviews': [
+            {'review': review,
+             'question': review.question,
+             # Same split the leaderboard rows make: the Global Questions
+             # editor is scoped to school=NULL, so a school-owned question
+             # keeps the Django admin link rather than opening a modal that
+             # would 404 on it.
+             'is_global': review.question.school_id is None}
+            for review in recent_reviews()
+        ],
+        'recent_review_days': RECENT_REVIEW_DAYS,
     }
 
 
@@ -222,6 +258,100 @@ class QuestionReviewedView(SuperuserRequiredMixin, View):
             # The panel is swapped in place, so the outcome has to travel with
             # it: a toast queued here would surface on some later full page
             # load, next to nothing that explains it.
+            return render(
+                request,
+                'admin_dashboard/question_health/_wrong_rate.html',
+                {**wrong_rate_context(), 'notice': note,
+                 'notice_level': 'error' if failed else 'ok'})
+
+        if failed:
+            messages.error(request, note)
+        else:
+            messages.success(request, note)
+        return redirect('question_health_admin_dashboard')
+
+
+class QuestionReviewUndoView(SuperuserRequiredMixin, View):
+    """Take back a verdict recorded by mistake.
+
+    "Reviewed and correct" is a strong claim — it settles every answer recorded
+    before it and clears the question from the unhealthy counts — and it is one
+    click away on a list of ten near-identical rows. Clicking it on the wrong
+    row, or before reading the question, previously had no way back through the
+    UI at all: the question left the leaderboard, so the surface that could
+    have offered an undo was the very one it had just disappeared from.
+
+    Undo DELETES the review row rather than recording a counter-verdict, and
+    that is deliberate. A "needs fixing" verdict written over it would settle
+    the past answers just the same (see ``question_difficulty``), so the
+    question would stay off the leaderboard — the mistake made permanent under
+    a different name. Deleting the row is what actually restores the state
+    before the click: every answer counts again, and the question comes back if
+    its rate still ranks.
+
+    Nothing is lost silently: the deleted row is written to the audit log in
+    full — who reviewed, when, which verdict, which content version — so an
+    undo is as traceable as the review it removes.
+    """
+
+    def post(self, request):
+        from audit.services import log_event
+
+        from .models import QuestionReview
+        from .question_review import is_latest_review
+
+        try:
+            review_id = int(request.POST.get('review_id') or 0)
+        except (TypeError, ValueError):
+            review_id = 0
+
+        review = (QuestionReview.objects
+                  .select_related('question', 'reviewed_by')
+                  .filter(id=review_id)
+                  .first())
+
+        if review is None:
+            # Already undone, or an id that names nothing. Either way saying so
+            # beats a button that looks like it worked.
+            note = ('That verdict is not there to undo — it has already been '
+                    'undone, or the question it belonged to is gone.')
+            failed = True
+        elif not is_latest_review(review):
+            # Undo removes a row, so it may only remove the one in force.
+            note = (f'Q{review.question_id}: somebody has reviewed this '
+                    'question again since, and that later verdict is the one '
+                    'in force. Undo that one instead.')
+            failed = True
+        else:
+            question = review.question
+            # Written BEFORE the delete: a row undone by mistake cannot be
+            # recovered from the row itself.
+            log_event(
+                user=request.user, school=question.school,
+                category='data_change', action='question_review_undone',
+                detail={'question_id': question.id, 'review_id': review.id,
+                        'verdict': review.verdict,
+                        'reviewed_by_id': review.reviewed_by_id,
+                        'reviewed_at': review.reviewed_at.isoformat(),
+                        'note': review.note,
+                        'question_updated_at': (
+                            review.question_updated_at.isoformat()
+                            if review.question_updated_at else None)},
+                request=request,
+            )
+            verdict_label = review.get_verdict_display()
+            review.delete()
+            note = (
+                f'Undone — Q{question.id} is no longer marked '
+                f'"{verdict_label}". Every answer recorded against it counts '
+                'towards its rate again, so it returns to the list below if it '
+                'still ranks, and to the unhealthy counts if it was flagged.')
+            failed = False
+
+        if request.headers.get('HX-Request'):
+            # Same swap the verdict itself uses: the outcome travels with the
+            # panel, because a toast queued here would surface on some later
+            # page load next to nothing that explains it.
             return render(
                 request,
                 'admin_dashboard/question_health/_wrong_rate.html',

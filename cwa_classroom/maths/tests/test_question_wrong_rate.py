@@ -518,3 +518,229 @@ class GradingFingerprintTests(WrongRateTestBase):
         self.assertFalse(regrade_question(question))
         row.refresh_from_db()
         self.assertFalse(row.is_correct)
+
+
+class WrongRateBandTests(WrongRateTestBase):
+    """The counts above the list — how big the problem behind the ten rows is.
+
+    The leaderboard shows ten rows because ten is what a person can act on. But
+    ten is also all they can see: a bank with forty always-wrong questions and
+    one with eleven look identical on it. The bands are what tells those apart,
+    so what they must never do is count a different population from the list
+    they head — a retired question, a question nobody has really sat, or one
+    whose answers a review has already settled.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='rateadmin', password='pass1234')
+
+    def bands(self):
+        from maths.question_difficulty import ranked_questions, wrong_rate_bands
+
+        return wrong_rate_bands(ranked_questions()[0])
+
+    def band(self, label):
+        for row in self.bands()['bands']:
+            if row['label'] == label:
+                return row['count']
+        raise AssertionError(f'no band labelled {label!r}')
+
+    def test_the_bands_count_past_the_ten_rows_on_show(self):
+        for index in range(12):
+            self.sit(self.question(text=f'Always wrong {index}'), wrong=6)
+
+        self.assertEqual(len(wrong_rate_rows()), 10)   # the list is still ten
+        self.assertEqual(self.band('Always wrong'), 12)
+        self.assertEqual(self.bands()['total'], 12)
+
+    def test_each_rate_lands_in_one_band_and_only_one(self):
+        self.sit(self.question(text='All six wrong'), wrong=6)          # 100%
+        self.sit(self.question(text='Five of six'), wrong=5, right=1)   # 83.3%
+        self.sit(self.question(text='Three of six'), wrong=3, right=3)  # 50%
+        self.sit(self.question(text='Two of six'), wrong=2, right=4)    # 33.3%
+        self.sit(self.question(text='One of eight'), wrong=1, right=7)  # 12.5%
+
+        self.assertEqual(self.band('Always wrong'), 1)
+        self.assertEqual(self.band('75–99% wrong'), 1)
+        self.assertEqual(self.band('50–74% wrong'), 1)
+        self.assertEqual(self.band('25–49% wrong'), 1)
+        self.assertEqual(self.band('Under 25% wrong'), 1)
+        self.assertEqual(self.bands()['total'], 5)
+
+    def test_a_retired_question_is_left_out_exactly_as_it_is_from_the_list(self):
+        self.sit(self.question(text='Still asked'), wrong=6)
+        self.sit(self.question(text='Retired', retired_at=timezone.now()),
+                 wrong=6)
+
+        self.assertEqual(self.band('Always wrong'), 1)
+        self.assertEqual(self.bands()['total'], 1)
+
+    def test_a_question_too_few_children_have_sat_is_not_counted(self):
+        self.sit(self.question(text='Four children only'), wrong=4)
+
+        self.assertEqual(self.bands()['total'], 0)
+
+    def test_a_reviewed_question_leaves_the_bands_with_the_list(self):
+        """The summary counts what the list ranks, whatever settles it.
+
+        A review settles the answers recorded before it, so a reviewed question
+        stops ranking. If it went on being counted here the summary would
+        report a problem the list below could never show.
+        """
+        question = self.question(text='Reviewed away')
+        self.sit(question, wrong=6)
+        self.assertEqual(self.bands()['total'], 1)
+
+        record_review(question, user=self.superuser,
+                      verdict=QuestionReview.VERDICT_CORRECT)
+
+        self.assertEqual(self.bands()['total'], 0)
+
+    def test_the_dashboard_shows_the_counts(self):
+        self.sit(self.question(text='On the dashboard'), wrong=6)
+
+        response = self.client.get(reverse('question_health_admin_dashboard'))
+
+        self.assertContains(response, 'wrong-rate-bands')
+        self.assertContains(response, 'Always wrong')
+        self.assertContains(response, 'questions ranked in all')
+
+
+class AnswersGivenTests(WrongRateTestBase):
+    """What the children actually wrote, next to what the question accepts.
+
+    The rate alone cannot separate a hard question from a question marking a
+    correct answer wrong, and reviewing ten 100%-wrong rows that each turn out
+    to be worded perfectly is exactly what that gap costs. The evidence that
+    separates them is the answers themselves: all seven children typing the
+    same thing is the key or the accepted format, not the children.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='rateadmin', password='pass1234')
+
+    def row_for(self, question):
+        for row in wrong_rate_rows():
+            if row['question'].id == question.id:
+                return row
+        raise AssertionError(f'Q{question.id} is not on the list')
+
+    def typed(self, question, student, text, *, correct=False, when=None):
+        row = StudentAnswer.objects.create(
+            student=student, question=question, text_answer=text,
+            is_correct=correct, attempt_id=uuid.uuid4())
+        if when is not None:
+            StudentAnswer.objects.filter(pk=row.pk).update(answered_at=when)
+        return row
+
+    def test_the_row_shows_what_they_typed_and_how_many_typed_it(self):
+        question = self.question(
+            text='How much flour was left in each packet?',
+            options=(('148 g', True),),
+            question_type=Question.SHORT_ANSWER)
+        for student in self.students[:6]:
+            self.typed(question, student, '148')
+
+        row = self.row_for(question)
+
+        self.assertEqual(row['given'], [{'text': '148', 'count': 6}])
+        # And what it would have accepted, which is the other half of the
+        # diagnosis: the question is right, the accepted format is not.
+        self.assertEqual(row['expected'], ['148 g'])
+
+    def test_answers_are_folded_by_case_and_spacing(self):
+        """Twelve children who agree must not read as twelve who disagree."""
+        question = self.question(text='Name the shape',
+                                 options=(('Hexagon', True),),
+                                 question_type=Question.SHORT_ANSWER)
+        for index, student in enumerate(self.students[:6]):
+            self.typed(question, student,
+                       ['hexagon', 'Hexagon', ' hexagon ', 'HEXAGON',
+                        'hexagon', 'hexagon'][index])
+
+        row = self.row_for(question)
+
+        self.assertEqual(row['given'], [{'text': 'hexagon', 'count': 6}])
+
+    def test_only_the_commonest_are_shown_and_the_rest_are_counted(self):
+        question = self.question(text='Six different guesses',
+                                 options=(('7', True),),
+                                 question_type=Question.SHORT_ANSWER)
+        for index, student in enumerate(self.students[:6]):
+            self.typed(question, student, str(index))
+
+        row = self.row_for(question)
+
+        self.assertEqual(len(row['given']), 3)          # GIVEN_TOP_N
+        self.assertEqual(row['given_others'], 3)        # said, not hidden
+
+    def test_the_option_a_multiple_choice_child_picked_is_shown(self):
+        question = self.question(
+            text='666 in expanded form',
+            options=(('600 + 60 + 6', False), ('6 + 6 + 6', True)))
+        picked = question.answers.get(answer_text='600 + 60 + 6')
+        self.sit(question, wrong=6, option=picked)
+
+        row = self.row_for(question)
+
+        self.assertEqual(row['given'], [{'text': '600 + 60 + 6', 'count': 6}])
+        self.assertEqual(row['expected'], ['6 + 6 + 6'])
+
+    def test_correct_answers_are_not_listed_among_the_wrong_ones(self):
+        question = self.question(text='Mixed results',
+                                 options=(('9', True),),
+                                 question_type=Question.SHORT_ANSWER)
+        for student in self.students[:5]:
+            self.typed(question, student, '8')
+        for student in self.students[5:8]:
+            self.typed(question, student, '9', correct=True)
+
+        row = self.row_for(question)
+
+        self.assertEqual(row['given'], [{'text': '8', 'count': 5}])
+
+    def test_answers_settled_by_a_review_are_not_used_to_explain_a_later_rate(self):
+        """The evidence must cover the same answers the percentage does.
+
+        A reviewed question counts only what has happened since. Explaining
+        that rate with answers from before the review would be the row citing
+        evidence its own number leaves out.
+        """
+        question = self.question(text='Reviewed, then answered again',
+                                 options=(('12', True),),
+                                 question_type=Question.SHORT_ANSWER)
+        old = timezone.now() - timedelta(days=3)
+        for student in self.students[:5]:
+            self.typed(question, student, 'before the review', when=old)
+        record_review(question, user=self.superuser,
+                      verdict=QuestionReview.VERDICT_CORRECT)
+        for student in self.students[5:11]:
+            self.typed(question, student, 'after the review')
+
+        row = self.row_for(question)
+
+        self.assertEqual(row['given'],
+                         [{'text': 'after the review', 'count': 6}])
+
+    def test_a_question_storing_no_accepted_answer_says_so(self):
+        question = self.question(text='No key at all', options=())
+        self.sit(question, wrong=6)
+
+        row = self.row_for(question)
+
+        self.assertEqual(row['expected'], [])
+
+    def test_the_dashboard_prints_the_evidence(self):
+        question = self.question(text='Shown with its answers',
+                                 options=(('148 g', True),),
+                                 question_type=Question.SHORT_ANSWER)
+        for student in self.students[:6]:
+            self.typed(question, student, '148')
+
+        response = self.client.get(reverse('question_health_admin_dashboard'))
+
+        self.assertContains(response, 'What they answered')
+        self.assertContains(response, 'What it accepts')
+        self.assertContains(response, '148 g')
