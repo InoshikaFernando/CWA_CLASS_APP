@@ -1,9 +1,21 @@
 CANVAS_CONFIG = {
     'latin':      {'line_height': 100, 'descender': 30, 'lines': 4},
-    'sinhala':    {'line_height': 130, 'descender': 0,  'lines': 3},
-    'tamil':      {'line_height': 120, 'descender': 0,  'lines': 3},
+    # Sinhala/Tamil 'descender' was 0, leaving only the generic 24px TOP_PAD
+    # as bottom margin below the baseline. Measured against every seeded
+    # letter_writing character with an unclipped render: Sinhala needs up to
+    # 31px below baseline (ඤ), Tamil up to 34px (ஆ) — both were being
+    # silently cut off at the canvas edge (server-side scoring template
+    # included, since render_glyph_mask() uses this same config), which is
+    # what a screenshotted loopy character sitting flush against the
+    # canvas's bottom edge with no room to spare turned out to be. +5px
+    # buffer over the measured max for font-rendering/hinting variance
+    # across environments.
+    'sinhala':    {'line_height': 130, 'descender': 36, 'lines': 3},
+    'tamil':      {'line_height': 120, 'descender': 39, 'lines': 3},
     'devanagari': {'line_height': 120, 'descender': 0,  'lines': 3},
     'arabic':     {'line_height': 110, 'descender': 25, 'lines': 3},
+    # cjk/kana/hangul measured at <=11px below baseline across every seeded
+    # character — comfortably inside the 24px TOP_PAD margin, no clipping.
     'cjk':        {'line_height': 130, 'descender': 0,  'lines': 2},
     'kana':       {'line_height': 130, 'descender': 0,  'lines': 2},
     'hangul':     {'line_height': 130, 'descender': 0,  'lines': 2},
