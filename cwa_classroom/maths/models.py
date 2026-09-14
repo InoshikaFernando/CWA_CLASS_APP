@@ -618,6 +618,7 @@ class Question(models.Model):
         # fill-in-the-blank sentence is folded by too, so a gap in a sentence is
         # graded exactly as forgivingly as a whole answer.
         from maths.algebra_grading import (
+            decimal_quantity_match,
             fold_answer as _fold,
             is_reordered_expression_correct,
             is_reordered_product_correct,
@@ -681,6 +682,14 @@ class Question(models.Model):
         # unfactorised expression all stay wrong, so no student is marked
         # correct for work they did not do.
         if any(is_reordered_product_correct(text_answer, c) for c in correct):
+            return True
+
+        # "$2.50" and "2.50" and "2.5" are one number spelled three ways, and a
+        # money key carries the "$" more often than not — so a child typing the
+        # right amount was marked wrong for the formatting. Units are still
+        # compared ("4 kg" is not "4 g"), and a fraction is still not a decimal,
+        # so "write 5/4 as a decimal" keeps demanding the conversion.
+        if any(decimal_quantity_match(text_answer, c) for c in correct):
             return True
 
         # "Work out the number pattern rule and complete the pattern: 30, ___,

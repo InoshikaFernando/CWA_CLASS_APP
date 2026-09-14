@@ -50,7 +50,7 @@ def classrooms_for_period(period_type, school=None, classroom=None,
 
 def students_for_period(period_type, school=None, classroom=None,
                         mode=None, reference=None, term=None,
-                        subscribed_only=False):
+                        subscribed_only=False, classrooms=None):
     """Who to generate for, and which classes each of their reports covers.
 
     Reports are opt-in: this walks the classes that resolved to *on* for this
@@ -69,6 +69,11 @@ def students_for_period(period_type, school=None, classroom=None,
     flags are OR-ed across those classes, because a parent who is opted in
     anywhere should not be silently dropped by a stricter sibling class.
 
+    *classrooms* lets a caller that has already resolved the enabled classes
+    pass them in rather than having them walked twice. ``run_period`` does,
+    because it needs the class list itself to work out which schools the run
+    covers for the whole-school outreach (CPP-422).
+
     *subscribed_only* narrows the plan to students whose own subscription is
     live (``billing.selectors``). It sits here rather than in the caller so the
     preview page and the send that follows it cannot disagree about who is in
@@ -78,10 +83,11 @@ def students_for_period(period_type, school=None, classroom=None,
     from classroom.models import ClassStudent
     from progress import report_settings
 
-    classrooms = classrooms_for_period(
-        period_type, school=school, classroom=classroom, mode=mode,
-        reference=reference, term=term,
-    )
+    if classrooms is None:
+        classrooms = classrooms_for_period(
+            period_type, school=school, classroom=classroom, mode=mode,
+            reference=reference, term=term,
+        )
     if not classrooms:
         return {}
 
@@ -140,6 +146,22 @@ def students_for_period(period_type, school=None, classroom=None,
     return plan
 
 
+class PartialWindowError(ValueError):
+    """Raised when a run is asked to store a report for a window still open.
+
+    A term report keys on ``(student, term, period_start)`` where
+    *period_start* is the term's start date, so a row written mid-term IS the
+    row the real end-of-term report needs: ``generate_report`` would find it
+    and return it untouched, and ``notify_report`` and
+    ``email_parents_term_report`` are both no-ops once stamped. The family
+    would never receive the end-of-term report at all.
+
+    Staff can review a running term as much as they like — the preview builds
+    the snapshot and discards it (CPP-425). What they cannot do is send one,
+    and this is the line that makes that structural rather than a habit.
+    """
+
+
 def generate_report(student, period_type, start, end, term=None, force=False,
                     cohort_cache=None, classroom_ids=None, school=None,
                     subject=None, content=None):
@@ -148,6 +170,9 @@ def generate_report(student, period_type, start, end, term=None, force=False,
     Returns ``(report, created)``. An existing report is left alone unless
     *force* is set, in which case only ``data`` is recomputed — the delivery
     timestamps stay put so a re-computation never re-notifies.
+
+    Raises :class:`PartialWindowError` for a term that has not ended. See that
+    class for why storing one would cost the family their real report.
 
     *cohort_cache* is passed straight through to the builder; ``run_period``
     supplies one for the whole run so a class's award figures are computed once
@@ -161,6 +186,20 @@ def generate_report(student, period_type, start, end, term=None, force=False,
     # Head of Institute is allowed to open it.
     if school is None:
         school = term.school if term is not None else student_school(student)
+
+    # Judged on the WINDOW, not on the wall clock: the command can legitimately
+    # be run with --date to regenerate a term that closed months ago, and a
+    # clock-based test would refuse the very reports it exists to produce. What
+    # makes a term report partial is that its window stops short of the term's
+    # end — which is exactly what a mid-term review does, and exactly what must
+    # never be stored.
+    if term is not None and term.end_date is not None and end < term.end_date:
+        raise PartialWindowError(
+            f'{term} runs to {term.end_date:%d %b %Y}, so a report covering '
+            f'only up to {end:%d %b %Y} cannot be stored — it would take the '
+            f'place of the real end-of-term report, which the family would '
+            f'then never receive. Review it from Preview Reports instead.'
+        )
 
     report = PeriodReport.objects.filter(
         student=student, period_type=period_type, period_start=start,
@@ -377,19 +416,35 @@ def run_period(period_type, start, end, term=None, *, force=False, dry_run=False
     happened rather than claiming success. ``classes`` being zero is the normal
     state for an install where nobody has configured anything yet, and is
     reported rather than passed over in silence.
+
+    A school that has switched ``whole_school`` on (CPP-422) additionally has
+    every one of its active students covered: those with nothing to show get a
+    note to their parents saying why, rather than the silence that used to be
+    indistinguishable from the school not bothering. See ``progress.outreach``.
     """
     if school is None and term is not None:
         school = term.school
 
+    # Resolved here rather than inside the plan so the outreach below knows
+    # which schools this run actually touched — a school with no enabled class
+    # is not sending tonight, and whole-school coverage widens a send that is
+    # happening rather than creating one that is not.
+    classrooms = classrooms_for_period(
+        period_type, school=school, classroom=classroom,
+        mode=mode, reference=reference, term=term,
+    )
     plan = students_for_period(
         period_type, school=school, classroom=classroom,
         mode=mode, reference=reference, term=term,
-        subscribed_only=subscribed_only,
+        subscribed_only=subscribed_only, classrooms=classrooms,
     )
 
     # One cohort cache for the whole run: classmates share a class, so without
     # it a class of 25 recomputes the same figures 25 times.
     cohort_cache = {}
+    # {school_id: {student_id}} for the students this run has something to say
+    # about — read by the whole-school outreach, which covers everyone else.
+    with_activity = {}
     covered_classes = set()
     for entry in plan.values():
         covered_classes.update(entry['classroom_ids'])
@@ -399,13 +454,29 @@ def run_period(period_type, start, end, term=None, *, force=False, dry_run=False
         'classes': len(covered_classes),
         'students': 0, 'generated': 0, 'refreshed': 0,
         'notified': 0, 'emailed': 0,
+        # Whole-school outreach. Zero on a school that has not switched it on,
+        # which is the default and is not an error.
+        'notices': 0, 'notices_emailed': 0, 'notices_recipients': 0,
+        'notices_undelivered': 0, 'notices_by_reason': {},
     }
 
     subjects = _subjects_by_id(plan)
 
+    # Which school each enabled class belongs to, for the dry-run branch below.
+    school_by_class = {room.id: room.school_id for room in classrooms}
+
     for student, entry in plan.items():
         counts['students'] += 1
         if dry_run:
+            # A dry run does not build report data, so it cannot know who was
+            # active. Treating every planned student as covered keeps the
+            # outreach figure a FLOOR rather than a wild over-count: the
+            # students it reports are the ones no enabled class holds at all,
+            # and the command says so in as many words.
+            for class_id in entry['classroom_ids']:
+                school_id = school_by_class.get(class_id)
+                if school_id:
+                    with_activity.setdefault(school_id, set()).add(student.id)
             continue
 
         # One report per subject. A student taking maths and coding gets a
@@ -421,6 +492,13 @@ def run_period(period_type, start, end, term=None, *, force=False, dry_run=False
             )
             counts['generated' if created else 'refreshed'] += 1
 
+            if report.has_activity:
+                # Who this run has something to say about. The outreach below
+                # writes to everyone else in the school, so this set is what
+                # keeps a family from getting a report AND a "nothing to show"
+                # note in the same evening.
+                with_activity.setdefault(report.school_id, set()).add(student.id)
+
             if not notify:
                 continue
 
@@ -434,4 +512,57 @@ def run_period(period_type, start, end, term=None, *, force=False, dry_run=False
             if period_type == TERM and delivery['email_parents_at_term']:
                 counts['emailed'] += email_parents_term_report(report)
 
+    _run_outreach(
+        counts, classrooms, period_type, start, end,
+        with_activity=with_activity, classroom=classroom,
+        subscribed_only=subscribed_only, notify=notify, dry_run=dry_run,
+    )
     return counts
+
+
+def _run_outreach(counts, classrooms, period_type, start, end, *, with_activity,
+                  classroom, subscribed_only, notify, dry_run):
+    """Cover the rest of the school, for the schools that asked for it (CPP-422).
+
+    Mutates *counts* in place, the way the rest of ``run_period`` accumulates.
+
+    Skipped outright for two scopes, because in both the operator has already
+    said who they mean and widening it would send to people they excluded on
+    the screen in front of them:
+
+    * a single-class run — "this class" is not "every student in the school";
+    * a ``subscribed_only`` run — its whole purpose is to leave the
+      unsubscribed out, and they are most of this cohort.
+    """
+    from progress import outreach, report_settings
+
+    if classroom is not None or subscribed_only:
+        return
+
+    schools = {}
+    for room in classrooms:
+        if room.school_id and room.school_id not in schools:
+            schools[room.school_id] = room.school
+
+    for school_id, school_obj in sorted(schools.items()):
+        flags = report_settings.outreach(school_obj)
+        if not flags['whole_school']:
+            continue
+        result = outreach.run_notices(
+            school_obj, period_type, start, end,
+            students_with_activity=with_activity.get(school_id, set()),
+            period_label=counts['period'],
+            # --no-notify silences the whole run, this included: it exists so a
+            # school can generate and read the numbers before a family sees
+            # anything, and a note is something a family sees.
+            email=flags['email_parents_no_data'] and notify,
+            dry_run=dry_run,
+        )
+        counts['notices'] += result['cohort']
+        counts['notices_emailed'] += result['emailed']
+        counts['notices_recipients'] += result['recipients']
+        counts['notices_undelivered'] += result['undelivered']
+        for reason, number in result['by_reason'].items():
+            counts['notices_by_reason'][reason] = (
+                counts['notices_by_reason'].get(reason, 0) + number
+            )

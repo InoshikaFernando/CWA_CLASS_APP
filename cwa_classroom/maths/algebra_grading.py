@@ -416,7 +416,9 @@ def match_value(user_answer: str, stored_answer: str, answer_format: str = "text
         return True
     if is_reordered_expression_correct(user_answer, stored_answer):
         return True
-    return is_reordered_product_correct(user_answer, stored_answer)
+    if is_reordered_product_correct(user_answer, stored_answer):
+        return True
+    return decimal_quantity_match(user_answer, stored_answer)
 
 
 # Separators a student (or a teacher) may use between the option labels of a
@@ -795,6 +797,88 @@ def _product_factors(text: str) -> Optional[Tuple[int, List[Polynomial]]]:
         except (MathAnswerError, ZeroDivisionError, ValueError):
             return None
     return sign, factors
+
+
+# ---------------------------------------------------------------------------
+# Same-number-different-formatting fallback for plain-text answers
+# ---------------------------------------------------------------------------
+# A typed answer is compared as a STRING on the text path, so a stored "$2.50"
+# marked a child typing "2.50" wrong, and a stored "2.50" marked "2.5" wrong.
+# Both are the same number; neither is a different answer. Money keys carry the
+# "$" more often than not, which is what makes this bite.
+#
+# maths.answer_values already knows how to read "what number is this answer
+# text?" — including the currency symbol and a trailing unit — but only the
+# audit tooling ever used it. The grader compared strings. Same shape as the
+# dash bug in CPP-407: the helper that could see the equality existed, and the
+# thing doing the marking did not call it.
+#
+# Units are compared, not discarded: "4 kg" and "4 g" share a number and are
+# NOT the same mass (quantities_match). A blank unit stays compatible with a
+# stated one, so "5" still answers a question whose key is "5 cm" and the unit
+# is implied by the question.
+
+
+_DECIMAL_PLACES_RE = re.compile(r"\d*\.(\d+)")
+
+
+def _decimal_places(text: str) -> int:
+    """How many digits the answer is written to after the point."""
+    match = _DECIMAL_PLACES_RE.search(text or "")
+    return len(match.group(1)) if match else 0
+
+
+def decimal_quantity_match(user_answer: str, stored_answer: str) -> bool:
+    """Same quantity, written with different *formatting*.
+
+    Forgives the currency symbol, digit grouping and trailing zeros the student
+    ADDS — none of which is a different answer.
+
+    Two guards keep this from forgiving the thing being taught:
+
+    * **A fraction is not a decimal.** Any "/" on either side backs out.
+      "Write 5/4 as a decimal" is a real question in the bank and there the
+      FORM is the answer; accepting the other spelling would mark a student
+      correct for doing none of the conversion. (``algebra`` format still
+      equates them, which is right there — such a question is about the value
+      alone.)
+
+    * **The key's precision is a floor.** A student may write MORE decimal
+      places than the key, never fewer. "Ten cents is $0.10 and one dollar is
+      $1.00" teaches two-place money form, so "1" must stay wrong for "1.00" —
+      the trailing zeros are the point. But "2.50" typed against a key of "2.5"
+      violates nothing the key asked for.
+
+    Units are compared too, via ``quantities_match``: "4 kg" and "4 g" share a
+    number and are not the same mass.
+
+    >>> decimal_quantity_match("2.50", "2.5")      # more places than the key
+    True
+    >>> decimal_quantity_match("2.5", "2.50")      # fewer — the key wanted two
+    False
+    >>> decimal_quantity_match("1.25", "$1.25")
+    True
+    >>> decimal_quantity_match("1.25", "5/4")      # conversion, not formatting
+    False
+    >>> decimal_quantity_match("4 g", "4 kg")      # same number, not same mass
+    False
+    >>> decimal_quantity_match("-5", "5")
+    False
+    """
+    if not user_answer or not stored_answer:
+        return False
+    if "/" in user_answer or "/" in stored_answer:
+        return False
+    if _decimal_places(user_answer) < _decimal_places(stored_answer):
+        return False
+    # Imported here rather than at module scope: answer_values imports
+    # fold_dashes back out of this module, so a top-level import would be a
+    # cycle.
+    from maths.answer_values import parse_answer_quantity, quantities_match
+    return quantities_match(
+        parse_answer_quantity(user_answer),
+        parse_answer_quantity(stored_answer),
+    )
 
 
 def is_reordered_product_correct(user_answer: str, correct_answer: str) -> bool:

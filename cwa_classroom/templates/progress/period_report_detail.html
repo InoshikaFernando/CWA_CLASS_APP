@@ -18,10 +18,23 @@
         Preview — this report has not been generated or sent
       </p>
       <p class="text-xs text-amber-700 mt-1">
-        Exactly what {{ student.first_name|default:"this student" }} and their
-        parents would see. Nothing is saved by opening this page; use
-        <span class="font-semibold">Generate and send</span> on the preview list
-        when you are ready.
+        {% if report.is_partial %}
+          {% comment %}
+            A mid-term review. The numbers are real but the term is not over,
+            and the label alone ("to date") is easy to read past on a page that
+            otherwise looks exactly like a finished report.
+          {% endcomment %}
+          {{ report.period_end|date:"d M Y" }} is <span class="font-semibold">today</span>,
+          not the end of the term — these are
+          {{ student.first_name|default:"this student" }}'s figures so far, not
+          their result. The end-of-term report is generated once the term
+          closes; it cannot be sent before then.
+        {% else %}
+          Exactly what {{ student.first_name|default:"this student" }} and their
+          parents would see. Nothing is saved by opening this page; use
+          <span class="font-semibold">Generate and send</span> on the preview list
+          when you are ready.
+        {% endif %}
       </p>
     </div>
   {% endif %}

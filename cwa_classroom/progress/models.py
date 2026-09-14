@@ -171,6 +171,18 @@ class PeriodReport(models.Model):
         return self.data.get('basic_facts') or {}
 
     @property
+    def is_partial(self):
+        """True for a report built over a window that had not closed yet.
+
+        Only ever true of an *unsaved* preview of a term still running
+        (CPP-425): the generator refuses to write one, because a term report
+        keys on the term's start date and a stored mid-term row would be the
+        row the real end-of-term report needs. Reports written before the key
+        existed are not partial, which is what the missing-key default says.
+        """
+        return bool((self.data.get('period') or {}).get('partial'))
+
+    @property
     def has_activity(self):
         """True when the student actually did something in the window.
 
@@ -229,6 +241,27 @@ class ProgressReportSetting(models.Model):
     notify_student = models.BooleanField(null=True, blank=True)
     notify_parents = models.BooleanField(null=True, blank=True)
     email_parents_at_term = models.BooleanField(null=True, blank=True)
+
+    # Who the run COVERS, as opposed to who hears about it (CPP-422). These
+    # two are read from the school row only: "every student in the school" is
+    # not a question a single class can answer differently, and the students
+    # they reach are precisely the ones no class row exists for.
+    whole_school = models.BooleanField(
+        null=True, blank=True,
+        help_text=(
+            'Cover every active student in the school, not only those in a '
+            'class with the report switched on, and not only subscribed ones. '
+            'School-level setting. Null = inherit; an unset chain is off.'
+        ),
+    )
+    email_parents_no_data = models.BooleanField(
+        null=True, blank=True,
+        help_text=(
+            'Email the parents when there is nothing to show, saying why — no '
+            'active subscription, or no work done this period. Defaults on '
+            'once whole_school is on. School-level setting.'
+        ),
+    )
 
     # Manual or automatic. NULL = inherit; an unset chain resolves to MANUAL,
     # because a schedule that starts sending on its own is not something a
@@ -307,6 +340,10 @@ class ProgressReportSetting(models.Model):
     # The period flags themselves have no such default: off is off.
     PERIOD_FIELDS = ('weekly', 'monthly', 'term')
     DELIVERY_FIELDS = ('notify_student', 'notify_parents', 'email_parents_at_term')
+    # Scope, not delivery: DELIVERY_FIELDS is OR-ed across a student's classes
+    # in the generator, and these two are not per-class facts. Kept in their
+    # own tuple so that loop cannot pick them up by accident.
+    OUTREACH_FIELDS = ('whole_school', 'email_parents_no_data')
     SCHEDULE_FIELDS = ('send_weekly_on', 'send_monthly_on', 'send_term_after_days')
     CONTENT_FIELDS = (
         'include_homework', 'include_quizzes', 'include_times_tables',
@@ -341,6 +378,14 @@ class ProgressReportSetting(models.Model):
         'notify_student': True,
         'notify_parents': True,
         'email_parents_at_term': True,
+    }
+    # Whole-school coverage is off until asked for — switching it on starts
+    # writing to families who are in no reporting class at all. Once it IS on,
+    # the email defaults on with it: covering a student and then saying nothing
+    # to their parents is the silence this setting exists to end.
+    OUTREACH_DEFAULTS = {
+        'whole_school': False,
+        'email_parents_no_data': True,
     }
 
     class Meta:
@@ -380,3 +425,60 @@ class ProgressReportSetting(models.Model):
         if self.department_id:
             return 'Department'
         return 'School'
+
+
+class PeriodReportNotice(models.Model):
+    """One "nothing to show" note to a student's parents, for one period (CPP-422).
+
+    Whole-school sending covers students a :class:`PeriodReport` cannot be
+    written for — a child in no reporting class has no subject for a report to
+    be *about*, and ``subject=NULL`` already means "legacy row" there. So the
+    note is tracked here instead, and this row is nothing but the delivery
+    stamp: it is what makes the daily cron idempotent, exactly as
+    ``PeriodReport.parent_emailed_at`` is for a real report.
+
+    Keyed on ``(student, period_type, period_start)`` and deliberately NOT on
+    subject: a child taking maths and coding has one absence, not two, and
+    their parents must not receive the same sentence twice in one evening.
+    """
+
+    REASON_NO_SUBSCRIPTION = 'no_subscription'
+    REASON_NO_ACTIVITY = 'no_activity'
+    REASON_CHOICES = [
+        (REASON_NO_SUBSCRIPTION, 'No active subscription'),
+        (REASON_NO_ACTIVITY, 'Subscribed, but nothing done this period'),
+    ]
+
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='period_report_notices',
+    )
+    school = models.ForeignKey(
+        'classroom.School', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='period_report_notices',
+    )
+    period_type = models.CharField(
+        max_length=10, choices=PeriodReport.PERIOD_CHOICES, db_index=True,
+    )
+    period_start = models.DateField()
+    period_end = models.DateField()
+    reason = models.CharField(max_length=20, choices=REASON_CHOICES)
+    # How many parent addresses the note actually reached. Zero is a real and
+    # reportable outcome — a family with no email on file — and is recorded
+    # rather than retried, so the run does not mail the same nobody nightly.
+    recipients = models.PositiveSmallIntegerField(default=0)
+    emailed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-period_start', 'period_type']
+        unique_together = ('student', 'period_type', 'period_start')
+        indexes = [
+            models.Index(fields=['school', 'period_type', '-period_start']),
+        ]
+
+    def __str__(self):
+        return (
+            f'{self.student.username} — {self.get_period_type_display()} '
+            f'{self.period_start} ({self.reason})'
+        )

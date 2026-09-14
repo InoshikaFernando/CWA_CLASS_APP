@@ -46,15 +46,24 @@ def previous_month(reference):
     return month_window(first_of_this - timedelta(days=1))
 
 
-def label_for(period_type, start, end, term=None):
-    """Reader-facing label for a window, e.g. "Week of 17 Aug 2026"."""
+def label_for(period_type, start, end, term=None, partial=False):
+    """Reader-facing label for a window, e.g. "Week of 17 Aug 2026".
+
+    *partial* marks a window that has not closed yet — a term still running,
+    reported as far as today (CPP-425). It is said in the label rather than
+    only in the page around it, because the label travels: it is stored in the
+    snapshot, printed on the PDF and used as the email subject, and a partial
+    term that reads exactly like a finished one is how a half-term average gets
+    quoted back to a parent as the final word.
+    """
     if period_type == WEEKLY:
         return f'Week of {start:%d %b %Y}'
     if period_type == MONTHLY:
         return f'{start:%B %Y}'
     if term is not None:
         year = f' {term.academic_year.year}' if term.academic_year_id else ''
-        return f'{term.name}{year}'
+        suffix = ' (to date)' if partial else ''
+        return f'{term.name}{year}{suffix}'
     return f'{start:%d %b %Y} – {end:%d %b %Y}'
 
 
@@ -173,6 +182,64 @@ def most_recent_ended_terms(reference):
     return picked
 
 
+def reviewable_terms(school, reference):
+    """Every term of *school* that has begun, most recent first.
+
+    What staff may *look at*, which is a wider set than what the generator
+    sends: CPP-388 only ever resolved "the term that just finished", so a
+    school in the middle of its first term had nothing to open at all, and a
+    teacher mid-term could not see how a class was tracking.
+
+    A term that has not started yet is left out — there is nothing in it.
+    """
+    from classroom.models import Term
+
+    if school is None:
+        return []
+    return list(
+        Term.objects
+        .filter(school=school, start_date__lte=reference)
+        .select_related('school', 'academic_year')
+        .order_by('-start_date', '-end_date')
+    )
+
+
+def term_in_progress(term, reference):
+    """Whether *term* is still running on *reference*."""
+    if term is None:
+        return False
+    return term.start_date <= reference <= term.end_date
+
+
+def term_window(term, reference):
+    """``(start, end, partial)`` for one term, as at *reference*.
+
+    A finished term reports its own dates. A term still running reports from
+    its start to **today**, not to its end date: a window that runs into the
+    future would divide this term's work by a term's worth of homework and
+    report every child as behind.
+    """
+    if term is None:
+        return None, None, False
+    if term_in_progress(term, reference):
+        return term.start_date, reference, True
+    return term.start_date, term.end_date, False
+
+
+def default_term(terms, reference):
+    """Which term the preview opens on, given :func:`reviewable_terms`.
+
+    The term that has just finished, because that is the one a school is about
+    to send and the one this page has always shown. Only when there is no
+    finished term does it fall back to the one running — that school used to
+    get a dead end reading "no term has ended yet", which is true and useless.
+    """
+    ended = [term for term in terms if term.end_date < reference]
+    if ended:
+        return ended[0]
+    return terms[0] if terms else None
+
+
 def is_valid_period(period_type):
     return period_type in (WEEKLY, MONTHLY, TERM)
 
@@ -189,5 +256,6 @@ __all__ = [
     'week_window', 'month_window', 'previous_week', 'previous_month',
     'label_for', 'student_school', 'terms_recently_ended', 'due_periods',
     'window_for', 'most_recent_ended_terms', 'is_valid_period', 'today',
+    'reviewable_terms', 'term_in_progress', 'term_window', 'default_term',
     'MODE_MANUAL', 'MODE_AUTO',
 ]
