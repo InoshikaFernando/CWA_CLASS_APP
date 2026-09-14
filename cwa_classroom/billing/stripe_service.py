@@ -337,9 +337,15 @@ def create_student_checkout_session(user, package, request, stripe_coupon_id=Non
         customer=customer_id,
         mode='subscription',
         line_items=[{'price': package.stripe_price_id, 'quantity': 1}],
+        # The session id rides back on the redirect so the success page can
+        # finish the job itself when the webhook is late or lost. Without it
+        # that page had nothing to look up and could only set
+        # ``profile_completed``, so a dropped webhook left a student who had
+        # genuinely paid with no subscription — and, for a student coming off
+        # the free promotion, still on Student Basic.
         success_url=request.build_absolute_uri(
             reverse('complete_profile_payment_success')
-        ),
+        ) + '?session_id={CHECKOUT_SESSION_ID}',
         cancel_url=request.build_absolute_uri(
             reverse('complete_profile')
         ),

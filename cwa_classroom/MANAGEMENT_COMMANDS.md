@@ -105,6 +105,50 @@ python manage.py student_modules --grant ai_grading --user ada   # sell it back
 python manage.py student_modules --revoke basic --user ada
 ```
 
+### `free_trial_code`
+Mint the code that gives a cohort a fixed, free, card-free run of the app — the
+MHM promotion. Sets the three fields that have to agree and each fail quietly on
+their own: 100% off (so Stripe is never reached and no card is asked for),
+`grant_days` (so the access actually ends), and `grants_student_basic` (so the
+AI-graded questions are left out). When the window closes the student is walled
+and asked to subscribe; paying revokes Student Basic and hands them the
+AI-graded questions automatically.
+
+Re-running updates the code in place. It cannot add the Student Basic tier to a
+code students already hold — that would change what those students get the next
+time their subscription is activated — and says so rather than doing it.
+```bash
+python manage.py free_trial_code --code MHM2WEEKS --dry-run
+python manage.py free_trial_code --code MHM2WEEKS --max-uses 200
+python manage.py free_trial_code --code MHM-TERM4 --days 21 --expires 2026-12-19
+python manage.py free_trial_code --code MHM2WEEKS --deactivate  # stop new sign-ups
+```
+
+### `notify_payment_required`
+Email families who are not paying, with the discount code and a link to start.
+Two audiences, because the lists are not the same people:
+
+- `--audience regated` (default) — students the re-gating pass put back behind
+  the payment wall who have logged in before. Run after
+  `reset_imported_student_gating`.
+- `--audience unsubscribed` — everybody with no live subscription of their own,
+  **including students who never subscribed at all**. A student coming off a
+  free promotion is invisible to `regated` (their profile is complete and they
+  have logged in), so this is the audience a promotion goes to.
+
+`--include-parents` adds each student's linked parent or guardian — the student
+has the account, the parent has the card. Anyone already emailed is skipped so
+a re-run never double-sends; `--resend` overrides that. Always `--dry-run`
+first: it prints the exact recipient list and sends nothing.
+```bash
+python manage.py notify_payment_required --school 4 \
+    --audience unsubscribed --include-parents --dry-run
+python manage.py notify_payment_required --school 4 \
+    --audience unsubscribed --include-parents \
+    --discount-code MHM2WEEKS --discount-percent 100 \
+    --link-url https://www.wizardslearninghub.co.nz/accounts/complete-profile/
+```
+
 ### `promo_code_doctor`
 Report whether each Student (Promo) code has actually taken effect for anybody.
 Read-only — it writes nothing, so it is safe against production. Separates a

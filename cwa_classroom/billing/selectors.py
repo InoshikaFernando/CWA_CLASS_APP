@@ -31,6 +31,27 @@ def filter_subscribed(queryset, path='subscription'):
     return queryset.filter(**{f'{path}__status__in': SUBSCRIBED_STATUSES})
 
 
+def filter_unsubscribed(queryset, path='subscription'):
+    """Narrow *queryset* to rows whose related subscription is NOT live.
+
+    The complement of :func:`filter_subscribed`, stated against the same list of
+    statuses so the two cannot drift into overlapping or leaving a gap.
+
+    **Includes rows with no subscription at all**, which is the whole point and
+    is not what the obvious spelling does. ``filter_subscribed`` joins, so a
+    student with no subscription row simply is not in it; the mirror image of
+    that — ``filter(status__in=<everything else>)`` — would ALSO join and would
+    quietly reach only students who subscribed once and lapsed. For a promotion
+    aimed at people who have never paid, that is precisely the wrong half, and
+    the query returns rows either way so nothing looks wrong.
+
+    ``exclude`` does the right thing here because Django compiles it to a NOT
+    IN subquery rather than a join, so a student with no subscription is not
+    excluded by it. That behaviour is pinned by a test rather than trusted.
+    """
+    return queryset.exclude(**{f'{path}__status__in': SUBSCRIBED_STATUSES})
+
+
 def is_subscribed(user):
     """Whether one user's own subscription is live, by the rule above.
 

@@ -410,6 +410,7 @@ def send_payment_required_notification(
     currency_symbol='$',
     reset_url='',
     support_email='',
+    login_url='',
 ):
     """
     Notify a re-gated school student's guardian that they must add payment
@@ -431,6 +432,12 @@ def send_payment_required_notification(
         ``monthly_price`` and ``discount_percent`` if not supplied.
     reset_url, support_email :
         Optional links shown in the email.
+    login_url :
+        Where the button goes. Defaults to the site login, which is right for
+        a student who already has an account and only needs to come back and
+        pay. A campaign that wants them to land somewhere else — a redemption
+        page, a plan comparison — passes it here rather than asking families
+        to find that page from the login screen.
     """
     if not user.email:
         logger.warning(
@@ -456,6 +463,10 @@ def send_payment_required_notification(
         'reset_url': reset_url,
         'support_email': support_email,
     })
+    # Only override when one was given: an empty string here would blank the
+    # button's href and the email would look fine while going nowhere.
+    if login_url:
+        ctx['login_url'] = login_url
 
     school_label = resolved_school.name if resolved_school else 'Wizards Learning Hub'
     subject = f'Action needed — activate your {school_label} subscription to keep access'
