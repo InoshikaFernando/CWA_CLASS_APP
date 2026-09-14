@@ -1274,7 +1274,7 @@ def _due_count_for(classroom, due):
 
 def build_report_data(student, period_type, start, end, term=None,
                       cohort_cache=None, classroom_ids=None, subject=None,
-                      content=None):
+                      content=None, partial=False):
     """The whole snapshot for one student and one closed window.
 
     Returns a plain dict — this is exactly what gets stored in
@@ -1286,6 +1286,12 @@ def build_report_data(student, period_type, start, end, term=None,
     on. A student in two classes where only one reports gets a report about
     that one — which is what makes "only configured classes get it" true of the
     contents, not just of the trigger.
+
+    *partial* marks a window that has not closed — a term still running, built
+    for staff to review mid-term (CPP-425). It changes no figure: the window
+    passed in already stops at today. It is recorded in the snapshot, and said
+    in the label, so that a reader of the page or the PDF cannot mistake a
+    half-term picture for the final one.
     """
     # The classes decide which subjects this report is about, so they are
     # resolved before anything is queried rather than only for the awards.
@@ -1377,9 +1383,12 @@ def build_report_data(student, period_type, start, end, term=None,
     snapshot = {
         'period': {
             'type': period_type,
-            'label': label_for(period_type, start, end, term),
+            'label': label_for(period_type, start, end, term, partial=partial),
             'start': start.isoformat(),
             'end': end.isoformat(),
+            # Absent on every report written before CPP-425, which is correct:
+            # nothing partial was ever generated, so a missing key is False.
+            'partial': partial,
         },
         # Which classes this report actually covers. Recorded so a reader
         # asking "why is my other class missing?" can be answered from the

@@ -290,7 +290,27 @@ A run on any other day is a legitimate no-op and says so. Installed by
 10 6 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_generate_progress_reports.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/progress_reports.log 2>&1
 ```
 
-See [`docs/specs/CPP-388_period_progress_reports.md`](docs/specs/CPP-388_period_progress_reports.md).
+**Whole-school coverage (CPP-422).** A school can switch *Cover every student in
+the school* on under *Report Automation*. The run then reaches every active
+student of that school — including those in no reporting class and those with no
+subscription — and the ones with nothing to show get one short email to their
+parents saying why: no active subscription (with the sign-in link and the
+school's discount code, when it has a valid one) or no work done in the period.
+Off until switched on. One note per student per period, stamped in
+`PeriodReportNotice`, so re-running the command re-mails nobody. The command
+prints the cohort, the reason breakdown and any note that reached nobody:
+
+```
+weekly: Week of 07 Sep 2026 — Generated 12 report(s) for 12 student(s) across 3 class(es); ...
+  whole school: 8 student(s) with nothing to show (5 no subscription, 3 no activity); 8 note(s) sent to 11 parent address(es)
+```
+
+`--dry-run` never builds report data, so it cannot know who was active; its
+whole-school figure is reported as a floor ("at least N …"), not a total.
+`--no-notify` silences the notes along with everything else.
+
+See [`docs/specs/CPP-388_period_progress_reports.md`](docs/specs/CPP-388_period_progress_reports.md)
+and [`docs/SPEC_REPORT_AUTOMATION_WHOLE_SCHOOL.md`](docs/SPEC_REPORT_AUTOMATION_WHOLE_SCHOOL.md).
 
 ---
 

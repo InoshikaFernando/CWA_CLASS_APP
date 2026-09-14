@@ -19,6 +19,8 @@ from progress.periods import MONTHLY, WEEKLY
 PERIOD_FIELDS = ProgressReportSetting.PERIOD_FIELDS
 DELIVERY_FIELDS = ProgressReportSetting.DELIVERY_FIELDS
 DELIVERY_DEFAULTS = ProgressReportSetting.DELIVERY_DEFAULTS
+OUTREACH_FIELDS = ProgressReportSetting.OUTREACH_FIELDS
+OUTREACH_DEFAULTS = ProgressReportSetting.OUTREACH_DEFAULTS
 SCHEDULE_FIELDS = ProgressReportSetting.SCHEDULE_FIELDS
 CONTENT_FIELDS = ProgressReportSetting.CONTENT_FIELDS
 CONTENT_DEFAULTS = ProgressReportSetting.CONTENT_DEFAULTS
@@ -248,6 +250,45 @@ def enabled_classrooms(period_type, school=None, mode=None, reference=None,
                 continue
         picked.append(classroom)
     return picked
+
+
+def outreach(school):
+    """Whole-school coverage settings for *school* (CPP-422).
+
+    Read from the **school row only**, unlike everything else in this module.
+    The cascade exists to let a department or a class answer a question
+    differently, and "does the run cover every student in the school?" is not
+    a question a class can answer at all — the students it decides about are
+    precisely the ones with no class row to read.
+
+    Returns ``{'whole_school': bool, 'email_parents_no_data': bool}``. Both are
+    off when the school is unknown, and ``email_parents_no_data`` is forced off
+    while ``whole_school`` is off, so a stale tick on a school that later turns
+    coverage back off cannot mail anybody in the meantime.
+    """
+    values = dict(OUTREACH_DEFAULTS)
+    if school is None:
+        return {field: False for field in OUTREACH_FIELDS}
+
+    row = ProgressReportSetting.objects.filter(
+        school=school, department__isnull=True, classroom__isnull=True,
+    ).first()
+    if row is not None:
+        for field in OUTREACH_FIELDS:
+            value = getattr(row, field)
+            if value is not None:
+                values[field] = value
+
+    if not values['whole_school']:
+        # Coverage is what creates the audience; the email flag is meaningless
+        # without it and must never read as on while nobody is covered.
+        return {field: False for field in OUTREACH_FIELDS}
+    return values
+
+
+def covers_whole_school(school):
+    """Whether *school* has asked for every student to be covered."""
+    return outreach(school)['whole_school']
 
 
 def set_for(scope_obj, scope_kind, school, values, user=None):

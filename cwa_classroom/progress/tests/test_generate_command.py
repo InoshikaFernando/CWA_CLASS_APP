@@ -429,3 +429,81 @@ class OptInTests(TestCase):
         self.assertEqual(
             report.data['scope']['classrooms'], [self.classroom.name],
         )
+
+
+class WholeSchoolCommandTests(GenerateBase):
+    """What the nightly tick SAYS about the families with nothing (CPP-422).
+
+    Silence is the failure mode this feature exists to end, so the command has
+    to report the cohort rather than succeed quietly — a run that wrote to
+    forty families and a run that wrote to nobody must not print the same line.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from progress.tests.factories import join_school
+
+        join_school(cls.school, cls.student)
+        cls.classless = make_user('gen_classless', first_name='Eve')
+        join_school(cls.school, cls.classless)
+        link_parent(
+            make_user('gen_classless_parent', 'parent'), cls.classless, cls.school,
+        )
+
+    def cover(self, **flags):
+        values = {
+            'kind': 'school', 'weekly': True, 'monthly': True, 'term': True,
+            'mode': 'auto', 'whole_school': True,
+        }
+        values.update(flags)
+        enable_reports(self.school, **values)
+
+    def test_nothing_is_said_when_coverage_is_off(self):
+        self.with_activity()
+
+        output = run('--date', MONDAY_AFTER.isoformat())
+
+        self.assertNotIn('whole school', output)
+
+    def test_the_cohort_is_reported_by_reason(self):
+        self.with_activity()
+        self.cover()
+
+        output = run('--date', MONDAY_AFTER.isoformat())
+
+        self.assertIn('whole school: 1 student(s) with nothing to show', output)
+        self.assertIn('1 no subscription', output)
+        self.assertIn('1 note(s) sent to 1 parent address(es)', output)
+
+    def test_a_note_that_reached_nobody_is_named(self):
+        from classroom.models import ParentStudent
+
+        self.with_activity()
+        ParentStudent.objects.filter(student=self.classless).update(is_active=False)
+        self.cover()
+
+        output = run('--date', MONDAY_AFTER.isoformat())
+
+        self.assertIn('1 reached nobody', output)
+
+    def test_a_dry_run_says_its_figure_is_a_floor(self):
+        self.with_activity()
+        self.cover()
+
+        output = run('--date', MONDAY_AFTER.isoformat(), '--dry-run')
+
+        self.assertIn('at least 1 student(s)', output)
+        self.assertIn('this or higher', output)
+
+    def test_a_rerun_says_the_cohort_but_mails_nobody(self):
+        self.with_activity()
+        self.cover()
+        run('--date', MONDAY_AFTER.isoformat())
+        mail.outbox = []
+
+        output = run('--date', MONDAY_AFTER.isoformat())
+
+        self.assertIn('whole school: 1 student(s)', output)
+        self.assertIn('0 note(s) sent', output)
+        self.assertEqual(mail.outbox, [])
